@@ -114,16 +114,28 @@ def _draw_mini_chart(r: SignalResult):
                 mode="lines", name=label, line=dict(color=color, width=1.5),
             ))
 
-    # Trade plan levels
-    fig.add_hline(y=r.entry, line_dash="dash", line_color="#3498db",
-                  annotation_text=f"Entry ${r.entry:,.2f}")
-    fig.add_hline(y=r.stop, line_dash="dash", line_color="#e74c3c",
-                  annotation_text=f"Stop ${r.stop:,.2f}")
-    fig.add_hline(y=r.target_1, line_dash="dash", line_color="#2ecc71",
-                  annotation_text=f"Target ${r.target_1:,.2f}")
+    # Trade plan levels — bold labels with colored badges
+    fig.add_hline(y=r.entry, line_dash="dash", line_color="#3498db", line_width=2,
+                  annotation_text=f"  ENTRY ${r.entry:,.2f}  ",
+                  annotation_font=dict(size=12, color="white", family="Arial Black"),
+                  annotation_bgcolor="#3498db", annotation_borderpad=3,
+                  annotation_position="top left")
+    fig.add_hline(y=r.stop, line_dash="dash", line_color="#e74c3c", line_width=2,
+                  annotation_text=f"  STOP ${r.stop:,.2f}  ",
+                  annotation_font=dict(size=12, color="white", family="Arial Black"),
+                  annotation_bgcolor="#e74c3c", annotation_borderpad=3,
+                  annotation_position="bottom left")
+    fig.add_hline(y=r.target_1, line_dash="dash", line_color="#2ecc71", line_width=2,
+                  annotation_text=f"  TARGET ${r.target_1:,.2f}  ",
+                  annotation_font=dict(size=12, color="white", family="Arial Black"),
+                  annotation_bgcolor="#2ecc71", annotation_borderpad=3,
+                  annotation_position="top left")
     # Support level
-    fig.add_hline(y=r.nearest_support, line_dash="dot", line_color="#f39c12",
-                  annotation_text=f"Support ${r.nearest_support:,.2f}")
+    fig.add_hline(y=r.nearest_support, line_dash="dot", line_color="#f39c12", line_width=1,
+                  annotation_text=f"  SUPPORT ${r.nearest_support:,.2f}  ",
+                  annotation_font=dict(size=11, color="white"),
+                  annotation_bgcolor="#f39c12", annotation_borderpad=3,
+                  annotation_position="bottom left")
 
     fig.update_layout(
         height=350, xaxis_rangeslider_visible=False,

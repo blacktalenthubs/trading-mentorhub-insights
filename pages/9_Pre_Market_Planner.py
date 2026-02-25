@@ -254,15 +254,27 @@ if not ma50.empty:
         line=dict(color="#9b59b6", width=1.5),
     ))
 
-# Key levels as horizontal lines
-fig.add_hline(y=levels["entry_long"], line_dash="dash", line_color="#3498db",
-              annotation_text=f"Entry ${levels['entry_long']:,.2f}")
-fig.add_hline(y=levels["stop_long"], line_dash="dash", line_color="#e74c3c",
-              annotation_text=f"Stop ${levels['stop_long']:,.2f}")
-fig.add_hline(y=levels["target_1"], line_dash="dash", line_color="#2ecc71",
-              annotation_text=f"T1 ${levels['target_1']:,.2f}")
-fig.add_hline(y=levels["target_2"], line_dash="dot", line_color="#27ae60",
-              annotation_text=f"T2 ${levels['target_2']:,.2f}")
+# Key levels as horizontal lines — bold labels with colored badges
+fig.add_hline(y=levels["entry_long"], line_dash="dash", line_color="#3498db", line_width=2,
+              annotation_text=f"  ENTRY ${levels['entry_long']:,.2f}  ",
+              annotation_font=dict(size=13, color="white", family="Arial Black"),
+              annotation_bgcolor="#3498db", annotation_borderpad=4,
+              annotation_position="top left")
+fig.add_hline(y=levels["stop_long"], line_dash="dash", line_color="#e74c3c", line_width=2,
+              annotation_text=f"  STOP ${levels['stop_long']:,.2f}  ",
+              annotation_font=dict(size=13, color="white", family="Arial Black"),
+              annotation_bgcolor="#e74c3c", annotation_borderpad=4,
+              annotation_position="bottom left")
+fig.add_hline(y=levels["target_1"], line_dash="dash", line_color="#2ecc71", line_width=2,
+              annotation_text=f"  T1 ${levels['target_1']:,.2f}  ",
+              annotation_font=dict(size=13, color="white", family="Arial Black"),
+              annotation_bgcolor="#2ecc71", annotation_borderpad=4,
+              annotation_position="top left")
+fig.add_hline(y=levels["target_2"], line_dash="dot", line_color="#27ae60", line_width=1,
+              annotation_text=f"  T2 ${levels['target_2']:,.2f}  ",
+              annotation_font=dict(size=12, color="white"),
+              annotation_bgcolor="#27ae60", annotation_borderpad=3,
+              annotation_position="top left")
 
 # Mark inside/outside days with annotations
 for i in range(1, len(chart_data)):
@@ -272,17 +284,17 @@ for i in range(1, len(chart_data)):
     date_str = chart_data.index[i].strftime("%Y-%m-%d")
     if pat == "inside":
         fig.add_annotation(
-            x=date_str, y=row["High"], yshift=15,
-            text="ID", showarrow=False,
-            font=dict(color="#3498db", size=11, family="Arial Black"),
-            bgcolor="rgba(52, 152, 219, 0.2)", bordercolor="#3498db",
+            x=date_str, y=row["High"], yshift=18,
+            text="  ID  ", showarrow=False,
+            font=dict(color="white", size=12, family="Arial Black"),
+            bgcolor="#3498db", bordercolor="#3498db", borderwidth=1, borderpad=3,
         )
     elif pat == "outside":
         fig.add_annotation(
-            x=date_str, y=row["High"], yshift=15,
-            text="OD", showarrow=False,
-            font=dict(color="#e74c3c", size=11, family="Arial Black"),
-            bgcolor="rgba(231, 76, 60, 0.2)", bordercolor="#e74c3c",
+            x=date_str, y=row["High"], yshift=18,
+            text="  OD  ", showarrow=False,
+            font=dict(color="white", size=12, family="Arial Black"),
+            bgcolor="#e74c3c", bordercolor="#e74c3c", borderwidth=1, borderpad=3,
         )
 
 fig.update_layout(
