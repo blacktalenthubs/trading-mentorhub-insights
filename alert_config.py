@@ -70,8 +70,9 @@ SMTP_PASSWORD = _get_secret("SMTP_PASSWORD")
 ALERT_EMAIL_FROM = _get_secret("ALERT_EMAIL_FROM") or SMTP_USER
 ALERT_EMAIL_TO = _get_secret("ALERT_EMAIL_TO")
 
-# Twilio (SMS)
+# Twilio (WhatsApp + SMS)
 TWILIO_ACCOUNT_SID = _get_secret("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = _get_secret("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = _get_secret("TWILIO_FROM_NUMBER")
 ALERT_SMS_TO = _get_secret("ALERT_SMS_TO")
+TWILIO_USE_WHATSAPP = _get_secret("TWILIO_USE_WHATSAPP", "true").lower() == "true"

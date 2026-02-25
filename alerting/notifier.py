@@ -19,6 +19,7 @@ from alert_config import (
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
     TWILIO_FROM_NUMBER,
+    TWILIO_USE_WHATSAPP,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,9 +106,9 @@ def send_email(signal: AlertSignal) -> bool:
 
 
 def send_sms(signal: AlertSignal) -> bool:
-    """Send an SMS via Twilio. Returns True on success."""
+    """Send via Twilio WhatsApp (default) or SMS. Returns True on success."""
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not ALERT_SMS_TO:
-        logger.warning("SMS not configured — skipping")
+        logger.warning("Twilio not configured — skipping")
         return False
 
     body = _format_sms_body(signal)
@@ -116,15 +117,21 @@ def send_sms(signal: AlertSignal) -> bool:
         from twilio.rest import Client
 
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        client.messages.create(
-            body=body,
-            from_=TWILIO_FROM_NUMBER,
-            to=ALERT_SMS_TO,
-        )
-        logger.info("SMS sent to %s: %s", ALERT_SMS_TO, body[:50])
+
+        if TWILIO_USE_WHATSAPP:
+            from_num = f"whatsapp:{TWILIO_FROM_NUMBER}"
+            to_num = f"whatsapp:{ALERT_SMS_TO}"
+            channel = "WhatsApp"
+        else:
+            from_num = TWILIO_FROM_NUMBER
+            to_num = ALERT_SMS_TO
+            channel = "SMS"
+
+        client.messages.create(body=body, from_=from_num, to=to_num)
+        logger.info("%s sent to %s: %s", channel, to_num, body[:50])
         return True
     except Exception:
-        logger.exception("Failed to send SMS")
+        logger.exception("Failed to send %s", "WhatsApp" if TWILIO_USE_WHATSAPP else "SMS")
         return False
 
 
