@@ -1,0 +1,32 @@
+# Database and generated data (contains personal trade data)
+data/trades.db
+data/trades.db-shm
+data/trades.db-wal
+data/*.csv
+data/*.txt
+
+# Personal images/screenshots
+images/
+
+# Earlier standalone analysis scripts (not part of dashboard)
+analytics/spy_patterns.py
+pages/9_SPY_Patterns.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+
+# macOS
+.DS_Store
+._*
+
+# IDE
+.vscode/
+.idea/
+
+# Virtual env
+venv/
+.venv/
