@@ -1,13 +1,17 @@
-"""Authentication module — email/password auth with session management."""
+"""Authentication module — email/password auth with persistent session management."""
 
 from __future__ import annotations
 
 import sqlite3
+import uuid
+from datetime import datetime, timedelta
 
 import bcrypt
 import streamlit as st
 
 from config import DB_PATH
+
+SESSION_EXPIRY_DAYS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -78,18 +82,82 @@ def get_user_by_id(user_id: int) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Session management
+# Persistent session tokens
+# ---------------------------------------------------------------------------
+
+def _create_session_token(user_id: int) -> str:
+    """Create a persistent session token stored in the DB."""
+    token = uuid.uuid4().hex
+    expires = datetime.utcnow() + timedelta(days=SESSION_EXPIRY_DAYS)
+    with _get_conn() as conn:
+        # Clean expired tokens
+        conn.execute(
+            "DELETE FROM session_tokens WHERE expires_at < ?",
+            (datetime.utcnow().isoformat(),),
+        )
+        conn.execute(
+            "INSERT INTO session_tokens (token, user_id, expires_at) VALUES (?, ?, ?)",
+            (token, user_id, expires.isoformat()),
+        )
+    return token
+
+
+def _get_user_by_token(token: str) -> dict | None:
+    """Look up a session token and return the associated user."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            """SELECT u.id, u.email, u.display_name
+               FROM session_tokens t JOIN users u ON t.user_id = u.id
+               WHERE t.token = ? AND t.expires_at > ?""",
+            (token, datetime.utcnow().isoformat()),
+        ).fetchone()
+    if row:
+        return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
+    return None
+
+
+def _delete_session_token(token: str):
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM session_tokens WHERE token = ?", (token,))
+
+
+# ---------------------------------------------------------------------------
+# Session management (persistent across page refreshes)
 # ---------------------------------------------------------------------------
 
 def get_current_user() -> dict | None:
-    return st.session_state.get("user")
+    """Check for logged-in user: session_state first, then persistent token."""
+    # Fast path: already in memory
+    user = st.session_state.get("user")
+    if user:
+        return user
+
+    # Check for persistent token in URL query params
+    token = st.query_params.get("session")
+    if token:
+        user = _get_user_by_token(token)
+        if user:
+            st.session_state["user"] = user
+            return user
+        else:
+            # Token expired or invalid — clean up
+            del st.query_params["session"]
+    return None
 
 
 def login_user(user: dict):
+    """Log in: save to session_state + create persistent token in query params."""
     st.session_state["user"] = user
+    token = _create_session_token(user["id"])
+    st.query_params["session"] = token
 
 
 def logout_user():
+    """Log out: clear session_state + delete persistent token."""
+    token = st.query_params.get("session")
+    if token:
+        _delete_session_token(token)
+        del st.query_params["session"]
     st.session_state.pop("user", None)
 
 
