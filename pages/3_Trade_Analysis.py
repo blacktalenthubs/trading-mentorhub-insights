@@ -4,13 +4,14 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-from db import init_db, get_focus_account_trades
+from db import init_db, get_user_trades
+from auth import require_auth
 
 init_db()
+user = require_auth()
 st.title("Trade Analysis")
-st.caption("Individual Account - Stocks & ETFs")
 
-df = get_focus_account_trades()
+df = get_user_trades(user["id"])
 if df.empty:
     st.info("No trade data. Go to Import page to upload PDFs.")
     st.stop()

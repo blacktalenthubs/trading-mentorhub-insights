@@ -26,6 +26,9 @@ __pycache__/
 .vscode/
 .idea/
 
+# Environment secrets
+.env
+
 # Virtual env
 venv/
 .venv/

@@ -8,15 +8,17 @@ import numpy as np
 
 from config import STOP_LOSS_PCT, LOSS_ACCEPTABLE_PCT, LOSS_CAUTION_PCT
 from db import (
-    init_db, get_focus_account_trades, get_annotations,
+    init_db, get_user_trades, get_annotations,
     upsert_annotation, STRATEGY_TAGS,
 )
+from auth import require_auth
 
 init_db()
+user = require_auth()
 st.title("Trade Journal")
 st.caption("Every trade: entry, exit, P&L, stop loss recommendations")
 
-df = get_focus_account_trades()
+df = get_user_trades(user["id"])
 if df.empty:
     st.info("No trade data. Go to Import page to upload PDFs.")
     st.stop()
@@ -189,7 +191,7 @@ log = filtered[[
 ]].copy()
 
 # Merge annotations
-annotations = get_annotations()
+annotations = get_annotations(user["id"])
 if not annotations.empty:
     log["trade_date_str"] = log["trade_date"].dt.strftime("%Y-%m-%d")
     log = log.merge(
@@ -698,6 +700,7 @@ if trade_labels:
             symbol=sel["symbol"],
             trade_date=sel["trade_date"].strftime("%Y-%m-%d"),
             quantity=sel["quantity"],
+            user_id=user["id"],
             strategy_tag=tag if tag != "(none)" else None,
             notes=note if note else None,
         )

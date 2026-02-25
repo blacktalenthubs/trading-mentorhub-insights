@@ -1,7 +1,8 @@
 """Trade Analytics Dashboard - Streamlit entry point."""
 
 import streamlit as st
-from db import init_db
+from db import init_db, get_user_trades
+from auth import require_auth
 
 st.set_page_config(
     page_title="Trade Analytics",
@@ -11,9 +12,9 @@ st.set_page_config(
 )
 
 init_db()
+user = require_auth()
 
 st.title("Trade Analytics Dashboard")
-st.caption("Individual Account (145610192) - Stocks & ETFs")
 
 st.markdown("""
 **Pages:**
@@ -26,11 +27,12 @@ st.markdown("""
 - **Import** - Upload and parse PDF statements
 - **Symbol Deep-Dive** - Select any symbol for full trade history and should-I-keep-trading verdict
 - **Pre-Market Planner** - Inside/outside day analysis, key levels, entries/stops/targets, risk calc
+- **Signal Scanner** - Multi-symbol BUY/WAIT/AVOID scoring engine with ranked watchlist
+- **Alert Dashboard** - Real-time day-trade alerts, notification history, monitor status
+- **SPY Patterns** - Prior day low pattern analysis (public)
 """)
 
-from db import get_focus_account_trades
-
-df = get_focus_account_trades()
+df = get_user_trades(user["id"])
 
 if df.empty:
     st.info("No trade data imported yet. Go to the **Import** page to upload your PDFs.")

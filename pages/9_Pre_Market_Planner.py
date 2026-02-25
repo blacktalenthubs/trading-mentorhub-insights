@@ -6,171 +6,24 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 from config import STOP_LOSS_PCT
-from db import init_db, get_focus_account_trades
+from db import init_db, get_user_trades
+from auth import require_auth
+from analytics.market_data import (
+    fetch_ohlc as _fetch_ohlc,
+    classify_day,
+    get_levels,
+)
 
 init_db()
+user = require_auth()
 st.title("Pre-Market Planner")
 st.caption("Identify the day type, know your levels, size your risk — before the bell")
 
 
 @st.cache_data(ttl=300)
 def fetch_ohlc(symbol: str, period: str = "3mo") -> pd.DataFrame:
-    """Fetch OHLC data via yfinance. Cached for 5 minutes."""
-    try:
-        import yfinance as yf
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period)
-        if hist.empty:
-            return pd.DataFrame()
-        hist.index = hist.index.tz_localize(None)
-        return hist[["Open", "High", "Low", "Close", "Volume"]].copy()
-    except Exception as e:
-        st.error(f"Failed to fetch data for {symbol}: {e}")
-        return pd.DataFrame()
-
-
-def classify_day(row, prev_row):
-    """Classify a candle relative to previous day."""
-    if prev_row is None:
-        return "normal", "—"
-
-    prev_h, prev_l = prev_row["High"], prev_row["Low"]
-    curr_h, curr_l = row["High"], row["Low"]
-    prev_range = prev_h - prev_l
-    curr_range = curr_h - curr_l
-
-    # Inside day: current range fits within previous range
-    is_inside = curr_h <= prev_h and curr_l >= prev_l
-
-    # Outside day: current range engulfs previous range
-    is_outside = curr_h > prev_h and curr_l < prev_l
-
-    # Close position within the day's range
-    day_range = curr_h - curr_l
-    if day_range > 0:
-        close_position = (row["Close"] - curr_l) / day_range
-    else:
-        close_position = 0.5
-
-    if close_position >= 0.6:
-        direction = "bullish"
-    elif close_position <= 0.4:
-        direction = "bearish"
-    else:
-        direction = "neutral"
-
-    if is_inside:
-        return "inside", direction
-    elif is_outside:
-        return "outside", direction
-    else:
-        return "normal", direction
-
-
-def get_levels(hist, idx):
-    """Calculate key trading levels for the next session based on candle pattern."""
-    row = hist.iloc[idx]
-    prev_row = hist.iloc[idx - 1] if idx > 0 else None
-    two_back = hist.iloc[idx - 2] if idx > 1 else None
-
-    pattern, direction = classify_day(row, prev_row)
-
-    levels = {
-        "pattern": pattern,
-        "direction": direction,
-        "prior_high": row["High"],
-        "prior_low": row["Low"],
-        "prior_close": row["Close"],
-        "prior_open": row["Open"],
-        "prior_range": row["High"] - row["Low"],
-        "prior_mid": (row["High"] + row["Low"]) / 2,
-    }
-
-    if prev_row is not None:
-        levels["parent_high"] = prev_row["High"]
-        levels["parent_low"] = prev_row["Low"]
-        levels["parent_range"] = prev_row["High"] - prev_row["Low"]
-        levels["parent_mid"] = (prev_row["High"] + prev_row["Low"]) / 2
-
-    if pattern == "inside":
-        # Inside day: tight range, breakout setup
-        # Parent candle = the day before the inside day
-        parent_h = prev_row["High"] if prev_row is not None else row["High"]
-        parent_l = prev_row["Low"] if prev_row is not None else row["Low"]
-        inside_h = row["High"]
-        inside_l = row["Low"]
-
-        levels["entry_long"] = inside_h  # breakout above inside day high
-        levels["stop_long"] = inside_l   # stop below inside day low
-        levels["target_1"] = inside_h + (inside_h - inside_l)  # 1R target
-        levels["target_2"] = inside_h + (parent_h - parent_l)  # parent range extension
-        levels["risk_per_share"] = inside_h - inside_l
-        levels["notes"] = (
-            f"Inside day — range ${row['High'] - row['Low']:,.2f} inside "
-            f"parent range ${parent_h - parent_l:,.2f}. "
-            f"Tight stop at inside low. Wait for breakout above ${inside_h:,.2f}. "
-            f"Good R:R setup for day trade."
-        )
-        if direction == "bullish":
-            levels["bias"] = "Bullish — inside day closed strong, breakout up more likely"
-        elif direction == "bearish":
-            levels["bias"] = "Bearish lean — inside day closed weak, be cautious on long breakout"
-        else:
-            levels["bias"] = "Neutral — wait for the breakout direction"
-
-    elif pattern == "outside":
-        # Outside day: wide range, tricky
-        levels["entry_long"] = levels["prior_mid"]  # pullback to midpoint
-        levels["stop_long"] = row["Low"]  # below outside day low (wide!)
-        levels["target_1"] = row["High"]  # retest of outside day high
-        levels["target_2"] = row["High"] + (row["High"] - levels["prior_mid"])  # extension
-        levels["risk_per_share"] = levels["prior_mid"] - row["Low"]
-        levels["notes"] = (
-            f"Outside day — range ${row['High'] - row['Low']:,.2f} engulfs prior day. "
-            f"Wide range means wide stops. Consider half-size position. "
-            f"Wait for pullback to midpoint ${levels['prior_mid']:,.2f} before entry."
-        )
-        if direction == "bullish":
-            levels["bias"] = (
-                "Closed bullish (upper range) — continuation likely. "
-                "Buy pullback to midpoint, stop below midpoint."
-            )
-            # Tighter stop option for bullish outside day
-            levels["alt_stop"] = levels["prior_mid"] - (row["High"] - levels["prior_mid"]) * 0.5
-            levels["alt_notes"] = (
-                f"Tighter stop option: ${levels['alt_stop']:,.2f} "
-                f"(below midpoint by half the upper range). Reduces risk but may get stopped on normal pullback."
-            )
-        elif direction == "bearish":
-            levels["bias"] = (
-                "Closed bearish (lower range) — reversal/continuation down likely. "
-                "AVOID longs or wait for very strong support. Consider sitting out."
-            )
-        else:
-            levels["bias"] = (
-                "Closed neutral — no clear direction. Chop likely. "
-                "Trade smaller or wait for next day's setup."
-            )
-
-    else:
-        # Normal day
-        levels["entry_long"] = row["Low"]  # buy near prior day low (support)
-        levels["stop_long"] = row["Low"] - (row["High"] - row["Low"]) * 0.25  # stop below low
-        levels["target_1"] = row["High"]  # prior day high
-        levels["target_2"] = row["High"] + (row["High"] - row["Low"]) * 0.5  # extension
-        levels["risk_per_share"] = row["Low"] - levels["stop_long"]
-        levels["notes"] = (
-            f"Normal day — range ${row['High'] - row['Low']:,.2f}. "
-            f"Trade prior day H/L as support/resistance."
-        )
-        if direction == "bullish":
-            levels["bias"] = "Closed bullish — look for pullback to prior day low for long entry"
-        elif direction == "bearish":
-            levels["bias"] = "Closed bearish — prior day low may break, be defensive"
-        else:
-            levels["bias"] = "Neutral close — trade the range, buy low sell high"
-
-    return levels
+    """Cached wrapper around analytics.market_data.fetch_ohlc."""
+    return _fetch_ohlc(symbol, period)
 
 
 # === SYMBOL SELECTOR ===
@@ -211,6 +64,8 @@ for i in range(1, len(recent)):
     })
 
 pattern_df = pd.DataFrame(pattern_data)
+# Most recent first
+pattern_df = pattern_df.iloc[::-1].reset_index(drop=True)
 
 # Color coding for patterns
 def style_pattern(val):
@@ -353,10 +208,18 @@ if levels["entry_long"] > 0:
 
 st.divider()
 
-# === CANDLESTICK CHART WITH LEVELS ===
-st.subheader("Chart with Key Levels")
+# === CANDLESTICK CHART WITH LEVELS + MOVING AVERAGES ===
+st.subheader("Chart with Key Levels & Moving Averages")
 
-chart_data = hist.tail(15).copy()
+# Use enough history to show 50 MA context (show last 60 trading days on chart)
+chart_days = min(60, len(hist))
+chart_data = hist.tail(chart_days).copy()
+
+# Calculate MAs on full history, then slice for chart
+hist["MA20"] = hist["Close"].rolling(window=20).mean()
+hist["MA50"] = hist["Close"].rolling(window=50).mean()
+chart_data = hist.tail(chart_days).copy()
+
 fig = go.Figure()
 
 # Candlesticks
@@ -371,8 +234,27 @@ fig.add_trace(go.Candlestick(
     decreasing_line_color="#e74c3c",
 ))
 
+# 20-day MA
+ma20 = chart_data["MA20"].dropna()
+if not ma20.empty:
+    fig.add_trace(go.Scatter(
+        x=ma20.index.strftime("%Y-%m-%d"),
+        y=ma20.values,
+        mode="lines", name="20 MA",
+        line=dict(color="#f39c12", width=1.5),
+    ))
+
+# 50-day MA
+ma50 = chart_data["MA50"].dropna()
+if not ma50.empty:
+    fig.add_trace(go.Scatter(
+        x=ma50.index.strftime("%Y-%m-%d"),
+        y=ma50.values,
+        mode="lines", name="50 MA",
+        line=dict(color="#9b59b6", width=1.5),
+    ))
+
 # Key levels as horizontal lines
-last_date = chart_data.index[-1].strftime("%Y-%m-%d")
 fig.add_hline(y=levels["entry_long"], line_dash="dash", line_color="#3498db",
               annotation_text=f"Entry ${levels['entry_long']:,.2f}")
 fig.add_hline(y=levels["stop_long"], line_dash="dash", line_color="#e74c3c",
@@ -386,16 +268,16 @@ fig.add_hline(y=levels["target_2"], line_dash="dot", line_color="#27ae60",
 for i in range(1, len(chart_data)):
     row = chart_data.iloc[i]
     prev = chart_data.iloc[i - 1]
-    pattern, _ = classify_day(row, prev)
+    pat, _ = classify_day(row, prev)
     date_str = chart_data.index[i].strftime("%Y-%m-%d")
-    if pattern == "inside":
+    if pat == "inside":
         fig.add_annotation(
             x=date_str, y=row["High"], yshift=15,
             text="ID", showarrow=False,
             font=dict(color="#3498db", size=11, family="Arial Black"),
             bgcolor="rgba(52, 152, 219, 0.2)", bordercolor="#3498db",
         )
-    elif pattern == "outside":
+    elif pat == "outside":
         fig.add_annotation(
             x=date_str, y=row["High"], yshift=15,
             text="OD", showarrow=False,
@@ -404,11 +286,40 @@ for i in range(1, len(chart_data)):
         )
 
 fig.update_layout(
-    height=500, xaxis_rangeslider_visible=False,
+    height=600, xaxis_rangeslider_visible=False,
     yaxis_title=f"{symbol} Price ($)",
-    title=f"{symbol} — Last 15 Days with Levels",
+    title=f"{symbol} — {chart_days} Days with 20 MA / 50 MA & Key Levels",
+    legend=dict(orientation="h", y=1.05),
 )
 st.plotly_chart(fig, use_container_width=True)
+
+# MA context info
+last_close = chart_data["Close"].iloc[-1]
+last_ma20 = chart_data["MA20"].iloc[-1] if pd.notna(chart_data["MA20"].iloc[-1]) else None
+last_ma50 = chart_data["MA50"].iloc[-1] if pd.notna(chart_data["MA50"].iloc[-1]) else None
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Last Close", f"${last_close:,.2f}")
+if last_ma20 is not None:
+    above_20 = "Above" if last_close > last_ma20 else "Below"
+    col2.metric(f"20 MA ({above_20})", f"${last_ma20:,.2f}",
+                delta=f"${last_close - last_ma20:,.2f}", delta_color="normal" if last_close > last_ma20 else "inverse")
+if last_ma50 is not None:
+    above_50 = "Above" if last_close > last_ma50 else "Below"
+    col3.metric(f"50 MA ({above_50})", f"${last_ma50:,.2f}",
+                delta=f"${last_close - last_ma50:,.2f}", delta_color="normal" if last_close > last_ma50 else "inverse")
+
+# MA-based context
+if last_ma20 is not None and last_ma50 is not None:
+    if last_close > last_ma20 > last_ma50:
+        st.success("Price above both MAs, 20 MA above 50 MA — **bullish structure**. "
+                   "Look for pullbacks to 20 MA as buy zones.")
+    elif last_close > last_ma50 and last_close < last_ma20:
+        st.warning("Price below 20 MA but above 50 MA — **pullback in uptrend**. "
+                   "50 MA is key support. If it holds, good long entry.")
+    elif last_close < last_ma50:
+        st.error("Price below both MAs — **bearish structure**. "
+                 "Be defensive. 20 MA and 50 MA are now resistance overhead.")
 
 st.divider()
 
@@ -510,7 +421,7 @@ st.divider()
 st.header("Your Historical Performance by Day Type")
 st.caption("How did your actual trades perform on inside vs outside vs normal days?")
 
-trades_df = get_focus_account_trades()
+trades_df = get_user_trades(user["id"])
 if not trades_df.empty:
     # Get historical data for traded symbols to classify their trade days
     trade_symbols = trades_df["symbol"].unique()

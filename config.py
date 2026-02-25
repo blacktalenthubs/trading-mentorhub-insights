@@ -7,6 +7,10 @@ from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "trades.db")
 
+# Default admin credentials (for data migration — set via env vars or use defaults)
+DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@tradeanalytics.local")
+DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme123")
+
 # Account numbers
 ACCOUNTS = {
     "145610192": "Main Brokerage",
@@ -98,6 +102,37 @@ def classify_holding_period(days: Optional[int]) -> str:
         return "swing"
     return "position"
 
+
+# --- Signal Scanner constants ---
+
+DEFAULT_WATCHLIST = [
+    "LRCX", "PLTR", "ONDS", "META", "TSLA", "NVDA", "GOOGL", "SPY", "AAPL", "AMD",
+]
+
+ALERT_WATCHLIST = DEFAULT_WATCHLIST.copy()
+
+QUICK_PICKS = {
+    "Index ETFs": ["SPY", "QQQ", "IWB", "RSP", "XLK", "XLF", "XLE"],
+    "Mega-Cap": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"],
+    "Tech": ["NVDA", "AMD", "AVGO", "CRM", "ORCL", "ADBE", "NFLX", "QCOM"],
+    "Speculative": ["PLTR", "SOFI", "HOOD", "COIN", "RGTI", "SOUN", "AFRM"],
+}
+
+# Scoring weights (each factor 0-25, total 0-100)
+SIGNAL_WEIGHTS = {
+    "candle_pattern": 25,
+    "ma_position": 25,
+    "support_proximity": 25,
+    "volume": 25,
+}
+
+SCORE_THRESHOLDS = {
+    "BUY": 75,    # >= 75
+    "WAIT": 50,   # 50-74
+    "AVOID": 0,   # < 50
+}
+
+DEFAULT_POSITION_SIZE = 150_000
 
 CUSIP_TO_SYMBOL = {
     "007903107": "AMD", "00827B106": "AFRM", "00835Q202": "AEVA",

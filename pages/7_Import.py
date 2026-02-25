@@ -15,8 +15,10 @@ from models import ImportRecord
 from parsers.parser_1099 import parse_1099
 from parsers.parser_statement import parse_statement
 from analytics.trade_matcher import match_trades_fifo
+from auth import require_auth
 
 init_db()
+user = require_auth()
 st.title("Import Data")
 
 # --- File Upload ---
@@ -34,7 +36,7 @@ if uploaded:
     try:
         # Check for duplicate
         ft = "1099" if "1099" in file_type else "monthly_statement"
-        if check_import_exists(uploaded.name, ft):
+        if check_import_exists(uploaded.name, ft, user["id"]):
             st.warning(f"'{uploaded.name}' has already been imported as {ft}. "
                        "Delete the previous import first if you want to re-import.")
         else:
@@ -85,8 +87,8 @@ if uploaded:
                                 period=period,
                                 records_imported=len(trades),
                             )
-                            import_id = create_import(record)
-                            insert_trades_1099(trades, import_id)
+                            import_id = create_import(record, user["id"])
+                            insert_trades_1099(trades, import_id, user["id"])
                             update_import_count(import_id, len(trades))
                             st.success(f"Imported {len(trades)} trades!")
                             st.rerun()
@@ -155,14 +157,14 @@ if uploaded:
                                 period=period,
                                 records_imported=len(trades),
                             )
-                            import_id = create_import(record)
-                            insert_trades_monthly(trades, import_id)
+                            import_id = create_import(record, user["id"])
+                            insert_trades_monthly(trades, import_id, user["id"])
                             for s in summaries:
-                                insert_account_summary(s, import_id)
+                                insert_account_summary(s, import_id, user["id"])
 
                             # Also save matched trades
                             if matched:
-                                insert_matched_trades(matched)
+                                insert_matched_trades(matched, user["id"])
 
                             update_import_count(import_id, len(trades))
                             st.success(f"Imported {len(trades)} trades + {len(summaries)} summaries + {len(matched)} matched trades!")
@@ -174,7 +176,7 @@ if uploaded:
 st.divider()
 st.subheader("Import History")
 
-imports_df = get_imports()
+imports_df = get_imports(user["id"])
 if imports_df.empty:
     st.info("No imports yet.")
 else:
@@ -189,6 +191,6 @@ else:
         selected = st.selectbox("Select import to delete", options=import_ids,
                                 format_func=lambda x: labels[import_ids.index(x)])
         if st.button("Delete", type="secondary"):
-            delete_import(selected)
+            delete_import(selected, user["id"])
             st.success("Import deleted.")
             st.rerun()

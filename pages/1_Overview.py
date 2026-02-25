@@ -5,13 +5,14 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from db import init_db, get_focus_account_trades, get_focus_account_options
+from db import init_db, get_user_trades, get_user_options
+from auth import require_auth
 
 init_db()
+user = require_auth()
 st.title("Overview")
-st.caption("Individual Account - Stocks & ETFs")
 
-df = get_focus_account_trades()
+df = get_user_trades(user["id"])
 if df.empty:
     st.info("No trade data. Go to Import page to upload PDFs.")
     st.stop()
@@ -40,7 +41,7 @@ expectancy = (win_rate/100 * avg_win) + ((1 - win_rate/100) * avg_loss)
 col8.metric("Expectancy/Trade", f"${expectancy:,.2f}")
 
 # --- Options P&L callout ---
-opts = get_focus_account_options()
+opts = get_user_options(user["id"])
 if not opts.empty:
     opt_pnl = opts["realized_pnl"].sum()
     st.info(f"For reference: Options P&L in this account was **${opt_pnl:,.2f}** "

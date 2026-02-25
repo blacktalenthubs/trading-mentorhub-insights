@@ -5,19 +5,21 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from db import init_db, get_focus_account_trades, get_annotations
+from db import init_db, get_user_trades, get_annotations
+from auth import require_auth
 
 init_db()
+user = require_auth()
 st.title("Strategy Performance")
 st.caption("Which trades make money? Where do you lose?")
 
-df = get_focus_account_trades()
+df = get_user_trades(user["id"])
 if df.empty:
     st.info("No trade data. Go to Import page to upload PDFs.")
     st.stop()
 
 # Merge strategy tags
-annotations = get_annotations()
+annotations = get_annotations(user["id"])
 if not annotations.empty:
     df["trade_date_str"] = df["trade_date"].dt.strftime("%Y-%m-%d")
     df = df.merge(

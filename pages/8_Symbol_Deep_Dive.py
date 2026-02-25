@@ -4,13 +4,15 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-from db import init_db, get_focus_account_trades, get_annotations
+from db import init_db, get_user_trades, get_annotations
+from auth import require_auth
 
 init_db()
+user = require_auth()
 st.title("Symbol Deep-Dive")
 st.caption("Select a symbol to see all your trades and whether you should keep trading it")
 
-df = get_focus_account_trades()
+df = get_user_trades(user["id"])
 if df.empty:
     st.info("No trade data. Go to Import page to upload PDFs.")
     st.stop()
@@ -180,7 +182,7 @@ st.divider()
 st.subheader("All Trades")
 
 # Merge annotations
-annotations = get_annotations()
+annotations = get_annotations(user["id"])
 display = sym_df[[
     "trade_date", "quantity", "cost_basis", "proceeds",
     "realized_pnl", "holding_days", "holding_period_type", "source",

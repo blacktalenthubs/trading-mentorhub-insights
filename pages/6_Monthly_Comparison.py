@@ -5,13 +5,15 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from db import init_db, get_focus_account_trades
+from db import init_db, get_user_trades
+from auth import require_auth
 
 init_db()
+user = require_auth()
 st.title("Monthly Comparison")
 st.caption("Are you improving month over month?")
 
-df = get_focus_account_trades()
+df = get_user_trades(user["id"])
 if df.empty:
     st.info("No trade data. Go to Import page to upload PDFs.")
     st.stop()
