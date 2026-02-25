@@ -8,9 +8,8 @@ data/*.txt
 # Personal images/screenshots
 images/
 
-# Earlier standalone analysis scripts (not part of dashboard)
-analytics/spy_patterns.py
-pages/9_SPY_Patterns.py
+# Generated data files (personal)
+data/spy_patterns.db
 
 # Python
 __pycache__/
