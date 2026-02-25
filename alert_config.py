@@ -8,6 +8,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _get_secret(key: str, default: str = "") -> str:
+    """Read from env vars first (.env / local), then Streamlit secrets (Cloud)."""
+    val = os.environ.get(key, "")
+    if val:
+        return val
+    try:
+        import streamlit as st
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
 # ---------------------------------------------------------------------------
 # Watchlist
 # ---------------------------------------------------------------------------
@@ -50,15 +63,15 @@ RESISTANCE_PROXIMITY_PCT = 0.002  # 0.2%
 # ---------------------------------------------------------------------------
 
 # SMTP (email)
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-ALERT_EMAIL_FROM = os.environ.get("ALERT_EMAIL_FROM", SMTP_USER)
-ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "")
+SMTP_HOST = _get_secret("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(_get_secret("SMTP_PORT", "587"))
+SMTP_USER = _get_secret("SMTP_USER")
+SMTP_PASSWORD = _get_secret("SMTP_PASSWORD")
+ALERT_EMAIL_FROM = _get_secret("ALERT_EMAIL_FROM") or SMTP_USER
+ALERT_EMAIL_TO = _get_secret("ALERT_EMAIL_TO")
 
 # Twilio (SMS)
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "")
-ALERT_SMS_TO = os.environ.get("ALERT_SMS_TO", "")
+TWILIO_ACCOUNT_SID = _get_secret("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = _get_secret("TWILIO_AUTH_TOKEN")
+TWILIO_FROM_NUMBER = _get_secret("TWILIO_FROM_NUMBER")
+ALERT_SMS_TO = _get_secret("ALERT_SMS_TO")
