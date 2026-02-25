@@ -1,125 +1,184 @@
-"""Alert Dashboard — view today's alerts, alert history, monitor status, test notifications."""
+"""Alert Dashboard — live intraday alerts from mechanical rules."""
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from auth import require_auth
+from streamlit_autorefresh import st_autorefresh
+
 from db import init_db
-from alerting.alert_store import get_alerts_today, get_alerts_history, get_monitor_status
-from alert_config import ALERT_WATCHLIST, POLL_INTERVAL_MINUTES
+from config import DEFAULT_WATCHLIST
+from analytics.intraday_data import fetch_intraday, fetch_prior_day
+from analytics.intraday_rules import evaluate_rules, AlertSignal
+from analytics.market_hours import is_market_hours
+from alerting.notifier import send_email
+from alert_config import POLL_INTERVAL_MINUTES
 
 init_db()
-user = require_auth()
+
+# ── Auto-refresh during market hours ──────────────────────────────────────
+_market_open = is_market_hours()
+if _market_open:
+    st_autorefresh(interval=180_000, key="alert_refresh")  # 3 min
 
 st.title("Alert Dashboard")
 
-# ---------------------------------------------------------------------------
-# Monitor Status
-# ---------------------------------------------------------------------------
-
-st.subheader("Monitor Status")
-status = get_monitor_status()
-
-if status:
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Status", status["status"].replace("_", " ").title())
-    col2.metric("Last Poll", status["last_poll_at"] or "Never")
-    col3.metric("Symbols Checked", status["symbols_checked"])
-    col4.metric("Alerts Fired", status["alerts_fired"])
-else:
-    st.info(
-        "Monitor has not run yet. Start it with:\n\n"
-        "```\npython monitor.py            # live mode\n"
-        "python monitor.py --dry-run  # test without notifications\n```"
-    )
-
-st.caption(
-    f"Watchlist: {', '.join(ALERT_WATCHLIST)} | "
-    f"Poll interval: {POLL_INTERVAL_MINUTES} min"
-)
+# ── Shared watchlist (from Scanner or default) ────────────────────────────
+watchlist = st.session_state.get("watchlist", list(DEFAULT_WATCHLIST))
+st.caption(f"Watchlist: {', '.join(watchlist)} | Refresh: {POLL_INTERVAL_MINUTES} min")
 
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Today's Alerts
+# Cached helpers
 # ---------------------------------------------------------------------------
 
-st.subheader("Today's Alerts")
-today_alerts = get_alerts_today()
 
-if today_alerts:
-    for alert in today_alerts:
-        direction = alert["direction"]
-        color = "#2ecc71" if direction == "BUY" else "#e74c3c"
-        icon = "+" if direction == "BUY" else "-"
+@st.cache_data(ttl=180, show_spinner=False)
+def _cached_intraday(symbol: str) -> pd.DataFrame:
+    return fetch_intraday(symbol)
 
-        with st.container():
-            cols = st.columns([1, 2, 3, 2, 2])
-            cols[0].markdown(
-                f"<span style='color:{color};font-weight:bold;font-size:1.1em'>"
-                f"{direction}</span>",
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_prior_day(symbol: str) -> dict | None:
+    return fetch_prior_day(symbol)
+
+
+# ---------------------------------------------------------------------------
+# Live Alerts (inline scanning)
+# ---------------------------------------------------------------------------
+
+st.subheader("Live Alerts")
+
+if not _market_open:
+    st.info("Market is closed — alerts resume at 9:30 AM ET on the next trading day.")
+    st.caption(f"Last check: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+else:
+    # Initialize alert history in session state
+    if "alert_history" not in st.session_state:
+        st.session_state["alert_history"] = []
+
+    # Collect active positions from Scanner for SELL rule evaluation
+    active_positions = st.session_state.get("active_positions", {})
+
+    all_signals: list[AlertSignal] = []
+
+    with st.spinner(f"Scanning {len(watchlist)} symbols..."):
+        for symbol in watchlist:
+            intra = _cached_intraday(symbol)
+            prior = _cached_prior_day(symbol)
+
+            if intra.empty:
+                continue
+
+            # Build active entries from tracked positions
+            active_entries = []
+            if symbol in active_positions:
+                pos = active_positions[symbol]
+                active_entries.append({
+                    "entry_price": pos["entry"],
+                    "stop_price": 0,  # filled by rule if needed
+                    "target_1": 0,
+                    "target_2": 0,
+                })
+
+            signals = evaluate_rules(symbol, intra, prior, active_entries)
+            all_signals.extend(signals)
+
+    # Dedup against session history
+    existing_keys = {
+        (a["symbol"], a["alert_type"], a["direction"])
+        for a in st.session_state["alert_history"]
+    }
+
+    new_signals = []
+    emails_sent = 0
+    for sig in all_signals:
+        key = (sig.symbol, sig.alert_type.value, sig.direction)
+        if key not in existing_keys:
+            new_signals.append(sig)
+
+            # Send email for new signals
+            if send_email(sig):
+                emails_sent += 1
+
+            st.session_state["alert_history"].append({
+                "symbol": sig.symbol,
+                "alert_type": sig.alert_type.value,
+                "direction": sig.direction,
+                "price": sig.price,
+                "entry": sig.entry,
+                "stop": sig.stop,
+                "target_1": sig.target_1,
+                "target_2": sig.target_2,
+                "message": sig.message,
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "emailed": True,
+            })
+
+    if new_signals and emails_sent:
+        st.toast(f"Emailed {emails_sent} new alert(s)")
+
+    # Display all current signals as colored cards
+    if all_signals:
+        for sig in all_signals:
+            color = "#2ecc71" if sig.direction == "BUY" else "#e74c3c"
+            is_new = sig in new_signals
+            new_badge = " <span style='background:#f39c12;color:white;padding:2px 6px;border-radius:3px;font-size:0.75em'>NEW</span>" if is_new else ""
+
+            st.markdown(
+                f"<div style='padding:10px 14px;border-left:4px solid {color};"
+                f"background:{color}10;margin-bottom:8px;border-radius:4px'>"
+                f"<strong style='color:{color};font-size:1.1em'>{sig.direction}</strong>"
+                f"{new_badge} "
+                f"<strong>{sig.symbol}</strong> — "
+                f"{sig.alert_type.value.replace('_', ' ').title()} @ ${sig.price:,.2f}"
+                f"<br><span style='color:#888'>{sig.message}</span>"
+                f"</div>",
                 unsafe_allow_html=True,
             )
-            cols[1].markdown(f"**{alert['symbol']}**")
-            cols[2].write(alert["alert_type"].replace("_", " ").title())
-            cols[3].write(f"${alert['price']:.2f}")
-            cols[4].write(alert["created_at"])
 
-            if alert.get("entry"):
-                with st.expander("Details"):
-                    detail_cols = st.columns(4)
-                    detail_cols[0].metric("Entry", f"${alert['entry']:.2f}")
-                    if alert.get("stop"):
-                        detail_cols[1].metric("Stop", f"${alert['stop']:.2f}")
-                    if alert.get("target_1"):
-                        detail_cols[2].metric("T1", f"${alert['target_1']:.2f}")
-                    if alert.get("target_2"):
-                        detail_cols[3].metric("T2", f"${alert['target_2']:.2f}")
+            if sig.entry:
+                with st.expander(f"{sig.symbol} — Details"):
+                    dc1, dc2, dc3, dc4 = st.columns(4)
+                    dc1.metric("Entry", f"${sig.entry:,.2f}")
+                    if sig.stop:
+                        dc2.metric("Stop", f"${sig.stop:,.2f}")
+                    if sig.target_1:
+                        dc3.metric("T1", f"${sig.target_1:,.2f}")
+                    if sig.target_2:
+                        dc4.metric("T2", f"${sig.target_2:,.2f}")
 
-                    notif = []
-                    if alert.get("notified_email"):
-                        notif.append("Email sent")
-                    if alert.get("notified_sms"):
-                        notif.append("SMS sent")
-                    if notif:
-                        st.caption(" | ".join(notif))
+        # Summary KPIs
+        buy_count = sum(1 for s in all_signals if s.direction == "BUY")
+        sell_count = sum(1 for s in all_signals if s.direction == "SELL")
 
-                    if alert.get("message"):
-                        st.write(alert["message"])
+        st.divider()
+        kpi1, kpi2, kpi3 = st.columns(3)
+        kpi1.metric("Active Signals", len(all_signals))
+        kpi2.metric("BUY Signals", buy_count)
+        kpi3.metric("SELL Signals", sell_count)
+    else:
+        st.info("No signals firing right now. Scanning every 3 minutes.")
 
-    # Summary KPIs
-    buy_count = sum(1 for a in today_alerts if a["direction"] == "BUY")
-    sell_count = sum(1 for a in today_alerts if a["direction"] == "SELL")
-
-    st.divider()
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Total Alerts", len(today_alerts))
-    kpi2.metric("BUY Signals", buy_count)
-    kpi3.metric("SELL Signals", sell_count)
-else:
-    st.info("No alerts fired today.")
+    st.caption(f"Last scan: {datetime.now().strftime('%H:%M:%S')} ET | "
+               f"{len(watchlist)} symbols checked")
 
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Alert History
+# Alert History (session)
 # ---------------------------------------------------------------------------
 
-st.subheader("Alert History")
+st.subheader("Alert History (This Session)")
 
-history = get_alerts_history(limit=200)
+history = st.session_state.get("alert_history", [])
 
 if history:
-    df = pd.DataFrame(history)
-    display_cols = [
-        "session_date", "symbol", "direction", "alert_type",
-        "price", "entry", "stop", "target_1", "target_2",
-        "notified_email", "notified_sms", "created_at",
-    ]
-    existing = [c for c in display_cols if c in df.columns]
+    # Show most recent first
+    hist_df = pd.DataFrame(reversed(history))
     st.dataframe(
-        df[existing],
+        hist_df,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -128,51 +187,52 @@ if history:
             "stop": st.column_config.NumberColumn(format="$%.2f"),
             "target_1": st.column_config.NumberColumn(format="$%.2f"),
             "target_2": st.column_config.NumberColumn(format="$%.2f"),
-            "notified_email": st.column_config.CheckboxColumn("Email"),
-            "notified_sms": st.column_config.CheckboxColumn("SMS"),
         },
     )
+
+    if st.button("Clear History", key="clear_hist"):
+        st.session_state["alert_history"] = []
+        st.rerun()
 else:
-    st.info("No alert history yet.")
+    st.info("No alerts fired this session.")
 
 # ---------------------------------------------------------------------------
-# Test Notifications
+# Test Notifications (kept for desktop use)
 # ---------------------------------------------------------------------------
 
 st.divider()
-st.subheader("Test Notifications")
+with st.expander("Test Notifications"):
+    st.caption("Send a test alert to verify your email and SMS configuration.")
 
-st.caption("Send a test alert to verify your email and SMS configuration.")
+    if st.button("Send Test Alert"):
+        from analytics.intraday_rules import AlertType
+        from alerting.notifier import send_email, send_sms
 
-if st.button("Send Test Alert"):
-    from analytics.intraday_rules import AlertSignal, AlertType
-    from alerting.notifier import send_email, send_sms
+        test_signal = AlertSignal(
+            symbol="TEST",
+            alert_type=AlertType.MA_BOUNCE_20,
+            direction="BUY",
+            price=100.00,
+            entry=100.00,
+            stop=99.00,
+            target_1=101.00,
+            target_2=102.00,
+            confidence="high",
+            message="Test alert from Alert Dashboard — ignore this message",
+        )
 
-    test_signal = AlertSignal(
-        symbol="TEST",
-        alert_type=AlertType.MA_BOUNCE_20,
-        direction="BUY",
-        price=100.00,
-        entry=100.00,
-        stop=99.00,
-        target_1=101.00,
-        target_2=102.00,
-        confidence="high",
-        message="Test alert from Alert Dashboard — ignore this message",
-    )
+        with st.spinner("Sending test email..."):
+            email_ok = send_email(test_signal)
 
-    with st.spinner("Sending test email..."):
-        email_ok = send_email(test_signal)
+        with st.spinner("Sending test SMS..."):
+            sms_ok = send_sms(test_signal)
 
-    with st.spinner("Sending test SMS..."):
-        sms_ok = send_sms(test_signal)
+        if email_ok:
+            st.success("Test email sent successfully!")
+        else:
+            st.warning("Email failed — check .env SMTP settings")
 
-    if email_ok:
-        st.success("Test email sent successfully!")
-    else:
-        st.warning("Email failed — check .env SMTP settings")
-
-    if sms_ok:
-        st.success("Test SMS sent successfully!")
-    else:
-        st.warning("SMS failed — check .env Twilio settings")
+        if sms_ok:
+            st.success("Test SMS sent successfully!")
+        else:
+            st.warning("SMS failed — check .env Twilio settings")

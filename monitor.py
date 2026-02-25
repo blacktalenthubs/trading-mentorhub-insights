@@ -13,18 +13,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import datetime
-
-import pytz
 
 from alert_config import (
     ALERT_WATCHLIST,
-    MARKET_CLOSE_HOUR,
-    MARKET_CLOSE_MINUTE,
-    MARKET_OPEN_HOUR,
-    MARKET_OPEN_MINUTE,
     POLL_INTERVAL_MINUTES,
 )
+from analytics.market_hours import is_market_hours
 from alerting.alert_store import (
     close_all_entries_for_symbol,
     create_active_entry,
@@ -45,22 +39,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("monitor")
-
-ET = pytz.timezone("US/Eastern")
-
-
-def is_market_hours() -> bool:
-    """Check if current time is within US market hours (weekday, 9:30-16:00 ET)."""
-    now = datetime.now(ET)
-    if now.weekday() >= 5:  # Saturday=5, Sunday=6
-        return False
-    market_open = now.replace(
-        hour=MARKET_OPEN_HOUR, minute=MARKET_OPEN_MINUTE, second=0, microsecond=0,
-    )
-    market_close = now.replace(
-        hour=MARKET_CLOSE_HOUR, minute=MARKET_CLOSE_MINUTE, second=0, microsecond=0,
-    )
-    return market_open <= now <= market_close
 
 
 def poll_cycle(dry_run: bool = False) -> int:

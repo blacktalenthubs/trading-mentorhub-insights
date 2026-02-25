@@ -8,3 +8,4 @@ apscheduler>=3.10.0
 python-dotenv>=1.0.0
 twilio>=8.0.0
 pytz>=2023.3
+streamlit-autorefresh>=1.0.0

@@ -57,6 +57,33 @@ class SignalResult:
 
 
 # ---------------------------------------------------------------------------
+# Actionable display labels
+# ---------------------------------------------------------------------------
+
+ACTION_LABELS = {
+    "AT SUPPORT": {"label": "BUY ZONE", "color": "#2ecc71", "help": "Price at support — place entry order"},
+    "BREAKOUT": {"label": "BREAKOUT SETUP", "color": "#3498db", "help": "Inside day compression — set alert at breakout level"},
+    "PULLBACK WATCH": {"label": "WAIT FOR DIP", "color": "#f39c12", "help": "Above support — wait for pullback to entry"},
+    "BROKEN": {"label": "NO TRADE", "color": "#e74c3c", "help": "Support broken — no valid long setup"},
+}
+
+
+def action_label(support_status: str) -> str:
+    """Map internal support status to user-facing action label."""
+    return ACTION_LABELS.get(support_status, {}).get("label", support_status)
+
+
+def action_color(support_status: str) -> str:
+    """Get the display color for a support status."""
+    return ACTION_LABELS.get(support_status, {}).get("color", "#95a5a6")
+
+
+def action_help(support_status: str) -> str:
+    """Get the help text for a support status."""
+    return ACTION_LABELS.get(support_status, {}).get("help", "")
+
+
+# ---------------------------------------------------------------------------
 # Support status logic
 # ---------------------------------------------------------------------------
 

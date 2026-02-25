@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from config import STOP_LOSS_PCT
 from db import init_db, get_user_trades
-from auth import require_auth
+from auth import get_current_user, render_sidebar_user_info
 from analytics.market_data import (
     fetch_ohlc as _fetch_ohlc,
     classify_day,
@@ -15,7 +15,9 @@ from analytics.market_data import (
 )
 
 init_db()
-user = require_auth()
+user = get_current_user()
+if user:
+    render_sidebar_user_info()
 st.title("Pre-Market Planner")
 st.caption("Identify the day type, know your levels, size your risk — before the bell")
 
@@ -432,6 +434,10 @@ st.divider()
 # === BACKTEST: YOUR TRADES ON INSIDE/OUTSIDE DAYS ===
 st.header("Your Historical Performance by Day Type")
 st.caption("How did your actual trades perform on inside vs outside vs normal days?")
+
+if not user:
+    st.info("Log in to see your personal trade history matched against day patterns.")
+    st.stop()
 
 trades_df = get_user_trades(user["id"])
 if not trades_df.empty:
