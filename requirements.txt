@@ -1,5 +1,6 @@
 streamlit>=1.30.0
 pandas>=2.0.0
+numpy>=1.24.0
 plotly>=5.18.0
 yfinance>=0.2.30
 bcrypt>=4.0.0
