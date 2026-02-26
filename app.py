@@ -14,7 +14,7 @@ from config import DEFAULT_WATCHLIST
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import evaluate_rules, AlertSignal
 from analytics.market_hours import is_market_hours
-from alerting.notifier import send_email
+from alerting.notifier import send_email, send_sms
 from alert_config import POLL_INTERVAL_MINUTES
 
 st.set_page_config(
@@ -105,15 +105,16 @@ else:
     }
 
     new_signals = []
-    emails_sent = 0
+    notifications_sent = 0
     for sig in all_signals:
         key = (sig.symbol, sig.alert_type.value, sig.direction)
         if key not in existing_keys:
             new_signals.append(sig)
 
-            # Send email for new signals
+            # Send notifications for new signals
             if send_email(sig):
-                emails_sent += 1
+                notifications_sent += 1
+            send_sms(sig)
 
             st.session_state["alert_history"].append({
                 "symbol": sig.symbol,
@@ -129,8 +130,8 @@ else:
                 "emailed": True,
             })
 
-    if new_signals and emails_sent:
-        st.toast(f"Emailed {emails_sent} new alert(s)")
+    if new_signals and notifications_sent:
+        st.toast(f"Sent {notifications_sent} new alert(s)")
 
     # Display all current signals as colored cards
     if all_signals:
