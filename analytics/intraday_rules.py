@@ -465,10 +465,15 @@ def evaluate_rules(
     bar_vol = last_bar["Volume"]
     vol_label = _volume_label(bar_vol, avg_vol)
 
-    # --- BUY rules (gated by SPY trend + session timing) ---
-    skip_buys = spy_trend == "bearish" or not entries_allowed
+    # --- BUY rules (context adds caution notes, never blocks signals) ---
+    caution_notes = []
+    if spy_trend == "bearish":
+        caution_notes.append("SPY bearish (below 20MA)")
+    if not entries_allowed:
+        caution_notes.append(f"session: {phase}")
+    caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
-    if not skip_buys:
+    if True:  # always evaluate BUY rules
         sig = check_ma_bounce_20(symbol, last_bar, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
@@ -478,6 +483,7 @@ def evaluate_rules(
                     sig.message += " (use caution)"
                 else:
                     sig.message += " (bullish confirmation)"
+            sig.message += caution_suffix
             signals.append(sig)
 
         sig = check_ma_bounce_50(symbol, last_bar, ma20, ma50, prior_close)
@@ -485,6 +491,7 @@ def evaluate_rules(
             sig.message += f" ({phase})"
             if vwap_pos:
                 sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
             signals.append(sig)
 
         sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
@@ -496,14 +503,15 @@ def evaluate_rules(
                 sig.message += " — gap fill opportunity"
             if vwap_pos:
                 sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
             signals.append(sig)
 
         sig = check_inside_day_breakout(symbol, last_bar, prior_day)
         if sig:
             sig.message += f" ({phase})"
-            # Gap up reduces MA bounce likelihood but inside day breakouts are different
             if vwap_pos:
                 sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
             signals.append(sig)
 
     # --- SELL rules (always fire regardless of SPY/session) ---
