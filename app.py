@@ -69,6 +69,8 @@ else:
     # Initialize alert history in session state
     if "alert_history" not in st.session_state:
         st.session_state["alert_history"] = []
+    if "auto_stop_entries" not in st.session_state:
+        st.session_state["auto_stop_entries"] = {}
 
     # Collect active positions from Scanner for SELL rule evaluation
     active_positions = st.session_state.get("active_positions", {})
@@ -95,7 +97,12 @@ else:
                 })
 
             _spy_ctx = get_spy_context()
-            signals = evaluate_rules(symbol, intra, prior, active_entries, spy_context=_spy_ctx)
+            auto_stop = st.session_state.get("auto_stop_entries", {})
+            signals = evaluate_rules(
+                symbol, intra, prior, active_entries,
+                spy_context=_spy_ctx,
+                auto_stop_entries=auto_stop.get(symbol),
+            )
             all_signals.extend(signals)
 
     # Dedup against session history
@@ -130,13 +137,25 @@ else:
                 "emailed": True,
             })
 
+            # Track BUY signals for auto-stop-out
+            if sig.direction == "BUY" and sig.entry and sig.stop:
+                st.session_state.setdefault("auto_stop_entries", {})[sig.symbol] = {
+                    "entry_price": sig.entry,
+                    "stop_price": sig.stop,
+                    "alert_type": sig.alert_type.value,
+                }
+
+            # Clean up on stop-out
+            if sig.alert_type.value == "auto_stop_out":
+                st.session_state.get("auto_stop_entries", {}).pop(sig.symbol, None)
+
     if new_signals and notifications_sent:
         st.toast(f"Sent {notifications_sent} new alert(s)")
 
     # Display all current signals as colored cards
     if all_signals:
         for sig in all_signals:
-            color = "#2ecc71" if sig.direction == "BUY" else "#e74c3c"
+            color = "#2ecc71" if sig.direction == "BUY" else "#9b59b6" if sig.direction == "SHORT" else "#e74c3c"
             is_new = sig in new_signals
             new_badge = " <span style='background:#f39c12;color:white;padding:2px 6px;border-radius:3px;font-size:0.75em'>NEW</span>" if is_new else ""
 
@@ -166,12 +185,14 @@ else:
         # Summary KPIs
         buy_count = sum(1 for s in all_signals if s.direction == "BUY")
         sell_count = sum(1 for s in all_signals if s.direction == "SELL")
+        short_count = sum(1 for s in all_signals if s.direction == "SHORT")
 
         st.divider()
-        kpi1, kpi2, kpi3 = st.columns(3)
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("Active Signals", len(all_signals))
         kpi2.metric("BUY Signals", buy_count)
         kpi3.metric("SELL Signals", sell_count)
+        kpi4.metric("SHORT Signals", short_count)
     else:
         st.info("No signals firing right now. Scanning every 3 minutes.")
 

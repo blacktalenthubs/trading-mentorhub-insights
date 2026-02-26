@@ -58,6 +58,18 @@ PDL_DIP_MIN_PCT = 0.001  # 0.1%
 # Resistance at Prior High: proximity threshold
 RESISTANCE_PROXIMITY_PCT = 0.002  # 0.2%
 
+# Support Breakdown: volume must be >= this multiple of average
+BREAKDOWN_VOLUME_RATIO = 1.5
+
+# Support Breakdown: close must be in lower N% of bar range to confirm conviction
+BREAKDOWN_CONVICTION_PCT = 0.30
+
+# EMA Crossover: minimum bars needed to compute 20-bar EMA
+EMA_MIN_BARS = 25
+
+# Noise filter: skip BUY signals when volume ratio is below this
+LOW_VOLUME_SKIP_RATIO = 0.4
+
 # ---------------------------------------------------------------------------
 # Notification credentials (from .env)
 # ---------------------------------------------------------------------------

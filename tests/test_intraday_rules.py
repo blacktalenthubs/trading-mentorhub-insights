@@ -4,13 +4,18 @@ import pandas as pd
 import pytest
 
 from analytics.intraday_rules import (
+    AlertSignal,
     AlertType,
+    _should_skip_noise,
+    check_auto_stop_out,
+    check_ema_crossover_5_20,
     check_inside_day_breakout,
     check_ma_bounce_20,
     check_ma_bounce_50,
     check_prior_day_low_reclaim,
     check_resistance_prior_high,
     check_stop_loss_hit,
+    check_support_breakdown,
     check_target_1_hit,
     check_target_2_hit,
     evaluate_rules,
@@ -316,3 +321,128 @@ class TestEvaluateRules:
         types = {s.alert_type for s in signals}
         assert AlertType.TARGET_1_HIT in types
         assert AlertType.TARGET_2_HIT in types
+
+
+# ===== Rule 9: Support Breakdown =====
+
+class TestSupportBreakdown:
+    def test_fires_on_high_volume(self):
+        """Close below support, vol >= 1.5x, conviction close → fires SHORT."""
+        bar = _bar(open_=99, high=99.5, low=97.5, close=97.6, volume=2000)
+        sig = check_support_breakdown(
+            "META", bar, prior_day_low=98.0, nearest_support=99.0,
+            bar_volume=2000, avg_volume=1000,
+        )
+        assert sig is not None
+        assert sig.alert_type == AlertType.SUPPORT_BREAKDOWN
+        assert sig.direction == "SHORT"
+        assert sig.stop == 98.0  # min(98, 99) = 98 = broken support
+        assert sig.entry == 97.6
+
+    def test_skips_low_volume(self):
+        """Close below support but vol < 1.5x → None."""
+        bar = _bar(open_=99, high=99.5, low=97.5, close=97.6, volume=500)
+        sig = check_support_breakdown(
+            "META", bar, prior_day_low=98.0, nearest_support=99.0,
+            bar_volume=500, avg_volume=1000,
+        )
+        assert sig is None
+
+    def test_skips_no_conviction(self):
+        """Close below support, high vol, but close in upper range → None."""
+        # Close in upper half of bar range (close_position > 0.30)
+        bar = _bar(open_=99, high=99.5, low=97.0, close=98.5, volume=2000)
+        # close_position = (98.5 - 97.0) / (99.5 - 97.0) = 1.5 / 2.5 = 0.60
+        sig = check_support_breakdown(
+            "META", bar, prior_day_low=99.0, nearest_support=0,
+            bar_volume=2000, avg_volume=1000,
+        )
+        assert sig is None
+
+
+# ===== Rule 10: EMA Crossover 5/20 =====
+
+class TestEMACrossover:
+    @staticmethod
+    def _make_crossover_bars(num_bars=30, cross=True):
+        """Build bars where EMA5 crosses above EMA20 at the last bar.
+
+        Strategy: declining prices for most bars (EMA5 < EMA20 since it's
+        faster to react), then a sharp reversal at the end to force crossover.
+        """
+        # Decline for first 25 bars so EMA5 << EMA20
+        prices = [100.0 - 0.3 * i for i in range(num_bars)]
+        if cross:
+            # Sharp uptick on last 3 bars to force EMA5 above EMA20
+            prices[-3] = prices[-4] + 3.0
+            prices[-2] = prices[-3] + 3.0
+            prices[-1] = prices[-2] + 4.0
+        rows = []
+        for p in prices:
+            rows.append({
+                "Open": p - 0.1, "High": p + 0.2, "Low": p - 0.3,
+                "Close": p, "Volume": 1000,
+            })
+        return pd.DataFrame(rows)
+
+    def test_fires_for_mega_cap(self):
+        """EMA5 crosses above EMA20 on mega-cap → fires BUY."""
+        bars = self._make_crossover_bars(num_bars=30, cross=True)
+        sig = check_ema_crossover_5_20("AAPL", bars, is_mega_cap=True)
+        assert sig is not None
+        assert sig.alert_type == AlertType.EMA_CROSSOVER_5_20
+        assert sig.direction == "BUY"
+        assert sig.confidence == "high"
+
+    def test_skips_non_mega_cap(self):
+        """Crossover on non-mega-cap → None."""
+        bars = self._make_crossover_bars(num_bars=30, cross=True)
+        sig = check_ema_crossover_5_20("ONDS", bars, is_mega_cap=False)
+        assert sig is None
+
+    def test_skips_insufficient_bars(self):
+        """Fewer than 25 bars → None."""
+        bars = self._make_crossover_bars(num_bars=20, cross=True)
+        sig = check_ema_crossover_5_20("AAPL", bars, is_mega_cap=True)
+        assert sig is None
+
+
+# ===== Rule 11: Auto Stop-Out =====
+
+class TestAutoStopOut:
+    def test_fires_when_stop_hit(self):
+        """Bar low <= stop price → fires SELL."""
+        bar = _bar(low=98.5)
+        entry = {"entry_price": 100.0, "stop_price": 99.0, "alert_type": "ma_bounce_20"}
+        sig = check_auto_stop_out("AMD", bar, entry)
+        assert sig is not None
+        assert sig.alert_type == AlertType.AUTO_STOP_OUT
+        assert sig.direction == "SELL"
+        assert "$1.00" in sig.message
+
+    def test_skips_when_above_stop(self):
+        """Bar low > stop price → None."""
+        bar = _bar(low=99.5)
+        entry = {"entry_price": 100.0, "stop_price": 99.0, "alert_type": "ma_bounce_20"}
+        sig = check_auto_stop_out("AMD", bar, entry)
+        assert sig is None
+
+
+# ===== Noise Filter =====
+
+class TestNoiseFilter:
+    def test_skips_low_volume_buy(self):
+        """BUY signal with vol ratio < 0.4 → filtered out."""
+        sig = AlertSignal(
+            symbol="X", alert_type=AlertType.MA_BOUNCE_20,
+            direction="BUY", price=100.0,
+        )
+        assert _should_skip_noise(sig, vol_ratio=0.3) is True
+
+    def test_keeps_sell_signals(self):
+        """SELL signal with low volume → kept (not filtered)."""
+        sig = AlertSignal(
+            symbol="X", alert_type=AlertType.STOP_LOSS_HIT,
+            direction="SELL", price=100.0,
+        )
+        assert _should_skip_noise(sig, vol_ratio=0.3) is False

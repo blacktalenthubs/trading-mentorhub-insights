@@ -19,6 +19,10 @@ from enum import Enum
 import pandas as pd
 
 from alert_config import (
+    BREAKDOWN_CONVICTION_PCT,
+    BREAKDOWN_VOLUME_RATIO,
+    EMA_MIN_BARS,
+    LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_PROXIMITY_PCT,
     MA_STOP_OFFSET_PCT,
     PDL_DIP_MIN_PCT,
@@ -36,6 +40,9 @@ class AlertType(str, Enum):
     TARGET_1_HIT = "target_1_hit"
     TARGET_2_HIT = "target_2_hit"
     STOP_LOSS_HIT = "stop_loss_hit"
+    SUPPORT_BREAKDOWN = "support_breakdown"
+    EMA_CROSSOVER_5_20 = "ema_crossover_5_20"
+    AUTO_STOP_OUT = "auto_stop_out"
 
 
 @dataclass
@@ -399,6 +406,209 @@ def check_stop_loss_hit(
 
 
 # ---------------------------------------------------------------------------
+# Rule 9: Support Breakdown (SHORT)
+# ---------------------------------------------------------------------------
+
+
+def check_support_breakdown(
+    symbol: str,
+    bar: pd.Series,
+    prior_day_low: float,
+    nearest_support: float,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Support broken with high volume and conviction close — short signal.
+
+    Conditions:
+    - Close below the lower of prior_day_low and nearest_support
+    - Volume >= BREAKDOWN_VOLUME_RATIO * average
+    - Close in the lower BREAKDOWN_CONVICTION_PCT of the bar range
+    """
+    support = min(prior_day_low, nearest_support) if nearest_support > 0 else prior_day_low
+    if support <= 0:
+        return None
+    if bar["Close"] >= support:
+        return None  # not broken
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < BREAKDOWN_VOLUME_RATIO:
+        return None  # not enough volume
+
+    bar_range = bar["High"] - bar["Low"]
+    if bar_range <= 0:
+        return None
+    close_position = (bar["Close"] - bar["Low"]) / bar_range
+    if close_position > BREAKDOWN_CONVICTION_PCT:
+        return None  # not conviction close
+
+    entry = bar["Close"]
+    risk = support - entry  # positive since support > entry
+    stop = support  # stop above broken support
+    target_1 = entry - risk  # 1R below
+    target_2 = entry - 2 * risk  # 2R below
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SUPPORT_BREAKDOWN,
+        direction="SHORT",
+        price=entry,
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(target_1, 2),
+        target_2=round(target_2, 2),
+        confidence="high" if vol_ratio >= 2.0 else "medium",
+        message=(
+            f"Support breakdown at ${support:.2f} — volume {vol_ratio:.1f}x avg, "
+            f"conviction close at ${entry:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule 10: EMA Crossover 5/20 (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_ema_crossover_5_20(
+    symbol: str,
+    bars: pd.DataFrame,
+    is_mega_cap: bool,
+) -> AlertSignal | None:
+    """5-bar EMA crosses above 20-bar EMA on a mega-cap stock — bullish entry.
+
+    Conditions:
+    - Symbol is in MEGA_CAP set
+    - At least EMA_MIN_BARS bars available
+    - Previous bar: EMA5 <= EMA20; current bar: EMA5 > EMA20
+    """
+    if not is_mega_cap:
+        return None
+    if len(bars) < EMA_MIN_BARS:
+        return None
+
+    ema5 = bars["Close"].ewm(span=5, adjust=False).mean()
+    ema20 = bars["Close"].ewm(span=20, adjust=False).mean()
+
+    if len(ema5) < 2:
+        return None
+    prev_cross = ema5.iloc[-2] <= ema20.iloc[-2]
+    curr_cross = ema5.iloc[-1] > ema20.iloc[-1]
+    if not (prev_cross and curr_cross):
+        return None  # no crossover
+
+    last_bar = bars.iloc[-1]
+    entry = last_bar["Close"]
+    recent_low = bars["Low"].iloc[-5:].min()  # recent swing low as stop
+    stop = recent_low
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target_1 = entry + risk  # 1R
+    target_2 = entry + 2 * risk  # 2R
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_CROSSOVER_5_20,
+        direction="BUY",
+        price=entry,
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(target_1, 2),
+        target_2=round(target_2, 2),
+        confidence="high",
+        message=(
+            f"5/20 EMA bullish crossover — EMA5 ${ema5.iloc[-1]:.2f} "
+            f"crossed above EMA20 ${ema20.iloc[-1]:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule 11: Auto Stop-Out (SELL)
+# ---------------------------------------------------------------------------
+
+
+def check_auto_stop_out(
+    symbol: str,
+    bar: pd.Series,
+    auto_stop_entry: dict,
+) -> AlertSignal | None:
+    """Prior BUY entry's stop level breached — exit immediately.
+
+    Conditions:
+    - auto_stop_entry has valid entry_price and stop_price
+    - Bar low <= stop_price
+    """
+    entry_price = auto_stop_entry.get("entry_price", 0)
+    stop_price = auto_stop_entry.get("stop_price", 0)
+    alert_type_str = auto_stop_entry.get("alert_type", "")
+    if entry_price <= 0 or stop_price <= 0:
+        return None
+    if bar["Low"] > stop_price:
+        return None  # stop not hit
+
+    loss = entry_price - stop_price
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.AUTO_STOP_OUT,
+        direction="SELL",
+        price=stop_price,
+        entry=entry_price,
+        stop=stop_price,
+        confidence="high",
+        message=(
+            f"STOP OUT — {alert_type_str} entry at ${entry_price:.2f} failed, "
+            f"stop ${stop_price:.2f} hit (-${loss:.2f}/share). Exit immediately."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Noise filter
+# ---------------------------------------------------------------------------
+
+
+def _should_skip_noise(signal: AlertSignal, vol_ratio: float) -> bool:
+    """Skip BUY signals on very low volume — likely noise."""
+    if signal.direction != "BUY":
+        return False
+    return vol_ratio < LOW_VOLUME_SKIP_RATIO
+
+
+# ---------------------------------------------------------------------------
+# Score enrichment for intraday alerts
+# ---------------------------------------------------------------------------
+
+
+def _score_alert(
+    sig: AlertSignal,
+    ma20: float | None,
+    ma50: float | None,
+    close: float,
+    vol_ratio: float,
+) -> int:
+    """Lightweight score (0-100) for an intraday AlertSignal."""
+    score = 0
+    # MA position (25): above both = 25, one = 15, none = 0
+    above_20 = ma20 is not None and close > ma20
+    above_50 = ma50 is not None and close > ma50
+    score += 25 if (above_20 and above_50) else (15 if (above_20 or above_50) else 0)
+    # Volume (25): high = 25, normal = 15, low = 5
+    score += 25 if vol_ratio >= 1.2 else (15 if vol_ratio >= 0.8 else 5)
+    # Confidence (25): high = 25, medium = 15
+    score += 25 if sig.confidence == "high" else 15
+    # Direction alignment (25): BUY above VWAP or SHORT below = 25
+    vwap_aligned = (
+        (sig.direction == "BUY" and sig.vwap_position == "above VWAP")
+        or (sig.direction == "SHORT" and sig.vwap_position == "below VWAP")
+    )
+    score += 25 if vwap_aligned else 10
+    return score
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -408,6 +618,7 @@ def evaluate_rules(
     prior_day: dict | None,
     active_entries: list[dict] | None = None,
     spy_context: dict | None = None,
+    auto_stop_entries: dict | None = None,
 ) -> list[AlertSignal]:
     """Evaluate all 8 rules for a symbol and return fired signals.
 
@@ -541,6 +752,37 @@ def evaluate_rules(
         if sig:
             signals.append(sig)
 
+    # --- Auto Stop-Out (SELL — tracked BUY entries) ---
+    if auto_stop_entries:
+        sig = check_auto_stop_out(symbol, last_bar, auto_stop_entries)
+        if sig:
+            signals.append(sig)
+
+    # --- Support Breakdown (SHORT) ---
+    from analytics.signal_engine import _find_nearest_support
+
+    nearest_support, _ = _find_nearest_support(last_bar["Close"], prior_low, ma20, ma50)
+    sig = check_support_breakdown(
+        symbol, last_bar, prior_low, nearest_support, bar_vol, avg_vol,
+    )
+    if sig:
+        sig.message += f" ({phase})"
+        signals.append(sig)
+
+    # --- EMA Crossover 5/20 (BUY — mega-cap only) ---
+    from config import MEGA_CAP
+
+    is_mega = symbol.upper() in MEGA_CAP
+    sig = check_ema_crossover_5_20(symbol, intraday_bars, is_mega)
+    if sig:
+        sig.message += f" ({phase})"
+        sig.message += caution_suffix
+        signals.append(sig)
+
+    # --- Noise filter: drop low-volume BUY signals ---
+    vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
+    signals = [s for s in signals if not _should_skip_noise(s, vol_ratio)]
+
     # --- Enrich all signals with context ---
     for sig in signals:
         sig.spy_trend = spy_trend
@@ -552,5 +794,12 @@ def evaluate_rules(
             sig.message += f" | {vol_label}"
         if gap_info and sig.direction == "BUY":
             sig.message += f" | {gap_info}"
+        sig.score = _score_alert(sig, ma20, ma50, last_bar["Close"], vol_ratio)
+        sig.score_label = (
+            "A+" if sig.score >= 90
+            else "A" if sig.score >= 75
+            else "B" if sig.score >= 50
+            else "C"
+        )
 
     return signals
