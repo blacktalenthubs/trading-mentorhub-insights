@@ -5,10 +5,10 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from db import init_db, get_user_trades, get_annotations
-from auth import require_auth
+from auth import auto_login
 
 init_db()
-user = require_auth()
+user = auto_login()
 st.title("Symbol Deep-Dive")
 st.caption("Select a symbol to see all your trades and whether you should keep trading it")
 

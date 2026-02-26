@@ -224,6 +224,28 @@ def _render_register_form():
 # Page protection
 # ---------------------------------------------------------------------------
 
+def auto_login() -> dict:
+    """Silently log in as default admin. Creates account if needed."""
+    user = get_current_user()
+    if user:
+        render_sidebar_user_info()
+        return user
+
+    from config import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD
+
+    user = authenticate_user(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD)
+    if not user:
+        try:
+            create_user(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD, "Admin")
+        except ValueError:
+            pass  # already exists
+        user = authenticate_user(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD)
+
+    if user:
+        login_user(user)
+    return user
+
+
 def require_auth() -> dict:
     """Call at the top of any protected page.
 
@@ -236,7 +258,7 @@ def require_auth() -> dict:
         return user
 
     st.title("Login Required")
-    st.caption("Sign in to access your trade analytics.")
+    st.caption("Sign in to TradeSignal")
 
     tab_login, tab_register = st.tabs(["Login", "Register"])
     with tab_login:

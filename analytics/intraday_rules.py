@@ -2,6 +2,13 @@
 
 BUY rules (1-4): MA bounce 20/50, prior day low reclaim, inside day breakout.
 SELL rules (5-8): Resistance at prior high, target 1/2 hit, stop loss hit.
+
+Context filters (applied before/after rules):
+- SPY trend: skip BUY if SPY below 20MA
+- Session timing: no new BUY entries during opening range or last 30 min
+- Volume confirmation: label signal bar volume
+- VWAP position: note above/below VWAP
+- Gap analysis: adjust confidence on gap days
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from alert_config import (
     PDL_DIP_MIN_PCT,
     RESISTANCE_PROXIMITY_PCT,
 )
+from analytics.market_hours import get_session_phase, allow_new_entries
 
 
 class AlertType(str, Enum):
@@ -44,6 +52,23 @@ class AlertSignal:
     target_2: float | None = None
     confidence: str = ""
     message: str = ""
+    spy_trend: str = ""
+    session_phase: str = ""
+    volume_label: str = ""
+    vwap_position: str = ""
+    gap_info: str = ""
+    score: int = 0
+    score_label: str = ""
+
+
+def _volume_label(bar_volume: float, avg_volume: float) -> str:
+    """Classify volume of the signal bar relative to average."""
+    ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if ratio >= 1.5:
+        return "high volume"
+    elif ratio <= 0.5:
+        return "low volume (caution)"
+    return "normal volume"
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +337,10 @@ def check_target_1_hit(
         alert_type=AlertType.TARGET_1_HIT,
         direction="SELL",
         price=target_1,
-        message=f"Target 1 hit at ${target_1:.2f} (1R from entry ${entry_price:.2f})",
+        message=(
+            f"T1 hit at ${target_1:.2f} (1R from entry ${entry_price:.2f}) "
+            f"— sell half, move stop to breakeven"
+        ),
     )
 
 
@@ -379,8 +407,14 @@ def evaluate_rules(
     intraday_bars: pd.DataFrame,
     prior_day: dict | None,
     active_entries: list[dict] | None = None,
+    spy_context: dict | None = None,
 ) -> list[AlertSignal]:
     """Evaluate all 8 rules for a symbol and return fired signals.
+
+    Context filters applied:
+    - SPY trend: skip BUY rules if SPY is bearish
+    - Session timing: skip BUY rules during opening range and last 30 min
+    - Volume/VWAP/Gap: enrich signal messages after rules fire
 
     Args:
         symbol: Ticker symbol.
@@ -388,6 +422,7 @@ def evaluate_rules(
         prior_day: Dict from fetch_prior_day() with prior day context.
         active_entries: List of dicts with entry_price, stop_price, target_1, target_2
                         from active_entries table.
+        spy_context: Dict from get_spy_context() with SPY trend info.
 
     Returns:
         List of AlertSignal objects for rules that fired.
@@ -403,25 +438,75 @@ def evaluate_rules(
     prior_high = prior_day.get("high", 0)
     prior_low = prior_day.get("low", 0)
 
-    # --- BUY rules ---
+    # --- Context filters ---
+    spy = spy_context or {}
+    spy_trend = spy.get("trend", "neutral")
+    phase = get_session_phase()
+    entries_allowed = allow_new_entries()
 
-    sig = check_ma_bounce_20(symbol, last_bar, ma20, ma50)
-    if sig:
-        signals.append(sig)
+    # Compute VWAP for context enrichment
+    from analytics.intraday_data import compute_vwap, classify_gap
+    vwap_series = compute_vwap(intraday_bars)
+    current_vwap = vwap_series.iloc[-1] if not vwap_series.empty else None
+    vwap_pos = ""
+    if current_vwap and current_vwap > 0:
+        vwap_pos = "above VWAP" if last_bar["Close"] > current_vwap else "below VWAP"
 
-    sig = check_ma_bounce_50(symbol, last_bar, ma20, ma50, prior_close)
-    if sig:
-        signals.append(sig)
+    # Compute gap context
+    today_open = intraday_bars["Open"].iloc[0] if not intraday_bars.empty else 0
+    prior_range = prior_day.get("parent_range", prior_high - prior_low)
+    gap = classify_gap(today_open, prior_close, prior_range)
+    gap_info = ""
+    if gap["type"] != "flat":
+        gap_info = f"{gap['type'].replace('_', ' ')} ({gap['gap_pct']:+.1f}%)"
 
-    sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
-    if sig:
-        signals.append(sig)
+    # Volume context
+    avg_vol = intraday_bars["Volume"].mean() if not intraday_bars.empty else 0
+    bar_vol = last_bar["Volume"]
+    vol_label = _volume_label(bar_vol, avg_vol)
 
-    sig = check_inside_day_breakout(symbol, last_bar, prior_day)
-    if sig:
-        signals.append(sig)
+    # --- BUY rules (gated by SPY trend + session timing) ---
+    skip_buys = spy_trend == "bearish" or not entries_allowed
 
-    # --- SELL rules (require active entries) ---
+    if not skip_buys:
+        sig = check_ma_bounce_20(symbol, last_bar, ma20, ma50)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+                if vwap_pos == "below VWAP":
+                    sig.message += " (use caution)"
+                else:
+                    sig.message += " (bullish confirmation)"
+            signals.append(sig)
+
+        sig = check_ma_bounce_50(symbol, last_bar, ma20, ma50, prior_close)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            signals.append(sig)
+
+        sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
+        if sig:
+            sig.message += f" ({phase})"
+            # Gap down days boost PDL reclaim confidence
+            if gap["type"] == "gap_down":
+                sig.confidence = "high"
+                sig.message += " — gap fill opportunity"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            signals.append(sig)
+
+        sig = check_inside_day_breakout(symbol, last_bar, prior_day)
+        if sig:
+            sig.message += f" ({phase})"
+            # Gap up reduces MA bounce likelihood but inside day breakouts are different
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            signals.append(sig)
+
+    # --- SELL rules (always fire regardless of SPY/session) ---
 
     entries = active_entries or []
     has_active = len(entries) > 0
@@ -447,5 +532,17 @@ def evaluate_rules(
         sig = check_stop_loss_hit(symbol, last_bar, ep, sp)
         if sig:
             signals.append(sig)
+
+    # --- Enrich all signals with context ---
+    for sig in signals:
+        sig.spy_trend = spy_trend
+        sig.session_phase = phase
+        sig.volume_label = vol_label
+        sig.vwap_position = vwap_pos
+        sig.gap_info = gap_info
+        if sig.direction == "BUY" and vol_label:
+            sig.message += f" | {vol_label}"
+        if gap_info and sig.direction == "BUY":
+            sig.message += f" | {gap_info}"
 
     return signals

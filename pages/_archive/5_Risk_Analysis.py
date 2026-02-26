@@ -6,11 +6,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from db import init_db, get_user_trades
-from auth import require_auth
+from auth import auto_login
 from analytics.wash_sale import detect_wash_sales, get_wash_sale_timeline
 
 init_db()
-user = require_auth()
+user = auto_login()
 st.title("Risk Analysis")
 
 df = get_user_trades(user["id"])

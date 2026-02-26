@@ -5,10 +5,10 @@ import pandas as pd
 import plotly.express as px
 
 from db import init_db, get_user_trades
-from auth import require_auth
+from auth import auto_login
 
 init_db()
-user = require_auth()
+user = auto_login()
 st.title("Trade Analysis")
 
 df = get_user_trades(user["id"])

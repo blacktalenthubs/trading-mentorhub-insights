@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from config import STOP_LOSS_PCT
 from db import init_db, get_user_trades
-from auth import get_current_user, render_sidebar_user_info
+from auth import auto_login
 from analytics.market_data import (
     fetch_ohlc as _fetch_ohlc,
     classify_day,
@@ -15,9 +15,7 @@ from analytics.market_data import (
 )
 
 init_db()
-user = get_current_user()
-if user:
-    render_sidebar_user_info()
+user = auto_login()
 st.title("Pre-Market Planner")
 st.caption("Identify the day type, know your levels, size your risk — before the bell")
 

@@ -15,10 +15,10 @@ from models import ImportRecord
 from parsers.parser_1099 import parse_1099
 from parsers.parser_statement import parse_statement
 from analytics.trade_matcher import match_trades_fifo
-from auth import require_auth
+from auth import auto_login
 
 init_db()
-user = require_auth()
+user = auto_login()
 st.title("Import Data")
 
 # --- File Upload ---

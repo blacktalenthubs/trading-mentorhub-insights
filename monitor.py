@@ -29,7 +29,7 @@ from alerting.alert_store import (
     was_alert_fired,
 )
 from alerting.notifier import notify, send_email, send_sms
-from analytics.intraday_data import fetch_intraday, fetch_prior_day
+from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
 from db import init_db
 
@@ -59,7 +59,8 @@ def poll_cycle(dry_run: bool = False) -> int:
                 continue
 
             active = get_active_entries(symbol, session)
-            signals = evaluate_rules(symbol, intraday, prior_day, active)
+            spy_ctx = get_spy_context()
+            signals = evaluate_rules(symbol, intraday, prior_day, active, spy_context=spy_ctx)
 
             for signal in signals:
                 # Dedup: skip if already fired today

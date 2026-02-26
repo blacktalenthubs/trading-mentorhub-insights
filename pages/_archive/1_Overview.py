@@ -6,10 +6,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from db import init_db, get_user_trades, get_user_options
-from auth import require_auth
+from auth import auto_login
 
 init_db()
-user = require_auth()
+user = auto_login()
 st.title("Overview")
 
 df = get_user_trades(user["id"])

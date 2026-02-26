@@ -1,5 +1,7 @@
 """Signal Scanner — Actionable trade plans for your watchlist."""
 
+from __future__ import annotations
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,7 +17,7 @@ from analytics.market_data import classify_day, fetch_ohlc
 from analytics.signal_engine import (
     scan_watchlist, SignalResult, ACTION_LABELS, action_label, action_color, action_help,
 )
-from analytics.intraday_data import fetch_intraday, fetch_prior_day
+from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import evaluate_rules
 from analytics.market_hours import is_market_hours
 
@@ -60,6 +62,8 @@ def _cached_scan(syms: tuple[str, ...]) -> list[dict]:
             "avg_volume": r.avg_volume,
             "last_volume": r.last_volume,
             "volume_ratio": r.volume_ratio,
+            "score": r.score,
+            "score_label": r.score_label,
         }
         for r in results
     ]
@@ -95,6 +99,18 @@ def _color_pattern(val):
         return "background-color: #3498db33; font-weight: bold"
     if val == "OUTSIDE":
         return "background-color: #e74c3c33; font-weight: bold"
+    return ""
+
+
+def _color_score(val):
+    if "A+" in str(val):
+        return "color: #2ecc71; font-weight: bold"
+    if "A " in str(val) or str(val).startswith("A ("):
+        return "color: #2ecc71; font-weight: bold"
+    if "B" in str(val):
+        return "color: #f39c12; font-weight: bold"
+    if "C" in str(val):
+        return "color: #e74c3c; font-weight: bold"
     return ""
 
 
@@ -317,12 +333,16 @@ at_support = sum(1 for r in results if r.support_status == "AT SUPPORT")
 breakout = sum(1 for r in results if r.support_status == "BREAKOUT")
 watching = sum(1 for r in results if r.support_status == "PULLBACK WATCH")
 broken = sum(1 for r in results if r.support_status == "BROKEN")
+a_plus_count = sum(1 for r in results if r.score >= 90)
+a_count = sum(1 for r in results if 75 <= r.score < 90)
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("BUY ZONE", at_support, help=action_help("AT SUPPORT"))
 col2.metric("BREAKOUT SETUP", breakout, help=action_help("BREAKOUT"))
 col3.metric("WAIT FOR DIP", watching, help=action_help("PULLBACK WATCH"))
 col4.metric("NO TRADE", broken, help=action_help("BROKEN"))
+col5.metric("A+ / A Signals", f"{a_plus_count} / {a_count}",
+            help="A+ (90+): full size | A (75+): normal size")
 
 st.divider()
 
@@ -336,6 +356,7 @@ for r in results:
     total_risk = shares * r.risk_per_share
     table_rows.append({
         "Symbol": r.symbol,
+        "Score": f"{r.score_label} ({r.score})",
         "Price": r.last_close,
         "Status": action_label(r.support_status),
         "Pattern": r.pattern.upper(),
@@ -361,7 +382,8 @@ st.dataframe(
         "Risk/Sh": "${:,.2f}", "$ Risk": "${:,.0f}",
     })
     .applymap(_color_status, subset=["Status"])
-    .applymap(_color_pattern, subset=["Pattern"]),
+    .applymap(_color_pattern, subset=["Pattern"])
+    .applymap(_color_score, subset=["Score"]),
     use_container_width=True,
     hide_index=True,
 )
@@ -377,7 +399,7 @@ for r in results:
     _acolor = action_color(r.support_status)
 
     with st.expander(
-        f"{r.symbol}  |  {_label}  |  "
+        f"{r.symbol}  |  {_label}  |  Score: {r.score_label} ({r.score})  |  "
         f"Entry ${r.entry:,.2f}  Stop ${r.stop:,.2f}  Target ${r.target_1:,.2f}"
     ):
         # ── Support status + bias ─────────────────────────────────────
@@ -501,7 +523,8 @@ for r in results:
                         "target_2": r.target_2,
                     })
 
-                signals = evaluate_rules(r.symbol, intra_bars, prior, active_entries)
+                _spy_ctx = get_spy_context()
+                signals = evaluate_rules(r.symbol, intra_bars, prior, active_entries, spy_context=_spy_ctx)
                 if signals:
                     for sig in signals:
                         sig_color = "#2ecc71" if sig.direction == "BUY" else "#e74c3c"

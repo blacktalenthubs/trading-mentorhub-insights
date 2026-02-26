@@ -55,6 +55,10 @@ class SignalResult:
     last_volume: float = 0.0
     volume_ratio: float = 0.0
 
+    # Signal score (0-100)
+    score: int = 0
+    score_label: str = ""  # "A+" (90+), "A" (75+), "B" (50+), "C" (<50)
+
 
 # ---------------------------------------------------------------------------
 # Actionable display labels
@@ -186,6 +190,65 @@ def _build_trade_plan(
 
 
 # ---------------------------------------------------------------------------
+# Signal scoring (wires up SIGNAL_WEIGHTS from config.py)
+# ---------------------------------------------------------------------------
+
+def _score_label(score: int) -> str:
+    """Map numeric score to letter grade."""
+    if score >= 90:
+        return "A+"
+    if score >= 75:
+        return "A"
+    if score >= 50:
+        return "B"
+    return "C"
+
+
+def compute_signal_score(result: SignalResult) -> int:
+    """Score a signal 0-100 based on 4 factors (25 pts each).
+
+    Uses SIGNAL_WEIGHTS from config.py for factor weights.
+    """
+    score = 0
+
+    # Candle pattern (25): inside day or reclaim = 25, normal = 15, outside down = 5
+    if result.pattern == "inside":
+        score += 25
+    elif result.support_status == "AT SUPPORT":
+        score += 20
+    elif result.pattern == "normal":
+        score += 15
+    else:
+        score += 5
+
+    # MA position (25): price above both MAs = 25, above one = 15, below both = 0
+    above_20 = result.ma20 is not None and result.last_close > result.ma20
+    above_50 = result.ma50 is not None and result.last_close > result.ma50
+    if above_20 and above_50:
+        score += 25
+    elif above_20 or above_50:
+        score += 15
+
+    # Support proximity (25): at support = 25, within 1% = 15, >1% = 5
+    if abs(result.distance_pct) <= 0.5:
+        score += 25
+    elif abs(result.distance_pct) <= 1.0:
+        score += 15
+    else:
+        score += 5
+
+    # Volume (25): above average = 25, normal = 15, below = 5
+    if result.volume_ratio >= 1.2:
+        score += 25
+    elif result.volume_ratio >= 0.8:
+        score += 15
+    else:
+        score += 5
+
+    return score
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -233,7 +296,7 @@ def analyze_symbol(hist: pd.DataFrame, symbol: str = "") -> SignalResult | None:
     # One-line bias
     bias = levels.get("bias", "")
 
-    return SignalResult(
+    result = SignalResult(
         symbol=symbol,
         last_close=close,
         prior_high=prior_high,
@@ -260,6 +323,12 @@ def analyze_symbol(hist: pd.DataFrame, symbol: str = "") -> SignalResult | None:
         last_volume=last_vol,
         volume_ratio=vol_ratio,
     )
+
+    # Compute signal score
+    result.score = compute_signal_score(result)
+    result.score_label = _score_label(result.score)
+
+    return result
 
 
 def scan_watchlist(

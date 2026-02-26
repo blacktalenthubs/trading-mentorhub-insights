@@ -57,23 +57,34 @@ def _format_email_body(signal: AlertSignal) -> str:
 
 
 def _format_sms_body(signal: AlertSignal) -> str:
-    """Build a compact SMS message (target: 160 chars)."""
-    parts = [f"{signal.direction} {signal.symbol} ${signal.price:.2f}"]
-
+    """Build an enhanced SMS/WhatsApp message with context."""
     label = signal.alert_type.value.replace("_", " ").title()
+    parts = [f"{signal.direction} {signal.symbol} ${signal.price:.2f}"]
     parts.append(label)
+
+    # Session phase context
+    if signal.session_phase:
+        parts[-1] += f" ({signal.session_phase.replace('_', ' ')})"
+
+    # Context line: SPY + Volume + VWAP
+    context_bits = []
+    if signal.spy_trend:
+        context_bits.append(f"SPY: {signal.spy_trend}")
+    if signal.volume_label:
+        context_bits.append(f"Vol: {signal.volume_label.split(' (')[0]}")
+    if signal.vwap_position:
+        context_bits.append(f"VWAP: {signal.vwap_position.replace('VWAP', '').strip()}")
+    if context_bits:
+        parts.append(" | ".join(context_bits))
 
     if signal.stop is not None and signal.target_1 is not None:
         parts.append(f"Stop ${signal.stop:.2f} T1 ${signal.target_1:.2f}")
 
-    if signal.entry and signal.stop:
-        risk = signal.entry - signal.stop
-        if risk > 0 and signal.target_1:
-            reward = signal.target_1 - signal.entry
-            rr = reward / risk
-            parts.append(f"R:R 1:{rr:.0f}")
+    # Score
+    if signal.score > 0:
+        parts.append(f"Score: {signal.score_label} ({signal.score}/100)")
 
-    return "\n".join(parts)[:160]
+    return "\n".join(parts)[:320]
 
 
 def send_email(signal: AlertSignal) -> bool:
