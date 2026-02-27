@@ -21,12 +21,17 @@ import pandas as pd
 from alert_config import (
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
+    DAY_TRADE_MAX_RISK_PCT,
     EMA_MIN_BARS,
     LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_PROXIMITY_PCT,
     MA_STOP_OFFSET_PCT,
+    ORB_MIN_RANGE_PCT,
+    ORB_VOLUME_RATIO,
     PDL_DIP_MIN_PCT,
+    PER_SYMBOL_RISK,
     RESISTANCE_PROXIMITY_PCT,
+    RS_UNDERPERFORM_FACTOR,
 )
 from analytics.market_hours import get_session_phase, allow_new_entries
 
@@ -43,6 +48,8 @@ class AlertType(str, Enum):
     SUPPORT_BREAKDOWN = "support_breakdown"
     EMA_CROSSOVER_5_20 = "ema_crossover_5_20"
     AUTO_STOP_OUT = "auto_stop_out"
+    OPENING_RANGE_BREAKOUT = "opening_range_breakout"
+    GAP_FILL = "gap_fill"
 
 
 @dataclass
@@ -66,6 +73,8 @@ class AlertSignal:
     gap_info: str = ""
     score: int = 0
     score_label: str = ""
+    rs_ratio: float = 0.0
+    mtf_aligned: bool = False
 
 
 def _volume_label(bar_volume: float, avg_volume: float) -> str:
@@ -76,6 +85,26 @@ def _volume_label(bar_volume: float, avg_volume: float) -> str:
     elif ratio <= 0.5:
         return "low volume (caution)"
     return "normal volume"
+
+
+def _cap_risk(
+    entry: float,
+    stop: float,
+    max_risk_pct: float = DAY_TRADE_MAX_RISK_PCT,
+    symbol: str | None = None,
+) -> float:
+    """Tighten stop if risk exceeds max_risk_pct of entry.
+
+    If symbol is provided and found in PER_SYMBOL_RISK, uses that rate
+    instead of the default. Backward compatible without symbol arg.
+    """
+    if entry <= 0 or stop <= 0:
+        return stop
+    rate = PER_SYMBOL_RISK.get(symbol, max_risk_pct) if symbol else max_risk_pct
+    max_risk = entry * rate
+    if entry - stop > max_risk:
+        return round(entry - max_risk, 2)
+    return stop
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +139,7 @@ def check_ma_bounce_20(
         return None  # didn't bounce above
 
     entry = bar["Close"]
-    stop = min(bar["Low"], ma20 * (1 - MA_STOP_OFFSET_PCT))
+    stop = max(bar["Low"], ma20 * (1 - MA_STOP_OFFSET_PCT))
     risk = entry - stop
     if risk <= 0:
         return None
@@ -163,7 +192,7 @@ def check_ma_bounce_50(
         return None
 
     entry = bar["Close"]
-    stop = min(bar["Low"], ma50 * (1 - MA_STOP_OFFSET_PCT))
+    stop = max(bar["Low"], ma50 * (1 - MA_STOP_OFFSET_PCT))
     risk = entry - stop
     if risk <= 0:
         return None
@@ -216,7 +245,7 @@ def check_prior_day_low_reclaim(
 
     entry = prior_day_low
     intraday_low = bars["Low"].min()
-    stop = intraday_low
+    stop = last_bar["Low"]  # bar that confirmed reclaim, not widest intraday low
     risk = entry - stop
     if risk <= 0:
         return None
@@ -499,7 +528,7 @@ def check_ema_crossover_5_20(
 
     last_bar = bars.iloc[-1]
     entry = last_bar["Close"]
-    recent_low = bars["Low"].iloc[-5:].min()  # recent swing low as stop
+    recent_low = bars["Low"].iloc[-3:].min()  # recent swing low as stop
     stop = recent_low
     risk = entry - stop
     if risk <= 0:
@@ -566,6 +595,102 @@ def check_auto_stop_out(
 
 
 # ---------------------------------------------------------------------------
+# Rule 12: Opening Range Breakout (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_opening_range_breakout(
+    symbol: str,
+    bar: pd.Series,
+    opening_range: dict | None,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price breaks above the 30-min opening range with volume confirmation.
+
+    Conditions:
+    - Opening range is complete (>= 6 bars of 5-min data)
+    - OR range >= ORB_MIN_RANGE_PCT of price
+    - Bar close > OR high
+    - Volume >= ORB_VOLUME_RATIO * average
+    """
+    if opening_range is None or not opening_range.get("or_complete"):
+        return None
+
+    or_high = opening_range["or_high"]
+    or_low = opening_range["or_low"]
+    or_range = opening_range["or_range"]
+    or_range_pct = opening_range["or_range_pct"]
+
+    if or_range_pct < ORB_MIN_RANGE_PCT:
+        return None  # range too small
+
+    if bar["Close"] <= or_high:
+        return None  # hasn't broken out
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < ORB_VOLUME_RATIO:
+        return None  # insufficient volume
+
+    entry = or_high
+    stop = or_low
+    target_1 = or_high + or_range
+    target_2 = or_high + 2 * or_range
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.OPENING_RANGE_BREAKOUT,
+        direction="BUY",
+        price=bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(target_1, 2),
+        target_2=round(target_2, 2),
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=(
+            f"Opening range breakout — broke above OR high ${or_high:.2f} "
+            f"(range ${or_range:.2f}, vol {vol_ratio:.1f}x)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule 13: Gap Fill (INFO)
+# ---------------------------------------------------------------------------
+
+
+def check_gap_fill(
+    symbol: str,
+    bar: pd.Series,
+    gap_info: dict,
+) -> AlertSignal | None:
+    """Gap fully fills — informational signal.
+
+    Fires when gap_info shows is_filled=True. Direction: SELL for gap_up fill
+    (bearish cue), BUY for gap_down fill (bullish cue). No entry/stop/target.
+    """
+    if not gap_info or not gap_info.get("is_filled"):
+        return None
+    if gap_info.get("gap_direction") == "flat":
+        return None
+
+    direction = "SELL" if gap_info["gap_direction"] == "gap_up" else "BUY"
+    gap_pct = gap_info.get("gap_pct", 0)
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.GAP_FILL,
+        direction=direction,
+        price=bar["Close"],
+        confidence="medium",
+        message=(
+            f"Gap fill complete — {gap_info['gap_direction'].replace('_', ' ')} "
+            f"({gap_pct:+.1f}%) fully filled"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Noise filter
 # ---------------------------------------------------------------------------
 
@@ -619,13 +744,17 @@ def evaluate_rules(
     active_entries: list[dict] | None = None,
     spy_context: dict | None = None,
     auto_stop_entries: dict | None = None,
+    is_cooled_down: bool = False,
+    fired_today: set[tuple[str, str]] | None = None,
 ) -> list[AlertSignal]:
-    """Evaluate all 8 rules for a symbol and return fired signals.
+    """Evaluate all rules for a symbol and return fired signals.
 
     Context filters applied:
     - SPY trend: skip BUY rules if SPY is bearish
     - Session timing: skip BUY rules during opening range and last 30 min
     - Volume/VWAP/Gap: enrich signal messages after rules fire
+    - Cooldown: skip BUY rules when is_cooled_down is True
+    - Dedup: skip signals already in fired_today set
 
     Args:
         symbol: Ticker symbol.
@@ -634,6 +763,9 @@ def evaluate_rules(
         active_entries: List of dicts with entry_price, stop_price, target_1, target_2
                         from active_entries table.
         spy_context: Dict from get_spy_context() with SPY trend info.
+        auto_stop_entries: Dict with entry for auto stop-out tracking.
+        is_cooled_down: If True, suppress all BUY signals (post stop-out cooldown).
+        fired_today: Set of (symbol, alert_type) tuples already fired this session.
 
     Returns:
         List of AlertSignal objects for rules that fired.
@@ -656,7 +788,10 @@ def evaluate_rules(
     entries_allowed = allow_new_entries()
 
     # Compute VWAP for context enrichment
-    from analytics.intraday_data import compute_vwap, classify_gap
+    from analytics.intraday_data import (
+        compute_vwap, classify_gap,
+        compute_opening_range, check_mtf_alignment, track_gap_fill,
+    )
     vwap_series = compute_vwap(intraday_bars)
     current_vwap = vwap_series.iloc[-1] if not vwap_series.empty else None
     vwap_pos = ""
@@ -676,6 +811,23 @@ def evaluate_rules(
     bar_vol = last_bar["Volume"]
     vol_label = _volume_label(bar_vol, avg_vol)
 
+    # Compute opening range for ORB rule
+    opening_range = compute_opening_range(intraday_bars)
+
+    # Compute MTF alignment
+    mtf = check_mtf_alignment(intraday_bars)
+
+    # Track gap fill
+    gap_fill_info = track_gap_fill(intraday_bars, today_open, prior_close)
+
+    # Compute symbol intraday % change for RS filter
+    sym_intraday_change = 0.0
+    if not intraday_bars.empty and len(intraday_bars) >= 2:
+        sym_open = intraday_bars["Open"].iloc[0]
+        sym_current = last_bar["Close"]
+        if sym_open > 0:
+            sym_intraday_change = (sym_current - sym_open) / sym_open * 100
+
     # --- BUY rules (context adds caution notes, never blocks signals) ---
     caution_notes = []
     if spy_trend == "bearish":
@@ -684,7 +836,7 @@ def evaluate_rules(
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
-    if True:  # always evaluate BUY rules
+    if not is_cooled_down:  # skip BUY rules during post stop-out cooldown
         sig = check_ma_bounce_20(symbol, last_bar, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
@@ -725,6 +877,21 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
+        # --- Opening Range Breakout ---
+        sig = check_opening_range_breakout(
+            symbol, last_bar, opening_range, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+    # --- Gap Fill (INFO — fires regardless of cooldown) ---
+    sig = check_gap_fill(symbol, last_bar, gap_fill_info)
+    if sig:
+        sig.message += f" ({phase})"
+        signals.append(sig)
+
     # --- SELL rules (always fire regardless of SPY/session) ---
 
     entries = active_entries or []
@@ -760,31 +927,69 @@ def evaluate_rules(
 
     # --- Support Breakdown (SHORT) ---
     from analytics.signal_engine import _find_nearest_support
+    from analytics.intraday_data import detect_intraday_supports
 
     nearest_support, _ = _find_nearest_support(last_bar["Close"], prior_low, ma20, ma50)
+
+    # Include intraday hourly supports — use closest below current price
+    intraday_supports = detect_intraday_supports(intraday_bars)
+    for lvl in sorted(intraday_supports, reverse=True):
+        if lvl < last_bar["Close"]:
+            # Tighten nearest_support if intraday level is closer
+            if nearest_support <= 0 or lvl > nearest_support:
+                nearest_support = lvl
+            break
+
     sig = check_support_breakdown(
         symbol, last_bar, prior_low, nearest_support, bar_vol, avg_vol,
     )
     if sig:
         sig.message += f" ({phase})"
+        if intraday_supports:
+            sig.message += f" | intraday supports: {intraday_supports}"
         signals.append(sig)
 
     # --- EMA Crossover 5/20 (BUY — mega-cap only) ---
-    from config import MEGA_CAP
+    if not is_cooled_down:
+        from config import MEGA_CAP
 
-    is_mega = symbol.upper() in MEGA_CAP
-    sig = check_ema_crossover_5_20(symbol, intraday_bars, is_mega)
-    if sig:
-        sig.message += f" ({phase})"
-        sig.message += caution_suffix
-        signals.append(sig)
+        is_mega = symbol.upper() in MEGA_CAP
+        sig = check_ema_crossover_5_20(symbol, intraday_bars, is_mega)
+        if sig:
+            sig.message += f" ({phase})"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+    # --- Breakdown day suppression: remove BUY signals when SHORT fires ---
+    has_breakdown = any(s.alert_type == AlertType.SUPPORT_BREAKDOWN for s in signals)
+    if has_breakdown:
+        signals = [s for s in signals if s.direction != "BUY"]
+
+    # --- Dedup: remove signals already fired today ---
+    if fired_today:
+        signals = [
+            s for s in signals
+            if (symbol, s.alert_type.value) not in fired_today
+        ]
 
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
     signals = [s for s in signals if not _should_skip_noise(s, vol_ratio)]
 
+    # --- Relative Strength filter ---
+    spy_intraday_change = spy.get("intraday_change_pct", 0.0)
+
     # --- Enrich all signals with context ---
     for sig in signals:
+        # Apply per-symbol risk cap to all BUY signals and recalculate targets
+        if sig.direction == "BUY" and sig.entry and sig.stop:
+            capped_stop = _cap_risk(sig.entry, sig.stop, symbol=symbol)
+            if capped_stop != sig.stop:
+                sig.stop = capped_stop
+                risk = sig.entry - sig.stop
+                sig.target_1 = round(sig.entry + risk, 2)
+                sig.target_2 = round(sig.entry + 2 * risk, 2)
+
         sig.spy_trend = spy_trend
         sig.session_phase = phase
         sig.volume_label = vol_label
@@ -794,7 +999,35 @@ def evaluate_rules(
             sig.message += f" | {vol_label}"
         if gap_info and sig.direction == "BUY":
             sig.message += f" | {gap_info}"
+
+        # RS filter: demote BUY confidence when severely underperforming SPY
+        if sig.direction == "BUY" and spy_intraday_change != 0:
+            rs_ratio = sym_intraday_change / spy_intraday_change if spy_intraday_change != 0 else 0.0
+            sig.rs_ratio = round(rs_ratio, 2)
+            # If both are negative and symbol is falling N times harder than SPY
+            if (spy_intraday_change < 0 and sym_intraday_change < 0
+                    and sym_intraday_change < spy_intraday_change * RS_UNDERPERFORM_FACTOR):
+                if sig.confidence == "high":
+                    sig.confidence = "medium"
+                sig.message += (
+                    f" | RS CAUTION: {symbol} {sym_intraday_change:+.1f}% vs "
+                    f"SPY {spy_intraday_change:+.1f}% (underperforming {rs_ratio:.1f}x)"
+                )
+
+        # MTF alignment enrichment
+        sig.mtf_aligned = mtf["mtf_aligned"]
+        if sig.direction == "BUY":
+            if mtf["mtf_aligned"]:
+                sig.message += " | 15m trend aligned"
+            else:
+                sig.message += " | 15m trend NOT aligned (caution)"
+
         sig.score = _score_alert(sig, ma20, ma50, last_bar["Close"], vol_ratio)
+
+        # MTF alignment score boost
+        if sig.direction == "BUY" and mtf["mtf_aligned"]:
+            sig.score = min(100, sig.score + 10)
+
         sig.score_label = (
             "A+" if sig.score >= 90
             else "A" if sig.score >= 75

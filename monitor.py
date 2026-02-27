@@ -14,8 +14,11 @@ import argparse
 import logging
 import sys
 
+from datetime import datetime, timedelta
+
 from alert_config import (
     ALERT_WATCHLIST,
+    COOLDOWN_MINUTES,
     POLL_INTERVAL_MINUTES,
 )
 from analytics.market_hours import is_market_hours
@@ -40,6 +43,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("monitor")
 
+# Module-level state for auto stop-out tracking and cooldown
+_auto_stop_entries: dict[str, dict] = {}  # {symbol: {entry_price, stop_price, alert_type}}
+_cooldown: dict[str, datetime] = {}  # {symbol: cooldown_until}
+
 
 def poll_cycle(dry_run: bool = False) -> int:
     """Run one poll cycle: fetch data, evaluate rules, send notifications.
@@ -48,6 +55,11 @@ def poll_cycle(dry_run: bool = False) -> int:
     """
     session = today_session()
     total_alerts = 0
+
+    now = datetime.now()
+    cooled_symbols: set[str] = {
+        sym for sym, until in _cooldown.items() if until > now
+    }
 
     for symbol in ALERT_WATCHLIST:
         try:
@@ -60,7 +72,12 @@ def poll_cycle(dry_run: bool = False) -> int:
 
             active = get_active_entries(symbol, session)
             spy_ctx = get_spy_context()
-            signals = evaluate_rules(symbol, intraday, prior_day, active, spy_context=spy_ctx)
+            signals = evaluate_rules(
+                symbol, intraday, prior_day, active,
+                spy_context=spy_ctx,
+                auto_stop_entries=_auto_stop_entries.get(symbol),
+                is_cooled_down=symbol in cooled_symbols,
+            )
 
             for signal in signals:
                 # Dedup: skip if already fired today
@@ -85,10 +102,18 @@ def poll_cycle(dry_run: bool = False) -> int:
                 # Track active entries for BUY signals
                 if signal.direction == "BUY":
                     create_active_entry(signal, session)
+                    if signal.entry and signal.stop:
+                        _auto_stop_entries[symbol] = {
+                            "entry_price": signal.entry,
+                            "stop_price": signal.stop,
+                            "alert_type": signal.alert_type.value,
+                        }
 
-                # Stop loss cancels all active entries for this symbol
-                if signal.alert_type == AlertType.STOP_LOSS_HIT:
+                # Stop loss / auto stop-out: cancel entries and start cooldown
+                if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
                     close_all_entries_for_symbol(symbol, session)
+                    _auto_stop_entries.pop(symbol, None)
+                    _cooldown[symbol] = datetime.now() + timedelta(minutes=COOLDOWN_MINUTES)
 
                 logger.info(
                     "ALERT: %s %s %s @ $%.2f (email=%s, sms=%s)",

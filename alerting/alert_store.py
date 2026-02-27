@@ -154,3 +154,50 @@ def get_monitor_status() -> dict | None:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM monitor_status WHERE id=1").fetchone()
         return dict(row) if row else None
+
+
+def get_session_summary(session_date: str | None = None) -> dict:
+    """Aggregate today's alerts into a session summary.
+
+    Returns dict with total, buy_count, sell_count, short_count,
+    t1_hits, stopped_out, signals_by_type, best_signal, worst_signal.
+    """
+    alerts = get_alerts_today(session_date)
+
+    summary = {
+        "total": len(alerts),
+        "buy_count": 0,
+        "sell_count": 0,
+        "short_count": 0,
+        "t1_hits": 0,
+        "t2_hits": 0,
+        "stopped_out": 0,
+        "signals_by_type": {},
+        "symbols": set(),
+        "alerts": alerts,
+    }
+
+    for a in alerts:
+        direction = a.get("direction", "")
+        alert_type = a.get("alert_type", "")
+        symbol = a.get("symbol", "")
+
+        if direction == "BUY":
+            summary["buy_count"] += 1
+        elif direction == "SELL":
+            summary["sell_count"] += 1
+        elif direction == "SHORT":
+            summary["short_count"] += 1
+
+        if alert_type == "target_1_hit":
+            summary["t1_hits"] += 1
+        elif alert_type == "target_2_hit":
+            summary["t2_hits"] += 1
+        elif alert_type in ("stop_loss_hit", "auto_stop_out"):
+            summary["stopped_out"] += 1
+
+        summary["signals_by_type"][alert_type] = summary["signals_by_type"].get(alert_type, 0) + 1
+        summary["symbols"].add(symbol)
+
+    summary["symbols"] = list(summary["symbols"])
+    return summary

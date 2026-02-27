@@ -70,6 +70,27 @@ EMA_MIN_BARS = 25
 # Noise filter: skip BUY signals when volume ratio is below this
 LOW_VOLUME_SKIP_RATIO = 0.4
 
+# Day-trade risk cap: max allowed risk per trade as % of entry price
+DAY_TRADE_MAX_RISK_PCT = 0.003  # 0.3%
+
+# Cooldown: minutes to suppress BUY signals after a stop-out
+COOLDOWN_MINUTES = 30
+
+# Opening Range Breakout: minimum OR range as % of price
+ORB_MIN_RANGE_PCT = 0.003  # 0.3%
+
+# Opening Range Breakout: volume must be >= this multiple of average
+ORB_VOLUME_RATIO = 1.2
+
+# Relative Strength: underperformance factor vs SPY for confidence demotion
+RS_UNDERPERFORM_FACTOR = 2.0
+
+# Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)
+PER_SYMBOL_RISK: dict[str, float] = {
+    "SPY": 0.002, "QQQ": 0.002,       # tight for ETFs
+    "NVDA": 0.004, "TSLA": 0.005,     # wider for volatile stocks
+}
+
 # ---------------------------------------------------------------------------
 # Notification credentials (from .env)
 # ---------------------------------------------------------------------------

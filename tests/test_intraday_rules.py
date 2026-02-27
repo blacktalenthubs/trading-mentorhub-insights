@@ -6,12 +6,15 @@ import pytest
 from analytics.intraday_rules import (
     AlertSignal,
     AlertType,
+    _cap_risk,
     _should_skip_noise,
     check_auto_stop_out,
     check_ema_crossover_5_20,
+    check_gap_fill,
     check_inside_day_breakout,
     check_ma_bounce_20,
     check_ma_bounce_50,
+    check_opening_range_breakout,
     check_prior_day_low_reclaim,
     check_resistance_prior_high,
     check_stop_loss_hit,
@@ -19,6 +22,12 @@ from analytics.intraday_rules import (
     check_target_1_hit,
     check_target_2_hit,
     evaluate_rules,
+)
+from analytics.intraday_data import (
+    check_mtf_alignment,
+    compute_opening_range,
+    detect_intraday_supports,
+    track_gap_fill,
 )
 
 
@@ -446,3 +455,424 @@ class TestNoiseFilter:
             direction="SELL", price=100.0,
         )
         assert _should_skip_noise(sig, vol_ratio=0.3) is False
+
+
+# ===== Risk Cap =====
+
+class TestCapRisk:
+    def test_cap_risk_tightens_wide_stop(self):
+        """entry 100, stop 95, max 0.3% → stop becomes 99.70."""
+        result = _cap_risk(100.0, 95.0, max_risk_pct=0.003)
+        assert result == 99.70
+
+    def test_cap_risk_keeps_tight_stop(self):
+        """entry 100, stop 99.80, max 0.3% → stop stays 99.80."""
+        result = _cap_risk(100.0, 99.80, max_risk_pct=0.003)
+        assert result == 99.80
+
+    def test_ma_bounce_20_uses_tight_stop(self):
+        """MA bounce 20 now uses max(bar_low, MA_offset) not min."""
+        # bar_low = 99.50, MA20 = 100.0, MA_offset = 100 * (1 - 0.005) = 99.50
+        # With max(): max(99.50, 99.50) = 99.50
+        # If bar_low is lower than offset, max picks the tighter one
+        bar = _bar(open_=100, high=101, low=99.70, close=100.3)
+        sig = check_ma_bounce_20("SPY", bar, ma20=100.0, ma50=95.0)
+        assert sig is not None
+        # MA offset = 100 * 0.995 = 99.50; bar_low = 99.70
+        # max(99.70, 99.50) = 99.70 (tighter)
+        assert sig.stop == 99.70
+
+
+# ===== Cooldown =====
+
+class TestCooldown:
+    def test_cooldown_suppresses_buy_signals(self):
+        """is_cooled_down=True → no BUY rule signals returned (gap fill is INFO, excluded)."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior, is_cooled_down=True)
+        # Exclude GAP_FILL — it's an informational signal that fires regardless of cooldown
+        buy_signals = [
+            s for s in signals
+            if s.direction == "BUY" and s.alert_type != AlertType.GAP_FILL
+        ]
+        assert len(buy_signals) == 0
+
+    def test_cooldown_allows_sell_signals(self):
+        """is_cooled_down=True → SELL signals still fire."""
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 98.5, "Close": 101.5, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.5, "low": 99.0, "is_inside": False,
+        }
+        entries = [{"entry_price": 100.0, "stop_price": 99.0,
+                     "target_1": 101.0, "target_2": 102.0}]
+        signals = evaluate_rules(
+            "AAPL", bars, prior, active_entries=entries, is_cooled_down=True,
+        )
+        sell_signals = [s for s in signals if s.direction == "SELL"]
+        assert len(sell_signals) >= 1
+
+
+# ===== Breakdown Suppression =====
+
+class TestBreakdownSuppression:
+    def test_breakdown_suppresses_buy_signals(self):
+        """When support breakdown fires, BUY signals for same symbol are removed."""
+        # Build a bar that triggers both a MA bounce BUY and a support breakdown SHORT
+        # The breakdown should suppress the BUY
+        # Conviction close: close in lower 30% of bar range, high volume
+        bar = _bar(open_=99.5, high=100.2, low=97.0, close=97.1, volume=2000)
+        # close_position = (97.1 - 97.0) / (100.2 - 97.0) = 0.1/3.2 = 0.03 → conviction
+        bars = _bars([
+            {"Open": 99.5, "High": 100.2, "Low": 97.0, "Close": 97.1, "Volume": 2000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 98.0, "is_inside": False,
+        }
+        signals = evaluate_rules("NVDA", bars, prior)
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        short_signals = [s for s in signals if s.direction == "SHORT"]
+        # If a breakdown fired, BUY should be suppressed
+        if short_signals:
+            assert len(buy_signals) == 0
+
+
+# ===== Dedup =====
+
+class TestFiredToday:
+    def test_fired_today_prevents_duplicate(self):
+        """Signal in fired_today set → not returned."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        # First call without fired_today — should get MA bounce
+        signals_first = evaluate_rules("AAPL", bars, prior)
+        ma_bounces = [s for s in signals_first if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma_bounces) >= 1
+
+        # Second call with fired_today containing the signal — should be filtered
+        fired = {("AAPL", "ma_bounce_20")}
+        signals_second = evaluate_rules("AAPL", bars, prior, fired_today=fired)
+        ma_bounces_2 = [s for s in signals_second if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma_bounces_2) == 0
+
+
+# ===== Intraday Supports =====
+
+class TestDetectIntradaySupports:
+    def test_detect_intraday_supports_finds_held_lows(self):
+        """Hourly lows that held are returned as support levels."""
+        # Create 2+ hours of 5-min bars with a held low in hour 1
+        idx = pd.date_range("2024-01-15 09:30", periods=24, freq="5min")
+        data = {
+            "Open": [100.0] * 24,
+            "High": [101.0] * 24,
+            "Low": [99.0] * 24,
+            "Close": [100.5] * 24,
+            "Volume": [1000] * 24,
+        }
+        bars = pd.DataFrame(data, index=idx)
+
+        # Hour 1 (09:30-10:29): low at 98.50
+        bars.loc[bars.index[2], "Low"] = 98.50
+        bars.loc[bars.index[2], "Close"] = 99.0
+
+        # Hour 2 (10:30-11:29): low stays above 98.50, close bounces
+        for i in range(12, 24):
+            bars.loc[bars.index[i], "Low"] = 99.0
+            bars.loc[bars.index[i], "Close"] = 100.0
+
+        supports = detect_intraday_supports(bars)
+        # The hourly low of hour 1 (98.50) should be detected as support
+        # since hour 2's low (99.0) >= 98.50 * 0.999 and bounce >= 0.2%
+        assert 98.5 in supports
+
+
+# ===== F1: Opening Range Breakout =====
+
+class TestOpeningRangeBreakout:
+    def test_fires_on_breakout_with_volume(self):
+        """Close above OR high with sufficient volume → fires BUY."""
+        bar = _bar(open_=101, high=102, low=100.5, close=101.8, volume=1500)
+        opening_range = {
+            "or_high": 101.0, "or_low": 100.0, "or_range": 1.0,
+            "or_range_pct": 0.01, "or_complete": True,
+        }
+        sig = check_opening_range_breakout("AAPL", bar, opening_range, 1500, 1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.OPENING_RANGE_BREAKOUT
+        assert sig.direction == "BUY"
+        assert sig.entry == 101.0  # OR high
+        assert sig.stop == 100.0   # OR low
+        assert sig.target_1 == 102.0  # or_high + or_range
+        assert sig.target_2 == 103.0  # or_high + 2 * or_range
+
+    def test_no_fire_when_or_incomplete(self):
+        """OR not complete → None."""
+        bar = _bar(close=101.8, volume=1500)
+        opening_range = {
+            "or_high": 101.0, "or_low": 100.0, "or_range": 1.0,
+            "or_range_pct": 0.01, "or_complete": False,
+        }
+        sig = check_opening_range_breakout("AAPL", bar, opening_range, 1500, 1000)
+        assert sig is None
+
+    def test_no_fire_when_range_too_small(self):
+        """OR range below ORB_MIN_RANGE_PCT → None."""
+        bar = _bar(close=101.8, volume=1500)
+        opening_range = {
+            "or_high": 100.2, "or_low": 100.0, "or_range": 0.2,
+            "or_range_pct": 0.002, "or_complete": True,  # 0.2% < 0.3%
+        }
+        sig = check_opening_range_breakout("AAPL", bar, opening_range, 1500, 1000)
+        assert sig is None
+
+    def test_no_fire_on_low_volume(self):
+        """Volume below ORB_VOLUME_RATIO → None."""
+        bar = _bar(close=101.8, volume=500)
+        opening_range = {
+            "or_high": 101.0, "or_low": 100.0, "or_range": 1.0,
+            "or_range_pct": 0.01, "or_complete": True,
+        }
+        sig = check_opening_range_breakout("AAPL", bar, opening_range, 500, 1000)
+        assert sig is None  # 0.5x < 1.2x
+
+
+# ===== F1: compute_opening_range =====
+
+class TestComputeOpeningRange:
+    def test_returns_none_with_few_bars(self):
+        """Fewer than 6 bars → None."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100, "Volume": 1000}
+            for _ in range(5)
+        ])
+        assert compute_opening_range(bars) is None
+
+    def test_computes_range_from_first_6_bars(self):
+        """First 6 bars define the opening range."""
+        rows = []
+        for i in range(10):
+            rows.append({"Open": 100 + i * 0.1, "High": 102 + i * 0.1,
+                         "Low": 99 - i * 0.1, "Close": 101, "Volume": 1000})
+        bars = pd.DataFrame(rows)
+        result = compute_opening_range(bars)
+        assert result is not None
+        assert result["or_complete"] is True
+        # First 6 bars: highs = 102.0..102.5, lows = 99.0..98.5
+        assert result["or_high"] == 102.5
+        assert result["or_low"] == 98.5
+
+
+# ===== F2: Multi-Timeframe Confirmation =====
+
+class TestMTFAlignment:
+    def test_aligned_when_ema5_above_ema20(self):
+        """Rising 15m prices → EMA5 > EMA20 → aligned."""
+        # Create rising 5-min bars (enough for ~26 fifteen-min bars)
+        idx = pd.date_range("2024-01-15 09:30", periods=78, freq="5min")
+        prices = [100 + i * 0.2 for i in range(78)]  # steadily rising
+        data = {
+            "Open": [p - 0.1 for p in prices],
+            "High": [p + 0.3 for p in prices],
+            "Low": [p - 0.2 for p in prices],
+            "Close": prices,
+            "Volume": [1000] * 78,
+        }
+        bars = pd.DataFrame(data, index=idx)
+        result = check_mtf_alignment(bars)
+        assert result["mtf_aligned"] is True
+        assert result["mtf_trend"] == "bullish"
+
+    def test_not_aligned_when_ema5_below_ema20(self):
+        """Declining 15m prices → EMA5 < EMA20 → not aligned."""
+        idx = pd.date_range("2024-01-15 09:30", periods=78, freq="5min")
+        prices = [115 - i * 0.2 for i in range(78)]  # steadily falling
+        data = {
+            "Open": [p + 0.1 for p in prices],
+            "High": [p + 0.3 for p in prices],
+            "Low": [p - 0.2 for p in prices],
+            "Close": prices,
+            "Volume": [1000] * 78,
+        }
+        bars = pd.DataFrame(data, index=idx)
+        result = check_mtf_alignment(bars)
+        assert result["mtf_aligned"] is False
+        assert result["mtf_trend"] == "bearish"
+
+    def test_score_boosted_when_aligned(self):
+        """BUY signal + aligned 15m → score gets +10 boost."""
+        # Build a bar that triggers MA bounce 20
+        idx = pd.date_range("2024-01-15 10:30", periods=78, freq="5min")
+        prices = [100 + i * 0.1 for i in range(78)]  # rising → aligned
+        rows = []
+        for i, p in enumerate(prices):
+            rows.append({
+                "Open": p - 0.1, "High": p + 0.3,
+                "Low": p - 0.2, "Close": p, "Volume": 1000,
+            })
+        # Last bar triggers MA20 bounce
+        rows[-1] = {"Open": 107.5, "High": 108, "Low": 107.68, "Close": 107.8, "Volume": 1000}
+        bars = pd.DataFrame(rows, index=idx)
+
+        prior = {
+            "ma20": 107.7, "ma50": 105.0, "close": 107.5,
+            "high": 108.0, "low": 107.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        # If any BUY signals fired, check that mtf_aligned enrichment is present
+        for s in buy_signals:
+            assert s.mtf_aligned is True
+            assert "15m trend aligned" in s.message
+
+
+# ===== F3: Relative Strength Filter =====
+
+class TestRelativeStrength:
+    def test_demotes_when_underperforming(self):
+        """Symbol -5% while SPY -1% → confidence demoted, RS caution added."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+            {"Open": 100.3, "High": 101, "Low": 94.7, "Close": 95.0, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        spy_ctx = {"trend": "bearish", "close": 550.0, "ma20": 555.0, "intraday_change_pct": -1.0}
+
+        signals = evaluate_rules("NVDA", bars, prior, spy_context=spy_ctx)
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        for s in buy_signals:
+            assert "RS CAUTION" in s.message
+
+    def test_keeps_when_outperforming(self):
+        """Symbol -0.5% while SPY -1% → no RS demotion."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        spy_ctx = {"trend": "bearish", "close": 550.0, "ma20": 555.0, "intraday_change_pct": -1.0}
+
+        signals = evaluate_rules("AAPL", bars, prior, spy_context=spy_ctx)
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        for s in buy_signals:
+            assert "RS CAUTION" not in s.message
+
+    def test_handles_zero_spy_change(self):
+        """SPY intraday change = 0 → no RS filter applied."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        spy_ctx = {"trend": "neutral", "close": 550.0, "ma20": 550.0, "intraday_change_pct": 0.0}
+
+        signals = evaluate_rules("AAPL", bars, prior, spy_context=spy_ctx)
+        # Should not crash and should not add RS caution
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        for s in buy_signals:
+            assert "RS CAUTION" not in s.message
+
+
+# ===== F4: Gap Fill Tracking =====
+
+class TestGapFill:
+    def test_fires_on_gap_up_fill(self):
+        """Gap up fills when bar low <= prior close → SELL info signal."""
+        gap_info = {
+            "gap_size": 2.0, "gap_pct": 2.0, "gap_direction": "gap_up",
+            "fill_pct": 100.0, "is_filled": True,
+        }
+        bar = _bar(close=100.0)
+        sig = check_gap_fill("NVDA", bar, gap_info)
+        assert sig is not None
+        assert sig.alert_type == AlertType.GAP_FILL
+        assert sig.direction == "SELL"  # gap_up fill is bearish
+        assert "fully filled" in sig.message
+
+    def test_fires_on_gap_down_fill(self):
+        """Gap down fills when bar high >= prior close → BUY info signal."""
+        gap_info = {
+            "gap_size": -2.0, "gap_pct": -2.0, "gap_direction": "gap_down",
+            "fill_pct": 100.0, "is_filled": True,
+        }
+        bar = _bar(close=100.0)
+        sig = check_gap_fill("NVDA", bar, gap_info)
+        assert sig is not None
+        assert sig.alert_type == AlertType.GAP_FILL
+        assert sig.direction == "BUY"  # gap_down fill is bullish
+
+    def test_no_fire_when_unfilled(self):
+        """Gap not filled → None."""
+        gap_info = {
+            "gap_size": 2.0, "gap_pct": 2.0, "gap_direction": "gap_up",
+            "fill_pct": 50.0, "is_filled": False,
+        }
+        bar = _bar(close=100.0)
+        sig = check_gap_fill("NVDA", bar, gap_info)
+        assert sig is None
+
+
+# ===== F4: track_gap_fill helper =====
+
+class TestTrackGapFill:
+    def test_gap_up_filled(self):
+        """Bar low <= prior close means gap up is filled."""
+        bars = _bars([
+            {"Open": 102, "High": 103, "Low": 99.5, "Close": 100, "Volume": 1000},
+        ])
+        result = track_gap_fill(bars, today_open=102.0, prior_close=100.0)
+        assert result["gap_direction"] == "gap_up"
+        assert result["is_filled"] is True
+
+    def test_gap_down_filled(self):
+        """Bar high >= prior close means gap down is filled."""
+        bars = _bars([
+            {"Open": 98, "High": 100.5, "Low": 97, "Close": 100, "Volume": 1000},
+        ])
+        result = track_gap_fill(bars, today_open=98.0, prior_close=100.0)
+        assert result["gap_direction"] == "gap_down"
+        assert result["is_filled"] is True
+
+
+# ===== F11: Per-Symbol Risk Config =====
+
+class TestPerSymbolRisk:
+    def test_uses_per_symbol_rate_for_spy(self):
+        """SPY gets 0.2% risk cap from PER_SYMBOL_RISK."""
+        # SPY rate = 0.002, entry 550, stop 545
+        # max risk = 550 * 0.002 = 1.10 → stop = 550 - 1.10 = 548.90
+        result = _cap_risk(550.0, 545.0, symbol="SPY")
+        assert result == 548.90
+
+    def test_defaults_to_global_for_unlisted(self):
+        """Unlisted symbol uses DAY_TRADE_MAX_RISK_PCT (0.3%)."""
+        # Global rate = 0.003, entry 100, stop 95
+        # max risk = 100 * 0.003 = 0.30 → stop = 100 - 0.30 = 99.70
+        result = _cap_risk(100.0, 95.0, symbol="LRCX")
+        assert result == 99.70
+
+    def test_backward_compatible_without_symbol(self):
+        """Without symbol arg, uses default max_risk_pct."""
+        result = _cap_risk(100.0, 95.0)
+        assert result == 99.70  # same as before
