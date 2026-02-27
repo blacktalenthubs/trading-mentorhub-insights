@@ -95,6 +95,9 @@ SESSION_LOW_MIN_RECOVERY_BARS = 4       # ~20 min — consecutive bars above rec
 SESSION_LOW_MAX_RETEST_VOL_RATIO = 1.2  # retest must be exhaustion, not panic (< 1.2x avg)
 SESSION_LOW_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 
+# Planned Level Touch: bar low must be within this % of Scanner's planned entry
+PLANNED_LEVEL_PROXIMITY_PCT = 0.003  # 0.3%
+
 # Support Breakdown: proximity to session low for "SESSION LOW BREAK" tag
 SESSION_LOW_BREAK_PROXIMITY_PCT = 0.002  # 0.2%
 

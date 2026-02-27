@@ -30,6 +30,7 @@ from alert_config import (
     ORB_VOLUME_RATIO,
     PDL_DIP_MIN_PCT,
     PER_SYMBOL_RISK,
+    PLANNED_LEVEL_PROXIMITY_PCT,
     RESISTANCE_PROXIMITY_PCT,
     RS_UNDERPERFORM_FACTOR,
     SESSION_LOW_BREAK_PROXIMITY_PCT,
@@ -60,6 +61,7 @@ class AlertType(str, Enum):
     INTRADAY_SUPPORT_BOUNCE = "intraday_support_bounce"
     SESSION_LOW_DOUBLE_BOTTOM = "session_low_double_bottom"
     GAP_FILL = "gap_fill"
+    PLANNED_LEVEL_TOUCH = "planned_level_touch"
 
 
 @dataclass
@@ -868,6 +870,98 @@ def check_gap_fill(
 
 
 # ---------------------------------------------------------------------------
+# Rule 16: Planned Level Touch (BUY)
+# ---------------------------------------------------------------------------
+
+
+def _compute_planned_levels(prior_day: dict) -> dict | None:
+    """Replicate Scanner get_levels() using prior_day dict (no extra API call).
+
+    Returns dict with entry, stop, target_1, target_2, pattern or None for inside days.
+    """
+    pattern = prior_day.get("pattern", "normal")
+    if pattern == "inside":
+        return None  # already handled by check_inside_day_breakout
+
+    high = prior_day.get("high", 0)
+    low = prior_day.get("low", 0)
+    day_range = high - low
+
+    if day_range <= 0 or high <= 0 or low <= 0:
+        return None
+
+    if pattern == "outside":
+        midpoint = (high + low) / 2
+        return {
+            "pattern": "outside",
+            "entry": midpoint,
+            "stop": low,
+            "target_1": high,
+            "target_2": high + (high - midpoint),
+        }
+
+    # Normal day
+    return {
+        "pattern": "normal",
+        "entry": low,
+        "stop": low - day_range * 0.25,
+        "target_1": high,
+        "target_2": high + day_range * 0.5,
+    }
+
+
+def check_planned_level_touch(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price touches the Scanner's planned entry level and bounces — bullish entry.
+
+    Conditions:
+    1. Pattern is normal or outside (not inside)
+    2. Bar low within PLANNED_LEVEL_PROXIMITY_PCT of planned entry
+    3. Bar close > planned entry (bounce confirmed)
+    4. Risk > 0
+    """
+    levels = _compute_planned_levels(prior_day)
+    if levels is None:
+        return None
+
+    entry = levels["entry"]
+    if entry <= 0:
+        return None
+
+    proximity = abs(bar["Low"] - entry) / entry
+    if proximity > PLANNED_LEVEL_PROXIMITY_PCT:
+        return None
+
+    if bar["Close"] <= entry:
+        return None  # no bounce
+
+    stop = levels["stop"]
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PLANNED_LEVEL_TOUCH,
+        direction="BUY",
+        price=bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(levels["target_1"], 2),
+        target_2=round(levels["target_2"], 2),
+        confidence="high",
+        message=(
+            f"Planned level touch ({levels['pattern']}) — "
+            f"bounced at ${entry:.2f}, T1=${levels['target_1']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Noise filter
 # ---------------------------------------------------------------------------
 
@@ -1010,9 +1104,13 @@ def evaluate_rules(
     intraday_supports = detect_intraday_supports(intraday_bars)
 
     # --- BUY rules (context adds caution notes, never blocks signals) ---
+    spy_regime = spy.get("regime", "CHOPPY")
+
     caution_notes = []
     if spy_trend == "bearish":
         caution_notes.append("SPY bearish (below 20MA)")
+    if spy_regime in ("CHOPPY", "TRENDING_DOWN"):
+        caution_notes.append(f"SPY regime: {spy_regime}")
     if not entries_allowed:
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
@@ -1091,6 +1189,15 @@ def evaluate_rules(
                 sig.confidence = "high"
                 spy_low = spy.get("spy_intraday_low", 0)
                 sig.message += f" | SPY double-bottom at ${spy_low:.2f}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+        # --- Planned Level Touch ---
+        sig = check_planned_level_touch(symbol, last_bar, prior_day)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
             sig.message += caution_suffix
             signals.append(sig)
 
@@ -1231,6 +1338,12 @@ def evaluate_rules(
                     f" | RS CAUTION: {symbol} {sym_intraday_change:+.1f}% vs "
                     f"SPY {spy_intraday_change:+.1f}% (underperforming {rs_ratio:.1f}x)"
                 )
+
+        # Regime demotion: reduce BUY confidence in CHOPPY markets
+        if sig.direction == "BUY" and spy_regime == "CHOPPY":
+            if sig.confidence == "high":
+                sig.confidence = "medium"
+            sig.message += " | CHOPPY market — reduced confidence"
 
         # MTF alignment enrichment
         sig.mtf_aligned = mtf["mtf_aligned"]

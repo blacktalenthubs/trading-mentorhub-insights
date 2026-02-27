@@ -102,16 +102,21 @@ def get_spy_context() -> dict:
     """
     _default = {
         "trend": "neutral", "close": 0.0, "ma20": 0.0,
+        "ma5": 0.0, "ma50": 0.0, "regime": "CHOPPY",
         "intraday_change_pct": 0.0, "spy_bouncing": False, "spy_intraday_low": 0.0,
     }
     try:
         spy = yf.Ticker("SPY")
-        hist = spy.history(period="1mo")
+        hist = spy.history(period="3mo")
         if hist.empty or len(hist) < 20:
             return _default
+        ma5 = hist["Close"].rolling(5).mean().iloc[-1]
         ma20 = hist["Close"].rolling(20).mean().iloc[-1]
+        ma50_raw = hist["Close"].rolling(50).mean().iloc[-1]
+        ma50 = ma50_raw if pd.notna(ma50_raw) else ma20
         close = hist["Close"].iloc[-1]
         trend = "bullish" if close > ma20 else "bearish"
+        regime = classify_market_regime(close, ma5, ma20, ma50)
 
         # Compute SPY intraday % change and bounce detection from today's bars
         intraday_change_pct = 0.0
@@ -137,12 +142,29 @@ def get_spy_context() -> dict:
             "trend": trend,
             "close": round(close, 2),
             "ma20": round(ma20, 2),
+            "ma5": round(ma5, 2),
+            "ma50": round(ma50, 2),
+            "regime": regime,
             "intraday_change_pct": round(intraday_change_pct, 2),
             "spy_bouncing": spy_bouncing,
             "spy_intraday_low": spy_intraday_low,
         }
     except Exception:
         return _default
+
+
+def classify_market_regime(close: float, ma5: float, ma20: float, ma50: float) -> str:
+    """Classify market regime based on price vs moving averages.
+
+    Returns one of: TRENDING_UP, PULLBACK, TRENDING_DOWN, CHOPPY.
+    """
+    if close > ma5 and ma5 > ma20 and ma20 > ma50:
+        return "TRENDING_UP"
+    if close < ma5 and close > ma20:
+        return "PULLBACK"
+    if close < ma5 and close < ma20 and close < ma50:
+        return "TRENDING_DOWN"
+    return "CHOPPY"
 
 
 def compute_vwap(bars: pd.DataFrame) -> pd.Series:

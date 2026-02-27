@@ -21,6 +21,7 @@ def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
     """Build SPY context dict from historical intraday bars for backtest."""
     default = {
         "trend": "neutral", "close": 0.0, "ma20": 0.0,
+        "ma5": 0.0, "ma50": 0.0, "regime": "CHOPPY",
         "intraday_change_pct": 0.0, "spy_bouncing": False, "spy_intraday_low": 0.0,
     }
     if spy_bars.empty or len(spy_bars) < 2:
@@ -38,6 +39,9 @@ def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
         "trend": "bullish" if spy_current > spy_open else "bearish",
         "close": round(spy_current, 2),
         "ma20": 0.0,
+        "ma5": 0.0,
+        "ma50": 0.0,
+        "regime": "CHOPPY",
         "intraday_change_pct": round(intraday_change_pct, 2),
         "spy_bouncing": spy_bouncing,
         "spy_intraday_low": round(spy_low, 2),

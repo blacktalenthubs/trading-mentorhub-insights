@@ -7,6 +7,7 @@ from analytics.intraday_rules import (
     AlertSignal,
     AlertType,
     _cap_risk,
+    _compute_planned_levels,
     _should_skip_noise,
     check_auto_stop_out,
     check_ema_crossover_5_20,
@@ -16,6 +17,7 @@ from analytics.intraday_rules import (
     check_ma_bounce_20,
     check_ma_bounce_50,
     check_opening_range_breakout,
+    check_planned_level_touch,
     check_prior_day_low_reclaim,
     check_resistance_prior_high,
     check_session_low_retest,
@@ -27,6 +29,7 @@ from analytics.intraday_rules import (
 )
 from analytics.intraday_data import (
     check_mtf_alignment,
+    classify_market_regime,
     compute_opening_range,
     detect_intraday_supports,
     track_gap_fill,
@@ -935,6 +938,7 @@ class TestIntradaySupportBounce:
         }
         spy_ctx = {
             "trend": "neutral", "close": 689.0, "ma20": 685.0,
+            "ma5": 688.0, "ma50": 680.0, "regime": "TRENDING_UP",
             "intraday_change_pct": 0.5, "spy_bouncing": True, "spy_intraday_low": 684.50,
         }
         signals = evaluate_rules("META", bars, prior, spy_context=spy_ctx)
@@ -1103,3 +1107,121 @@ class TestBreakdownSessionLowTag:
         sig = breakdown_signals[0]
         assert "SESSION LOW BREAK" in sig.message
         assert sig.confidence == "high"
+
+
+# ===== Rule 16: Planned Level Touch =====
+
+class TestPlannedLevelTouch:
+    def test_fires_on_normal_day_bounce(self):
+        """Normal day: bar bounces at prior low → BUY, entry=prior_low, T1=prior_high."""
+        prior = {
+            "pattern": "normal", "high": 690.0, "low": 681.65,
+            "close": 685.0, "is_inside": False,
+            "parent_high": 692.0, "parent_low": 680.0,
+        }
+        # Bar low touches prior low (681.65), closes above
+        bar = _bar(open_=682.0, high=684.0, low=681.50, close=683.5)
+        sig = check_planned_level_touch("SPY", bar, prior)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PLANNED_LEVEL_TOUCH
+        assert sig.direction == "BUY"
+        assert sig.entry == 681.65
+        assert sig.target_1 == 690.0
+        assert sig.confidence == "high"
+        assert "normal" in sig.message
+
+    def test_fires_on_outside_day_bounce(self):
+        """Outside day: bar bounces at midpoint → BUY, entry=midpoint."""
+        prior = {
+            "pattern": "outside", "high": 700.0, "low": 680.0,
+            "close": 695.0, "is_inside": False,
+            "parent_high": 698.0, "parent_low": 682.0,
+        }
+        midpoint = (700.0 + 680.0) / 2  # 690.0
+        bar = _bar(open_=691.0, high=693.0, low=689.80, close=692.0)
+        sig = check_planned_level_touch("SPY", bar, prior)
+        assert sig is not None
+        assert sig.entry == midpoint
+        assert sig.target_1 == 700.0
+        assert "outside" in sig.message
+
+    def test_no_fire_when_far_from_entry(self):
+        """Bar low 2%+ away from planned entry → None."""
+        prior = {
+            "pattern": "normal", "high": 690.0, "low": 681.65,
+            "close": 685.0, "is_inside": False,
+            "parent_high": 692.0, "parent_low": 680.0,
+        }
+        # Bar low at 670.0, way below 681.65
+        bar = _bar(open_=672.0, high=675.0, low=670.0, close=674.0)
+        sig = check_planned_level_touch("SPY", bar, prior)
+        assert sig is None
+
+    def test_no_fire_when_close_below_entry(self):
+        """Bar touches entry but closes below → None (no bounce)."""
+        prior = {
+            "pattern": "normal", "high": 690.0, "low": 681.65,
+            "close": 685.0, "is_inside": False,
+            "parent_high": 692.0, "parent_low": 680.0,
+        }
+        bar = _bar(open_=682.0, high=682.5, low=681.50, close=681.0)
+        sig = check_planned_level_touch("SPY", bar, prior)
+        assert sig is None
+
+    def test_skips_inside_day(self):
+        """Inside day pattern → None (handled by check_inside_day_breakout)."""
+        prior = {
+            "pattern": "inside", "high": 690.0, "low": 681.65,
+            "close": 685.0, "is_inside": True,
+            "parent_high": 695.0, "parent_low": 678.0,
+        }
+        bar = _bar(open_=682.0, high=684.0, low=681.50, close=683.5)
+        sig = check_planned_level_touch("SPY", bar, prior)
+        assert sig is None
+
+
+# ===== Market Regime Detection =====
+
+class TestMarketRegime:
+    def test_trending_up_regime(self):
+        """close > ma5 > ma20 > ma50 → TRENDING_UP."""
+        assert classify_market_regime(600, 595, 580, 560) == "TRENDING_UP"
+
+    def test_trending_down_regime(self):
+        """close < all MAs → TRENDING_DOWN."""
+        assert classify_market_regime(550, 560, 570, 580) == "TRENDING_DOWN"
+
+    def test_choppy_regime(self):
+        """MAs tangled, no clean ordering → CHOPPY."""
+        # close > ma5, but ma5 < ma20 → not TRENDING_UP, not PULLBACK, not TRENDING_DOWN
+        assert classify_market_regime(590, 585, 588, 580) == "CHOPPY"
+
+    def test_pullback_regime(self):
+        """close < ma5 but close > ma20 → PULLBACK."""
+        assert classify_market_regime(585, 590, 580, 570) == "PULLBACK"
+
+    def test_regime_demotes_confidence_in_orchestrator(self):
+        """CHOPPY regime → BUY confidence demoted from high to medium, message tagged."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+            "pattern": "normal",
+        }
+        # SPY context with CHOPPY regime
+        spy_ctx = {
+            "trend": "neutral", "close": 550.0, "ma20": 550.0,
+            "ma5": 548.0, "ma50": 555.0, "regime": "CHOPPY",
+            "intraday_change_pct": 0.0, "spy_bouncing": False,
+            "spy_intraday_low": 0.0,
+        }
+        signals = evaluate_rules("AAPL", bars, prior, spy_context=spy_ctx)
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            # Originally high-confidence signals should be demoted to medium
+            assert s.confidence != "high" or "CHOPPY" not in s.message
+            # All BUY signals should have the CHOPPY tag
+            assert "CHOPPY market" in s.message
