@@ -32,6 +32,13 @@ from alert_config import (
     PER_SYMBOL_RISK,
     RESISTANCE_PROXIMITY_PCT,
     RS_UNDERPERFORM_FACTOR,
+    SESSION_LOW_BREAK_PROXIMITY_PCT,
+    SESSION_LOW_MAX_RETEST_VOL_RATIO,
+    SESSION_LOW_MIN_AGE_BARS,
+    SESSION_LOW_MIN_RECOVERY_BARS,
+    SESSION_LOW_PROXIMITY_PCT,
+    SESSION_LOW_RECOVERY_PCT,
+    SESSION_LOW_STOP_OFFSET_PCT,
     SUPPORT_BOUNCE_PROXIMITY_PCT,
 )
 from analytics.market_hours import get_session_phase, allow_new_entries
@@ -51,6 +58,7 @@ class AlertType(str, Enum):
     AUTO_STOP_OUT = "auto_stop_out"
     OPENING_RANGE_BREAKOUT = "opening_range_breakout"
     INTRADAY_SUPPORT_BOUNCE = "intraday_support_bounce"
+    SESSION_LOW_DOUBLE_BOTTOM = "session_low_double_bottom"
     GAP_FILL = "gap_fill"
 
 
@@ -722,6 +730,108 @@ def check_intraday_support_bounce(
 
 
 # ---------------------------------------------------------------------------
+# Rule 15: Session Low Double-Bottom (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_session_low_retest(
+    symbol: str,
+    bars: pd.DataFrame,
+    last_bar: pd.Series,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Session low tested twice (double bottom) with recovery between — bullish entry.
+
+    Conditions:
+    1. Minimum bars: MIN_AGE + MIN_RECOVERY + 1
+    2. Session low = bars["Low"].min()
+    3. Volume cap: vol_ratio < SESSION_LOW_MAX_RETEST_VOL_RATIO (exhaustion, not panic)
+    4. Last bar low within SESSION_LOW_PROXIMITY_PCT of session low (not below it)
+    5. Last bar closes above session low (bounce confirmed)
+    6. First touch: earliest bar (excl. last) with low within proximity of session low
+    7. First touch >= SESSION_LOW_MIN_AGE_BARS bars ago
+    8. Recovery: >= SESSION_LOW_MIN_RECOVERY_BARS consecutive bars with low > session_low * (1 + RECOVERY_PCT)
+    """
+    min_bars = SESSION_LOW_MIN_AGE_BARS + SESSION_LOW_MIN_RECOVERY_BARS + 1
+    if len(bars) < min_bars:
+        return None
+
+    session_low = bars["Low"].min()
+    if session_low <= 0:
+        return None
+
+    # Volume cap — retest must be exhaustion, not panic selling
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio >= SESSION_LOW_MAX_RETEST_VOL_RATIO:
+        return None
+
+    # Last bar low must be near session low but not below it
+    proximity = (last_bar["Low"] - session_low) / session_low
+    if proximity < 0 or proximity > SESSION_LOW_PROXIMITY_PCT:
+        return None
+
+    # Last bar must close above session low (bounce confirmed)
+    if last_bar["Close"] <= session_low:
+        return None
+
+    # Find first touch: earliest bar (excluding last) with low within proximity
+    first_touch_idx = None
+    for i in range(len(bars) - 1):
+        bar_low = bars["Low"].iloc[i]
+        touch_proximity = abs(bar_low - session_low) / session_low
+        if touch_proximity <= SESSION_LOW_PROXIMITY_PCT:
+            first_touch_idx = i
+            break
+
+    if first_touch_idx is None:
+        return None
+
+    # First touch must be old enough
+    bars_ago = len(bars) - 1 - first_touch_idx
+    if bars_ago < SESSION_LOW_MIN_AGE_BARS:
+        return None
+
+    # Recovery between first touch and retest:
+    # consecutive bars where low > session_low * (1 + RECOVERY_PCT)
+    recovery_threshold = session_low * (1 + SESSION_LOW_RECOVERY_PCT)
+    max_consecutive = 0
+    consecutive = 0
+    for i in range(first_touch_idx + 1, len(bars) - 1):
+        if bars["Low"].iloc[i] > recovery_threshold:
+            consecutive += 1
+            max_consecutive = max(max_consecutive, consecutive)
+        else:
+            consecutive = 0
+
+    if max_consecutive < SESSION_LOW_MIN_RECOVERY_BARS:
+        return None
+
+    # Entry/Stop/Targets
+    entry = session_low
+    stop = min(last_bar["Low"], session_low * (1 - SESSION_LOW_STOP_OFFSET_PCT))
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SESSION_LOW_DOUBLE_BOTTOM,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="medium",
+        message=(
+            f"Session low double-bottom — ${session_low:.2f} tested twice, "
+            f"recovery confirmed, bounce at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 14: Gap Fill (INFO)
 # ---------------------------------------------------------------------------
 
@@ -971,6 +1081,19 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
+        # --- Session Low Double-Bottom ---
+        sig = check_session_low_retest(
+            symbol, intraday_bars, last_bar, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            if spy.get("spy_bouncing"):
+                sig.confidence = "high"
+                spy_low = spy.get("spy_intraday_low", 0)
+                sig.message += f" | SPY double-bottom at ${spy_low:.2f}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
     # --- Gap Fill (INFO — fires regardless of cooldown) ---
     sig = check_gap_fill(symbol, last_bar, gap_fill_info)
     if sig:
@@ -1030,6 +1153,18 @@ def evaluate_rules(
         sig.message += f" ({phase})"
         if intraday_supports:
             sig.message += f" | intraday supports: {intraday_supports}"
+        # Tag breakdown at session low — most significant intraday event
+        # Use pre-breakdown session low (exclude last bar which is the breakdown bar)
+        if len(intraday_bars) > 1:
+            pre_breakdown_low = intraday_bars["Low"].iloc[:-1].min()
+        else:
+            pre_breakdown_low = 0
+        broken_support = min(prior_low, nearest_support) if nearest_support > 0 else prior_low
+        if pre_breakdown_low > 0 and broken_support > 0:
+            sl_proximity = abs(broken_support - pre_breakdown_low) / pre_breakdown_low
+            if sl_proximity <= SESSION_LOW_BREAK_PROXIMITY_PCT:
+                sig.confidence = "high"
+                sig.message += " | SESSION LOW BREAK — market dynamics shift"
         signals.append(sig)
 
     # --- EMA Crossover 5/20 (BUY — mega-cap only) ---

@@ -18,6 +18,7 @@ from analytics.intraday_rules import (
     check_opening_range_breakout,
     check_prior_day_low_reclaim,
     check_resistance_prior_high,
+    check_session_low_retest,
     check_stop_loss_hit,
     check_support_breakdown,
     check_target_1_hit,
@@ -945,3 +946,160 @@ class TestIntradaySupportBounce:
             assert sig.confidence == "high"
             assert "SPY also bouncing" in sig.message
             assert "$684.50" in sig.message
+
+
+# ===== Rule 15: Session Low Double-Bottom =====
+
+class TestSessionLowDoubleBottom:
+    @staticmethod
+    def _make_double_bottom_bars(
+        session_low=650.0,
+        first_touch_bar=3,
+        num_bars=20,
+        recovery_bars=10,
+        retest_close=651.0,
+        retest_low=650.10,
+        retest_volume=800,
+    ):
+        """Build bars with a double-bottom at session_low.
+
+        - Bar `first_touch_bar` touches session_low
+        - Recovery bars hold above session_low * (1 + 0.3%)
+        - Last bar retests session_low with retest_low and closes at retest_close
+        """
+        rows = []
+        recovery_threshold = session_low * (1 + 0.003)  # SESSION_LOW_RECOVERY_PCT
+        for i in range(num_bars):
+            if i == first_touch_bar:
+                # First touch of session low
+                rows.append({
+                    "Open": session_low + 2, "High": session_low + 3,
+                    "Low": session_low, "Close": session_low + 1, "Volume": 1000,
+                })
+            elif i == num_bars - 1:
+                # Retest bar (last bar)
+                rows.append({
+                    "Open": session_low + 1.5, "High": session_low + 2,
+                    "Low": retest_low, "Close": retest_close, "Volume": retest_volume,
+                })
+            else:
+                # Normal bars above recovery threshold
+                rows.append({
+                    "Open": session_low + 3, "High": session_low + 5,
+                    "Low": recovery_threshold + 0.50,
+                    "Close": session_low + 4, "Volume": 1000,
+                })
+        return pd.DataFrame(rows)
+
+    def test_fires_on_classic_double_bottom(self):
+        """First touch bar 3, recovery bars 5-18, retest at last bar, vol=0.8x → BUY."""
+        bars = self._make_double_bottom_bars(
+            session_low=650.0, first_touch_bar=3, num_bars=20,
+            retest_close=651.0, retest_low=650.10, retest_volume=800,
+        )
+        last_bar = bars.iloc[-1]
+        avg_vol = bars["Volume"].mean()
+        sig = check_session_low_retest("META", bars, last_bar, 800, avg_vol)
+        assert sig is not None
+        assert sig.alert_type == AlertType.SESSION_LOW_DOUBLE_BOTTOM
+        assert sig.direction == "BUY"
+        assert sig.entry == 650.0
+        assert sig.confidence == "medium"
+
+    def test_no_fire_when_session_low_too_recent(self):
+        """First touch only 2 bars ago → None (need MIN_AGE_BARS=6)."""
+        bars = self._make_double_bottom_bars(
+            session_low=650.0, first_touch_bar=3, num_bars=6,
+            retest_close=651.0, retest_low=650.10, retest_volume=800,
+        )
+        last_bar = bars.iloc[-1]
+        avg_vol = bars["Volume"].mean()
+        sig = check_session_low_retest("META", bars, last_bar, 800, avg_vol)
+        assert sig is None
+
+    def test_no_fire_when_no_recovery(self):
+        """Price stays near session low, no recovery between touches → None."""
+        session_low = 650.0
+        rows = []
+        for i in range(20):
+            # All bars stay at session low level — no recovery
+            rows.append({
+                "Open": session_low + 0.5, "High": session_low + 1,
+                "Low": session_low, "Close": session_low + 0.5, "Volume": 1000,
+            })
+        # Last bar retests
+        rows[-1] = {
+            "Open": session_low + 0.5, "High": session_low + 1,
+            "Low": session_low + 0.10, "Close": session_low + 1, "Volume": 800,
+        }
+        bars = pd.DataFrame(rows)
+        last_bar = bars.iloc[-1]
+        avg_vol = bars["Volume"].mean()
+        sig = check_session_low_retest("META", bars, last_bar, 800, avg_vol)
+        assert sig is None
+
+    def test_no_fire_when_close_below_session_low(self):
+        """Retest bar closes at session low (no bounce) → None."""
+        # Close must be >= Low, so the tightest "no bounce" is close == session_low
+        bars = self._make_double_bottom_bars(
+            session_low=650.0, first_touch_bar=3, num_bars=20,
+            retest_close=650.0, retest_low=650.0, retest_volume=800,
+        )
+        last_bar = bars.iloc[-1]
+        avg_vol = bars["Volume"].mean()
+        sig = check_session_low_retest("META", bars, last_bar, 800, avg_vol)
+        assert sig is None
+
+    def test_no_fire_when_retest_volume_too_high(self):
+        """Vol ratio 1.5x → None (breakdown risk, not exhaustion)."""
+        bars = self._make_double_bottom_bars(
+            session_low=650.0, first_touch_bar=3, num_bars=20,
+            retest_close=651.0, retest_low=650.10, retest_volume=1500,
+        )
+        last_bar = bars.iloc[-1]
+        avg_vol = bars["Volume"].mean()
+        # avg_vol ~1000, bar_vol 1500 → ratio 1.5 >= 1.2 threshold
+        sig = check_session_low_retest("META", bars, last_bar, 1500, avg_vol)
+        assert sig is None
+
+
+# ===== Breakdown Session Low Tag =====
+
+class TestBreakdownSessionLowTag:
+    def test_breakdown_at_session_low_tagged(self):
+        """Breakdown fires at session low level → 'SESSION LOW BREAK', confidence='high'."""
+        # Build bars where session low = prior_day_low = 98.0
+        # Then breakdown bar closes below with conviction
+        # ma50 set above close so _find_nearest_support returns prior_low as support
+        idx = pd.date_range("2024-01-15 09:30", periods=12, freq="5min")
+        rows = []
+        for i in range(12):
+            rows.append({
+                "Open": 99.0, "High": 99.5, "Low": 98.5,
+                "Close": 99.0, "Volume": 1000,
+            })
+        # Bar 2: set the session low at 98.0
+        rows[2] = {
+            "Open": 98.5, "High": 99.0, "Low": 98.0,
+            "Close": 98.5, "Volume": 1000,
+        }
+        # Last bar: conviction breakdown close below session low
+        # close in lower 30% of range, high volume
+        rows[-1] = {
+            "Open": 98.2, "High": 98.5, "Low": 97.0,
+            "Close": 97.1, "Volume": 2000,
+        }
+        bars = pd.DataFrame(rows, index=idx)
+
+        prior = {
+            "ma20": 100.0, "ma50": None, "close": 99.5,
+            "high": 101.0, "low": 98.0, "is_inside": False,
+        }
+        signals = evaluate_rules("META", bars, prior)
+        breakdown_signals = [
+            s for s in signals if s.alert_type == AlertType.SUPPORT_BREAKDOWN
+        ]
+        assert len(breakdown_signals) >= 1
+        sig = breakdown_signals[0]
+        assert "SESSION LOW BREAK" in sig.message
+        assert sig.confidence == "high"
