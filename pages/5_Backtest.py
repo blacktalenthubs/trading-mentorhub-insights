@@ -154,6 +154,17 @@ for idx, symbol in enumerate(symbols):
                         line=dict(color="#9b59b6", width=1.5, dash="dash"),
                     ))
 
+                # Session low reference line
+                session_low = intra["Low"].min()
+                if session_low > 0:
+                    fig.add_hline(
+                        y=session_low, line_dash="dot", line_color="#f39c12",
+                        line_width=1.5,
+                        annotation_text=f"Session Low ${session_low:,.2f}",
+                        annotation_font=dict(size=9, color="#f39c12"),
+                        annotation_position="bottom left",
+                    )
+
                 # Signal markers
                 for sig in signals:
                     if sig.entry:
