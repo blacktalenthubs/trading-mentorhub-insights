@@ -100,17 +100,23 @@ def get_spy_context() -> dict:
 
     Returns dict with trend, close, ma20, and intraday_change_pct.
     """
+    _default = {
+        "trend": "neutral", "close": 0.0, "ma20": 0.0,
+        "intraday_change_pct": 0.0, "spy_bouncing": False, "spy_intraday_low": 0.0,
+    }
     try:
         spy = yf.Ticker("SPY")
         hist = spy.history(period="1mo")
         if hist.empty or len(hist) < 20:
-            return {"trend": "neutral", "close": 0.0, "ma20": 0.0, "intraday_change_pct": 0.0}
+            return _default
         ma20 = hist["Close"].rolling(20).mean().iloc[-1]
         close = hist["Close"].iloc[-1]
         trend = "bullish" if close > ma20 else "bearish"
 
-        # Compute SPY intraday % change from today's bars
+        # Compute SPY intraday % change and bounce detection from today's bars
         intraday_change_pct = 0.0
+        spy_bouncing = False
+        spy_intraday_low = 0.0
         try:
             spy_intra = spy.history(period="1d", interval="5m")
             if not spy_intra.empty and len(spy_intra) >= 2:
@@ -118,6 +124,12 @@ def get_spy_context() -> dict:
                 spy_current = spy_intra["Close"].iloc[-1]
                 if spy_open > 0:
                     intraday_change_pct = (spy_current - spy_open) / spy_open * 100
+
+                # Bounce detection: current price recovered >= 0.3% above session low
+                spy_low = spy_intra["Low"].min()
+                spy_intraday_low = round(spy_low, 2)
+                spy_bounce_pct = (spy_current - spy_low) / spy_low * 100 if spy_low > 0 else 0
+                spy_bouncing = spy_bounce_pct >= 0.3 and spy_current > spy_open
         except Exception:
             pass
 
@@ -126,9 +138,11 @@ def get_spy_context() -> dict:
             "close": round(close, 2),
             "ma20": round(ma20, 2),
             "intraday_change_pct": round(intraday_change_pct, 2),
+            "spy_bouncing": spy_bouncing,
+            "spy_intraday_low": spy_intraday_low,
         }
     except Exception:
-        return {"trend": "neutral", "close": 0.0, "ma20": 0.0, "intraday_change_pct": 0.0}
+        return _default
 
 
 def compute_vwap(bars: pd.DataFrame) -> pd.Series:

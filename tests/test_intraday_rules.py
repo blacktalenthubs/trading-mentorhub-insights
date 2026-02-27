@@ -12,6 +12,7 @@ from analytics.intraday_rules import (
     check_ema_crossover_5_20,
     check_gap_fill,
     check_inside_day_breakout,
+    check_intraday_support_bounce,
     check_ma_bounce_20,
     check_ma_bounce_50,
     check_opening_range_breakout,
@@ -876,3 +877,71 @@ class TestPerSymbolRisk:
         """Without symbol arg, uses default max_risk_pct."""
         result = _cap_risk(100.0, 95.0)
         assert result == 99.70  # same as before
+
+
+# ===== Rule 13: Intraday Support Bounce =====
+
+class TestIntradaySupportBounce:
+    def test_fires_on_bounce_off_support(self):
+        """Bar low at support, closes above → BUY with entry=support."""
+        # Support at 648.00, bar low touches 648.10 (within 0.3%), closes at 649.50
+        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
+        supports = [648.00, 645.00]
+        sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.INTRADAY_SUPPORT_BOUNCE
+        assert sig.direction == "BUY"
+        assert sig.entry == 648.00
+        assert sig.confidence == "medium"
+        assert "held $648.00" in sig.message
+
+    def test_no_fire_when_no_supports(self):
+        """Empty supports list → None."""
+        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
+        sig = check_intraday_support_bounce("META", bar, [], 1000, 1000)
+        assert sig is None
+
+    def test_no_fire_when_close_below_support(self):
+        """Bar closes at/below support → None (no bounce)."""
+        bar = _bar(open_=648.50, high=649.00, low=647.80, close=647.90, volume=1000)
+        supports = [648.00]
+        sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
+        assert sig is None
+
+    def test_spy_bounce_boosts_confidence(self):
+        """Orchestrator: spy_bouncing=True → confidence='high', message includes SPY note."""
+        # Build bars where intraday support bounce fires
+        # Need 12+ bars for detect_intraday_supports, plus a bounce bar at the end
+        idx = pd.date_range("2024-01-15 09:30", periods=25, freq="5min")
+        rows = []
+        for i in range(25):
+            rows.append({
+                "Open": 650.0, "High": 651.0, "Low": 649.0,
+                "Close": 650.5, "Volume": 1000,
+            })
+        # Hour 1 low at 648.00 (bar 2)
+        rows[2] = {"Open": 649.0, "High": 649.5, "Low": 648.00, "Close": 649.0, "Volume": 1000}
+        # Hour 2 holds above — bounces (bars 12-24)
+        for i in range(12, 25):
+            rows[i] = {"Open": 649.5, "High": 651.0, "Low": 649.0, "Close": 650.0, "Volume": 1000}
+        # Last bar: low touches support (648.10), closes above (649.50)
+        rows[-1] = {"Open": 648.50, "High": 650.0, "Low": 648.10, "Close": 649.50, "Volume": 1000}
+        bars = pd.DataFrame(rows, index=idx)
+
+        prior = {
+            "ma20": 650.0, "ma50": 645.0, "close": 650.0,
+            "high": 655.0, "low": 646.0, "is_inside": False,
+        }
+        spy_ctx = {
+            "trend": "neutral", "close": 689.0, "ma20": 685.0,
+            "intraday_change_pct": 0.5, "spy_bouncing": True, "spy_intraday_low": 684.50,
+        }
+        signals = evaluate_rules("META", bars, prior, spy_context=spy_ctx)
+        bounce_signals = [
+            s for s in signals if s.alert_type == AlertType.INTRADAY_SUPPORT_BOUNCE
+        ]
+        if bounce_signals:
+            sig = bounce_signals[0]
+            assert sig.confidence == "high"
+            assert "SPY also bouncing" in sig.message
+            assert "$684.50" in sig.message

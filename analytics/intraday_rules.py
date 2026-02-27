@@ -32,6 +32,7 @@ from alert_config import (
     PER_SYMBOL_RISK,
     RESISTANCE_PROXIMITY_PCT,
     RS_UNDERPERFORM_FACTOR,
+    SUPPORT_BOUNCE_PROXIMITY_PCT,
 )
 from analytics.market_hours import get_session_phase, allow_new_entries
 
@@ -49,6 +50,7 @@ class AlertType(str, Enum):
     EMA_CROSSOVER_5_20 = "ema_crossover_5_20"
     AUTO_STOP_OUT = "auto_stop_out"
     OPENING_RANGE_BREAKOUT = "opening_range_breakout"
+    INTRADAY_SUPPORT_BOUNCE = "intraday_support_bounce"
     GAP_FILL = "gap_fill"
 
 
@@ -655,7 +657,72 @@ def check_opening_range_breakout(
 
 
 # ---------------------------------------------------------------------------
-# Rule 13: Gap Fill (INFO)
+# Rule 13: Intraday Support Bounce (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_intraday_support_bounce(
+    symbol: str,
+    bar: pd.Series,
+    intraday_supports: list[float],
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price bounces off a held intraday support level — bullish entry.
+
+    Conditions:
+    - At least one intraday support exists
+    - Bar low is within SUPPORT_BOUNCE_PROXIMITY_PCT of a support level
+    - Bar close > support (bounce confirmed)
+    - Volume >= LOW_VOLUME_SKIP_RATIO (not noise)
+    """
+    if not intraday_supports:
+        return None
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < LOW_VOLUME_SKIP_RATIO:
+        return None
+
+    # Find closest support at or below bar low within proximity threshold
+    best_support = None
+    for lvl in sorted(intraday_supports, reverse=True):
+        if lvl > bar["Low"]:
+            continue
+        proximity = (bar["Low"] - lvl) / lvl if lvl > 0 else float("inf")
+        if proximity <= SUPPORT_BOUNCE_PROXIMITY_PCT:
+            best_support = lvl
+            break
+
+    if best_support is None:
+        return None
+    if bar["Close"] <= best_support:
+        return None  # didn't bounce above
+
+    entry = best_support
+    stop = bar["Low"] if bar["Low"] < best_support else best_support * (1 - 0.005)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.INTRADAY_SUPPORT_BOUNCE,
+        direction="BUY",
+        price=bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="medium",
+        message=(
+            f"Intraday support bounce — held ${best_support:.2f}, "
+            f"closed above at ${bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule 14: Gap Fill (INFO)
 # ---------------------------------------------------------------------------
 
 
@@ -828,6 +895,10 @@ def evaluate_rules(
         if sym_open > 0:
             sym_intraday_change = (sym_current - sym_open) / sym_open * 100
 
+    # Detect intraday supports (used by both bounce BUY rule and breakdown SHORT)
+    from analytics.intraday_data import detect_intraday_supports
+    intraday_supports = detect_intraday_supports(intraday_bars)
+
     # --- BUY rules (context adds caution notes, never blocks signals) ---
     caution_notes = []
     if spy_trend == "bearish":
@@ -886,6 +957,20 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
+        # --- Intraday Support Bounce ---
+        sig = check_intraday_support_bounce(
+            symbol, last_bar, intraday_supports, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            # SPY bounce correlation — boost confidence
+            if spy.get("spy_bouncing"):
+                sig.confidence = "high"
+                spy_low = spy.get("spy_intraday_low", 0)
+                sig.message += f" | SPY also bouncing from session low ${spy_low:.2f}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
     # --- Gap Fill (INFO — fires regardless of cooldown) ---
     sig = check_gap_fill(symbol, last_bar, gap_fill_info)
     if sig:
@@ -927,12 +1012,10 @@ def evaluate_rules(
 
     # --- Support Breakdown (SHORT) ---
     from analytics.signal_engine import _find_nearest_support
-    from analytics.intraday_data import detect_intraday_supports
 
     nearest_support, _ = _find_nearest_support(last_bar["Close"], prior_low, ma20, ma50)
 
     # Include intraday hourly supports — use closest below current price
-    intraday_supports = detect_intraday_supports(intraday_bars)
     for lvl in sorted(intraday_supports, reverse=True):
         if lvl < last_bar["Close"]:
             # Tighten nearest_support if intraday level is closer

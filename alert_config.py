@@ -78,6 +78,9 @@ DAY_TRADE_MAX_RISK_PCT = 0.003  # 0.3%
 # Cooldown: minutes to suppress BUY signals after a stop-out
 COOLDOWN_MINUTES = 30
 
+# Intraday Support Bounce: bar low must be within this % of support
+SUPPORT_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3%
+
 # Opening Range Breakout: minimum OR range as % of price
 ORB_MIN_RANGE_PCT = 0.003  # 0.3%
 
