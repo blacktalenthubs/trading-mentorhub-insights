@@ -16,6 +16,33 @@ from analytics.intraday_data import (
 )
 from analytics.intraday_rules import evaluate_rules, AlertSignal
 
+
+def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
+    """Build SPY context dict from historical intraday bars for backtest."""
+    default = {
+        "trend": "neutral", "close": 0.0, "ma20": 0.0,
+        "intraday_change_pct": 0.0, "spy_bouncing": False, "spy_intraday_low": 0.0,
+    }
+    if spy_bars.empty or len(spy_bars) < 2:
+        return default
+
+    spy_open = spy_bars["Open"].iloc[0]
+    spy_current = spy_bars["Close"].iloc[-1]
+    spy_low = spy_bars["Low"].min()
+
+    intraday_change_pct = (spy_current - spy_open) / spy_open * 100 if spy_open > 0 else 0
+    spy_bounce_pct = (spy_current - spy_low) / spy_low * 100 if spy_low > 0 else 0
+    spy_bouncing = spy_bounce_pct >= 0.3 and spy_current > spy_open
+
+    return {
+        "trend": "bullish" if spy_current > spy_open else "bearish",
+        "close": round(spy_current, 2),
+        "ma20": 0.0,
+        "intraday_change_pct": round(intraday_change_pct, 2),
+        "spy_bouncing": spy_bouncing,
+        "spy_intraday_low": round(spy_low, 2),
+    }
+
 st.set_page_config(
     page_title="Backtest Replay",
     page_icon="⚡",
@@ -69,6 +96,10 @@ st.markdown(f"### Results for {date_str}")
 progress = st.progress(0)
 all_results: list[dict] = []
 
+# Fetch SPY context for the backtest date (used for bounce correlation)
+spy_intra = fetch_historical_intraday("SPY", date_str)
+spy_ctx = _build_spy_context(spy_intra)
+
 for idx, symbol in enumerate(symbols):
     progress.progress((idx + 1) / len(symbols), text=f"Processing {symbol}...")
 
@@ -84,7 +115,7 @@ for idx, symbol in enumerate(symbols):
 
     if mode == "End-of-day":
         # Feed full day's bars at once
-        signals = evaluate_rules(symbol, intra, prior)
+        signals = evaluate_rules(symbol, intra, prior, spy_context=spy_ctx)
         for sig in signals:
             all_results.append({
                 "Symbol": sig.symbol,
@@ -150,7 +181,10 @@ for idx, symbol in enumerate(symbols):
 
         for i in range(6, len(intra)):
             partial = intra.iloc[: i + 1]
-            sigs = evaluate_rules(symbol, partial, prior)
+            # Build progressive SPY context for bar-by-bar mode
+            spy_partial = spy_intra.iloc[: i + 1] if not spy_intra.empty and i < len(spy_intra) else spy_intra
+            spy_ctx_partial = _build_spy_context(spy_partial)
+            sigs = evaluate_rules(symbol, partial, prior, spy_context=spy_ctx_partial)
             for sig in sigs:
                 key = (sig.symbol, sig.alert_type.value)
                 if key in seen:
