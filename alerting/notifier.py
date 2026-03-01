@@ -17,6 +17,8 @@ from alert_config import (
     SMTP_PASSWORD,
     SMTP_PORT,
     SMTP_USER,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
     TWILIO_FROM_NUMBER,
@@ -117,6 +119,29 @@ def send_email(signal: AlertSignal) -> bool:
         return False
 
 
+def _send_telegram(body: str) -> bool:
+    """Send a message via Telegram Bot API."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return False
+
+    import urllib.parse
+    import urllib.request
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = urllib.parse.urlencode({
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": body,
+    }).encode()
+
+    try:
+        urllib.request.urlopen(url, data, timeout=10)
+        logger.info("Telegram sent: %s", body[:50])
+        return True
+    except Exception:
+        logger.exception("Failed to send Telegram message")
+        return False
+
+
 def _send_sms_via_email_gateway(body: str) -> bool:
     """Send SMS via carrier email-to-SMS gateway (e.g. number@txt.att.net).
 
@@ -147,10 +172,14 @@ def _send_sms_via_email_gateway(body: str) -> bool:
 
 
 def send_sms(signal: AlertSignal) -> bool:
-    """Send SMS alert. Uses email-to-SMS gateway if configured, falls back to Twilio."""
+    """Send SMS alert. Tries: Telegram → email gateway → Twilio."""
     body = _format_sms_body(signal)
 
-    # Prefer email-to-SMS gateway (free, no Twilio needed)
+    # Prefer Telegram (free, instant, reliable)
+    if TELEGRAM_BOT_TOKEN:
+        return _send_telegram(body)
+
+    # Fallback: email-to-SMS gateway
     if SMS_GATEWAY_TO:
         return _send_sms_via_email_gateway(body)
 
