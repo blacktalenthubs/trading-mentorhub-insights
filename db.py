@@ -186,6 +186,16 @@ def init_db():
                 UNIQUE(symbol, session_date, alert_type)
             );
 
+            CREATE TABLE IF NOT EXISTS cooldowns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                cooldown_until TEXT NOT NULL,
+                reason TEXT,
+                session_date TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, session_date)
+            );
+
             CREATE TABLE IF NOT EXISTS monitor_status (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 last_poll_at TIMESTAMP,
@@ -193,6 +203,54 @@ def init_db():
                 alerts_fired INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'idle'
             );
+
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                direction TEXT NOT NULL DEFAULT 'BUY',
+                shares INTEGER NOT NULL,
+                entry_price REAL,
+                exit_price REAL,
+                stop_price REAL,
+                target_price REAL,
+                pnl REAL,
+                status TEXT NOT NULL DEFAULT 'open',
+                alert_type TEXT,
+                alert_id INTEGER,
+                alpaca_order_id TEXT,
+                alpaca_close_order_id TEXT,
+                session_date TEXT NOT NULL,
+                opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                closed_at TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol ON paper_trades(symbol);
+            CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
+            CREATE INDEX IF NOT EXISTS idx_paper_trades_session ON paper_trades(session_date);
+
+            CREATE TABLE IF NOT EXISTS real_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                direction TEXT NOT NULL DEFAULT 'BUY',
+                shares INTEGER NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL,
+                stop_price REAL,
+                target_price REAL,
+                target_2_price REAL,
+                pnl REAL,
+                status TEXT NOT NULL DEFAULT 'open',
+                alert_type TEXT,
+                alert_id INTEGER,
+                notes TEXT DEFAULT '',
+                session_date TEXT NOT NULL,
+                opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                closed_at TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_real_trades_symbol ON real_trades(symbol);
+            CREATE INDEX IF NOT EXISTS idx_real_trades_status ON real_trades(status);
+            CREATE INDEX IF NOT EXISTS idx_real_trades_session ON real_trades(session_date);
 
             CREATE INDEX IF NOT EXISTS idx_trades_1099_symbol ON trades_1099(symbol);
             CREATE INDEX IF NOT EXISTS idx_trades_1099_account ON trades_1099(account);
@@ -207,6 +265,16 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(alert_type, session_date);
             CREATE INDEX IF NOT EXISTS idx_active_entries_symbol
                 ON active_entries(symbol, session_date);
+
+            CREATE TABLE IF NOT EXISTS chart_levels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                price REAL NOT NULL,
+                label TEXT DEFAULT '',
+                color TEXT DEFAULT '#3498db',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_chart_levels_symbol ON chart_levels(symbol);
         """)
     _migrate_add_user_id()
 
@@ -565,3 +633,33 @@ def get_annotations(user_id: int) -> pd.DataFrame:
             conn,
             params=[user_id],
         )
+
+
+# ---------------------------------------------------------------------------
+# Chart Levels
+# ---------------------------------------------------------------------------
+
+def add_chart_level(symbol: str, price: float, label: str = "", color: str = "#3498db") -> int:
+    """Insert a custom horizontal level for a symbol. Returns the new row id."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO chart_levels (symbol, price, label, color) VALUES (?, ?, ?, ?)",
+            (symbol, price, label, color),
+        )
+        return cur.lastrowid
+
+
+def delete_chart_level(level_id: int):
+    """Delete a chart level by id."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM chart_levels WHERE id=?", (level_id,))
+
+
+def get_chart_levels(symbol: str) -> list[dict]:
+    """Get all custom chart levels for a symbol."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, symbol, price, label, color FROM chart_levels WHERE symbol=? ORDER BY price",
+            (symbol,),
+        ).fetchall()
+        return [dict(r) for r in rows]

@@ -32,7 +32,10 @@ from alert_config import (
     PER_SYMBOL_RISK,
     PLANNED_LEVEL_PROXIMITY_PCT,
     RESISTANCE_PROXIMITY_PCT,
+    WEEKLY_LEVEL_PROXIMITY_PCT,
+    WEEKLY_LEVEL_STOP_OFFSET_PCT,
     RS_UNDERPERFORM_FACTOR,
+    SPY_STRONG_BOUNCE_RATE,
     SESSION_LOW_BREAK_PROXIMITY_PCT,
     SESSION_LOW_MAX_RETEST_VOL_RATIO,
     SESSION_LOW_MIN_AGE_BARS,
@@ -62,6 +65,7 @@ class AlertType(str, Enum):
     SESSION_LOW_DOUBLE_BOTTOM = "session_low_double_bottom"
     GAP_FILL = "gap_fill"
     PLANNED_LEVEL_TOUCH = "planned_level_touch"
+    WEEKLY_LEVEL_TOUCH = "weekly_level_touch"
 
 
 @dataclass
@@ -962,6 +966,70 @@ def check_planned_level_touch(
 
 
 # ---------------------------------------------------------------------------
+# Rule 17: Weekly Level Touch (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_weekly_level_touch(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price touches prior week low and bounces — bullish entry at institutional level.
+
+    Conditions:
+    1. prior_week_high and prior_week_low available and > 0
+    2. Weekly range > 0
+    3. Bar low within WEEKLY_LEVEL_PROXIMITY_PCT of prior_week_low
+    4. Bar close > prior_week_low (bounce confirmed)
+    5. Risk > 0 (after _cap_risk)
+    """
+    pw_high = prior_day.get("prior_week_high")
+    pw_low = prior_day.get("prior_week_low")
+    if pw_high is None or pw_low is None:
+        return None
+    if pw_high <= 0 or pw_low <= 0:
+        return None
+
+    weekly_range = pw_high - pw_low
+    if weekly_range <= 0:
+        return None
+
+    proximity = abs(bar["Low"] - pw_low) / pw_low
+    if proximity > WEEKLY_LEVEL_PROXIMITY_PCT:
+        return None
+
+    if bar["Close"] <= pw_low:
+        return None  # no bounce
+
+    entry = pw_low
+    stop = pw_low * (1 - WEEKLY_LEVEL_STOP_OFFSET_PCT)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target_1 = pw_high
+    target_2 = pw_high + weekly_range * 0.5
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WEEKLY_LEVEL_TOUCH,
+        direction="BUY",
+        price=bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(target_1, 2),
+        target_2=round(target_2, 2),
+        confidence="high",
+        message=(
+            f"Weekly level touch — bounced at prior week low ${pw_low:.2f}, "
+            f"T1=${pw_high:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Noise filter
 # ---------------------------------------------------------------------------
 
@@ -1103,19 +1171,20 @@ def evaluate_rules(
     from analytics.intraday_data import detect_intraday_supports
     intraday_supports = detect_intraday_supports(intraday_bars)
 
-    # --- BUY rules (context adds caution notes, never blocks signals) ---
+    # --- BUY rules ---
     spy_regime = spy.get("regime", "CHOPPY")
+    suppress_buys = spy_regime == "TRENDING_DOWN"
 
     caution_notes = []
     if spy_trend == "bearish":
         caution_notes.append("SPY bearish (below 20MA)")
-    if spy_regime in ("CHOPPY", "TRENDING_DOWN"):
+    if spy_regime == "CHOPPY":
         caution_notes.append(f"SPY regime: {spy_regime}")
     if not entries_allowed:
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
-    if not is_cooled_down:  # skip BUY rules during post stop-out cooldown
+    if not is_cooled_down and not suppress_buys:
         sig = check_ma_bounce_20(symbol, last_bar, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
@@ -1194,6 +1263,15 @@ def evaluate_rules(
 
         # --- Planned Level Touch ---
         sig = check_planned_level_touch(symbol, last_bar, prior_day)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+        # --- Weekly Level Touch ---
+        sig = check_weekly_level_touch(symbol, last_bar, prior_day)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
@@ -1344,6 +1422,31 @@ def evaluate_rules(
             if sig.confidence == "high":
                 sig.confidence = "medium"
             sig.message += " | CHOPPY market — reduced confidence"
+
+        # SPY S/R level reaction: adjust BUY confidence based on SPY position
+        if sig.direction == "BUY":
+            spy_at_resistance = spy.get("spy_at_resistance", False)
+            spy_at_support = spy.get("spy_at_support", False)
+            spy_level_label = spy.get("spy_level_label", "")
+            spy_bounce_rate = spy.get("spy_support_bounce_rate", 0.5)
+
+            if spy_at_resistance:
+                if sig.confidence == "high":
+                    sig.confidence = "medium"
+                sig.message += f" | SPY at resistance ({spy_level_label}) — reduced confidence"
+            elif spy_at_support:
+                if spy_bounce_rate >= SPY_STRONG_BOUNCE_RATE:
+                    sig.message += (
+                        f" | SPY at support ({spy_level_label},"
+                        f" {spy_bounce_rate:.0%} hist. bounce rate)"
+                    )
+                else:
+                    if sig.confidence == "high":
+                        sig.confidence = "medium"
+                    sig.message += (
+                        f" | SPY weak support ({spy_level_label},"
+                        f" {spy_bounce_rate:.0%} hist. bounce rate)"
+                    )
 
         # MTF alignment enrichment
         sig.mtf_aligned = mtf["mtf_aligned"]

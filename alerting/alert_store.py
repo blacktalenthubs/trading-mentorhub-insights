@@ -113,6 +113,17 @@ def close_all_entries_for_symbol(symbol: str, session_date: str | None = None):
         )
 
 
+def get_alert_id(symbol: str, alert_type: str, session_date: str | None = None) -> int | None:
+    """Look up an existing alert_id for a symbol+type+session. Returns None if not found."""
+    session = session_date or today_session()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? LIMIT 1",
+            (symbol, alert_type, session),
+        ).fetchone()
+        return row["id"] if row else None
+
+
 def get_alerts_today(session_date: str | None = None):
     """Get all alerts fired today as a list of dicts."""
     session = session_date or today_session()
@@ -201,3 +212,58 @@ def get_session_summary(session_date: str | None = None) -> dict:
 
     summary["symbols"] = list(summary["symbols"])
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Cooldown persistence
+# ---------------------------------------------------------------------------
+
+
+def save_cooldown(
+    symbol: str,
+    minutes: int,
+    reason: str = "",
+    session_date: str | None = None,
+):
+    """Persist a cooldown for a symbol. Survives process restarts."""
+    from datetime import datetime, timedelta
+
+    session = session_date or today_session()
+    until = (datetime.now() + timedelta(minutes=minutes)).isoformat()
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO cooldowns (symbol, cooldown_until, reason, session_date)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(symbol, session_date) DO UPDATE SET
+                   cooldown_until = excluded.cooldown_until,
+                   reason = excluded.reason""",
+            (symbol, until, reason, session),
+        )
+
+
+def get_active_cooldowns(session_date: str | None = None) -> set[str]:
+    """Return set of symbols currently in cooldown."""
+    from datetime import datetime
+
+    session = session_date or today_session()
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT symbol FROM cooldowns WHERE session_date = ? AND cooldown_until > ?",
+            (session, now),
+        ).fetchall()
+        return {row["symbol"] for row in rows}
+
+
+def is_symbol_cooled_down(symbol: str, session_date: str | None = None) -> bool:
+    """Check if a specific symbol is in cooldown."""
+    from datetime import datetime
+
+    session = session_date or today_session()
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM cooldowns WHERE symbol = ? AND session_date = ? AND cooldown_until > ?",
+            (symbol, session, now),
+        ).fetchone()
+        return row is not None

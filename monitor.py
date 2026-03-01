@@ -14,8 +14,6 @@ import argparse
 import logging
 import sys
 
-from datetime import datetime, timedelta
-
 from alert_config import (
     ALERT_WATCHLIST,
     COOLDOWN_MINUTES,
@@ -25,13 +23,22 @@ from analytics.market_hours import is_market_hours
 from alerting.alert_store import (
     close_all_entries_for_symbol,
     create_active_entry,
+    get_active_cooldowns,
     get_active_entries,
+    get_alerts_today,
     record_alert,
+    save_cooldown,
     today_session,
     update_monitor_status,
     was_alert_fired,
 )
 from alerting.notifier import notify, send_email, send_sms
+from alerting.paper_trader import (
+    close_position as paper_close_position,
+    is_enabled as paper_trading_enabled,
+    place_bracket_order,
+    sync_open_trades,
+)
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
 from db import init_db
@@ -43,9 +50,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("monitor")
 
-# Module-level state for auto stop-out tracking and cooldown
+# Module-level state for auto stop-out tracking (cooldowns are DB-persisted)
 _auto_stop_entries: dict[str, dict] = {}  # {symbol: {entry_price, stop_price, alert_type}}
-_cooldown: dict[str, datetime] = {}  # {symbol: cooldown_until}
 
 
 def poll_cycle(dry_run: bool = False) -> int:
@@ -56,9 +62,16 @@ def poll_cycle(dry_run: bool = False) -> int:
     session = today_session()
     total_alerts = 0
 
-    now = datetime.now()
-    cooled_symbols: set[str] = {
-        sym for sym, until in _cooldown.items() if until > now
+    # Sync paper trades with Alpaca (bracket legs may have filled between polls)
+    if not dry_run and paper_trading_enabled():
+        sync_open_trades()
+
+    cooled_symbols = get_active_cooldowns(session)
+
+    # Build fired_today from DB so evaluate_rules() filters already-fired signals
+    db_alerts = get_alerts_today(session)
+    fired_today: set[tuple[str, str]] = {
+        (a["symbol"], a["alert_type"]) for a in db_alerts
     }
 
     for symbol in ALERT_WATCHLIST:
@@ -77,6 +90,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                 spy_context=spy_ctx,
                 auto_stop_entries=_auto_stop_entries.get(symbol),
                 is_cooled_down=symbol in cooled_symbols,
+                fired_today=fired_today,
             )
 
             for signal in signals:
@@ -97,7 +111,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                 email_sent, sms_sent = notify(signal)
 
                 # Record
-                record_alert(signal, session, email_sent, sms_sent)
+                alert_id = record_alert(signal, session, email_sent, sms_sent)
 
                 # Track active entries for BUY signals
                 if signal.direction == "BUY":
@@ -108,12 +122,21 @@ def poll_cycle(dry_run: bool = False) -> int:
                             "stop_price": signal.stop,
                             "alert_type": signal.alert_type.value,
                         }
+                    if paper_trading_enabled():
+                        place_bracket_order(signal, alert_id=alert_id)
 
                 # Stop loss / auto stop-out: cancel entries and start cooldown
                 if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
                     close_all_entries_for_symbol(symbol, session)
                     _auto_stop_entries.pop(symbol, None)
-                    _cooldown[symbol] = datetime.now() + timedelta(minutes=COOLDOWN_MINUTES)
+                    save_cooldown(symbol, COOLDOWN_MINUTES, reason=signal.alert_type.value, session_date=session)
+                    if paper_trading_enabled():
+                        paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
+
+                # Target hit: close paper position
+                if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
+                    if paper_trading_enabled():
+                        paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 
                 logger.info(
                     "ALERT: %s %s %s @ $%.2f (email=%s, sms=%s)",

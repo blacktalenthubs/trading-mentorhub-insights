@@ -5,7 +5,7 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from streamlit_autorefresh import st_autorefresh
 
@@ -17,9 +17,18 @@ from analytics.intraday_data import (
 )
 from analytics.intraday_rules import evaluate_rules, AlertSignal
 from analytics.market_hours import is_market_hours, get_session_phase
-from alerting.notifier import send_email, send_sms
-from alerting.alert_store import get_session_summary
-from alert_config import COOLDOWN_MINUTES, POLL_INTERVAL_MINUTES
+from alerting.alert_store import (
+    get_active_cooldowns, get_alert_id, get_alerts_today, get_session_summary,
+    today_session,
+)
+from alerting.real_trade_store import (
+    calculate_shares, has_open_trade, open_real_trade,
+)
+from alert_config import (
+    POLL_INTERVAL_MINUTES,
+    REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_POSITION_SIZE,
+)
+import ui_theme
 
 st.set_page_config(
     page_title="TradeSignal",
@@ -30,9 +39,9 @@ st.set_page_config(
 
 init_db()
 user = auto_login()
+ui_theme.inject_custom_css()
 
-st.title("TradeSignal")
-st.caption("Trade smarter, not longer.")
+ui_theme.page_header("TradeSignal", "Trade smarter, not longer.")
 
 # ── Auto-refresh during market hours ──────────────────────────────────────
 _market_open = is_market_hours()
@@ -56,15 +65,9 @@ if _market_open:
     total_decided = t1_wins + stopped
     win_rate = f"{t1_wins / total_decided * 100:.0f}%" if total_decided > 0 else "N/A"
 
-    # Active cooldowns
-    now_cd = datetime.now()
-    cooldown_dict = st.session_state.get("cooldown", {})
-    active_cooldowns = {
-        sym: int((until - now_cd).total_seconds() / 60)
-        for sym, until in cooldown_dict.items()
-        if until > now_cd
-    }
-    cd_text = ", ".join(f"{s} ({m}m)" for s, m in active_cooldowns.items()) if active_cooldowns else "None"
+    # Active cooldowns (from DB — persistent across restarts)
+    active_cd_symbols = get_active_cooldowns()
+    cd_text = ", ".join(sorted(active_cd_symbols)) if active_cd_symbols else "None"
 
     sc1, sc2, sc3, sc4 = st.columns(4)
     sc1.markdown(f"**Signals:** {buy_hist} BUY / {sell_hist} SELL / {short_hist} SHORT")
@@ -181,10 +184,10 @@ def _draw_signal_chart(symbol: str, sig: AlertSignal):
 # Live Alerts (inline scanning)
 # ---------------------------------------------------------------------------
 
-st.subheader("Live Alerts")
+ui_theme.section_header("Live Alerts")
 
 if not _market_open:
-    st.info("Market is closed — alerts resume at 9:30 AM ET on the next trading day.")
+    ui_theme.empty_state("Market is closed — alerts resume at 9:30 AM ET on the next trading day.")
     st.caption(f"Last check: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 else:
     # Initialize alert history in session state
@@ -192,20 +195,15 @@ else:
         st.session_state["alert_history"] = []
     if "auto_stop_entries" not in st.session_state:
         st.session_state["auto_stop_entries"] = {}
-    if "cooldown" not in st.session_state:
-        st.session_state["cooldown"] = {}
 
-    # Build fired_today set from alert history for dedup inside evaluate_rules
+    # Build fired_today from DB (authoritative, persistent across restarts)
+    db_alerts = get_alerts_today()
     fired_today: set[tuple[str, str]] = {
-        (a["symbol"], a["alert_type"])
-        for a in st.session_state.get("alert_history", [])
+        (a["symbol"], a["alert_type"]) for a in db_alerts
     }
 
-    # Build active cooldown set
-    now = datetime.now()
-    cooled_symbols: set[str] = {
-        sym for sym, until in st.session_state["cooldown"].items() if until > now
-    }
+    # Build active cooldown set from DB
+    cooled_symbols: set[str] = get_active_cooldowns()
 
     # Collect active positions from Scanner for SELL rule evaluation
     active_positions = st.session_state.get("active_positions", {})
@@ -291,23 +289,20 @@ else:
         )
     st.markdown("")
 
-    # Dedup against session history
+    # Dedup against DB (authoritative) + session history (fast for display)
     existing_keys = {
+        (a["symbol"], a["alert_type"], a["direction"])
+        for a in db_alerts
+    } | {
         (a["symbol"], a["alert_type"], a["direction"])
         for a in st.session_state["alert_history"]
     }
 
     new_signals = []
-    notifications_sent = 0
     for sig in all_signals:
         key = (sig.symbol, sig.alert_type.value, sig.direction)
         if key not in existing_keys:
             new_signals.append(sig)
-
-            # Send notifications for new signals
-            if send_email(sig):
-                notifications_sent += 1
-            send_sms(sig)
 
             st.session_state["alert_history"].append({
                 "symbol": sig.symbol,
@@ -320,10 +315,9 @@ else:
                 "target_2": sig.target_2,
                 "message": sig.message,
                 "time": datetime.now().strftime("%H:%M:%S"),
-                "emailed": True,
             })
 
-            # Track BUY signals for auto-stop-out
+            # Track BUY signals for auto-stop-out (display only)
             if sig.direction == "BUY" and sig.entry and sig.stop:
                 st.session_state.setdefault("auto_stop_entries", {})[sig.symbol] = {
                     "entry_price": sig.entry,
@@ -331,15 +325,12 @@ else:
                     "alert_type": sig.alert_type.value,
                 }
 
-            # Clean up on stop-out and start cooldown
+            # Clean up on stop-out (cooldown is handled by monitor.py via DB)
             if sig.alert_type.value in ("auto_stop_out", "stop_loss_hit"):
                 st.session_state.get("auto_stop_entries", {}).pop(sig.symbol, None)
-                st.session_state["cooldown"][sig.symbol] = (
-                    datetime.now() + timedelta(minutes=COOLDOWN_MINUTES)
-                )
 
-    if new_signals and notifications_sent:
-        st.toast(f"Sent {notifications_sent} new alert(s)")
+    if new_signals:
+        st.toast(f"{len(new_signals)} new signal(s) detected")
 
     # ── F8: Sort signals by score descending ──────────────────────────────
     all_signals.sort(key=lambda s: s.score, reverse=True)
@@ -392,6 +383,42 @@ else:
                     if sig.target_2:
                         dc4.metric("T2", f"${sig.target_2:,.2f}")
 
+                    # Real trade: "Took It" / "Skip" buttons
+                    if sig.direction in ("BUY", "SHORT") and sig.entry and sig.stop:
+                        shares = calculate_shares(sig.symbol, sig.entry)
+                        cap = REAL_TRADE_SPY_POSITION_SIZE if sig.symbol == "SPY" else REAL_TRADE_POSITION_SIZE
+                        exposure = shares * sig.entry
+                        st.caption(
+                            f"{shares} shares x ${sig.entry:,.2f} = "
+                            f"${exposure:,.0f} (cap: ${cap / 1000:.0f}k)"
+                        )
+
+                        if has_open_trade(sig.symbol):
+                            st.info("Already in this trade")
+                        else:
+                            tk_key = f"took_{sig.symbol}_{sig.alert_type.value}"
+                            sk_key = f"skip_{sig.symbol}_{sig.alert_type.value}"
+                            bc1, bc2 = st.columns(2)
+                            if bc1.button("Took It", key=tk_key, type="primary"):
+                                alert_id = get_alert_id(
+                                    sig.symbol, sig.alert_type.value, today_session(),
+                                )
+                                open_real_trade(
+                                    symbol=sig.symbol,
+                                    direction=sig.direction,
+                                    entry_price=sig.entry,
+                                    stop_price=sig.stop,
+                                    target_price=sig.target_1,
+                                    target_2_price=sig.target_2,
+                                    alert_type=sig.alert_type.value,
+                                    alert_id=alert_id,
+                                    session_date=today_session(),
+                                )
+                                st.toast(f"Opened {sig.direction} on {sig.symbol}")
+                                st.rerun()
+                            if bc2.button("Skip", key=sk_key):
+                                st.toast(f"Skipped {sig.symbol}")
+
                     # F6: Intraday chart with signal overlays for BUY signals
                     if sig.direction == "BUY":
                         _draw_signal_chart(sig.symbol, sig)
@@ -408,7 +435,7 @@ else:
         kpi3.metric("SELL Signals", sell_count)
         kpi4.metric("SHORT Signals", short_count)
     else:
-        st.info("No signals firing right now. Scanning every 3 minutes.")
+        ui_theme.empty_state("No signals firing right now. Scanning every 3 minutes.")
 
     st.caption(f"Last scan: {datetime.now().strftime('%H:%M:%S')} ET | "
                f"{len(watchlist)} symbols checked")
@@ -417,7 +444,7 @@ else:
     auto_stop = st.session_state.get("auto_stop_entries", {})
     if auto_stop:
         st.divider()
-        st.subheader("Live P&L Tracker")
+        ui_theme.section_header("Live P&L Tracker")
 
         total_pnl = 0.0
         winning = 0
@@ -496,7 +523,7 @@ st.divider()
 # Alert History (session)
 # ---------------------------------------------------------------------------
 
-st.subheader("Alert History (This Session)")
+ui_theme.section_header("Alert History (This Session)")
 
 history = st.session_state.get("alert_history", [])
 
@@ -520,7 +547,7 @@ if history:
         st.session_state["alert_history"] = []
         st.rerun()
 else:
-    st.info("No alerts fired this session.")
+    ui_theme.empty_state("No alerts fired this session.")
 
 # ---------------------------------------------------------------------------
 # F10: End-of-Day Summary
@@ -531,7 +558,7 @@ _show_eod = _session_phase in ("closed", "last_30", "power_hour")
 
 st.divider()
 if _show_eod or st.button("Generate Summary Now", key="gen_summary"):
-    st.subheader("End-of-Day Summary")
+    ui_theme.section_header("End-of-Day Summary")
 
     summary = get_session_summary()
     if summary["total"] > 0:
@@ -552,7 +579,7 @@ if _show_eod or st.button("Generate Summary Now", key="gen_summary"):
             ]).sort_values("Count", ascending=False)
             st.dataframe(type_df, use_container_width=True, hide_index=True)
     else:
-        st.info("No alerts recorded for today's session.")
+        ui_theme.empty_state("No alerts recorded for today's session.")
 
 # ---------------------------------------------------------------------------
 # Test Notifications (kept for desktop use)
