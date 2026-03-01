@@ -118,20 +118,28 @@ def send_email(signal: AlertSignal) -> bool:
 
 
 def _send_sms_via_email_gateway(body: str) -> bool:
-    """Send SMS via carrier email-to-SMS gateway (e.g. number@txt.att.net)."""
+    """Send SMS via carrier email-to-SMS gateway (e.g. number@txt.att.net).
+
+    Truncates to 160 chars (SMS limit). No Subject header — gateways may
+    prepend it to the message body, wasting precious characters.
+    """
     if not SMS_GATEWAY_TO or not SMTP_USER or not SMTP_PASSWORD:
         return False
 
-    msg = MIMEText(body)
+    # SMS limit is 160 chars; MMS can do more but not all gateways support it
+    truncated = body[:160]
+
+    msg = MIMEText(truncated)
     msg["From"] = ALERT_EMAIL_FROM
     msg["To"] = SMS_GATEWAY_TO
+    # No Subject — carrier gateways prepend it to the body
 
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(ALERT_EMAIL_FROM, [SMS_GATEWAY_TO], msg.as_string())
-        logger.info("SMS (email gateway) sent to %s: %s", SMS_GATEWAY_TO, body[:50])
+        logger.info("SMS (email gateway) sent to %s: %s", SMS_GATEWAY_TO, truncated[:50])
         return True
     except Exception:
         logger.exception("Failed to send SMS via email gateway")
