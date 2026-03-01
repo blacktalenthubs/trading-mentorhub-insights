@@ -17,19 +17,25 @@ from analytics.market_data import classify_day, fetch_ohlc
 from analytics.signal_engine import (
     scan_watchlist, SignalResult, ACTION_LABELS, action_label, action_color, action_help,
 )
-from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
+from analytics.intraday_data import (
+    fetch_intraday, fetch_prior_day, get_spy_context,
+    fetch_premarket_bars, compute_premarket_brief,
+)
 from analytics.intraday_rules import evaluate_rules
-from analytics.market_hours import is_market_hours
+from analytics.market_hours import is_market_hours, is_premarket
 import ui_theme
 
 st.set_page_config(page_title="Scanner | TradeSignal", page_icon="⚡", layout="wide")
 init_db()
 ui_theme.inject_custom_css()
 
-# ── Auto-refresh during market hours ──────────────────────────────────────
+# ── Auto-refresh during market hours / pre-market ─────────────────────────
 _market_open = is_market_hours()
+_premarket = is_premarket()
 if _market_open:
     st_autorefresh(interval=180_000, key="scanner_refresh")  # 3 min
+elif _premarket:
+    st_autorefresh(interval=120_000, key="scanner_pm_refresh")  # 2 min
 
 # ── Cached helpers ──────────────────────────────────────────────────────────
 
@@ -348,6 +354,88 @@ col5.metric("A+ / A Signals", f"{a_plus_count} / {a_count}",
 
 st.divider()
 
+# ── Pre-Market Brief (4:00-9:29 AM ET only) ──────────────────────────────
+
+if _premarket:
+    ui_theme.section_header("Pre-Market Brief", "Watchlist insights before the bell")
+
+    # Gather PM data for all symbols
+    _pm_briefs: list[dict] = []
+    for sym in symbols:
+        pm_bars = fetch_premarket_bars(sym)
+        if pm_bars.empty:
+            continue
+        prior = _cached_prior_day(sym)
+        brief = compute_premarket_brief(sym, pm_bars, prior)
+        if brief:
+            _pm_briefs.append(brief)
+
+    if _pm_briefs:
+        # SPY Pre-Market Context card
+        _spy_briefs = [b for b in _pm_briefs if b["symbol"] == "SPY"]
+        if _spy_briefs:
+            spy_pm = _spy_briefs[0]
+            gap_dir = "UP" if spy_pm["gap_pct"] > 0 else "DOWN" if spy_pm["gap_pct"] < 0 else "FLAT"
+            gap_color = "#2ecc71" if spy_pm["gap_pct"] > 0 else "#e74c3c" if spy_pm["gap_pct"] < 0 else "#888"
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            sc1.metric("SPY PM Price", f"${spy_pm['pm_last']:,.2f}")
+            sc2.metric("SPY Gap", f"{spy_pm['gap_pct']:+.2f}%")
+            sc3.metric("SPY PM Range", f"{spy_pm['pm_range_pct']:.2f}%")
+            sc4.metric("SPY Direction", gap_dir)
+
+        # Sort by priority score descending
+        _pm_briefs.sort(key=lambda b: b["priority_score"], reverse=True)
+
+        # Watchlist Priority Table
+        pm_rows = []
+        for b in _pm_briefs:
+            priority_color = {"HIGH": "#2ecc71", "MEDIUM": "#f39c12", "LOW": "#888"}.get(b["priority_label"], "#888")
+            pm_rows.append({
+                "Symbol": b["symbol"],
+                "PM Price": b["pm_last"],
+                "Change%": b["pm_change_pct"],
+                "Gap%": b["gap_pct"],
+                "PM High": b["pm_high"],
+                "PM Low": b["pm_low"],
+                "Flags": ", ".join(b["flags"]) if b["flags"] else "-",
+                "Score": b["priority_score"],
+                "Priority": b["priority_label"],
+            })
+
+        pm_df = pd.DataFrame(pm_rows)
+
+        def _color_priority(val):
+            colors = {"HIGH": "#2ecc71", "MEDIUM": "#f39c12", "LOW": "#888"}
+            color = colors.get(val, "")
+            return f"color: {color}; font-weight: bold" if color else ""
+
+        def _color_change(val):
+            if isinstance(val, (int, float)):
+                if val > 0:
+                    return "color: #2ecc71"
+                if val < 0:
+                    return "color: #e74c3c"
+            return ""
+
+        st.dataframe(
+            pm_df.style
+            .format({
+                "PM Price": "${:,.2f}",
+                "PM High": "${:,.2f}",
+                "PM Low": "${:,.2f}",
+                "Change%": "{:+.2f}%",
+                "Gap%": "{:+.2f}%",
+            })
+            .applymap(_color_priority, subset=["Priority"])
+            .applymap(_color_change, subset=["Change%", "Gap%"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.caption("No pre-market data available yet. Data appears after 4:00 AM ET.")
+
+    st.divider()
+
 # ── Trade Plan Table ────────────────────────────────────────────────────────
 
 ui_theme.section_header("Trade Plans")
@@ -411,6 +499,28 @@ for r in results:
             unsafe_allow_html=True,
         )
         st.markdown(f"**{r.bias}**")
+
+        # ── Pre-market metrics (if premarket) ─────────────────────
+        if _premarket:
+            _sym_pm_bars = fetch_premarket_bars(r.symbol)
+            _sym_prior = _cached_prior_day(r.symbol)
+            _sym_pm = compute_premarket_brief(r.symbol, _sym_pm_bars, _sym_prior) if not _sym_pm_bars.empty else None
+            if _sym_pm:
+                st.markdown("**Pre-Market**")
+                pm1, pm2, pm3, pm4 = st.columns(4)
+                pm1.metric("PM Price", f"${_sym_pm['pm_last']:,.2f}",
+                            delta=f"{_sym_pm['pm_change_pct']:+.2f}%", delta_color="off")
+                pm2.metric("PM High", f"${_sym_pm['pm_high']:,.2f}")
+                pm3.metric("PM Low", f"${_sym_pm['pm_low']:,.2f}")
+                pm4.metric("Gap", f"{_sym_pm['gap_pct']:+.2f}%",
+                            delta=_sym_pm["gap_type"].replace("_", " ").upper(), delta_color="off")
+                if _sym_pm["flags"]:
+                    flag_badges = " ".join(
+                        f"<span style='background:#1e3a5f;padding:2px 8px;border-radius:4px;"
+                        f"font-size:0.8rem;margin-right:4px'>{f}</span>"
+                        for f in _sym_pm["flags"]
+                    )
+                    st.markdown(flag_badges, unsafe_allow_html=True)
 
         # ── Key levels ────────────────────────────────────────────────
         st.markdown("**Key Levels**")

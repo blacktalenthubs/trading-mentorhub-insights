@@ -53,6 +53,15 @@ def get_session_phase() -> str:
     return "closed"
 
 
+def is_premarket() -> bool:
+    """True if weekday 4:00-9:29 AM ET."""
+    now = datetime.now(ET)
+    if now.weekday() >= 5:
+        return False
+    current_minutes = now.hour * 60 + now.minute
+    return 4 * 60 <= current_minutes < 9 * 60 + 30
+
+
 def allow_new_entries() -> bool:
     """Returns False during 'opening_range' and 'last_30' phases."""
     phase = get_session_phase()

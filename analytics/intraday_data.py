@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import streamlit as st
 import pandas as pd
+import pytz
 import yfinance as yf
 
 from alert_config import SPY_SUPPORT_PROXIMITY_PCT, SPY_WEEKLY_PROXIMITY_PCT
+
+ET = pytz.timezone("US/Eastern")
 
 
 def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.DataFrame:
@@ -114,6 +117,150 @@ def fetch_prior_day(symbol: str) -> dict | None:
         }
     except Exception:
         return None
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_premarket_bars(symbol: str, interval: str = "5m") -> pd.DataFrame:
+    """Fetch today's pre-market bars (4:00-9:29 AM ET).
+
+    Uses yfinance with prepost=True to get extended-hours data.
+    Returns DataFrame with OHLC columns (Volume excluded — always 0 in PM).
+    Returns empty DataFrame on failure.
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="5d", interval=interval, prepost=True)
+        if hist.empty:
+            return pd.DataFrame()
+
+        # Ensure timezone-aware index in ET
+        if hist.index.tz is None:
+            hist.index = hist.index.tz_localize("UTC").tz_convert(ET)
+        else:
+            hist.index = hist.index.tz_convert(ET)
+
+        # Filter to today's date, hours 4:00-9:29 ET only
+        today = pd.Timestamp.now(tz=ET).normalize()
+        today_bars = hist[hist.index.normalize() == today]
+        pm_bars = today_bars[
+            (today_bars.index.hour >= 4)
+            & ((today_bars.index.hour < 9) | ((today_bars.index.hour == 9) & (today_bars.index.minute < 30)))
+        ]
+
+        if pm_bars.empty:
+            return pd.DataFrame()
+
+        # Strip timezone for consistency with rest of codebase
+        pm_bars = pm_bars.copy()
+        pm_bars.index = pm_bars.index.tz_localize(None)
+        return pm_bars[["Open", "High", "Low", "Close"]].copy()
+    except Exception:
+        return pd.DataFrame()
+
+
+def compute_premarket_brief(symbol: str, pm_bars: pd.DataFrame, prior_day: dict) -> dict | None:
+    """Compute pre-market brief metrics from PM bars and prior day data.
+
+    Args:
+        symbol: Ticker symbol.
+        pm_bars: Pre-market OHLC bars from fetch_premarket_bars().
+        prior_day: Dict from fetch_prior_day() with open/high/low/close/ma20/ma50.
+
+    Returns dict with PM metrics, priority score, and flags. None on failure.
+    """
+    if pm_bars.empty or prior_day is None:
+        return None
+
+    prior_close = prior_day["close"]
+    if prior_close <= 0:
+        return None
+
+    pm_high = pm_bars["High"].max()
+    pm_low = pm_bars["Low"].min()
+    pm_last = pm_bars["Close"].iloc[-1]
+    pm_open = pm_bars["Open"].iloc[0]
+
+    pm_change_pct = round((pm_last - prior_close) / prior_close * 100, 2)
+
+    # Gap: prior close to first PM bar open
+    gap_info = classify_gap(pm_open, prior_close, prior_day.get("parent_range", 0))
+    gap_pct = gap_info["gap_pct"]
+    gap_type = gap_info["type"]
+
+    # Level tests
+    above_prior_high = bool(pm_high > prior_day["high"])
+    below_prior_low = bool(pm_low < prior_day["low"])
+
+    # MA proximity (within 0.5%)
+    ma20 = prior_day.get("ma20")
+    ma50 = prior_day.get("ma50")
+    near_ma20 = bool(ma20 and ma20 > 0 and abs(pm_last - ma20) / ma20 <= 0.005)
+    near_ma50 = bool(ma50 and ma50 > 0 and abs(pm_last - ma50) / ma50 <= 0.005)
+
+    # PM range
+    pm_range_pct = round((pm_high - pm_low) / pm_low * 100, 2) if pm_low > 0 else 0.0
+
+    # Priority score (0-100)
+    score = 0
+    abs_gap = abs(gap_pct)
+    if abs_gap > 1.0:
+        score += 30
+    elif abs_gap >= 0.5:
+        score += 20
+    elif abs_gap >= 0.3:
+        score += 10
+    if above_prior_high or below_prior_low:
+        score += 20
+    if near_ma20 or near_ma50:
+        score += 15
+    if pm_range_pct > 1.0:
+        score += 10
+    if gap_type != "flat":
+        score += 5
+    score = min(score, 100)
+
+    # Priority label
+    if score >= 50:
+        priority_label = "HIGH"
+    elif score >= 25:
+        priority_label = "MEDIUM"
+    else:
+        priority_label = "LOW"
+
+    # Flags
+    flags = []
+    if gap_type == "gap_up":
+        flags.append(f"GAP UP +{abs_gap:.1f}%")
+    elif gap_type == "gap_down":
+        flags.append(f"GAP DOWN -{abs_gap:.1f}%")
+    if above_prior_high:
+        flags.append("TESTING PRIOR HIGH")
+    if below_prior_low:
+        flags.append("TESTING PRIOR LOW")
+    if near_ma20:
+        flags.append("NEAR 20MA")
+    if near_ma50:
+        flags.append("NEAR 50MA")
+    if pm_range_pct > 1.0:
+        flags.append(f"WIDE RANGE {pm_range_pct:.1f}%")
+
+    return {
+        "symbol": symbol,
+        "pm_high": round(pm_high, 2),
+        "pm_low": round(pm_low, 2),
+        "pm_last": round(pm_last, 2),
+        "pm_change_pct": pm_change_pct,
+        "gap_pct": gap_pct,
+        "gap_type": gap_type,
+        "above_prior_high": above_prior_high,
+        "below_prior_low": below_prior_low,
+        "near_ma20": near_ma20,
+        "near_ma50": near_ma50,
+        "pm_range_pct": pm_range_pct,
+        "priority_score": score,
+        "priority_label": priority_label,
+        "flags": flags,
+    }
 
 
 def _compute_spy_bounce_rate(hist: pd.DataFrame) -> dict:
