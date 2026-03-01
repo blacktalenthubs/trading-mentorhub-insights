@@ -19,6 +19,7 @@ from analytics.intraday_rules import (
     check_opening_range_breakout,
     check_planned_level_touch,
     check_prior_day_low_reclaim,
+    check_weekly_level_touch,
     check_resistance_prior_high,
     check_session_low_retest,
     check_stop_loss_hit,
@@ -28,6 +29,7 @@ from analytics.intraday_rules import (
     evaluate_rules,
 )
 from analytics.intraday_data import (
+    _compute_spy_bounce_rate,
     check_mtf_alignment,
     classify_market_regime,
     compute_opening_range,
@@ -1225,3 +1227,257 @@ class TestMarketRegime:
             assert s.confidence != "high" or "CHOPPY" not in s.message
             # All BUY signals should have the CHOPPY tag
             assert "CHOPPY market" in s.message
+
+
+# ===== Rule 17: Weekly Level Touch =====
+
+class TestWeeklyLevelTouch:
+    def _prior(self, pw_high=110.0, pw_low=100.0, **overrides):
+        """Build a prior_day dict with weekly levels."""
+        base = {
+            "pattern": "normal", "high": 108.0, "low": 102.0,
+            "close": 105.0, "is_inside": False,
+            "parent_high": 109.0, "parent_low": 101.0,
+            "prior_week_high": pw_high, "prior_week_low": pw_low,
+        }
+        base.update(overrides)
+        return base
+
+    def test_fires_on_bounce_at_prior_week_low(self):
+        """Bar low within 0.4% of pw_low, closes above → BUY, entry=pw_low, T1=pw_high."""
+        prior = self._prior(pw_high=110.0, pw_low=100.0)
+        # Bar low at 100.30 → proximity = 0.3% < 0.4%
+        bar = _bar(open_=101.0, high=102.0, low=100.30, close=101.5)
+        sig = check_weekly_level_touch("AAPL", bar, prior)
+        assert sig is not None
+        assert sig.alert_type == AlertType.WEEKLY_LEVEL_TOUCH
+        assert sig.direction == "BUY"
+        assert sig.entry == 100.0
+        assert sig.target_1 == 110.0
+        assert sig.confidence == "high"
+        assert "prior week low" in sig.message
+
+    def test_targets_use_weekly_range(self):
+        """T1=pw_high, T2=pw_high + 50% weekly range."""
+        prior = self._prior(pw_high=110.0, pw_low=100.0)
+        bar = _bar(open_=101.0, high=102.0, low=100.30, close=101.5)
+        sig = check_weekly_level_touch("AAPL", bar, prior)
+        assert sig is not None
+        assert sig.target_1 == 110.0
+        # weekly_range = 110 - 100 = 10, T2 = 110 + 5 = 115
+        assert sig.target_2 == 115.0
+
+    def test_no_fire_when_far_from_weekly_level(self):
+        """Bar low 2%+ away from pw_low → None."""
+        prior = self._prior(pw_high=110.0, pw_low=100.0)
+        # Bar low at 98.0 → proximity = 2% > 0.4%
+        bar = _bar(open_=99.0, high=100.0, low=98.0, close=99.5)
+        sig = check_weekly_level_touch("AAPL", bar, prior)
+        assert sig is None
+
+    def test_no_fire_when_close_below_weekly_low(self):
+        """Touches but no bounce (close <= pw_low) → None."""
+        prior = self._prior(pw_high=110.0, pw_low=100.0)
+        bar = _bar(open_=100.5, high=101.0, low=100.20, close=99.8)
+        sig = check_weekly_level_touch("AAPL", bar, prior)
+        assert sig is None
+
+    def test_no_fire_when_weekly_data_unavailable(self):
+        """pw_high/pw_low are None → None."""
+        prior = self._prior()
+        prior["prior_week_high"] = None
+        prior["prior_week_low"] = None
+        bar = _bar(open_=101.0, high=102.0, low=100.30, close=101.5)
+        sig = check_weekly_level_touch("AAPL", bar, prior)
+        assert sig is None
+
+
+# ===== SPY Bounce Rate Helper =====
+
+class TestComputeSpyBounceRate:
+    @staticmethod
+    def _make_hist(num_days, test_days, bounce_days):
+        """Build daily OHLCV where specific days test the prior low and bounce/break.
+
+        Args:
+            num_days: Total bars.
+            test_days: Set of indices (1-based) where day tests prior day low.
+            bounce_days: Set of indices (1-based) where tested day closes above prior low.
+        """
+        rows = []
+        for i in range(num_days):
+            base = 100.0
+            if i in test_days:
+                prior_low = rows[i - 1]["Low"] if i > 0 else base - 1
+                # Low touches prior low (within 0.05% threshold)
+                low = prior_low
+                close = prior_low + 1.0 if i in bounce_days else prior_low - 0.5
+                rows.append({
+                    "Open": base, "High": base + 1, "Low": low,
+                    "Close": close, "Volume": 1000,
+                })
+            else:
+                rows.append({
+                    "Open": base, "High": base + 2, "Low": base - 1,
+                    "Close": base + 0.5, "Volume": 1000,
+                })
+        return pd.DataFrame(rows)
+
+    def test_bounce_rate_all_bounces(self):
+        """Every test day closes above prior low → 1.0."""
+        # Days 1-19 normal (low=99), then days where low touches 99 and closes above
+        rows = []
+        for i in range(20):
+            rows.append({
+                "Open": 100, "High": 102, "Low": 99.0,
+                "Close": 101.0, "Volume": 1000,
+            })
+        hist = pd.DataFrame(rows)
+        # Every day tests prior low (low == prior low) and closes above → all bounces
+        result = _compute_spy_bounce_rate(hist)
+        assert result["bounce_rate"] == 1.0
+        assert result["sample_size"] >= 5
+
+    def test_bounce_rate_all_breaks(self):
+        """Every test day closes below prior low → 0.0."""
+        rows = []
+        for i in range(20):
+            # Each day: low = 99, close = 98.5 (below prior low of 99)
+            rows.append({
+                "Open": 100, "High": 102, "Low": 99.0,
+                "Close": 98.5, "Volume": 1000,
+            })
+        hist = pd.DataFrame(rows)
+        result = _compute_spy_bounce_rate(hist)
+        assert result["bounce_rate"] == 0.0
+        assert result["sample_size"] >= 5
+
+    def test_bounce_rate_mixed(self):
+        """50/50 mix → 0.5."""
+        rows = []
+        for i in range(21):
+            # All days test prior low (low=99.0)
+            # Even days bounce (close=101), odd days break (close=98.5)
+            # 20 test days (i=1..20): 10 even (bounce) + 10 odd (break) = 0.5
+            close = 101.0 if i % 2 == 0 else 98.5
+            rows.append({
+                "Open": 100, "High": 102, "Low": 99.0,
+                "Close": close, "Volume": 1000,
+            })
+        hist = pd.DataFrame(rows)
+        result = _compute_spy_bounce_rate(hist)
+        assert result["bounce_rate"] == 0.5
+
+    def test_bounce_rate_no_tests(self):
+        """Price always well above prior low → default 0.5."""
+        rows = []
+        for i in range(20):
+            # Each day's low is well above prior day's low
+            base = 100 + i * 2  # rising fast, never tests prior low
+            rows.append({
+                "Open": base, "High": base + 3, "Low": base + 1,
+                "Close": base + 2, "Volume": 1000,
+            })
+        hist = pd.DataFrame(rows)
+        result = _compute_spy_bounce_rate(hist)
+        assert result["bounce_rate"] == 0.5
+        assert result["sample_size"] < 5
+
+    def test_bounce_rate_insufficient_data(self):
+        """< 10 bars → default 0.5."""
+        rows = [
+            {"Open": 100, "High": 102, "Low": 99, "Close": 101, "Volume": 1000}
+            for _ in range(5)
+        ]
+        hist = pd.DataFrame(rows)
+        result = _compute_spy_bounce_rate(hist)
+        assert result["bounce_rate"] == 0.5
+        assert result["sample_size"] == 0
+
+
+# ===== SPY S/R Confidence Modifier =====
+
+class TestSpyLevelConfidenceModifier:
+    """Tests for SPY at support/resistance confidence modifier in evaluate_rules."""
+
+    def _run_with_spy_context(self, spy_ctx):
+        """Run evaluate_rules with a MA bounce signal and given spy_context."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior, spy_context=spy_ctx)
+        return [s for s in signals if s.direction == "BUY"]
+
+    def test_spy_at_resistance_demotes_buy(self):
+        """spy_at_resistance=True → high→medium, 'SPY at resistance' in message."""
+        spy_ctx = {
+            "trend": "bullish", "close": 690.0, "ma20": 685.0,
+            "ma5": 688.0, "ma50": 680.0, "regime": "TRENDING_UP",
+            "intraday_change_pct": 0.5, "spy_bouncing": False, "spy_intraday_low": 0.0,
+            "spy_at_support": False, "spy_at_resistance": True,
+            "spy_level_label": "prior day high $692.00",
+            "spy_support_bounce_rate": 0.5,
+        }
+        buy_signals = self._run_with_spy_context(spy_ctx)
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            assert s.confidence == "medium"
+            assert "SPY at resistance" in s.message
+            assert "prior day high $692.00" in s.message
+
+    def test_spy_at_strong_support_keeps_confidence(self):
+        """spy_at_support=True, bounce_rate=0.6 → stays high, informational note."""
+        spy_ctx = {
+            "trend": "bullish", "close": 690.0, "ma20": 685.0,
+            "ma5": 688.0, "ma50": 680.0, "regime": "TRENDING_UP",
+            "intraday_change_pct": 0.5, "spy_bouncing": False, "spy_intraday_low": 0.0,
+            "spy_at_support": True, "spy_at_resistance": False,
+            "spy_level_label": "prior day low $684.50",
+            "spy_support_bounce_rate": 0.60,
+        }
+        buy_signals = self._run_with_spy_context(spy_ctx)
+        # Filter to MA bounce (originally high confidence) — gap_fill is informational/medium
+        ma_signals = [s for s in buy_signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma_signals) >= 1
+        for s in ma_signals:
+            assert s.confidence == "high"
+            assert "SPY at support" in s.message
+            assert "60%" in s.message
+
+    def test_spy_at_weak_support_demotes_buy(self):
+        """spy_at_support=True, bounce_rate=0.35 → high→medium, 'weak support' in message."""
+        spy_ctx = {
+            "trend": "bullish", "close": 690.0, "ma20": 685.0,
+            "ma5": 688.0, "ma50": 680.0, "regime": "TRENDING_UP",
+            "intraday_change_pct": 0.5, "spy_bouncing": False, "spy_intraday_low": 0.0,
+            "spy_at_support": True, "spy_at_resistance": False,
+            "spy_level_label": "prior day low $684.50",
+            "spy_support_bounce_rate": 0.35,
+        }
+        buy_signals = self._run_with_spy_context(spy_ctx)
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            assert s.confidence == "medium"
+            assert "SPY weak support" in s.message
+            assert "35%" in s.message
+
+    def test_spy_neutral_no_change(self):
+        """spy_at_support=False, spy_at_resistance=False → no modifier message."""
+        spy_ctx = {
+            "trend": "bullish", "close": 690.0, "ma20": 685.0,
+            "ma5": 688.0, "ma50": 680.0, "regime": "TRENDING_UP",
+            "intraday_change_pct": 0.5, "spy_bouncing": False, "spy_intraday_low": 0.0,
+            "spy_at_support": False, "spy_at_resistance": False,
+            "spy_level_label": "",
+            "spy_support_bounce_rate": 0.5,
+        }
+        buy_signals = self._run_with_spy_context(spy_ctx)
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            assert "SPY at resistance" not in s.message
+            assert "SPY at support" not in s.message
+            assert "SPY weak support" not in s.message

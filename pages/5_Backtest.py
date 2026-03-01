@@ -15,6 +15,7 @@ from analytics.intraday_data import (
     fetch_prior_day,
 )
 from analytics.intraday_rules import evaluate_rules, AlertSignal
+import ui_theme
 
 
 def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
@@ -48,13 +49,13 @@ def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
     }
 
 st.set_page_config(
-    page_title="Backtest Replay",
+    page_title="Backtest | TradeSignal",
     page_icon="⚡",
     layout="wide",
 )
+ui_theme.inject_custom_css()
 
-st.title("Backtest Replay")
-st.caption("Replay historical intraday data through the rule engine to validate signal quality.")
+ui_theme.page_header("Backtest Replay", "Replay historical intraday data through the rule engine to validate signal quality.")
 
 # ── Sidebar Controls ──────────────────────────────────────────────────────
 
@@ -86,12 +87,15 @@ with st.sidebar:
 
 # ── Main ──────────────────────────────────────────────────────────────────
 
+with st.sidebar:
+    ui_theme.sidebar_branding()
+
 if not run:
-    st.info("Select a date and symbols in the sidebar, then click **Run Backtest**.")
+    ui_theme.empty_state("Select a date and symbols in the sidebar, then click Run Backtest.")
     st.stop()
 
 if not symbols:
-    st.warning("Enter at least one symbol.")
+    ui_theme.empty_state("Enter at least one symbol.", icon="warning")
     st.stop()
 
 date_str = target_date.isoformat()
@@ -235,7 +239,7 @@ progress.empty()
 
 if all_results:
     st.divider()
-    st.subheader("All Signals Summary")
+    ui_theme.section_header("All Signals Summary")
 
     df = pd.DataFrame(all_results)
     st.dataframe(
@@ -257,4 +261,4 @@ if all_results:
     short_count = sum(1 for r in all_results if r.get("Direction") == "SHORT")
     st.caption(f"Total: {len(all_results)} | BUY: {buy_count} | SELL: {sell_count} | SHORT: {short_count}")
 else:
-    st.info("No signals fired for any symbol on this date.")
+    ui_theme.empty_state("No signals fired for any symbol on this date.")

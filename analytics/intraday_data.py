@@ -9,6 +9,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
+from alert_config import SPY_SUPPORT_PROXIMITY_PCT, SPY_WEEKLY_PROXIMITY_PCT
+
 
 def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.DataFrame:
     """Fetch intraday bars for a symbol.
@@ -65,6 +67,24 @@ def fetch_prior_day(symbol: str) -> dict | None:
             last = hist.iloc[-1]
             prev = hist.iloc[-2]
 
+        # Weekly resampling: prior week high/low from existing hist
+        prior_week_high = None
+        prior_week_low = None
+        try:
+            weekly = hist[["High", "Low"]].resample("W-FRI").agg({
+                "High": "max", "Low": "min",
+            }).dropna()
+            if len(weekly) >= 2:
+                last_weekly_date = weekly.index[-1].normalize()
+                if last_bar_date <= last_weekly_date:
+                    prior_week = weekly.iloc[-2]  # current week partial
+                else:
+                    prior_week = weekly.iloc[-1]  # current week ended
+                prior_week_high = prior_week["High"]
+                prior_week_low = prior_week["Low"]
+        except Exception:
+            pass
+
         ma20 = last["MA20"] if pd.notna(last["MA20"]) else None
         ma50 = last["MA50"] if pd.notna(last["MA50"]) else None
 
@@ -89,9 +109,48 @@ def fetch_prior_day(symbol: str) -> dict | None:
             "parent_high": prev["High"],
             "parent_low": prev["Low"],
             "parent_range": prev["High"] - prev["Low"],
+            "prior_week_high": prior_week_high,
+            "prior_week_low": prior_week_low,
         }
     except Exception:
         return None
+
+
+def _compute_spy_bounce_rate(hist: pd.DataFrame) -> dict:
+    """Compute how often SPY bounces at the prior day's low.
+
+    Loops through daily bars, checks if each day's Low tested the prior day's
+    Low (within 0.05%, same threshold as spy_patterns.classify_day()).
+    Classifies as bounce (Close > prior_low) or break.
+
+    Returns {"bounce_rate": float, "sample_size": int}.
+    Default 0.5 if fewer than 5 tested days.
+    """
+    if len(hist) < 10:
+        return {"bounce_rate": 0.5, "sample_size": 0}
+
+    bounces = 0
+    breaks = 0
+    for i in range(1, len(hist)):
+        prior_low = hist["Low"].iloc[i - 1]
+        if prior_low <= 0:
+            continue
+        threshold = prior_low * (0.05 / 100)  # 0.05% of prior low
+        day_low = hist["Low"].iloc[i]
+        day_close = hist["Close"].iloc[i]
+
+        # Did this day test the prior day's low?
+        if day_low <= prior_low + threshold:
+            if day_close > prior_low:
+                bounces += 1
+            else:
+                breaks += 1
+
+    total = bounces + breaks
+    if total < 5:
+        return {"bounce_rate": 0.5, "sample_size": total}
+
+    return {"bounce_rate": round(bounces / total, 2), "sample_size": total}
 
 
 @st.cache_data(ttl=300)
@@ -104,6 +163,8 @@ def get_spy_context() -> dict:
         "trend": "neutral", "close": 0.0, "ma20": 0.0,
         "ma5": 0.0, "ma50": 0.0, "regime": "CHOPPY",
         "intraday_change_pct": 0.0, "spy_bouncing": False, "spy_intraday_low": 0.0,
+        "spy_at_support": False, "spy_at_resistance": False,
+        "spy_level_label": "", "spy_support_bounce_rate": 0.5,
     }
     try:
         spy = yf.Ticker("SPY")
@@ -138,6 +199,74 @@ def get_spy_context() -> dict:
         except Exception:
             pass
 
+        # SPY S/R level detection and bounce rate
+        spy_at_support = False
+        spy_at_resistance = False
+        spy_level_label = ""
+        spy_support_bounce_rate = 0.5
+        try:
+            # Use intraday close when available, else daily close
+            spy_price = spy_current if "spy_current" in dir() and spy_current > 0 else close
+
+            # Prior day low/high (date-aware, same logic as fetch_prior_day)
+            today = pd.Timestamp.now().normalize()
+            last_bar_date = hist.index[-1].normalize()
+            if last_bar_date >= today:
+                if len(hist) >= 3:
+                    spy_pd_high = hist["High"].iloc[-2]
+                    spy_pd_low = hist["Low"].iloc[-2]
+                else:
+                    spy_pd_high = spy_pd_low = 0
+            else:
+                spy_pd_high = hist["High"].iloc[-1]
+                spy_pd_low = hist["Low"].iloc[-1]
+
+            # Prior week low/high (resample W-FRI, same pattern as fetch_prior_day)
+            spy_pw_high = 0
+            spy_pw_low = 0
+            weekly = hist[["High", "Low"]].resample("W-FRI").agg({
+                "High": "max", "Low": "min",
+            }).dropna()
+            if len(weekly) >= 2:
+                last_weekly_date = weekly.index[-1].normalize()
+                if last_bar_date <= last_weekly_date:
+                    pw = weekly.iloc[-2]
+                else:
+                    pw = weekly.iloc[-1]
+                spy_pw_high = pw["High"]
+                spy_pw_low = pw["Low"]
+
+            # Proximity checks — support first, then resistance
+            if spy_pd_low > 0:
+                pdl_prox = abs(spy_price - spy_pd_low) / spy_pd_low
+                if pdl_prox <= SPY_SUPPORT_PROXIMITY_PCT:
+                    spy_at_support = True
+                    spy_level_label = f"prior day low ${spy_pd_low:.2f}"
+
+            if not spy_at_support and spy_pw_low > 0:
+                pwl_prox = abs(spy_price - spy_pw_low) / spy_pw_low
+                if pwl_prox <= SPY_WEEKLY_PROXIMITY_PCT:
+                    spy_at_support = True
+                    spy_level_label = f"prior week low ${spy_pw_low:.2f}"
+
+            if not spy_at_support and spy_pd_high > 0:
+                pdh_prox = abs(spy_price - spy_pd_high) / spy_pd_high
+                if pdh_prox <= SPY_SUPPORT_PROXIMITY_PCT:
+                    spy_at_resistance = True
+                    spy_level_label = f"prior day high ${spy_pd_high:.2f}"
+
+            if not spy_at_support and not spy_at_resistance and spy_pw_high > 0:
+                pwh_prox = abs(spy_price - spy_pw_high) / spy_pw_high
+                if pwh_prox <= SPY_WEEKLY_PROXIMITY_PCT:
+                    spy_at_resistance = True
+                    spy_level_label = f"prior week high ${spy_pw_high:.2f}"
+
+            # Bounce rate from historical data
+            bounce_stats = _compute_spy_bounce_rate(hist)
+            spy_support_bounce_rate = bounce_stats["bounce_rate"]
+        except Exception:
+            pass
+
         return {
             "trend": trend,
             "close": round(close, 2),
@@ -148,6 +277,10 @@ def get_spy_context() -> dict:
             "intraday_change_pct": round(intraday_change_pct, 2),
             "spy_bouncing": spy_bouncing,
             "spy_intraday_low": spy_intraday_low,
+            "spy_at_support": spy_at_support,
+            "spy_at_resistance": spy_at_resistance,
+            "spy_level_label": spy_level_label,
+            "spy_support_bounce_rate": spy_support_bounce_rate,
         }
     except Exception:
         return _default

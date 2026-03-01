@@ -16,13 +16,17 @@ from parsers.parser_1099 import parse_1099
 from parsers.parser_statement import parse_statement
 from analytics.trade_matcher import match_trades_fifo
 from auth import auto_login
+import ui_theme
 
+st.set_page_config(page_title="Import | TradeSignal", page_icon="⚡", layout="wide")
 init_db()
 user = auto_login()
-st.title("Import Data")
+ui_theme.inject_custom_css()
+
+ui_theme.page_header("Import Data")
 
 # --- File Upload ---
-st.subheader("Upload PDF")
+ui_theme.section_header("Upload PDF")
 file_type = st.radio("Document Type", ["1099 (Annual)", "Monthly Statement"], horizontal=True)
 
 uploaded = st.file_uploader("Choose a PDF file", type=["pdf"])
@@ -174,11 +178,11 @@ if uploaded:
 
 # --- Import History ---
 st.divider()
-st.subheader("Import History")
+ui_theme.section_header("Import History")
 
 imports_df = get_imports(user["id"])
 if imports_df.empty:
-    st.info("No imports yet.")
+    ui_theme.empty_state("No imports yet.")
 else:
     st.dataframe(imports_df[["id", "filename", "file_type", "period", "records_imported", "imported_at"]],
                  use_container_width=True)

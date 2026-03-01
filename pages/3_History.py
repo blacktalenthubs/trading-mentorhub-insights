@@ -12,15 +12,18 @@ from db import (
     upsert_annotation, STRATEGY_TAGS,
 )
 from auth import auto_login
+import ui_theme
 
+st.set_page_config(page_title="History | TradeSignal", page_icon="⚡", layout="wide")
 init_db()
 user = auto_login()
-st.title("Trade History")
-st.caption("Journal, calendar, stop discipline, and symbol lookup")
+ui_theme.inject_custom_css()
+
+ui_theme.page_header("Trade History", "Journal, calendar, stop discipline, and symbol lookup")
 
 df = get_user_trades(user["id"])
 if df.empty:
-    st.info("No trade data. Go to **Import** page to upload PDFs.")
+    ui_theme.empty_state("No trade data. Go to Import page to upload PDFs.")
     st.stop()
 
 # =====================================================================
@@ -52,7 +55,7 @@ if selected_period != "All":
 filtered = df[mask].copy().sort_values("trade_date")
 
 if filtered.empty:
-    st.warning("No trades match the current filters.")
+    ui_theme.empty_state("No trades match the current filters.", icon="warning")
     st.stop()
 
 # =====================================================================
@@ -115,7 +118,7 @@ with tab_log:
     st.divider()
 
     # P&L by Symbol bar chart
-    st.subheader("P&L by Symbol")
+    ui_theme.section_header("P&L by Symbol")
     by_symbol = filtered.groupby("symbol").agg(
         total_pnl=("realized_pnl", "sum"),
         num_trades=("realized_pnl", "count"),
@@ -130,7 +133,7 @@ with tab_log:
     st.plotly_chart(fig, use_container_width=True)
 
     # Trade table
-    st.subheader("Trade Log")
+    ui_theme.section_header("Trade Log")
     st.caption("Rec Stop = recommended stop based on holding period. "
                "Excess Loss = how much you lost beyond that stop.")
 
@@ -206,7 +209,7 @@ with tab_log:
     st.divider()
 
     # Trade tagging UI
-    st.subheader("Tag a Trade")
+    ui_theme.section_header("Tag a Trade")
     st.caption("Add strategy tags and notes to individual trades for tracking what works")
 
     tag_trades = filtered[["trade_date", "symbol", "quantity", "realized_pnl", "source"]].copy()
@@ -246,7 +249,7 @@ with tab_log:
 # Tab 2: Calendar
 # =====================================================================
 with tab_cal:
-    st.subheader("Daily P&L Calendar")
+    ui_theme.section_header("Daily P&L Calendar")
 
     daily_pnl = filtered.groupby(filtered["trade_date"].dt.date).agg(
         pnl=("realized_pnl", "sum"),
@@ -323,7 +326,7 @@ with tab_cal:
 # Tab 3: Stop Discipline
 # =====================================================================
 with tab_stop:
-    st.header("Stop Loss Lab")
+    ui_theme.section_header("Stop Loss Lab")
     st.caption("Analyzing the cost of not using stops and what disciplined stops would do for your P&L")
 
     all_losers = filtered[filtered["realized_pnl"] < 0].copy()
@@ -345,7 +348,7 @@ with tab_stop:
     st.divider()
 
     # Loss Severity Breakdown
-    st.subheader("Loss Severity Breakdown")
+    ui_theme.section_header("Loss Severity Breakdown")
     st.caption("SMALL LOSS = disciplined exit (<2%). CAUTION = held too long (2-5%). "
                "DANGER = no stop, big damage (>5%).")
 
@@ -381,7 +384,7 @@ with tab_stop:
     st.divider()
 
     # What-If Scenarios
-    st.subheader("What-If: P&L at Different Stop Levels")
+    ui_theme.section_header("What-If: P&L at Different Stop Levels")
     st.caption("If you had enforced a stop at each % level, what would your total P&L be?")
 
     scenarios = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
@@ -432,7 +435,7 @@ with tab_stop:
     st.divider()
 
     # Worst Offenders
-    st.subheader("Worst Offenders - Biggest Excess Losses")
+    ui_theme.section_header("Worst Offenders - Biggest Excess Losses")
     st.caption("These trades blew past the recommended stop. This is where your money went.")
 
     if not blown_stops.empty:
@@ -475,7 +478,7 @@ with tab_stop:
     st.divider()
 
     # Pre-Trade Risk Calculator
-    st.subheader("Pre-Trade Risk Calculator")
+    ui_theme.section_header("Pre-Trade Risk Calculator")
     st.caption("Enter your position and see exactly how much you're risking at each stop level.")
 
     calc_col1, calc_col2 = st.columns(2)
@@ -560,7 +563,7 @@ with tab_stop:
 # Tab 4: Symbol Lookup
 # =====================================================================
 with tab_sym:
-    st.subheader("Symbol Deep-Dive")
+    ui_theme.section_header("Symbol Deep-Dive")
     st.caption("Select a symbol to see all your trades and whether you should keep trading it")
 
     # Symbol selector
@@ -633,7 +636,7 @@ with tab_sym:
         st.divider()
 
         # P&L Timeline
-        st.subheader("P&L Timeline")
+        ui_theme.section_header("P&L Timeline")
         sym_df["cumulative_pnl"] = sym_df["realized_pnl"].cumsum()
 
         fig = go.Figure()
@@ -665,7 +668,7 @@ with tab_sym:
         st.divider()
 
         # Full Trade Table
-        st.subheader("All Trades")
+        ui_theme.section_header("All Trades")
 
         sym_annotations = get_annotations(user["id"])
         s_display = sym_df[[

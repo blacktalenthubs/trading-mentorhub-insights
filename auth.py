@@ -171,6 +171,8 @@ def render_sidebar_user_info():
     if not user:
         return
     with st.sidebar:
+        from ui_theme import sidebar_branding
+        sidebar_branding()
         st.markdown(f"**{user['display_name']}**")
         st.caption(user["email"])
         if st.button("Logout", key="sidebar_logout"):

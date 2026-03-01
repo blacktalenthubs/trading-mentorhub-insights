@@ -98,8 +98,21 @@ SESSION_LOW_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 # Planned Level Touch: bar low must be within this % of Scanner's planned entry
 PLANNED_LEVEL_PROXIMITY_PCT = 0.003  # 0.3%
 
+# Weekly Level Touch: bar low must be within this % of prior week level
+WEEKLY_LEVEL_PROXIMITY_PCT = 0.004  # 0.4% — wider than daily for broader weekly zones
+
+# Weekly Level Touch: stop offset below prior week low
+WEEKLY_LEVEL_STOP_OFFSET_PCT = 0.005  # 0.5%
+
 # Support Breakdown: proximity to session low for "SESSION LOW BREAK" tag
 SESSION_LOW_BREAK_PROXIMITY_PCT = 0.002  # 0.2%
+
+# SPY Level Reaction: proximity for classifying SPY "at support" or "at resistance"
+SPY_SUPPORT_PROXIMITY_PCT = 0.003  # 0.3% — daily S/R proximity
+SPY_WEEKLY_PROXIMITY_PCT = 0.005   # 0.5% — weekly S/R proximity
+
+# SPY Level Reaction: minimum bounce rate for "strong" support
+SPY_STRONG_BOUNCE_RATE = 0.50  # >= 50% historical bounce rate = strong support
 
 # Relative Strength: underperformance factor vs SPY for confidence demotion
 RS_UNDERPERFORM_FACTOR = 2.0
@@ -128,3 +141,15 @@ TWILIO_AUTH_TOKEN = _get_secret("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = _get_secret("TWILIO_FROM_NUMBER")
 ALERT_SMS_TO = _get_secret("ALERT_SMS_TO")
 TWILIO_USE_WHATSAPP = _get_secret("TWILIO_USE_WHATSAPP", "true").lower() == "true"
+
+# Alpaca Paper Trading
+ALPACA_API_KEY = _get_secret("ALPACA_API_KEY")
+ALPACA_SECRET_KEY = _get_secret("ALPACA_SECRET_KEY")
+PAPER_TRADE_ENABLED = _get_secret("PAPER_TRADE_ENABLED", "false").lower() == "true"
+PAPER_TRADE_POSITION_SIZE = int(_get_secret("PAPER_TRADE_POSITION_SIZE", "10000"))
+PAPER_TRADE_MAX_DAILY = int(_get_secret("PAPER_TRADE_MAX_DAILY", "4"))
+PAPER_TRADE_MIN_SCORE = int(_get_secret("PAPER_TRADE_MIN_SCORE", "75"))
+
+# Real trade position sizing (max dollar exposure per trade)
+REAL_TRADE_POSITION_SIZE = 50_000
+REAL_TRADE_SPY_POSITION_SIZE = 100_000

@@ -7,15 +7,18 @@ import plotly.graph_objects as go
 
 from db import init_db, get_user_trades, get_user_options, get_annotations
 from auth import auto_login
+import ui_theme
 
+st.set_page_config(page_title="Scorecard | TradeSignal", page_icon="⚡", layout="wide")
 init_db()
 user = auto_login()
-st.title("Monthly Scorecard")
-st.caption("Am I making money? What's working? Am I disciplined?")
+ui_theme.inject_custom_css()
+
+ui_theme.page_header("Monthly Scorecard", "Am I making money? What's working? Am I disciplined?")
 
 df = get_user_trades(user["id"])
 if df.empty:
-    st.info("No trade data. Go to **Import** page to upload PDFs.")
+    ui_theme.empty_state("No trade data. Go to Import page to upload PDFs.")
     st.stop()
 
 # =====================================================================
@@ -85,7 +88,7 @@ monthly["risk_reward"] = abs(monthly["avg_win"] / monthly["avg_loss"].where(mont
 # =====================================================================
 # 2. P&L Trend — monthly bars (green/red) + cumulative line
 # =====================================================================
-st.subheader("P&L Trend")
+ui_theme.section_header("P&L Trend")
 fig = go.Figure()
 fig.add_trace(go.Bar(
     x=monthly["month"], y=monthly["total_pnl"],
@@ -110,7 +113,7 @@ st.plotly_chart(fig, use_container_width=True)
 # =====================================================================
 # 3. Win Rate & R:R Trend — dual-axis line chart
 # =====================================================================
-st.subheader("Win Rate & R:R Trend")
+ui_theme.section_header("Win Rate & R:R Trend")
 fig = go.Figure()
 fig.add_trace(go.Scatter(
     x=monthly["month"], y=monthly["win_rate"],
@@ -153,7 +156,7 @@ else:
 
 tagged = df_tagged[df_tagged["strategy_tag"].notna()]
 if not tagged.empty:
-    st.subheader("Strategy Performance")
+    ui_theme.section_header("Strategy Performance")
     by_tag = tagged.groupby("strategy_tag").agg(
         total_pnl=("realized_pnl", "sum"),
         num_trades=("realized_pnl", "count"),
@@ -187,7 +190,7 @@ if not tagged.empty:
 # =====================================================================
 # 5. Best & Worst Symbols — top 10 winners/losers bar charts
 # =====================================================================
-st.subheader("Best & Worst Symbols")
+ui_theme.section_header("Best & Worst Symbols")
 
 by_symbol = df.groupby("symbol").agg(
     total_pnl=("realized_pnl", "sum"),
@@ -230,7 +233,7 @@ st.divider()
 # =====================================================================
 # 6. Day Trade vs Swing Trend — stacked bar by month
 # =====================================================================
-st.subheader("Day Trade vs Swing Trend")
+ui_theme.section_header("Day Trade vs Swing Trend")
 st.caption("Tracking shift from day trading to swing trading over time")
 
 fig = go.Figure()
@@ -254,7 +257,7 @@ st.divider()
 # =====================================================================
 # 7. Equity Curve & Drawdown
 # =====================================================================
-st.subheader("Equity Curve & Drawdown")
+ui_theme.section_header("Equity Curve & Drawdown")
 df_sorted = df.sort_values("trade_date")
 df_sorted["cumulative_pnl"] = df_sorted["realized_pnl"].cumsum()
 df_sorted["trade_num"] = range(1, len(df_sorted) + 1)
@@ -318,7 +321,7 @@ st.divider()
 # =====================================================================
 # 8. Monthly Summary Table
 # =====================================================================
-st.subheader("Monthly Summary")
+ui_theme.section_header("Monthly Summary")
 
 # Add avg holding days if available
 has_days = df[df["holding_days"].notna()]

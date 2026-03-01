@@ -20,8 +20,11 @@ from analytics.signal_engine import (
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import evaluate_rules
 from analytics.market_hours import is_market_hours
+import ui_theme
 
+st.set_page_config(page_title="Scanner | TradeSignal", page_icon="⚡", layout="wide")
 init_db()
+ui_theme.inject_custom_css()
 
 # ── Auto-refresh during market hours ──────────────────────────────────────
 _market_open = is_market_hours()
@@ -231,8 +234,7 @@ def _draw_intraday_chart(symbol: str, bars: pd.DataFrame, prior: dict | None, r:
 
 # ── Page layout ─────────────────────────────────────────────────────────────
 
-st.title("Signal Scanner")
-st.caption("Trade plans for your watchlist — entry, stop, target, re-entry at a glance")
+ui_theme.page_header("Signal Scanner", "Trade plans for your watchlist — entry, stop, target, re-entry at a glance")
 
 # ── Sidebar ─────────────────────────────────────────────────────────────────
 
@@ -313,7 +315,7 @@ with st.sidebar:
 
 symbols = list(st.session_state["watchlist"])
 if not symbols:
-    st.info("Enter at least one symbol in the sidebar.")
+    ui_theme.empty_state("Enter at least one symbol in the sidebar.")
     st.stop()
 
 raw_results = _cached_scan(tuple(symbols))
@@ -324,7 +326,7 @@ if status_filter:
     results = [r for r in results if r.support_status in status_filter]
 
 if not results:
-    st.warning("No symbols match. Check your symbols or adjust the status filter.")
+    ui_theme.empty_state("No symbols match. Check your symbols or adjust the status filter.", icon="warning")
     st.stop()
 
 # ── KPI Row ─────────────────────────────────────────────────────────────────
@@ -348,7 +350,7 @@ st.divider()
 
 # ── Trade Plan Table ────────────────────────────────────────────────────────
 
-st.subheader("Trade Plans")
+ui_theme.section_header("Trade Plans")
 
 table_rows = []
 for r in results:
@@ -392,7 +394,7 @@ st.divider()
 
 # ── Detail per Symbol ───────────────────────────────────────────────────────
 
-st.subheader("Detail")
+ui_theme.section_header("Detail")
 
 for r in results:
     _label = action_label(r.support_status)

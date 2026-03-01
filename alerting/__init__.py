@@ -1,1 +1,1 @@
-"""Alerting package — notification and alert persistence."""
+"""Alerting package — notification, alert persistence, and paper trading."""
