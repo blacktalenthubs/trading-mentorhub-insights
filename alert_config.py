@@ -135,7 +135,10 @@ SMTP_PASSWORD = _get_secret("SMTP_PASSWORD")
 ALERT_EMAIL_FROM = _get_secret("ALERT_EMAIL_FROM") or SMTP_USER
 ALERT_EMAIL_TO = _get_secret("ALERT_EMAIL_TO")
 
-# Twilio (WhatsApp + SMS)
+# SMS via email-to-SMS gateway (carrier gateway, no Twilio needed)
+SMS_GATEWAY_TO = _get_secret("SMS_GATEWAY_TO")  # e.g. "8325551234@txt.att.net"
+
+# Legacy Twilio config (kept for fallback)
 TWILIO_ACCOUNT_SID = _get_secret("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = _get_secret("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = _get_secret("TWILIO_FROM_NUMBER")

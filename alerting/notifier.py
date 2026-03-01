@@ -12,6 +12,7 @@ from alert_config import (
     ALERT_EMAIL_FROM,
     ALERT_EMAIL_TO,
     ALERT_SMS_TO,
+    SMS_GATEWAY_TO,
     SMTP_HOST,
     SMTP_PASSWORD,
     SMTP_PORT,
@@ -116,13 +117,39 @@ def send_email(signal: AlertSignal) -> bool:
         return False
 
 
-def send_sms(signal: AlertSignal) -> bool:
-    """Send via Twilio WhatsApp (default) or SMS. Returns True on success."""
-    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not ALERT_SMS_TO:
-        logger.warning("Twilio not configured — skipping")
+def _send_sms_via_email_gateway(body: str) -> bool:
+    """Send SMS via carrier email-to-SMS gateway (e.g. number@txt.att.net)."""
+    if not SMS_GATEWAY_TO or not SMTP_USER or not SMTP_PASSWORD:
         return False
 
+    msg = MIMEText(body)
+    msg["From"] = ALERT_EMAIL_FROM
+    msg["To"] = SMS_GATEWAY_TO
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(ALERT_EMAIL_FROM, [SMS_GATEWAY_TO], msg.as_string())
+        logger.info("SMS (email gateway) sent to %s: %s", SMS_GATEWAY_TO, body[:50])
+        return True
+    except Exception:
+        logger.exception("Failed to send SMS via email gateway")
+        return False
+
+
+def send_sms(signal: AlertSignal) -> bool:
+    """Send SMS alert. Uses email-to-SMS gateway if configured, falls back to Twilio."""
     body = _format_sms_body(signal)
+
+    # Prefer email-to-SMS gateway (free, no Twilio needed)
+    if SMS_GATEWAY_TO:
+        return _send_sms_via_email_gateway(body)
+
+    # Fallback: Twilio
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not ALERT_SMS_TO:
+        logger.warning("SMS not configured — skipping (set SMS_GATEWAY_TO or Twilio vars)")
+        return False
 
     try:
         from twilio.rest import Client
