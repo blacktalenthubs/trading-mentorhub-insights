@@ -17,12 +17,17 @@ from analytics.intraday_data import (
 from analytics.intraday_rules import evaluate_rules, AlertSignal
 from analytics.market_hours import is_market_hours, get_session_phase
 from alerting.alert_store import (
+    create_active_entry,
     get_active_cooldowns, get_alert_id, get_alerts_today, get_session_summary,
+    record_alert,
     today_session,
+    was_alert_fired,
 )
+from alerting.notifier import notify
 from alerting.real_trade_store import (
     calculate_shares, has_open_trade, open_real_trade,
 )
+from analytics.intraday_rules import AlertType
 from alert_config import (
     POLL_INTERVAL_MINUTES,
     REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_POSITION_SIZE,
@@ -297,11 +302,32 @@ else:
         for a in st.session_state["alert_history"]
     }
 
+    _non_entry_types = {
+        AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN,
+        AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH,
+        AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW,
+    }
+    session = today_session()
+
     new_signals = []
     for sig in all_signals:
         key = (sig.symbol, sig.alert_type.value, sig.direction)
         if key not in existing_keys:
+            # Final DB dedup check (another tab may have recorded it)
+            if was_alert_fired(sig.symbol, sig.alert_type.value, session):
+                continue
+
             new_signals.append(sig)
+
+            # Send notifications (email + Telegram)
+            email_sent, sms_sent = notify(sig)
+
+            # Record to DB so alerts persist and dedup works across refreshes
+            record_alert(sig, session, email_sent, sms_sent)
+
+            # Track active entries for actionable BUY signals
+            if sig.direction == "BUY" and sig.alert_type not in _non_entry_types:
+                create_active_entry(sig, session)
 
             st.session_state["alert_history"].append({
                 "symbol": sig.symbol,
@@ -324,7 +350,7 @@ else:
                     "alert_type": sig.alert_type.value,
                 }
 
-            # Clean up on stop-out (cooldown is handled by monitor.py via DB)
+            # Clean up on stop-out (cooldown is handled via DB)
             if sig.alert_type.value in ("auto_stop_out", "stop_loss_hit"):
                 st.session_state.get("auto_stop_entries", {}).pop(sig.symbol, None)
 
@@ -595,7 +621,6 @@ with st.expander("Test Notifications"):
     st.caption("Send a test alert to verify your email and SMS configuration.")
 
     if st.button("Send Test Alert"):
-        from analytics.intraday_rules import AlertType
         from alerting.notifier import send_email, send_sms
 
         test_signal = AlertSignal(
