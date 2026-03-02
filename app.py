@@ -525,11 +525,20 @@ st.divider()
 
 ui_theme.section_header("Alert History (This Session)")
 
-history = st.session_state.get("alert_history", [])
+# Load from database — persists across page refreshes and app restarts
+_db_history = get_alerts_today()
 
-if history:
-    # Show most recent first
-    hist_df = pd.DataFrame(reversed(history))
+if _db_history:
+    _hist_cols = ["symbol", "alert_type", "direction", "price", "entry",
+                  "stop", "target_1", "target_2", "confidence", "message", "created_at"]
+    hist_df = pd.DataFrame(_db_history)
+    # Keep only columns that exist in the data
+    _hist_cols = [c for c in _hist_cols if c in hist_df.columns]
+    hist_df = hist_df[_hist_cols]
+    # Format the timestamp for readability
+    if "created_at" in hist_df.columns:
+        hist_df["created_at"] = pd.to_datetime(hist_df["created_at"]).dt.strftime("%H:%M:%S")
+        hist_df = hist_df.rename(columns={"created_at": "time"})
     st.dataframe(
         hist_df,
         use_container_width=True,
@@ -542,10 +551,7 @@ if history:
             "target_2": st.column_config.NumberColumn(format="$%.2f"),
         },
     )
-
-    if st.button("Clear History", key="clear_hist"):
-        st.session_state["alert_history"] = []
-        st.rerun()
+    st.caption(f"{len(_db_history)} alerts fired today")
 else:
     ui_theme.empty_state("No alerts fired this session.")
 
