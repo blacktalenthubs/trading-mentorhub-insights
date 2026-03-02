@@ -9,9 +9,8 @@ from datetime import datetime
 
 from streamlit_autorefresh import st_autorefresh
 
-from db import init_db
+from db import init_db, get_watchlist
 from auth import auto_login
-from config import DEFAULT_WATCHLIST
 from analytics.intraday_data import (
     fetch_intraday, fetch_prior_day, get_spy_context, compute_vwap,
 )
@@ -49,7 +48,7 @@ if _market_open:
     st_autorefresh(interval=180_000, key="alert_refresh")  # 3 min
 
 # ── Shared watchlist (from Scanner or default) ────────────────────────────
-watchlist = st.session_state.get("watchlist", list(DEFAULT_WATCHLIST))
+watchlist = st.session_state.get("watchlist", get_watchlist())
 st.caption(f"Watchlist: {', '.join(watchlist)} | Refresh: {POLL_INTERVAL_MINUTES} min")
 
 # ── F9: Session Stats Bar ────────────────────────────────────────────────

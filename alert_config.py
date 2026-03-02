@@ -24,15 +24,6 @@ def _get_secret(key: str, default: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
-# Watchlist
-# ---------------------------------------------------------------------------
-
-ALERT_WATCHLIST = [
-    "LRCX", "PLTR", "ONDS", "META", "TSLA",
-    "NVDA", "GOOGL", "SPY", "AAPL", "AMD",
-]
-
-# ---------------------------------------------------------------------------
 # Polling
 # ---------------------------------------------------------------------------
 
@@ -65,6 +56,10 @@ PDL_DIP_MIN_PCT = 0.001  # 0.1%
 
 # Resistance at Prior High: proximity threshold
 RESISTANCE_PROXIMITY_PCT = 0.002  # 0.2%
+
+# Hourly Resistance Detection
+HOURLY_RESISTANCE_CLUSTER_PCT = 0.003   # 0.3% — merge swing highs within this distance
+HOURLY_RESISTANCE_APPROACH_PCT = 0.002  # 0.2% — same as RESISTANCE_PROXIMITY_PCT
 
 # Support Breakdown: volume must be >= this multiple of average
 BREAKDOWN_VOLUME_RATIO = 1.5

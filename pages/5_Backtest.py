@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import DEFAULT_WATCHLIST
+from db import get_watchlist
 from analytics.intraday_data import (
     compute_vwap,
     fetch_historical_intraday,
@@ -72,7 +72,7 @@ with st.sidebar:
 
     symbols_text = st.text_area(
         "Symbols (comma-separated)",
-        value=", ".join(DEFAULT_WATCHLIST),
+        value=", ".join(get_watchlist()),
         height=80,
     )
     symbols = [s.strip().upper() for s in symbols_text.split(",") if s.strip()]

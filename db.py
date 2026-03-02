@@ -275,6 +275,12 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_chart_levels_symbol ON chart_levels(symbol);
+
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL UNIQUE,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
     _migrate_add_user_id()
 
@@ -663,3 +669,51 @@ def get_chart_levels(symbol: str) -> list[dict]:
             (symbol,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Watchlist
+# ---------------------------------------------------------------------------
+
+def get_watchlist() -> list[str]:
+    """Return the persisted watchlist symbols, ordered by id.
+
+    If the table is empty (first run), seed it from DEFAULT_WATCHLIST.
+    """
+    from config import DEFAULT_WATCHLIST
+
+    with get_db() as conn:
+        rows = conn.execute("SELECT symbol FROM watchlist ORDER BY id").fetchall()
+        if rows:
+            return [r["symbol"] for r in rows]
+        # Auto-seed on first use
+        conn.executemany(
+            "INSERT INTO watchlist (symbol) VALUES (?)",
+            [(s,) for s in DEFAULT_WATCHLIST],
+        )
+        return list(DEFAULT_WATCHLIST)
+
+
+def add_to_watchlist(symbol: str):
+    """Add a symbol to the watchlist (no-op if already present)."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)",
+            (symbol,),
+        )
+
+
+def remove_from_watchlist(symbol: str):
+    """Remove a symbol from the watchlist."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM watchlist WHERE symbol=?", (symbol,))
+
+
+def set_watchlist(symbols: list[str]):
+    """Replace the entire watchlist atomically."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM watchlist")
+        conn.executemany(
+            "INSERT INTO watchlist (symbol) VALUES (?)",
+            [(s,) for s in symbols],
+        )

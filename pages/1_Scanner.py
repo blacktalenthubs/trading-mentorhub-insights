@@ -7,10 +7,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
-from db import init_db
+from db import init_db, get_watchlist, add_to_watchlist, remove_from_watchlist, set_watchlist
 from config import (
     DEFAULT_POSITION_SIZE,
-    DEFAULT_WATCHLIST,
     QUICK_PICKS,
 )
 from analytics.market_data import classify_day, fetch_ohlc
@@ -247,14 +246,15 @@ ui_theme.page_header("Signal Scanner", "Trade plans for your watchlist — entry
 with st.sidebar:
     st.subheader("Watchlist")
 
-    # Initialize watchlist in session state
+    # Initialize watchlist in session state from DB
     if "watchlist" not in st.session_state:
-        st.session_state["watchlist"] = list(DEFAULT_WATCHLIST)
+        st.session_state["watchlist"] = get_watchlist()
 
     # Quick Picks — replace entire watchlist
     st.markdown("**Quick Picks**")
     for label, syms in QUICK_PICKS.items():
         if st.button(label, key=f"qp_{label}", use_container_width=True):
+            set_watchlist(list(syms))
             st.session_state["watchlist"] = list(syms)
             st.rerun()
 
@@ -271,19 +271,21 @@ with st.sidebar:
     if add_clicked and new_sym:
         sym_clean = new_sym.strip().upper()
         if sym_clean and sym_clean not in st.session_state["watchlist"]:
+            add_to_watchlist(sym_clean)
             st.session_state["watchlist"].append(sym_clean)
             st.rerun()
 
     # Display current watchlist with remove buttons
     if st.session_state["watchlist"]:
-        remove_idx = None
+        remove_sym = None
         for i, sym in enumerate(st.session_state["watchlist"]):
             sym_col, x_col = st.columns([4, 1])
             sym_col.markdown(f"**{sym}**")
             if x_col.button("X", key=f"rm_{sym}_{i}", type="secondary"):
-                remove_idx = i
-        if remove_idx is not None:
-            st.session_state["watchlist"].pop(remove_idx)
+                remove_sym = sym
+        if remove_sym is not None:
+            remove_from_watchlist(remove_sym)
+            st.session_state["watchlist"].remove(remove_sym)
             st.rerun()
     else:
         st.caption("No symbols. Add one above or use Quick Picks.")
@@ -298,6 +300,7 @@ with st.sidebar:
         )
         if st.button("Apply", key="bulk_apply", use_container_width=True):
             parsed = [s.strip().upper() for s in bulk_text.split(",") if s.strip()]
+            set_watchlist(parsed)
             st.session_state["watchlist"] = parsed
             st.rerun()
 

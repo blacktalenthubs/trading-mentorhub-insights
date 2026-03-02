@@ -10,7 +10,11 @@ import pandas as pd
 import pytz
 import yfinance as yf
 
-from alert_config import SPY_SUPPORT_PROXIMITY_PCT, SPY_WEEKLY_PROXIMITY_PCT
+from alert_config import (
+    HOURLY_RESISTANCE_CLUSTER_PCT,
+    SPY_SUPPORT_PROXIMITY_PCT,
+    SPY_WEEKLY_PROXIMITY_PCT,
+)
 
 ET = pytz.timezone("US/Eastern")
 
@@ -30,6 +34,55 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
         return hist[["Open", "High", "Low", "Close", "Volume"]].copy()
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_hourly_bars(symbol: str, period: str = "5d") -> pd.DataFrame:
+    """Fetch hourly bars for a symbol (cached 15 min).
+
+    Thin wrapper around fetch_intraday with 1h interval.
+    Returns DataFrame with Open, High, Low, Close, Volume columns.
+    """
+    return fetch_intraday(symbol, period=period, interval="1h")
+
+
+def detect_hourly_resistance(
+    bars_1h: pd.DataFrame,
+    cluster_pct: float = HOURLY_RESISTANCE_CLUSTER_PCT,
+) -> list[float]:
+    """Find hourly swing high resistance levels from multi-day 1h bars.
+
+    Algorithm:
+    1. Find swing highs: bar whose High > both neighbors' High
+    2. Cluster nearby levels within cluster_pct — keep the max in each cluster
+    3. Return sorted ascending list of resistance levels
+
+    Mirrors detect_intraday_supports() pattern.
+    """
+    if bars_1h.empty or len(bars_1h) < 3:
+        return []
+
+    # Step 1: swing high detection (neighbor comparison)
+    swing_highs: list[float] = []
+    for i in range(1, len(bars_1h) - 1):
+        if (bars_1h["High"].iloc[i] > bars_1h["High"].iloc[i - 1]
+                and bars_1h["High"].iloc[i] > bars_1h["High"].iloc[i + 1]):
+            swing_highs.append(float(bars_1h["High"].iloc[i]))
+
+    if not swing_highs:
+        return []
+
+    # Step 2: cluster within cluster_pct, keep max per cluster
+    swing_highs.sort()
+    clusters: list[list[float]] = [[swing_highs[0]]]
+    for level in swing_highs[1:]:
+        if (level - clusters[-1][0]) / clusters[-1][0] <= cluster_pct:
+            clusters[-1].append(level)
+        else:
+            clusters.append([level])
+
+    # Step 3: return max of each cluster, sorted ascending
+    return sorted(max(c) for c in clusters)
 
 
 def fetch_prior_day(symbol: str) -> dict | None:

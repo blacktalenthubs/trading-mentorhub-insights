@@ -9,8 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 
-from db import init_db, add_chart_level, delete_chart_level, get_chart_levels
-from alert_config import ALERT_WATCHLIST
+from db import init_db, add_chart_level, delete_chart_level, get_chart_levels, get_watchlist
 from alerting.alert_store import get_active_entries, get_alerts_today
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, compute_vwap
 from analytics.market_hours import is_market_hours
@@ -295,7 +294,7 @@ with st.sidebar:
     st.subheader("Charts")
 
     # Symbol
-    all_symbols = list(ALERT_WATCHLIST)
+    all_symbols = get_watchlist()
     custom_sym = st.text_input("Custom symbol", placeholder="e.g. AMZN", key="chart_custom_sym")
     if custom_sym:
         sym_clean = custom_sym.strip().upper()

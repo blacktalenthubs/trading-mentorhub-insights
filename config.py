@@ -109,8 +109,6 @@ DEFAULT_WATCHLIST = [
     "LRCX", "PLTR", "ONDS", "META", "TSLA", "NVDA", "GOOGL", "SPY", "AAPL", "AMD",
 ]
 
-ALERT_WATCHLIST = DEFAULT_WATCHLIST.copy()
-
 QUICK_PICKS = {
     "Index ETFs": ["SPY", "QQQ", "IWB", "RSP", "XLK", "XLF", "XLE"],
     "Mega-Cap": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"],
