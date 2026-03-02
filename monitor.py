@@ -116,7 +116,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                 alert_id = record_alert(signal, session, email_sent, sms_sent)
 
                 # Track active entries for actionable BUY signals (skip informational)
-                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW}
+                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
                     create_active_entry(signal, session)
                     if signal.entry and signal.stop:
@@ -138,6 +138,17 @@ def poll_cycle(dry_run: bool = False) -> int:
 
                 # Target hit: close paper position
                 if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
+                    if paper_trading_enabled():
+                        paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
+
+                # Resistance SELL signals: close paper position (exit long)
+                _exit_long_types = {
+                    AlertType.RESISTANCE_PRIOR_LOW,
+                    AlertType.RESISTANCE_PRIOR_HIGH,
+                    AlertType.SUPPORT_BREAKDOWN,
+                    AlertType.OPENING_RANGE_BREAKDOWN,
+                }
+                if signal.direction == "SELL" and signal.alert_type in _exit_long_types:
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 

@@ -306,6 +306,7 @@ else:
         AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN,
         AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH,
         AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW,
+        AlertType.OPENING_RANGE_BREAKDOWN,
     }
     session = today_session()
 

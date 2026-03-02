@@ -123,6 +123,20 @@ BUYER_EXHAUSTION_SPIKE_RATIO = 2.0   # volume spike >= 2x avg = climax
 # Relative Strength: underperformance factor vs SPY for confidence demotion
 RS_UNDERPERFORM_FACTOR = 2.0
 
+# Intraday Support Strength: thresholds for "strong" support classification
+SUPPORT_STRONG_HOLD_HOURS = 2
+SUPPORT_STRONG_RETEST_COUNT = 2
+
+# Opening Range Breakdown: volume must be >= this multiple of average
+ORB_BREAKDOWN_VOLUME_RATIO = 1.2  # same threshold as upside breakout
+
+# Telegram Priority Tiers: minimum score to send via Telegram (A+ and A signals)
+TELEGRAM_TIER1_MIN_SCORE = 75
+
+# Signal Consolidation: score boost when multiple BUY signals confirm
+CONSOLIDATION_SCORE_BOOST = 5   # points per confirming signal
+CONSOLIDATION_MAX_BOOST = 15    # max boost from consolidation
+
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)
 PER_SYMBOL_RISK: dict[str, float] = {
     "SPY": 0.002, "QQQ": 0.002,       # tight for ETFs

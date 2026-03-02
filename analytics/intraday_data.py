@@ -14,6 +14,8 @@ from alert_config import (
     HOURLY_RESISTANCE_CLUSTER_PCT,
     SPY_SUPPORT_PROXIMITY_PCT,
     SPY_WEEKLY_PROXIMITY_PCT,
+    SUPPORT_STRONG_HOLD_HOURS,
+    SUPPORT_STRONG_RETEST_COUNT,
 )
 
 ET = pytz.timezone("US/Eastern")
@@ -516,11 +518,13 @@ def compute_vwap(bars: pd.DataFrame) -> pd.Series:
     return cum_tp_vol / cum_vol
 
 
-def detect_intraday_supports(bars_5m: pd.DataFrame, min_bounce_pct: float = 0.002) -> list[float]:
+def detect_intraday_supports(bars_5m: pd.DataFrame, min_bounce_pct: float = 0.002) -> list[dict]:
     """Find intraday support levels from hourly lows that held.
 
     Resamples 5-min bars to 1-hour, identifies hourly lows where
     the next hour's low stayed above and price bounced.
+
+    Returns list of dicts with keys: level, touch_count, hold_hours, strength.
     """
     if bars_5m.empty or len(bars_5m) < 12:  # need at least 1 hour of data
         return []
@@ -530,15 +534,62 @@ def detect_intraday_supports(bars_5m: pd.DataFrame, min_bounce_pct: float = 0.00
         "Close": "last", "Volume": "sum",
     }).dropna()
 
-    supports = []
+    # Step 1: find raw support levels (existing logic)
+    raw_levels: list[float] = []
     for i in range(len(hourly) - 1):
         hour_low = hourly["Low"].iloc[i]
         next_low = hourly["Low"].iloc[i + 1]
         next_close = hourly["Close"].iloc[i + 1]
-        # Low held: next hour didn't break it, and price bounced
         bounce = (next_close - hour_low) / hour_low if hour_low > 0 else 0
         if next_low >= hour_low * 0.999 and bounce >= min_bounce_pct:
-            supports.append(round(hour_low, 2))
+            raw_levels.append(round(hour_low, 2))
+
+    if not raw_levels:
+        return []
+
+    # Step 2: cluster nearby levels within 0.3%, take average as representative
+    raw_levels.sort()
+    clusters: list[list[float]] = [[raw_levels[0]]]
+    for level in raw_levels[1:]:
+        if (level - clusters[-1][0]) / clusters[-1][0] <= 0.003:
+            clusters[-1].append(level)
+        else:
+            clusters.append([level])
+
+    supports: list[dict] = []
+    for cluster in clusters:
+        rep_level = round(sum(cluster) / len(cluster), 2)
+
+        # Step 3: count touches — hourly lows within 0.3% of representative level
+        touch_count = 0
+        for i in range(len(hourly)):
+            if rep_level > 0 and abs(hourly["Low"].iloc[i] - rep_level) / rep_level <= 0.003:
+                touch_count += 1
+
+        # Step 4: count hold_hours — consecutive hours price stayed above level
+        hold_hours = 0
+        max_hold = 0
+        for i in range(len(hourly)):
+            if rep_level > 0 and hourly["Low"].iloc[i] >= rep_level * 0.999:
+                hold_hours += 1
+                max_hold = max(max_hold, hold_hours)
+            else:
+                hold_hours = 0
+
+        # Step 5: assign strength
+        strength = (
+            "strong"
+            if touch_count >= SUPPORT_STRONG_RETEST_COUNT
+            and max_hold >= SUPPORT_STRONG_HOLD_HOURS
+            else "weak"
+        )
+
+        supports.append({
+            "level": rep_level,
+            "touch_count": touch_count,
+            "hold_hours": max_hold,
+            "strength": strength,
+        })
 
     return supports
 

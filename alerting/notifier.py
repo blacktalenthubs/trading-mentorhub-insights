@@ -7,7 +7,7 @@ import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
 
-from analytics.intraday_rules import AlertSignal
+from analytics.intraday_rules import AlertSignal, AlertType
 from alert_config import (
     ALERT_EMAIL_FROM,
     ALERT_EMAIL_TO,
@@ -19,6 +19,7 @@ from alert_config import (
     SMTP_USER,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
+    TELEGRAM_TIER1_MIN_SCORE,
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
     TWILIO_FROM_NUMBER,
@@ -227,14 +228,38 @@ def send_sms(signal: AlertSignal) -> bool:
         return False
 
 
+# Exit signals always Tier 1 (time-critical)
+_TIER1_ALERT_TYPES = {
+    AlertType.STOP_LOSS_HIT,
+    AlertType.AUTO_STOP_OUT,
+    AlertType.TARGET_1_HIT,
+    AlertType.TARGET_2_HIT,
+}
+
+
 def notify(signal: AlertSignal) -> tuple[bool, bool]:
     """Send notifications for an alert signal.
 
-    Email and SMS/Telegram are sent for ALL signals — BUY entries and
-    SELL exits (target hits, stop loss) are both time-critical.
+    Email is sent for ALL signals. Telegram (SMS) is Tier 1 only:
+    score >= TELEGRAM_TIER1_MIN_SCORE OR exit signals (stops/targets).
 
     Returns (email_sent, sms_sent).
     """
     email_sent = send_email(signal)
-    sms_sent = send_sms(signal)
+
+    # Tier 1: score >= threshold OR exit signals → Telegram
+    is_tier1 = (
+        signal.score >= TELEGRAM_TIER1_MIN_SCORE
+        or signal.alert_type in _TIER1_ALERT_TYPES
+    )
+
+    if is_tier1:
+        sms_sent = send_sms(signal)
+    else:
+        logger.info(
+            "Tier 2 (email only): %s %s score=%d — skipping Telegram",
+            signal.symbol, signal.alert_type.value, signal.score,
+        )
+        sms_sent = False
+
     return email_sent, sms_sent
