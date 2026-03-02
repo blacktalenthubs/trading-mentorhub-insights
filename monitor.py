@@ -15,7 +15,6 @@ import logging
 import sys
 
 from alert_config import (
-    ALERT_WATCHLIST,
     COOLDOWN_MINUTES,
     POLL_INTERVAL_MINUTES,
 )
@@ -41,7 +40,7 @@ from alerting.paper_trader import (
 )
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
-from db import init_db
+from db import init_db, get_watchlist
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,6 +65,8 @@ def poll_cycle(dry_run: bool = False) -> int:
     if not dry_run and paper_trading_enabled():
         sync_open_trades()
 
+    symbols = get_watchlist()
+
     cooled_symbols = get_active_cooldowns(session)
 
     # Build fired_today from DB so evaluate_rules() filters already-fired signals
@@ -74,7 +75,7 @@ def poll_cycle(dry_run: bool = False) -> int:
         (a["symbol"], a["alert_type"]) for a in db_alerts
     }
 
-    for symbol in ALERT_WATCHLIST:
+    for symbol in symbols:
         try:
             intraday = fetch_intraday(symbol)
             prior_day = fetch_prior_day(symbol)
@@ -96,6 +97,7 @@ def poll_cycle(dry_run: bool = False) -> int:
             for signal in signals:
                 # Dedup: skip if already fired today
                 if was_alert_fired(symbol, signal.alert_type.value, session):
+                    logger.debug("%s: monitor dedup skip %s", symbol, signal.alert_type.value)
                     continue
 
                 if dry_run:
@@ -114,7 +116,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                 alert_id = record_alert(signal, session, email_sent, sms_sent)
 
                 # Track active entries for actionable BUY signals (skip informational)
-                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH}
+                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW}
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
                     create_active_entry(signal, session)
                     if signal.entry and signal.stop:
@@ -150,7 +152,7 @@ def poll_cycle(dry_run: bool = False) -> int:
             logger.exception("Error processing %s", symbol)
 
     if not dry_run:
-        update_monitor_status(len(ALERT_WATCHLIST), total_alerts, "running")
+        update_monitor_status(len(symbols), total_alerts, "running")
 
     return total_alerts
 
@@ -170,7 +172,8 @@ def run_monitor():
         logger.info("Poll complete: %d alerts fired", alerts)
 
     # Run immediately on start
-    logger.info("Starting monitor — watchlist: %s", ", ".join(ALERT_WATCHLIST))
+    watchlist = get_watchlist()
+    logger.info("Starting monitor — watchlist: %s", ", ".join(watchlist))
     logger.info("Poll interval: %d minutes", POLL_INTERVAL_MINUTES)
 
     if is_market_hours():

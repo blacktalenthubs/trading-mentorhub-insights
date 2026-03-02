@@ -14,7 +14,9 @@ from analytics.intraday_rules import (
     check_auto_stop_out,
     check_ema_crossover_5_20,
     check_gap_fill,
+    check_hourly_resistance_approach,
     check_inside_day_breakout,
+    check_ma_resistance,
     check_intraday_support_bounce,
     check_ma_bounce_20,
     check_ma_bounce_50,
@@ -25,6 +27,7 @@ from analytics.intraday_rules import (
     check_prior_day_low_reclaim,
     check_weekly_level_touch,
     check_resistance_prior_high,
+    check_resistance_prior_low,
     check_session_low_retest,
     check_stop_loss_hit,
     check_support_breakdown,
@@ -37,6 +40,7 @@ from analytics.intraday_data import (
     check_mtf_alignment,
     classify_market_regime,
     compute_opening_range,
+    detect_hourly_resistance,
     detect_intraday_supports,
     track_gap_fill,
 )
@@ -1823,8 +1827,13 @@ class TestSmartTargetsIntegration:
             # Resistance override should NOT be applied (no "T1:" label in message)
             assert "T1:" not in sig.message
 
-    def test_falls_back_to_r_based_when_no_resistance(self):
+    def test_falls_back_to_r_based_when_no_resistance(self, monkeypatch):
         """No resistance levels above entry → keeps R-based targets."""
+        # Patch fetch_hourly_bars to prevent real API calls finding resistance
+        monkeypatch.setattr(
+            "analytics.intraday_data.fetch_hourly_bars",
+            lambda *a, **kw: pd.DataFrame(),
+        )
         bars = _bars([
             {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
         ])
@@ -1889,3 +1898,273 @@ class TestStalenessFilter:
         signals = evaluate_rules("AAPL", bars, prior)
         buy_signals = [s for s in signals if s.direction == "BUY"]
         assert len(buy_signals) >= 1
+
+
+# ===== Detect Hourly Resistance =====
+
+class TestDetectHourlyResistance:
+    def _hourly_bars(self, highs: list[float]) -> pd.DataFrame:
+        """Build synthetic 1h bars from a list of highs."""
+        rows = []
+        for h in highs:
+            rows.append({
+                "Open": h - 1, "High": h, "Low": h - 2, "Close": h - 0.5, "Volume": 1000,
+            })
+        idx = pd.date_range("2025-01-13 09:30", periods=len(highs), freq="1h")
+        return pd.DataFrame(rows, index=idx)
+
+    def test_finds_swing_highs(self):
+        """Bar whose high > both neighbors → detected as resistance."""
+        # highs: 100, 105, 102, 108, 103 → swing highs at 105 and 108
+        bars = self._hourly_bars([100, 105, 102, 108, 103])
+        levels = detect_hourly_resistance(bars)
+        assert 105.0 in levels
+        assert 108.0 in levels
+
+    def test_clusters_nearby_swing_highs(self):
+        """Two swing highs within 0.3% → clustered, keep max."""
+        # 310.0 and 310.5 are within 0.3% of each other (0.16%)
+        # highs: 305, 310.0, 308, 310.5, 307, 320, 315
+        bars = self._hourly_bars([305, 310.0, 308, 310.5, 307, 320, 315])
+        levels = detect_hourly_resistance(bars)
+        # 310.0 and 310.5 should cluster → keep 310.5
+        assert 310.5 in levels
+        assert 310.0 not in levels
+        assert 320.0 in levels
+
+    def test_empty_for_monotonic_trend(self):
+        """Monotonically increasing highs → no swing highs."""
+        bars = self._hourly_bars([100, 101, 102, 103, 104])
+        levels = detect_hourly_resistance(bars)
+        assert levels == []
+
+    def test_empty_for_too_few_bars(self):
+        """Fewer than 3 bars → can't detect swing highs."""
+        bars = self._hourly_bars([100, 105])
+        levels = detect_hourly_resistance(bars)
+        assert levels == []
+
+    def test_empty_dataframe(self):
+        levels = detect_hourly_resistance(pd.DataFrame())
+        assert levels == []
+
+    def test_multiple_levels_sorted_ascending(self):
+        """Multiple distinct levels returned sorted ascending."""
+        # highs: 300, 320, 305, 310, 308, 330, 315
+        bars = self._hourly_bars([300, 320, 305, 310, 308, 330, 315])
+        levels = detect_hourly_resistance(bars)
+        assert levels == sorted(levels)
+        assert len(levels) >= 2
+
+
+# ===== Hourly Resistance Approach =====
+
+class TestHourlyResistanceApproach:
+    def test_fires_when_active_entry_and_near_resistance(self):
+        """Active entry + bar high near hourly resistance → SELL alert."""
+        bar = _bar(open_=308, high=309.5, low=307, close=309.0)
+        sig = check_hourly_resistance_approach(
+            "GOOGL", bar, hourly_resistance=[310.0, 320.0], has_active_entry=True,
+        )
+        assert sig is not None
+        assert sig.alert_type == AlertType.HOURLY_RESISTANCE_APPROACH
+        assert sig.direction == "SELL"
+        assert "310.00" in sig.message
+        assert "APPROACHING HOURLY RESISTANCE" in sig.message
+
+    def test_no_fire_without_active_entry(self):
+        """No active entry → no alert even if near resistance."""
+        bar = _bar(open_=308, high=309.5, low=307, close=309.0)
+        sig = check_hourly_resistance_approach(
+            "GOOGL", bar, hourly_resistance=[310.0], has_active_entry=False,
+        )
+        assert sig is None
+
+    def test_no_fire_when_far_from_resistance(self):
+        """Bar high too far from nearest resistance → no alert."""
+        bar = _bar(open_=300, high=302, low=299, close=301)
+        sig = check_hourly_resistance_approach(
+            "GOOGL", bar, hourly_resistance=[310.0], has_active_entry=True,
+        )
+        assert sig is None
+
+    def test_no_fire_with_empty_resistance(self):
+        bar = _bar(open_=308, high=309.5, low=307, close=309.0)
+        sig = check_hourly_resistance_approach(
+            "GOOGL", bar, hourly_resistance=[], has_active_entry=True,
+        )
+        assert sig is None
+
+    def test_picks_nearest_level_above_price(self):
+        """Multiple levels — picks nearest above bar high."""
+        bar = _bar(open_=308, high=309.5, low=307, close=309.0)
+        sig = check_hourly_resistance_approach(
+            "GOOGL", bar,
+            hourly_resistance=[305.0, 310.0, 320.0],
+            has_active_entry=True,
+        )
+        assert sig is not None
+        assert "310.00" in sig.message  # nearest above, not 305 or 320
+
+
+# ===== Find Resistance Targets with Hourly Resistance =====
+
+class TestFindResistanceTargetsWithHourly:
+    def _prior(self, **overrides):
+        base = {
+            "high": 335.0, "low": 298.0, "close": 305.0,
+            "ma20": 340.0, "ma50": 350.0, "ma100": 302.0, "ma200": 290.0,
+            "prior_week_high": 345.0,
+        }
+        base.update(overrides)
+        return base
+
+    def test_hourly_resistance_becomes_t1_when_nearest(self):
+        """Hourly resistance at 310 is closer than prior high at 335 → T1."""
+        prior = self._prior()
+        # entry=305, stop=303, risk=2, min_target=307
+        result = _find_resistance_targets(
+            305.0, 303.0, prior, current_vwap=None,
+            hourly_resistance=[310.0, 325.0],
+        )
+        assert result is not None
+        t1, t2, t1_label, t2_label = result
+        assert t1 == 310.0
+        assert t1_label == "hourly resistance"
+
+    def test_hourly_levels_below_entry_are_ignored(self):
+        """Hourly resistance at 300 (below entry 305) → ignored."""
+        prior = self._prior()
+        result = _find_resistance_targets(
+            305.0, 303.0, prior, current_vwap=None,
+            hourly_resistance=[300.0, 298.0],
+        )
+        assert result is not None
+        t1, _, t1_label, _ = result
+        # hourly levels are all below entry → skipped, falls back to daily levels
+        assert t1_label != "hourly resistance"
+
+    def test_backward_compatible_without_hourly(self):
+        """No hourly_resistance passed → same behavior as before."""
+        prior = self._prior(high=312.0, ma20=308.0, ma50=320.0)
+        result_without = _find_resistance_targets(305.0, 303.0, prior, current_vwap=None)
+        result_with_none = _find_resistance_targets(
+            305.0, 303.0, prior, current_vwap=None, hourly_resistance=None,
+        )
+        assert result_without is not None
+        assert result_with_none is not None
+        assert result_without[0] == result_with_none[0]  # same T1
+        assert result_without[1] == result_with_none[1]  # same T2
+
+    def test_hourly_as_t2_when_another_level_is_t1(self):
+        """MA20 at 308 is T1, hourly at 312 becomes T2."""
+        prior = self._prior(high=335.0, ma20=308.0, ma50=350.0)
+        result = _find_resistance_targets(
+            305.0, 303.0, prior, current_vwap=None,
+            hourly_resistance=[312.0],
+        )
+        assert result is not None
+        t1, t2, t1_label, t2_label = result
+        assert t1 == 308.0
+        assert t1_label == "MA20"
+        assert t2 == 312.0
+        assert t2_label == "hourly resistance"
+
+
+# ===== Rule 19: MA Resistance =====
+
+class TestMAResistance:
+    def test_fires_when_high_touches_ma20_and_closes_below(self):
+        """High reaches MA20 and close stays below → SELL MA_RESISTANCE."""
+        # MA20=100.0, high=100.05 (within 0.3%), close=99.5 (below MA)
+        bar = _bar(open_=99.0, high=100.05, low=98.5, close=99.5)
+        sig = check_ma_resistance("NFLX", bar, ma20=100.0, ma50=105.0, ma100=110.0, ma200=120.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_RESISTANCE
+        assert sig.direction == "SELL"
+        assert "MA20 RESISTANCE" in sig.message
+        assert "$100.00" in sig.message
+
+    def test_fires_for_lowest_rejecting_ma(self):
+        """Both MA20 and MA50 overhead — fires for MA20 (lowest, first match)."""
+        # MA20=100.0, MA50=102.0, high=100.10 (touches MA20), close=99.5
+        bar = _bar(open_=99.0, high=100.10, low=98.5, close=99.5)
+        sig = check_ma_resistance("SPY", bar, ma20=100.0, ma50=102.0, ma100=110.0, ma200=120.0)
+        assert sig is not None
+        assert "MA20 RESISTANCE" in sig.message
+
+    def test_no_fire_when_close_above_ma(self):
+        """High touches MA20 but close is above → bounce, not rejection."""
+        bar = _bar(open_=99.5, high=100.20, low=99.0, close=100.10)
+        sig = check_ma_resistance("NFLX", bar, ma20=100.0, ma50=105.0, ma100=110.0, ma200=120.0)
+        assert sig is None
+
+    def test_no_fire_when_high_too_far_from_ma(self):
+        """High is more than 0.3% away from all MAs → None."""
+        # MA20=100.0, high=99.0 (1% away)
+        bar = _bar(open_=98.0, high=99.0, low=97.5, close=98.5)
+        sig = check_ma_resistance("NFLX", bar, ma20=100.0, ma50=105.0, ma100=110.0, ma200=120.0)
+        assert sig is None
+
+    def test_no_fire_when_all_mas_none(self):
+        """All MAs are None → None."""
+        bar = _bar(open_=99.0, high=100.0, low=98.5, close=99.5)
+        sig = check_ma_resistance("NFLX", bar, ma20=None, ma50=None, ma100=None, ma200=None)
+        assert sig is None
+
+    def test_skips_ma_below_close(self):
+        """MA below close (not overhead) is skipped."""
+        # MA20=98.0 (below close=99.5), MA50=100.0 (overhead), high touches MA50
+        bar = _bar(open_=99.0, high=100.05, low=98.5, close=99.5)
+        sig = check_ma_resistance("META", bar, ma20=98.0, ma50=100.0, ma100=110.0, ma200=120.0)
+        assert sig is not None
+        assert "MA50 RESISTANCE" in sig.message
+
+    def test_fires_for_higher_ma_when_lower_doesnt_reject(self):
+        """MA20 below close (skipped), MA50 too far, MA100 rejects → fires MA100."""
+        # close=99.5, MA20=98 (below), MA50=102 (high doesn't reach),
+        # MA100=100.0 (high touches, close below)
+        bar = _bar(open_=99.0, high=100.05, low=98.5, close=99.5)
+        sig = check_ma_resistance("META", bar, ma20=98.0, ma50=102.0, ma100=100.0, ma200=120.0)
+        assert sig is not None
+        assert "MA100 RESISTANCE" in sig.message
+
+
+# ===== Rule 20: Prior Day Low as Resistance =====
+
+class TestResistancePriorLow:
+    def test_fires_when_high_touches_pdl_and_closes_below(self):
+        """High reaches PDL and close stays below → SELL RESISTANCE_PRIOR_LOW."""
+        # PDL=100.0, high=100.10 (within 0.2%), close=99.5 (below PDL)
+        bar = _bar(open_=99.0, high=100.10, low=98.5, close=99.5)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.RESISTANCE_PRIOR_LOW
+        assert sig.direction == "SELL"
+        assert "Prior day low resistance" in sig.message
+        assert "$100.00" in sig.message
+
+    def test_no_fire_when_close_above_pdl(self):
+        """High touches PDL, close above → reclaimed, not rejection."""
+        bar = _bar(open_=99.5, high=100.15, low=99.0, close=100.10)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0)
+        assert sig is None
+
+    def test_no_fire_when_high_too_far_from_pdl(self):
+        """High more than 0.2% away from PDL → None."""
+        # PDL=100.0, high=99.5 (0.5% away)
+        bar = _bar(open_=98.5, high=99.5, low=98.0, close=99.0)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0)
+        assert sig is None
+
+    def test_no_fire_when_pdl_is_zero(self):
+        """PDL=0 → None."""
+        bar = _bar(open_=99.0, high=100.0, low=98.5, close=99.5)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=0)
+        assert sig is None
+
+    def test_no_fire_when_pdl_is_negative(self):
+        """PDL<0 → None."""
+        bar = _bar(open_=99.0, high=100.0, low=98.5, close=99.5)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=-5.0)
+        assert sig is None

@@ -122,8 +122,13 @@ def send_email(signal: AlertSignal) -> bool:
 def _send_telegram(body: str) -> bool:
     """Send a message via Telegram Bot API."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning(
+            "Telegram not configured — missing %s",
+            "TELEGRAM_BOT_TOKEN" if not TELEGRAM_BOT_TOKEN else "TELEGRAM_CHAT_ID",
+        )
         return False
 
+    import json
     import urllib.parse
     import urllib.request
 
@@ -134,11 +139,22 @@ def _send_telegram(body: str) -> bool:
     }).encode()
 
     try:
-        urllib.request.urlopen(url, data, timeout=10)
-        logger.info("Telegram sent: %s", body[:50])
+        resp = urllib.request.urlopen(url, data, timeout=10)
+        resp_body = resp.read().decode("utf-8", errors="replace")
+        logger.info(
+            "Telegram sent to %s (status=%s): %s",
+            TELEGRAM_CHAT_ID, resp.status, resp_body[:200],
+        )
         return True
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        logger.error(
+            "Telegram API error %s for chat_id=%s: %s",
+            e.code, TELEGRAM_CHAT_ID, error_body,
+        )
+        return False
     except Exception:
-        logger.exception("Failed to send Telegram message")
+        logger.exception("Failed to send Telegram message to chat_id=%s", TELEGRAM_CHAT_ID)
         return False
 
 
@@ -177,6 +193,7 @@ def send_sms(signal: AlertSignal) -> bool:
 
     # Prefer Telegram (free, instant, reliable)
     if TELEGRAM_BOT_TOKEN:
+        logger.info("Notification channel: Telegram (chat_id=%s)", TELEGRAM_CHAT_ID or "<missing>")
         return _send_telegram(body)
 
     # Fallback: email-to-SMS gateway

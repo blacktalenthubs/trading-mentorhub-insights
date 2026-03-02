@@ -13,16 +13,20 @@ Context filters (applied before/after rules):
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 
 import pandas as pd
+
+logger = logging.getLogger("intraday_rules")
 
 from alert_config import (
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
     DAY_TRADE_MAX_RISK_PCT,
     EMA_MIN_BARS,
+    HOURLY_RESISTANCE_APPROACH_PCT,
     LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_PROXIMITY_PCT,
     MA_STOP_OFFSET_PCT,
@@ -70,6 +74,9 @@ class AlertType(str, Enum):
     GAP_FILL = "gap_fill"
     PLANNED_LEVEL_TOUCH = "planned_level_touch"
     WEEKLY_LEVEL_TOUCH = "weekly_level_touch"
+    HOURLY_RESISTANCE_APPROACH = "hourly_resistance_approach"
+    MA_RESISTANCE = "ma_resistance"
+    RESISTANCE_PRIOR_LOW = "resistance_prior_low"
 
 
 @dataclass
@@ -1147,6 +1154,130 @@ def check_weekly_level_touch(
 
 
 # ---------------------------------------------------------------------------
+# Rule 18: Hourly Resistance Approach (SELL)
+# ---------------------------------------------------------------------------
+
+
+def check_hourly_resistance_approach(
+    symbol: str,
+    bar: pd.Series,
+    hourly_resistance: list[float],
+    has_active_entry: bool,
+) -> AlertSignal | None:
+    """Active trade approaching hourly swing high resistance — tighten or take profits.
+
+    Conditions:
+    - has_active_entry is True
+    - At least one hourly resistance level exists above current price
+    - Bar high within HOURLY_RESISTANCE_APPROACH_PCT of an hourly resistance level
+    """
+    if not has_active_entry or not hourly_resistance:
+        return None
+
+    # Find nearest hourly resistance at or above bar high
+    for level in sorted(hourly_resistance):
+        if level < bar["High"]:
+            continue
+        proximity = (level - bar["High"]) / level if level > 0 else float("inf")
+        if proximity <= HOURLY_RESISTANCE_APPROACH_PCT:
+            return AlertSignal(
+                symbol=symbol,
+                alert_type=AlertType.HOURLY_RESISTANCE_APPROACH,
+                direction="SELL",
+                price=bar["High"],
+                message=(
+                    f"APPROACHING HOURLY RESISTANCE at ${level:.2f}"
+                    f" — tighten stop or take profits"
+                ),
+            )
+        break  # only check nearest level above
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule 19: MA Resistance (overhead rejection)
+# ---------------------------------------------------------------------------
+
+
+def check_ma_resistance(
+    symbol: str,
+    bar: pd.Series,
+    ma20: float | None,
+    ma50: float | None,
+    ma100: float | None,
+    ma200: float | None,
+) -> AlertSignal | None:
+    """Price rallies into overhead MA and gets rejected — bearish warning.
+
+    Iterates MAs in order (20→50→100→200) and fires for the **lowest
+    rejecting MA** only (first match = most relevant overhead resistance).
+
+    Conditions per MA:
+    - MA is available, positive, and above bar close (overhead)
+    - Bar high within MA_BOUNCE_PROXIMITY_PCT of the MA
+    - Bar close below the MA (rejection confirmed, not a breakout)
+    """
+    for ma_val, ma_label in [
+        (ma20, "20"), (ma50, "50"), (ma100, "100"), (ma200, "200"),
+    ]:
+        if ma_val is None or ma_val <= 0 or ma_val <= bar["Close"]:
+            continue  # skip: missing, zero, or below close (not overhead)
+        proximity = abs(bar["High"] - ma_val) / ma_val
+        if proximity > MA_BOUNCE_PROXIMITY_PCT:
+            continue  # bar didn't reach this MA
+        if bar["Close"] >= ma_val:
+            continue  # closed above = bounce, not rejection
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.MA_RESISTANCE,
+            direction="SELL",
+            price=bar["High"],
+            message=(
+                f"MA{ma_label} RESISTANCE — rejected at ${ma_val:.2f}, "
+                f"closed below at ${bar['Close']:.2f}"
+            ),
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule 20: Prior Day Low as Resistance (overhead rejection)
+# ---------------------------------------------------------------------------
+
+
+def check_resistance_prior_low(
+    symbol: str,
+    bar: pd.Series,
+    prior_day_low: float,
+) -> AlertSignal | None:
+    """Price rallies up to prior day low from below and gets rejected.
+
+    Conditions:
+    - prior_day_low > 0
+    - Bar high within RESISTANCE_PROXIMITY_PCT of prior day low
+    - Bar close below prior day low (rejection confirmed)
+    """
+    if prior_day_low <= 0:
+        return None
+    proximity = abs(bar["High"] - prior_day_low) / prior_day_low
+    if proximity > RESISTANCE_PROXIMITY_PCT:
+        return None
+    if bar["Close"] >= prior_day_low:
+        return None  # reclaimed = not rejection
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.RESISTANCE_PRIOR_LOW,
+        direction="SELL",
+        price=bar["High"],
+        message=(
+            f"Prior day low resistance at ${prior_day_low:.2f} — "
+            f"rejected, watch for continuation lower"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Smart Resistance-Based Targets
 # ---------------------------------------------------------------------------
 
@@ -1156,12 +1287,13 @@ def _find_resistance_targets(
     stop: float,
     prior_day: dict,
     current_vwap: float | None,
+    hourly_resistance: list[float] | None = None,
 ) -> tuple[float, float, str, str] | None:
     """Find T1/T2 from actual chart resistance levels above entry.
 
-    Collects resistance levels (prior high, MAs, weekly high, VWAP),
-    filters to levels above entry with minimum 1R distance, and returns
-    the nearest two as smart targets.
+    Collects resistance levels (prior high, MAs, weekly high, VWAP,
+    hourly resistance), filters to levels above entry with minimum 1R
+    distance, and returns the nearest two as smart targets.
 
     Returns (t1, t2, t1_label, t2_label) or None if no levels found.
     """
@@ -1184,6 +1316,11 @@ def _find_resistance_targets(
 
     if current_vwap and current_vwap > entry:
         candidates.append((current_vwap, "VWAP"))
+
+    if hourly_resistance:
+        for level in hourly_resistance:
+            if level > entry:
+                candidates.append((level, "hourly resistance"))
 
     if not candidates:
         return None
@@ -1439,6 +1576,16 @@ def evaluate_rules(
     from analytics.intraday_data import detect_intraday_supports
     intraday_supports = detect_intraday_supports(intraday_bars)
 
+    # Detect hourly resistance from multi-day 1h bars
+    from analytics.intraday_data import fetch_hourly_bars, detect_hourly_resistance
+    hourly_resistance: list[float] = []
+    try:
+        bars_1h = fetch_hourly_bars(symbol)
+        if not bars_1h.empty:
+            hourly_resistance = detect_hourly_resistance(bars_1h)
+    except Exception:
+        pass
+
     # --- BUY rules ---
     spy_regime = spy.get("regime", "CHOPPY")
     caution_notes = []
@@ -1578,6 +1725,18 @@ def evaluate_rules(
     if sig:
         signals.append(sig)
 
+    sig = check_hourly_resistance_approach(symbol, last_bar, hourly_resistance, has_active)
+    if sig:
+        signals.append(sig)
+
+    sig = check_ma_resistance(symbol, last_bar, ma20, ma50, ma100, ma200)
+    if sig:
+        signals.append(sig)
+
+    sig = check_resistance_prior_low(symbol, last_bar, prior_low)
+    if sig:
+        signals.append(sig)
+
     for entry in entries:
         ep = entry.get("entry_price") or 0
         t1 = entry.get("target_1") or 0
@@ -1660,26 +1819,49 @@ def evaluate_rules(
     # --- Breakdown day suppression: remove BUY signals when SHORT fires ---
     has_breakdown = any(s.alert_type == AlertType.SUPPORT_BREAKDOWN for s in signals)
     if has_breakdown:
+        dropped = [s for s in signals if s.direction == "BUY"]
+        for s in dropped:
+            logger.debug("%s: breakdown day filter dropped BUY %s", symbol, s.alert_type.value)
         signals = [s for s in signals if s.direction != "BUY"]
 
     # --- Dedup: remove signals already fired today ---
     if fired_today:
+        pre_dedup = signals[:]
         signals = [
             s for s in signals
             if (symbol, s.alert_type.value) not in fired_today
         ]
+        for s in pre_dedup:
+            if (symbol, s.alert_type.value) in fired_today:
+                logger.debug("%s: dedup filter dropped %s (already fired today)", symbol, s.alert_type.value)
 
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
+    pre_noise = signals[:]
     signals = [s for s in signals if not _should_skip_noise(s, vol_ratio)]
+    for s in pre_noise:
+        if _should_skip_noise(s, vol_ratio):
+            logger.debug(
+                "%s: noise filter dropped %s (vol_ratio=%.2f < threshold)",
+                symbol, s.alert_type.value, vol_ratio,
+            )
 
     # --- Staleness filter: drop BUY signals where price already ran past entry + 1R ---
     current_price = last_bar["Close"]
+    pre_stale = signals[:]
     signals = [
         s for s in signals
         if not (s.direction == "BUY" and s.entry and s.stop
                 and current_price > s.entry + (s.entry - s.stop))
     ]
+    for s in pre_stale:
+        if (s.direction == "BUY" and s.entry and s.stop
+                and current_price > s.entry + (s.entry - s.stop)):
+            logger.debug(
+                "%s: staleness filter dropped %s (price=%.2f > entry+1R=%.2f)",
+                symbol, s.alert_type.value, current_price,
+                s.entry + (s.entry - s.stop),
+            )
 
     # --- Relative Strength filter ---
     spy_intraday_change = spy.get("intraday_change_pct", 0.0)
@@ -1703,7 +1885,10 @@ def evaluate_rules(
         }
         if (sig.direction == "BUY" and sig.entry and sig.stop
                 and sig.alert_type not in _STRUCTURAL_TARGET_RULES):
-            smart = _find_resistance_targets(sig.entry, sig.stop, prior_day, current_vwap)
+            smart = _find_resistance_targets(
+                sig.entry, sig.stop, prior_day, current_vwap,
+                hourly_resistance=hourly_resistance,
+            )
             if smart:
                 sig.target_1, sig.target_2, t1_label, t2_label = smart
                 sig.message += f" | T1: {t1_label} ${sig.target_1:.2f}, T2: {t2_label} ${sig.target_2:.2f}"
