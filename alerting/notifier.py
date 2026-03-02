@@ -32,11 +32,15 @@ logger = logging.getLogger(__name__)
 def _format_email_body(signal: AlertSignal) -> str:
     """Build the plain-text email body for an alert."""
     now = datetime.now().strftime("%I:%M %p ET")
+    label = signal.alert_type.value.replace("_", " ").title()
     lines = [
         f"Symbol:  {signal.symbol}",
-        f"Signal:  {signal.direction} - {signal.alert_type.value.replace('_', ' ').title()}",
+        f"Signal:  {signal.direction} - {label}",
         f"Price:   ${signal.price:.2f}",
     ]
+
+    if signal.score > 0:
+        lines.append(f"Score:   {signal.score_label} ({signal.score}/100)")
 
     if signal.entry is not None:
         lines.append(f"Entry:   ${signal.entry:.2f}")
@@ -44,13 +48,20 @@ def _format_email_body(signal: AlertSignal) -> str:
         lines.append(f"Stop:    ${signal.stop:.2f}")
         if signal.entry is not None:
             risk = signal.entry - signal.stop
-            lines[-1] += f" (-${risk:.2f}/share)"
+            risk_pct = risk / signal.entry * 100 if signal.entry > 0 else 0
+            lines[-1] += f" (-${risk:.2f}, {risk_pct:.1f}%)"
     if signal.target_1 is not None:
-        reward = signal.target_1 - (signal.entry or signal.price)
-        lines.append(f"T1:      ${signal.target_1:.2f} (+${reward:.2f}, 1R)")
+        base = signal.entry or signal.price
+        risk = base - signal.stop if signal.stop else 0
+        reward1 = signal.target_1 - base
+        r1_mult = f"{reward1 / risk:.1f}R" if risk > 0 else "+${reward1:.2f}"
+        lines.append(f"T1:      ${signal.target_1:.2f} (+${reward1:.2f}, {r1_mult})")
     if signal.target_2 is not None:
-        reward = signal.target_2 - (signal.entry or signal.price)
-        lines.append(f"T2:      ${signal.target_2:.2f} (+${reward:.2f}, 2R)")
+        base = signal.entry or signal.price
+        risk = base - signal.stop if signal.stop else 0
+        reward2 = signal.target_2 - base
+        r2_mult = f"{reward2 / risk:.1f}R" if risk > 0 else "+${reward2:.2f}"
+        lines.append(f"T2:      ${signal.target_2:.2f} (+${reward2:.2f}, {r2_mult})")
 
     lines.append(f"Time:    {now}")
 
@@ -61,32 +72,48 @@ def _format_email_body(signal: AlertSignal) -> str:
 
 
 def _format_sms_body(signal: AlertSignal) -> str:
-    """Build an enhanced SMS/WhatsApp message with context."""
+    """Build a concise SMS/Telegram message optimised for at-a-glance action."""
     label = signal.alert_type.value.replace("_", " ").title()
-    parts = [f"{signal.direction} {signal.symbol} ${signal.price:.2f}"]
+
+    if signal.direction == "SELL":
+        # SELL signals: compact 2-3 line format
+        parts = [f"SELL {signal.symbol} ${signal.price:.2f}"]
+        parts.append(label)
+        if signal.message:
+            # Extract first clause for a short hint
+            hint = signal.message.split("|")[0].strip()
+            if hint:
+                parts.append(hint)
+        return "\n".join(parts)[:320]
+
+    # BUY signals: entry, targets, score on first line
+    score_tag = ""
+    if signal.score > 0:
+        score_tag = f" — {signal.score_label} ({signal.score})"
+    parts = [f"BUY {signal.symbol} ${signal.price:.2f}{score_tag}"]
     parts.append(label)
 
-    # Session phase context
-    if signal.session_phase:
-        parts[-1] += f" ({signal.session_phase.replace('_', ' ')})"
+    # Entry | Stop
+    if signal.entry is not None and signal.stop is not None:
+        parts.append(f"Entry ${signal.entry:.2f} | Stop ${signal.stop:.2f}")
 
-    # Context line: SPY + Volume + VWAP
-    context_bits = []
-    if signal.spy_trend:
-        context_bits.append(f"SPY: {signal.spy_trend}")
+    # T1 | T2
+    t_bits = []
+    if signal.target_1 is not None:
+        t_bits.append(f"T1 ${signal.target_1:.2f}")
+    if signal.target_2 is not None:
+        t_bits.append(f"T2 ${signal.target_2:.2f}")
+    if t_bits:
+        parts.append(" | ".join(t_bits))
+
+    # Vol + VWAP (compact context)
+    ctx = []
     if signal.volume_label:
-        context_bits.append(f"Vol: {signal.volume_label.split(' (')[0]}")
+        ctx.append(f"Vol: {signal.volume_label.split(' (')[0]}")
     if signal.vwap_position:
-        context_bits.append(f"VWAP: {signal.vwap_position.replace('VWAP', '').strip()}")
-    if context_bits:
-        parts.append(" | ".join(context_bits))
-
-    if signal.stop is not None and signal.target_1 is not None:
-        parts.append(f"Stop ${signal.stop:.2f} T1 ${signal.target_1:.2f}")
-
-    # Score
-    if signal.score > 0:
-        parts.append(f"Score: {signal.score_label} ({signal.score}/100)")
+        ctx.append(signal.vwap_position.replace("VWAP", "").strip())
+    if ctx:
+        parts.append(" | ".join(ctx))
 
     return "\n".join(parts)[:320]
 

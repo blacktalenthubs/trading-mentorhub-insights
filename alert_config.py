@@ -40,7 +40,13 @@ MARKET_CLOSE_MINUTE = 0
 # ---------------------------------------------------------------------------
 
 # MA Bounce: bar low must be within this % of the MA to qualify
-MA_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3%
+MA_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3% (used by 20MA and 50MA)
+
+# MA100 Bounce: wider proximity — institutional levels wick through more
+MA100_BOUNCE_PROXIMITY_PCT = 0.005  # 0.5%
+
+# MA200 Bounce: widest proximity — major level, deep wicks common
+MA200_BOUNCE_PROXIMITY_PCT = 0.008  # 0.8%
 
 # MA Bounce: stop offset below the MA
 MA_STOP_OFFSET_PCT = 0.005  # 0.5%
@@ -136,6 +142,44 @@ TELEGRAM_TIER1_MIN_SCORE = 75
 # Signal Consolidation: score boost when multiple BUY signals confirm
 CONSOLIDATION_SCORE_BOOST = 5   # points per confirming signal
 CONSOLIDATION_MAX_BOOST = 15    # max boost from consolidation
+
+# Overhead MA resistance: suppress BUY when an MA is within this % above entry
+OVERHEAD_MA_RESISTANCE_PCT = 0.005  # 0.5%
+
+# Minimum target distance: T1 must be at least this % above entry
+MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
+
+# ---------------------------------------------------------------------------
+# Enabled rules — only rules listed here will fire via evaluate_rules().
+# Uses string values (not AlertType enum) to avoid circular imports.
+# Disabled: breakout-based (ORB, inside day), momentum (EMA crossover),
+#           informational noise (gap fill), choppy-day noise (intraday bounce).
+# ---------------------------------------------------------------------------
+ENABLED_RULES: set[str] = {
+    # BUY — support bounce / S/R reclaim
+    "ma_bounce_20",
+    "ma_bounce_50",
+    "ma_bounce_100",
+    "ma_bounce_200",
+    "prior_day_low_reclaim",
+    "session_low_double_bottom",
+    "planned_level_touch",
+    "weekly_level_touch",
+    # Momentum
+    "ema_crossover_5_20",
+    # SELL / resistance warnings
+    "resistance_prior_high",
+    "hourly_resistance_approach",
+    "ma_resistance",
+    "resistance_prior_low",
+    # Trade management
+    "target_1_hit",
+    "target_2_hit",
+    "stop_loss_hit",
+    "auto_stop_out",
+    # Exit-only (fires only with active position)
+    "support_breakdown",
+}
 
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)
 PER_SYMBOL_RISK: dict[str, float] = {

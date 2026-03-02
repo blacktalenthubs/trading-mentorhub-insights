@@ -28,15 +28,20 @@ from alert_config import (
     CONSOLIDATION_SCORE_BOOST,
     DAY_TRADE_MAX_RISK_PCT,
     EMA_MIN_BARS,
+    ENABLED_RULES,
     HOURLY_RESISTANCE_APPROACH_PCT,
     LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_PROXIMITY_PCT,
     MA_STOP_OFFSET_PCT,
+    MA100_BOUNCE_PROXIMITY_PCT,
     MA100_STOP_OFFSET_PCT,
+    MA200_BOUNCE_PROXIMITY_PCT,
     MA200_STOP_OFFSET_PCT,
+    MIN_TARGET_DISTANCE_PCT,
     ORB_BREAKDOWN_VOLUME_RATIO,
     ORB_MIN_RANGE_PCT,
     ORB_VOLUME_RATIO,
+    OVERHEAD_MA_RESISTANCE_PCT,
     PDL_DIP_MIN_PCT,
     PER_SYMBOL_RISK,
     PLANNED_LEVEL_PROXIMITY_PCT,
@@ -169,8 +174,8 @@ def check_ma_bounce_20(
     if bar["Close"] <= ma20:
         return None  # didn't bounce above
 
-    entry = bar["Close"]
-    stop = max(bar["Low"], ma20 * (1 - MA_STOP_OFFSET_PCT))
+    entry = round(ma20, 2)
+    stop = round(ma20 * (1 - MA_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
@@ -181,13 +186,13 @@ def check_ma_bounce_20(
         direction="BUY",
         price=bar["Close"],
         entry=entry,
-        stop=round(stop, 2),
+        stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
         confidence="high" if proximity <= 0.001 else "medium",
         message=(
             f"MA bounce 20MA — price pulled back to ${ma20:.2f} "
-            f"and closed above at ${entry:.2f}"
+            f"and closed above at ${bar['Close']:.2f}"
         ),
     )
 
@@ -222,8 +227,8 @@ def check_ma_bounce_50(
     if bar["Close"] <= ma50:
         return None
 
-    entry = bar["Close"]
-    stop = max(bar["Low"], ma50 * (1 - MA_STOP_OFFSET_PCT))
+    entry = round(ma50, 2)
+    stop = round(ma50 * (1 - MA_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
@@ -234,13 +239,13 @@ def check_ma_bounce_50(
         direction="BUY",
         price=bar["Close"],
         entry=entry,
-        stop=round(stop, 2),
+        stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
         confidence="high" if proximity <= 0.001 else "medium",
         message=(
             f"MA bounce 50MA — price pulled back to ${ma50:.2f} "
-            f"and closed above at ${entry:.2f}"
+            f"and closed above at ${bar['Close']:.2f}"
         ),
     )
 
@@ -259,23 +264,20 @@ def check_ma_bounce_100(
 
     Conditions:
     - ma100 is available
-    - Bar low within MA_BOUNCE_PROXIMITY_PCT of 100MA
+    - Bar low within MA100_BOUNCE_PROXIMITY_PCT of 100MA (0.5%)
     - Bar closes above 100MA
-    - Prior close was above 100MA (pullback, not breakdown)
     """
     if ma100 is None or ma100 <= 0:
         return None
-    if prior_close is not None and prior_close <= ma100:
-        return None  # was already below — breakdown, not pullback
 
     proximity = abs(bar["Low"] - ma100) / ma100
-    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+    if proximity > MA100_BOUNCE_PROXIMITY_PCT:
         return None
     if bar["Close"] <= ma100:
         return None
 
-    entry = bar["Close"]
-    stop = max(bar["Low"], ma100 * (1 - MA100_STOP_OFFSET_PCT))
+    entry = round(ma100, 2)
+    stop = round(ma100 * (1 - MA100_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
@@ -286,13 +288,13 @@ def check_ma_bounce_100(
         direction="BUY",
         price=bar["Close"],
         entry=entry,
-        stop=round(stop, 2),
+        stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
         confidence="high",
         message=(
             f"MA bounce 100MA — price pulled back to ${ma100:.2f} "
-            f"and closed above at ${entry:.2f}"
+            f"and closed above at ${bar['Close']:.2f}"
         ),
     )
 
@@ -311,23 +313,20 @@ def check_ma_bounce_200(
 
     Conditions:
     - ma200 is available
-    - Bar low within MA_BOUNCE_PROXIMITY_PCT of 200MA
+    - Bar low within MA200_BOUNCE_PROXIMITY_PCT of 200MA (0.8%)
     - Bar closes above 200MA
-    - Prior close was above 200MA (pullback, not breakdown)
     """
     if ma200 is None or ma200 <= 0:
         return None
-    if prior_close is not None and prior_close <= ma200:
-        return None  # was already below — breakdown, not pullback
 
     proximity = abs(bar["Low"] - ma200) / ma200
-    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+    if proximity > MA200_BOUNCE_PROXIMITY_PCT:
         return None
     if bar["Close"] <= ma200:
         return None
 
-    entry = bar["Close"]
-    stop = max(bar["Low"], ma200 * (1 - MA200_STOP_OFFSET_PCT))
+    entry = round(ma200, 2)
+    stop = round(ma200 * (1 - MA200_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
@@ -338,13 +337,13 @@ def check_ma_bounce_200(
         direction="BUY",
         price=bar["Close"],
         entry=entry,
-        stop=round(stop, 2),
+        stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
         confidence="high",
         message=(
             f"MA bounce 200MA — price pulled back to ${ma200:.2f} "
-            f"and closed above at ${entry:.2f}"
+            f"and closed above at ${bar['Close']:.2f}"
         ),
     )
 
@@ -1539,6 +1538,29 @@ def _should_skip_noise(signal: AlertSignal, vol_ratio: float) -> bool:
     return vol_ratio < LOW_VOLUME_SKIP_RATIO
 
 
+def _has_overhead_ma_resistance(
+    entry: float,
+    ma20: float | None,
+    ma50: float | None,
+    ma100: float | None,
+    ma200: float | None,
+) -> tuple[bool, str]:
+    """Check if any MA sits overhead within OVERHEAD_MA_RESISTANCE_PCT of entry.
+
+    Returns (blocked, label) where label describes the blocking MA.
+    Only flags MAs that are *above* entry — a BUY heading into resistance.
+    """
+    for label, ma in [("20MA", ma20), ("50MA", ma50), ("100MA", ma100), ("200MA", ma200)]:
+        if ma is None or ma <= 0:
+            continue
+        if ma <= entry:
+            continue  # MA is below entry — not overhead resistance
+        gap_pct = (ma - entry) / entry
+        if gap_pct <= OVERHEAD_MA_RESISTANCE_PCT:
+            return True, f"{label} ${ma:.2f}"
+    return False, ""
+
+
 # ---------------------------------------------------------------------------
 # Score enrichment for intraday alerts
 # ---------------------------------------------------------------------------
@@ -1796,36 +1818,41 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        sig = check_inside_day_breakout(symbol, last_bar, prior_day)
-        if sig:
-            sig.message += f" ({phase})"
-            if vwap_pos:
-                sig.message += f" — price {vwap_pos}"
-            sig.message += caution_suffix
-            signals.append(sig)
+        if AlertType.INSIDE_DAY_BREAKOUT.value in ENABLED_RULES:
+            sig = check_inside_day_breakout(symbol, last_bar, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
 
         # --- Opening Range Breakout ---
-        sig = check_opening_range_breakout(
-            symbol, last_bar, opening_range, bar_vol, avg_vol,
-        )
-        if sig:
-            sig.message += f" ({phase})"
-            sig.message += caution_suffix
-            signals.append(sig)
+        if AlertType.OPENING_RANGE_BREAKOUT.value in ENABLED_RULES:
+            sig = check_opening_range_breakout(
+                symbol, last_bar, opening_range, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
 
         # --- Intraday Support Bounce ---
-        sig = check_intraday_support_bounce(
-            symbol, last_bar, intraday_supports, bar_vol, avg_vol,
-        )
-        if sig:
-            sig.message += f" ({phase})"
-            # SPY bounce correlation — boost confidence
-            if spy.get("spy_bouncing"):
-                sig.confidence = "high"
-                spy_low = spy.get("spy_intraday_low", 0)
-                sig.message += f" | SPY also bouncing from session low ${spy_low:.2f}"
-            sig.message += caution_suffix
-            signals.append(sig)
+        if AlertType.INTRADAY_SUPPORT_BOUNCE.value in ENABLED_RULES:
+            sig = check_intraday_support_bounce(
+                symbol, last_bar, intraday_supports, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                # SPY bounce correlation — boost confidence
+                if spy.get("spy_bouncing"):
+                    sig.confidence = "high"
+                    spy_low = spy.get("spy_intraday_low", 0)
+                    sig.message += (
+                        f" | SPY also bouncing from session low ${spy_low:.2f}"
+                    )
+                sig.message += caution_suffix
+                signals.append(sig)
 
         # --- Session Low Double-Bottom ---
         sig = check_session_low_retest(
@@ -1859,10 +1886,11 @@ def evaluate_rules(
             signals.append(sig)
 
     # --- Gap Fill (INFO — fires regardless of cooldown) ---
-    sig = check_gap_fill(symbol, last_bar, gap_fill_info)
-    if sig:
-        sig.message += f" ({phase})"
-        signals.append(sig)
+    if AlertType.GAP_FILL.value in ENABLED_RULES:
+        sig = check_gap_fill(symbol, last_bar, gap_fill_info)
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
 
     # --- SELL rules (always fire regardless of SPY/session) ---
 
@@ -1886,10 +1914,11 @@ def evaluate_rules(
         signals.append(sig)
 
     # --- Opening Range Breakdown (SELL — informational) ---
-    sig = check_orb_breakdown(symbol, last_bar, opening_range, bar_vol, avg_vol)
-    if sig:
-        sig.message += f" ({phase})"
-        signals.append(sig)
+    if AlertType.OPENING_RANGE_BREAKDOWN.value in ENABLED_RULES:
+        sig = check_orb_breakdown(symbol, last_bar, opening_range, bar_vol, avg_vol)
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
 
     # Build a synthetic bar spanning all intraday highs/lows so target/stop
     # detection doesn't miss hits between poll intervals.
@@ -1959,7 +1988,7 @@ def evaluate_rules(
             if sl_proximity <= SESSION_LOW_BREAK_PROXIMITY_PCT:
                 sig.confidence = "high"
                 sig.message += " | SESSION LOW BREAK — market dynamics shift"
-        # If active LONG exists, convert SHORT to EXIT LONG warning
+        # Exit-only: suppress when no active position, convert to EXIT LONG when active
         if has_active:
             sig.direction = "SELL"
             sig.confidence = "high"
@@ -1968,10 +1997,14 @@ def evaluate_rules(
                 f"volume {bar_vol / avg_vol:.1f}x avg ({phase}). "
                 f"Close long position immediately."
             )
-        signals.append(sig)
+            signals.append(sig)
+        else:
+            logger.debug(
+                "%s: support breakdown suppressed (no active position)", symbol,
+            )
 
     # --- EMA Crossover 5/20 (BUY — mega-cap only) ---
-    if not is_cooled_down:
+    if not is_cooled_down and AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
         from config import MEGA_CAP
 
         is_mega = symbol.upper() in MEGA_CAP
@@ -2028,6 +2061,23 @@ def evaluate_rules(
                 s.entry + (s.entry - s.stop),
             )
 
+    # --- Overhead MA resistance filter: suppress BUY heading into nearby MA above ---
+    pre_overhead = signals[:]
+    filtered_signals: list[AlertSignal] = []
+    for s in signals:
+        if s.direction == "BUY" and s.entry:
+            blocked, ma_label = _has_overhead_ma_resistance(
+                s.entry, ma20, ma50, ma100, ma200,
+            )
+            if blocked:
+                logger.debug(
+                    "%s: overhead MA filter dropped %s (entry=%.2f near %s)",
+                    symbol, s.alert_type.value, s.entry, ma_label,
+                )
+                continue
+        filtered_signals.append(s)
+    signals = filtered_signals
+
     # --- Relative Strength filter ---
     spy_intraday_change = spy.get("intraday_change_pct", 0.0)
 
@@ -2057,6 +2107,15 @@ def evaluate_rules(
             if smart:
                 sig.target_1, sig.target_2, t1_label, t2_label = smart
                 sig.message += f" | T1: {t1_label} ${sig.target_1:.2f}, T2: {t2_label} ${sig.target_2:.2f}"
+
+        # Minimum target distance: prevent tiny T1/T2 on chased entries
+        if (sig.direction == "BUY" and sig.entry and sig.target_1 is not None):
+            min_dist = sig.entry * MIN_TARGET_DISTANCE_PCT
+            if sig.target_1 < sig.entry + min_dist:
+                sig.target_1 = round(sig.entry + min_dist, 2)
+            if (sig.target_2 is not None
+                    and sig.target_2 - sig.target_1 < min_dist):
+                sig.target_2 = round(sig.target_1 + min_dist, 2)
 
         # Guardrail: T1 must be above the current price for BUY signals.
         # When entry < current price (e.g. ORB entry = breakout level),
