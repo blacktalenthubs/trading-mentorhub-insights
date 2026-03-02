@@ -137,7 +137,7 @@ def place_bracket_order(signal, alert_id: int | None = None) -> bool:
             symbol=signal.symbol,
             qty=shares,
             side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY,
+            time_in_force=TimeInForce.GTC,
             order_class=OrderClass.BRACKET,
             take_profit=TakeProfitRequest(limit_price=round(signal.target_1, 2)),
             stop_loss=StopLossRequest(stop_price=round(signal.stop, 2)),
@@ -234,9 +234,12 @@ def close_position(symbol: str, exit_price: float, reason: str = "") -> bool:
 def sync_open_trades() -> int:
     """Reconcile local open trades with Alpaca.
 
-    For each open trade in our DB, check the bracket order status on Alpaca.
-    If a leg (take-profit or stop-loss) has filled, update our DB with the
-    actual fill price and P&L.
+    Two-pass sync:
+    1. Check bracket order legs for fills (take-profit or stop-loss hit).
+    2. Cross-check against live Alpaca positions — if our DB says 'open'
+       but Alpaca has no position for that symbol, mark it closed.
+       This catches positions closed by expired DAY bracket legs, manual
+       closes, or any other out-of-band closure.
 
     Returns the number of trades synced (closed).
     """
@@ -255,6 +258,7 @@ def sync_open_trades() -> int:
     synced = 0
     client = _get_client()
 
+    # --- Pass 1: check bracket order legs for fills ---
     for row in rows:
         try:
             from alpaca.trading.requests import GetOrderByIdRequest
@@ -312,6 +316,42 @@ def sync_open_trades() -> int:
 
         except Exception:
             logger.exception("Failed to sync order %s for %s", row["alpaca_order_id"], row["symbol"])
+
+    # --- Pass 2: cross-check against live Alpaca positions ---
+    # If our DB says 'open' but Alpaca has no position, mark closed.
+    try:
+        live_positions = {p.symbol for p in client.get_all_positions()}
+    except Exception:
+        logger.exception("Failed to fetch Alpaca positions for reconciliation")
+        live_positions = None
+
+    if live_positions is not None:
+        # Re-fetch open trades (some may have been closed in pass 1)
+        with get_db() as conn:
+            still_open = conn.execute(
+                "SELECT id, symbol, shares, entry_price "
+                "FROM paper_trades WHERE status = 'open'"
+            ).fetchall()
+
+        for row in still_open:
+            if row["symbol"] not in live_positions:
+                # Position gone from Alpaca — mark as closed
+                entry_price = row["entry_price"] or 0
+                # No fill price available; record 0 P&L as unknown exit
+                now = datetime.now().isoformat()
+                with get_db() as conn:
+                    conn.execute(
+                        """UPDATE paper_trades
+                           SET exit_price = NULL, pnl = 0, status = 'closed',
+                               closed_at = ?
+                           WHERE id = ?""",
+                        (now, row["id"]),
+                    )
+                logger.info(
+                    "RECONCILE: %s no longer on Alpaca — marked closed (P&L unknown)",
+                    row["symbol"],
+                )
+                synced += 1
 
     if synced:
         logger.info("Synced %d paper trade(s) from Alpaca", synced)
