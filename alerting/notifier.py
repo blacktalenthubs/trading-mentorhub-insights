@@ -213,13 +213,11 @@ def send_sms(signal: AlertSignal) -> bool:
 def notify(signal: AlertSignal) -> tuple[bool, bool]:
     """Send notifications for an alert signal.
 
-    Email is sent for ALL signals.
-    SMS is sent only for BUY signals.
+    Email and SMS/Telegram are sent for ALL signals — BUY entries and
+    SELL exits (target hits, stop loss) are both time-critical.
 
     Returns (email_sent, sms_sent).
     """
     email_sent = send_email(signal)
-    sms_sent = False
-    if signal.direction == "BUY":
-        sms_sent = send_sms(signal)
+    sms_sent = send_sms(signal)
     return email_sent, sms_sent
