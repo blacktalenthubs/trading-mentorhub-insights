@@ -646,6 +646,67 @@ class TestBreakdownSuppression:
         if short_signals:
             assert len(buy_signals) == 0
 
+    def test_breakdown_converts_to_exit_long_with_active_entry(self):
+        """Active LONG + support breakdown → SELL (exit long), not SHORT."""
+        idx = pd.date_range("2024-01-15 09:30", periods=12, freq="5min")
+        rows = []
+        for i in range(12):
+            rows.append({
+                "Open": 99.0, "High": 99.5, "Low": 98.5,
+                "Close": 99.0, "Volume": 1000,
+            })
+        # Last bar: conviction breakdown close below prior low (98.0)
+        rows[-1] = {
+            "Open": 98.2, "High": 98.5, "Low": 97.0,
+            "Close": 97.1, "Volume": 2000,
+        }
+        bars = pd.DataFrame(rows, index=idx)
+
+        prior = {
+            "ma20": 100.0, "ma50": None, "close": 99.5,
+            "high": 101.0, "low": 98.0, "is_inside": False,
+        }
+        # Active LONG entry for this symbol
+        entries = [{"entry_price": 99.0, "stop_price": 98.0,
+                     "target_1": 100.0, "target_2": 101.0}]
+        signals = evaluate_rules("AMD", bars, prior, active_entries=entries)
+        breakdown_signals = [
+            s for s in signals if s.alert_type == AlertType.SUPPORT_BREAKDOWN
+        ]
+        if breakdown_signals:
+            sig = breakdown_signals[0]
+            # Should be SELL (exit long), not SHORT
+            assert sig.direction == "SELL"
+            assert "EXIT LONG" in sig.message
+            assert sig.confidence == "high"
+
+    def test_breakdown_stays_short_without_active_entry(self):
+        """No active entry + support breakdown → stays SHORT."""
+        idx = pd.date_range("2024-01-15 09:30", periods=12, freq="5min")
+        rows = []
+        for i in range(12):
+            rows.append({
+                "Open": 99.0, "High": 99.5, "Low": 98.5,
+                "Close": 99.0, "Volume": 1000,
+            })
+        rows[-1] = {
+            "Open": 98.2, "High": 98.5, "Low": 97.0,
+            "Close": 97.1, "Volume": 2000,
+        }
+        bars = pd.DataFrame(rows, index=idx)
+
+        prior = {
+            "ma20": 100.0, "ma50": None, "close": 99.5,
+            "high": 101.0, "low": 98.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AMD", bars, prior, active_entries=None)
+        breakdown_signals = [
+            s for s in signals if s.alert_type == AlertType.SUPPORT_BREAKDOWN
+        ]
+        if breakdown_signals:
+            sig = breakdown_signals[0]
+            assert sig.direction == "SHORT"
+
 
 # ===== Dedup =====
 

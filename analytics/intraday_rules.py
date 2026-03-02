@@ -1621,7 +1621,8 @@ def evaluate_rules(
     if sig:
         sig.message += f" ({phase})"
         if intraday_supports:
-            sig.message += f" | intraday supports: {intraday_supports}"
+            fmt_supports = [f"${lvl:.2f}" for lvl in intraday_supports]
+            sig.message += f" | intraday supports: {fmt_supports}"
         # Tag breakdown at session low — most significant intraday event
         # Use pre-breakdown session low (exclude last bar which is the breakdown bar)
         if len(intraday_bars) > 1:
@@ -1634,6 +1635,15 @@ def evaluate_rules(
             if sl_proximity <= SESSION_LOW_BREAK_PROXIMITY_PCT:
                 sig.confidence = "high"
                 sig.message += " | SESSION LOW BREAK — market dynamics shift"
+        # If active LONG exists, convert SHORT to EXIT LONG warning
+        if has_active:
+            sig.direction = "SELL"
+            sig.confidence = "high"
+            sig.message = (
+                f"EXIT LONG — support breakdown at ${broken_support:.2f}, "
+                f"volume {bar_vol / avg_vol:.1f}x avg ({phase}). "
+                f"Close long position immediately."
+            )
         signals.append(sig)
 
     # --- EMA Crossover 5/20 (BUY — mega-cap only) ---
