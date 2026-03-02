@@ -300,10 +300,20 @@ class TestResistancePriorHigh:
         assert sig.alert_type == AlertType.RESISTANCE_PRIOR_HIGH
         assert sig.direction == "SELL"
 
-    def test_no_fire_without_active_entry(self):
+    def test_fires_warning_without_active_entry(self):
+        """No active entry → still fires as resistance warning."""
         bar = _bar(high=100.15)
         sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=False)
-        assert sig is None
+        assert sig is not None
+        assert sig.direction == "SELL"
+        assert "resistance zone" in sig.message
+        assert "watch for rejection" in sig.message
+
+    def test_active_entry_gets_take_profit_message(self):
+        """Active entry → take profits message."""
+        bar = _bar(high=100.15)
+        sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=True)
+        assert "taking profits" in sig.message
 
     def test_no_fire_when_too_far_from_prior_high(self):
         bar = _bar(high=99.0)
@@ -1769,3 +1779,52 @@ class TestSmartTargetsIntegration:
             sig = ma_bounces[0]
             # Should NOT have "T1:" in message (no smart targets applied)
             assert "T1:" not in sig.message
+
+
+# ===== Staleness Filter =====
+
+class TestStalenessFilter:
+    def test_stale_buy_signal_filtered(self):
+        """BUY signal where price already ran past entry + 1R → filtered out."""
+        # Intraday support bounce: entry = support level (e.g., 648.00)
+        # but current price = 654.00, risk = 1.00, so entry + 1R = 649.00
+        # price 654 >> 649 → stale, should be filtered
+        idx = pd.date_range("2024-01-15 09:30", periods=25, freq="5min")
+        rows = []
+        for i in range(25):
+            rows.append({
+                "Open": 650.0, "High": 651.0, "Low": 649.0,
+                "Close": 650.5, "Volume": 1000,
+            })
+        # Hour 1 low at 648.00 (bar 2) — establishes support
+        rows[2] = {"Open": 649.0, "High": 649.5, "Low": 648.00, "Close": 649.0, "Volume": 1000}
+        # Hour 2 holds above (bars 12-24)
+        for i in range(12, 25):
+            rows[i] = {"Open": 652.0, "High": 654.0, "Low": 651.0, "Close": 653.0, "Volume": 1000}
+        # Last bar: low touches support (648.10) but closes way above at 654
+        rows[-1] = {"Open": 649.0, "High": 655.0, "Low": 648.10, "Close": 654.0, "Volume": 1000}
+        bars = pd.DataFrame(rows, index=idx)
+
+        prior = {
+            "ma20": 650.0, "ma50": 645.0, "close": 650.0,
+            "high": 655.0, "low": 646.0, "is_inside": False,
+        }
+        signals = evaluate_rules("META", bars, prior)
+        bounce_signals = [
+            s for s in signals if s.alert_type == AlertType.INTRADAY_SUPPORT_BOUNCE
+        ]
+        # Should be filtered — price 654 is way past entry (~648) + 1R
+        assert len(bounce_signals) == 0
+
+    def test_fresh_buy_signal_kept(self):
+        """BUY signal where price is near entry → kept."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        assert len(buy_signals) >= 1

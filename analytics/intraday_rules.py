@@ -452,14 +452,13 @@ def check_resistance_prior_high(
     prior_day_high: float,
     has_active_entry: bool,
 ) -> AlertSignal | None:
-    """Price hits prior day high — take profits.
+    """Price hits prior day high — take profits or warn about resistance.
 
     Conditions:
     - Price within RESISTANCE_PROXIMITY_PCT of prior day high
-    - Active BUY entry exists for this symbol
+    - With active entry: SELL signal (take profits)
+    - Without active entry: INFO warning (resistance ahead)
     """
-    if not has_active_entry:
-        return None
     if prior_day_high <= 0:
         return None
 
@@ -467,12 +466,22 @@ def check_resistance_prior_high(
     if proximity > RESISTANCE_PROXIMITY_PCT:
         return None
 
+    if has_active_entry:
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.RESISTANCE_PRIOR_HIGH,
+            direction="SELL",
+            price=bar["High"],
+            message=f"Resistance at prior high ${prior_day_high:.2f} — consider taking profits",
+        )
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.RESISTANCE_PRIOR_HIGH,
         direction="SELL",
         price=bar["High"],
-        message=f"Resistance at prior high ${prior_day_high:.2f} — consider taking profits",
+        confidence="medium",
+        message=f"At prior day high ${prior_day_high:.2f} — resistance zone, watch for rejection",
     )
 
 
@@ -1653,6 +1662,14 @@ def evaluate_rules(
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
     signals = [s for s in signals if not _should_skip_noise(s, vol_ratio)]
+
+    # --- Staleness filter: drop BUY signals where price already ran past entry + 1R ---
+    current_price = last_bar["Close"]
+    signals = [
+        s for s in signals
+        if not (s.direction == "BUY" and s.entry and s.stop
+                and current_price > s.entry + (s.entry - s.stop))
+    ]
 
     # --- Relative Strength filter ---
     spy_intraday_change = spy.get("intraday_change_pct", 0.0)
