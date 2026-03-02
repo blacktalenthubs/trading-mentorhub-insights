@@ -24,6 +24,8 @@ logger = logging.getLogger("intraday_rules")
 from alert_config import (
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
+    CONSOLIDATION_MAX_BOOST,
+    CONSOLIDATION_SCORE_BOOST,
     DAY_TRADE_MAX_RISK_PCT,
     EMA_MIN_BARS,
     HOURLY_RESISTANCE_APPROACH_PCT,
@@ -32,6 +34,7 @@ from alert_config import (
     MA_STOP_OFFSET_PCT,
     MA100_STOP_OFFSET_PCT,
     MA200_STOP_OFFSET_PCT,
+    ORB_BREAKDOWN_VOLUME_RATIO,
     ORB_MIN_RANGE_PCT,
     ORB_VOLUME_RATIO,
     PDL_DIP_MIN_PCT,
@@ -69,6 +72,7 @@ class AlertType(str, Enum):
     EMA_CROSSOVER_5_20 = "ema_crossover_5_20"
     AUTO_STOP_OUT = "auto_stop_out"
     OPENING_RANGE_BREAKOUT = "opening_range_breakout"
+    OPENING_RANGE_BREAKDOWN = "opening_range_breakdown"
     INTRADAY_SUPPORT_BOUNCE = "intraday_support_bounce"
     SESSION_LOW_DOUBLE_BOTTOM = "session_low_double_bottom"
     GAP_FILL = "gap_fill"
@@ -644,31 +648,59 @@ def check_ema_crossover_5_20(
     bars: pd.DataFrame,
     is_mega_cap: bool,
 ) -> AlertSignal | None:
-    """5-bar EMA crosses above 20-bar EMA on a mega-cap stock — bullish entry.
+    """Daily 5-bar EMA crosses above 20-bar EMA on a mega-cap stock — bullish entry.
+
+    Uses **daily** bars for the crossover detection (not intraday).
+    Entry/stop are derived from intraday bars for trade management.
 
     Conditions:
     - Symbol is in MEGA_CAP set
-    - At least EMA_MIN_BARS bars available
-    - Previous bar: EMA5 <= EMA20; current bar: EMA5 > EMA20
+    - Previous daily bar: EMA5 <= EMA20; current daily bar: EMA5 > EMA20
+    - Minimum separation: EMA5 must exceed EMA20 by >= 0.05% (anti-flicker)
+    - Confirmation: crossover daily bar must close green (Close > Open)
     """
     if not is_mega_cap:
         return None
-    if len(bars) < EMA_MIN_BARS:
+
+    # Fetch daily bars for crossover detection
+    import yfinance as yf
+
+    try:
+        daily = yf.Ticker(symbol).history(period="3mo")
+    except Exception:
+        return None
+    if daily.empty or len(daily) < EMA_MIN_BARS:
         return None
 
-    ema5 = bars["Close"].ewm(span=5, adjust=False).mean()
-    ema20 = bars["Close"].ewm(span=20, adjust=False).mean()
+    ema5 = daily["Close"].ewm(span=5, adjust=False).mean()
+    ema20 = daily["Close"].ewm(span=20, adjust=False).mean()
 
     if len(ema5) < 2:
         return None
     prev_cross = ema5.iloc[-2] <= ema20.iloc[-2]
     curr_cross = ema5.iloc[-1] > ema20.iloc[-1]
     if not (prev_cross and curr_cross):
-        return None  # no crossover
+        return None  # no crossover on daily
 
+    # Anti-flicker: EMA5 must lead EMA20 by >= 0.05% to filter noise
+    ema5_val = ema5.iloc[-1]
+    ema20_val = ema20.iloc[-1]
+    separation_pct = (ema5_val - ema20_val) / ema20_val if ema20_val > 0 else 0
+    if separation_pct < 0.0005:
+        return None  # too tight — likely flicker
+
+    last_daily = daily.iloc[-1]
+
+    # Confirmation: crossover daily bar must be green (bullish)
+    if last_daily["Close"] <= last_daily["Open"]:
+        return None  # red candle on crossover = not confirmed
+
+    # Use intraday bars for entry/stop (trade management)
+    if bars.empty:
+        return None
     last_bar = bars.iloc[-1]
     entry = last_bar["Close"]
-    recent_low = bars["Low"].iloc[-3:].min()  # recent swing low as stop
+    recent_low = bars["Low"].iloc[-3:].min()  # recent intraday swing low as stop
     stop = recent_low
     risk = entry - stop
     if risk <= 0:
@@ -688,8 +720,8 @@ def check_ema_crossover_5_20(
         target_2=round(target_2, 2),
         confidence="high",
         message=(
-            f"5/20 EMA bullish crossover — EMA5 ${ema5.iloc[-1]:.2f} "
-            f"crossed above EMA20 ${ema20.iloc[-1]:.2f}"
+            f"5/20 EMA bullish crossover (daily) — EMA5 ${ema5_val:.2f} "
+            f"crossed above EMA20 ${ema20_val:.2f}"
         ),
     )
 
@@ -795,6 +827,59 @@ def check_opening_range_breakout(
 
 
 # ---------------------------------------------------------------------------
+# Rule 12b: Opening Range Breakdown (SELL — informational)
+# ---------------------------------------------------------------------------
+
+
+def check_orb_breakdown(
+    symbol: str,
+    bar: pd.Series,
+    opening_range: dict | None,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price breaks below the 30-min opening range with volume confirmation.
+
+    Conditions:
+    - Opening range is complete (>= 6 bars of 5-min data)
+    - OR range >= ORB_MIN_RANGE_PCT of price
+    - Bar close < OR low
+    - Volume >= ORB_BREAKDOWN_VOLUME_RATIO * average
+
+    Informational SELL only — no short positions.
+    """
+    if opening_range is None or not opening_range.get("or_complete"):
+        return None
+
+    or_high = opening_range["or_high"]
+    or_low = opening_range["or_low"]
+    or_range = opening_range["or_range"]
+    or_range_pct = opening_range["or_range_pct"]
+
+    if or_range_pct < ORB_MIN_RANGE_PCT:
+        return None  # range too small
+
+    if bar["Close"] >= or_low:
+        return None  # hasn't broken down
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < ORB_BREAKDOWN_VOLUME_RATIO:
+        return None  # insufficient volume
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.OPENING_RANGE_BREAKDOWN,
+        direction="SELL",
+        price=bar["Close"],
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=(
+            f"ORB BREAKDOWN — closed ${bar['Close']:.2f} below OR low "
+            f"${or_low:.2f} on {vol_ratio:.1f}x volume"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 13: Intraday Support Bounce (BUY)
 # ---------------------------------------------------------------------------
 
@@ -802,7 +887,7 @@ def check_opening_range_breakout(
 def check_intraday_support_bounce(
     symbol: str,
     bar: pd.Series,
-    intraday_supports: list[float],
+    intraday_supports: list[dict],
     bar_volume: float,
     avg_volume: float,
 ) -> AlertSignal | None:
@@ -813,6 +898,8 @@ def check_intraday_support_bounce(
     - Bar low is within SUPPORT_BOUNCE_PROXIMITY_PCT of a support level
     - Bar close > support (bounce confirmed)
     - Volume >= LOW_VOLUME_SKIP_RATIO (not noise)
+
+    Accepts list[dict] with keys: level, touch_count, hold_hours, strength.
     """
     if not intraday_supports:
         return None
@@ -822,17 +909,23 @@ def check_intraday_support_bounce(
         return None
 
     # Find closest support at or below bar low within proximity threshold
-    best_support = None
-    for lvl in sorted(intraday_supports, reverse=True):
+    best = None
+    for sup in sorted(intraday_supports, key=lambda s: s["level"], reverse=True):
+        lvl = sup["level"]
         if lvl > bar["Low"]:
             continue
         proximity = (bar["Low"] - lvl) / lvl if lvl > 0 else float("inf")
         if proximity <= SUPPORT_BOUNCE_PROXIMITY_PCT:
-            best_support = lvl
+            best = sup
             break
 
-    if best_support is None:
+    if best is None:
         return None
+
+    best_support = best["level"]
+    touch_count = best.get("touch_count", 1)
+    strength = best.get("strength", "weak")
+
     if bar["Close"] <= best_support:
         return None  # didn't bounce above
 
@@ -841,6 +934,8 @@ def check_intraday_support_bounce(
     risk = entry - stop
     if risk <= 0:
         return None
+
+    confidence = "high" if strength == "strong" else "medium"
 
     return AlertSignal(
         symbol=symbol,
@@ -851,10 +946,10 @@ def check_intraday_support_bounce(
         stop=round(stop, 2),
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
-        confidence="medium",
+        confidence=confidence,
         message=(
-            f"Intraday support bounce — held ${best_support:.2f}, "
-            f"closed above at ${bar['Close']:.2f}"
+            f"Intraday support bounce at ${best_support:.2f} "
+            f"(tested {touch_count}x, {strength})"
         ),
     )
 
@@ -1476,6 +1571,59 @@ def _score_alert(
 
 
 # ---------------------------------------------------------------------------
+# Signal Consolidation
+# ---------------------------------------------------------------------------
+
+
+def _consolidate_signals(signals: list[AlertSignal]) -> list[AlertSignal]:
+    """Merge multiple BUY signals for the same symbol.
+
+    Keeps the highest-scored signal as primary, boosts its score
+    by CONSOLIDATION_SCORE_BOOST per additional confirming signal
+    (capped at CONSOLIDATION_MAX_BOOST). Appends confirming signal
+    types to the message.
+
+    SELL signals pass through unchanged.
+    """
+    from collections import defaultdict
+
+    groups: dict[tuple[str, str], list[AlertSignal]] = defaultdict(list)
+    for sig in signals:
+        groups[(sig.symbol, sig.direction)].append(sig)
+
+    result: list[AlertSignal] = []
+    for (symbol, direction), group in groups.items():
+        if direction != "BUY" or len(group) <= 1:
+            result.extend(group)
+            continue
+
+        # Sort by score descending, pick highest as primary
+        group.sort(key=lambda s: s.score, reverse=True)
+        primary = group[0]
+        others = group[1:]
+
+        # Boost score
+        boost = min(len(others) * CONSOLIDATION_SCORE_BOOST, CONSOLIDATION_MAX_BOOST)
+        primary.score = min(100, primary.score + boost)
+
+        # Recalculate score_label
+        primary.score_label = (
+            "A+" if primary.score >= 90
+            else "A" if primary.score >= 75
+            else "B" if primary.score >= 50
+            else "C"
+        )
+
+        # Append confirming signal types to message
+        types = [s.alert_type.value.replace("_", " ").title() for s in others]
+        primary.message += f" [+{len(others)} confirming: {', '.join(types)}]"
+
+        result.append(primary)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -1737,6 +1885,12 @@ def evaluate_rules(
     if sig:
         signals.append(sig)
 
+    # --- Opening Range Breakdown (SELL — informational) ---
+    sig = check_orb_breakdown(symbol, last_bar, opening_range, bar_vol, avg_vol)
+    if sig:
+        sig.message += f" ({phase})"
+        signals.append(sig)
+
     for entry in entries:
         ep = entry.get("entry_price") or 0
         t1 = entry.get("target_1") or 0
@@ -1767,7 +1921,8 @@ def evaluate_rules(
     nearest_support, _ = _find_nearest_support(last_bar["Close"], prior_low, ma20, ma50)
 
     # Include intraday hourly supports — use closest below current price
-    for lvl in sorted(intraday_supports, reverse=True):
+    for sup in sorted(intraday_supports, key=lambda s: s["level"], reverse=True):
+        lvl = sup["level"]
         if lvl < last_bar["Close"]:
             # Tighten nearest_support if intraday level is closer
             if nearest_support <= 0 or lvl > nearest_support:
@@ -1780,7 +1935,7 @@ def evaluate_rules(
     if sig:
         sig.message += f" ({phase})"
         if intraday_supports:
-            fmt_supports = [f"${lvl:.2f}" for lvl in intraday_supports]
+            fmt_supports = [f"${s['level']:.2f}" for s in intraday_supports]
             sig.message += f" | intraday supports: {fmt_supports}"
         # Tag breakdown at session low — most significant intraday event
         # Use pre-breakdown session low (exclude last bar which is the breakdown bar)
@@ -1893,6 +2048,17 @@ def evaluate_rules(
                 sig.target_1, sig.target_2, t1_label, t2_label = smart
                 sig.message += f" | T1: {t1_label} ${sig.target_1:.2f}, T2: {t2_label} ${sig.target_2:.2f}"
 
+        # Guardrail: T1 must be above the current price for BUY signals.
+        # When entry < current price (e.g. ORB entry = breakout level),
+        # R-based or smart targets can land below the displayed price.
+        if (sig.direction == "BUY" and sig.target_1 is not None
+                and sig.entry and sig.stop
+                and sig.target_1 <= current_price):
+            risk = sig.entry - sig.stop
+            if risk > 0:
+                sig.target_1 = round(current_price + risk, 2)
+                sig.target_2 = round(current_price + 2 * risk, 2)
+
         sig.spy_trend = spy_trend
         sig.session_phase = phase
         sig.volume_label = vol_label
@@ -1983,5 +2149,8 @@ def evaluate_rules(
             else "B" if sig.score >= 50
             else "C"
         )
+
+    # --- Consolidate same-symbol BUY signals ---
+    signals = _consolidate_signals(signals)
 
     return signals

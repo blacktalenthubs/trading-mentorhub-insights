@@ -8,6 +8,7 @@ from analytics.intraday_rules import (
     AlertType,
     _cap_risk,
     _compute_planned_levels,
+    _consolidate_signals,
     _detect_volume_exhaustion,
     _find_resistance_targets,
     _should_skip_noise,
@@ -23,6 +24,7 @@ from analytics.intraday_rules import (
     check_ma_bounce_100,
     check_ma_bounce_200,
     check_opening_range_breakout,
+    check_orb_breakdown,
     check_planned_level_touch,
     check_prior_day_low_reclaim,
     check_weekly_level_touch,
@@ -478,16 +480,14 @@ class TestSupportBreakdown:
 
 class TestEMACrossover:
     @staticmethod
-    def _make_crossover_bars(num_bars=30, cross=True):
-        """Build bars where EMA5 crosses above EMA20 at the last bar.
+    def _make_daily_crossover_bars(num_bars=30, cross=True):
+        """Build daily bars where EMA5 crosses above EMA20 at the last bar.
 
         Strategy: declining prices for most bars (EMA5 < EMA20 since it's
         faster to react), then a sharp reversal at the end to force crossover.
         """
-        # Decline for first 25 bars so EMA5 << EMA20
         prices = [100.0 - 0.3 * i for i in range(num_bars)]
         if cross:
-            # Sharp uptick on last 3 bars to force EMA5 above EMA20
             prices[-3] = prices[-4] + 3.0
             prices[-2] = prices[-3] + 3.0
             prices[-1] = prices[-2] + 4.0
@@ -499,25 +499,54 @@ class TestEMACrossover:
             })
         return pd.DataFrame(rows)
 
-    def test_fires_for_mega_cap(self):
-        """EMA5 crosses above EMA20 on mega-cap → fires BUY."""
-        bars = self._make_crossover_bars(num_bars=30, cross=True)
-        sig = check_ema_crossover_5_20("AAPL", bars, is_mega_cap=True)
+    @staticmethod
+    def _make_intraday_bars():
+        """Build simple intraday bars for entry/stop calculation."""
+        rows = [
+            {"Open": 100.0, "High": 101.0, "Low": 99.0, "Close": 100.5, "Volume": 1000},
+            {"Open": 100.5, "High": 101.5, "Low": 99.5, "Close": 101.0, "Volume": 1000},
+            {"Open": 101.0, "High": 102.0, "Low": 100.0, "Close": 101.5, "Volume": 1000},
+        ]
+        return pd.DataFrame(rows)
+
+    def test_fires_for_mega_cap(self, monkeypatch):
+        """EMA5 crosses above EMA20 on daily bars, mega-cap → fires BUY."""
+        daily_bars = self._make_daily_crossover_bars(num_bars=30, cross=True)
+        intraday_bars = self._make_intraday_bars()
+
+        class FakeTicker:
+            def history(self, **kwargs):
+                return daily_bars
+
+        import yfinance as yf
+        monkeypatch.setattr(yf, "Ticker", lambda symbol: FakeTicker())
+
+        sig = check_ema_crossover_5_20("AAPL", intraday_bars, is_mega_cap=True)
         assert sig is not None
         assert sig.alert_type == AlertType.EMA_CROSSOVER_5_20
         assert sig.direction == "BUY"
         assert sig.confidence == "high"
+        assert "(daily)" in sig.message
 
     def test_skips_non_mega_cap(self):
         """Crossover on non-mega-cap → None."""
-        bars = self._make_crossover_bars(num_bars=30, cross=True)
+        bars = self._make_intraday_bars()
         sig = check_ema_crossover_5_20("ONDS", bars, is_mega_cap=False)
         assert sig is None
 
-    def test_skips_insufficient_bars(self):
-        """Fewer than 25 bars → None."""
-        bars = self._make_crossover_bars(num_bars=20, cross=True)
-        sig = check_ema_crossover_5_20("AAPL", bars, is_mega_cap=True)
+    def test_skips_no_daily_crossover(self, monkeypatch):
+        """No crossover on daily bars → None."""
+        daily_bars = self._make_daily_crossover_bars(num_bars=30, cross=False)
+        intraday_bars = self._make_intraday_bars()
+
+        class FakeTicker:
+            def history(self, **kwargs):
+                return daily_bars
+
+        import yfinance as yf
+        monkeypatch.setattr(yf, "Ticker", lambda symbol: FakeTicker())
+
+        sig = check_ema_crossover_5_20("AAPL", intraday_bars, is_mega_cap=True)
         assert sig is None
 
 
@@ -764,7 +793,8 @@ class TestDetectIntradaySupports:
         supports = detect_intraday_supports(bars)
         # The hourly low of hour 1 (98.50) should be detected as support
         # since hour 2's low (99.0) >= 98.50 * 0.999 and bounce >= 0.2%
-        assert 98.5 in supports
+        levels = [s["level"] for s in supports]
+        assert 98.5 in levels
 
 
 # ===== F1: Opening Range Breakout =====
@@ -1051,14 +1081,17 @@ class TestIntradaySupportBounce:
         """Bar low at support, closes above → BUY with entry=support."""
         # Support at 648.00, bar low touches 648.10 (within 0.3%), closes at 649.50
         bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
-        supports = [648.00, 645.00]
+        supports = [
+            {"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
+            {"level": 645.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
+        ]
         sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
         assert sig is not None
         assert sig.alert_type == AlertType.INTRADAY_SUPPORT_BOUNCE
         assert sig.direction == "BUY"
         assert sig.entry == 648.00
         assert sig.confidence == "medium"
-        assert "held $648.00" in sig.message
+        assert "$648.00" in sig.message
 
     def test_no_fire_when_no_supports(self):
         """Empty supports list → None."""
@@ -1069,7 +1102,7 @@ class TestIntradaySupportBounce:
     def test_no_fire_when_close_below_support(self):
         """Bar closes at/below support → None (no bounce)."""
         bar = _bar(open_=648.50, high=649.00, low=647.80, close=647.90, volume=1000)
-        supports = [648.00]
+        supports = [{"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"}]
         sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
         assert sig is None
 
@@ -2168,3 +2201,228 @@ class TestResistancePriorLow:
         bar = _bar(open_=99.0, high=100.0, low=98.5, close=99.5)
         sig = check_resistance_prior_low("AAPL", bar, prior_day_low=-5.0)
         assert sig is None
+
+
+# ===== F1: Support Strength =====
+
+class TestSupportStrength:
+    def _make_support_bars(self, num_hours=4, support_low=98.50):
+        """Create bars where a support level forms and gets retested."""
+        num_bars = num_hours * 12  # 12 five-min bars per hour
+        idx = pd.date_range("2024-01-15 09:30", periods=num_bars, freq="5min")
+        data = {
+            "Open": [100.0] * num_bars,
+            "High": [101.0] * num_bars,
+            "Low": [99.5] * num_bars,
+            "Close": [100.5] * num_bars,
+            "Volume": [1000] * num_bars,
+        }
+        bars = pd.DataFrame(data, index=idx)
+        return bars
+
+    def test_returns_dict_with_required_fields(self):
+        """Support levels include touch_count, hold_hours, strength."""
+        bars = self._make_support_bars(num_hours=3)
+        # Hour 1: low at 98.50
+        bars.iloc[2, bars.columns.get_loc("Low")] = 98.50
+        # Hour 2: holds above, bounces
+        for i in range(12, 24):
+            bars.iloc[i, bars.columns.get_loc("Low")] = 99.0
+            bars.iloc[i, bars.columns.get_loc("Close")] = 100.0
+        # Hour 3: retests 98.50 again
+        bars.iloc[26, bars.columns.get_loc("Low")] = 98.53  # within 0.3%
+
+        supports = detect_intraday_supports(bars)
+        assert len(supports) >= 1
+        s = supports[0]
+        assert "level" in s
+        assert "touch_count" in s
+        assert "hold_hours" in s
+        assert "strength" in s
+
+    def test_strong_when_tested_multiple_times_and_held(self):
+        """Level tested 3x over 3 hours → strength='strong'."""
+        bars = self._make_support_bars(num_hours=5)
+        # Hour 1: low at 98.50
+        bars.iloc[2, bars.columns.get_loc("Low")] = 98.50
+        # Hour 2: holds above, bounces
+        for i in range(12, 24):
+            bars.iloc[i, bars.columns.get_loc("Low")] = 99.0
+            bars.iloc[i, bars.columns.get_loc("Close")] = 100.0
+        # Hour 3: retest at 98.52 (within 0.3%)
+        bars.iloc[26, bars.columns.get_loc("Low")] = 98.52
+        # Hour 4: holds above again
+        for i in range(36, 48):
+            bars.iloc[i, bars.columns.get_loc("Low")] = 99.0
+            bars.iloc[i, bars.columns.get_loc("Close")] = 100.0
+        # Hour 5: another retest
+        bars.iloc[50, bars.columns.get_loc("Low")] = 98.55
+
+        supports = detect_intraday_supports(bars)
+        strong_levels = [s for s in supports if s["strength"] == "strong"]
+        assert len(strong_levels) >= 1
+
+    def test_weak_when_tested_once(self):
+        """Level tested only 1x → strength='weak'."""
+        bars = self._make_support_bars(num_hours=3)
+        # Only hour 1 has the support low, no retests
+        bars.iloc[2, bars.columns.get_loc("Low")] = 98.50
+        # Hour 2: holds above, bounces
+        for i in range(12, 24):
+            bars.iloc[i, bars.columns.get_loc("Low")] = 99.5
+            bars.iloc[i, bars.columns.get_loc("Close")] = 100.0
+
+        supports = detect_intraday_supports(bars)
+        if supports:
+            assert supports[0]["strength"] == "weak"
+
+    def test_bounce_rule_uses_strength_for_confidence(self):
+        """Strong support → confidence='high', weak → 'medium'."""
+        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
+        strong_support = [
+            {"level": 648.00, "touch_count": 3, "hold_hours": 3, "strength": "strong"},
+        ]
+        sig = check_intraday_support_bounce("META", bar, strong_support, 1000, 1000)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+        weak_support = [
+            {"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
+        ]
+        sig2 = check_intraday_support_bounce("META", bar, weak_support, 1000, 1000)
+        assert sig2 is not None
+        assert sig2.confidence == "medium"
+
+    def test_bounce_message_includes_touch_count(self):
+        """Message includes how many times the level was tested."""
+        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
+        supports = [
+            {"level": 648.00, "touch_count": 3, "hold_hours": 2, "strength": "strong"},
+        ]
+        sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
+        assert sig is not None
+        assert "tested 3x" in sig.message
+        assert "strong" in sig.message
+
+
+# ===== F2: ORB Breakdown =====
+
+class TestORBBreakdown:
+    def _or(self, or_high=101.0, or_low=99.5, complete=True):
+        """Create an opening range dict."""
+        return {
+            "or_high": or_high,
+            "or_low": or_low,
+            "or_range": or_high - or_low,
+            "or_range_pct": (or_high - or_low) / or_low,
+            "or_complete": complete,
+        }
+
+    def test_fires_when_close_below_or_low_with_volume(self):
+        """Close < OR low + volume >= 1.2x → SELL OPENING_RANGE_BREAKDOWN."""
+        bar = _bar(open_=99.0, high=99.5, low=98.5, close=98.8, volume=1500)
+        opening_range = self._or(or_high=101.0, or_low=99.5)
+        sig = check_orb_breakdown("AAPL", bar, opening_range, 1500, 1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.OPENING_RANGE_BREAKDOWN
+        assert sig.direction == "SELL"
+        assert "ORB BREAKDOWN" in sig.message
+        assert "$99.50" in sig.message
+
+    def test_no_fire_when_close_above_or_low(self):
+        """Close >= OR low → None."""
+        bar = _bar(open_=100.0, high=101.5, low=99.8, close=100.5, volume=1500)
+        opening_range = self._or(or_high=101.0, or_low=99.5)
+        sig = check_orb_breakdown("AAPL", bar, opening_range, 1500, 1000)
+        assert sig is None
+
+    def test_no_fire_when_volume_too_low(self):
+        """Volume < 1.2x avg → None."""
+        bar = _bar(open_=99.0, high=99.5, low=98.5, close=98.8, volume=500)
+        opening_range = self._or(or_high=101.0, or_low=99.5)
+        sig = check_orb_breakdown("AAPL", bar, opening_range, 500, 1000)
+        assert sig is None
+
+    def test_no_fire_when_or_incomplete(self):
+        """OR not complete (<6 bars) → None."""
+        bar = _bar(open_=99.0, high=99.5, low=98.5, close=98.8, volume=1500)
+        opening_range = self._or(complete=False)
+        sig = check_orb_breakdown("AAPL", bar, opening_range, 1500, 1000)
+        assert sig is None
+
+    def test_no_fire_when_or_range_too_small(self):
+        """OR range < ORB_MIN_RANGE_PCT → None."""
+        bar = _bar(open_=99.0, high=99.5, low=98.5, close=98.8, volume=1500)
+        # Tiny range: 100.01 - 100.00 = 0.01% (below 0.3% threshold)
+        opening_range = self._or(or_high=100.01, or_low=100.00)
+        sig = check_orb_breakdown("AAPL", bar, opening_range, 1500, 1000)
+        assert sig is None
+
+
+# ===== F4: Signal Consolidation =====
+
+class TestSignalConsolidation:
+    def _make_signal(self, symbol="AAPL", direction="BUY",
+                     alert_type=AlertType.MA_BOUNCE_20, score=70,
+                     message="test signal"):
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=alert_type,
+            direction=direction,
+            price=100.0,
+            entry=100.0,
+            stop=99.0,
+            score=score,
+            score_label="B" if score < 75 else "A",
+            message=message,
+        )
+
+    def test_two_buy_signals_merged_into_one_with_boost(self):
+        """Two BUY signals for same symbol → 1 merged signal with boosted score."""
+        sig1 = self._make_signal(score=70, alert_type=AlertType.MA_BOUNCE_20,
+                                  message="MA bounce")
+        sig2 = self._make_signal(score=60, alert_type=AlertType.INTRADAY_SUPPORT_BOUNCE,
+                                  message="Support bounce")
+        result = _consolidate_signals([sig1, sig2])
+        assert len(result) == 1
+        # Primary should be sig1 (higher score), boosted by 5
+        assert result[0].score == 75
+        assert "+1 confirming" in result[0].message
+
+    def test_sell_signals_not_consolidated(self):
+        """SELL signals pass through unchanged."""
+        sig1 = self._make_signal(direction="SELL", alert_type=AlertType.RESISTANCE_PRIOR_HIGH)
+        sig2 = self._make_signal(direction="SELL", alert_type=AlertType.MA_RESISTANCE)
+        result = _consolidate_signals([sig1, sig2])
+        assert len(result) == 2
+
+    def test_score_capped_at_100(self):
+        """Consolidation boost never pushes score above 100."""
+        sig1 = self._make_signal(score=98, alert_type=AlertType.MA_BOUNCE_20)
+        sig2 = self._make_signal(score=90, alert_type=AlertType.INTRADAY_SUPPORT_BOUNCE)
+        sig3 = self._make_signal(score=85, alert_type=AlertType.WEEKLY_LEVEL_TOUCH)
+        result = _consolidate_signals([sig1, sig2, sig3])
+        assert len(result) == 1
+        assert result[0].score <= 100
+
+    def test_score_label_recalculated_after_boost(self):
+        """Score label updates to match new boosted score."""
+        sig1 = self._make_signal(score=72, alert_type=AlertType.MA_BOUNCE_20,
+                                  message="MA bounce")
+        sig1.score_label = "B"
+        sig2 = self._make_signal(score=60, alert_type=AlertType.INTRADAY_SUPPORT_BOUNCE,
+                                  message="Support bounce")
+        result = _consolidate_signals([sig1, sig2])
+        assert len(result) == 1
+        # 72 + 5 = 77 → should be "A"
+        assert result[0].score == 77
+        assert result[0].score_label == "A"
+
+    def test_message_includes_confirming_signal_types(self):
+        """Merged message lists the confirming signal types."""
+        sig1 = self._make_signal(score=80, alert_type=AlertType.MA_BOUNCE_20,
+                                  message="Primary signal")
+        sig2 = self._make_signal(score=60, alert_type=AlertType.INTRADAY_SUPPORT_BOUNCE,
+                                  message="Confirming signal")
+        result = _consolidate_signals([sig1, sig2])
+        assert "Intraday Support Bounce" in result[0].message
