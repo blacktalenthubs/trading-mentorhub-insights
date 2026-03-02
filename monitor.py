@@ -113,8 +113,9 @@ def poll_cycle(dry_run: bool = False) -> int:
                 # Record
                 alert_id = record_alert(signal, session, email_sent, sms_sent)
 
-                # Track active entries for BUY signals
-                if signal.direction == "BUY":
+                # Track active entries for actionable BUY signals (skip informational)
+                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH}
+                if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
                     create_active_entry(signal, session)
                     if signal.entry and signal.stop:
                         _auto_stop_entries[symbol] = {

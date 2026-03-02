@@ -1421,10 +1421,10 @@ def evaluate_rules(
         signals.append(sig)
 
     for entry in entries:
-        ep = entry.get("entry_price", 0)
-        t1 = entry.get("target_1", 0)
-        t2 = entry.get("target_2", 0)
-        sp = entry.get("stop_price", 0)
+        ep = entry.get("entry_price") or 0
+        t1 = entry.get("target_1") or 0
+        t2 = entry.get("target_2") or 0
+        sp = entry.get("stop_price") or 0
 
         sig = check_target_1_hit(symbol, last_bar, ep, t1)
         if sig:

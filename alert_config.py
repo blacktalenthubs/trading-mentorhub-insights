@@ -161,7 +161,7 @@ ALPACA_SECRET_KEY = _get_secret("ALPACA_SECRET_KEY")
 PAPER_TRADE_ENABLED = _get_secret("PAPER_TRADE_ENABLED", "false").lower() == "true"
 PAPER_TRADE_POSITION_SIZE = int(_get_secret("PAPER_TRADE_POSITION_SIZE", "10000"))
 PAPER_TRADE_MAX_DAILY = int(_get_secret("PAPER_TRADE_MAX_DAILY", "4"))
-PAPER_TRADE_MIN_SCORE = int(_get_secret("PAPER_TRADE_MIN_SCORE", "75"))
+PAPER_TRADE_MIN_SCORE = int(_get_secret("PAPER_TRADE_MIN_SCORE", "65"))
 
 # Real trade position sizing (max dollar exposure per trade)
 REAL_TRADE_POSITION_SIZE = 50_000
