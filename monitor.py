@@ -136,8 +136,9 @@ def poll_cycle(dry_run: bool = False) -> int:
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 
-                # Target hit: close paper position
+                # Target hit: close active entry and paper position
                 if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
+                    close_all_entries_for_symbol(symbol, session)
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 

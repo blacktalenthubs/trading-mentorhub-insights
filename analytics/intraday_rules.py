@@ -1891,21 +1891,31 @@ def evaluate_rules(
         sig.message += f" ({phase})"
         signals.append(sig)
 
+    # Build a synthetic bar spanning all intraday highs/lows so target/stop
+    # detection doesn't miss hits between poll intervals.
+    session_bar = pd.Series({
+        "High": intraday_bars["High"].max(),
+        "Low": intraday_bars["Low"].min(),
+        "Close": last_bar["Close"],
+        "Open": last_bar["Open"],
+        "Volume": last_bar["Volume"],
+    })
+
     for entry in entries:
         ep = entry.get("entry_price") or 0
         t1 = entry.get("target_1") or 0
         t2 = entry.get("target_2") or 0
         sp = entry.get("stop_price") or 0
 
-        sig = check_target_1_hit(symbol, last_bar, ep, t1)
+        sig = check_target_1_hit(symbol, session_bar, ep, t1)
         if sig:
             signals.append(sig)
 
-        sig = check_target_2_hit(symbol, last_bar, ep, t2)
+        sig = check_target_2_hit(symbol, session_bar, ep, t2)
         if sig:
             signals.append(sig)
 
-        sig = check_stop_loss_hit(symbol, last_bar, ep, sp)
+        sig = check_stop_loss_hit(symbol, session_bar, ep, sp)
         if sig:
             signals.append(sig)
 
