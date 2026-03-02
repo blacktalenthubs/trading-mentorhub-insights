@@ -1138,6 +1138,155 @@ def check_weekly_level_touch(
 
 
 # ---------------------------------------------------------------------------
+# Smart Resistance-Based Targets
+# ---------------------------------------------------------------------------
+
+
+def _find_resistance_targets(
+    entry: float,
+    stop: float,
+    prior_day: dict,
+    current_vwap: float | None,
+) -> tuple[float, float, str, str] | None:
+    """Find T1/T2 from actual chart resistance levels above entry.
+
+    Collects resistance levels (prior high, MAs, weekly high, VWAP),
+    filters to levels above entry with minimum 1R distance, and returns
+    the nearest two as smart targets.
+
+    Returns (t1, t2, t1_label, t2_label) or None if no levels found.
+    """
+    if entry <= 0 or stop <= 0 or entry <= stop:
+        return None
+
+    # Collect candidate resistance levels with labels
+    candidates: list[tuple[float, str]] = []
+    level_map = {
+        "prior high": prior_day.get("high"),
+        "MA20": prior_day.get("ma20"),
+        "MA50": prior_day.get("ma50"),
+        "MA100": prior_day.get("ma100"),
+        "MA200": prior_day.get("ma200"),
+        "prior week high": prior_day.get("prior_week_high"),
+    }
+    for label, level in level_map.items():
+        if level and level > entry:
+            candidates.append((level, label))
+
+    if current_vwap and current_vwap > entry:
+        candidates.append((current_vwap, "VWAP"))
+
+    if not candidates:
+        return None
+
+    # Sort ascending (nearest resistance first)
+    candidates.sort(key=lambda x: x[0])
+
+    # Minimum target = entry + 1R (never worse than 1:1 R/R)
+    risk = entry - stop
+    min_target = entry + risk
+
+    # T1 = first level >= min_target
+    t1 = None
+    t1_label = ""
+    for level, label in candidates:
+        if level >= min_target:
+            t1 = level
+            t1_label = label
+            break
+
+    if t1 is None:
+        return None
+
+    # T2 = next level above T1, or T1 + R if only one level
+    t2 = None
+    t2_label = ""
+    for level, label in candidates:
+        if level > t1:
+            t2 = level
+            t2_label = label
+            break
+
+    if t2 is None:
+        t2 = round(t1 + risk, 2)
+        t2_label = f"{t1_label}+1R"
+
+    return (round(t1, 2), round(t2, 2), t1_label, t2_label)
+
+
+# ---------------------------------------------------------------------------
+# Volume Exhaustion Detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_volume_exhaustion(
+    bars: pd.DataFrame,
+    avg_vol: float,
+) -> tuple[str | None, str]:
+    """Detect seller or buyer exhaustion from recent volume patterns.
+
+    Seller exhaustion (bullish): declining volume on pullback — sellers drying up.
+    Buyer exhaustion (bearish): volume spike with reversal — climax top.
+
+    Returns (exhaustion_type, message) or (None, "").
+    """
+    from alert_config import (
+        BUYER_EXHAUSTION_SPIKE_RATIO,
+        SELLER_EXHAUSTION_MIN_BARS,
+        SELLER_EXHAUSTION_VOL_RATIO,
+    )
+
+    if len(bars) < 4 or avg_vol <= 0:
+        return (None, "")
+
+    # --- Seller exhaustion: declining volume on pullback ---
+    recent = bars.iloc[-4:]
+    volumes = recent["Volume"].tolist()
+    closes = recent["Close"].tolist()
+
+    # Check for 3+ consecutive declining volume bars
+    declining_count = 0
+    for i in range(1, len(volumes)):
+        if volumes[i] < volumes[i - 1]:
+            declining_count += 1
+        else:
+            declining_count = 0
+
+    # Price falling or flat (last close <= first close of window)
+    price_falling = closes[-1] <= closes[0]
+
+    if (declining_count >= SELLER_EXHAUSTION_MIN_BARS
+            and price_falling
+            and volumes[-1] < SELLER_EXHAUSTION_VOL_RATIO * avg_vol):
+        return ("seller_exhaustion", "seller exhaustion — declining volume on pullback")
+
+    # --- Buyer exhaustion: volume spike + reversal ---
+    recent_3 = bars.iloc[-3:]
+    for i in range(len(recent_3)):
+        bar = recent_3.iloc[i]
+        vol_ratio = bar["Volume"] / avg_vol
+        if vol_ratio < BUYER_EXHAUSTION_SPIKE_RATIO:
+            continue
+        # Spike bar was bullish (close > open)
+        if bar["Close"] <= bar["Open"]:
+            continue
+        # Check if this bar or next bar reversed (bearish candle)
+        if i + 1 < len(recent_3):
+            next_bar = recent_3.iloc[i + 1]
+            if next_bar["Close"] < next_bar["Open"]:
+                return ("buyer_exhaustion", "volume climax — potential reversal")
+        # Spike is last bar — check if it itself reversed (wick rejection)
+        # Upper wick > body = reversal signal
+        if i == len(recent_3) - 1:
+            body = bar["Close"] - bar["Open"]
+            upper_wick = bar["High"] - bar["Close"]
+            if body > 0 and upper_wick > body:
+                return ("buyer_exhaustion", "volume climax — potential reversal")
+
+    return (None, "")
+
+
+# ---------------------------------------------------------------------------
 # Noise filter
 # ---------------------------------------------------------------------------
 
@@ -1519,6 +1668,19 @@ def evaluate_rules(
                 sig.target_1 = round(sig.entry + risk, 2)
                 sig.target_2 = round(sig.entry + 2 * risk, 2)
 
+        # Smart resistance-based targets (override R-based defaults)
+        _STRUCTURAL_TARGET_RULES = {
+            AlertType.INSIDE_DAY_BREAKOUT,
+            AlertType.PLANNED_LEVEL_TOUCH,
+            AlertType.WEEKLY_LEVEL_TOUCH,
+        }
+        if (sig.direction == "BUY" and sig.entry and sig.stop
+                and sig.alert_type not in _STRUCTURAL_TARGET_RULES):
+            smart = _find_resistance_targets(sig.entry, sig.stop, prior_day, current_vwap)
+            if smart:
+                sig.target_1, sig.target_2, t1_label, t2_label = smart
+                sig.message += f" | T1: {t1_label} ${sig.target_1:.2f}, T2: {t2_label} ${sig.target_2:.2f}"
+
         sig.spy_trend = spy_trend
         sig.session_phase = phase
         sig.volume_label = vol_label
@@ -1528,6 +1690,15 @@ def evaluate_rules(
             sig.message += f" | {vol_label}"
         if gap_info and sig.direction == "BUY":
             sig.message += f" | {gap_info}"
+
+        # Volume exhaustion detection
+        exhaustion_type, exhaustion_msg = _detect_volume_exhaustion(intraday_bars, avg_vol)
+        if sig.direction == "BUY" and exhaustion_type == "seller_exhaustion":
+            if sig.confidence == "medium":
+                sig.confidence = "high"
+            sig.message += f" | {exhaustion_msg}"
+        elif sig.direction == "BUY" and exhaustion_type == "buyer_exhaustion":
+            sig.message += f" | CAUTION: {exhaustion_msg}"
 
         # RS filter: demote BUY confidence when severely underperforming SPY
         if sig.direction == "BUY" and spy_intraday_change != 0:

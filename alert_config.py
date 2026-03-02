@@ -120,6 +120,11 @@ SPY_WEEKLY_PROXIMITY_PCT = 0.005   # 0.5% — weekly S/R proximity
 # SPY Level Reaction: minimum bounce rate for "strong" support
 SPY_STRONG_BOUNCE_RATE = 0.50  # >= 50% historical bounce rate = strong support
 
+# Volume Exhaustion Detection
+SELLER_EXHAUSTION_VOL_RATIO = 0.6    # current bar vol < 0.6x avg = sellers drying up
+SELLER_EXHAUSTION_MIN_BARS = 3       # need 3+ declining volume bars
+BUYER_EXHAUSTION_SPIKE_RATIO = 2.0   # volume spike >= 2x avg = climax
+
 # Relative Strength: underperformance factor vs SPY for confidence demotion
 RS_UNDERPERFORM_FACTOR = 2.0
 

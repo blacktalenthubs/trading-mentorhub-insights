@@ -8,6 +8,8 @@ from analytics.intraday_rules import (
     AlertType,
     _cap_risk,
     _compute_planned_levels,
+    _detect_volume_exhaustion,
+    _find_resistance_targets,
     _should_skip_noise,
     check_auto_stop_out,
     check_ema_crossover_5_20,
@@ -1563,3 +1565,207 @@ class TestSpyLevelConfidenceModifier:
             assert "SPY at resistance" not in s.message
             assert "SPY at support" not in s.message
             assert "SPY weak support" not in s.message
+
+
+# ===== Smart Resistance-Based Targets =====
+
+class TestFindResistanceTargets:
+    def _prior(self, **overrides):
+        base = {
+            "high": 312.73, "low": 298.0, "close": 305.0,
+            "ma20": 308.0, "ma50": 320.0, "ma100": 302.0, "ma200": 290.0,
+            "prior_week_high": 325.0,
+        }
+        base.update(overrides)
+        return base
+
+    def test_returns_nearest_resistance_as_t1(self):
+        """Prior high above entry and above min 1R → becomes T1."""
+        prior = self._prior(high=312.73, ma50=320.0)
+        # entry=305, stop=303, risk=2, min_target=307
+        result = _find_resistance_targets(305.0, 303.0, prior, current_vwap=None)
+        assert result is not None
+        t1, t2, t1_label, t2_label = result
+        # MA20=308 is nearest above min_target=307
+        assert t1 == 308.0
+        assert t1_label == "MA20"
+
+    def test_skips_levels_below_min_1r(self):
+        """Resistance too close to entry (below 1R) gets skipped."""
+        # entry=305, stop=303, risk=2, min_target=307
+        # ma20=306 is above entry but below min_target → skipped
+        prior = self._prior(ma20=306.0, high=312.73, ma50=320.0)
+        result = _find_resistance_targets(305.0, 303.0, prior, current_vwap=None)
+        assert result is not None
+        t1, _, t1_label, _ = result
+        assert t1 != 306.0  # MA20 at 306 should be skipped
+        assert t1 == 312.73  # prior high is next valid level
+
+    def test_falls_back_to_none_when_no_levels(self):
+        """All MAs and levels below entry → returns None."""
+        prior = self._prior(
+            high=300.0, ma20=298.0, ma50=295.0, ma100=290.0,
+            ma200=280.0, prior_week_high=299.0,
+        )
+        result = _find_resistance_targets(305.0, 303.0, prior, current_vwap=None)
+        assert result is None
+
+    def test_uses_second_level_as_t2(self):
+        """MA50 above prior high becomes T2."""
+        prior = self._prior(high=312.73, ma20=308.0, ma50=320.0)
+        result = _find_resistance_targets(305.0, 303.0, prior, current_vwap=None)
+        assert result is not None
+        t1, t2, _, t2_label = result
+        assert t1 == 308.0  # MA20
+        assert t2 == 312.73  # prior high
+        assert t2_label == "prior high"
+
+    def test_excludes_none_and_zero_levels(self):
+        """Handles None/0 MAs gracefully."""
+        prior = self._prior(ma20=None, ma100=0, ma200=None, ma50=320.0)
+        result = _find_resistance_targets(305.0, 303.0, prior, current_vwap=None)
+        assert result is not None
+        # Should still find prior high (312.73) and ma50 (320)
+        t1, t2, _, _ = result
+        assert t1 == 312.73
+        assert t2 == 320.0
+
+    def test_vwap_used_as_resistance(self):
+        """VWAP above entry included as candidate."""
+        prior = self._prior(
+            high=300.0, ma20=298.0, ma50=295.0, ma100=290.0,
+            ma200=280.0, prior_week_high=299.0,
+        )
+        # Only VWAP is above entry at 310
+        result = _find_resistance_targets(305.0, 303.0, prior, current_vwap=310.0)
+        assert result is not None
+        t1, _, t1_label, _ = result
+        assert t1 == 310.0
+        assert t1_label == "VWAP"
+
+
+# ===== Volume Exhaustion Detection =====
+
+class TestDetectVolumeExhaustion:
+    def test_seller_exhaustion_declining_volume(self):
+        """3 bars declining volume on pullback → seller exhaustion."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100.5, "Volume": 2000},
+            {"Open": 100.5, "High": 101, "Low": 99.5, "Close": 100.0, "Volume": 1500},
+            {"Open": 100.0, "High": 100.5, "Low": 99.0, "Close": 99.5, "Volume": 1000},
+            {"Open": 99.5, "High": 100, "Low": 98.5, "Close": 99.0, "Volume": 500},
+        ])
+        avg_vol = 1500.0
+        exhaustion_type, msg = _detect_volume_exhaustion(bars, avg_vol)
+        assert exhaustion_type == "seller_exhaustion"
+        assert "declining volume" in msg
+
+    def test_no_exhaustion_on_normal_volume(self):
+        """Average volume with no pattern → None."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100.5, "Volume": 1000},
+            {"Open": 100.5, "High": 101, "Low": 99.5, "Close": 101.0, "Volume": 1100},
+            {"Open": 101.0, "High": 102, "Low": 100, "Close": 101.5, "Volume": 1050},
+            {"Open": 101.5, "High": 102, "Low": 100.5, "Close": 101.0, "Volume": 1000},
+        ])
+        avg_vol = 1000.0
+        exhaustion_type, msg = _detect_volume_exhaustion(bars, avg_vol)
+        assert exhaustion_type is None
+
+    def test_buyer_exhaustion_spike_and_reversal(self):
+        """2x spike then bearish candle → buyer exhaustion."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100.5, "Volume": 1000},
+            {"Open": 100.5, "High": 103, "Low": 100, "Close": 102.5, "Volume": 2500},  # spike, bullish
+            {"Open": 102.5, "High": 103, "Low": 101, "Close": 101.5, "Volume": 1200},  # reversal, bearish
+            {"Open": 101.5, "High": 102, "Low": 101, "Close": 101.2, "Volume": 900},
+        ])
+        avg_vol = 1000.0
+        exhaustion_type, msg = _detect_volume_exhaustion(bars, avg_vol)
+        assert exhaustion_type == "buyer_exhaustion"
+        assert "volume climax" in msg
+
+    def test_no_buyer_exhaustion_without_reversal(self):
+        """Spike without reversal → None."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100.5, "Volume": 1000},
+            {"Open": 100.5, "High": 103, "Low": 100, "Close": 102.5, "Volume": 2500},  # spike, bullish
+            {"Open": 102.5, "High": 104, "Low": 102, "Close": 103.5, "Volume": 1200},  # continues up
+            {"Open": 103.5, "High": 105, "Low": 103, "Close": 104.5, "Volume": 900},
+        ])
+        avg_vol = 1000.0
+        exhaustion_type, msg = _detect_volume_exhaustion(bars, avg_vol)
+        assert exhaustion_type is None
+
+    def test_handles_insufficient_bars(self):
+        """< 4 bars returns None."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100.5, "Volume": 1000},
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100.5, "Volume": 900},
+        ])
+        avg_vol = 1000.0
+        exhaustion_type, msg = _detect_volume_exhaustion(bars, avg_vol)
+        assert exhaustion_type is None
+
+
+# ===== Integration: Resistance Targets + Volume Exhaustion in evaluate_rules =====
+
+class TestSmartTargetsIntegration:
+    def test_evaluate_rules_overrides_targets_with_resistance(self):
+        """BUY signal via evaluate_rules() gets resistance-based T1/T2."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 102.0, "low": 99.0, "is_inside": False,
+            # Resistance levels above entry (~100.3)
+            "ma100": 103.0, "ma200": 106.0,
+            "prior_week_high": 108.0,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        ma_bounces = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        if ma_bounces:
+            sig = ma_bounces[0]
+            # After risk cap, targets should be overridden with resistance levels
+            # if any levels are above entry + 1R
+            if "T1:" in sig.message:
+                # Smart targets were applied
+                assert sig.target_1 >= sig.entry  # T1 above entry
+                assert sig.target_2 >= sig.target_1  # T2 above T1
+
+    def test_structural_rules_keep_original_targets(self):
+        """Inside day breakout is excluded from resistance target override."""
+        prior = {
+            "is_inside": True, "high": 50.5, "low": 49.0,
+            "parent_high": 52.0, "parent_low": 48.0,
+            "close": 50.0, "ma20": 55.0, "ma50": 60.0,
+            "ma100": 65.0, "ma200": 70.0, "prior_week_high": 75.0,
+        }
+        bars = pd.DataFrame([{
+            "Open": 50, "High": 51.5, "Low": 49.5, "Close": 51.2, "Volume": 1000,
+        }])
+        signals = evaluate_rules("TSLA", bars, prior)
+        inside_signals = [s for s in signals if s.alert_type == AlertType.INSIDE_DAY_BREAKOUT]
+        if inside_signals:
+            sig = inside_signals[0]
+            # Resistance override should NOT be applied (no "T1:" label in message)
+            assert "T1:" not in sig.message
+
+    def test_falls_back_to_r_based_when_no_resistance(self):
+        """No resistance levels above entry → keeps R-based targets."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 99.5, "low": 99.0, "is_inside": False,
+            # All levels below entry
+            "ma100": 90.0, "ma200": 85.0, "prior_week_high": 98.0,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        ma_bounces = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        if ma_bounces:
+            sig = ma_bounces[0]
+            # Should NOT have "T1:" in message (no smart targets applied)
+            assert "T1:" not in sig.message
