@@ -1,9 +1,9 @@
-"""Tests for alert dedup, cooldown persistence, and SPY suppression.
+"""Tests for alert dedup, cooldown persistence, and SPY regime demotion.
 
 Covers:
 - Cooldown CRUD (save, get_active, is_cooled_down, expiry)
 - fired_today dedup in evaluate_rules()
-- TRENDING_DOWN BUY suppression in evaluate_rules()
+- TRENDING_DOWN BUY confidence demotion in evaluate_rules()
 - Monitor dedup prevents double notification (integration)
 """
 
@@ -174,11 +174,11 @@ class TestCooldownPersistence:
 
 
 # ---------------------------------------------------------------------------
-# SPY TRENDING_DOWN suppression tests
+# SPY TRENDING_DOWN demotion tests
 # ---------------------------------------------------------------------------
 
-class TestTrendingDownSuppression:
-    """BUY signals should be suppressed when SPY regime is TRENDING_DOWN."""
+class TestTrendingDownDemotion:
+    """BUY signals should fire with demoted confidence when SPY regime is TRENDING_DOWN."""
 
     @staticmethod
     def _ma_bounce_setup():
@@ -192,17 +192,21 @@ class TestTrendingDownSuppression:
         }
         return bars, prior
 
-    def test_trending_down_suppresses_buy_signals(self):
+    def test_trending_down_demotes_buy_confidence(self):
         bars, prior = self._ma_bounce_setup()
         spy_ctx = {"trend": "bearish", "regime": "TRENDING_DOWN"}
 
         signals = evaluate_rules("AAPL", bars, prior, spy_context=spy_ctx)
-        # Gap Fill is informational and fires outside suppression gate — exclude it
         buy_signals = [
             s for s in signals
             if s.direction == "BUY" and s.alert_type != AlertType.GAP_FILL
         ]
-        assert len(buy_signals) == 0
+        # BUY signals should fire (not suppressed)
+        assert len(buy_signals) >= 1
+        # All BUY signals should be demoted to medium confidence
+        for sig in buy_signals:
+            assert sig.confidence == "medium", f"{sig.alert_type} should be medium, got {sig.confidence}"
+            assert "TRENDING DOWN" in sig.message, f"{sig.alert_type} missing TRENDING DOWN warning"
 
     def test_bearish_without_trending_down_allows_buys(self):
         bars, prior = self._ma_bounce_setup()

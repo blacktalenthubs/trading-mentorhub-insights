@@ -54,6 +54,12 @@ MA_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3%
 # MA Bounce: stop offset below the MA
 MA_STOP_OFFSET_PCT = 0.005  # 0.5%
 
+# MA100 Bounce: wider stop for intermediate timeframe
+MA100_STOP_OFFSET_PCT = 0.007  # 0.7%
+
+# MA200 Bounce: widest stop for long-term institutional level
+MA200_STOP_OFFSET_PCT = 0.010  # 1.0%
+
 # Prior Day Low Reclaim: minimum dip below prior low to qualify
 PDL_DIP_MIN_PCT = 0.001  # 0.1%
 

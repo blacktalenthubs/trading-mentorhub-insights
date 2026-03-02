@@ -40,12 +40,12 @@ def fetch_prior_day(symbol: str) -> dict | None:
     After close the last bar is the completed day, so iloc[-1] and iloc[-2].
 
     Returns dict with keys: open, high, low, close, volume, ma20, ma50,
-    pattern, direction, parent_high, parent_low.
+    ma100, ma200, pattern, direction, parent_high, parent_low.
     Returns None on failure.
     """
     try:
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="3mo")
+        hist = ticker.history(period="1y")
         if hist.empty or len(hist) < 3:
             return None
         hist.index = hist.index.tz_localize(None)
@@ -54,6 +54,8 @@ def fetch_prior_day(symbol: str) -> dict | None:
         # Compute MAs on full history
         hist["MA20"] = hist["Close"].rolling(window=20).mean()
         hist["MA50"] = hist["Close"].rolling(window=50).mean()
+        hist["MA100"] = hist["Close"].rolling(window=100).mean()
+        hist["MA200"] = hist["Close"].rolling(window=200).mean()
 
         # Date-aware selection: if last bar is today, it's partial
         today = pd.Timestamp.now().normalize()
@@ -90,6 +92,8 @@ def fetch_prior_day(symbol: str) -> dict | None:
 
         ma20 = last["MA20"] if pd.notna(last["MA20"]) else None
         ma50 = last["MA50"] if pd.notna(last["MA50"]) else None
+        ma100 = last["MA100"] if pd.notna(last["MA100"]) else None
+        ma200 = last["MA200"] if pd.notna(last["MA200"]) else None
 
         # Classify the prior day using market_data.classify_day
         from analytics.market_data import classify_day
@@ -106,6 +110,8 @@ def fetch_prior_day(symbol: str) -> dict | None:
             "volume": last["Volume"],
             "ma20": ma20,
             "ma50": ma50,
+            "ma100": ma100,
+            "ma200": ma200,
             "pattern": pattern,
             "direction": direction,
             "is_inside": is_inside,

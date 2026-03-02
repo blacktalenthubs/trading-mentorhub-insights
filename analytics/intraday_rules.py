@@ -26,6 +26,8 @@ from alert_config import (
     LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_PROXIMITY_PCT,
     MA_STOP_OFFSET_PCT,
+    MA100_STOP_OFFSET_PCT,
+    MA200_STOP_OFFSET_PCT,
     ORB_MIN_RANGE_PCT,
     ORB_VOLUME_RATIO,
     PDL_DIP_MIN_PCT,
@@ -51,6 +53,8 @@ from analytics.market_hours import get_session_phase, allow_new_entries
 class AlertType(str, Enum):
     MA_BOUNCE_20 = "ma_bounce_20"
     MA_BOUNCE_50 = "ma_bounce_50"
+    MA_BOUNCE_100 = "ma_bounce_100"
+    MA_BOUNCE_200 = "ma_bounce_200"
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
     RESISTANCE_PRIOR_HIGH = "resistance_prior_high"
@@ -231,7 +235,111 @@ def check_ma_bounce_50(
 
 
 # ---------------------------------------------------------------------------
-# BUY Rule 3: Prior Day Low Reclaim
+# BUY Rule 3: MA Bounce 100MA
+# ---------------------------------------------------------------------------
+
+def check_ma_bounce_100(
+    symbol: str,
+    bar: pd.Series,
+    ma100: float | None,
+    prior_close: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to 100MA and bounces — intermediate institutional level.
+
+    Conditions:
+    - ma100 is available
+    - Bar low within MA_BOUNCE_PROXIMITY_PCT of 100MA
+    - Bar closes above 100MA
+    - Prior close was above 100MA (pullback, not breakdown)
+    """
+    if ma100 is None or ma100 <= 0:
+        return None
+    if prior_close is not None and prior_close <= ma100:
+        return None  # was already below — breakdown, not pullback
+
+    proximity = abs(bar["Low"] - ma100) / ma100
+    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+        return None
+    if bar["Close"] <= ma100:
+        return None
+
+    entry = bar["Close"]
+    stop = max(bar["Low"], ma100 * (1 - MA100_STOP_OFFSET_PCT))
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MA_BOUNCE_100,
+        direction="BUY",
+        price=bar["Close"],
+        entry=entry,
+        stop=round(stop, 2),
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high",
+        message=(
+            f"MA bounce 100MA — price pulled back to ${ma100:.2f} "
+            f"and closed above at ${entry:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule 4: MA Bounce 200MA
+# ---------------------------------------------------------------------------
+
+def check_ma_bounce_200(
+    symbol: str,
+    bar: pd.Series,
+    ma200: float | None,
+    prior_close: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to 200MA and bounces — major institutional level.
+
+    Conditions:
+    - ma200 is available
+    - Bar low within MA_BOUNCE_PROXIMITY_PCT of 200MA
+    - Bar closes above 200MA
+    - Prior close was above 200MA (pullback, not breakdown)
+    """
+    if ma200 is None or ma200 <= 0:
+        return None
+    if prior_close is not None and prior_close <= ma200:
+        return None  # was already below — breakdown, not pullback
+
+    proximity = abs(bar["Low"] - ma200) / ma200
+    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+        return None
+    if bar["Close"] <= ma200:
+        return None
+
+    entry = bar["Close"]
+    stop = max(bar["Low"], ma200 * (1 - MA200_STOP_OFFSET_PCT))
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MA_BOUNCE_200,
+        direction="BUY",
+        price=bar["Close"],
+        entry=entry,
+        stop=round(stop, 2),
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high",
+        message=(
+            f"MA bounce 200MA — price pulled back to ${ma200:.2f} "
+            f"and closed above at ${entry:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule 5: Prior Day Low Reclaim
 # ---------------------------------------------------------------------------
 
 def check_prior_day_low_reclaim(
@@ -1116,6 +1224,8 @@ def evaluate_rules(
     last_bar = intraday_bars.iloc[-1]
     ma20 = prior_day.get("ma20")
     ma50 = prior_day.get("ma50")
+    ma100 = prior_day.get("ma100")
+    ma200 = prior_day.get("ma200")
     prior_close = prior_day.get("close")
     prior_high = prior_day.get("high", 0)
     prior_low = prior_day.get("low", 0)
@@ -1173,18 +1283,18 @@ def evaluate_rules(
 
     # --- BUY rules ---
     spy_regime = spy.get("regime", "CHOPPY")
-    suppress_buys = spy_regime == "TRENDING_DOWN"
-
     caution_notes = []
     if spy_trend == "bearish":
         caution_notes.append("SPY bearish (below 20MA)")
     if spy_regime == "CHOPPY":
         caution_notes.append(f"SPY regime: {spy_regime}")
+    if spy_regime == "TRENDING_DOWN":
+        caution_notes.append("SPY TRENDING DOWN — reduced confidence")
     if not entries_allowed:
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
-    if not is_cooled_down and not suppress_buys:
+    if not is_cooled_down:
         sig = check_ma_bounce_20(symbol, last_bar, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
@@ -1198,6 +1308,22 @@ def evaluate_rules(
             signals.append(sig)
 
         sig = check_ma_bounce_50(symbol, last_bar, ma20, ma50, prior_close)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+        sig = check_ma_bounce_100(symbol, last_bar, ma100, prior_close)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+        sig = check_ma_bounce_200(symbol, last_bar, ma200, prior_close)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
@@ -1422,6 +1548,12 @@ def evaluate_rules(
             if sig.confidence == "high":
                 sig.confidence = "medium"
             sig.message += " | CHOPPY market — reduced confidence"
+
+        # SPY TRENDING_DOWN: strongest demotion — demote to medium, strong warning
+        if sig.direction == "BUY" and spy_regime == "TRENDING_DOWN":
+            if sig.confidence == "high":
+                sig.confidence = "medium"
+            sig.message += " | SPY TRENDING DOWN — use extreme caution"
 
         # SPY S/R level reaction: adjust BUY confidence based on SPY position
         if sig.direction == "BUY":

@@ -16,6 +16,8 @@ from analytics.intraday_rules import (
     check_intraday_support_bounce,
     check_ma_bounce_20,
     check_ma_bounce_50,
+    check_ma_bounce_100,
+    check_ma_bounce_200,
     check_opening_range_breakout,
     check_planned_level_touch,
     check_prior_day_low_reclaim,
@@ -122,7 +124,87 @@ class TestMABounce50:
         assert check_ma_bounce_50("X", bar, ma20=100.0, ma50=None, prior_close=96.0) is None
 
 
-# ===== Rule 3: Prior Day Low Reclaim =====
+# ===== Rule 3: MA Bounce 100MA =====
+
+class TestMABounce100:
+    def test_fires_when_bar_low_touches_ma100_and_closes_above(self):
+        bar = _bar(open_=200, high=202, low=199.95, close=200.5)
+        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_BOUNCE_100
+        assert sig.direction == "BUY"
+        assert sig.confidence == "high"
+
+    def test_no_fire_when_close_below_ma100(self):
+        bar = _bar(open_=200, high=201, low=199.95, close=199.5)
+        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_below_ma100(self):
+        bar = _bar(open_=200, high=202, low=199.95, close=200.5)
+        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=198.0)
+        assert sig is None  # breakdown, not pullback
+
+    def test_no_fire_when_too_far_from_ma100(self):
+        bar = _bar(open_=200, high=202, low=198.0, close=200.5)
+        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        assert sig is None  # low too far from MA
+
+    def test_no_fire_when_ma100_missing(self):
+        bar = _bar()
+        assert check_ma_bounce_100("X", bar, ma100=None, prior_close=102.0) is None
+
+    def test_targets_are_1r_and_2r(self):
+        bar = _bar(open_=200, high=202, low=199.95, close=200.5)
+        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        assert sig is not None
+        risk = sig.entry - sig.stop
+        assert risk > 0
+        assert sig.target_1 == round(sig.entry + risk, 2)
+        assert sig.target_2 == round(sig.entry + 2 * risk, 2)
+
+
+# ===== Rule 4: MA Bounce 200MA =====
+
+class TestMABounce200:
+    def test_fires_when_bar_low_touches_ma200_and_closes_above(self):
+        bar = _bar(open_=150, high=152, low=149.95, close=150.5)
+        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_BOUNCE_200
+        assert sig.direction == "BUY"
+
+    def test_no_fire_when_close_below_ma200(self):
+        bar = _bar(open_=150, high=151, low=149.95, close=149.5)
+        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_below_ma200(self):
+        bar = _bar(open_=150, high=152, low=149.95, close=150.5)
+        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=148.0)
+        assert sig is None  # breakdown, not pullback
+
+    def test_always_high_confidence(self):
+        bar = _bar(open_=150, high=152, low=149.95, close=150.5)
+        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_targets_are_1r_and_2r(self):
+        bar = _bar(open_=150, high=152, low=149.95, close=150.5)
+        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        assert sig is not None
+        risk = sig.entry - sig.stop
+        assert risk > 0
+        assert sig.target_1 == round(sig.entry + risk, 2)
+        assert sig.target_2 == round(sig.entry + 2 * risk, 2)
+
+    def test_no_fire_when_ma200_missing(self):
+        bar = _bar()
+        assert check_ma_bounce_200("X", bar, ma200=None, prior_close=102.0) is None
+
+
+# ===== Rule 5: Prior Day Low Reclaim =====
 
 class TestPriorDayLowReclaim:
     def test_fires_on_dip_and_reclaim(self):
