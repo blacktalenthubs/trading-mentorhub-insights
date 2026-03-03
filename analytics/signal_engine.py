@@ -173,10 +173,18 @@ def _build_trade_plan(
     target_2 = levels["target_2"]
     risk = levels["risk_per_share"]
 
-    # AT SUPPORT: anchor entry to nearest support instead of candle low
+    # AT SUPPORT: buy the dip, target resistance above.
+    # - Inside/outside day: entry at candle low, target at candle high (resistance)
+    # - Normal day: entry at nearest support, target unchanged (prior high)
     if support_status == "AT SUPPORT" and support > 0:
-        entry = support
-        stop = entry - risk  # same dollar risk distance
+        if pattern in ("inside", "outside"):
+            entry = levels["stop_long"]       # candle low — buy the dip
+            target_1 = levels["entry_long"]   # candle high — first resistance
+            day_range = levels.get("prior_range", 0)
+            risk = day_range * 0.25 if day_range > 0 else risk
+        else:
+            entry = support
+        stop = entry - risk
 
     # Re-entry stop: $1.50 wider than original stop (from SPY pattern analysis)
     reentry_stop = stop - 1.50
