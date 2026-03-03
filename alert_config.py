@@ -108,6 +108,9 @@ SESSION_LOW_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 # Planned Level Touch: bar low must be within this % of Scanner's planned entry
 PLANNED_LEVEL_PROXIMITY_PCT = 0.003  # 0.3%
 
+# Buy Zone Approach: bar low must be within this % of nearest support
+BUY_ZONE_PROXIMITY_PCT = 0.005  # 0.5% — matches Scanner's AT SUPPORT threshold
+
 # Weekly Level Touch: bar low must be within this % of prior week level
 WEEKLY_LEVEL_PROXIMITY_PCT = 0.004  # 0.4% — wider than daily for broader weekly zones
 
@@ -178,6 +181,7 @@ ENABLED_RULES: set[str] = {
     "session_low_double_bottom",
     "planned_level_touch",
     "weekly_level_touch",
+    "buy_zone_approach",
     # BUY — breakout / momentum
     "outside_day_breakout",
     # Momentum

@@ -24,6 +24,7 @@ logger = logging.getLogger("intraday_rules")
 from alert_config import (
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
+    BUY_ZONE_PROXIMITY_PCT,
     CONSOLIDATION_MAX_BOOST,
     CONSOLIDATION_SCORE_BOOST,
     DAY_TRADE_MAX_RISK_PCT,
@@ -93,6 +94,7 @@ class AlertType(str, Enum):
     MA_RESISTANCE = "ma_resistance"
     OUTSIDE_DAY_BREAKOUT = "outside_day_breakout"
     RESISTANCE_PRIOR_LOW = "resistance_prior_low"
+    BUY_ZONE_APPROACH = "buy_zone_approach"
 
 
 @dataclass
@@ -1309,6 +1311,99 @@ def check_weekly_level_touch(
 
 
 # ---------------------------------------------------------------------------
+# Rule 22: Buy Zone Approach (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_buy_zone_approach(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price approaches nearest support (Scanner's BUY ZONE concept) — bullish entry.
+
+    Mirrors _find_nearest_support() from signal_engine.py to unify the Scanner's
+    AT SUPPORT classification with an intraday alert.
+
+    Conditions:
+    1. At least one support candidate (prior_low, ma20, ma50) exists
+    2. Nearest support at or below bar close is identified
+    3. Bar low within BUY_ZONE_PROXIMITY_PCT of that support
+    4. Bar close >= support (bounce/hold confirmed)
+    5. Risk > 0 after _cap_risk
+    """
+    prior_low = prior_day.get("low", 0)
+    ma20 = prior_day.get("ma20")
+    ma50 = prior_day.get("ma50")
+    high = prior_day.get("high", 0)
+
+    # Build support candidates (same as signal_engine._find_nearest_support)
+    candidates: list[tuple[float, str]] = []
+    if prior_low > 0:
+        candidates.append((prior_low, "Prior Day Low"))
+    if ma20 is not None and ma20 > 0:
+        candidates.append((ma20, "20 MA"))
+    if ma50 is not None and ma50 > 0:
+        candidates.append((ma50, "50 MA"))
+
+    if not candidates:
+        return None
+
+    close = bar["Close"]
+
+    # Find nearest support at or below current close
+    below = [(lvl, label) for lvl, label in candidates if lvl <= close]
+    if not below:
+        return None  # price broke all supports — no buy zone
+
+    below.sort(key=lambda x: close - x[0])
+    support, support_label = below[0]
+
+    if support <= 0:
+        return None
+
+    # Check bar low is within proximity of support
+    proximity = abs(bar["Low"] - support) / support
+    if proximity > BUY_ZONE_PROXIMITY_PCT:
+        return None
+
+    # Bounce/hold confirmed: close at or above support
+    if close < support:
+        return None
+
+    # Compute entry/stop/targets using prior day range
+    day_range = high - prior_low
+    if day_range <= 0:
+        return None
+
+    entry = support
+    stop = support - day_range * 0.25
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target_1 = high if high > entry else entry + day_range * 0.5
+    target_2 = high + day_range * 0.5 if high > entry else entry + day_range
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.BUY_ZONE_APPROACH,
+        direction="BUY",
+        price=bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(target_1, 2),
+        target_2=round(target_2, 2),
+        confidence="high",
+        message=(
+            f"BUY ZONE — approaching {support_label} ${support:.2f}, "
+            f"T1=${target_1:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 18: Hourly Resistance Approach (SELL)
 # ---------------------------------------------------------------------------
 
@@ -1949,6 +2044,16 @@ def evaluate_rules(
                 sig.message += f" — price {vwap_pos}"
             sig.message += caution_suffix
             signals.append(sig)
+
+        # --- Buy Zone Approach ---
+        if AlertType.BUY_ZONE_APPROACH.value in ENABLED_RULES:
+            sig = check_buy_zone_approach(symbol, last_bar, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
 
         # --- Weekly Level Touch ---
         sig = check_weekly_level_touch(symbol, last_bar, prior_day)
