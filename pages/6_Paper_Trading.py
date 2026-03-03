@@ -5,7 +5,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from db import init_db
 from alerting.paper_trader import (
     get_account_info,
     get_open_positions,
@@ -16,13 +15,7 @@ from alerting.paper_trader import (
 )
 import ui_theme
 
-init_db()
-
-st.set_page_config(page_title="Paper Trading | TradeSignal", page_icon="⚡", layout="wide")
-ui_theme.inject_custom_css()
-
-with st.sidebar:
-    ui_theme.sidebar_branding()
+ui_theme.setup_page("paper_trading")
 
 ui_theme.page_header("Paper Trading", "Alpaca paper trade execution and P&L tracking")
 

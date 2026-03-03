@@ -9,8 +9,7 @@ from datetime import datetime
 
 from streamlit_autorefresh import st_autorefresh
 
-from db import init_db, get_watchlist
-from auth import auto_login
+from db import get_watchlist
 from analytics.intraday_data import (
     fetch_intraday, fetch_prior_day, get_spy_context, compute_vwap,
 )
@@ -34,18 +33,10 @@ from alert_config import (
 )
 import ui_theme
 
-st.set_page_config(
-    page_title="TradeSignal",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-init_db()
-user = auto_login()
-ui_theme.inject_custom_css()
+user = ui_theme.setup_page("home", run_auto_login=True)
 
 ui_theme.page_header("TradeSignal", "Trade smarter, not longer.")
+ui_theme.welcome_banner()
 
 # ── Auto-refresh during market hours ──────────────────────────────────────
 _market_open = is_market_hours()

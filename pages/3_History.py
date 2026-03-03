@@ -8,16 +8,12 @@ import plotly.graph_objects as go
 
 from config import STOP_LOSS_PCT, LOSS_ACCEPTABLE_PCT, LOSS_CAUTION_PCT
 from db import (
-    init_db, get_user_trades, get_annotations,
+    get_user_trades, get_annotations,
     upsert_annotation, STRATEGY_TAGS,
 )
-from auth import auto_login
 import ui_theme
 
-st.set_page_config(page_title="History | TradeSignal", page_icon="⚡", layout="wide")
-init_db()
-user = auto_login()
-ui_theme.inject_custom_css()
+user = ui_theme.setup_page("history", run_auto_login=True)
 
 ui_theme.page_header("Trade History", "Journal, calendar, stop discipline, and symbol lookup")
 

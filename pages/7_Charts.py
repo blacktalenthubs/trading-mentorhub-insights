@@ -9,21 +9,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 
-from db import init_db, add_chart_level, delete_chart_level, get_chart_levels, get_watchlist
+from db import add_chart_level, delete_chart_level, get_chart_levels, get_watchlist
 from alerting.alert_store import get_active_entries, get_alerts_today
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, compute_vwap
 from analytics.market_hours import is_market_hours
 import ui_theme
 
-init_db()
-
-# ── Page config ──────────────────────────────────────────────────────────────
-
-st.set_page_config(page_title="Charts | TradeSignal", page_icon="⚡", layout="wide")
-ui_theme.inject_custom_css()
-
-with st.sidebar:
-    ui_theme.sidebar_branding()
+ui_theme.setup_page("charts")
 
 # ── Timeframe definitions ────────────────────────────────────────────────────
 # label → (yf period, yf interval, is_intraday)

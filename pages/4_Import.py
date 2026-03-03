@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 
 from db import (
-    init_db, check_import_exists, create_import, update_import_count,
+    check_import_exists, create_import, update_import_count,
     insert_trades_1099, insert_trades_monthly, insert_account_summary,
     get_imports, delete_import, insert_matched_trades,
 )
@@ -15,13 +15,9 @@ from models import ImportRecord
 from parsers.parser_1099 import parse_1099
 from parsers.parser_statement import parse_statement
 from analytics.trade_matcher import match_trades_fifo
-from auth import auto_login
 import ui_theme
 
-st.set_page_config(page_title="Import | TradeSignal", page_icon="⚡", layout="wide")
-init_db()
-user = auto_login()
-ui_theme.inject_custom_css()
+user = ui_theme.setup_page("import", run_auto_login=True)
 
 ui_theme.page_header("Import Data")
 

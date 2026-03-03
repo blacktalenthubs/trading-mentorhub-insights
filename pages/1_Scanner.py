@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
-from db import init_db, get_watchlist, add_to_watchlist, remove_from_watchlist, set_watchlist
+from db import get_watchlist, add_to_watchlist, remove_from_watchlist, set_watchlist
 from config import (
     DEFAULT_POSITION_SIZE,
     QUICK_PICKS,
@@ -27,9 +27,7 @@ from alerting.real_trade_store import (
 )
 import ui_theme
 
-st.set_page_config(page_title="Scanner | TradeSignal", page_icon="⚡", layout="wide")
-init_db()
-ui_theme.inject_custom_css()
+ui_theme.setup_page("scanner")
 
 # ── Sync active positions from DB (survive page refresh) ──────────────────
 if "active_positions" not in st.session_state:

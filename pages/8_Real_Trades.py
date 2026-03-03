@@ -5,7 +5,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from db import init_db
 from analytics.intraday_data import fetch_intraday
 from alerting.real_trade_store import (
     close_real_trade,
@@ -17,13 +16,7 @@ from alerting.real_trade_store import (
 )
 import ui_theme
 
-init_db()
-
-st.set_page_config(page_title="Real Trades | TradeSignal", page_icon="⚡", layout="wide")
-ui_theme.inject_custom_css()
-
-with st.sidebar:
-    ui_theme.sidebar_branding()
+ui_theme.setup_page("real_trades")
 
 ui_theme.page_header("Real Trades", "Track real trades tied to alerts — $50k cap ($100k SPY)")
 

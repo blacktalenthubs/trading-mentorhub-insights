@@ -48,12 +48,7 @@ def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
         "spy_intraday_low": round(spy_low, 2),
     }
 
-st.set_page_config(
-    page_title="Backtest | TradeSignal",
-    page_icon="⚡",
-    layout="wide",
-)
-ui_theme.inject_custom_css()
+ui_theme.setup_page("backtest")
 
 ui_theme.page_header("Backtest Replay", "Replay historical intraday data through the rule engine to validate signal quality.")
 
@@ -86,9 +81,6 @@ with st.sidebar:
     run = st.button("Run Backtest", type="primary", use_container_width=True)
 
 # ── Main ──────────────────────────────────────────────────────────────────
-
-with st.sidebar:
-    ui_theme.sidebar_branding()
 
 if not run:
     ui_theme.empty_state("Select a date and symbols in the sidebar, then click Run Backtest.")

@@ -5,14 +5,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from db import init_db, get_user_trades, get_user_options, get_annotations
-from auth import auto_login
+from db import get_user_trades, get_user_options, get_annotations
 import ui_theme
 
-st.set_page_config(page_title="Scorecard | TradeSignal", page_icon="⚡", layout="wide")
-init_db()
-user = auto_login()
-ui_theme.inject_custom_css()
+user = ui_theme.setup_page("scorecard", run_auto_login=True)
 
 ui_theme.page_header("Monthly Scorecard", "Am I making money? What's working? Am I disciplined?")
 

@@ -72,7 +72,7 @@ def inject_custom_css():
     }
     [data-testid="stMetric"] label {
         text-transform: uppercase;
-        font-size: 0.7rem !important;
+        font-size: 0.75rem !important;
         letter-spacing: 0.05em;
         color: #888 !important;
     }
@@ -126,6 +126,38 @@ def inject_custom_css():
     }
     ::-webkit-scrollbar-thumb:hover {
         background: #2a5a8f;
+    }
+
+    /* ── Responsive: tablet ─────────────────────────────────────── */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        [data-testid="stMetric"] {
+            padding: 8px 10px;
+        }
+        [data-testid="stMetric"] [data-testid="stMetricValue"] {
+            font-size: 1.1rem !important;
+        }
+    }
+
+    /* ── Responsive: mobile ─────────────────────────────────────── */
+    @media (max-width: 480px) {
+        .block-container {
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            padding-top: 1rem !important;
+        }
+        [data-testid="stMetric"] {
+            padding: 6px 8px;
+        }
+        [data-testid="stMetric"] label {
+            font-size: 0.65rem !important;
+        }
+        [data-testid="stMetric"] [data-testid="stMetricValue"] {
+            font-size: 1rem !important;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -215,6 +247,9 @@ def empty_state(message: str, icon: str = "info"):
 
 def sidebar_branding():
     """Render the TradeSignal logo block in the sidebar."""
+    if st.session_state.get("_branding_rendered"):
+        return
+    st.session_state["_branding_rendered"] = True
     st.markdown("""
     <div style='
         text-align: center;
@@ -234,6 +269,31 @@ def sidebar_branding():
     """, unsafe_allow_html=True)
 
 
+def welcome_banner():
+    """Dismissible getting-started banner for first-time users."""
+    if st.session_state.get("_welcome_dismissed"):
+        return
+    with st.expander("Welcome to TradeSignal — Getting Started", expanded=True):
+        st.markdown("""
+| Page | What it does |
+|------|-------------|
+| **Home** | Live alerts, signal scanner, P&L tracker |
+| **Scanner** | Actionable trade plans for your watchlist |
+| **Scorecard** | Monthly performance — win rate, R:R, equity curve |
+| **History** | Trade journal, calendar, stop discipline |
+| **Import** | Upload brokerage PDFs to populate your data |
+| **Backtest** | Replay historical data through the rule engine |
+| **Paper Trading** | Alpaca paper trade execution dashboard |
+| **Charts** | Interactive candlestick charts with overlays |
+| **Real Trades** | Track real trades tied to alerts |
+
+**Quick start:** Import a brokerage PDF on the **Import** page, then explore your stats on **Scorecard**.
+""")
+        if st.button("Got it!", key="_dismiss_welcome"):
+            st.session_state["_welcome_dismissed"] = True
+            st.rerun()
+
+
 def plotly_layout(height_key: str = "standard", **overrides) -> dict:
     """Return a consistent Plotly layout dict for dark-themed charts."""
     layout = {
@@ -248,3 +308,63 @@ def plotly_layout(height_key: str = "standard", **overrides) -> dict:
     }
     layout.update(overrides)
     return layout
+
+
+# ---------------------------------------------------------------------------
+# Page titles
+# ---------------------------------------------------------------------------
+
+_PAGE_TITLES = {
+    "home": "TradeSignal",
+    "scanner": "Scanner | TradeSignal",
+    "scorecard": "Scorecard | TradeSignal",
+    "history": "History | TradeSignal",
+    "import": "Import | TradeSignal",
+    "backtest": "Backtest | TradeSignal",
+    "paper_trading": "Paper Trading | TradeSignal",
+    "charts": "Charts | TradeSignal",
+    "real_trades": "Real Trades | TradeSignal",
+}
+
+
+# ---------------------------------------------------------------------------
+# Centralized page setup
+# ---------------------------------------------------------------------------
+
+def setup_page(page_key: str, *, run_auto_login: bool = False) -> dict | None:
+    """One-call page bootstrap — must be the first Streamlit call in every page.
+
+    1. ``st.set_page_config`` with sidebar expanded
+    2. ``init_db()``
+    3. Optionally ``auto_login()`` (returns user dict)
+    4. ``inject_custom_css()``
+    5. Sidebar branding (skipped when ``auto_login`` already rendered it)
+
+    Returns the user dict when *run_auto_login* is True, else ``None``.
+    """
+    st.set_page_config(
+        page_title=_PAGE_TITLES.get(page_key, "TradeSignal"),
+        page_icon="\u26a1",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    # Reset branding guard so each page render starts clean
+    st.session_state["_branding_rendered"] = False
+
+    from db import init_db
+    init_db()
+
+    user = None
+    if run_auto_login:
+        from auth import auto_login
+        user = auto_login()  # renders sidebar branding internally
+
+    inject_custom_css()
+
+    # Ensure branding is in the sidebar (guard prevents double-render)
+    if not st.session_state.get("_branding_rendered"):
+        with st.sidebar:
+            sidebar_branding()
+
+    return user
