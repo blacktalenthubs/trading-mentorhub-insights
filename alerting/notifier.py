@@ -267,26 +267,11 @@ _TIER1_ALERT_TYPES = {
 def notify(signal: AlertSignal) -> tuple[bool, bool]:
     """Send notifications for an alert signal.
 
-    Email is sent for ALL signals. Telegram (SMS) is Tier 1 only:
-    score >= TELEGRAM_TIER1_MIN_SCORE OR exit signals (stops/targets).
+    Both email and Telegram are sent for ALL signals.
 
     Returns (email_sent, sms_sent).
     """
     email_sent = send_email(signal)
-
-    # Tier 1: score >= threshold OR exit signals → Telegram
-    is_tier1 = (
-        signal.score >= TELEGRAM_TIER1_MIN_SCORE
-        or signal.alert_type in _TIER1_ALERT_TYPES
-    )
-
-    if is_tier1:
-        sms_sent = send_sms(signal)
-    else:
-        logger.info(
-            "Tier 2 (email only): %s %s score=%d — skipping Telegram",
-            signal.symbol, signal.alert_type.value, signal.score,
-        )
-        sms_sent = False
+    sms_sent = send_sms(signal)
 
     return email_sent, sms_sent

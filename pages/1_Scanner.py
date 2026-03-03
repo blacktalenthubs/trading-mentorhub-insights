@@ -22,11 +22,27 @@ from analytics.intraday_data import (
 )
 from analytics.intraday_rules import evaluate_rules
 from analytics.market_hours import is_market_hours, is_premarket
+from alerting.real_trade_store import (
+    open_real_trade, close_real_trade, has_open_trade, get_open_trades,
+)
 import ui_theme
 
 st.set_page_config(page_title="Scanner | TradeSignal", page_icon="⚡", layout="wide")
 init_db()
 ui_theme.inject_custom_css()
+
+# ── Sync active positions from DB (survive page refresh) ──────────────────
+if "active_positions" not in st.session_state:
+    st.session_state["active_positions"] = {}
+if "_db_positions_loaded" not in st.session_state:
+    open_trades = get_open_trades()
+    for t in open_trades:
+        st.session_state["active_positions"][t["symbol"]] = {
+            "entry": t["entry_price"],
+            "shares": t["shares"],
+            "trade_id": t["id"],
+        }
+    st.session_state["_db_positions_loaded"] = True
 
 # ── Auto-refresh during market hours / pre-market ─────────────────────────
 _market_open = is_market_hours()
@@ -641,12 +657,9 @@ for r in results:
         else:
             st.caption("Market closed — intraday data available during market hours (9:30-16:00 ET)")
 
-        # ── Position tracking ────────────────────────────────────────
+        # ── Position tracking (persisted to real_trades DB) ─────────
         st.divider()
         st.markdown("**Track Position**")
-
-        if "active_positions" not in st.session_state:
-            st.session_state["active_positions"] = {}
 
         pos_key = r.symbol
         is_tracking = pos_key in st.session_state["active_positions"]
@@ -656,15 +669,44 @@ for r in results:
         )
 
         if tracking and not is_tracking:
-            # Start tracking with pre-filled values from trade plan
+            # Open trade in DB (guard against duplicates)
+            from datetime import date as _date
             default_shares = int(position_size / r.entry) if r.entry > 0 else 0
+            if not has_open_trade(r.symbol):
+                trade_id = open_real_trade(
+                    symbol=r.symbol,
+                    direction="BUY",
+                    entry_price=r.entry,
+                    stop_price=r.stop,
+                    target_price=r.target_1,
+                    target_2_price=r.target_2,
+                    alert_type="scanner_manual",
+                    alert_id=None,
+                    session_date=_date.today().isoformat(),
+                    shares=default_shares,
+                )
+            else:
+                # Already in DB (e.g. from alert) — fetch the trade_id
+                _existing = [
+                    t for t in get_open_trades() if t["symbol"] == r.symbol
+                ]
+                trade_id = _existing[0]["id"] if _existing else None
             st.session_state["active_positions"][pos_key] = {
                 "entry": r.entry,
                 "shares": default_shares,
+                "trade_id": trade_id,
             }
             st.rerun()
 
         if not tracking and is_tracking:
+            # Close trade in DB
+            pos = st.session_state["active_positions"][pos_key]
+            trade_id = pos.get("trade_id")
+            if trade_id:
+                exit_price = r.last_close
+                if _market_open and not intra_bars.empty:
+                    exit_price = intra_bars["Close"].iloc[-1]
+                close_real_trade(trade_id, exit_price)
             del st.session_state["active_positions"][pos_key]
             st.rerun()
 
@@ -729,5 +771,8 @@ for r in results:
                 st.progress(progress, text=f"Stop → T2: {progress:.0%}")
 
             if st.button("Close Position", key=f"close_pos_{r.symbol}", type="secondary"):
+                trade_id = pos.get("trade_id")
+                if trade_id:
+                    close_real_trade(trade_id, live_price)
                 del st.session_state["active_positions"][pos_key]
                 st.rerun()

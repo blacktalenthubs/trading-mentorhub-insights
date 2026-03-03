@@ -27,9 +27,14 @@ def open_real_trade(
     alert_type: str | None,
     alert_id: int | None,
     session_date: str,
+    shares: int | None = None,
 ) -> int:
-    """Insert a new real trade with auto-calculated shares. Returns the trade id."""
-    shares = calculate_shares(symbol, entry_price)
+    """Insert a new real trade. Uses *shares* if provided, otherwise auto-calculates.
+
+    Returns the trade id.
+    """
+    if shares is None:
+        shares = calculate_shares(symbol, entry_price)
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO real_trades
