@@ -173,6 +173,11 @@ def _build_trade_plan(
     target_2 = levels["target_2"]
     risk = levels["risk_per_share"]
 
+    # AT SUPPORT: anchor entry to nearest support instead of candle low
+    if support_status == "AT SUPPORT" and support > 0:
+        entry = support
+        stop = entry - risk  # same dollar risk distance
+
     # Re-entry stop: $1.50 wider than original stop (from SPY pattern analysis)
     reentry_stop = stop - 1.50
 
