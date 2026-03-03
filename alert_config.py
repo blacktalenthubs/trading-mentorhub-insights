@@ -190,8 +190,9 @@ ENABLED_RULES: set[str] = {
     "buy_zone_approach",
     # BUY — breakout / momentum
     "outside_day_breakout",
-    # Momentum
-    "ema_crossover_5_20",
+    # Momentum — disabled: EMA crossover produces false positives from yfinance
+    # partial-bar data diverging from actual daily EMAs (re-enable after hardening)
+    # "ema_crossover_5_20",
     # SELL / resistance warnings
     "resistance_prior_high",
     "hourly_resistance_approach",
