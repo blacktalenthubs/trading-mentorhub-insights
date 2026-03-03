@@ -335,11 +335,8 @@ if not symbols:
 raw_results = _cached_scan(tuple(symbols))
 results: list[SignalResult] = [SignalResult(**d) for d in raw_results]
 
-# Filter out BROKEN support — scanner shows actionable setups only
-results = [r for r in results if r.support_status != "BROKEN"]
-
 if not results:
-    ui_theme.empty_state("No actionable setups found. All symbols have broken support.", icon="warning")
+    ui_theme.empty_state("No scan results returned.", icon="warning")
     st.stop()
 
 # ── KPI Row ─────────────────────────────────────────────────────────────────
