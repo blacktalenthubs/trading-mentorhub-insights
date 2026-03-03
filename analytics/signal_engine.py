@@ -27,7 +27,7 @@ class SignalResult:
     # Support analysis
     nearest_support: float
     support_label: str  # "Prior Day Low", "20 MA", "50 MA"
-    support_status: str  # "AT SUPPORT", "PULLBACK WATCH", "BREAKOUT", "BROKEN"
+    support_status: str  # "AT SUPPORT", "PULLBACK WATCH", "BROKEN"
     distance_to_support: float  # $ distance (positive = above, negative = below)
     distance_pct: float  # % distance
 
@@ -66,7 +66,6 @@ class SignalResult:
 
 ACTION_LABELS = {
     "AT SUPPORT": {"label": "BUY ZONE", "color": "#2ecc71", "help": "Price at support — place entry order"},
-    "BREAKOUT": {"label": "BREAKOUT SETUP", "color": "#3498db", "help": "Inside day compression — set alert at breakout level"},
     "PULLBACK WATCH": {"label": "WAIT FOR DIP", "color": "#f39c12", "help": "Above support — wait for pullback to entry"},
     "BROKEN": {"label": "NO TRADE", "color": "#e74c3c", "help": "Support broken — no valid long setup"},
 }
@@ -138,9 +137,6 @@ def _classify_support_status(
     if wicked_below:
         return "AT SUPPORT"  # reclaim pattern — best entry
 
-    if pattern == "inside":
-        return "BREAKOUT"  # inside day = compression, different setup
-
     if close < support:
         return "BROKEN"  # closed below support
 
@@ -211,10 +207,10 @@ def compute_signal_score(result: SignalResult) -> int:
     """
     score = 0
 
-    # Candle pattern (25): inside day or reclaim = 25, normal = 15, outside down = 5
-    if result.pattern == "inside":
+    # Candle pattern (25): at support = 25, inside compression = 20, normal = 15
+    if result.support_status == "AT SUPPORT":
         score += 25
-    elif result.support_status == "AT SUPPORT":
+    elif result.pattern == "inside":
         score += 20
     elif result.pattern == "normal":
         score += 15
@@ -348,7 +344,7 @@ def scan_watchlist(
         if result is not None:
             results.append(result)
 
-    # Sort: AT SUPPORT first, then BREAKOUT, then PULLBACK WATCH, then BROKEN
-    status_order = {"AT SUPPORT": 0, "BREAKOUT": 1, "PULLBACK WATCH": 2, "BROKEN": 3, "NO DATA": 4}
+    # Sort: AT SUPPORT first, then PULLBACK WATCH, then BROKEN
+    status_order = {"AT SUPPORT": 0, "PULLBACK WATCH": 1, "BROKEN": 2, "NO DATA": 3}
     results.sort(key=lambda r: (status_order.get(r.support_status, 4), abs(r.distance_pct)))
     return results

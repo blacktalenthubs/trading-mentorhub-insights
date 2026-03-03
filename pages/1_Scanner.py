@@ -309,17 +309,6 @@ with st.sidebar:
         "Position Size ($)", value=DEFAULT_POSITION_SIZE, step=5000,
     )
 
-    # Map action labels back to internal statuses for filtering
-    _label_to_status = {v["label"]: k for k, v in ACTION_LABELS.items()}
-    _all_labels = list(_label_to_status.keys())
-
-    status_filter_labels = st.multiselect(
-        "Filter by Status",
-        _all_labels,
-        default=_all_labels[:3],  # BUY ZONE, BREAKOUT SETUP, WAIT FOR DIP
-    )
-    status_filter = [_label_to_status[lbl] for lbl in status_filter_labels]
-
 # ── Parse & scan ────────────────────────────────────────────────────────────
 
 symbols = list(st.session_state["watchlist"])
@@ -330,29 +319,24 @@ if not symbols:
 raw_results = _cached_scan(tuple(symbols))
 results: list[SignalResult] = [SignalResult(**d) for d in raw_results]
 
-# Apply status filter
-if status_filter:
-    results = [r for r in results if r.support_status in status_filter]
+# Filter out BROKEN support — scanner shows actionable setups only
+results = [r for r in results if r.support_status != "BROKEN"]
 
 if not results:
-    ui_theme.empty_state("No symbols match. Check your symbols or adjust the status filter.", icon="warning")
+    ui_theme.empty_state("No actionable setups found. All symbols have broken support.", icon="warning")
     st.stop()
 
 # ── KPI Row ─────────────────────────────────────────────────────────────────
 
 at_support = sum(1 for r in results if r.support_status == "AT SUPPORT")
-breakout = sum(1 for r in results if r.support_status == "BREAKOUT")
 watching = sum(1 for r in results if r.support_status == "PULLBACK WATCH")
-broken = sum(1 for r in results if r.support_status == "BROKEN")
 a_plus_count = sum(1 for r in results if r.score >= 90)
 a_count = sum(1 for r in results if 75 <= r.score < 90)
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3 = st.columns(3)
 col1.metric("BUY ZONE", at_support, help=action_help("AT SUPPORT"))
-col2.metric("BREAKOUT SETUP", breakout, help=action_help("BREAKOUT"))
-col3.metric("WAIT FOR DIP", watching, help=action_help("PULLBACK WATCH"))
-col4.metric("NO TRADE", broken, help=action_help("BROKEN"))
-col5.metric("A+ / A Signals", f"{a_plus_count} / {a_count}",
+col2.metric("WAIT FOR DIP", watching, help=action_help("PULLBACK WATCH"))
+col3.metric("A+ / A Signals", f"{a_plus_count} / {a_count}",
             help="A+ (90+): full size | A (75+): normal size")
 
 st.divider()
