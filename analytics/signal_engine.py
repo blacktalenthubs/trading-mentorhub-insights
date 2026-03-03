@@ -71,13 +71,23 @@ ACTION_LABELS = {
 }
 
 
-def action_label(support_status: str) -> str:
-    """Map internal support status to user-facing action label."""
+_BUY_ZONE_MIN_SCORE = 65  # Below this, "AT SUPPORT" is demoted to "WAIT FOR DIP"
+
+
+def action_label(support_status: str, score: int = 100) -> str:
+    """Map internal support status to user-facing action label.
+
+    AT SUPPORT with score < 65 is demoted to WAIT FOR DIP (weak setup).
+    """
+    if support_status == "AT SUPPORT" and score < _BUY_ZONE_MIN_SCORE:
+        return ACTION_LABELS["PULLBACK WATCH"]["label"]
     return ACTION_LABELS.get(support_status, {}).get("label", support_status)
 
 
-def action_color(support_status: str) -> str:
+def action_color(support_status: str, score: int = 100) -> str:
     """Get the display color for a support status."""
+    if support_status == "AT SUPPORT" and score < _BUY_ZONE_MIN_SCORE:
+        return ACTION_LABELS["PULLBACK WATCH"]["color"]
     return ACTION_LABELS.get(support_status, {}).get("color", "#95a5a6")
 
 

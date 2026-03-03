@@ -341,8 +341,12 @@ if not results:
 
 # ── KPI Row ─────────────────────────────────────────────────────────────────
 
-at_support = sum(1 for r in results if r.support_status == "AT SUPPORT")
-watching = sum(1 for r in results if r.support_status == "PULLBACK WATCH")
+at_support = sum(1 for r in results if r.support_status == "AT SUPPORT" and r.score >= 65)
+watching = sum(
+    1 for r in results
+    if r.support_status == "PULLBACK WATCH"
+    or (r.support_status == "AT SUPPORT" and r.score < 65)
+)
 a_plus_count = sum(1 for r in results if r.score >= 90)
 a_count = sum(1 for r in results if 75 <= r.score < 90)
 
@@ -448,7 +452,7 @@ for r in results:
         "Symbol": r.symbol,
         "Score": f"{r.score_label} ({r.score})",
         "Price": r.last_close,
-        "Status": action_label(r.support_status),
+        "Status": action_label(r.support_status, r.score),
         "Pattern": r.pattern.upper(),
         "Support": r.nearest_support,
         "Entry": r.entry,
@@ -485,8 +489,8 @@ st.divider()
 ui_theme.section_header("Detail")
 
 for r in results:
-    _label = action_label(r.support_status)
-    _acolor = action_color(r.support_status)
+    _label = action_label(r.support_status, r.score)
+    _acolor = action_color(r.support_status, r.score)
 
     with st.expander(
         f"{r.symbol}  |  {_label}  |  Score: {r.score_label} ({r.score})  |  "
