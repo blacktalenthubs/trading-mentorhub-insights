@@ -27,9 +27,15 @@ from alerting.real_trade_store import (
     calculate_shares, has_open_trade, open_real_trade,
 )
 from analytics.intraday_rules import AlertType
+from analytics.signal_engine import scan_watchlist
 from alert_config import (
+    DAILY_SCORE_VERY_WEAK_PENALTY,
+    DAILY_SCORE_VERY_WEAK_THRESHOLD,
+    DAILY_SCORE_WEAK_PENALTY,
+    DAILY_SCORE_WEAK_THRESHOLD,
     POLL_INTERVAL_MINUTES,
     REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_POSITION_SIZE,
+    TELEGRAM_TIER1_MIN_SCORE,
 )
 import ui_theme
 
@@ -85,6 +91,13 @@ def _cached_intraday(symbol: str) -> pd.DataFrame:
 @st.cache_data(ttl=300, show_spinner=False)
 def _cached_prior_day(symbol: str) -> dict | None:
     return fetch_prior_day(symbol)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_daily_scores(syms: tuple[str, ...]) -> dict[str, int]:
+    """Fetch Scanner scores for watchlist (cached 5 min, keyed on symbol tuple)."""
+    results = scan_watchlist(list(syms))
+    return {r.symbol: r.score for r in results}
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +251,32 @@ else:
             )
             all_signals.extend(signals)
 
+    # ── Daily score cross-reference: penalise weak BUY setups ───────────
+    daily_scores = _cached_daily_scores(tuple(watchlist))
+    for sig in all_signals:
+        if sig.direction != "BUY":
+            continue
+        ds = daily_scores.get(sig.symbol)
+        if ds is None:
+            continue
+        penalty = 0
+        if ds < DAILY_SCORE_VERY_WEAK_THRESHOLD:
+            penalty = DAILY_SCORE_VERY_WEAK_PENALTY
+        elif ds < DAILY_SCORE_WEAK_THRESHOLD:
+            penalty = DAILY_SCORE_WEAK_PENALTY
+        if penalty:
+            sig.score = max(0, sig.score - penalty)
+            sig.message += f" | daily {ds} (-{penalty})"
+            # Recompute label after penalty
+            if sig.score >= 90:
+                sig.score_label = "A+"
+            elif sig.score >= 75:
+                sig.score_label = "A"
+            elif sig.score >= 50:
+                sig.score_label = "B"
+            else:
+                sig.score_label = "C"
+
     # ── F7: Watchlist Heat Map ────────────────────────────────────────────
     signal_symbols = {s.symbol for s in all_signals}
 
@@ -311,8 +350,11 @@ else:
 
             new_signals.append(sig)
 
-            # Send notifications (email + Telegram)
-            email_sent, sms_sent = notify(sig)
+            # Send notifications — gate low-score BUY from Telegram
+            if sig.direction == "BUY" and sig.score < TELEGRAM_TIER1_MIN_SCORE:
+                email_sent, sms_sent = False, False
+            else:
+                email_sent, sms_sent = notify(sig)
 
             # Record to DB so alerts persist and dedup works across refreshes
             record_alert(sig, session, email_sent, sms_sent)

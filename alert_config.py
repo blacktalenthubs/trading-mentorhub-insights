@@ -155,6 +155,12 @@ ORB_BREAKDOWN_VOLUME_RATIO = 1.2  # same threshold as upside breakout
 # Telegram Priority Tiers: minimum score to send via Telegram (A+ and A signals)
 TELEGRAM_TIER1_MIN_SCORE = 65
 
+# Daily Scanner cross-reference: penalise intraday BUY when daily setup is weak
+DAILY_SCORE_WEAK_THRESHOLD = 50       # daily score below this → small penalty
+DAILY_SCORE_VERY_WEAK_THRESHOLD = 35  # daily score below this → large penalty
+DAILY_SCORE_WEAK_PENALTY = 15         # points deducted for weak daily setup
+DAILY_SCORE_VERY_WEAK_PENALTY = 25    # points deducted for very weak daily setup
+
 # Signal Consolidation: score boost when multiple BUY signals confirm
 CONSOLIDATION_SCORE_BOOST = 5   # points per confirming signal
 CONSOLIDATION_MAX_BOOST = 15    # max boost from consolidation
