@@ -22,6 +22,7 @@ from analytics.intraday_data import (
 )
 from analytics.intraday_rules import evaluate_rules
 from analytics.market_hours import is_market_hours, is_premarket
+from alerting.alert_store import get_active_entries, today_session
 from alerting.real_trade_store import (
     open_real_trade, close_real_trade, has_open_trade, get_open_trades,
 )
@@ -106,6 +107,12 @@ def _cached_prior_day(symbol: str) -> dict | None:
     return fetch_prior_day(symbol)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_active_entries(symbol: str, session_date: str) -> list[dict]:
+    """Active alert entries for a symbol today (1-min cache)."""
+    return get_active_entries(symbol, session_date)
+
+
 # ── Status styling ──────────────────────────────────────────────────────────
 
 _STATUS_COLORS = {v["label"]: v["color"] for v in ACTION_LABELS.values()}
@@ -134,6 +141,12 @@ def _color_score(val):
     if "C" in str(val):
         return "color: #e74c3c; font-weight: bold"
     return ""
+
+
+def _color_plan(val):
+    if val == "LIVE":
+        return "color: #2ecc71; font-weight: bold"
+    return "color: #888"
 
 
 def _draw_mini_chart(r: SignalResult):
@@ -333,6 +346,23 @@ if not symbols:
 raw_results = _cached_scan(tuple(symbols))
 results: list[SignalResult] = [SignalResult(**d) for d in raw_results]
 
+# ── Alert-driven plan overlay (market hours only) ────────────────────────
+_alert_entries: dict[str, dict] = {}
+if _market_open:
+    _session = today_session()
+    for r in results:
+        entries = _cached_active_entries(r.symbol, _session)
+        if entries:
+            ae = entries[-1]  # most recent active entry
+            _alert_entries[r.symbol] = ae
+            r.entry = ae["entry_price"]
+            r.stop = ae["stop_price"]
+            r.target_1 = ae["target_1"]
+            r.target_2 = ae["target_2"]
+            r.risk_per_share = r.entry - r.stop if r.entry > r.stop else r.risk_per_share
+            r.rr_ratio = (r.target_1 - r.entry) / r.risk_per_share if r.risk_per_share > 0 else 0
+            r.reentry_stop = r.stop - 1.50
+
 if not results:
     ui_theme.empty_state("No scan results returned.", icon="warning")
     st.stop()
@@ -448,6 +478,7 @@ for r in results:
     total_risk = shares * r.risk_per_share
     table_rows.append({
         "Symbol": r.symbol,
+        "Plan": "LIVE" if r.symbol in _alert_entries else "DAILY",
         "Score": f"{r.score_label} ({r.score})",
         "Price": r.last_close,
         "Status": action_label(r.support_status, r.score),
@@ -473,6 +504,7 @@ st.dataframe(
         "Re-entry Stop": "${:,.2f}", "Target": "${:,.2f}",
         "Risk/Sh": "${:,.2f}", "$ Risk": "${:,.0f}",
     })
+    .applymap(_color_plan, subset=["Plan"])
     .applymap(_color_status, subset=["Status"])
     .applymap(_color_pattern, subset=["Pattern"])
     .applymap(_color_score, subset=["Score"]),
@@ -501,6 +533,19 @@ for r in results:
             unsafe_allow_html=True,
         )
         st.markdown(f"**{r.bias}**")
+
+        # ── LIVE plan banner ──────────────────────────────────────
+        if r.symbol in _alert_entries:
+            _ae = _alert_entries[r.symbol]
+            _ae_type = _ae.get("alert_type", "alert").replace("_", " ").title()
+            st.markdown(
+                f"<div style='padding:8px 12px;border:2px solid #2ecc71;"
+                f"border-radius:6px;background:#2ecc7115;margin-bottom:12px'>"
+                f"<strong style='color:#2ecc71'>LIVE PLAN</strong> &mdash; "
+                f"from <em>{_ae_type}</em> alert. "
+                f"Entry/Stop/Targets from intraday signal.</div>",
+                unsafe_allow_html=True,
+            )
 
         # ── Pre-market metrics (if premarket) ─────────────────────
         if _premarket:
@@ -533,6 +578,53 @@ for r in results:
                     delta=f"{r.support_label}", delta_color="off")
         lc4.metric("Distance", f"${r.distance_to_support:,.2f}",
                     delta=f"{r.distance_pct:+.2f}%", delta_color="off")
+
+        # ── Live status metrics (LIVE plan, market hours) ────────────
+        if r.symbol in _alert_entries and _market_open:
+            _live_bars = _cached_intraday(r.symbol)
+            if not _live_bars.empty:
+                _live_price = _live_bars["Close"].iloc[-1]
+                _live_high = _live_bars["High"].max()
+                _live_low = _live_bars["Low"].min()
+                _to_stop = _live_price - r.stop
+                _to_t1 = r.target_1 - _live_price
+                _to_t2 = r.target_2 - _live_price
+
+                st.markdown("**Live Status**")
+                ls1, ls2, ls3, ls4 = st.columns(4)
+                ls1.metric("Current", f"${_live_price:,.2f}")
+                ls2.metric("To Stop", f"${_to_stop:,.2f}",
+                           delta="SAFE" if _to_stop > 0 else "STOPPED",
+                           delta_color="normal" if _to_stop > 0 else "inverse")
+                ls3.metric("To T1", f"${_to_t1:,.2f}",
+                           delta="HIT" if _to_t1 <= 0 else f"${_to_t1:,.2f} away",
+                           delta_color="normal" if _to_t1 <= 0 else "off")
+                ls4.metric("To T2", f"${_to_t2:,.2f}",
+                           delta="HIT" if _to_t2 <= 0 else f"${_to_t2:,.2f} away",
+                           delta_color="normal" if _to_t2 <= 0 else "off")
+
+                # Progress bar: stop → T2 range
+                _total_range = r.target_2 - r.stop
+                if _total_range > 0:
+                    _progress = (_live_price - r.stop) / _total_range
+                    _progress = max(0.0, min(1.0, _progress))
+                    st.progress(_progress, text=f"Stop → T2: {_progress:.0%}")
+
+                # Levels hit badges
+                _hits = []
+                if _live_high >= r.target_1:
+                    _hits.append(("T1 HIT", "#2ecc71"))
+                if _live_high >= r.target_2:
+                    _hits.append(("T2 HIT", "#27ae60"))
+                if _live_low <= r.stop:
+                    _hits.append(("STOP HIT", "#e74c3c"))
+                if _hits:
+                    _badges = " ".join(
+                        f"<span style='background:{c};padding:2px 8px;border-radius:4px;"
+                        f"font-size:0.8rem;color:white;margin-right:4px'>{lbl}</span>"
+                        for lbl, c in _hits
+                    )
+                    st.markdown(_badges, unsafe_allow_html=True)
 
         # ── Trade plan ────────────────────────────────────────────────
         st.markdown("**Trade Plan**")
