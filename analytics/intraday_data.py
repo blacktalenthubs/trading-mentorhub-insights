@@ -10,13 +10,18 @@ import pandas as pd
 import pytz
 import yfinance as yf
 
+import logging
+
 from alert_config import (
     HOURLY_RESISTANCE_CLUSTER_PCT,
+    SPY_MA_SUPPORT_PROXIMITY_PCT,
     SPY_SUPPORT_PROXIMITY_PCT,
     SPY_WEEKLY_PROXIMITY_PCT,
     SUPPORT_STRONG_HOLD_HOURS,
     SUPPORT_STRONG_RETEST_COUNT,
 )
+
+logger = logging.getLogger("intraday_data")
 
 ET = pytz.timezone("US/Eastern")
 
@@ -150,6 +155,8 @@ def fetch_prior_day(symbol: str) -> dict | None:
         ma100 = last["MA100"] if pd.notna(last["MA100"]) else None
         ma200 = last["MA200"] if pd.notna(last["MA200"]) else None
 
+        sym_rsi14 = compute_rsi_wilder(hist["Close"], period=14)
+
         # Classify the prior day using market_data.classify_day
         from analytics.market_data import classify_day
         pattern, direction = classify_day(last, prev)
@@ -175,6 +182,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
             "parent_range": prev["High"] - prev["Low"],
             "prior_week_high": prior_week_high,
             "prior_week_low": prior_week_low,
+            "rsi14": sym_rsi14,
         }
     except Exception:
         return None
@@ -361,6 +369,32 @@ def _compute_spy_bounce_rate(hist: pd.DataFrame) -> dict:
     return {"bounce_rate": round(bounces / total, 2), "sample_size": total}
 
 
+def compute_rsi_wilder(closes: pd.Series, period: int = 14) -> float | None:
+    """Compute RSI using Wilder's smoothing (ewm with alpha=1/period).
+
+    Returns RSI value in [0, 100], or None if insufficient data.
+    """
+    if closes is None or len(closes) < period + 1:
+        return None
+
+    delta = closes.diff()
+    gains = delta.clip(lower=0)
+    losses = (-delta).clip(lower=0)
+
+    avg_gain = gains.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = losses.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+    last_avg_gain = avg_gain.iloc[-1]
+    last_avg_loss = avg_loss.iloc[-1]
+
+    if last_avg_loss == 0:
+        return 100.0 if last_avg_gain > 0 else 50.0
+
+    rs = last_avg_gain / last_avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return round(rsi, 2)
+
+
 @st.cache_data(ttl=300)
 def get_spy_context() -> dict:
     """Fetch SPY trend data for market context (cached 5 min).
@@ -373,10 +407,13 @@ def get_spy_context() -> dict:
         "intraday_change_pct": 0.0, "spy_bouncing": False, "spy_intraday_low": 0.0,
         "spy_at_support": False, "spy_at_resistance": False,
         "spy_level_label": "", "spy_support_bounce_rate": 0.5,
+        "spy_rsi14": None, "spy_ema20": 0.0, "spy_ema50": 0.0,
+        "spy_ema_spread_pct": 0.0, "spy_at_ma_support": None,
+        "spy_ema_regime": "CHOPPY",
     }
     try:
         spy = yf.Ticker("SPY")
-        hist = spy.history(period="3mo")
+        hist = spy.history(period="1y")
         if hist.empty or len(hist) < 20:
             return _default
         ma5 = hist["Close"].rolling(5).mean().iloc[-1]
@@ -386,6 +423,37 @@ def get_spy_context() -> dict:
         close = hist["Close"].iloc[-1]
         trend = "bullish" if close > ma20 else "bearish"
         regime = classify_market_regime(close, ma5, ma20, ma50)
+
+        # RSI14 on daily closes (Wilder's smoothing)
+        spy_rsi14 = compute_rsi_wilder(hist["Close"], period=14)
+
+        # EMA20/50 on daily closes
+        spy_ema20 = hist["Close"].ewm(span=20, adjust=False).mean().iloc[-1]
+        spy_ema50_raw = hist["Close"].ewm(span=50, adjust=False).mean().iloc[-1]
+        spy_ema50 = spy_ema50_raw if pd.notna(spy_ema50_raw) else spy_ema20
+
+        # EMA spread: (ema20 - ema50) / price * 100
+        spy_ema_spread_pct = (spy_ema20 - spy_ema50) / close * 100 if close > 0 else 0.0
+
+        # SPY MA-level detection: is SPY near its own 50/100/200 SMA?
+        spy_at_ma_support = None
+        ma100_val = hist["Close"].rolling(100).mean().iloc[-1] if len(hist) >= 100 else None
+        ma200_val = hist["Close"].rolling(200).mean().iloc[-1] if len(hist) >= 200 else None
+        for ma_val, ma_label in [
+            (ma50, "50MA"), (ma100_val, "100MA"), (ma200_val, "200MA"),
+        ]:
+            if ma_val and pd.notna(ma_val) and ma_val > 0:
+                if abs(close - ma_val) / ma_val <= SPY_MA_SUPPORT_PROXIMITY_PCT:
+                    spy_at_ma_support = ma_label
+                    break
+
+        # EMA-based regime (observational — log when it disagrees with SMA regime)
+        spy_ema_regime = classify_market_regime(close, ma5, spy_ema20, spy_ema50)
+        if spy_ema_regime != regime:
+            logger.info(
+                "SPY regime divergence: SMA=%s vs EMA=%s (SMA50=%.2f, EMA50=%.2f)",
+                regime, spy_ema_regime, ma50, spy_ema50,
+            )
 
         # Compute SPY intraday % change and bounce detection from today's bars
         intraday_change_pct = 0.0
@@ -489,6 +557,12 @@ def get_spy_context() -> dict:
             "spy_at_resistance": spy_at_resistance,
             "spy_level_label": spy_level_label,
             "spy_support_bounce_rate": spy_support_bounce_rate,
+            "spy_rsi14": spy_rsi14,
+            "spy_ema20": round(spy_ema20, 2),
+            "spy_ema50": round(spy_ema50, 2),
+            "spy_ema_spread_pct": round(spy_ema_spread_pct, 2),
+            "spy_at_ma_support": spy_at_ma_support,
+            "spy_ema_regime": spy_ema_regime,
         }
     except Exception:
         return _default

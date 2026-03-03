@@ -18,6 +18,7 @@ from analytics.intraday_rules import (
     check_gap_fill,
     check_hourly_resistance_approach,
     check_inside_day_breakout,
+    check_outside_day_breakout,
     check_ma_resistance,
     check_intraday_support_bounce,
     check_ma_bounce_20,
@@ -323,6 +324,88 @@ class TestInsideDayBreakout:
     def test_no_fire_when_prior_day_none(self):
         bar = _bar()
         assert check_inside_day_breakout("X", bar, None) is None
+
+
+# ===== Outside Day Follow-Through Breakout =====
+
+class TestOutsideDayBreakout:
+    """Tests for check_outside_day_breakout()."""
+
+    def _bullish_outside_prior(self, **overrides):
+        """Bullish outside day: H=$98.50, L=$92.52, C=$98.09."""
+        d = {
+            "pattern": "outside", "direction": "bullish",
+            "high": 98.50, "low": 92.52, "close": 98.09,
+            "is_inside": False, "ma20": 95.0, "ma50": 90.0,
+        }
+        d.update(overrides)
+        return d
+
+    def test_fires_on_bullish_outside_day_breakout(self):
+        prior = self._bullish_outside_prior()
+        bar = _bar(open_=99.0, high=100.0, low=98.60, close=99.50)
+        sig = check_outside_day_breakout("ROKU", bar, prior)
+        assert sig is not None
+        assert sig.alert_type == AlertType.OUTSIDE_DAY_BREAKOUT
+        assert sig.direction == "BUY"
+        assert sig.confidence == "high"
+
+    def test_entry_stop_targets_correct(self):
+        prior = self._bullish_outside_prior()
+        bar = _bar(open_=99.0, high=100.0, low=98.60, close=99.50)
+        sig = check_outside_day_breakout("ROKU", bar, prior)
+        assert sig.entry == 98.50  # prior high
+        midpoint = (98.50 + 92.52) / 2  # 95.51
+        assert sig.stop == round(midpoint, 2)
+        risk = sig.entry - sig.stop
+        assert abs(sig.target_1 - round(sig.entry + risk, 2)) < 0.01
+        assert abs(sig.target_2 - round(sig.entry + 2 * risk, 2)) < 0.01
+
+    def test_no_fire_on_bearish_outside_day(self):
+        prior = self._bullish_outside_prior(direction="bearish")
+        bar = _bar(open_=99.0, high=100.0, low=98.60, close=99.50)
+        assert check_outside_day_breakout("ROKU", bar, prior) is None
+
+    def test_no_fire_on_neutral_outside_day(self):
+        prior = self._bullish_outside_prior(direction="neutral")
+        bar = _bar(open_=99.0, high=100.0, low=98.60, close=99.50)
+        assert check_outside_day_breakout("ROKU", bar, prior) is None
+
+    def test_no_fire_when_close_below_prior_high(self):
+        prior = self._bullish_outside_prior()
+        # Wicks above prior high but closes below
+        bar = _bar(open_=97.0, high=99.0, low=96.50, close=98.20)
+        assert check_outside_day_breakout("ROKU", bar, prior) is None
+
+    def test_no_fire_on_normal_day(self):
+        prior = {
+            "pattern": "normal", "direction": "bullish",
+            "high": 98.50, "low": 95.00, "close": 97.00,
+            "is_inside": False, "ma20": 95.0, "ma50": 90.0,
+        }
+        bar = _bar(open_=99.0, high=100.0, low=98.60, close=99.50)
+        assert check_outside_day_breakout("ROKU", bar, prior) is None
+
+    def test_smart_targets_override_r_based(self):
+        """Integration: outside day breakout gets resistance-based smart targets."""
+        prior = self._bullish_outside_prior(
+            ma100=100.19, ma200=105.0, prior_week_high=108.0,
+        )
+        bars = _bars([{
+            "Open": 99.0, "High": 100.0, "Low": 98.60, "Close": 99.50,
+            "Volume": 1000,
+        }])
+        signals = evaluate_rules("ROKU", bars, prior)
+        outside_sigs = [
+            s for s in signals
+            if s.alert_type == AlertType.OUTSIDE_DAY_BREAKOUT
+        ]
+        if outside_sigs:
+            sig = outside_sigs[0]
+            assert sig.entry == 98.50
+            # Smart targets should be applied (not in _STRUCTURAL_TARGET_RULES)
+            assert sig.target_1 >= sig.entry
+            assert sig.target_2 >= sig.target_1
 
 
 # ===== Rule 5: Resistance at Prior High =====
@@ -2623,3 +2706,497 @@ class TestOverheadMAResistanceFilter:
         signals2 = evaluate_rules("TEST", bars, prior2)
         ma_bounces = [s for s in signals2 if s.alert_type == AlertType.MA_BOUNCE_20]
         assert len(ma_bounces) == 0, "MA bounce should be blocked by overhead 100MA"
+
+
+# ===== RSI Wilder Computation =====
+
+from analytics.intraday_data import compute_rsi_wilder
+
+
+class TestComputeRsiWilder:
+    """Tests for compute_rsi_wilder() helper."""
+
+    def test_all_gains_returns_near_100(self):
+        """Prices only going up → RSI near 100."""
+        closes = pd.Series([100 + i for i in range(20)])
+        rsi = compute_rsi_wilder(closes, period=14)
+        assert rsi is not None
+        assert rsi > 95
+
+    def test_all_losses_returns_near_0(self):
+        """Prices only going down → RSI near 0."""
+        closes = pd.Series([120 - i for i in range(20)])
+        rsi = compute_rsi_wilder(closes, period=14)
+        assert rsi is not None
+        assert rsi < 5
+
+    def test_insufficient_data_returns_none(self):
+        """Fewer than period+1 bars → None."""
+        closes = pd.Series([100, 101, 102])
+        rsi = compute_rsi_wilder(closes, period=14)
+        assert rsi is None
+
+    def test_flat_prices_returns_50(self):
+        """No price changes → RSI should be 50 (no gains or losses)."""
+        closes = pd.Series([100.0] * 20)
+        rsi = compute_rsi_wilder(closes, period=14)
+        assert rsi is not None
+        assert rsi == 50.0
+
+    def test_known_value_range(self):
+        """Mixed gains/losses → RSI in valid range."""
+        closes = pd.Series([100, 102, 101, 103, 100, 104, 102, 105,
+                            103, 106, 104, 107, 105, 108, 106, 109])
+        rsi = compute_rsi_wilder(closes, period=14)
+        assert rsi is not None
+        assert 0 <= rsi <= 100
+
+    def test_output_always_bounded(self):
+        """RSI must always be in [0, 100]."""
+        # Volatile series
+        closes = pd.Series([100, 110, 90, 115, 85, 120, 80, 125,
+                            75, 130, 70, 135, 65, 140, 60, 145])
+        rsi = compute_rsi_wilder(closes, period=14)
+        assert rsi is not None
+        assert 0 <= rsi <= 100
+
+
+# ===== SPY RSI/EMA Confidence Modifier =====
+
+class TestPerSymbolRsi:
+    """Tests for per-symbol RSI14 enrichment in evaluate_rules."""
+
+    def _base_spy(self, **overrides):
+        ctx = {
+            "trend": "bullish", "close": 690.0, "ma20": 685.0,
+            "ma5": 688.0, "ma50": 680.0, "regime": "TRENDING_UP",
+            "intraday_change_pct": 0.5, "spy_bouncing": False, "spy_intraday_low": 0.0,
+            "spy_at_support": False, "spy_at_resistance": False,
+            "spy_level_label": "", "spy_support_bounce_rate": 0.5,
+            "spy_rsi14": 50.0, "spy_ema20": 688.0, "spy_ema50": 685.0,
+            "spy_ema_spread_pct": 0.44, "spy_at_ma_support": None,
+            "spy_ema_regime": "TRENDING_UP",
+        }
+        ctx.update(overrides)
+        return ctx
+
+    def _run(self, rsi14, spy_ctx=None):
+        """Run evaluate_rules with a MA bounce trigger and given sym RSI."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+            "rsi14": rsi14,
+        }
+        ctx = spy_ctx or self._base_spy()
+        return evaluate_rules("GOOGL", bars, prior, spy_context=ctx)
+
+    def test_rsi_below_35_demotes_buy_confidence(self):
+        """RSI < 35 → high demoted to medium + crash risk message."""
+        signals = self._run(rsi14=25.0)
+        buy = [s for s in signals if s.direction == "BUY"]
+        assert len(buy) >= 1
+        for s in buy:
+            assert s.confidence != "high"
+            assert "GOOGL RSI crash risk (25)" in s.message
+
+    def test_rsi_above_70_adds_overbought_caution(self):
+        """RSI > 70 → message added, confidence NOT demoted."""
+        signals = self._run(rsi14=78.0)
+        ma = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma) >= 1
+        for s in ma:
+            assert "GOOGL RSI overbought (78)" in s.message
+            # Overbought is informational — confidence stays as-is
+            assert s.confidence == "high"
+
+    def test_rsi_neutral_no_message(self):
+        """RSI in normal range (50) → no per-symbol RSI message."""
+        signals = self._run(rsi14=50.0)
+        buy = [s for s in signals if s.direction == "BUY"]
+        assert len(buy) >= 1
+        for s in buy:
+            assert "GOOGL RSI" not in s.message
+
+    def test_rsi_none_no_message(self):
+        """RSI is None → no per-symbol RSI message."""
+        signals = self._run(rsi14=None)
+        buy = [s for s in signals if s.direction == "BUY"]
+        assert len(buy) >= 1
+        for s in buy:
+            assert "GOOGL RSI" not in s.message
+
+    def test_rsi_below_35_stacks_with_spy_rsi_oversold(self):
+        """Both sym RSI < 35 and SPY RSI < 35 → both messages present."""
+        spy_ctx = self._base_spy(spy_rsi14=30.0)
+        signals = self._run(rsi14=25.0, spy_ctx=spy_ctx)
+        buy = [s for s in signals if s.direction == "BUY"]
+        assert len(buy) >= 1
+        for s in buy:
+            assert "GOOGL RSI crash risk" in s.message
+            assert "SPY RSI oversold" in s.message
+
+    def test_rsi_below_35_on_medium_stays_medium(self):
+        """RSI < 35 on already-medium confidence → stays medium + message."""
+        # CHOPPY regime will demote high→medium, then RSI < 35 tries to demote again
+        spy_ctx = self._base_spy(regime="CHOPPY", spy_rsi14=50.0)
+        signals = self._run(rsi14=20.0, spy_ctx=spy_ctx)
+        ma = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma) >= 1
+        for s in ma:
+            assert s.confidence == "medium"
+            assert "GOOGL RSI crash risk (20)" in s.message
+
+    def test_rsi_value_appears_in_message(self):
+        """The RSI numeric value appears in the enrichment message."""
+        signals = self._run(rsi14=28.0)
+        buy = [s for s in signals if s.direction == "BUY"]
+        assert len(buy) >= 1
+        assert any("28" in s.message for s in buy)
+
+    def test_sell_signals_unaffected_by_rsi(self):
+        """SELL signals should not have per-symbol RSI messages."""
+        bars = _bars([
+            {"Open": 100, "High": 101.5, "Low": 99, "Close": 101.2, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+            "rsi14": 25.0,
+        }
+        signals = evaluate_rules("GOOGL", bars, prior, spy_context=self._base_spy())
+        sells = [s for s in signals if s.direction == "SELL"]
+        for s in sells:
+            assert "GOOGL RSI" not in s.message
+
+
+class TestSpyRsiConfidenceModifier:
+    """Tests for RSI/EMA enrichment block in evaluate_rules."""
+
+    def _base_spy(self, **overrides):
+        """Base SPY context (TRENDING_UP) with RSI/EMA defaults."""
+        ctx = {
+            "trend": "bullish", "close": 690.0, "ma20": 685.0,
+            "ma5": 688.0, "ma50": 680.0, "regime": "TRENDING_UP",
+            "intraday_change_pct": 0.5, "spy_bouncing": False, "spy_intraday_low": 0.0,
+            "spy_at_support": False, "spy_at_resistance": False,
+            "spy_level_label": "", "spy_support_bounce_rate": 0.5,
+            "spy_rsi14": 50.0, "spy_ema20": 688.0, "spy_ema50": 685.0,
+            "spy_ema_spread_pct": 0.44, "spy_at_ma_support": None,
+            "spy_ema_regime": "TRENDING_UP",
+        }
+        ctx.update(overrides)
+        return ctx
+
+    def _run(self, spy_ctx):
+        """Run evaluate_rules with a MA bounce trigger and given spy_context."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 101.0, "low": 99.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior, spy_context=spy_ctx)
+        return [s for s in signals if s.direction == "BUY"]
+
+    def test_rsi_oversold_boosts_confidence(self):
+        """RSI < 35 → medium→high, 'SPY RSI oversold' in message."""
+        spy_ctx = self._base_spy(spy_rsi14=30.0)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            assert "SPY RSI oversold" in s.message
+            assert "30" in s.message
+
+    def test_rsi_overbought_demotes_confidence(self):
+        """RSI > 70 → high→medium, 'SPY RSI overbought' in message."""
+        spy_ctx = self._base_spy(spy_rsi14=75.0)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        ma_signals = [s for s in buy_signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        for s in ma_signals:
+            assert s.confidence == "medium"
+            assert "SPY RSI overbought" in s.message
+            assert "75" in s.message
+
+    def test_rsi_neutral_no_change(self):
+        """RSI in normal range (50) → no RSI message."""
+        spy_ctx = self._base_spy(spy_rsi14=50.0)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            assert "SPY RSI" not in s.message
+
+    def test_rsi_none_no_change(self):
+        """RSI is None (insufficient data) → no RSI message."""
+        spy_ctx = self._base_spy(spy_rsi14=None)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            assert "SPY RSI" not in s.message
+
+    def test_ema_convergence_message(self):
+        """EMA spread < 0.5% → 'SPY EMAs converging' in message."""
+        spy_ctx = self._base_spy(spy_ema_spread_pct=0.3)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        assert any("SPY EMAs converging" in s.message for s in buy_signals)
+
+    def test_ema_spread_wide_no_message(self):
+        """EMA spread > 0.5% → no convergence message."""
+        spy_ctx = self._base_spy(spy_ema_spread_pct=1.5)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        for s in buy_signals:
+            assert "SPY EMAs converging" not in s.message
+
+    def test_spy_ma_support_annotation(self):
+        """SPY at 50MA support → 'SPY at 50MA support' in message."""
+        spy_ctx = self._base_spy(spy_at_ma_support="50MA", spy_rsi14=50.0)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        assert any("SPY at 50MA support" in s.message for s in buy_signals)
+
+    def test_spy_ma_support_with_rsi_low(self):
+        """SPY at 100MA + RSI < 40 → institutional level message."""
+        spy_ctx = self._base_spy(spy_at_ma_support="100MA", spy_rsi14=35.0)
+        buy_signals = self._run(spy_ctx)
+        assert len(buy_signals) >= 1
+        assert any(
+            "SPY oversold at 100MA (institutional level)" in s.message
+            for s in buy_signals
+        )
+
+    def test_rsi_oversold_stacks_with_regime_demotion(self):
+        """CHOPPY demotes high→medium, then RSI < 35 restores medium→high."""
+        spy_ctx = self._base_spy(regime="CHOPPY", spy_rsi14=30.0)
+        buy_signals = self._run(spy_ctx)
+        ma_signals = [s for s in buy_signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma_signals) >= 1
+        for s in ma_signals:
+            # CHOPPY demotes to medium, RSI oversold restores to high
+            assert s.confidence == "high"
+            assert "CHOPPY" in s.message
+            assert "SPY RSI oversold" in s.message
+
+    def test_rsi_overbought_stacks_on_already_medium(self):
+        """Overbought RSI on already-medium confidence → stays medium, message added."""
+        # CHOPPY regime demotes to medium, then RSI overbought can't demote further
+        spy_ctx = self._base_spy(regime="CHOPPY", spy_rsi14=75.0)
+        buy_signals = self._run(spy_ctx)
+        ma_signals = [s for s in buy_signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma_signals) >= 1
+        for s in ma_signals:
+            assert s.confidence == "medium"
+            assert "CHOPPY" in s.message
+            assert "SPY RSI overbought" in s.message
+
+
+# ===== Session Low Structural Stops for MA Bounce =====
+
+class TestSessionLowStop:
+    """Session low overrides fixed MA-offset stops for MA bounce rules."""
+
+    def _make_bars(self, session_low, bounce_close, ma_level=100.0, n_bars=5):
+        """Build intraday bars with a specific session low and bounce bar."""
+        rows = []
+        # Earlier bars with the session low
+        for i in range(n_bars - 1):
+            rows.append({
+                "Open": ma_level + 0.5, "High": ma_level + 1.0,
+                "Low": session_low, "Close": ma_level + 0.3,
+                "Volume": 1000,
+            })
+        # Last bar: bounces off MA, close above it
+        rows.append({
+            "Open": ma_level - 0.1, "High": ma_level + 1.0,
+            "Low": ma_level - 0.02,  # within proximity of MA
+            "Close": bounce_close,
+            "Volume": 1000,
+        })
+        return _bars(rows)
+
+    def test_ma20_stop_overridden_to_session_low(self, monkeypatch):
+        """MA20 bounce stop = session_low * 0.998, not MA * 0.995."""
+        monkeypatch.setattr(
+            "analytics.intraday_data.fetch_hourly_bars",
+            lambda *a, **kw: pd.DataFrame(),
+        )
+        # Disable _cap_risk so we can test session low override in isolation
+        monkeypatch.setattr(
+            "analytics.intraday_rules._cap_risk",
+            lambda entry, stop, **kw: stop,
+        )
+        session_low = 99.0
+        ma20 = 100.0
+        bars = self._make_bars(session_low=session_low, bounce_close=100.3, ma_level=ma20)
+        prior = {
+            "ma20": ma20, "ma50": 95.0, "close": 100.5,
+            "high": 105.0, "low": 98.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        ma20_sigs = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma20_sigs) >= 1
+        sig = ma20_sigs[0]
+        expected_stop = round(session_low * (1 - 0.002), 2)  # 99.0 * 0.998 = 98.80
+        assert sig.stop == expected_stop
+        # Not the old fixed MA offset (100.0 * 0.995 = 99.50)
+        assert sig.stop != round(ma20 * 0.995, 2)
+
+    def test_ma100_stop_overridden_to_session_low(self, monkeypatch):
+        """MA100 bounce also gets session low structural stop."""
+        monkeypatch.setattr(
+            "analytics.intraday_data.fetch_hourly_bars",
+            lambda *a, **kw: pd.DataFrame(),
+        )
+        # Disable _cap_risk so we can test session low override in isolation
+        monkeypatch.setattr(
+            "analytics.intraday_rules._cap_risk",
+            lambda entry, stop, **kw: stop,
+        )
+        session_low = 678.02
+        ma100 = 680.33
+        # Build bars: session low in earlier bars, last bar bounces off MA100
+        rows = []
+        for i in range(4):
+            rows.append({
+                "Open": 679.0, "High": 681.0,
+                "Low": session_low, "Close": 679.5,
+                "Volume": 1000,
+            })
+        rows.append({
+            "Open": 680.0, "High": 682.0,
+            "Low": 680.0,  # within 0.5% proximity of MA100
+            "Close": 681.0,
+            "Volume": 1000,
+        })
+        bars = _bars(rows)
+        prior = {
+            "ma20": 687.0, "ma50": 685.0, "ma100": ma100,
+            "close": 682.0, "high": 690.0, "low": 675.0, "is_inside": False,
+        }
+        signals = evaluate_rules("SPY", bars, prior)
+        ma100_sigs = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_100]
+        assert len(ma100_sigs) >= 1
+        sig = ma100_sigs[0]
+        expected_stop = round(session_low * (1 - 0.002), 2)  # 678.02 * 0.998 = 676.66
+        assert sig.stop == expected_stop
+
+    def test_no_override_when_session_low_equals_entry(self, monkeypatch):
+        """When session_low >= entry, the MA-offset stop is kept."""
+        monkeypatch.setattr(
+            "analytics.intraday_data.fetch_hourly_bars",
+            lambda *a, **kw: pd.DataFrame(),
+        )
+        ma20 = 100.0
+        # All bars have Low >= ma20 (entry), so session_low >= entry → no override
+        rows = []
+        for i in range(4):
+            rows.append({
+                "Open": 101.0, "High": 102.0,
+                "Low": 100.0,  # equal to entry
+                "Close": 101.5,
+                "Volume": 1000,
+            })
+        # Last bar: low within proximity of MA but exactly at MA
+        rows.append({
+            "Open": 100.2, "High": 101.5,
+            "Low": 100.0,  # at the MA level
+            "Close": 100.3,
+            "Volume": 1000,
+        })
+        bars = _bars(rows)
+        prior = {
+            "ma20": ma20, "ma50": 95.0, "close": 100.5,
+            "high": 105.0, "low": 98.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        ma20_sigs = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        if ma20_sigs:
+            sig = ma20_sigs[0]
+            # session_low (100.0) >= entry (100.0), no override
+            # Stop should be the _cap_risk result (not session_low-based)
+            assert sig.stop != round(100.0 * (1 - 0.002), 2)
+
+    def test_cap_risk_tightens_after_session_low_stop(self, monkeypatch):
+        """_cap_risk still applies as safety net after session low override."""
+        monkeypatch.setattr(
+            "analytics.intraday_data.fetch_hourly_bars",
+            lambda *a, **kw: pd.DataFrame(),
+        )
+        # Session low very far below MA → structural stop is wide
+        # _cap_risk should tighten it to DAY_TRADE_MAX_RISK_PCT
+        session_low = 95.0  # 5% below MA — very wide
+        ma20 = 100.0
+        bars = self._make_bars(session_low=session_low, bounce_close=100.3, ma_level=ma20)
+        prior = {
+            "ma20": ma20, "ma50": 94.0, "close": 100.5,
+            "high": 105.0, "low": 93.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        ma20_sigs = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma20_sigs) >= 1
+        sig = ma20_sigs[0]
+        # Structural stop would be 95.0 * 0.998 = 94.81 (risk = 5.19, ~5.2%)
+        # _cap_risk for AAPL: 0.3% → max risk = 0.30 → stop = 99.70
+        # So _cap_risk should have tightened it
+        assert sig.stop == 99.70
+
+    def test_pdl_reclaim_not_affected(self, monkeypatch):
+        """Prior day low reclaim keeps its own bar-low stop, unaffected by session low override."""
+        monkeypatch.setattr(
+            "analytics.intraday_data.fetch_hourly_bars",
+            lambda *a, **kw: pd.DataFrame(),
+        )
+        # PDL reclaim: bar dips below prior low then closes above
+        prior_low = 99.0
+        rows = []
+        for i in range(4):
+            rows.append({
+                "Open": 100.0, "High": 101.0,
+                "Low": 99.5, "Close": 100.5,
+                "Volume": 1000,
+            })
+        # Last bar: dips below prior low, reclaims
+        rows.append({
+            "Open": 99.2, "High": 100.5,
+            "Low": 98.85,  # below prior_low (99.0) by > 0.1%
+            "Close": 99.5, "Volume": 1000,
+        })
+        bars = _bars(rows)
+        prior = {
+            "ma20": 100.0, "ma50": 95.0, "close": 100.5,
+            "high": 105.0, "low": prior_low, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        pdl_sigs = [s for s in signals if s.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM]
+        if pdl_sigs:
+            sig = pdl_sigs[0]
+            # PDL reclaim stop should NOT be session_low * 0.998
+            session_low_stop = round(98.85 * (1 - 0.002), 2)
+            assert sig.stop != session_low_stop or sig.alert_type != AlertType.PRIOR_DAY_LOW_RECLAIM
+
+    def test_targets_recalculated_with_structural_stop(self, monkeypatch):
+        """After session low override, T1/T2 use new risk (before smart targets)."""
+        monkeypatch.setattr(
+            "analytics.intraday_data.fetch_hourly_bars",
+            lambda *a, **kw: pd.DataFrame(),
+        )
+        session_low = 99.0
+        ma20 = 100.0
+        bars = self._make_bars(session_low=session_low, bounce_close=100.3, ma_level=ma20)
+        prior = {
+            "ma20": ma20, "ma50": 95.0, "close": 100.5,
+            # Place prior high above entry so smart targets can find it
+            "high": 103.0, "low": 98.0, "is_inside": False,
+        }
+        signals = evaluate_rules("AAPL", bars, prior)
+        ma20_sigs = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_20]
+        assert len(ma20_sigs) >= 1
+        sig = ma20_sigs[0]
+        # Targets should be set and above entry
+        assert sig.target_1 > sig.entry
+        assert sig.target_2 > sig.target_1

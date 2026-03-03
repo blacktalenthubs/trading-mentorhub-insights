@@ -32,6 +32,7 @@ from alert_config import (
     HOURLY_RESISTANCE_APPROACH_PCT,
     LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_PROXIMITY_PCT,
+    MA_BOUNCE_SESSION_STOP_PCT,
     MA_STOP_OFFSET_PCT,
     MA100_BOUNCE_PROXIMITY_PCT,
     MA100_STOP_OFFSET_PCT,
@@ -49,7 +50,12 @@ from alert_config import (
     WEEKLY_LEVEL_PROXIMITY_PCT,
     WEEKLY_LEVEL_STOP_OFFSET_PCT,
     RS_UNDERPERFORM_FACTOR,
+    SPY_EMA_CONVERGENCE_PCT,
+    SPY_RSI_OVERBOUGHT,
+    SPY_RSI_OVERSOLD,
     SPY_STRONG_BOUNCE_RATE,
+    SYM_RSI_OVERBOUGHT,
+    SYM_RSI_OVERSOLD,
     SESSION_LOW_BREAK_PROXIMITY_PCT,
     SESSION_LOW_MAX_RETEST_VOL_RATIO,
     SESSION_LOW_MIN_AGE_BARS,
@@ -85,6 +91,7 @@ class AlertType(str, Enum):
     WEEKLY_LEVEL_TOUCH = "weekly_level_touch"
     HOURLY_RESISTANCE_APPROACH = "hourly_resistance_approach"
     MA_RESISTANCE = "ma_resistance"
+    OUTSIDE_DAY_BREAKOUT = "outside_day_breakout"
     RESISTANCE_PRIOR_LOW = "resistance_prior_low"
 
 
@@ -448,6 +455,60 @@ def check_inside_day_breakout(
         message=(
             f"Inside day breakout — broke above ${inside_high:.2f} "
             f"(inside range ${inside_range:.2f})"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: Outside Day Follow-Through Breakout
+# ---------------------------------------------------------------------------
+
+
+def check_outside_day_breakout(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price breaks above bullish outside day high — continuation signal.
+
+    Conditions:
+    - Prior day was a bullish outside day (closed in upper portion of range)
+    - Current bar closes above prior day high
+    """
+    if not prior_day or prior_day.get("pattern") != "outside":
+        return None
+
+    if prior_day.get("direction") != "bullish":
+        return None
+
+    prior_high = prior_day["high"]
+    prior_low = prior_day["low"]
+    day_range = prior_high - prior_low
+
+    if day_range <= 0:
+        return None
+
+    if bar["Close"] <= prior_high:
+        return None
+
+    entry = prior_high
+    midpoint = (prior_high + prior_low) / 2
+    stop = midpoint
+    risk = entry - stop
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.OUTSIDE_DAY_BREAKOUT,
+        direction="BUY",
+        price=bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high",
+        message=(
+            f"Outside day breakout — broke above ${prior_high:.2f} "
+            f"(stop at midpoint ${midpoint:.2f})"
         ),
     )
 
@@ -1694,6 +1755,7 @@ def evaluate_rules(
     prior_close = prior_day.get("close")
     prior_high = prior_day.get("high", 0)
     prior_low = prior_day.get("low", 0)
+    sym_rsi14 = prior_day.get("rsi14")
 
     # --- Context filters ---
     spy = spy_context or {}
@@ -1741,6 +1803,9 @@ def evaluate_rules(
         sym_current = last_bar["Close"]
         if sym_open > 0:
             sym_intraday_change = (sym_current - sym_open) / sym_open * 100
+
+    # Session low for structural MA bounce stops
+    session_low = intraday_bars["Low"].min() if not intraday_bars.empty else 0
 
     # Detect intraday supports (used by both bounce BUY rule and breakdown SHORT)
     from analytics.intraday_data import detect_intraday_supports
@@ -1820,6 +1885,15 @@ def evaluate_rules(
 
         if AlertType.INSIDE_DAY_BREAKOUT.value in ENABLED_RULES:
             sig = check_inside_day_breakout(symbol, last_bar, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        if AlertType.OUTSIDE_DAY_BREAKOUT.value in ENABLED_RULES:
+            sig = check_outside_day_breakout(symbol, last_bar, prior_day)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -2082,7 +2156,22 @@ def evaluate_rules(
     spy_intraday_change = spy.get("intraday_change_pct", 0.0)
 
     # --- Enrich all signals with context ---
+    _MA_BOUNCE_RULES = {
+        AlertType.MA_BOUNCE_20, AlertType.MA_BOUNCE_50,
+        AlertType.MA_BOUNCE_100, AlertType.MA_BOUNCE_200,
+    }
     for sig in signals:
+        # Structural stop: use session low for MA bounce rules
+        if (sig.direction == "BUY" and sig.alert_type in _MA_BOUNCE_RULES
+                and session_low > 0 and session_low < sig.entry):
+            structural_stop = round(
+                session_low * (1 - MA_BOUNCE_SESSION_STOP_PCT), 2,
+            )
+            sig.stop = structural_stop
+            risk = sig.entry - sig.stop
+            sig.target_1 = round(sig.entry + risk, 2)
+            sig.target_2 = round(sig.entry + 2 * risk, 2)
+
         # Apply per-symbol risk cap to all BUY signals and recalculate targets
         if sig.direction == "BUY" and sig.entry and sig.stop:
             capped_stop = _cap_risk(sig.entry, sig.stop, symbol=symbol)
@@ -2197,6 +2286,42 @@ def evaluate_rules(
                         f" | SPY weak support ({spy_level_label},"
                         f" {spy_bounce_rate:.0%} hist. bounce rate)"
                     )
+
+        # RSI confidence adjustment (runs AFTER regime demotion — intentional)
+        spy_rsi = spy.get("spy_rsi14")
+        if sig.direction == "BUY" and spy_rsi is not None:
+            if spy_rsi < SPY_RSI_OVERSOLD:
+                if sig.confidence == "medium":
+                    sig.confidence = "high"
+                sig.message += f" | SPY RSI oversold ({spy_rsi:.0f})"
+            elif spy_rsi > SPY_RSI_OVERBOUGHT:
+                if sig.confidence == "high":
+                    sig.confidence = "medium"
+                sig.message += f" | SPY RSI overbought ({spy_rsi:.0f})"
+
+        # Per-symbol RSI: crash risk below 30, overbought above 70
+        if sig.direction == "BUY" and sym_rsi14 is not None:
+            if sym_rsi14 < SYM_RSI_OVERSOLD:
+                if sig.confidence == "high":
+                    sig.confidence = "medium"
+                sig.message += f" | {symbol} RSI crash risk ({sym_rsi14:.0f})"
+            elif sym_rsi14 > SYM_RSI_OVERBOUGHT:
+                sig.message += f" | {symbol} RSI overbought ({sym_rsi14:.0f})"
+
+        # EMA spread observation (informational only, no confidence change)
+        spy_ema_spread = spy.get("spy_ema_spread_pct", 0.0)
+        if sig.direction == "BUY" and abs(spy_ema_spread) < SPY_EMA_CONVERGENCE_PCT * 100:
+            sig.message += " | SPY EMAs converging — big move pending"
+
+        # SPY MA-level annotation
+        spy_ma_support = spy.get("spy_at_ma_support")
+        if sig.direction == "BUY" and spy_ma_support:
+            if spy_rsi is not None and spy_rsi < 40:
+                sig.message += (
+                    f" | SPY oversold at {spy_ma_support} (institutional level)"
+                )
+            else:
+                sig.message += f" | SPY at {spy_ma_support} support"
 
         # MTF alignment enrichment
         sig.mtf_aligned = mtf["mtf_aligned"]

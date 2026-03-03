@@ -57,6 +57,9 @@ MA100_STOP_OFFSET_PCT = 0.007  # 0.7%
 # MA200 Bounce: widest stop for long-term institutional level
 MA200_STOP_OFFSET_PCT = 0.010  # 1.0%
 
+# MA Bounce: structural stop buffer below session low
+MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
+
 # Prior Day Low Reclaim: minimum dip below prior low to qualify
 PDL_DIP_MIN_PCT = 0.001  # 0.1%
 
@@ -121,6 +124,16 @@ SPY_WEEKLY_PROXIMITY_PCT = 0.005   # 0.5% — weekly S/R proximity
 # SPY Level Reaction: minimum bounce rate for "strong" support
 SPY_STRONG_BOUNCE_RATE = 0.50  # >= 50% historical bounce rate = strong support
 
+# SPY RSI / EMA enrichment
+SPY_RSI_OVERSOLD = 35
+SPY_RSI_OVERBOUGHT = 70
+SPY_EMA_CONVERGENCE_PCT = 0.005   # 0.5% — EMAs within this spread = compressed
+SPY_MA_SUPPORT_PROXIMITY_PCT = 0.005  # 0.5% — SPY near its own 50/100/200 MA
+
+# Per-symbol RSI thresholds
+SYM_RSI_OVERSOLD = 35     # RSI < 35 = crash risk, suppress BUY
+SYM_RSI_OVERBOUGHT = 70   # RSI > 70 = overbought, caution on BUY
+
 # Volume Exhaustion Detection
 SELLER_EXHAUSTION_VOL_RATIO = 0.6    # current bar vol < 0.6x avg = sellers drying up
 SELLER_EXHAUSTION_MIN_BARS = 3       # need 3+ declining volume bars
@@ -137,7 +150,7 @@ SUPPORT_STRONG_RETEST_COUNT = 2
 ORB_BREAKDOWN_VOLUME_RATIO = 1.2  # same threshold as upside breakout
 
 # Telegram Priority Tiers: minimum score to send via Telegram (A+ and A signals)
-TELEGRAM_TIER1_MIN_SCORE = 75
+TELEGRAM_TIER1_MIN_SCORE = 65
 
 # Signal Consolidation: score boost when multiple BUY signals confirm
 CONSOLIDATION_SCORE_BOOST = 5   # points per confirming signal
@@ -165,6 +178,8 @@ ENABLED_RULES: set[str] = {
     "session_low_double_bottom",
     "planned_level_touch",
     "weekly_level_touch",
+    # BUY — breakout / momentum
+    "outside_day_breakout",
     # Momentum
     "ema_crossover_5_20",
     # SELL / resistance warnings
