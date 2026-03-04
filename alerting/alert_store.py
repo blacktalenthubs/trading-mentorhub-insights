@@ -36,7 +36,7 @@ def was_alert_fired(
     with get_db() as conn:
         if user_id is not None:
             row = conn.execute(
-                "SELECT 1 FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? AND user_id=?",
+                "SELECT 1 FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? AND (user_id=? OR user_id IS NULL)",
                 (symbol, alert_type, session, user_id),
             ).fetchone()
         else:
@@ -151,7 +151,7 @@ def get_alert_id(
     with get_db() as conn:
         if user_id is not None:
             row = conn.execute(
-                "SELECT id FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? AND user_id=? LIMIT 1",
+                "SELECT id FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? AND (user_id=? OR user_id IS NULL) LIMIT 1",
                 (symbol, alert_type, session, user_id),
             ).fetchone()
         else:
@@ -165,13 +165,14 @@ def get_alert_id(
 def get_alerts_today(session_date: str | None = None, user_id: int | None = None):
     """Get all alerts fired today as a list of dicts.
 
-    If *user_id* is provided, only returns alerts for that user.
+    If *user_id* is provided, returns alerts for that user plus legacy
+    alerts with NULL user_id.
     """
     session = session_date or today_session()
     with get_db() as conn:
         if user_id is not None:
             rows = conn.execute(
-                "SELECT * FROM alerts WHERE session_date=? AND user_id=? ORDER BY created_at DESC",
+                "SELECT * FROM alerts WHERE session_date=? AND (user_id=? OR user_id IS NULL) ORDER BY created_at DESC",
                 (session, user_id),
             ).fetchall()
         else:
@@ -185,12 +186,13 @@ def get_alerts_today(session_date: str | None = None, user_id: int | None = None
 def get_alerts_history(limit: int = 100, user_id: int | None = None):
     """Get recent alert history across all sessions.
 
-    If *user_id* is provided, only returns alerts for that user.
+    If *user_id* is provided, returns alerts for that user plus legacy
+    alerts with NULL user_id.
     """
     with get_db() as conn:
         if user_id is not None:
             rows = conn.execute(
-                "SELECT * FROM alerts WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM alerts WHERE (user_id=? OR user_id IS NULL) ORDER BY created_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
         else:
