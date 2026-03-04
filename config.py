@@ -7,6 +7,24 @@ from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "trades.db")
 
+# Turso embedded replica — when set, db.py uses libsql with remote sync
+# instead of plain sqlite3.  Falls back to local SQLite when not configured.
+
+def _get_config(key: str, default: str = "") -> str:
+    """Read from env vars first, then Streamlit secrets (Cloud)."""
+    val = os.environ.get(key, "")
+    if val:
+        return val
+    try:
+        import streamlit as st
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
+TURSO_DATABASE_URL = _get_config("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = _get_config("TURSO_AUTH_TOKEN")
+
 # Default admin credentials (for data migration — set via env vars or use defaults)
 DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@tradesignal.local")
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme123")

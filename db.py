@@ -1,4 +1,11 @@
-"""SQLite database schema and CRUD operations."""
+"""SQLite database schema and CRUD operations.
+
+Supports two backends:
+- **Plain SQLite** (default): local ``data/trades.db`` via ``sqlite3``.
+- **Turso embedded replica**: when ``TURSO_DATABASE_URL`` and
+  ``TURSO_AUTH_TOKEN`` are set, uses ``libsql_experimental`` with a local
+  cache file and remote sync for durable cloud storage.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +15,38 @@ from typing import Optional
 
 import pandas as pd
 
-from config import DB_PATH
+from config import DB_PATH, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
 
-def get_connection() -> sqlite3.Connection:
+def _is_turso() -> bool:
+    """Return True when Turso credentials are configured."""
+    return bool(TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
+
+
+def _dict_row_factory(cursor, row):
+    """Row factory that returns dicts — works with both sqlite3 and libsql."""
+    cols = [d[0] for d in cursor.description]
+    return dict(zip(cols, row))
+
+
+def get_connection():
+    """Return a DB connection.
+
+    When Turso is configured, uses libsql embedded replica (local cache +
+    remote sync).  Otherwise falls back to plain sqlite3.
+    """
+    if _is_turso():
+        import libsql_experimental as libsql  # type: ignore[import-untyped]
+
+        conn = libsql.connect(
+            "data/local.db",
+            sync_url=TURSO_DATABASE_URL,
+            auth_token=TURSO_AUTH_TOKEN,
+        )
+        conn.sync()
+        return conn
+
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -20,9 +54,74 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+class _DictCursorWrapper:
+    """Thin wrapper that converts row tuples to dicts using cursor.description.
+
+    libsql does not support ``row_factory``; this wrapper is used inside
+    ``get_db()`` so that **all** downstream code can use ``row["col"]``
+    regardless of backend.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    # -- proxied attributes ---------------------------------------------------
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def execute(self, sql, params=()):
+        cursor = self._conn.execute(sql, params)
+        return _WrappedCursor(cursor)
+
+    def executemany(self, sql, seq_of_params):
+        return self._conn.executemany(sql, seq_of_params)
+
+    def commit(self):
+        self._conn.commit()
+        if _is_turso():
+            self._conn.sync()
+
+    def close(self):
+        self._conn.close()
+
+
+class _WrappedCursor:
+    """Cursor wrapper that returns dict rows via fetchone/fetchall."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    # -- proxied attributes ---------------------------------------------------
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        if isinstance(row, dict):
+            return row  # already dict (sqlite3.Row or libsql dict)
+        if hasattr(row, "keys"):
+            return dict(row)  # sqlite3.Row
+        return dict(zip([d[0] for d in self._cursor.description], row))
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        if not rows:
+            return rows
+        sample = rows[0]
+        if isinstance(sample, dict):
+            return rows
+        if hasattr(sample, "keys"):
+            return [dict(r) for r in rows]
+        cols = [d[0] for d in self._cursor.description]
+        return [dict(zip(cols, r)) for r in rows]
+
+
 @contextmanager
 def get_db():
-    conn = get_connection()
+    raw_conn = get_connection()
+    conn = _DictCursorWrapper(raw_conn) if _is_turso() else raw_conn
     try:
         yield conn
         conn.commit()
@@ -30,294 +129,284 @@ def get_db():
         conn.close()
 
 
+def _exec_schema(conn):
+    """Execute all CREATE TABLE / CREATE INDEX statements individually.
+
+    Uses ``conn.execute()`` instead of ``conn.executescript()`` because
+    the libsql Python SDK does not support ``executescript``.
+    """
+    stmts = [
+        """CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            display_name TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS imports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER REFERENCES users(id),
+            filename TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            period TEXT NOT NULL,
+            records_imported INTEGER DEFAULT 0,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(filename, file_type)
+        )""",
+        """CREATE TABLE IF NOT EXISTS trades_1099 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id INTEGER REFERENCES imports(id),
+            user_id INTEGER REFERENCES users(id),
+            account TEXT NOT NULL,
+            description TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            cusip TEXT,
+            date_sold TEXT NOT NULL,
+            date_acquired TEXT,
+            date_acquired_raw TEXT,
+            quantity REAL NOT NULL,
+            proceeds REAL NOT NULL,
+            cost_basis REAL NOT NULL,
+            wash_sale_disallowed REAL DEFAULT 0,
+            gain_loss REAL NOT NULL,
+            term TEXT NOT NULL,
+            covered INTEGER NOT NULL,
+            form_type TEXT NOT NULL,
+            trade_type TEXT,
+            asset_type TEXT,
+            category TEXT,
+            holding_days INTEGER,
+            holding_period_type TEXT,
+            underlying_symbol TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS trades_monthly (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id INTEGER REFERENCES imports(id),
+            user_id INTEGER REFERENCES users(id),
+            account TEXT NOT NULL,
+            description TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            cusip TEXT,
+            acct_type TEXT,
+            transaction_type TEXT NOT NULL,
+            trade_date TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            price REAL NOT NULL,
+            amount REAL NOT NULL,
+            is_option INTEGER DEFAULT 0,
+            option_detail TEXT,
+            is_recurring INTEGER DEFAULT 0,
+            asset_type TEXT,
+            category TEXT,
+            underlying_symbol TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS matched_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER REFERENCES users(id),
+            account TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            buy_date TEXT NOT NULL,
+            sell_date TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            buy_price REAL NOT NULL,
+            sell_price REAL NOT NULL,
+            buy_amount REAL NOT NULL,
+            sell_amount REAL NOT NULL,
+            realized_pnl REAL NOT NULL,
+            holding_days INTEGER NOT NULL,
+            asset_type TEXT,
+            category TEXT,
+            holding_period_type TEXT,
+            underlying_symbol TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS account_summaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id INTEGER REFERENCES imports(id),
+            user_id INTEGER REFERENCES users(id),
+            account TEXT NOT NULL,
+            period_start TEXT NOT NULL,
+            period_end TEXT NOT NULL,
+            opening_balance REAL NOT NULL,
+            closing_balance REAL NOT NULL,
+            UNIQUE(account, period_start, period_end)
+        )""",
+        """CREATE TABLE IF NOT EXISTS trade_annotations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER REFERENCES users(id),
+            source TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            trade_date TEXT NOT NULL,
+            quantity REAL,
+            strategy_tag TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source, symbol, trade_date, quantity)
+        )""",
+        """CREATE TABLE IF NOT EXISTS session_tokens (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            alert_type TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            price REAL NOT NULL,
+            entry REAL,
+            stop REAL,
+            target_1 REAL,
+            target_2 REAL,
+            confidence TEXT,
+            message TEXT,
+            narrative TEXT DEFAULT '',
+            score INTEGER DEFAULT 0,
+            notified_email INTEGER DEFAULT 0,
+            notified_sms INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            session_date TEXT NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS active_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            entry_price REAL,
+            stop_price REAL,
+            target_1 REAL,
+            target_2 REAL,
+            alert_type TEXT,
+            session_date TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, session_date, alert_type)
+        )""",
+        """CREATE TABLE IF NOT EXISTS cooldowns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            cooldown_until TEXT NOT NULL,
+            reason TEXT,
+            session_date TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, session_date)
+        )""",
+        """CREATE TABLE IF NOT EXISTS monitor_status (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_poll_at TIMESTAMP,
+            symbols_checked INTEGER DEFAULT 0,
+            alerts_fired INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'idle'
+        )""",
+        """CREATE TABLE IF NOT EXISTS paper_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL DEFAULT 'BUY',
+            shares INTEGER NOT NULL,
+            entry_price REAL,
+            exit_price REAL,
+            stop_price REAL,
+            target_price REAL,
+            pnl REAL,
+            status TEXT NOT NULL DEFAULT 'open',
+            alert_type TEXT,
+            alert_id INTEGER,
+            alpaca_order_id TEXT,
+            alpaca_close_order_id TEXT,
+            session_date TEXT NOT NULL,
+            opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol ON paper_trades(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status)",
+        "CREATE INDEX IF NOT EXISTS idx_paper_trades_session ON paper_trades(session_date)",
+        """CREATE TABLE IF NOT EXISTS real_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL DEFAULT 'BUY',
+            shares INTEGER NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL,
+            stop_price REAL,
+            target_price REAL,
+            target_2_price REAL,
+            pnl REAL,
+            status TEXT NOT NULL DEFAULT 'open',
+            alert_type TEXT,
+            alert_id INTEGER,
+            notes TEXT DEFAULT '',
+            session_date TEXT NOT NULL,
+            opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_real_trades_symbol ON real_trades(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_real_trades_status ON real_trades(status)",
+        "CREATE INDEX IF NOT EXISTS idx_real_trades_session ON real_trades(session_date)",
+        "CREATE INDEX IF NOT EXISTS idx_trades_1099_symbol ON trades_1099(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_trades_1099_account ON trades_1099(account)",
+        "CREATE INDEX IF NOT EXISTS idx_trades_1099_date_sold ON trades_1099(date_sold)",
+        "CREATE INDEX IF NOT EXISTS idx_trades_monthly_symbol ON trades_monthly(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_trades_monthly_date ON trades_monthly(trade_date)",
+        "CREATE INDEX IF NOT EXISTS idx_matched_trades_symbol ON matched_trades(symbol)",
+        """CREATE INDEX IF NOT EXISTS idx_trade_annotations_lookup
+            ON trade_annotations(source, symbol, trade_date)""",
+        "CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_alerts_session ON alerts(session_date)",
+        "CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(alert_type, session_date)",
+        """CREATE INDEX IF NOT EXISTS idx_active_entries_symbol
+            ON active_entries(symbol, session_date)""",
+        """CREATE TABLE IF NOT EXISTS daily_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            session_date TEXT NOT NULL,
+            support REAL,
+            support_label TEXT,
+            support_status TEXT,
+            entry REAL,
+            stop REAL,
+            target_1 REAL,
+            target_2 REAL,
+            score INTEGER DEFAULT 0,
+            score_label TEXT DEFAULT '',
+            pattern TEXT DEFAULT 'normal',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(symbol, session_date)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_daily_plans_session ON daily_plans(session_date)",
+        """CREATE TABLE IF NOT EXISTS chart_levels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            price REAL NOT NULL,
+            label TEXT DEFAULT '',
+            color TEXT DEFAULT '#3498db',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_chart_levels_symbol ON chart_levels(symbol)",
+        """CREATE TABLE IF NOT EXISTS watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER REFERENCES users(id),
+            symbol TEXT NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, symbol)
+        )""",
+        """CREATE TABLE IF NOT EXISTS user_notification_prefs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+            telegram_chat_id TEXT DEFAULT '',
+            notification_email TEXT DEFAULT '',
+            telegram_enabled INTEGER DEFAULT 1,
+            email_enabled INTEGER DEFAULT 1,
+            anthropic_api_key TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+    ]
+    for stmt in stmts:
+        conn.execute(stmt)
+
+
 def init_db():
     """Create all tables if they don't exist, then run migrations."""
     with get_db() as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                display_name TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS imports (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER REFERENCES users(id),
-                filename TEXT NOT NULL,
-                file_type TEXT NOT NULL,
-                period TEXT NOT NULL,
-                records_imported INTEGER DEFAULT 0,
-                imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(filename, file_type)
-            );
-
-            CREATE TABLE IF NOT EXISTS trades_1099 (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                import_id INTEGER REFERENCES imports(id),
-                user_id INTEGER REFERENCES users(id),
-                account TEXT NOT NULL,
-                description TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                cusip TEXT,
-                date_sold TEXT NOT NULL,
-                date_acquired TEXT,
-                date_acquired_raw TEXT,
-                quantity REAL NOT NULL,
-                proceeds REAL NOT NULL,
-                cost_basis REAL NOT NULL,
-                wash_sale_disallowed REAL DEFAULT 0,
-                gain_loss REAL NOT NULL,
-                term TEXT NOT NULL,
-                covered INTEGER NOT NULL,
-                form_type TEXT NOT NULL,
-                trade_type TEXT,
-                asset_type TEXT,
-                category TEXT,
-                holding_days INTEGER,
-                holding_period_type TEXT,
-                underlying_symbol TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS trades_monthly (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                import_id INTEGER REFERENCES imports(id),
-                user_id INTEGER REFERENCES users(id),
-                account TEXT NOT NULL,
-                description TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                cusip TEXT,
-                acct_type TEXT,
-                transaction_type TEXT NOT NULL,
-                trade_date TEXT NOT NULL,
-                quantity REAL NOT NULL,
-                price REAL NOT NULL,
-                amount REAL NOT NULL,
-                is_option INTEGER DEFAULT 0,
-                option_detail TEXT,
-                is_recurring INTEGER DEFAULT 0,
-                asset_type TEXT,
-                category TEXT,
-                underlying_symbol TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS matched_trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER REFERENCES users(id),
-                account TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                buy_date TEXT NOT NULL,
-                sell_date TEXT NOT NULL,
-                quantity REAL NOT NULL,
-                buy_price REAL NOT NULL,
-                sell_price REAL NOT NULL,
-                buy_amount REAL NOT NULL,
-                sell_amount REAL NOT NULL,
-                realized_pnl REAL NOT NULL,
-                holding_days INTEGER NOT NULL,
-                asset_type TEXT,
-                category TEXT,
-                holding_period_type TEXT,
-                underlying_symbol TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS account_summaries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                import_id INTEGER REFERENCES imports(id),
-                user_id INTEGER REFERENCES users(id),
-                account TEXT NOT NULL,
-                period_start TEXT NOT NULL,
-                period_end TEXT NOT NULL,
-                opening_balance REAL NOT NULL,
-                closing_balance REAL NOT NULL,
-                UNIQUE(account, period_start, period_end)
-            );
-
-            CREATE TABLE IF NOT EXISTS trade_annotations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER REFERENCES users(id),
-                source TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                trade_date TEXT NOT NULL,
-                quantity REAL,
-                strategy_tag TEXT,
-                notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(source, symbol, trade_date, quantity)
-            );
-
-            CREATE TABLE IF NOT EXISTS session_tokens (
-                token TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS alerts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                alert_type TEXT NOT NULL,
-                direction TEXT NOT NULL,
-                price REAL NOT NULL,
-                entry REAL,
-                stop REAL,
-                target_1 REAL,
-                target_2 REAL,
-                confidence TEXT,
-                message TEXT,
-                narrative TEXT DEFAULT '',
-                score INTEGER DEFAULT 0,
-                notified_email INTEGER DEFAULT 0,
-                notified_sms INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                session_date TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS active_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                entry_price REAL,
-                stop_price REAL,
-                target_1 REAL,
-                target_2 REAL,
-                alert_type TEXT,
-                session_date TEXT,
-                status TEXT DEFAULT 'active',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(symbol, session_date, alert_type)
-            );
-
-            CREATE TABLE IF NOT EXISTS cooldowns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                cooldown_until TEXT NOT NULL,
-                reason TEXT,
-                session_date TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(symbol, session_date)
-            );
-
-            CREATE TABLE IF NOT EXISTS monitor_status (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                last_poll_at TIMESTAMP,
-                symbols_checked INTEGER DEFAULT 0,
-                alerts_fired INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'idle'
-            );
-
-            CREATE TABLE IF NOT EXISTS paper_trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                direction TEXT NOT NULL DEFAULT 'BUY',
-                shares INTEGER NOT NULL,
-                entry_price REAL,
-                exit_price REAL,
-                stop_price REAL,
-                target_price REAL,
-                pnl REAL,
-                status TEXT NOT NULL DEFAULT 'open',
-                alert_type TEXT,
-                alert_id INTEGER,
-                alpaca_order_id TEXT,
-                alpaca_close_order_id TEXT,
-                session_date TEXT NOT NULL,
-                opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                closed_at TIMESTAMP
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol ON paper_trades(symbol);
-            CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
-            CREATE INDEX IF NOT EXISTS idx_paper_trades_session ON paper_trades(session_date);
-
-            CREATE TABLE IF NOT EXISTS real_trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                direction TEXT NOT NULL DEFAULT 'BUY',
-                shares INTEGER NOT NULL,
-                entry_price REAL NOT NULL,
-                exit_price REAL,
-                stop_price REAL,
-                target_price REAL,
-                target_2_price REAL,
-                pnl REAL,
-                status TEXT NOT NULL DEFAULT 'open',
-                alert_type TEXT,
-                alert_id INTEGER,
-                notes TEXT DEFAULT '',
-                session_date TEXT NOT NULL,
-                opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                closed_at TIMESTAMP
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_real_trades_symbol ON real_trades(symbol);
-            CREATE INDEX IF NOT EXISTS idx_real_trades_status ON real_trades(status);
-            CREATE INDEX IF NOT EXISTS idx_real_trades_session ON real_trades(session_date);
-
-            CREATE INDEX IF NOT EXISTS idx_trades_1099_symbol ON trades_1099(symbol);
-            CREATE INDEX IF NOT EXISTS idx_trades_1099_account ON trades_1099(account);
-            CREATE INDEX IF NOT EXISTS idx_trades_1099_date_sold ON trades_1099(date_sold);
-            CREATE INDEX IF NOT EXISTS idx_trades_monthly_symbol ON trades_monthly(symbol);
-            CREATE INDEX IF NOT EXISTS idx_trades_monthly_date ON trades_monthly(trade_date);
-            CREATE INDEX IF NOT EXISTS idx_matched_trades_symbol ON matched_trades(symbol);
-            CREATE INDEX IF NOT EXISTS idx_trade_annotations_lookup
-                ON trade_annotations(source, symbol, trade_date);
-            CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol);
-            CREATE INDEX IF NOT EXISTS idx_alerts_session ON alerts(session_date);
-            CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(alert_type, session_date);
-            CREATE INDEX IF NOT EXISTS idx_active_entries_symbol
-                ON active_entries(symbol, session_date);
-
-            CREATE TABLE IF NOT EXISTS daily_plans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                session_date TEXT NOT NULL,
-                support REAL,
-                support_label TEXT,
-                support_status TEXT,
-                entry REAL,
-                stop REAL,
-                target_1 REAL,
-                target_2 REAL,
-                score INTEGER DEFAULT 0,
-                score_label TEXT DEFAULT '',
-                pattern TEXT DEFAULT 'normal',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(symbol, session_date)
-            );
-            CREATE INDEX IF NOT EXISTS idx_daily_plans_session
-                ON daily_plans(session_date);
-
-            CREATE TABLE IF NOT EXISTS chart_levels (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                price REAL NOT NULL,
-                label TEXT DEFAULT '',
-                color TEXT DEFAULT '#3498db',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_chart_levels_symbol ON chart_levels(symbol);
-
-            CREATE TABLE IF NOT EXISTS watchlist (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER REFERENCES users(id),
-                symbol TEXT NOT NULL,
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_id, symbol)
-            );
-
-            CREATE TABLE IF NOT EXISTS user_notification_prefs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
-                telegram_chat_id TEXT DEFAULT '',
-                notification_email TEXT DEFAULT '',
-                telegram_enabled INTEGER DEFAULT 1,
-                email_enabled INTEGER DEFAULT 1,
-                anthropic_api_key TEXT DEFAULT '',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
+        _exec_schema(conn)
     _migrate_add_user_id()
     _migrate_add_alert_score()
     _migrate_watchlist_user_id()
@@ -341,7 +430,7 @@ def _migrate_add_user_id():
                 conn.execute(
                     f"ALTER TABLE {table} ADD COLUMN user_id INTEGER REFERENCES users(id)"
                 )
-            except sqlite3.OperationalError:
+            except Exception:
                 pass  # Column already exists
 
         # Create user_id indexes for query performance
@@ -417,19 +506,21 @@ def _migrate_watchlist_user_id():
             needs_rebuild = "UNIQUE(USER_ID,SYMBOL)" not in ddl_norm
 
         if needs_rebuild:
-            conn.executescript("""
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS watchlist_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER REFERENCES users(id),
                     symbol TEXT NOT NULL,
                     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(user_id, symbol)
-                );
-                INSERT OR IGNORE INTO watchlist_new (user_id, symbol, added_at)
-                    SELECT user_id, symbol, added_at FROM watchlist;
-                DROP TABLE watchlist;
-                ALTER TABLE watchlist_new RENAME TO watchlist;
+                )
             """)
+            conn.execute("""
+                INSERT OR IGNORE INTO watchlist_new (user_id, symbol, added_at)
+                    SELECT user_id, symbol, added_at FROM watchlist
+            """)
+            conn.execute("DROP TABLE watchlist")
+            conn.execute("ALTER TABLE watchlist_new RENAME TO watchlist")
 
 
 def _migrate_add_narrative():
