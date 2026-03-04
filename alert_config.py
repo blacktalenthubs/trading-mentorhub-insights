@@ -64,11 +64,11 @@ MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
 PDL_DIP_MIN_PCT = 0.001  # 0.1%
 
 # Resistance at Prior High: proximity threshold
-RESISTANCE_PROXIMITY_PCT = 0.002  # 0.2%
+RESISTANCE_PROXIMITY_PCT = 0.003  # 0.3% — symmetric with support bounce
 
 # Hourly Resistance Detection
 HOURLY_RESISTANCE_CLUSTER_PCT = 0.003   # 0.3% — merge swing highs within this distance
-HOURLY_RESISTANCE_APPROACH_PCT = 0.002  # 0.2% — same as RESISTANCE_PROXIMITY_PCT
+HOURLY_RESISTANCE_APPROACH_PCT = 0.003  # 0.3% — symmetric with RESISTANCE_PROXIMITY_PCT
 
 # Support Breakdown: volume must be >= this multiple of average
 BREAKDOWN_VOLUME_RATIO = 1.5
@@ -90,6 +90,12 @@ COOLDOWN_MINUTES = 30
 
 # Intraday Support Bounce: bar low must be within this % of support
 SUPPORT_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3%
+
+# Support Bounce Lookback: scan last N bars for a touch (30 min at 5-min bars)
+SUPPORT_BOUNCE_LOOKBACK_BARS = 6
+
+# Support Bounce Max Distance: don't fire if price ran >1% above support
+SUPPORT_BOUNCE_MAX_DISTANCE_PCT = 0.010  # 1.0%
 
 # Opening Range Breakout: minimum OR range as % of price
 ORB_MIN_RANGE_PCT = 0.003  # 0.3%
@@ -174,6 +180,13 @@ OVERHEAD_MA_RESISTANCE_PCT = 0.005  # 0.5%
 # MA Confluence: MA within this % of entry = confluence with horizontal level
 CONFLUENCE_BAND_PCT = 0.005  # 0.5%
 
+# VWAP Reclaim: morning reversal pattern — session low in first hour, reclaims VWAP
+VWAP_RECLAIM_MORNING_BARS = 12          # low must be in first 60 min (12 × 5-min bars)
+VWAP_RECLAIM_MIN_RECOVERY_PCT = 0.005   # 0.5% minimum bounce from session low
+VWAP_RECLAIM_VOLUME_RATIO = 1.2         # volume confirmation threshold
+VWAP_RECLAIM_MIN_BARS_AFTER_LOW = 3     # 15 min after low before firing
+VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
+
 # Minimum target distance: T1 must be at least this % above entry
 MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
 
@@ -194,6 +207,7 @@ ENABLED_RULES: set[str] = {
     "planned_level_touch",
     "weekly_level_touch",
     "intraday_support_bounce",
+    "vwap_reclaim",
     # BUY — breakout / momentum
     "prior_day_high_breakout",
     "outside_day_breakout",

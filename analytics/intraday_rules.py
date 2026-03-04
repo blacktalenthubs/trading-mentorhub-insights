@@ -65,7 +65,14 @@ from alert_config import (
     SESSION_LOW_PROXIMITY_PCT,
     SESSION_LOW_RECOVERY_PCT,
     SESSION_LOW_STOP_OFFSET_PCT,
+    SUPPORT_BOUNCE_LOOKBACK_BARS,
+    SUPPORT_BOUNCE_MAX_DISTANCE_PCT,
     SUPPORT_BOUNCE_PROXIMITY_PCT,
+    VWAP_RECLAIM_MIN_BARS_AFTER_LOW,
+    VWAP_RECLAIM_MIN_RECOVERY_PCT,
+    VWAP_RECLAIM_MORNING_BARS,
+    VWAP_RECLAIM_STOP_OFFSET_PCT,
+    VWAP_RECLAIM_VOLUME_RATIO,
 )
 from analytics.market_hours import get_session_phase, allow_new_entries
 
@@ -96,6 +103,7 @@ class AlertType(str, Enum):
     MA_RESISTANCE = "ma_resistance"
     OUTSIDE_DAY_BREAKOUT = "outside_day_breakout"
     RESISTANCE_PRIOR_LOW = "resistance_prior_low"
+    VWAP_RECLAIM = "vwap_reclaim"
 
 
 @dataclass
@@ -1014,37 +1022,47 @@ def check_orb_breakdown(
 
 def check_intraday_support_bounce(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     intraday_supports: list[dict],
     bar_volume: float,
     avg_volume: float,
 ) -> AlertSignal | None:
     """Price bounces off a held intraday support level — bullish entry.
 
-    Conditions:
-    - At least one intraday support exists
-    - Bar low is within SUPPORT_BOUNCE_PROXIMITY_PCT of a support level
-    - Bar close > support (bounce confirmed)
-    - Volume >= LOW_VOLUME_SKIP_RATIO (not noise)
+    Scans the last SUPPORT_BOUNCE_LOOKBACK_BARS bars (default 6 = 30 min) for
+    a support touch rather than only checking the last bar.  This catches
+    bounces that started 2-3 bars ago and are already 1% above support by
+    the time the current bar closes.
 
-    Accepts list[dict] with keys: level, touch_count, hold_hours, strength.
+    Guard: if price has already run more than SUPPORT_BOUNCE_MAX_DISTANCE_PCT
+    above the support, the signal is stale and we skip it.
+
+    Accepts ``bars`` as a DataFrame (last N 5-min bars) and
+    ``intraday_supports`` as list[dict] with keys: level, touch_count,
+    hold_hours, strength.
     """
-    if not intraday_supports:
+    if bars.empty or not intraday_supports:
         return None
 
     vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
     if vol_ratio < LOW_VOLUME_SKIP_RATIO:
         return None
 
-    # Find closest support at or below bar low within proximity threshold
+    lookback = bars.tail(SUPPORT_BOUNCE_LOOKBACK_BARS)
+    last_bar = bars.iloc[-1]
+
+    # Scan lookback window for the best support touch (includes wick-through)
     best = None
+    touch_bar_low = None
     for sup in sorted(intraday_supports, key=lambda s: s["level"], reverse=True):
         lvl = sup["level"]
-        if lvl > bar["Low"]:
-            continue
-        proximity = (bar["Low"] - lvl) / lvl if lvl > 0 else float("inf")
-        if proximity <= SUPPORT_BOUNCE_PROXIMITY_PCT:
-            best = sup
+        for _, row in lookback.iterrows():
+            proximity = abs(row["Low"] - lvl) / lvl if lvl > 0 else float("inf")
+            if proximity <= SUPPORT_BOUNCE_PROXIMITY_PCT:
+                best = sup
+                touch_bar_low = row["Low"]
+                break
+        if best is not None:
             break
 
     if best is None:
@@ -1054,11 +1072,17 @@ def check_intraday_support_bounce(
     touch_count = best.get("touch_count", 1)
     strength = best.get("strength", "weak")
 
-    if bar["Close"] <= best_support:
-        return None  # didn't bounce above
+    # Last bar must close above support (bounce confirmed)
+    if last_bar["Close"] <= best_support:
+        return None
+
+    # Max-distance guard: don't fire if price already ran too far above support
+    distance = (last_bar["Close"] - best_support) / best_support if best_support > 0 else 0
+    if distance > SUPPORT_BOUNCE_MAX_DISTANCE_PCT:
+        return None
 
     entry = best_support
-    stop = bar["Low"] if bar["Low"] < best_support else best_support * (1 - 0.005)
+    stop = touch_bar_low if touch_bar_low < best_support else best_support * (1 - 0.005)
     risk = entry - stop
     if risk <= 0:
         return None
@@ -1069,7 +1093,7 @@ def check_intraday_support_bounce(
         symbol=symbol,
         alert_type=AlertType.INTRADAY_SUPPORT_BOUNCE,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
         target_1=round(entry + risk, 2),
@@ -1078,6 +1102,97 @@ def check_intraday_support_bounce(
         message=(
             f"Intraday support bounce at ${best_support:.2f} "
             f"(tested {touch_count}x, {strength})"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule: VWAP Reclaim (Morning Reversal BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_vwap_reclaim(
+    symbol: str,
+    bars: pd.DataFrame,
+    vwap_series: pd.Series,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """V-shape morning reversal through VWAP — high-conviction BUY.
+
+    Pattern: session low set in first hour → price recovers → reclaims VWAP
+    on above-average volume.
+
+    Conditions:
+    1. Session low is in first VWAP_RECLAIM_MORNING_BARS bars (first 60 min)
+    2. At least VWAP_RECLAIM_MIN_BARS_AFTER_LOW bars since session low
+    3. Last bar closes above VWAP
+    4. Recovery from session low >= VWAP_RECLAIM_MIN_RECOVERY_PCT
+    5. Volume >= VWAP_RECLAIM_VOLUME_RATIO × avg
+    """
+    if bars.empty or vwap_series.empty:
+        return None
+    if len(bars) < VWAP_RECLAIM_MIN_BARS_AFTER_LOW + 1:
+        return None
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 0.0
+    if vol_ratio < VWAP_RECLAIM_VOLUME_RATIO:
+        return None
+
+    # Session low must be in the morning window
+    morning = bars.iloc[:VWAP_RECLAIM_MORNING_BARS]
+    if morning.empty:
+        return None
+    morning_low = morning["Low"].min()
+    session_low = bars["Low"].min()
+    if morning_low > session_low:
+        return None  # session low came after the morning window
+
+    # Find index of the session-low bar (first occurrence in morning)
+    low_idx = morning["Low"].idxmin()
+    low_pos = bars.index.get_loc(low_idx)
+
+    # Must have enough bars after the low
+    bars_after_low = len(bars) - 1 - low_pos
+    if bars_after_low < VWAP_RECLAIM_MIN_BARS_AFTER_LOW:
+        return None
+
+    last_bar = bars.iloc[-1]
+    current_vwap = vwap_series.iloc[-1]
+    if current_vwap <= 0:
+        return None
+
+    # Last bar must close above VWAP
+    if last_bar["Close"] <= current_vwap:
+        return None
+
+    # Recovery must be meaningful
+    recovery_pct = (last_bar["Close"] - session_low) / session_low if session_low > 0 else 0
+    if recovery_pct < VWAP_RECLAIM_MIN_RECOVERY_PCT:
+        return None
+
+    entry = round(current_vwap, 2)
+    stop = round(session_low * (1 - VWAP_RECLAIM_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    confidence = "high" if vol_ratio >= 1.5 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.VWAP_RECLAIM,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=confidence,
+        message=(
+            f"VWAP reclaim — morning low ${session_low:.2f}, "
+            f"recovered {recovery_pct:.1%} through VWAP ${current_vwap:.2f} "
+            f"(vol {vol_ratio:.1f}x)"
         ),
     )
 
@@ -2021,7 +2136,7 @@ def evaluate_rules(
         # --- Intraday Support Bounce ---
         if AlertType.INTRADAY_SUPPORT_BOUNCE.value in ENABLED_RULES:
             sig = check_intraday_support_bounce(
-                symbol, last_bar, intraday_supports, bar_vol, avg_vol,
+                symbol, intraday_bars, intraday_supports, bar_vol, avg_vol,
             )
             if sig:
                 sig.message += f" ({phase})"
@@ -2047,6 +2162,16 @@ def evaluate_rules(
                 sig.message += f" | SPY double-bottom at ${spy_low:.2f}"
             sig.message += caution_suffix
             signals.append(sig)
+
+        # --- VWAP Reclaim (Morning Reversal) ---
+        if AlertType.VWAP_RECLAIM.value in ENABLED_RULES:
+            sig = check_vwap_reclaim(
+                symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
 
         # --- Planned Level Touch (uses daily plan from DB) ---
         if daily_plan is not None:

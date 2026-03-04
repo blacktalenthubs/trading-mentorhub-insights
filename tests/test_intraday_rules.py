@@ -33,6 +33,7 @@ from analytics.intraday_rules import (
     check_weekly_level_touch,
     check_resistance_prior_high,
     check_resistance_prior_low,
+    check_vwap_reclaim,
     check_session_low_retest,
     check_stop_loss_hit,
     check_support_breakdown,
@@ -1272,15 +1273,22 @@ class TestPerSymbolRisk:
 # ===== Rule 13: Intraday Support Bounce =====
 
 class TestIntradaySupportBounce:
+    @staticmethod
+    def _bounce_bars(rows: list[dict]) -> pd.DataFrame:
+        """Wrap OHLCV rows into a DataFrame for support bounce tests."""
+        return pd.DataFrame(rows)
+
     def test_fires_on_bounce_off_support(self):
-        """Bar low at support, closes above → BUY with entry=support."""
+        """Last bar low at support, closes above → BUY with entry=support."""
         # Support at 648.00, bar low touches 648.10 (within 0.3%), closes at 649.50
-        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
+        bars = self._bounce_bars([
+            {"Open": 648.50, "High": 650.00, "Low": 648.10, "Close": 649.50, "Volume": 1000},
+        ])
         supports = [
             {"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
             {"level": 645.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
         ]
-        sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
         assert sig is not None
         assert sig.alert_type == AlertType.INTRADAY_SUPPORT_BOUNCE
         assert sig.direction == "BUY"
@@ -1290,16 +1298,71 @@ class TestIntradaySupportBounce:
 
     def test_no_fire_when_no_supports(self):
         """Empty supports list → None."""
-        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
-        sig = check_intraday_support_bounce("META", bar, [], 1000, 1000)
+        bars = self._bounce_bars([
+            {"Open": 648.50, "High": 650.00, "Low": 648.10, "Close": 649.50, "Volume": 1000},
+        ])
+        sig = check_intraday_support_bounce("META", bars, [], 1000, 1000)
         assert sig is None
 
     def test_no_fire_when_close_below_support(self):
         """Bar closes at/below support → None (no bounce)."""
-        bar = _bar(open_=648.50, high=649.00, low=647.80, close=647.90, volume=1000)
+        bars = self._bounce_bars([
+            {"Open": 648.50, "High": 649.00, "Low": 647.80, "Close": 647.90, "Volume": 1000},
+        ])
         supports = [{"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"}]
-        sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
         assert sig is None
+
+    def test_fires_on_delayed_bounce_3_bars_ago(self):
+        """Touch 3 bars back within lookback window, current above support → fires."""
+        bars = self._bounce_bars([
+            {"Open": 651.00, "High": 652.00, "Low": 651.00, "Close": 651.50, "Volume": 1000},
+            {"Open": 649.00, "High": 649.50, "Low": 647.80, "Close": 649.00, "Volume": 1000},  # touch (wick through)
+            {"Open": 649.20, "High": 650.00, "Low": 649.20, "Close": 649.80, "Volume": 1000},
+            {"Open": 650.00, "High": 651.00, "Low": 650.00, "Close": 650.50, "Volume": 1000},  # last
+        ])
+        supports = [{"level": 648.00, "touch_count": 2, "hold_hours": 1, "strength": "weak"}]
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
+        assert sig is not None
+        assert sig.entry == 648.00
+        assert sig.stop == 647.80  # touch bar's low (wick through support)
+
+    def test_no_fire_when_bounce_too_old(self):
+        """Touch 10 bars back (outside 6-bar lookback) → None."""
+        rows = []
+        # Bar 0: touch at support
+        rows.append({"Open": 649.00, "High": 649.50, "Low": 648.10, "Close": 649.00, "Volume": 1000})
+        # Bars 1-9: recovery well above support (Low=651 = 0.46% above, outside 0.3%)
+        for _ in range(9):
+            rows.append({"Open": 651.00, "High": 652.00, "Low": 651.00, "Close": 651.50, "Volume": 1000})
+        # Bar 10 (last): well above support
+        rows.append({"Open": 651.50, "High": 652.50, "Low": 651.00, "Close": 652.00, "Volume": 1000})
+        bars = self._bounce_bars(rows)
+        supports = [{"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"}]
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
+        assert sig is None
+
+    def test_no_fire_when_price_ran_too_far(self):
+        """Touch recent but price >1% above support → stale, no fire."""
+        # Support at 648.00, price at 655.60 = 1.17% above → exceeds 1% max distance
+        bars = self._bounce_bars([
+            {"Open": 649.00, "High": 649.50, "Low": 648.10, "Close": 649.00, "Volume": 1000},  # touch
+            {"Open": 652.00, "High": 656.00, "Low": 651.00, "Close": 655.60, "Volume": 1000},  # ran away
+        ])
+        supports = [{"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"}]
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
+        assert sig is None
+
+    def test_stop_uses_touch_bar_low(self):
+        """Stop should be set to the touch bar's low, not the last bar's low."""
+        bars = self._bounce_bars([
+            {"Open": 649.00, "High": 649.50, "Low": 647.50, "Close": 649.00, "Volume": 1000},  # touch bar low 647.50
+            {"Open": 649.20, "High": 650.50, "Low": 649.00, "Close": 650.00, "Volume": 1000},  # last bar
+        ])
+        supports = [{"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"}]
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
+        assert sig is not None
+        assert sig.stop == 647.50  # touch bar's low
 
     def test_spy_bounce_boosts_confidence(self):
         """Orchestrator: spy_bouncing=True → confidence='high', message includes SPY note."""
@@ -2499,28 +2562,32 @@ class TestSupportStrength:
 
     def test_bounce_rule_uses_strength_for_confidence(self):
         """Strong support → confidence='high', weak → 'medium'."""
-        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
+        bars = pd.DataFrame([
+            {"Open": 648.50, "High": 650.00, "Low": 648.10, "Close": 649.50, "Volume": 1000},
+        ])
         strong_support = [
             {"level": 648.00, "touch_count": 3, "hold_hours": 3, "strength": "strong"},
         ]
-        sig = check_intraday_support_bounce("META", bar, strong_support, 1000, 1000)
+        sig = check_intraday_support_bounce("META", bars, strong_support, 1000, 1000)
         assert sig is not None
         assert sig.confidence == "high"
 
         weak_support = [
             {"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
         ]
-        sig2 = check_intraday_support_bounce("META", bar, weak_support, 1000, 1000)
+        sig2 = check_intraday_support_bounce("META", bars, weak_support, 1000, 1000)
         assert sig2 is not None
         assert sig2.confidence == "medium"
 
     def test_bounce_message_includes_touch_count(self):
         """Message includes how many times the level was tested."""
-        bar = _bar(open_=648.50, high=650.00, low=648.10, close=649.50, volume=1000)
+        bars = pd.DataFrame([
+            {"Open": 648.50, "High": 650.00, "Low": 648.10, "Close": 649.50, "Volume": 1000},
+        ])
         supports = [
             {"level": 648.00, "touch_count": 3, "hold_hours": 2, "strength": "strong"},
         ]
-        sig = check_intraday_support_bounce("META", bar, supports, 1000, 1000)
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
         assert sig is not None
         assert "tested 3x" in sig.message
         assert "strong" in sig.message
@@ -3411,3 +3478,163 @@ class TestMaResistanceRoleFlip:
         )
         assert sig is not None
         assert "recently broken" not in sig.message
+
+
+# ===== Fix 1: Widened Resistance Proximity =====
+
+class TestResistanceProximityWidened:
+    def test_fires_at_0_28_percent_proximity(self):
+        """LRCX at 0.28% from prior high — was missed before, fires now with 0.3% threshold."""
+        # prior_high = 224.12, bar high = 224.12 * (1 - 0.0028) ≈ 223.49
+        prior_high = 224.12
+        bar_high = prior_high * (1 - 0.0028)  # 0.28% below
+        bar = _bar(high=bar_high)
+        sig = check_resistance_prior_high("LRCX", bar, prior_day_high=prior_high, has_active_entry=False)
+        assert sig is not None
+        assert sig.alert_type == AlertType.RESISTANCE_PRIOR_HIGH
+
+    def test_no_fire_at_0_35_percent(self):
+        """0.35% away — still outside the 0.3% threshold."""
+        prior_high = 224.12
+        bar_high = prior_high * (1 - 0.0035)  # 0.35% below
+        bar = _bar(high=bar_high)
+        sig = check_resistance_prior_high("LRCX", bar, prior_day_high=prior_high, has_active_entry=False)
+        assert sig is None
+
+
+# ===== Fix 3: VWAP Reclaim =====
+
+class TestVWAPReclaim:
+    @staticmethod
+    def _make_vwap_bars(
+        n_bars=20,
+        morning_low=98.0,
+        morning_low_bar=3,
+        last_close=101.0,
+        last_volume=1500,
+    ):
+        """Build synthetic bars with a morning low and recovery.
+
+        Returns (bars, vwap_series) ready for check_vwap_reclaim().
+        """
+        rows = []
+        for i in range(n_bars):
+            rows.append({
+                "Open": 100.0, "High": 101.0, "Low": 99.5,
+                "Close": 100.5, "Volume": 1000,
+            })
+        # Set morning low
+        rows[morning_low_bar] = {
+            "Open": 99.0, "High": 99.5, "Low": morning_low,
+            "Close": 99.0, "Volume": 1200,
+        }
+        # Recovery bars after low
+        for i in range(morning_low_bar + 1, n_bars):
+            rows[i] = {
+                "Open": 100.0, "High": 101.5, "Low": 99.8,
+                "Close": 100.5, "Volume": 1000,
+            }
+        # Last bar: close above VWAP with volume
+        rows[-1] = {
+            "Open": 100.5, "High": 101.5, "Low": 100.0,
+            "Close": last_close, "Volume": last_volume,
+        }
+        bars = pd.DataFrame(rows)
+        # Simple synthetic VWAP: constant at 100.0 (below last_close)
+        vwap = pd.Series([100.0] * n_bars)
+        return bars, vwap
+
+    def test_fires_on_classic_vwap_reclaim(self):
+        """Full pattern: morning low in first hour, recovery ≥0.5%, close above VWAP, vol ≥1.2x."""
+        bars, vwap = self._make_vwap_bars(
+            n_bars=20, morning_low=98.0, morning_low_bar=3,
+            last_close=101.0, last_volume=1500,
+        )
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.VWAP_RECLAIM
+        assert sig.direction == "BUY"
+        assert sig.entry == 100.0  # VWAP
+        assert "VWAP reclaim" in sig.message
+        assert "$98.00" in sig.message
+
+    def test_no_fire_when_low_too_late(self):
+        """Session low after first 12 bars (60 min) → None."""
+        bars, vwap = self._make_vwap_bars(
+            n_bars=20, morning_low=98.0, morning_low_bar=15,  # bar 15 > 12
+            last_close=101.0, last_volume=1500,
+        )
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_close_below_vwap(self):
+        """Last bar closes below VWAP → no reclaim."""
+        bars, vwap = self._make_vwap_bars(
+            n_bars=20, morning_low=98.0, morning_low_bar=3,
+            last_close=99.5, last_volume=1500,  # below VWAP of 100.0
+        )
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_volume_too_low(self):
+        """Volume < 1.2x avg → None."""
+        bars, vwap = self._make_vwap_bars(
+            n_bars=20, morning_low=98.0, morning_low_bar=3,
+            last_close=101.0, last_volume=1000,
+        )
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1000, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_recovery_too_small(self):
+        """Recovery < 0.5% from session low → noise, not real bounce."""
+        # Build custom bars where morning_low IS the session low
+        rows = []
+        for _ in range(20):
+            rows.append({
+                "Open": 100.0, "High": 100.5, "Low": 100.0,
+                "Close": 100.2, "Volume": 1000,
+            })
+        # Morning low at bar 3 (session low = 99.80)
+        rows[3] = {"Open": 99.9, "High": 100.0, "Low": 99.80, "Close": 99.9, "Volume": 1200}
+        # Last bar: close 100.1 → recovery = (100.1 - 99.80) / 99.80 = 0.3% < 0.5%
+        rows[-1] = {"Open": 100.0, "High": 100.2, "Low": 100.0, "Close": 100.1, "Volume": 1500}
+        bars = pd.DataFrame(rows)
+        vwap = pd.Series([100.0] * 20)
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_too_few_bars_after_low(self):
+        """Low at bar 11 (last morning bar), only 1 bar after → too soon."""
+        bars, vwap = self._make_vwap_bars(
+            n_bars=13, morning_low=98.0, morning_low_bar=11,
+            last_close=101.0, last_volume=1500,
+        )
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_high_volume_gives_high_confidence(self):
+        """Volume ≥ 1.5x → confidence='high'."""
+        bars, vwap = self._make_vwap_bars(
+            n_bars=20, morning_low=98.0, morning_low_bar=3,
+            last_close=101.0, last_volume=1800,
+        )
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1800, avg_volume=1000)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_medium_confidence_below_1_5x(self):
+        """Volume ≥ 1.2x but < 1.5x → confidence='medium'."""
+        bars, vwap = self._make_vwap_bars(
+            n_bars=20, morning_low=98.0, morning_low_bar=3,
+            last_close=101.0, last_volume=1300,
+        )
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1300, avg_volume=1000)
+        assert sig is not None
+        assert sig.confidence == "medium"
+
+    def test_empty_bars_returns_none(self):
+        """Empty bars DataFrame → None."""
+        bars = pd.DataFrame()
+        vwap = pd.Series(dtype=float)
+        sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
