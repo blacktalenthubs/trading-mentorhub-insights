@@ -406,7 +406,7 @@ def check_prior_day_low_reclaim(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PRIOR_DAY_LOW_RECLAIM,
-        direction="NOTICE",
+        direction="BUY",
         price=last_bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
@@ -1174,7 +1174,7 @@ def check_planned_level_touch(
     bar: pd.Series,
     plan: dict | None,
 ) -> AlertSignal | None:
-    """Price touches the Scanner's daily plan levels and bounces — informational alert.
+    """Price touches the Scanner's daily plan levels and bounces — potential BUY entry.
 
     Uses the daily plan from the DB (single source of truth computed by Scanner)
     instead of recalculating levels from prior_day.
@@ -1235,7 +1235,7 @@ def check_planned_level_touch(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PLANNED_LEVEL_TOUCH,
-        direction="NOTICE",
+        direction="BUY",
         price=bar_close,
         entry=round(entry, 2),
         stop=round(capped_stop, 2),
@@ -1300,7 +1300,7 @@ def check_weekly_level_touch(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.WEEKLY_LEVEL_TOUCH,
-        direction="NOTICE",
+        direction="BUY",
         price=bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),

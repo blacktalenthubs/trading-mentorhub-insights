@@ -190,6 +190,7 @@ ENABLED_RULES: set[str] = {
     "session_low_double_bottom",
     "planned_level_touch",
     "weekly_level_touch",
+    "intraday_support_bounce",
     # BUY — breakout / momentum
     "outside_day_breakout",
     # Momentum — disabled: EMA crossover produces false positives from yfinance

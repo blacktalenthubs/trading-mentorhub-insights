@@ -255,7 +255,7 @@ class TestPriorDayLowReclaim:
         sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
-        assert sig.direction == "NOTICE"
+        assert sig.direction == "BUY"
 
     def test_no_fire_when_no_dip_below_prior_low(self):
         bars = _bars([
@@ -1410,7 +1410,7 @@ class TestBreakdownSessionLowTag:
 
 class TestPlannedLevelTouch:
     def test_fires_on_normal_day_bounce(self):
-        """Normal day: bar bounces at planned entry → NOTICE with plan levels."""
+        """Normal day: bar bounces at planned entry → BUY with plan levels."""
         plan = {
             "pattern": "normal",
             "entry": 681.65, "stop": 679.56,
@@ -1424,14 +1424,14 @@ class TestPlannedLevelTouch:
         sig = check_planned_level_touch("SPY", bar, plan)
         assert sig is not None
         assert sig.alert_type == AlertType.PLANNED_LEVEL_TOUCH
-        assert sig.direction == "NOTICE"
+        assert sig.direction == "BUY"
         assert sig.entry == 681.65
         assert sig.target_1 == 690.0
         assert sig.confidence == "high"
         assert "normal" in sig.message
 
     def test_fires_on_outside_day_bounce(self):
-        """Outside day: bar bounces at planned entry → NOTICE."""
+        """Outside day: bar bounces at planned entry → BUY."""
         midpoint = 690.0
         plan = {
             "pattern": "outside",
@@ -1566,7 +1566,7 @@ class TestWeeklyLevelTouch:
         sig = check_weekly_level_touch("AAPL", bar, prior)
         assert sig is not None
         assert sig.alert_type == AlertType.WEEKLY_LEVEL_TOUCH
-        assert sig.direction == "NOTICE"
+        assert sig.direction == "BUY"
         assert sig.entry == 100.0
         assert sig.target_1 == 110.0
         assert sig.confidence == "high"
