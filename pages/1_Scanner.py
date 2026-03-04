@@ -372,8 +372,8 @@ results: list[SignalResult] = [SignalResult(**d) for d in raw_results]
 
 # ── Alert-driven plan overlay (market hours only) ────────────────────────
 _alert_entries: dict[str, dict] = {}
+_session = today_session()
 if _market_open:
-    _session = today_session()
     for r in results:
         entries = _cached_active_entries(r.symbol, _session)
         if entries:
