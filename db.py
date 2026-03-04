@@ -166,6 +166,7 @@ def init_db():
                 target_2 REAL,
                 confidence TEXT,
                 message TEXT,
+                narrative TEXT DEFAULT '',
                 score INTEGER DEFAULT 0,
                 notified_email INTEGER DEFAULT 0,
                 notified_sms INTEGER DEFAULT 0,
@@ -292,6 +293,7 @@ def init_db():
                 notification_email TEXT DEFAULT '',
                 telegram_enabled INTEGER DEFAULT 1,
                 email_enabled INTEGER DEFAULT 1,
+                anthropic_api_key TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -300,6 +302,8 @@ def init_db():
     _migrate_add_alert_score()
     _migrate_watchlist_user_id()
     _migrate_alert_user_id()
+    _migrate_add_narrative()
+    _migrate_add_anthropic_key()
 
 
 def _migrate_add_user_id():
@@ -407,6 +411,26 @@ def _migrate_watchlist_user_id():
             """)
 
 
+def _migrate_add_narrative():
+    """Add narrative column to alerts table if missing (handles DB upgrades)."""
+    with get_db() as conn:
+        try:
+            conn.execute("ALTER TABLE alerts ADD COLUMN narrative TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+
+def _migrate_add_anthropic_key():
+    """Add anthropic_api_key column to user_notification_prefs if missing."""
+    with get_db() as conn:
+        try:
+            conn.execute(
+                "ALTER TABLE user_notification_prefs ADD COLUMN anthropic_api_key TEXT DEFAULT ''"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+
 def _migrate_alert_user_id():
     """Add user_id column to alerts table and seed first user's notification prefs."""
     import os
@@ -457,7 +481,7 @@ def get_notification_prefs(user_id: int) -> dict | None:
     with get_db() as conn:
         row = conn.execute(
             """SELECT telegram_chat_id, notification_email,
-                      telegram_enabled, email_enabled
+                      telegram_enabled, email_enabled, anthropic_api_key
                FROM user_notification_prefs WHERE user_id = ?""",
             (user_id,),
         ).fetchone()
@@ -471,19 +495,21 @@ def upsert_notification_prefs(
     notification_email: str = "",
     telegram_enabled: bool = True,
     email_enabled: bool = True,
+    anthropic_api_key: str = "",
 ):
     """Insert or update notification preferences for a user."""
     with get_db() as conn:
         conn.execute(
             """INSERT INTO user_notification_prefs
                (user_id, telegram_chat_id, notification_email,
-                telegram_enabled, email_enabled, updated_at)
-               VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                telegram_enabled, email_enabled, anthropic_api_key, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(user_id) DO UPDATE SET
                    telegram_chat_id = excluded.telegram_chat_id,
                    notification_email = excluded.notification_email,
                    telegram_enabled = excluded.telegram_enabled,
                    email_enabled = excluded.email_enabled,
+                   anthropic_api_key = excluded.anthropic_api_key,
                    updated_at = CURRENT_TIMESTAMP""",
             (
                 user_id,
@@ -491,6 +517,7 @@ def upsert_notification_prefs(
                 notification_email,
                 int(telegram_enabled),
                 int(email_enabled),
+                anthropic_api_key,
             ),
         )
 

@@ -42,6 +42,15 @@ with st.form("notification_prefs"):
     )
 
     st.markdown("---")
+    st.markdown("**Claude AI (Trade Narrator)**")
+    anthropic_api_key = st.text_input(
+        "Anthropic API Key",
+        value=prefs.get("anthropic_api_key", ""),
+        type="password",
+        help="Your Anthropic API key for AI trade narratives. Get one at console.anthropic.com.",
+    )
+
+    st.markdown("---")
     st.markdown("**Email**")
     notification_email = st.text_input(
         "Notification Email",
@@ -62,6 +71,7 @@ if submitted:
         notification_email=notification_email.strip(),
         telegram_enabled=telegram_enabled,
         email_enabled=email_enabled,
+        anthropic_api_key=anthropic_api_key.strip(),
     )
     st.success("Preferences saved.")
     st.rerun()
