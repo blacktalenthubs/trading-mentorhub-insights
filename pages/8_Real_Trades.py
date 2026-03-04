@@ -16,7 +16,7 @@ from alerting.real_trade_store import (
 )
 import ui_theme
 
-user = ui_theme.setup_page("real_trades", require_login=True)
+user = ui_theme.setup_page("real_trades")
 
 ui_theme.page_header("Real Trades", "Track real trades tied to alerts — $50k cap ($100k SPY)")
 

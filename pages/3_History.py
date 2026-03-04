@@ -13,7 +13,7 @@ from db import (
 )
 import ui_theme
 
-user = ui_theme.setup_page("history", require_login=True)
+user = ui_theme.setup_page("history")
 
 ui_theme.page_header("Trade History", "Journal, calendar, stop discipline, and symbol lookup")
 

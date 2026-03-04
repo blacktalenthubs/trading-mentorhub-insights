@@ -15,7 +15,7 @@ from alerting.paper_trader import (
 )
 import ui_theme
 
-user = ui_theme.setup_page("paper_trading", require_login=True)
+user = ui_theme.setup_page("paper_trading")
 
 ui_theme.page_header("Paper Trading", "Alpaca paper trade execution and P&L tracking")
 

@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from db import get_user_trades, get_user_options, get_annotations
 import ui_theme
 
-user = ui_theme.setup_page("scorecard", require_login=True)
+user = ui_theme.setup_page("scorecard")
 
 ui_theme.page_header("Monthly Scorecard", "Am I making money? What's working? Am I disciplined?")
 

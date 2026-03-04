@@ -23,12 +23,13 @@ from alerting.alert_store import (
     today_session,
     was_alert_fired,
 )
-from alerting.notifier import notify_user
+from alerting.notifier import notify
 from alerting.real_trade_store import (
     calculate_shares, has_open_trade,
 )
 from analytics.intraday_rules import AlertType
 from analytics.signal_engine import scan_watchlist
+from db import get_daily_plan
 from alert_config import (
     DAILY_SCORE_VERY_WEAK_PENALTY,
     DAILY_SCORE_VERY_WEAK_THRESHOLD,
@@ -51,9 +52,7 @@ if _market_open:
     st_autorefresh(interval=180_000, key="alert_refresh")  # 3 min
 
 # ── Shared watchlist (from Scanner or default) ────────────────────────────
-watchlist = st.session_state.get(
-    "watchlist", get_watchlist(user["id"] if user else None)
-)
+watchlist = st.session_state.get("watchlist", get_watchlist())
 st.caption(f"Watchlist: {', '.join(watchlist)} | Refresh: {POLL_INTERVAL_MINUTES} min")
 
 # ── F9: Session Stats Bar ────────────────────────────────────────────────
@@ -214,8 +213,7 @@ else:
         st.session_state["_auto_stop_session"] = _current_session
 
     # Build fired_today from DB (authoritative, persistent across restarts)
-    _user_id = user["id"] if user else None
-    db_alerts = get_alerts_today(user_id=_user_id)
+    db_alerts = get_alerts_today()
     fired_today: set[tuple[str, str]] = {
         (a["symbol"], a["alert_type"]) for a in db_alerts
     }
@@ -252,12 +250,14 @@ else:
 
             _spy_ctx = get_spy_context()
             auto_stop = st.session_state.get("auto_stop_entries", {})
+            plan = get_daily_plan(symbol, today_session())
             signals = evaluate_rules(
                 symbol, intra, prior, active_entries,
                 spy_context=_spy_ctx,
                 auto_stop_entries=auto_stop.get(symbol),
                 is_cooled_down=symbol in cooled_symbols,
                 fired_today=fired_today,
+                daily_plan=plan,
             )
             all_signals.extend(signals)
 
@@ -355,7 +355,7 @@ else:
         key = (sig.symbol, sig.alert_type.value, sig.direction)
         if key not in existing_keys:
             # Final DB dedup check (another tab may have recorded it)
-            if was_alert_fired(sig.symbol, sig.alert_type.value, session, user_id=_user_id):
+            if was_alert_fired(sig.symbol, sig.alert_type.value, session):
                 continue
 
             new_signals.append(sig)
@@ -363,18 +363,11 @@ else:
             # Send notifications — gate low-score BUY from Telegram
             if sig.direction == "BUY" and sig.score < TELEGRAM_TIER1_MIN_SCORE:
                 email_sent, sms_sent = False, False
-            elif user:
-                from db import get_notification_prefs
-                _prefs = get_notification_prefs(user["id"])
-                if _prefs:
-                    email_sent, sms_sent = notify_user(sig, _prefs)
-                else:
-                    email_sent, sms_sent = False, False
             else:
-                email_sent, sms_sent = False, False
+                email_sent, sms_sent = notify(sig)
 
             # Record to DB so alerts persist and dedup works across refreshes
-            record_alert(sig, session, email_sent, sms_sent, user_id=_user_id)
+            record_alert(sig, session, email_sent, sms_sent)
 
             # Track active entries for actionable BUY signals
             if sig.direction == "BUY" and sig.alert_type not in _non_entry_types:
@@ -579,7 +572,7 @@ st.divider()
 ui_theme.section_header("Alert History (This Session)")
 
 # Load from database — persists across page refreshes and app restarts
-_db_history = get_alerts_today(user_id=user["id"] if user else None)
+_db_history = get_alerts_today()
 
 if _db_history:
     _hist_cols = ["symbol", "alert_type", "direction", "price", "entry",
@@ -619,7 +612,7 @@ st.divider()
 if _show_eod or st.button("Generate Summary Now", key="gen_summary"):
     ui_theme.section_header("End-of-Day Summary")
 
-    summary = get_session_summary(user_id=user["id"] if user else None)
+    summary = get_session_summary()
     if summary["total"] > 0:
         eod1, eod2, eod3, eod4, eod5 = st.columns(5)
         eod1.metric("Total Signals", summary["total"])
@@ -666,7 +659,7 @@ if _available_dates:
     _sel_str = _selected_date.isoformat()
 
     # KPI row
-    _rpt_summary = get_session_summary(_sel_str, user_id=user["id"] if user else None)
+    _rpt_summary = get_session_summary(_sel_str)
 
     rk1, rk2, rk3, rk4, rk5 = st.columns(5)
     rk1.metric("Total Signals", _rpt_summary["total"])
@@ -679,7 +672,7 @@ if _available_dates:
     rk5.metric("Stopped Out", _rpt_summary["stopped_out"])
 
     # Full alert table
-    _rpt_alerts = get_alerts_today(_sel_str, user_id=user["id"] if user else None)
+    _rpt_alerts = get_alerts_today(_sel_str)
     if _rpt_alerts:
         _rpt_df = pd.DataFrame(_rpt_alerts)
 
@@ -745,8 +738,6 @@ with st.expander("Test Notifications"):
     st.caption("Send a test alert to verify your notification settings.")
 
     if st.button("Send Test Alert"):
-        from db import get_notification_prefs as _get_test_prefs
-
         test_signal = AlertSignal(
             symbol="TEST",
             alert_type=AlertType.MA_BOUNCE_20,
@@ -760,24 +751,12 @@ with st.expander("Test Notifications"):
             message="Test alert from TradeSignal — ignore this message",
         )
 
-        if user:
-            _test_prefs = _get_test_prefs(user["id"])
-            if _test_prefs:
-                with st.spinner("Sending test notifications..."):
-                    email_ok, sms_ok = notify_user(test_signal, _test_prefs)
-            else:
-                st.info("Set up your notification preferences in **Settings** first.")
-                email_ok, sms_ok = False, False
-        else:
-            from alerting.notifier import send_email, send_sms
-            with st.spinner("Sending test email..."):
-                email_ok = send_email(test_signal)
-            with st.spinner("Sending test SMS..."):
-                sms_ok = send_sms(test_signal)
+        with st.spinner("Sending test notifications..."):
+            email_ok, sms_ok = notify(test_signal)
 
         if email_ok:
             st.success("Test email sent!")
         if sms_ok:
             st.success("Test Telegram sent!")
-        if not email_ok and not sms_ok and (user and _test_prefs):
-            st.warning("Nothing sent — check your Settings page.")
+        if not email_ok and not sms_ok:
+            st.warning("Nothing sent — check .env config.")

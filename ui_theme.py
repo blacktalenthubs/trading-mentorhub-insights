@@ -368,12 +368,8 @@ def setup_page(page_key: str, *, require_login: bool = False) -> dict | None:
     with st.sidebar:
         sidebar_branding()
 
-    if require_login:
-        from auth import require_auth
-        return require_auth()  # st.stop() if not logged in
-
-    from auth import get_current_user, render_sidebar_user_info
-    user = get_current_user()
-    if user:
-        render_sidebar_user_info()
-    return user
+    # Single-user mode — return first user from DB (no login required)
+    from db import get_db
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM users ORDER BY id LIMIT 1").fetchone()
+    return dict(row) if row else None

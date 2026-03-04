@@ -17,6 +17,7 @@ import sys
 from alert_config import (
     COOLDOWN_MINUTES,
     POLL_INTERVAL_MINUTES,
+    TELEGRAM_TIER1_MIN_SCORE,
 )
 from analytics.market_hours import is_market_hours
 from alerting.alert_store import (
@@ -32,7 +33,7 @@ from alerting.alert_store import (
     was_alert_fired,
 )
 from alerting.narrator import generate_narrative
-from alerting.notifier import notify, notify_user, send_email, send_sms
+from alerting.notifier import notify, send_email, send_sms
 from alerting.paper_trader import (
     close_position as paper_close_position,
     is_enabled as paper_trading_enabled,
@@ -46,8 +47,6 @@ from db import (
     get_all_daily_plans,
     get_all_watchlist_symbols,
     get_daily_plan,
-    get_notification_prefs,
-    get_users_for_symbol,
 )
 
 logging.basicConfig(
@@ -127,56 +126,36 @@ def poll_cycle(dry_run: bool = False) -> int:
                 signal.narrative = generate_narrative(signal)
 
                 if dry_run:
-                    # In dry-run, show per-user info but don't notify
-                    users = get_users_for_symbol(symbol) or [None]
-                    for uid in users:
-                        if was_alert_fired(symbol, signal.alert_type.value, session, user_id=uid):
-                            continue
-                        logger.info(
-                            "[DRY RUN] %s %s %s @ $%.2f (user=%s) — %s",
-                            signal.direction, signal.symbol, signal.alert_type.value,
-                            signal.price, uid, signal.message,
-                        )
+                    if was_alert_fired(symbol, signal.alert_type.value, session):
+                        continue
+                    logger.info(
+                        "[DRY RUN] %s %s %s @ $%.2f — %s",
+                        signal.direction, signal.symbol, signal.alert_type.value,
+                        signal.price, signal.message,
+                    )
                     total_alerts += 1
                     continue
 
-                # Per-user notification and recording
-                users = get_users_for_symbol(symbol) or [None]
-                signal_fired = False
-                first_alert_id = None
-                for uid in users:
-                    if was_alert_fired(symbol, signal.alert_type.value, session, user_id=uid):
-                        logger.debug("%s: dedup skip %s (user=%s)", symbol, signal.alert_type.value, uid)
-                        continue
-
-                    # Notify — per-user only, never fall back to global group
-                    if uid is not None:
-                        prefs = get_notification_prefs(uid)
-                        if prefs:
-                            email_sent, sms_sent = notify_user(signal, prefs)
-                        else:
-                            email_sent, sms_sent = False, False
-                    else:
-                        email_sent, sms_sent = False, False
-
-                    # Record per-user
-                    alert_id = record_alert(signal, session, email_sent, sms_sent, user_id=uid)
-                    if first_alert_id is None:
-                        first_alert_id = alert_id
-                    signal_fired = True
-
-                    logger.info(
-                        "ALERT: %s %s %s @ $%.2f (user=%s, email=%s, sms=%s)",
-                        signal.direction, signal.symbol, signal.alert_type.value,
-                        signal.price, uid, email_sent, sms_sent,
-                    )
-
-                if not signal_fired:
+                if was_alert_fired(symbol, signal.alert_type.value, session):
+                    logger.debug("%s: dedup skip %s", symbol, signal.alert_type.value)
                     continue
 
+                # Global notify — gate low-score BUY from Telegram
+                if signal.direction == "BUY" and signal.score < TELEGRAM_TIER1_MIN_SCORE:
+                    email_sent, sms_sent = False, False
+                else:
+                    email_sent, sms_sent = notify(signal)
+
+                alert_id = record_alert(signal, session, email_sent, sms_sent)
                 total_alerts += 1
 
-                # Entry tracking / cooldowns / paper trading (per-symbol, not per-user)
+                logger.info(
+                    "ALERT: %s %s %s @ $%.2f (email=%s, sms=%s)",
+                    signal.direction, signal.symbol, signal.alert_type.value,
+                    signal.price, email_sent, sms_sent,
+                )
+
+                # Entry tracking / cooldowns / paper trading
                 _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
                     create_active_entry(signal, session)
@@ -187,7 +166,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                             "alert_type": signal.alert_type.value,
                         }
                     if paper_trading_enabled():
-                        place_bracket_order(signal, alert_id=first_alert_id)
+                        place_bracket_order(signal, alert_id=alert_id)
 
                 # Stop loss / auto stop-out: cancel entries and start cooldown
                 if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):

@@ -8,7 +8,6 @@ import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
 from db import get_watchlist, add_to_watchlist, remove_from_watchlist, set_watchlist
-from auth import get_current_user, _render_login_form, _render_register_form
 from config import DEFAULT_POSITION_SIZE
 from analytics.market_data import classify_day, fetch_ohlc
 from analytics.signal_engine import (
@@ -277,15 +276,6 @@ def _draw_intraday_chart(symbol: str, bars: pd.DataFrame, prior: dict | None, r:
 
 ui_theme.page_header("Signal Scanner", "Trade plans for your watchlist — entry, stop, target, re-entry at a glance")
 
-# ── Login prompt for anonymous users (main area) ────────────────────────────
-if not user:
-    with st.expander("Log in to edit your watchlist and track positions", expanded=False):
-        _login_tab, _reg_tab = st.tabs(["Login", "Register"])
-        with _login_tab:
-            _render_login_form()
-        with _reg_tab:
-            _render_register_form()
-
 # ── Sidebar ─────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -295,65 +285,54 @@ with st.sidebar:
     if "watchlist" not in st.session_state:
         st.session_state["watchlist"] = get_watchlist(user["id"] if user else None)
 
-    if user:
-        _uid = user["id"]
+    _uid = user["id"] if user else None
 
-        # Add symbol one at a time
-        add_col, btn_col = st.columns([3, 1])
-        with add_col:
-            new_sym = st.text_input("Add symbol", key="add_sym_input", label_visibility="collapsed",
-                                    placeholder="Add symbol...")
-        with btn_col:
-            add_clicked = st.button("Add", key="add_sym_btn", use_container_width=True)
+    # Add symbol one at a time
+    add_col, btn_col = st.columns([3, 1])
+    with add_col:
+        new_sym = st.text_input("Add symbol", key="add_sym_input", label_visibility="collapsed",
+                                placeholder="Add symbol...")
+    with btn_col:
+        add_clicked = st.button("Add", key="add_sym_btn", use_container_width=True)
 
-        if add_clicked and new_sym:
-            sym_clean = new_sym.strip().upper()
-            if sym_clean and sym_clean not in st.session_state["watchlist"]:
-                add_to_watchlist(sym_clean, _uid)
-                st.session_state["watchlist"].append(sym_clean)
-                st.rerun()
+    if add_clicked and new_sym and _uid:
+        sym_clean = new_sym.strip().upper()
+        if sym_clean and sym_clean not in st.session_state["watchlist"]:
+            add_to_watchlist(sym_clean, _uid)
+            st.session_state["watchlist"].append(sym_clean)
+            st.rerun()
 
-        # Display current watchlist as compact grid with remove buttons
-        if st.session_state["watchlist"]:
-            remove_sym = None
-            _wl = st.session_state["watchlist"]
-            # 3-column grid for compactness
-            _grid_cols = st.columns(3)
-            for i, sym in enumerate(_wl):
-                col = _grid_cols[i % 3]
-                if col.button(f"{sym}  x", key=f"rm_{sym}_{i}", use_container_width=True):
-                    remove_sym = sym
-            if remove_sym is not None:
-                remove_from_watchlist(remove_sym, _uid)
-                st.session_state["watchlist"].remove(remove_sym)
-                st.rerun()
-        else:
-            st.caption("No symbols. Add one above.")
-
-        # Bulk edit in collapsible expander
-        with st.expander("Bulk Edit"):
-            bulk_text = st.text_area(
-                "Symbols (comma-separated)",
-                value=", ".join(st.session_state["watchlist"]),
-                height=80,
-                key="bulk_edit_area",
-                label_visibility="collapsed",
-            )
-            if st.button("Apply", key="bulk_apply", use_container_width=True):
-                parsed = [s.strip().upper() for s in bulk_text.split(",") if s.strip()]
-                set_watchlist(parsed, _uid)
-                st.session_state["watchlist"] = parsed
-                st.rerun()
+    # Display current watchlist as compact grid with remove buttons
+    if st.session_state["watchlist"]:
+        remove_sym = None
+        _wl = st.session_state["watchlist"]
+        # 3-column grid for compactness
+        _grid_cols = st.columns(3)
+        for i, sym in enumerate(_wl):
+            col = _grid_cols[i % 3]
+            if col.button(f"{sym}  x", key=f"rm_{sym}_{i}", use_container_width=True):
+                remove_sym = sym
+        if remove_sym is not None and _uid:
+            remove_from_watchlist(remove_sym, _uid)
+            st.session_state["watchlist"].remove(remove_sym)
+            st.rerun()
     else:
-        # Anonymous — read-only watchlist
-        if st.session_state["watchlist"]:
-            for sym in st.session_state["watchlist"]:
-                st.markdown(f"**{sym}**")
-        else:
-            st.caption("Default watchlist shown.")
+        st.caption("No symbols. Add one above.")
 
-        st.divider()
-        st.caption("Log in to edit your watchlist.")
+    # Bulk edit in collapsible expander
+    with st.expander("Bulk Edit"):
+        bulk_text = st.text_area(
+            "Symbols (comma-separated)",
+            value=", ".join(st.session_state["watchlist"]),
+            height=80,
+            key="bulk_edit_area",
+            label_visibility="collapsed",
+        )
+        if st.button("Apply", key="bulk_apply", use_container_width=True) and _uid:
+            parsed = [s.strip().upper() for s in bulk_text.split(",") if s.strip()]
+            set_watchlist(parsed, _uid)
+            st.session_state["watchlist"] = parsed
+            st.rerun()
 
     st.divider()
     position_size = st.number_input(
