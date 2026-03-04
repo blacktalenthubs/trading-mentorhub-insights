@@ -325,6 +325,7 @@ def init_db():
     _migrate_add_narrative()
     _migrate_add_anthropic_key()
     _migrate_add_daily_plans()
+    _migrate_ensure_default_watchlist()
 
 
 def _migrate_add_user_id():
@@ -477,6 +478,25 @@ def _migrate_add_daily_plans():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_daily_plans_session "
             "ON daily_plans(session_date)"
+        )
+
+
+def _migrate_ensure_default_watchlist():
+    """Ensure all DEFAULT_WATCHLIST symbols exist for the first user.
+
+    Runs on every startup — INSERT OR IGNORE makes it idempotent.
+    Handles the case where the DB was seeded with a smaller default.
+    """
+    from config import DEFAULT_WATCHLIST
+
+    with get_db() as conn:
+        admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        if not admin:
+            return
+        uid = admin["id"]
+        conn.executemany(
+            "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
+            [(uid, s) for s in DEFAULT_WATCHLIST],
         )
 
 
