@@ -990,57 +990,67 @@ def get_chart_levels(symbol: str) -> list[dict]:
 # Watchlist
 # ---------------------------------------------------------------------------
 
+def _default_user_id() -> int:
+    """Return the first user's ID for single-user mode (watchlist sentinel)."""
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        return row["id"] if row else 1
+
+
 def get_watchlist(user_id: int | None = None) -> list[str]:
     """Return the persisted watchlist symbols for a user, ordered by id.
 
-    If *user_id* is ``None`` (anonymous), return ``DEFAULT_WATCHLIST``.
+    In single-user mode (user_id=None), uses the first user in the DB so the
+    watchlist is persisted and editable via the UI.
     If the user's watchlist is empty, seed it from ``DEFAULT_WATCHLIST``.
     """
     from config import DEFAULT_WATCHLIST
 
-    if user_id is None:
-        return list(DEFAULT_WATCHLIST)
+    uid = user_id if user_id is not None else _default_user_id()
 
     with get_db() as conn:
         rows = conn.execute(
             "SELECT symbol FROM watchlist WHERE user_id = ? ORDER BY id",
-            (user_id,),
+            (uid,),
         ).fetchall()
         if rows:
             return [r["symbol"] for r in rows]
         # Auto-seed on first use for this user
         conn.executemany(
             "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?)",
-            [(user_id, s) for s in DEFAULT_WATCHLIST],
+            [(uid, s) for s in DEFAULT_WATCHLIST],
         )
         return list(DEFAULT_WATCHLIST)
 
 
-def add_to_watchlist(symbol: str, user_id: int):
+def add_to_watchlist(symbol: str, user_id: int | None = None):
     """Add a symbol to the user's watchlist (no-op if already present)."""
+    uid = user_id if user_id is not None else _default_user_id()
     with get_db() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
-            (user_id, symbol),
+            (uid, symbol),
         )
 
 
-def remove_from_watchlist(symbol: str, user_id: int):
+def remove_from_watchlist(symbol: str, user_id: int | None = None):
     """Remove a symbol from the user's watchlist."""
+    uid = user_id if user_id is not None else _default_user_id()
     with get_db() as conn:
         conn.execute(
             "DELETE FROM watchlist WHERE symbol = ? AND user_id = ?",
-            (symbol, user_id),
+            (symbol, uid),
         )
 
 
-def set_watchlist(symbols: list[str], user_id: int):
+def set_watchlist(symbols: list[str], user_id: int | None = None):
     """Replace the user's entire watchlist atomically."""
+    uid = user_id if user_id is not None else _default_user_id()
     with get_db() as conn:
-        conn.execute("DELETE FROM watchlist WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM watchlist WHERE user_id = ?", (uid,))
         conn.executemany(
             "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?)",
-            [(user_id, s) for s in symbols],
+            [(uid, s) for s in symbols],
         )
 
 

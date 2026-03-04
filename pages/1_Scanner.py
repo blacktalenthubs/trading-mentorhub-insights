@@ -295,7 +295,7 @@ with st.sidebar:
     with btn_col:
         add_clicked = st.button("Add", key="add_sym_btn", use_container_width=True)
 
-    if add_clicked and new_sym and _uid:
+    if add_clicked and new_sym:
         sym_clean = new_sym.strip().upper()
         if sym_clean and sym_clean not in st.session_state["watchlist"]:
             add_to_watchlist(sym_clean, _uid)
@@ -312,7 +312,7 @@ with st.sidebar:
             col = _grid_cols[i % 3]
             if col.button(f"{sym}  x", key=f"rm_{sym}_{i}", use_container_width=True):
                 remove_sym = sym
-        if remove_sym is not None and _uid:
+        if remove_sym is not None:
             remove_from_watchlist(remove_sym, _uid)
             st.session_state["watchlist"].remove(remove_sym)
             st.rerun()
@@ -328,7 +328,7 @@ with st.sidebar:
             key="bulk_edit_area",
             label_visibility="collapsed",
         )
-        if st.button("Apply", key="bulk_apply", use_container_width=True) and _uid:
+        if st.button("Apply", key="bulk_apply", use_container_width=True):
             parsed = [s.strip().upper() for s in bulk_text.split(",") if s.strip()]
             set_watchlist(parsed, _uid)
             st.session_state["watchlist"] = parsed
