@@ -408,7 +408,7 @@ def check_prior_day_low_reclaim(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PRIOR_DAY_LOW_RECLAIM,
-        direction="BUY",
+        direction="NOTICE",
         price=last_bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
@@ -555,15 +555,15 @@ def check_resistance_prior_high(
         return AlertSignal(
             symbol=symbol,
             alert_type=AlertType.RESISTANCE_PRIOR_HIGH,
-            direction="SELL",
+            direction="NOTICE",
             price=bar["High"],
-            message=f"Resistance at prior high ${prior_day_high:.2f} — consider taking profits",
+            message=f"At prior day high ${prior_day_high:.2f} — consider taking profits",
         )
 
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.RESISTANCE_PRIOR_HIGH,
-        direction="SELL",
+        direction="NOTICE",
         price=bar["High"],
         confidence="medium",
         message=f"At prior day high ${prior_day_high:.2f} — resistance zone, watch for rejection",
@@ -1535,7 +1535,7 @@ def check_resistance_prior_low(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.RESISTANCE_PRIOR_LOW,
-        direction="SELL",
+        direction="NOTICE",
         price=bar["High"],
         message=(
             f"Prior day low resistance at ${prior_day_low:.2f} — "
