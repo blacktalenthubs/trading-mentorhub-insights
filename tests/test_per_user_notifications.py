@@ -67,6 +67,7 @@ def tmp_db(tmp_path):
             target_2 REAL,
             confidence TEXT,
             message TEXT,
+            narrative TEXT DEFAULT '',
             score INTEGER DEFAULT 0,
             notified_email INTEGER DEFAULT 0,
             notified_sms INTEGER DEFAULT 0,
@@ -82,6 +83,7 @@ def tmp_db(tmp_path):
             notification_email TEXT DEFAULT '',
             telegram_enabled INTEGER DEFAULT 1,
             email_enabled INTEGER DEFAULT 1,
+            anthropic_api_key TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );

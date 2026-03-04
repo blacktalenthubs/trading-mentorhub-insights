@@ -268,6 +268,26 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_active_entries_symbol
                 ON active_entries(symbol, session_date);
 
+            CREATE TABLE IF NOT EXISTS daily_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                session_date TEXT NOT NULL,
+                support REAL,
+                support_label TEXT,
+                support_status TEXT,
+                entry REAL,
+                stop REAL,
+                target_1 REAL,
+                target_2 REAL,
+                score INTEGER DEFAULT 0,
+                score_label TEXT DEFAULT '',
+                pattern TEXT DEFAULT 'normal',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, session_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_daily_plans_session
+                ON daily_plans(session_date);
+
             CREATE TABLE IF NOT EXISTS chart_levels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
@@ -304,6 +324,7 @@ def init_db():
     _migrate_alert_user_id()
     _migrate_add_narrative()
     _migrate_add_anthropic_key()
+    _migrate_add_daily_plans()
 
 
 def _migrate_add_user_id():
@@ -431,6 +452,34 @@ def _migrate_add_anthropic_key():
             pass  # Column already exists
 
 
+def _migrate_add_daily_plans():
+    """Create daily_plans table if missing (handles DB upgrades for pre-existing DBs)."""
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                session_date TEXT NOT NULL,
+                support REAL,
+                support_label TEXT,
+                support_status TEXT,
+                entry REAL,
+                stop REAL,
+                target_1 REAL,
+                target_2 REAL,
+                score INTEGER DEFAULT 0,
+                score_label TEXT DEFAULT '',
+                pattern TEXT DEFAULT 'normal',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, session_date)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_daily_plans_session "
+            "ON daily_plans(session_date)"
+        )
+
+
 def _migrate_alert_user_id():
     """Add user_id column to alerts table and seed first user's notification prefs."""
     import os
@@ -530,6 +579,72 @@ def get_users_for_symbol(symbol: str) -> list[int]:
             (symbol,),
         ).fetchall()
         return [r["user_id"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Daily Plans (Scanner → Monitor single source of truth)
+# ---------------------------------------------------------------------------
+
+def upsert_daily_plan(symbol: str, session_date: str, **levels):
+    """Insert or update a daily trade plan for a symbol/session."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO daily_plans
+               (symbol, session_date, support, support_label, support_status,
+                entry, stop, target_1, target_2, score, score_label, pattern)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(symbol, session_date) DO UPDATE SET
+                   support = excluded.support,
+                   support_label = excluded.support_label,
+                   support_status = excluded.support_status,
+                   entry = excluded.entry,
+                   stop = excluded.stop,
+                   target_1 = excluded.target_1,
+                   target_2 = excluded.target_2,
+                   score = excluded.score,
+                   score_label = excluded.score_label,
+                   pattern = excluded.pattern""",
+            (
+                symbol,
+                session_date,
+                levels.get("support"),
+                levels.get("support_label"),
+                levels.get("support_status"),
+                levels.get("entry"),
+                levels.get("stop"),
+                levels.get("target_1"),
+                levels.get("target_2"),
+                levels.get("score", 0),
+                levels.get("score_label", ""),
+                levels.get("pattern", "normal"),
+            ),
+        )
+
+
+def get_daily_plan(symbol: str, session_date: str) -> dict | None:
+    """Read the daily plan for one symbol/session. Returns dict or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT symbol, session_date, support, support_label, support_status,
+                      entry, stop, target_1, target_2, score, score_label, pattern
+               FROM daily_plans
+               WHERE symbol = ? AND session_date = ?""",
+            (symbol, session_date),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_all_daily_plans(session_date: str) -> list[dict]:
+    """Read all daily plans for a session date."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT symbol, session_date, support, support_label, support_status,
+                      entry, stop, target_1, target_2, score, score_label, pattern
+               FROM daily_plans
+               WHERE session_date = ?""",
+            (session_date,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

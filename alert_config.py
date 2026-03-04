@@ -190,7 +190,6 @@ ENABLED_RULES: set[str] = {
     "session_low_double_bottom",
     "planned_level_touch",
     "weekly_level_touch",
-    "buy_zone_approach",
     # BUY — breakout / momentum
     "outside_day_breakout",
     # Momentum — disabled: EMA crossover produces false positives from yfinance
@@ -249,6 +248,11 @@ PAPER_TRADE_ENABLED = _get_secret("PAPER_TRADE_ENABLED", "false").lower() == "tr
 PAPER_TRADE_POSITION_SIZE = int(_get_secret("PAPER_TRADE_POSITION_SIZE", "10000"))
 PAPER_TRADE_MAX_DAILY = int(_get_secret("PAPER_TRADE_MAX_DAILY", "4"))
 PAPER_TRADE_MIN_SCORE = int(_get_secret("PAPER_TRADE_MIN_SCORE", "65"))
+
+# Claude AI Trade Narrator
+ANTHROPIC_API_KEY = _get_secret("ANTHROPIC_API_KEY")
+CLAUDE_NARRATIVE_ENABLED = _get_secret("CLAUDE_NARRATIVE_ENABLED", "true").lower() == "true"
+CLAUDE_MODEL = _get_secret("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
 # Real trade position sizing (max dollar exposure per trade)
 REAL_TRADE_POSITION_SIZE = 50_000

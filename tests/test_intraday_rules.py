@@ -8,7 +8,6 @@ from analytics.intraday_rules import (
     AlertType,
     _cap_risk,
     _check_ma_confluence,
-    _compute_planned_levels,
     _consolidate_signals,
     _detect_volume_exhaustion,
     _find_resistance_targets,
@@ -256,7 +255,7 @@ class TestPriorDayLowReclaim:
         sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
-        assert sig.direction == "BUY"
+        assert sig.direction == "NOTICE"
 
     def test_no_fire_when_no_dip_below_prior_low(self):
         bars = _bars([
@@ -419,14 +418,14 @@ class TestResistancePriorHigh:
         sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=True)
         assert sig is not None
         assert sig.alert_type == AlertType.RESISTANCE_PRIOR_HIGH
-        assert sig.direction == "SELL"
+        assert sig.direction == "NOTICE"
 
     def test_fires_warning_without_active_entry(self):
         """No active entry → still fires as resistance warning."""
         bar = _bar(high=100.15)
         sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=False)
         assert sig is not None
-        assert sig.direction == "SELL"
+        assert sig.direction == "NOTICE"
         assert "resistance zone" in sig.message
         assert "watch for rejection" in sig.message
 
@@ -1411,33 +1410,39 @@ class TestBreakdownSessionLowTag:
 
 class TestPlannedLevelTouch:
     def test_fires_on_normal_day_bounce(self):
-        """Normal day: bar bounces at prior low → BUY, entry=prior_low, T1=prior_high."""
-        prior = {
-            "pattern": "normal", "high": 690.0, "low": 681.65,
-            "close": 685.0, "is_inside": False,
-            "parent_high": 692.0, "parent_low": 680.0,
+        """Normal day: bar bounces at planned entry → NOTICE with plan levels."""
+        plan = {
+            "pattern": "normal",
+            "entry": 681.65, "stop": 679.56,
+            "target_1": 690.0, "target_2": 694.18,
+            "support": 681.65, "support_label": "Prior Day Low",
+            "support_status": "AT SUPPORT",
+            "score": 80, "score_label": "A",
         }
-        # Bar low touches prior low (681.65), closes above
+        # Bar low touches entry (681.65), closes above
         bar = _bar(open_=682.0, high=684.0, low=681.50, close=683.5)
-        sig = check_planned_level_touch("SPY", bar, prior)
+        sig = check_planned_level_touch("SPY", bar, plan)
         assert sig is not None
         assert sig.alert_type == AlertType.PLANNED_LEVEL_TOUCH
-        assert sig.direction == "BUY"
+        assert sig.direction == "NOTICE"
         assert sig.entry == 681.65
         assert sig.target_1 == 690.0
         assert sig.confidence == "high"
         assert "normal" in sig.message
 
     def test_fires_on_outside_day_bounce(self):
-        """Outside day: bar bounces at midpoint → BUY, entry=midpoint."""
-        prior = {
-            "pattern": "outside", "high": 700.0, "low": 680.0,
-            "close": 695.0, "is_inside": False,
-            "parent_high": 698.0, "parent_low": 682.0,
+        """Outside day: bar bounces at planned entry → NOTICE."""
+        midpoint = 690.0
+        plan = {
+            "pattern": "outside",
+            "entry": midpoint, "stop": 680.0,
+            "target_1": 700.0, "target_2": 710.0,
+            "support": 685.0, "support_label": "20 MA",
+            "support_status": "PULLBACK WATCH",
+            "score": 70, "score_label": "B",
         }
-        midpoint = (700.0 + 680.0) / 2  # 690.0
         bar = _bar(open_=691.0, high=693.0, low=689.80, close=692.0)
-        sig = check_planned_level_touch("SPY", bar, prior)
+        sig = check_planned_level_touch("SPY", bar, plan)
         assert sig is not None
         assert sig.entry == midpoint
         assert sig.target_1 == 700.0
@@ -1445,37 +1450,51 @@ class TestPlannedLevelTouch:
 
     def test_no_fire_when_far_from_entry(self):
         """Bar low 2%+ away from planned entry → None."""
-        prior = {
-            "pattern": "normal", "high": 690.0, "low": 681.65,
-            "close": 685.0, "is_inside": False,
-            "parent_high": 692.0, "parent_low": 680.0,
+        plan = {
+            "pattern": "normal",
+            "entry": 681.65, "stop": 679.56,
+            "target_1": 690.0, "target_2": 694.18,
+            "support": 681.65, "support_label": "Prior Day Low",
+            "support_status": "AT SUPPORT",
         }
         # Bar low at 670.0, way below 681.65
         bar = _bar(open_=672.0, high=675.0, low=670.0, close=674.0)
-        sig = check_planned_level_touch("SPY", bar, prior)
+        sig = check_planned_level_touch("SPY", bar, plan)
         assert sig is None
 
     def test_no_fire_when_close_below_entry(self):
         """Bar touches entry but closes below → None (no bounce)."""
-        prior = {
-            "pattern": "normal", "high": 690.0, "low": 681.65,
-            "close": 685.0, "is_inside": False,
-            "parent_high": 692.0, "parent_low": 680.0,
+        plan = {
+            "pattern": "normal",
+            "entry": 681.65, "stop": 679.56,
+            "target_1": 690.0, "target_2": 694.18,
+            "support": 681.65, "support_label": "Prior Day Low",
+            "support_status": "AT SUPPORT",
         }
         bar = _bar(open_=682.0, high=682.5, low=681.50, close=681.0)
-        sig = check_planned_level_touch("SPY", bar, prior)
+        sig = check_planned_level_touch("SPY", bar, plan)
         assert sig is None
 
-    def test_skips_inside_day(self):
-        """Inside day pattern → None (handled by check_inside_day_breakout)."""
-        prior = {
-            "pattern": "inside", "high": 690.0, "low": 681.65,
-            "close": 685.0, "is_inside": True,
-            "parent_high": 695.0, "parent_low": 678.0,
-        }
+    def test_no_plan_returns_none(self):
+        """No daily plan available → None."""
         bar = _bar(open_=682.0, high=684.0, low=681.50, close=683.5)
-        sig = check_planned_level_touch("SPY", bar, prior)
+        sig = check_planned_level_touch("SPY", bar, None)
         assert sig is None
+
+    def test_fires_on_support_touch(self):
+        """Bar touches support (different from entry) → fires."""
+        plan = {
+            "pattern": "normal",
+            "entry": 690.0, "stop": 687.0,
+            "target_1": 695.0, "target_2": 700.0,
+            "support": 682.0, "support_label": "50 MA",
+            "support_status": "PULLBACK WATCH",
+        }
+        # Bar low touches support (682.0), closes above
+        bar = _bar(open_=683.0, high=685.0, low=681.80, close=684.0)
+        sig = check_planned_level_touch("SPY", bar, plan)
+        assert sig is not None
+        assert "50 MA" in sig.message
 
 
 # ===== Market Regime Detection =====
@@ -1547,7 +1566,7 @@ class TestWeeklyLevelTouch:
         sig = check_weekly_level_touch("AAPL", bar, prior)
         assert sig is not None
         assert sig.alert_type == AlertType.WEEKLY_LEVEL_TOUCH
-        assert sig.direction == "BUY"
+        assert sig.direction == "NOTICE"
         assert sig.entry == 100.0
         assert sig.target_1 == 110.0
         assert sig.confidence == "high"
@@ -2280,7 +2299,7 @@ class TestResistancePriorLow:
         sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0)
         assert sig is not None
         assert sig.alert_type == AlertType.RESISTANCE_PRIOR_LOW
-        assert sig.direction == "SELL"
+        assert sig.direction == "NOTICE"
         assert "Prior day low resistance" in sig.message
         assert "$100.00" in sig.message
 
@@ -2568,10 +2587,10 @@ class TestEnabledRules:
         types = {s.alert_type for s in signals}
         assert AlertType.OPENING_RANGE_BREAKOUT not in types
 
-    def test_ema_crossover_is_enabled(self):
-        """ema_crossover_5_20 is re-enabled — verify it's in ENABLED_RULES."""
+    def test_ema_crossover_is_disabled(self):
+        """ema_crossover_5_20 is disabled (false positives from yfinance partial-bar data)."""
         from alert_config import ENABLED_RULES
-        assert "ema_crossover_5_20" in ENABLED_RULES
+        assert "ema_crossover_5_20" not in ENABLED_RULES
 
     def test_disabled_gap_fill_does_not_fire(self):
         """gap_fill is disabled and should not appear in signals."""

@@ -41,7 +41,14 @@ from alerting.paper_trader import (
 )
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
-from db import init_db, get_all_watchlist_symbols, get_notification_prefs, get_users_for_symbol
+from db import (
+    init_db,
+    get_all_daily_plans,
+    get_all_watchlist_symbols,
+    get_daily_plan,
+    get_notification_prefs,
+    get_users_for_symbol,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,6 +83,17 @@ def poll_cycle(dry_run: bool = False) -> int:
 
     symbols = get_all_watchlist_symbols()
 
+    # Seed daily plans if none exist for today's session (ensures plans exist
+    # even if nobody opened the Scanner page before the monitor started).
+    existing_plans = get_all_daily_plans(session)
+    if not existing_plans:
+        logger.info("No daily plans for %s — seeding via scan_watchlist()", session)
+        try:
+            from analytics.signal_engine import scan_watchlist
+            scan_watchlist(symbols)
+        except Exception:
+            logger.exception("Failed to seed daily plans")
+
     cooled_symbols = get_active_cooldowns(session)
 
     # Build fired_today from DB so evaluate_rules() filters already-fired signals
@@ -95,12 +113,14 @@ def poll_cycle(dry_run: bool = False) -> int:
 
             active = get_active_entries(symbol, session)
             spy_ctx = get_spy_context()
+            plan = get_daily_plan(symbol, session)
             signals = evaluate_rules(
                 symbol, intraday, prior_day, active,
                 spy_context=spy_ctx,
                 auto_stop_entries=_auto_stop_entries.get(symbol),
                 is_cooled_down=symbol in cooled_symbols,
                 fired_today=fired_today,
+                daily_plan=plan,
             )
 
             for signal in signals:

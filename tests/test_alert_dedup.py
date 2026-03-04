@@ -61,6 +61,7 @@ def tmp_db(tmp_path):
             target_2 REAL,
             confidence TEXT,
             message TEXT,
+            narrative TEXT DEFAULT '',
             score INTEGER DEFAULT 0,
             notified_email INTEGER DEFAULT 0,
             notified_sms INTEGER DEFAULT 0,

@@ -354,7 +354,16 @@ def scan_watchlist(
     symbols: list[str],
     period: str = "3mo",
 ) -> list[SignalResult]:
-    """Fetch data and analyze each symbol. Returns results sorted by proximity to support."""
+    """Fetch data and analyze each symbol. Returns results sorted by proximity to support.
+
+    Also persists each result as a daily plan to the DB (single source of truth
+    for the intraday Monitor).
+    """
+    from datetime import date
+
+    from db import upsert_daily_plan
+
+    session_date = date.today().isoformat()
     results: list[SignalResult] = []
     for sym in symbols:
         sym = sym.upper().strip()
@@ -366,6 +375,20 @@ def scan_watchlist(
         result = analyze_symbol(hist, sym)
         if result is not None:
             results.append(result)
+            upsert_daily_plan(
+                sym,
+                session_date,
+                support=result.nearest_support,
+                support_label=result.support_label,
+                support_status=result.support_status,
+                entry=result.entry,
+                stop=result.stop,
+                target_1=result.target_1,
+                target_2=result.target_2,
+                score=result.score,
+                score_label=result.score_label,
+                pattern=result.pattern,
+            )
 
     # Sort: AT SUPPORT first, then PULLBACK WATCH, then BROKEN
     status_order = {"AT SUPPORT": 0, "PULLBACK WATCH": 1, "BROKEN": 2, "NO DATA": 3}

@@ -39,14 +39,14 @@ class TestTelegramTierRouting:
 
     @patch("alerting.notifier.send_sms", return_value=True)
     @patch("alerting.notifier.send_email", return_value=True)
-    def test_low_score_sends_email_only(self, mock_email, mock_sms):
-        """C signal (score=40) → email only, Telegram skipped."""
+    def test_low_score_still_sends_both(self, mock_email, mock_sms):
+        """C signal (score=40) → both email and Telegram (no tier routing)."""
         sig = _make_signal(score=40, score_label="C")
         email_sent, sms_sent = notify(sig)
         assert email_sent is True
-        assert sms_sent is False
+        assert sms_sent is True
         mock_email.assert_called_once_with(sig)
-        mock_sms.assert_not_called()
+        mock_sms.assert_called_once_with(sig)
 
     @patch("alerting.notifier.send_sms", return_value=True)
     @patch("alerting.notifier.send_email", return_value=True)

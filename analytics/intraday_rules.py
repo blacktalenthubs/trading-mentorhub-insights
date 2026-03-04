@@ -47,7 +47,6 @@ from alert_config import (
     OVERHEAD_MA_RESISTANCE_PCT,
     PDL_DIP_MIN_PCT,
     PER_SYMBOL_RISK,
-    PLANNED_LEVEL_PROXIMITY_PCT,
     RESISTANCE_PROXIMITY_PCT,
     WEEKLY_LEVEL_PROXIMITY_PCT,
     WEEKLY_LEVEL_STOP_OFFSET_PCT,
@@ -95,7 +94,6 @@ class AlertType(str, Enum):
     MA_RESISTANCE = "ma_resistance"
     OUTSIDE_DAY_BREAKOUT = "outside_day_breakout"
     RESISTANCE_PRIOR_LOW = "resistance_prior_low"
-    BUY_ZONE_APPROACH = "buy_zone_approach"
 
 
 @dataclass
@@ -1171,73 +1169,66 @@ def check_gap_fill(
 # ---------------------------------------------------------------------------
 
 
-def _compute_planned_levels(prior_day: dict) -> dict | None:
-    """Replicate Scanner get_levels() using prior_day dict (no extra API call).
-
-    Returns dict with entry, stop, target_1, target_2, pattern or None for inside days.
-    """
-    pattern = prior_day.get("pattern", "normal")
-    if pattern == "inside":
-        return None  # already handled by check_inside_day_breakout
-
-    high = prior_day.get("high", 0)
-    low = prior_day.get("low", 0)
-    day_range = high - low
-
-    if day_range <= 0 or high <= 0 or low <= 0:
-        return None
-
-    if pattern == "outside":
-        midpoint = (high + low) / 2
-        return {
-            "pattern": "outside",
-            "entry": midpoint,
-            "stop": low,
-            "target_1": high,
-            "target_2": high + (high - midpoint),
-        }
-
-    # Normal day
-    return {
-        "pattern": "normal",
-        "entry": low,
-        "stop": low - day_range * 0.25,
-        "target_1": high,
-        "target_2": high + day_range * 0.5,
-    }
-
-
 def check_planned_level_touch(
     symbol: str,
     bar: pd.Series,
-    prior_day: dict,
+    plan: dict | None,
 ) -> AlertSignal | None:
-    """Price touches the Scanner's planned entry level and bounces — bullish entry.
+    """Price touches the Scanner's daily plan levels and bounces — informational alert.
+
+    Uses the daily plan from the DB (single source of truth computed by Scanner)
+    instead of recalculating levels from prior_day.
+
+    Checks all plan levels: entry, support, target_1, target_2, stop.
+    Uses BUY_ZONE_PROXIMITY_PCT (0.5%) to cover the former buy_zone_approach range.
 
     Conditions:
-    1. Pattern is normal or outside (not inside)
-    2. Bar low within PLANNED_LEVEL_PROXIMITY_PCT of planned entry
-    3. Bar close > planned entry (bounce confirmed)
+    1. A daily plan exists for this symbol
+    2. Bar low within BUY_ZONE_PROXIMITY_PCT of any plan level
+    3. Bar close >= that level (bounce/hold confirmed)
     4. Risk > 0
     """
-    levels = _compute_planned_levels(prior_day)
-    if levels is None:
+    if plan is None:
         return None
 
-    entry = levels["entry"]
-    if entry <= 0:
+    entry = plan.get("entry") or 0
+    stop = plan.get("stop") or 0
+    support = plan.get("support") or 0
+    target_1 = plan.get("target_1") or 0
+    target_2 = plan.get("target_2") or 0
+    pattern = plan.get("pattern", "normal")
+
+    # Check each level for proximity — entry and support are the primary BUY zone levels
+    levels_to_check = []
+    if entry > 0:
+        levels_to_check.append((entry, "entry"))
+    if support > 0 and support != entry:
+        levels_to_check.append((support, plan.get("support_label", "support")))
+
+    if not levels_to_check:
         return None
 
-    proximity = abs(bar["Low"] - entry) / entry
-    if proximity > PLANNED_LEVEL_PROXIMITY_PCT:
+    # Find the closest level the bar low touched
+    bar_low = bar["Low"]
+    bar_close = bar["Close"]
+    touched_level = None
+    touched_label = None
+
+    for lvl, label in levels_to_check:
+        proximity = abs(bar_low - lvl) / lvl
+        if proximity <= BUY_ZONE_PROXIMITY_PCT and bar_close >= lvl:
+            if touched_level is None or abs(bar_low - lvl) < abs(bar_low - touched_level):
+                touched_level = lvl
+                touched_label = label
+
+    if touched_level is None:
         return None
 
-    if bar["Close"] <= entry:
-        return None  # no bounce
+    if entry <= 0 or stop <= 0:
+        return None
 
-    stop = levels["stop"]
-    stop = _cap_risk(entry, stop, symbol=symbol)
-    risk = entry - stop
+    capped_stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - capped_stop
     if risk <= 0:
         return None
 
@@ -1245,15 +1236,16 @@ def check_planned_level_touch(
         symbol=symbol,
         alert_type=AlertType.PLANNED_LEVEL_TOUCH,
         direction="NOTICE",
-        price=bar["Close"],
+        price=bar_close,
         entry=round(entry, 2),
-        stop=round(stop, 2),
-        target_1=round(levels["target_1"], 2),
-        target_2=round(levels["target_2"], 2),
+        stop=round(capped_stop, 2),
+        target_1=round(target_1, 2) if target_1 > 0 else None,
+        target_2=round(target_2, 2) if target_2 > 0 else None,
         confidence="high",
         message=(
-            f"Planned level touch ({levels['pattern']}) — "
-            f"price at ${entry:.2f}, T1=${levels['target_1']:.2f}"
+            f"Planned level touch ({pattern}) — "
+            f"price at {touched_label} ${touched_level:.2f}, "
+            f"entry=${entry:.2f}, T1=${target_1:.2f}"
         ),
     )
 
@@ -1318,99 +1310,6 @@ def check_weekly_level_touch(
         message=(
             f"Weekly level touch — price at prior week low ${pw_low:.2f}, "
             f"T1=${pw_high:.2f}"
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Rule 22: Buy Zone Approach (BUY)
-# ---------------------------------------------------------------------------
-
-
-def check_buy_zone_approach(
-    symbol: str,
-    bar: pd.Series,
-    prior_day: dict,
-) -> AlertSignal | None:
-    """Price approaches nearest support (Scanner's BUY ZONE concept) — bullish entry.
-
-    Mirrors _find_nearest_support() from signal_engine.py to unify the Scanner's
-    AT SUPPORT classification with an intraday alert.
-
-    Conditions:
-    1. At least one support candidate (prior_low, ma20, ma50) exists
-    2. Nearest support at or below bar close is identified
-    3. Bar low within BUY_ZONE_PROXIMITY_PCT of that support
-    4. Bar close >= support (bounce/hold confirmed)
-    5. Risk > 0 after _cap_risk
-    """
-    prior_low = prior_day.get("low", 0)
-    ma20 = prior_day.get("ma20")
-    ma50 = prior_day.get("ma50")
-    high = prior_day.get("high", 0)
-
-    # Build support candidates (same as signal_engine._find_nearest_support)
-    candidates: list[tuple[float, str]] = []
-    if prior_low > 0:
-        candidates.append((prior_low, "Prior Day Low"))
-    if ma20 is not None and ma20 > 0:
-        candidates.append((ma20, "20 MA"))
-    if ma50 is not None and ma50 > 0:
-        candidates.append((ma50, "50 MA"))
-
-    if not candidates:
-        return None
-
-    close = bar["Close"]
-
-    # Find nearest support at or below current close
-    below = [(lvl, label) for lvl, label in candidates if lvl <= close]
-    if not below:
-        return None  # price broke all supports — no buy zone
-
-    below.sort(key=lambda x: close - x[0])
-    support, support_label = below[0]
-
-    if support <= 0:
-        return None
-
-    # Check bar low is within proximity of support
-    proximity = abs(bar["Low"] - support) / support
-    if proximity > BUY_ZONE_PROXIMITY_PCT:
-        return None
-
-    # Bounce/hold confirmed: close at or above support
-    if close < support:
-        return None
-
-    # Compute entry/stop/targets using prior day range
-    day_range = high - prior_low
-    if day_range <= 0:
-        return None
-
-    entry = support
-    stop = support - day_range * 0.25
-    stop = _cap_risk(entry, stop, symbol=symbol)
-    risk = entry - stop
-    if risk <= 0:
-        return None
-
-    target_1 = high if high > entry else entry + day_range * 0.5
-    target_2 = high + day_range * 0.5 if high > entry else entry + day_range
-
-    return AlertSignal(
-        symbol=symbol,
-        alert_type=AlertType.BUY_ZONE_APPROACH,
-        direction="BUY",
-        price=bar["Close"],
-        entry=round(entry, 2),
-        stop=round(stop, 2),
-        target_1=round(target_1, 2),
-        target_2=round(target_2, 2),
-        confidence="high",
-        message=(
-            f"BUY ZONE — approaching {support_label} ${support:.2f}, "
-            f"T1=${target_1:.2f}"
         ),
     )
 
@@ -1859,6 +1758,7 @@ def evaluate_rules(
     auto_stop_entries: dict | None = None,
     is_cooled_down: bool = False,
     fired_today: set[tuple[str, str]] | None = None,
+    daily_plan: dict | None = None,
 ) -> list[AlertSignal]:
     """Evaluate all rules for a symbol and return fired signals.
 
@@ -1879,6 +1779,7 @@ def evaluate_rules(
         auto_stop_entries: Dict with entry for auto stop-out tracking.
         is_cooled_down: If True, suppress all BUY signals (post stop-out cooldown).
         fired_today: Set of (symbol, alert_type) tuples already fired this session.
+        daily_plan: Dict from get_daily_plan() with Scanner's planned levels.
 
     Returns:
         List of AlertSignal objects for rules that fired.
@@ -2081,18 +1982,9 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        # --- Planned Level Touch ---
-        sig = check_planned_level_touch(symbol, last_bar, prior_day)
-        if sig:
-            sig.message += f" ({phase})"
-            if vwap_pos:
-                sig.message += f" — price {vwap_pos}"
-            sig.message += caution_suffix
-            signals.append(sig)
-
-        # --- Buy Zone Approach ---
-        if AlertType.BUY_ZONE_APPROACH.value in ENABLED_RULES:
-            sig = check_buy_zone_approach(symbol, last_bar, prior_day)
+        # --- Planned Level Touch (uses daily plan from DB) ---
+        if daily_plan is not None:
+            sig = check_planned_level_touch(symbol, last_bar, daily_plan)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:

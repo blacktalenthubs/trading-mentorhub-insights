@@ -60,9 +60,9 @@ def record_alert(
         cur = conn.execute(
             """INSERT INTO alerts
                (symbol, alert_type, direction, price, entry, stop, target_1, target_2,
-                confidence, message, score, notified_email, notified_sms, session_date,
-                user_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                confidence, message, narrative, score, notified_email, notified_sms,
+                session_date, user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 signal.symbol,
                 signal.alert_type.value,
@@ -74,6 +74,7 @@ def record_alert(
                 signal.target_2,
                 signal.confidence,
                 signal.message,
+                getattr(signal, "narrative", ""),
                 signal.score,
                 int(notified_email),
                 int(notified_sms),
