@@ -159,15 +159,15 @@ def _read_cookie() -> str | None:
     Streamlit exposes cookies via ``st.context.cookies`` (>=1.37) or via
     the internal header accessor.  Returns the token string or None.
     """
-    # st.context.cookies available since Streamlit ~1.37
     try:
+        # st.context.cookies available since Streamlit ~1.37
         cookies = st.context.cookies
         return cookies.get(_COOKIE_NAME) or None
-    except AttributeError:
+    except Exception:
         pass
 
-    # Fallback: parse the Cookie header from the HTTP request
     try:
+        # Fallback: parse the Cookie header from the HTTP request
         headers = st.context.headers
         cookie_header = headers.get("Cookie", "")
         for part in cookie_header.split(";"):
@@ -192,7 +192,11 @@ def get_current_user() -> dict | None:
         return user
 
     # Try persistent cookie first (survives browser restarts)
-    token = _read_cookie()
+    token = None
+    try:
+        token = _read_cookie()
+    except Exception:
+        pass
 
     # Fallback: legacy query-param token
     if not token:
@@ -204,8 +208,8 @@ def get_current_user() -> dict | None:
             st.session_state["user"] = user
             return user
         else:
-            # Token expired or invalid — clean up
-            _clear_cookie()
+            # Token expired or invalid — schedule cleanup (avoid components.html here)
+            st.session_state["_clear_session"] = True
             if "session" in st.query_params:
                 del st.query_params["session"]
     return None
@@ -237,6 +241,10 @@ def logout_user():
 
 def render_sidebar_user_info():
     """Show logged-in user info + logout button in sidebar (compact)."""
+    # Deferred cookie cleanup (scheduled by get_current_user on invalid token)
+    if st.session_state.pop("_clear_session", False):
+        _clear_cookie()
+
     user = get_current_user()
     if not user:
         return
