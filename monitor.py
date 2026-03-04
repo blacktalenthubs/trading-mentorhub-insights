@@ -31,6 +31,7 @@ from alerting.alert_store import (
     update_monitor_status,
     was_alert_fired,
 )
+from alerting.narrator import generate_narrative
 from alerting.notifier import notify, notify_user, send_email, send_sms
 from alerting.paper_trader import (
     close_position as paper_close_position,
@@ -103,6 +104,8 @@ def poll_cycle(dry_run: bool = False) -> int:
             )
 
             for signal in signals:
+                signal.narrative = generate_narrative(signal)
+
                 if dry_run:
                     # In dry-run, show per-user info but don't notify
                     users = get_users_for_symbol(symbol) or [None]
@@ -126,15 +129,15 @@ def poll_cycle(dry_run: bool = False) -> int:
                         logger.debug("%s: dedup skip %s (user=%s)", symbol, signal.alert_type.value, uid)
                         continue
 
-                    # Notify
+                    # Notify — per-user only, never fall back to global group
                     if uid is not None:
                         prefs = get_notification_prefs(uid)
                         if prefs:
                             email_sent, sms_sent = notify_user(signal, prefs)
                         else:
-                            email_sent, sms_sent = notify(signal)
+                            email_sent, sms_sent = False, False
                     else:
-                        email_sent, sms_sent = notify(signal)
+                        email_sent, sms_sent = False, False
 
                     # Record per-user
                     alert_id = record_alert(signal, session, email_sent, sms_sent, user_id=uid)
