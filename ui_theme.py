@@ -368,8 +368,15 @@ def setup_page(page_key: str, *, require_login: bool = False) -> dict | None:
     with st.sidebar:
         sidebar_branding()
 
-    # Single-user mode — return first user from DB (no login required)
+    # Single-user mode — return first user from DB, create if needed
     from db import get_db
     with get_db() as conn:
         row = conn.execute("SELECT * FROM users ORDER BY id LIMIT 1").fetchone()
-    return dict(row) if row else None
+        if not row:
+            conn.execute(
+                "INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)",
+                ("local@tradesignal", "", "Trader"),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM users ORDER BY id LIMIT 1").fetchone()
+    return dict(row)
