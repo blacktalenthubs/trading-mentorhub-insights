@@ -105,16 +105,7 @@ def classify_holding_period(days: Optional[int]) -> str:
 
 # --- Signal Scanner constants ---
 
-DEFAULT_WATCHLIST = [
-    "LRCX", "PLTR", "ONDS", "META", "TSLA", "NVDA", "GOOGL", "SPY", "AAPL", "AMD",
-]
-
-QUICK_PICKS = {
-    "Index ETFs": ["SPY", "QQQ", "IWB", "RSP", "XLK", "XLF", "XLE"],
-    "Mega-Cap": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"],
-    "Tech": ["NVDA", "AMD", "AVGO", "CRM", "ORCL", "ADBE", "NFLX", "QCOM"],
-    "Speculative": ["PLTR", "SOFI", "HOOD", "COIN", "RGTI", "SOUN", "AFRM"],
-}
+DEFAULT_WATCHLIST = ["SPY", "NVDA"]
 
 # Scoring weights (each factor 0-25, total 0-100)
 SIGNAL_WEIGHTS = {

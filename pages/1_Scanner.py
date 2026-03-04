@@ -9,10 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 
 from db import get_watchlist, add_to_watchlist, remove_from_watchlist, set_watchlist
 from auth import get_current_user, _render_login_form, _render_register_form
-from config import (
-    DEFAULT_POSITION_SIZE,
-    QUICK_PICKS,
-)
+from config import DEFAULT_POSITION_SIZE
 from analytics.market_data import classify_day, fetch_ohlc
 from analytics.signal_engine import (
     scan_watchlist, SignalResult, ACTION_LABELS, action_label, action_color, action_help,
@@ -24,6 +21,7 @@ from analytics.intraday_data import (
 from analytics.intraday_rules import evaluate_rules
 from analytics.market_hours import is_market_hours, is_premarket
 from alerting.alert_store import get_active_entries, today_session
+from db import get_db
 from alerting.real_trade_store import (
     open_real_trade, close_real_trade, has_open_trade, get_open_trades,
 )
@@ -112,6 +110,16 @@ def _cached_prior_day(symbol: str) -> dict | None:
 def _cached_active_entries(symbol: str, session_date: str) -> list[dict]:
     """Active alert entries for a symbol today (1-min cache)."""
     return get_active_entries(symbol, session_date)
+
+
+def _get_alert_narrative(symbol: str, session_date: str) -> str:
+    """Fetch the most recent AI narrative for a symbol from today's alerts."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT narrative FROM alerts WHERE symbol=? AND session_date=? AND narrative != '' ORDER BY created_at DESC LIMIT 1",
+            (symbol, session_date),
+        ).fetchone()
+        return row["narrative"] if row else ""
 
 
 # ── Status styling ──────────────────────────────────────────────────────────
@@ -290,16 +298,6 @@ with st.sidebar:
     if user:
         _uid = user["id"]
 
-        # Quick Picks — replace entire watchlist
-        st.markdown("**Quick Picks**")
-        for label, syms in QUICK_PICKS.items():
-            if st.button(label, key=f"qp_{label}", use_container_width=True):
-                set_watchlist(list(syms), _uid)
-                st.session_state["watchlist"] = list(syms)
-                st.rerun()
-
-        st.divider()
-
         # Add symbol one at a time
         add_col, btn_col = st.columns([3, 1])
         with add_col:
@@ -330,7 +328,7 @@ with st.sidebar:
                 st.session_state["watchlist"].remove(remove_sym)
                 st.rerun()
         else:
-            st.caption("No symbols. Add one above or use Quick Picks.")
+            st.caption("No symbols. Add one above.")
 
         # Bulk edit in collapsible expander
         with st.expander("Bulk Edit"):
@@ -663,6 +661,16 @@ for r in results:
         tc5.metric("R:R", f"{r.rr_ratio:.1f}:1",
                     delta="GOOD" if r.rr_ratio >= 1.5 else "WEAK",
                     delta_color="normal" if r.rr_ratio >= 1.5 else "inverse")
+
+        # ── AI Trade Thesis ──────────────────────────────────────────
+        _narrative = _get_alert_narrative(r.symbol, _session)
+        if _narrative:
+            st.markdown(
+                f"<div style='padding:10px 14px;border-left:4px solid #3498db;"
+                f"background:#3498db10;border-radius:4px;margin:8px 0;font-size:0.95rem'>"
+                f"<strong>AI Thesis:</strong> {_narrative}</div>",
+                unsafe_allow_html=True,
+            )
 
         # ── Re-entry protocol ─────────────────────────────────────────
         st.markdown("**Re-entry Protocol**")
