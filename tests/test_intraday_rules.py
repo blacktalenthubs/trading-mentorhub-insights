@@ -28,6 +28,7 @@ from analytics.intraday_rules import (
     check_opening_range_breakout,
     check_orb_breakdown,
     check_planned_level_touch,
+    check_prior_day_high_breakout,
     check_prior_day_low_reclaim,
     check_weekly_level_touch,
     check_resistance_prior_high,
@@ -273,6 +274,100 @@ class TestPriorDayLowReclaim:
 
     def test_empty_bars_returns_none(self):
         assert check_prior_day_low_reclaim("X", pd.DataFrame(), prior_day_low=99.0) is None
+
+
+# ===== Rule 3b: Prior Day High Breakout =====
+
+class TestPriorDayHighBreakout:
+    def test_fires_on_close_above_prior_high_with_volume(self):
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.5, "Close": 100, "Volume": 800},
+            {"Open": 100.5, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("NVDA", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PRIOR_DAY_HIGH_BREAKOUT
+        assert sig.direction == "BUY"
+        assert sig.confidence == "high"  # vol 1.5x
+
+    def test_medium_confidence_on_moderate_volume(self):
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 1300},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1300, avg_volume=1000)
+        assert sig is not None
+        assert sig.confidence == "medium"  # vol 1.3x (< 1.5)
+
+    def test_no_fire_when_close_below_prior_high(self):
+        bars = _bars([
+            {"Open": 100, "High": 100.8, "Low": 99.5, "Close": 100.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_volume_insufficient(self):
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 800},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=800, avg_volume=1000)
+        assert sig is None  # vol 0.8x < 1.2 threshold
+
+    def test_empty_bars_returns_none(self):
+        sig = check_prior_day_high_breakout("X", pd.DataFrame(), prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_zero_prior_high_returns_none(self):
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("X", bars, prior_day_high=0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_targets_are_1r_and_2r(self):
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+        risk = sig.entry - sig.stop
+        assert risk > 0
+        assert abs(sig.target_1 - (sig.entry + risk)) < 0.01
+        assert abs(sig.target_2 - (sig.entry + 2 * risk)) < 0.01
+
+    def test_stop_at_breakout_bar_low(self):
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100.5, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+        # Stop should be at or above the bar low (may be capped by _cap_risk)
+        assert sig.stop <= sig.entry
+
+    def test_message_includes_volume_ratio(self):
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1800},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1800, avg_volume=1000)
+        assert sig is not None
+        assert "1.8x" in sig.message
+
+    def test_no_fire_when_risk_is_zero(self):
+        # Bar low == prior high → risk = 0, should return None
+        bars = _bars([
+            {"Open": 101, "High": 102, "Low": 101.0, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is None
 
 
 # ===== Rule 4: Inside Day Breakout =====

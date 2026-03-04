@@ -45,6 +45,7 @@ from alert_config import (
     ORB_MIN_RANGE_PCT,
     ORB_VOLUME_RATIO,
     OVERHEAD_MA_RESISTANCE_PCT,
+    PDH_BREAKOUT_VOLUME_RATIO,
     PDL_DIP_MIN_PCT,
     PER_SYMBOL_RISK,
     RESISTANCE_PROXIMITY_PCT,
@@ -75,6 +76,7 @@ class AlertType(str, Enum):
     MA_BOUNCE_100 = "ma_bounce_100"
     MA_BOUNCE_200 = "ma_bounce_200"
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
+    PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
     RESISTANCE_PRIOR_HIGH = "resistance_prior_high"
     TARGET_1_HIT = "target_1_hit"
@@ -416,6 +418,60 @@ def check_prior_day_low_reclaim(
         message=(
             f"Prior day low reclaim — dipped to ${intraday_low:.2f}, "
             f"reclaimed above ${prior_day_low:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule 3b: Prior Day High Breakout
+# ---------------------------------------------------------------------------
+
+def check_prior_day_high_breakout(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day_high: float,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price breaks above prior day high with volume confirmation.
+
+    Conditions:
+    - Last bar closes above prior_day_high
+    - Volume >= PDH_BREAKOUT_VOLUME_RATIO * avg_volume
+    - Entry = prior_day_high, Stop = last bar low (capped by _cap_risk)
+    - Targets = 1R, 2R
+    """
+    if bars.empty or prior_day_high <= 0:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= prior_day_high:
+        return None
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < PDH_BREAKOUT_VOLUME_RATIO:
+        return None
+
+    entry = round(prior_day_high, 2)
+    stop = round(last_bar["Low"], 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PRIOR_DAY_HIGH_BREAKOUT,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=(
+            f"Prior day high breakout — closed above ${prior_day_high:.2f} "
+            f"(vol {vol_ratio:.1f}x avg)"
         ),
     )
 
@@ -1923,6 +1979,16 @@ def evaluate_rules(
                 sig.message += f" — price {vwap_pos}"
             sig.message += caution_suffix
             signals.append(sig)
+
+        # --- Prior Day High Breakout ---
+        if AlertType.PRIOR_DAY_HIGH_BREAKOUT.value in ENABLED_RULES:
+            sig = check_prior_day_high_breakout(
+                symbol, intraday_bars, prior_high, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
 
         if AlertType.INSIDE_DAY_BREAKOUT.value in ENABLED_RULES:
             sig = check_inside_day_breakout(symbol, last_bar, prior_day)

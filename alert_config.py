@@ -149,6 +149,9 @@ RS_UNDERPERFORM_FACTOR = 2.0
 SUPPORT_STRONG_HOLD_HOURS = 2
 SUPPORT_STRONG_RETEST_COUNT = 2
 
+# Prior Day High Breakout: volume must be >= this multiple of average
+PDH_BREAKOUT_VOLUME_RATIO = 1.2
+
 # Opening Range Breakdown: volume must be >= this multiple of average
 ORB_BREAKDOWN_VOLUME_RATIO = 1.2  # same threshold as upside breakout
 
@@ -192,6 +195,7 @@ ENABLED_RULES: set[str] = {
     "weekly_level_touch",
     "intraday_support_bounce",
     # BUY — breakout / momentum
+    "prior_day_high_breakout",
     "outside_day_breakout",
     # Momentum — disabled: EMA crossover produces false positives from yfinance
     # partial-bar data diverging from actual daily EMAs (re-enable after hardening)
