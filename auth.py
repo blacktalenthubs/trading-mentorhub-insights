@@ -185,33 +185,39 @@ def _read_cookie() -> str | None:
 # ---------------------------------------------------------------------------
 
 def get_current_user() -> dict | None:
-    """Check for logged-in user: session_state → cookie → query param."""
+    """Check for logged-in user: session_state → cookie → query param.
+
+    Tries both token sources independently so a stale cookie doesn't
+    block a valid query-param token.
+    """
     # Fast path: already in memory
     user = st.session_state.get("user")
     if user:
         return user
 
-    # Try persistent cookie first (survives browser restarts)
-    token = None
+    # Collect both token sources
+    cookie_token = None
     try:
-        token = _read_cookie()
+        cookie_token = _read_cookie()
     except Exception:
         pass
 
-    # Fallback: legacy query-param token
-    if not token:
-        token = st.query_params.get("session")
+    qp_token = st.query_params.get("session")
 
-    if token:
+    # Try each token — cookie first, then query param
+    for token in [cookie_token, qp_token]:
+        if not token:
+            continue
         user = _get_user_by_token(token)
         if user:
             st.session_state["user"] = user
             return user
-        else:
-            # Token expired or invalid — schedule cleanup (avoid components.html here)
-            st.session_state["_clear_session"] = True
-            if "session" in st.query_params:
-                del st.query_params["session"]
+
+    # Both tokens invalid — clean up
+    if cookie_token:
+        st.session_state["_clear_session"] = True
+    if qp_token:
+        del st.query_params["session"]
     return None
 
 
