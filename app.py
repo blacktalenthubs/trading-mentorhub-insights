@@ -23,7 +23,7 @@ from alerting.alert_store import (
     today_session,
     was_alert_fired,
 )
-from alerting.notifier import notify, notify_user
+from alerting.notifier import notify_user
 from alerting.real_trade_store import (
     calculate_shares, has_open_trade,
 )
@@ -369,9 +369,9 @@ else:
                 if _prefs:
                     email_sent, sms_sent = notify_user(sig, _prefs)
                 else:
-                    email_sent, sms_sent = notify(sig)
+                    email_sent, sms_sent = False, False
             else:
-                email_sent, sms_sent = notify(sig)
+                email_sent, sms_sent = False, False
 
             # Record to DB so alerts persist and dedup works across refreshes
             record_alert(sig, session, email_sent, sms_sent, user_id=_user_id)
