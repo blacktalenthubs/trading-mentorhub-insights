@@ -104,6 +104,11 @@ class AlertType(str, Enum):
     OUTSIDE_DAY_BREAKOUT = "outside_day_breakout"
     RESISTANCE_PRIOR_LOW = "resistance_prior_low"
     VWAP_RECLAIM = "vwap_reclaim"
+    WEEKLY_HIGH_BREAKOUT = "weekly_high_breakout"
+    WEEKLY_HIGH_RESISTANCE = "weekly_high_resistance"
+    EMA_BOUNCE_20 = "ema_bounce_20"
+    EMA_BOUNCE_50 = "ema_bounce_50"
+    EMA_RESISTANCE = "ema_resistance"
 
 
 @dataclass
@@ -775,6 +780,228 @@ def check_support_breakdown(
 
 
 # ---------------------------------------------------------------------------
+# BUY Rule: Weekly High Breakout
+# ---------------------------------------------------------------------------
+
+
+def check_weekly_high_breakout(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price breaks above prior week high with volume — bullish breakout."""
+    pw_high = prior_day.get("prior_week_high")
+    pw_low = prior_day.get("prior_week_low")
+    if not pw_high or pw_high <= 0:
+        return None
+
+    last_bar = bars.iloc[-1] if not bars.empty else None
+    if last_bar is None or last_bar["Close"] <= pw_high:
+        return None
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < PDH_BREAKOUT_VOLUME_RATIO:
+        return None
+
+    entry = round(pw_high, 2)
+    stop = round(last_bar["Low"], 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    weekly_range = pw_high - pw_low if pw_low and pw_low > 0 else risk * 2
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WEEKLY_HIGH_BREAKOUT,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + weekly_range, 2),
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=f"Weekly high breakout — closed above ${pw_high:.2f} (vol {vol_ratio:.1f}x avg)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: Weekly High Resistance
+# ---------------------------------------------------------------------------
+
+
+def check_weekly_high_resistance(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price approaches prior week high from below — resistance warning."""
+    pw_high = prior_day.get("prior_week_high")
+    if not pw_high or pw_high <= 0:
+        return None
+    if bar["Close"] >= pw_high:
+        return None  # above = breakout, not resistance
+
+    proximity = abs(bar["High"] - pw_high) / pw_high
+    if proximity > WEEKLY_LEVEL_PROXIMITY_PCT:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WEEKLY_HIGH_RESISTANCE,
+        direction="SELL",
+        price=bar["High"],
+        message=f"Weekly high resistance — rejected near ${pw_high:.2f}, closed ${bar['Close']:.2f}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: EMA Bounce 20
+# ---------------------------------------------------------------------------
+
+
+def check_ema_bounce_20(
+    symbol: str,
+    bar: pd.Series,
+    ema20: float | None,
+    ema50: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to EMA20 and bounces — bullish in uptrend.
+
+    Mirrors check_ma_bounce_20() but uses EMA values.
+    """
+    if ema20 is None or ema50 is None:
+        return None
+    if ema20 <= 0 or ema50 <= 0:
+        return None
+    if ema20 <= ema50:
+        return None  # not in uptrend
+
+    proximity = abs(bar["Low"] - ema20) / ema20
+    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+        return None
+    if bar["Close"] <= ema20:
+        return None  # didn't bounce above
+
+    entry = round(ema20, 2)
+    stop = round(ema20 * (1 - MA_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_BOUNCE_20,
+        direction="BUY",
+        price=bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high" if proximity <= 0.001 else "medium",
+        message=(
+            f"EMA bounce 20 — price pulled back to ${ema20:.2f} "
+            f"and closed above at ${bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: EMA Bounce 50
+# ---------------------------------------------------------------------------
+
+
+def check_ema_bounce_50(
+    symbol: str,
+    bar: pd.Series,
+    ema50: float | None,
+    ema20: float | None,
+    prior_close: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to EMA50 and bounces — deeper pullback buy.
+
+    Mirrors check_ma_bounce_50() but uses EMA values.
+    """
+    if ema50 is None or ema50 <= 0:
+        return None
+    counter_trend = prior_close is not None and prior_close <= ema50
+
+    proximity = abs(bar["Low"] - ema50) / ema50
+    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+        return None
+    if bar["Close"] <= ema50:
+        return None
+
+    entry = round(ema50, 2)
+    stop = round(ema50 * (1 - MA_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    if counter_trend:
+        confidence = "medium"
+    else:
+        confidence = "high" if proximity <= 0.001 else "medium"
+
+    msg = (
+        f"EMA bounce 50 — price pulled back to ${ema50:.2f} "
+        f"and closed above at ${bar['Close']:.2f}"
+    )
+    if counter_trend:
+        msg += " (counter-trend)"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_BOUNCE_50,
+        direction="BUY",
+        price=bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=confidence,
+        message=msg,
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: EMA Resistance
+# ---------------------------------------------------------------------------
+
+
+def check_ema_resistance(
+    symbol: str,
+    bar: pd.Series,
+    ema20: float | None,
+    ema50: float | None,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Price rallies into overhead EMA and gets rejected — bearish warning."""
+    for ema_val, label in [(ema20, "20"), (ema50, "50")]:
+        if ema_val is None or ema_val <= 0 or ema_val <= bar["Close"]:
+            continue
+        proximity = abs(bar["High"] - ema_val) / ema_val
+        if proximity > MA_BOUNCE_PROXIMITY_PCT:
+            continue
+        if bar["Close"] >= ema_val:
+            continue
+        msg = f"EMA{label} RESISTANCE — rejected at ${ema_val:.2f}, closed ${bar['Close']:.2f}"
+        if prior_close is not None and prior_close < ema_val:
+            msg += " — recently broken, acting as resistance"
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.EMA_RESISTANCE,
+            direction="SELL",
+            price=bar["High"],
+            message=msg,
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Rule 10: EMA Crossover 5/20 (BUY)
 # ---------------------------------------------------------------------------
 
@@ -782,22 +1009,18 @@ def check_support_breakdown(
 def check_ema_crossover_5_20(
     symbol: str,
     bars: pd.DataFrame,
-    is_mega_cap: bool,
 ) -> AlertSignal | None:
-    """Daily 5-bar EMA crosses above 20-bar EMA on a mega-cap stock — bullish entry.
+    """Daily 5-bar EMA crosses above 20-bar EMA — bullish entry.
 
     Uses **daily** bars for the crossover detection (not intraday).
     Entry/stop are derived from intraday bars for trade management.
 
     Conditions:
-    - Symbol is in MEGA_CAP set
     - Previous daily bar: EMA5 <= EMA20; current daily bar: EMA5 > EMA20
+    - Scans last 3 days for the crossover (wider detection window)
     - Minimum separation: EMA5 must exceed EMA20 by >= 0.05% (anti-flicker)
     - Confirmation: crossover daily bar must close green (Close > Open)
     """
-    if not is_mega_cap:
-        return None
-
     # Fetch daily bars for crossover detection
     import yfinance as yf
 
@@ -813,19 +1036,39 @@ def check_ema_crossover_5_20(
 
     if len(ema5) < 2:
         return None
-    prev_cross = ema5.iloc[-2] <= ema20.iloc[-2]
-    curr_cross = ema5.iloc[-1] > ema20.iloc[-1]
-    if not (prev_cross and curr_cross):
-        return None  # no crossover on daily
 
-    # Anti-flicker: EMA5 must lead EMA20 by >= 0.05% to filter noise
+    # Look back up to 3 days for a recent crossover
+    found_crossover = False
+    crossover_idx = None
+    for i in range(1, min(4, len(ema5))):
+        prev_idx = -(i + 1)
+        curr_idx = -i
+        if abs(prev_idx) > len(ema5) or abs(curr_idx) > len(ema5):
+            break
+        prev_cross = ema5.iloc[prev_idx] <= ema20.iloc[prev_idx]
+        curr_cross = ema5.iloc[curr_idx] > ema20.iloc[curr_idx]
+        if prev_cross and curr_cross:
+            # Verify separation on the crossover day
+            ema5_val = ema5.iloc[curr_idx]
+            ema20_val = ema20.iloc[curr_idx]
+            separation_pct = (ema5_val - ema20_val) / ema20_val if ema20_val > 0 else 0
+            if separation_pct >= 0.0005:
+                found_crossover = True
+                crossover_idx = curr_idx
+                break
+
+    if not found_crossover:
+        return None
+
+    # Use latest EMA values for the message
     ema5_val = ema5.iloc[-1]
     ema20_val = ema20.iloc[-1]
-    separation_pct = (ema5_val - ema20_val) / ema20_val if ema20_val > 0 else 0
-    if separation_pct < 0.0005:
-        return None  # too tight — likely flicker
 
-    last_daily = daily.iloc[-1]
+    # EMA5 must still be above EMA20 today (crossover still valid)
+    if ema5_val <= ema20_val:
+        return None
+
+    last_daily = daily.iloc[crossover_idx]
 
     # Confirmation: crossover daily bar must be green (bullish)
     if last_daily["Close"] <= last_daily["Open"]:
@@ -1964,6 +2207,8 @@ def evaluate_rules(
     ma50 = prior_day.get("ma50")
     ma100 = prior_day.get("ma100")
     ma200 = prior_day.get("ma200")
+    ema20 = prior_day.get("ema20")
+    ema50 = prior_day.get("ema50")
     prior_close = prior_day.get("close")
     prior_high = prior_day.get("high", 0)
     prior_low = prior_day.get("low", 0)
@@ -2083,6 +2328,25 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
+        # --- EMA Bounces ---
+        if AlertType.EMA_BOUNCE_20.value in ENABLED_RULES:
+            sig = check_ema_bounce_20(symbol, last_bar, ema20, ema50)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        if AlertType.EMA_BOUNCE_50.value in ENABLED_RULES:
+            sig = check_ema_bounce_50(symbol, last_bar, ema50, ema20, prior_close)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
         sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
         if sig:
             sig.message += f" ({phase})"
@@ -2099,6 +2363,16 @@ def evaluate_rules(
         if AlertType.PRIOR_DAY_HIGH_BREAKOUT.value in ENABLED_RULES:
             sig = check_prior_day_high_breakout(
                 symbol, intraday_bars, prior_high, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Weekly High Breakout ---
+        if AlertType.WEEKLY_HIGH_BREAKOUT.value in ENABLED_RULES:
+            sig = check_weekly_high_breakout(
+                symbol, intraday_bars, prior_day, bar_vol, avg_vol,
             )
             if sig:
                 sig.message += f" ({phase})"
@@ -2220,6 +2494,18 @@ def evaluate_rules(
     if sig:
         signals.append(sig)
 
+    # --- Weekly High Resistance ---
+    if AlertType.WEEKLY_HIGH_RESISTANCE.value in ENABLED_RULES:
+        sig = check_weekly_high_resistance(symbol, last_bar, prior_day)
+        if sig:
+            signals.append(sig)
+
+    # --- EMA Resistance ---
+    if AlertType.EMA_RESISTANCE.value in ENABLED_RULES:
+        sig = check_ema_resistance(symbol, last_bar, ema20, ema50, prior_close)
+        if sig:
+            signals.append(sig)
+
     # --- Opening Range Breakdown (SELL — informational) ---
     if AlertType.OPENING_RANGE_BREAKDOWN.value in ENABLED_RULES:
         sig = check_orb_breakdown(symbol, last_bar, opening_range, bar_vol, avg_vol)
@@ -2310,12 +2596,9 @@ def evaluate_rules(
                 "%s: support breakdown suppressed (no active position)", symbol,
             )
 
-    # --- EMA Crossover 5/20 (BUY — mega-cap only) ---
+    # --- EMA Crossover 5/20 (BUY) ---
     if not is_cooled_down and AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
-        from config import MEGA_CAP
-
-        is_mega = symbol.upper() in MEGA_CAP
-        sig = check_ema_crossover_5_20(symbol, intraday_bars, is_mega)
+        sig = check_ema_crossover_5_20(symbol, intraday_bars)
         if sig:
             sig.message += f" ({phase})"
             sig.message += caution_suffix
@@ -2392,6 +2675,7 @@ def evaluate_rules(
     _MA_BOUNCE_RULES = {
         AlertType.MA_BOUNCE_20, AlertType.MA_BOUNCE_50,
         AlertType.MA_BOUNCE_100, AlertType.MA_BOUNCE_200,
+        AlertType.EMA_BOUNCE_20, AlertType.EMA_BOUNCE_50,
     }
     for sig in signals:
         # Structural stop: use session low for MA bounce rules

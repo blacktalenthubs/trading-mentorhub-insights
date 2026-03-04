@@ -105,7 +105,10 @@ def classify_holding_period(days: Optional[int]) -> str:
 
 # --- Signal Scanner constants ---
 
-DEFAULT_WATCHLIST = ["SPY", "NVDA"]
+DEFAULT_WATCHLIST = [
+    "SPY", "QQQ", "NVDA", "AAPL", "GOOGL", "META", "TSLA",
+    "NFLX", "PLTR", "LRCX", "ROKU", "DOW", "ONDS",
+]
 
 # Scoring weights (each factor 0-25, total 0-100)
 SIGNAL_WEIGHTS = {

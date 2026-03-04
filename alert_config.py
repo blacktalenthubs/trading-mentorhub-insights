@@ -208,14 +208,18 @@ ENABLED_RULES: set[str] = {
     "weekly_level_touch",
     "intraday_support_bounce",
     "vwap_reclaim",
+    # BUY — EMA bounce
+    "ema_bounce_20",
+    "ema_bounce_50",
     # BUY — breakout / momentum
     "prior_day_high_breakout",
+    "weekly_high_breakout",
     "outside_day_breakout",
-    # Momentum — disabled: EMA crossover produces false positives from yfinance
-    # partial-bar data diverging from actual daily EMAs (re-enable after hardening)
-    # "ema_crossover_5_20",
+    "ema_crossover_5_20",
     # SELL / resistance warnings
     "resistance_prior_high",
+    "weekly_high_resistance",
+    "ema_resistance",
     "hourly_resistance_approach",
     "ma_resistance",
     "resistance_prior_low",

@@ -719,8 +719,8 @@ class TestEMACrossover:
         ]
         return pd.DataFrame(rows)
 
-    def test_fires_for_mega_cap(self, monkeypatch):
-        """EMA5 crosses above EMA20 on daily bars, mega-cap → fires BUY."""
+    def test_fires_crossover(self, monkeypatch):
+        """EMA5 crosses above EMA20 on daily bars → fires BUY."""
         daily_bars = self._make_daily_crossover_bars(num_bars=30, cross=True)
         intraday_bars = self._make_intraday_bars()
 
@@ -731,18 +731,28 @@ class TestEMACrossover:
         import yfinance as yf
         monkeypatch.setattr(yf, "Ticker", lambda symbol: FakeTicker())
 
-        sig = check_ema_crossover_5_20("AAPL", intraday_bars, is_mega_cap=True)
+        sig = check_ema_crossover_5_20("AAPL", intraday_bars)
         assert sig is not None
         assert sig.alert_type == AlertType.EMA_CROSSOVER_5_20
         assert sig.direction == "BUY"
         assert sig.confidence == "high"
         assert "(daily)" in sig.message
 
-    def test_skips_non_mega_cap(self):
-        """Crossover on non-mega-cap → None."""
-        bars = self._make_intraday_bars()
-        sig = check_ema_crossover_5_20("ONDS", bars, is_mega_cap=False)
-        assert sig is None
+    def test_fires_for_non_mega_cap(self, monkeypatch):
+        """Crossover fires for any symbol (no mega-cap gate)."""
+        daily_bars = self._make_daily_crossover_bars(num_bars=30, cross=True)
+        intraday_bars = self._make_intraday_bars()
+
+        class FakeTicker:
+            def history(self, **kwargs):
+                return daily_bars
+
+        import yfinance as yf
+        monkeypatch.setattr(yf, "Ticker", lambda symbol: FakeTicker())
+
+        sig = check_ema_crossover_5_20("PLTR", intraday_bars)
+        assert sig is not None
+        assert sig.direction == "BUY"
 
     def test_skips_no_daily_crossover(self, monkeypatch):
         """No crossover on daily bars → None."""
@@ -756,7 +766,7 @@ class TestEMACrossover:
         import yfinance as yf
         monkeypatch.setattr(yf, "Ticker", lambda symbol: FakeTicker())
 
-        sig = check_ema_crossover_5_20("AAPL", intraday_bars, is_mega_cap=True)
+        sig = check_ema_crossover_5_20("AAPL", intraday_bars)
         assert sig is None
 
 
@@ -2749,10 +2759,10 @@ class TestEnabledRules:
         types = {s.alert_type for s in signals}
         assert AlertType.OPENING_RANGE_BREAKOUT not in types
 
-    def test_ema_crossover_is_disabled(self):
-        """ema_crossover_5_20 is disabled (false positives from yfinance partial-bar data)."""
+    def test_ema_crossover_is_enabled(self):
+        """ema_crossover_5_20 is enabled (widened detection window, no mega-cap gate)."""
         from alert_config import ENABLED_RULES
-        assert "ema_crossover_5_20" not in ENABLED_RULES
+        assert "ema_crossover_5_20" in ENABLED_RULES
 
     def test_disabled_gap_fill_does_not_fire(self):
         """gap_fill is disabled and should not appear in signals."""
