@@ -31,7 +31,7 @@ from alerting.alert_store import (
     update_monitor_status,
     was_alert_fired,
 )
-from alerting.notifier import notify, send_email, send_sms
+from alerting.notifier import notify, notify_user, send_email, send_sms
 from alerting.paper_trader import (
     close_position as paper_close_position,
     is_enabled as paper_trading_enabled,
@@ -40,7 +40,7 @@ from alerting.paper_trader import (
 )
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
-from db import init_db, get_watchlist
+from db import init_db, get_all_watchlist_symbols, get_notification_prefs, get_users_for_symbol
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,6 +51,7 @@ logger = logging.getLogger("monitor")
 
 # Module-level state for auto stop-out tracking (cooldowns are DB-persisted)
 _auto_stop_entries: dict[str, dict] = {}  # {symbol: {entry_price, stop_price, alert_type}}
+_auto_stop_session: str = ""  # session date when entries were created
 
 
 def poll_cycle(dry_run: bool = False) -> int:
@@ -58,14 +59,21 @@ def poll_cycle(dry_run: bool = False) -> int:
 
     Returns the number of alerts fired.
     """
+    global _auto_stop_session
     session = today_session()
     total_alerts = 0
+
+    # Clear stale auto-stop entries from previous sessions
+    if _auto_stop_session != session:
+        _auto_stop_entries.clear()
+        _auto_stop_session = session
+        logger.info("New session %s — cleared stale auto-stop entries", session)
 
     # Sync paper trades with Alpaca (bracket legs may have filled between polls)
     if not dry_run and paper_trading_enabled():
         sync_open_trades()
 
-    symbols = get_watchlist()
+    symbols = get_all_watchlist_symbols()
 
     cooled_symbols = get_active_cooldowns(session)
 
@@ -95,27 +103,57 @@ def poll_cycle(dry_run: bool = False) -> int:
             )
 
             for signal in signals:
-                # Dedup: skip if already fired today
-                if was_alert_fired(symbol, signal.alert_type.value, session):
-                    logger.debug("%s: monitor dedup skip %s", symbol, signal.alert_type.value)
-                    continue
-
                 if dry_run:
-                    logger.info(
-                        "[DRY RUN] %s %s %s @ $%.2f — %s",
-                        signal.direction, signal.symbol, signal.alert_type.value,
-                        signal.price, signal.message,
-                    )
+                    # In dry-run, show per-user info but don't notify
+                    users = get_users_for_symbol(symbol) or [None]
+                    for uid in users:
+                        if was_alert_fired(symbol, signal.alert_type.value, session, user_id=uid):
+                            continue
+                        logger.info(
+                            "[DRY RUN] %s %s %s @ $%.2f (user=%s) — %s",
+                            signal.direction, signal.symbol, signal.alert_type.value,
+                            signal.price, uid, signal.message,
+                        )
                     total_alerts += 1
                     continue
 
-                # Notify
-                email_sent, sms_sent = notify(signal)
+                # Per-user notification and recording
+                users = get_users_for_symbol(symbol) or [None]
+                signal_fired = False
+                first_alert_id = None
+                for uid in users:
+                    if was_alert_fired(symbol, signal.alert_type.value, session, user_id=uid):
+                        logger.debug("%s: dedup skip %s (user=%s)", symbol, signal.alert_type.value, uid)
+                        continue
 
-                # Record
-                alert_id = record_alert(signal, session, email_sent, sms_sent)
+                    # Notify
+                    if uid is not None:
+                        prefs = get_notification_prefs(uid)
+                        if prefs:
+                            email_sent, sms_sent = notify_user(signal, prefs)
+                        else:
+                            email_sent, sms_sent = notify(signal)
+                    else:
+                        email_sent, sms_sent = notify(signal)
 
-                # Track active entries for actionable BUY signals (skip informational)
+                    # Record per-user
+                    alert_id = record_alert(signal, session, email_sent, sms_sent, user_id=uid)
+                    if first_alert_id is None:
+                        first_alert_id = alert_id
+                    signal_fired = True
+
+                    logger.info(
+                        "ALERT: %s %s %s @ $%.2f (user=%s, email=%s, sms=%s)",
+                        signal.direction, signal.symbol, signal.alert_type.value,
+                        signal.price, uid, email_sent, sms_sent,
+                    )
+
+                if not signal_fired:
+                    continue
+
+                total_alerts += 1
+
+                # Entry tracking / cooldowns / paper trading (per-symbol, not per-user)
                 _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
                     create_active_entry(signal, session)
@@ -126,7 +164,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                             "alert_type": signal.alert_type.value,
                         }
                     if paper_trading_enabled():
-                        place_bracket_order(signal, alert_id=alert_id)
+                        place_bracket_order(signal, alert_id=first_alert_id)
 
                 # Stop loss / auto stop-out: cancel entries and start cooldown
                 if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
@@ -153,13 +191,6 @@ def poll_cycle(dry_run: bool = False) -> int:
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 
-                logger.info(
-                    "ALERT: %s %s %s @ $%.2f (email=%s, sms=%s)",
-                    signal.direction, signal.symbol, signal.alert_type.value,
-                    signal.price, email_sent, sms_sent,
-                )
-                total_alerts += 1
-
         except Exception:
             logger.exception("Error processing %s", symbol)
 
@@ -184,7 +215,7 @@ def run_monitor():
         logger.info("Poll complete: %d alerts fired", alerts)
 
     # Run immediately on start
-    watchlist = get_watchlist()
+    watchlist = get_all_watchlist_symbols()
     logger.info("Starting monitor — watchlist: %s", ", ".join(watchlist))
     logger.info("Poll interval: %d minutes", POLL_INTERVAL_MINUTES)
 

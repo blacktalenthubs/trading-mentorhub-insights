@@ -13,14 +13,37 @@ def today_session() -> str:
     return date.today().isoformat()
 
 
-def was_alert_fired(symbol: str, alert_type: str, session_date: str | None = None) -> bool:
-    """Check if an alert was already fired for this symbol+type today."""
+def get_session_dates() -> list[str]:
+    """Return distinct session dates with alerts, newest first."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT session_date FROM alerts ORDER BY session_date DESC"
+        ).fetchall()
+        return [r["session_date"] for r in rows]
+
+
+def was_alert_fired(
+    symbol: str,
+    alert_type: str,
+    session_date: str | None = None,
+    user_id: int | None = None,
+) -> bool:
+    """Check if an alert was already fired for this symbol+type today.
+
+    If *user_id* is provided, the check is scoped to that user.
+    """
     session = session_date or today_session()
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM alerts WHERE symbol=? AND alert_type=? AND session_date=?",
-            (symbol, alert_type, session),
-        ).fetchone()
+        if user_id is not None:
+            row = conn.execute(
+                "SELECT 1 FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? AND user_id=?",
+                (symbol, alert_type, session, user_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT 1 FROM alerts WHERE symbol=? AND alert_type=? AND session_date=?",
+                (symbol, alert_type, session),
+            ).fetchone()
         return row is not None
 
 
@@ -29,6 +52,7 @@ def record_alert(
     session_date: str | None = None,
     notified_email: bool = False,
     notified_sms: bool = False,
+    user_id: int | None = None,
 ) -> int:
     """Insert a fired alert into the alerts table. Returns the new row id."""
     session = session_date or today_session()
@@ -36,8 +60,9 @@ def record_alert(
         cur = conn.execute(
             """INSERT INTO alerts
                (symbol, alert_type, direction, price, entry, stop, target_1, target_2,
-                confidence, message, notified_email, notified_sms, session_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                confidence, message, score, notified_email, notified_sms, session_date,
+                user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 signal.symbol,
                 signal.alert_type.value,
@@ -49,9 +74,11 @@ def record_alert(
                 signal.target_2,
                 signal.confidence,
                 signal.message,
+                signal.score,
                 int(notified_email),
                 int(notified_sms),
                 session,
+                user_id,
             ),
         )
         return cur.lastrowid
@@ -113,35 +140,64 @@ def close_all_entries_for_symbol(symbol: str, session_date: str | None = None):
         )
 
 
-def get_alert_id(symbol: str, alert_type: str, session_date: str | None = None) -> int | None:
+def get_alert_id(
+    symbol: str,
+    alert_type: str,
+    session_date: str | None = None,
+    user_id: int | None = None,
+) -> int | None:
     """Look up an existing alert_id for a symbol+type+session. Returns None if not found."""
     session = session_date or today_session()
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT id FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? LIMIT 1",
-            (symbol, alert_type, session),
-        ).fetchone()
+        if user_id is not None:
+            row = conn.execute(
+                "SELECT id FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? AND user_id=? LIMIT 1",
+                (symbol, alert_type, session, user_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id FROM alerts WHERE symbol=? AND alert_type=? AND session_date=? LIMIT 1",
+                (symbol, alert_type, session),
+            ).fetchone()
         return row["id"] if row else None
 
 
-def get_alerts_today(session_date: str | None = None):
-    """Get all alerts fired today as a list of dicts."""
+def get_alerts_today(session_date: str | None = None, user_id: int | None = None):
+    """Get all alerts fired today as a list of dicts.
+
+    If *user_id* is provided, only returns alerts for that user.
+    """
     session = session_date or today_session()
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT * FROM alerts WHERE session_date=? ORDER BY created_at DESC""",
-            (session,),
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM alerts WHERE session_date=? AND user_id=? ORDER BY created_at DESC",
+                (session, user_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM alerts WHERE session_date=? ORDER BY created_at DESC",
+                (session,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_alerts_history(limit: int = 100):
-    """Get recent alert history across all sessions."""
+def get_alerts_history(limit: int = 100, user_id: int | None = None):
+    """Get recent alert history across all sessions.
+
+    If *user_id* is provided, only returns alerts for that user.
+    """
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM alerts WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -167,13 +223,13 @@ def get_monitor_status() -> dict | None:
         return dict(row) if row else None
 
 
-def get_session_summary(session_date: str | None = None) -> dict:
+def get_session_summary(session_date: str | None = None, user_id: int | None = None) -> dict:
     """Aggregate today's alerts into a session summary.
 
     Returns dict with total, buy_count, sell_count, short_count,
     t1_hits, stopped_out, signals_by_type, best_signal, worst_signal.
     """
-    alerts = get_alerts_today(session_date)
+    alerts = get_alerts_today(session_date, user_id=user_id)
 
     summary = {
         "total": len(alerts),

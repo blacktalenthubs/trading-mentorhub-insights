@@ -5,7 +5,7 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import date, datetime
 
 from streamlit_autorefresh import st_autorefresh
 
@@ -17,14 +17,15 @@ from analytics.intraday_rules import evaluate_rules, AlertSignal
 from analytics.market_hours import is_market_hours, get_session_phase
 from alerting.alert_store import (
     create_active_entry,
-    get_active_cooldowns, get_alert_id, get_alerts_today, get_session_summary,
+    get_active_cooldowns, get_alerts_today, get_session_dates,
+    get_session_summary,
     record_alert,
     today_session,
     was_alert_fired,
 )
-from alerting.notifier import notify
+from alerting.notifier import notify, notify_user
 from alerting.real_trade_store import (
-    calculate_shares, has_open_trade, open_real_trade,
+    calculate_shares, has_open_trade,
 )
 from analytics.intraday_rules import AlertType
 from analytics.signal_engine import scan_watchlist
@@ -39,7 +40,7 @@ from alert_config import (
 )
 import ui_theme
 
-user = ui_theme.setup_page("home", run_auto_login=True)
+user = ui_theme.setup_page("home")
 
 ui_theme.page_header("TradeSignal", "Trade smarter, not longer.")
 ui_theme.welcome_banner()
@@ -50,7 +51,9 @@ if _market_open:
     st_autorefresh(interval=180_000, key="alert_refresh")  # 3 min
 
 # ── Shared watchlist (from Scanner or default) ────────────────────────────
-watchlist = st.session_state.get("watchlist", get_watchlist())
+watchlist = st.session_state.get(
+    "watchlist", get_watchlist(user["id"] if user else None)
+)
 st.caption(f"Watchlist: {', '.join(watchlist)} | Refresh: {POLL_INTERVAL_MINUTES} min")
 
 # ── F9: Session Stats Bar ────────────────────────────────────────────────
@@ -204,8 +207,15 @@ else:
     if "auto_stop_entries" not in st.session_state:
         st.session_state["auto_stop_entries"] = {}
 
+    # Clear stale auto-stop entries from previous sessions
+    _current_session = today_session()
+    if st.session_state.get("_auto_stop_session") != _current_session:
+        st.session_state["auto_stop_entries"] = {}
+        st.session_state["_auto_stop_session"] = _current_session
+
     # Build fired_today from DB (authoritative, persistent across restarts)
-    db_alerts = get_alerts_today()
+    _user_id = user["id"] if user else None
+    db_alerts = get_alerts_today(user_id=_user_id)
     fired_today: set[tuple[str, str]] = {
         (a["symbol"], a["alert_type"]) for a in db_alerts
     }
@@ -345,7 +355,7 @@ else:
         key = (sig.symbol, sig.alert_type.value, sig.direction)
         if key not in existing_keys:
             # Final DB dedup check (another tab may have recorded it)
-            if was_alert_fired(sig.symbol, sig.alert_type.value, session):
+            if was_alert_fired(sig.symbol, sig.alert_type.value, session, user_id=_user_id):
                 continue
 
             new_signals.append(sig)
@@ -353,11 +363,18 @@ else:
             # Send notifications — gate low-score BUY from Telegram
             if sig.direction == "BUY" and sig.score < TELEGRAM_TIER1_MIN_SCORE:
                 email_sent, sms_sent = False, False
+            elif user:
+                from db import get_notification_prefs
+                _prefs = get_notification_prefs(user["id"])
+                if _prefs:
+                    email_sent, sms_sent = notify_user(sig, _prefs)
+                else:
+                    email_sent, sms_sent = notify(sig)
             else:
                 email_sent, sms_sent = notify(sig)
 
             # Record to DB so alerts persist and dedup works across refreshes
-            record_alert(sig, session, email_sent, sms_sent)
+            record_alert(sig, session, email_sent, sms_sent, user_id=_user_id)
 
             # Track active entries for actionable BUY signals
             if sig.direction == "BUY" and sig.alert_type not in _non_entry_types:
@@ -442,41 +459,18 @@ else:
                     if sig.target_2:
                         dc4.metric("T2", f"${sig.target_2:,.2f}")
 
-                    # Real trade: "Took It" / "Skip" buttons
+                    # Quick trade info
                     if sig.direction in ("BUY", "SHORT") and sig.entry and sig.stop:
-                        shares = calculate_shares(sig.symbol, sig.entry)
-                        cap = REAL_TRADE_SPY_POSITION_SIZE if sig.symbol == "SPY" else REAL_TRADE_POSITION_SIZE
-                        exposure = shares * sig.entry
-                        st.caption(
-                            f"{shares} shares x ${sig.entry:,.2f} = "
-                            f"${exposure:,.0f} (cap: ${cap / 1000:.0f}k)"
-                        )
-
                         if has_open_trade(sig.symbol):
-                            st.info("Already in this trade")
+                            st.info("Tracking this trade (see Real Trades)")
                         else:
-                            tk_key = f"took_{sig.symbol}_{sig.alert_type.value}"
-                            sk_key = f"skip_{sig.symbol}_{sig.alert_type.value}"
-                            bc1, bc2 = st.columns(2)
-                            if bc1.button("Took It", key=tk_key, type="primary"):
-                                alert_id = get_alert_id(
-                                    sig.symbol, sig.alert_type.value, today_session(),
-                                )
-                                open_real_trade(
-                                    symbol=sig.symbol,
-                                    direction=sig.direction,
-                                    entry_price=sig.entry,
-                                    stop_price=sig.stop,
-                                    target_price=sig.target_1,
-                                    target_2_price=sig.target_2,
-                                    alert_type=sig.alert_type.value,
-                                    alert_id=alert_id,
-                                    session_date=today_session(),
-                                )
-                                st.toast(f"Opened {sig.direction} on {sig.symbol}")
-                                st.rerun()
-                            if bc2.button("Skip", key=sk_key):
-                                st.toast(f"Skipped {sig.symbol}")
+                            shares = calculate_shares(sig.symbol, sig.entry)
+                            cap = REAL_TRADE_SPY_POSITION_SIZE if sig.symbol == "SPY" else REAL_TRADE_POSITION_SIZE
+                            st.caption(
+                                f"{shares} shares x ${sig.entry:,.2f} = "
+                                f"${shares * sig.entry:,.0f} (${cap / 1000:.0f}k cap) — "
+                                f"track on **Scanner**"
+                            )
 
                     # F6: Intraday chart with signal overlays for BUY signals
                     if sig.direction == "BUY":
@@ -585,7 +579,7 @@ st.divider()
 ui_theme.section_header("Alert History (This Session)")
 
 # Load from database — persists across page refreshes and app restarts
-_db_history = get_alerts_today()
+_db_history = get_alerts_today(user_id=user["id"] if user else None)
 
 if _db_history:
     _hist_cols = ["symbol", "alert_type", "direction", "price", "entry",
@@ -625,7 +619,7 @@ st.divider()
 if _show_eod or st.button("Generate Summary Now", key="gen_summary"):
     ui_theme.section_header("End-of-Day Summary")
 
-    summary = get_session_summary()
+    summary = get_session_summary(user_id=user["id"] if user else None)
     if summary["total"] > 0:
         eod1, eod2, eod3, eod4, eod5 = st.columns(5)
         eod1.metric("Total Signals", summary["total"])
@@ -647,15 +641,111 @@ if _show_eod or st.button("Generate Summary Now", key="gen_summary"):
         ui_theme.empty_state("No alerts recorded for today's session.")
 
 # ---------------------------------------------------------------------------
+# Daily Alert Report (date-browsable)
+# ---------------------------------------------------------------------------
+
+st.divider()
+ui_theme.section_header("Daily Alert Report")
+
+_available_dates = get_session_dates()
+_today_str = date.today().isoformat()
+
+if _available_dates:
+    # Build date objects for the picker; ensure today is always an option
+    _date_objs = sorted(
+        {date.fromisoformat(d) for d in _available_dates} | {date.today()},
+        reverse=True,
+    )
+    _selected_date = st.date_input(
+        "Session date",
+        value=date.today(),
+        min_value=_date_objs[-1],
+        max_value=_date_objs[0],
+        key="report_date",
+    )
+    _sel_str = _selected_date.isoformat()
+
+    # KPI row
+    _rpt_summary = get_session_summary(_sel_str, user_id=user["id"] if user else None)
+
+    rk1, rk2, rk3, rk4, rk5 = st.columns(5)
+    rk1.metric("Total Signals", _rpt_summary["total"])
+    rk2.metric(
+        "BUY / SELL / SHORT",
+        f"{_rpt_summary['buy_count']} / {_rpt_summary['sell_count']} / {_rpt_summary['short_count']}",
+    )
+    rk3.metric("T1 Hits", _rpt_summary["t1_hits"])
+    rk4.metric("T2 Hits", _rpt_summary["t2_hits"])
+    rk5.metric("Stopped Out", _rpt_summary["stopped_out"])
+
+    # Full alert table
+    _rpt_alerts = get_alerts_today(_sel_str, user_id=user["id"] if user else None)
+    if _rpt_alerts:
+        _rpt_df = pd.DataFrame(_rpt_alerts)
+
+        # Build score_label from score column
+        def _score_to_label(s: int) -> str:
+            if s >= 90:
+                return "A+"
+            if s >= 75:
+                return "A"
+            if s >= 50:
+                return "B"
+            return "C" if s > 0 else ""
+
+        _rpt_df["score_label"] = _rpt_df["score"].apply(_score_to_label)
+
+        _rpt_cols = [
+            "symbol", "score", "score_label", "alert_type", "direction",
+            "price", "entry", "stop", "target_1", "target_2",
+            "confidence", "message", "created_at",
+        ]
+        _rpt_cols = [c for c in _rpt_cols if c in _rpt_df.columns]
+        _rpt_df = _rpt_df[_rpt_cols]
+
+        if "created_at" in _rpt_df.columns:
+            _rpt_df["created_at"] = pd.to_datetime(
+                _rpt_df["created_at"]
+            ).dt.strftime("%H:%M:%S")
+            _rpt_df = _rpt_df.rename(columns={"created_at": "time"})
+
+        st.dataframe(
+            _rpt_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "price": st.column_config.NumberColumn(format="$%.2f"),
+                "entry": st.column_config.NumberColumn(format="$%.2f"),
+                "stop": st.column_config.NumberColumn(format="$%.2f"),
+                "target_1": st.column_config.NumberColumn(format="$%.2f"),
+                "target_2": st.column_config.NumberColumn(format="$%.2f"),
+            },
+        )
+        st.caption(f"{len(_rpt_alerts)} alerts on {_sel_str}")
+
+        # Signal breakdown by type
+        if _rpt_summary["signals_by_type"]:
+            st.markdown("**Signal Breakdown by Type**")
+            _rpt_type_df = pd.DataFrame([
+                {"Type": k.replace("_", " ").title(), "Count": v}
+                for k, v in _rpt_summary["signals_by_type"].items()
+            ]).sort_values("Count", ascending=False)
+            st.dataframe(_rpt_type_df, use_container_width=True, hide_index=True)
+    else:
+        ui_theme.empty_state(f"No alerts recorded for {_sel_str}.")
+else:
+    ui_theme.empty_state("No alert history yet — alerts will appear here after your first session.")
+
+# ---------------------------------------------------------------------------
 # Test Notifications (kept for desktop use)
 # ---------------------------------------------------------------------------
 
 st.divider()
 with st.expander("Test Notifications"):
-    st.caption("Send a test alert to verify your email and SMS configuration.")
+    st.caption("Send a test alert to verify your notification settings.")
 
     if st.button("Send Test Alert"):
-        from alerting.notifier import send_email, send_sms
+        from db import get_notification_prefs as _get_test_prefs
 
         test_signal = AlertSignal(
             symbol="TEST",
@@ -670,18 +760,24 @@ with st.expander("Test Notifications"):
             message="Test alert from TradeSignal — ignore this message",
         )
 
-        with st.spinner("Sending test email..."):
-            email_ok = send_email(test_signal)
-
-        with st.spinner("Sending test SMS..."):
-            sms_ok = send_sms(test_signal)
+        if user:
+            _test_prefs = _get_test_prefs(user["id"])
+            if _test_prefs:
+                with st.spinner("Sending test notifications..."):
+                    email_ok, sms_ok = notify_user(test_signal, _test_prefs)
+            else:
+                st.info("Set up your notification preferences in **Settings** first.")
+                email_ok, sms_ok = False, False
+        else:
+            from alerting.notifier import send_email, send_sms
+            with st.spinner("Sending test email..."):
+                email_ok = send_email(test_signal)
+            with st.spinner("Sending test SMS..."):
+                sms_ok = send_sms(test_signal)
 
         if email_ok:
-            st.success("Test email sent successfully!")
-        else:
-            st.warning("Email failed — check .env SMTP settings")
-
+            st.success("Test email sent!")
         if sms_ok:
-            st.success("Test SMS sent successfully!")
-        else:
-            st.warning("SMS failed — check .env Twilio settings")
+            st.success("Test Telegram sent!")
+        if not email_ok and not sms_ok and (user and _test_prefs):
+            st.warning("Nothing sent — check your Settings page.")

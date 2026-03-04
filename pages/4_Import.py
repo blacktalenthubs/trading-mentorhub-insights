@@ -17,7 +17,7 @@ from parsers.parser_statement import parse_statement
 from analytics.trade_matcher import match_trades_fifo
 import ui_theme
 
-user = ui_theme.setup_page("import", run_auto_login=True)
+user = ui_theme.setup_page("import", require_login=True)
 
 ui_theme.page_header("Import Data")
 

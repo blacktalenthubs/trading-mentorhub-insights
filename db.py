@@ -166,6 +166,7 @@ def init_db():
                 target_2 REAL,
                 confidence TEXT,
                 message TEXT,
+                score INTEGER DEFAULT 0,
                 notified_email INTEGER DEFAULT 0,
                 notified_sms INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -278,11 +279,27 @@ def init_db():
 
             CREATE TABLE IF NOT EXISTS watchlist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL UNIQUE,
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                user_id INTEGER REFERENCES users(id),
+                symbol TEXT NOT NULL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, symbol)
+            );
+
+            CREATE TABLE IF NOT EXISTS user_notification_prefs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+                telegram_chat_id TEXT DEFAULT '',
+                notification_email TEXT DEFAULT '',
+                telegram_enabled INTEGER DEFAULT 1,
+                email_enabled INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
     _migrate_add_user_id()
+    _migrate_add_alert_score()
+    _migrate_watchlist_user_id()
+    _migrate_alert_user_id()
 
 
 def _migrate_add_user_id():
@@ -330,6 +347,162 @@ def _migrate_add_user_id():
                     f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL",
                     (admin_id,),
                 )
+
+
+def _migrate_add_alert_score():
+    """Add score column to alerts table if missing (handles DB upgrades)."""
+    with get_db() as conn:
+        try:
+            conn.execute("ALTER TABLE alerts ADD COLUMN score INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+
+def _migrate_watchlist_user_id():
+    """Add user_id column to watchlist table and assign orphan rows to first user.
+
+    Also rebuilds the table to replace the old UNIQUE(symbol) constraint
+    with UNIQUE(user_id, symbol), which is required for multi-user watchlists.
+    """
+    with get_db() as conn:
+        try:
+            conn.execute(
+                "ALTER TABLE watchlist ADD COLUMN user_id INTEGER REFERENCES users(id)"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        if admin:
+            conn.execute(
+                "UPDATE watchlist SET user_id = ? WHERE user_id IS NULL",
+                (admin["id"],),
+            )
+
+        # SQLite can't alter constraints, so rebuild the table if the correct
+        # UNIQUE(user_id, symbol) constraint is missing.  Old DBs may have
+        # column-level ``symbol UNIQUE`` or table-level ``UNIQUE(symbol)``
+        # which block multi-user inserts.
+        needs_rebuild = False
+        table_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'"
+        ).fetchone()
+        if table_sql and table_sql["sql"]:
+            ddl_norm = table_sql["sql"].replace(" ", "").upper()
+            needs_rebuild = "UNIQUE(USER_ID,SYMBOL)" not in ddl_norm
+
+        if needs_rebuild:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS watchlist_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER REFERENCES users(id),
+                    symbol TEXT NOT NULL,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, symbol)
+                );
+                INSERT OR IGNORE INTO watchlist_new (user_id, symbol, added_at)
+                    SELECT user_id, symbol, added_at FROM watchlist;
+                DROP TABLE watchlist;
+                ALTER TABLE watchlist_new RENAME TO watchlist;
+            """)
+
+
+def _migrate_alert_user_id():
+    """Add user_id column to alerts table and seed first user's notification prefs."""
+    import os
+
+    with get_db() as conn:
+        # Add user_id column to alerts
+        try:
+            conn.execute(
+                "ALTER TABLE alerts ADD COLUMN user_id INTEGER REFERENCES users(id)"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_alerts_user_id ON alerts(user_id)"
+        )
+
+        # Assign orphan alerts to first user
+        admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        if admin:
+            conn.execute(
+                "UPDATE alerts SET user_id = ? WHERE user_id IS NULL",
+                (admin["id"],),
+            )
+
+            # Seed first user's notification prefs from .env (if not already present)
+            existing = conn.execute(
+                "SELECT 1 FROM user_notification_prefs WHERE user_id = ?",
+                (admin["id"],),
+            ).fetchone()
+            if not existing:
+                telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+                notification_email = os.environ.get("ALERT_EMAIL_TO", "")
+                conn.execute(
+                    """INSERT INTO user_notification_prefs
+                       (user_id, telegram_chat_id, notification_email)
+                       VALUES (?, ?, ?)""",
+                    (admin["id"], telegram_chat_id, notification_email),
+                )
+
+
+# ---------------------------------------------------------------------------
+# Notification Preferences
+# ---------------------------------------------------------------------------
+
+def get_notification_prefs(user_id: int) -> dict | None:
+    """Get notification preferences for a user. Returns dict or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT telegram_chat_id, notification_email,
+                      telegram_enabled, email_enabled
+               FROM user_notification_prefs WHERE user_id = ?""",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def upsert_notification_prefs(
+    user_id: int,
+    *,
+    telegram_chat_id: str = "",
+    notification_email: str = "",
+    telegram_enabled: bool = True,
+    email_enabled: bool = True,
+):
+    """Insert or update notification preferences for a user."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO user_notification_prefs
+               (user_id, telegram_chat_id, notification_email,
+                telegram_enabled, email_enabled, updated_at)
+               VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   telegram_chat_id = excluded.telegram_chat_id,
+                   notification_email = excluded.notification_email,
+                   telegram_enabled = excluded.telegram_enabled,
+                   email_enabled = excluded.email_enabled,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                user_id,
+                telegram_chat_id,
+                notification_email,
+                int(telegram_enabled),
+                int(email_enabled),
+            ),
+        )
+
+
+def get_users_for_symbol(symbol: str) -> list[int]:
+    """Return user_ids who have this symbol on their watchlist."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT user_id FROM watchlist WHERE symbol = ? AND user_id IS NOT NULL",
+            (symbol,),
+        ).fetchall()
+        return [r["user_id"] for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -675,45 +848,68 @@ def get_chart_levels(symbol: str) -> list[dict]:
 # Watchlist
 # ---------------------------------------------------------------------------
 
-def get_watchlist() -> list[str]:
-    """Return the persisted watchlist symbols, ordered by id.
+def get_watchlist(user_id: int | None = None) -> list[str]:
+    """Return the persisted watchlist symbols for a user, ordered by id.
 
-    If the table is empty (first run), seed it from DEFAULT_WATCHLIST.
+    If *user_id* is ``None`` (anonymous), return ``DEFAULT_WATCHLIST``.
+    If the user's watchlist is empty, seed it from ``DEFAULT_WATCHLIST``.
     """
     from config import DEFAULT_WATCHLIST
 
+    if user_id is None:
+        return list(DEFAULT_WATCHLIST)
+
     with get_db() as conn:
-        rows = conn.execute("SELECT symbol FROM watchlist ORDER BY id").fetchall()
+        rows = conn.execute(
+            "SELECT symbol FROM watchlist WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        ).fetchall()
         if rows:
             return [r["symbol"] for r in rows]
-        # Auto-seed on first use
+        # Auto-seed on first use for this user
         conn.executemany(
-            "INSERT INTO watchlist (symbol) VALUES (?)",
-            [(s,) for s in DEFAULT_WATCHLIST],
+            "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?)",
+            [(user_id, s) for s in DEFAULT_WATCHLIST],
         )
         return list(DEFAULT_WATCHLIST)
 
 
-def add_to_watchlist(symbol: str):
-    """Add a symbol to the watchlist (no-op if already present)."""
+def add_to_watchlist(symbol: str, user_id: int):
+    """Add a symbol to the user's watchlist (no-op if already present)."""
     with get_db() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)",
-            (symbol,),
+            "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
+            (user_id, symbol),
         )
 
 
-def remove_from_watchlist(symbol: str):
-    """Remove a symbol from the watchlist."""
+def remove_from_watchlist(symbol: str, user_id: int):
+    """Remove a symbol from the user's watchlist."""
     with get_db() as conn:
-        conn.execute("DELETE FROM watchlist WHERE symbol=?", (symbol,))
+        conn.execute(
+            "DELETE FROM watchlist WHERE symbol = ? AND user_id = ?",
+            (symbol, user_id),
+        )
 
 
-def set_watchlist(symbols: list[str]):
-    """Replace the entire watchlist atomically."""
+def set_watchlist(symbols: list[str], user_id: int):
+    """Replace the user's entire watchlist atomically."""
     with get_db() as conn:
-        conn.execute("DELETE FROM watchlist")
+        conn.execute("DELETE FROM watchlist WHERE user_id = ?", (user_id,))
         conn.executemany(
-            "INSERT INTO watchlist (symbol) VALUES (?)",
-            [(s,) for s in symbols],
+            "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?)",
+            [(user_id, s) for s in symbols],
         )
+
+
+def get_all_watchlist_symbols() -> list[str]:
+    """Return the union of all users' watchlist symbols (for background monitor)."""
+    from config import DEFAULT_WATCHLIST
+
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT symbol FROM watchlist ORDER BY symbol"
+        ).fetchall()
+        if rows:
+            return [r["symbol"] for r in rows]
+        return list(DEFAULT_WATCHLIST)

@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
 from db import get_watchlist, add_to_watchlist, remove_from_watchlist, set_watchlist
+from auth import get_current_user, _render_login_form, _render_register_form
 from config import (
     DEFAULT_POSITION_SIZE,
     QUICK_PICKS,
@@ -28,7 +29,7 @@ from alerting.real_trade_store import (
 )
 import ui_theme
 
-ui_theme.setup_page("scanner")
+user = ui_theme.setup_page("scanner")
 
 # ── Sync active positions from DB (survive page refresh) ──────────────────
 if "active_positions" not in st.session_state:
@@ -268,6 +269,15 @@ def _draw_intraday_chart(symbol: str, bars: pd.DataFrame, prior: dict | None, r:
 
 ui_theme.page_header("Signal Scanner", "Trade plans for your watchlist — entry, stop, target, re-entry at a glance")
 
+# ── Login prompt for anonymous users (main area) ────────────────────────────
+if not user:
+    with st.expander("Log in to edit your watchlist and track positions", expanded=False):
+        _login_tab, _reg_tab = st.tabs(["Login", "Register"])
+        with _login_tab:
+            _render_login_form()
+        with _reg_tab:
+            _render_register_form()
+
 # ── Sidebar ─────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -275,61 +285,77 @@ with st.sidebar:
 
     # Initialize watchlist in session state from DB
     if "watchlist" not in st.session_state:
-        st.session_state["watchlist"] = get_watchlist()
+        st.session_state["watchlist"] = get_watchlist(user["id"] if user else None)
 
-    # Quick Picks — replace entire watchlist
-    st.markdown("**Quick Picks**")
-    for label, syms in QUICK_PICKS.items():
-        if st.button(label, key=f"qp_{label}", use_container_width=True):
-            set_watchlist(list(syms))
-            st.session_state["watchlist"] = list(syms)
-            st.rerun()
+    if user:
+        _uid = user["id"]
 
-    st.divider()
+        # Quick Picks — replace entire watchlist
+        st.markdown("**Quick Picks**")
+        for label, syms in QUICK_PICKS.items():
+            if st.button(label, key=f"qp_{label}", use_container_width=True):
+                set_watchlist(list(syms), _uid)
+                st.session_state["watchlist"] = list(syms)
+                st.rerun()
 
-    # Add symbol one at a time
-    add_col, btn_col = st.columns([3, 1])
-    with add_col:
-        new_sym = st.text_input("Add symbol", key="add_sym_input", label_visibility="collapsed",
-                                placeholder="Add symbol...")
-    with btn_col:
-        add_clicked = st.button("Add", key="add_sym_btn", use_container_width=True)
+        st.divider()
 
-    if add_clicked and new_sym:
-        sym_clean = new_sym.strip().upper()
-        if sym_clean and sym_clean not in st.session_state["watchlist"]:
-            add_to_watchlist(sym_clean)
-            st.session_state["watchlist"].append(sym_clean)
-            st.rerun()
+        # Add symbol one at a time
+        add_col, btn_col = st.columns([3, 1])
+        with add_col:
+            new_sym = st.text_input("Add symbol", key="add_sym_input", label_visibility="collapsed",
+                                    placeholder="Add symbol...")
+        with btn_col:
+            add_clicked = st.button("Add", key="add_sym_btn", use_container_width=True)
 
-    # Display current watchlist with remove buttons
-    if st.session_state["watchlist"]:
-        remove_sym = None
-        for i, sym in enumerate(st.session_state["watchlist"]):
-            sym_col, x_col = st.columns([4, 1])
-            sym_col.markdown(f"**{sym}**")
-            if x_col.button("X", key=f"rm_{sym}_{i}", type="secondary"):
-                remove_sym = sym
-        if remove_sym is not None:
-            remove_from_watchlist(remove_sym)
-            st.session_state["watchlist"].remove(remove_sym)
-            st.rerun()
+        if add_clicked and new_sym:
+            sym_clean = new_sym.strip().upper()
+            if sym_clean and sym_clean not in st.session_state["watchlist"]:
+                add_to_watchlist(sym_clean, _uid)
+                st.session_state["watchlist"].append(sym_clean)
+                st.rerun()
+
+        # Display current watchlist as compact grid with remove buttons
+        if st.session_state["watchlist"]:
+            remove_sym = None
+            _wl = st.session_state["watchlist"]
+            # 3-column grid for compactness
+            _grid_cols = st.columns(3)
+            for i, sym in enumerate(_wl):
+                col = _grid_cols[i % 3]
+                if col.button(f"{sym}  x", key=f"rm_{sym}_{i}", use_container_width=True):
+                    remove_sym = sym
+            if remove_sym is not None:
+                remove_from_watchlist(remove_sym, _uid)
+                st.session_state["watchlist"].remove(remove_sym)
+                st.rerun()
+        else:
+            st.caption("No symbols. Add one above or use Quick Picks.")
+
+        # Bulk edit in collapsible expander
+        with st.expander("Bulk Edit"):
+            bulk_text = st.text_area(
+                "Symbols (comma-separated)",
+                value=", ".join(st.session_state["watchlist"]),
+                height=80,
+                key="bulk_edit_area",
+                label_visibility="collapsed",
+            )
+            if st.button("Apply", key="bulk_apply", use_container_width=True):
+                parsed = [s.strip().upper() for s in bulk_text.split(",") if s.strip()]
+                set_watchlist(parsed, _uid)
+                st.session_state["watchlist"] = parsed
+                st.rerun()
     else:
-        st.caption("No symbols. Add one above or use Quick Picks.")
+        # Anonymous — read-only watchlist
+        if st.session_state["watchlist"]:
+            for sym in st.session_state["watchlist"]:
+                st.markdown(f"**{sym}**")
+        else:
+            st.caption("Default watchlist shown.")
 
-    # Bulk edit in collapsible expander
-    with st.expander("Bulk Edit"):
-        bulk_text = st.text_area(
-            "Symbols (comma-separated)",
-            value=", ".join(st.session_state["watchlist"]),
-            height=80,
-            key="bulk_edit_area",
-        )
-        if st.button("Apply", key="bulk_apply", use_container_width=True):
-            parsed = [s.strip().upper() for s in bulk_text.split(",") if s.strip()]
-            set_watchlist(parsed)
-            st.session_state["watchlist"] = parsed
-            st.rerun()
+        st.divider()
+        st.caption("Log in to edit your watchlist.")
 
     st.divider()
     position_size = st.number_input(
@@ -760,34 +786,52 @@ for r in results:
         )
 
         if tracking and not is_tracking:
-            # Open trade in DB (guard against duplicates)
+            # Show shares input before confirming
+            _shares_key = f"shares_{r.symbol}"
+            if _shares_key not in st.session_state:
+                st.session_state[_shares_key] = int(position_size / r.entry) if r.entry > 0 else 0
+
+        if tracking and not is_tracking:
             from datetime import date as _date
             default_shares = int(position_size / r.entry) if r.entry > 0 else 0
-            if not has_open_trade(r.symbol):
-                trade_id = open_real_trade(
-                    symbol=r.symbol,
-                    direction="BUY",
-                    entry_price=r.entry,
-                    stop_price=r.stop,
-                    target_price=r.target_1,
-                    target_2_price=r.target_2,
-                    alert_type="scanner_manual",
-                    alert_id=None,
-                    session_date=_date.today().isoformat(),
-                    shares=default_shares,
-                )
-            else:
-                # Already in DB (e.g. from alert) — fetch the trade_id
-                _existing = [
-                    t for t in get_open_trades() if t["symbol"] == r.symbol
-                ]
-                trade_id = _existing[0]["id"] if _existing else None
-            st.session_state["active_positions"][pos_key] = {
-                "entry": r.entry,
-                "shares": default_shares,
-                "trade_id": trade_id,
-            }
-            st.rerun()
+            _shares_key = f"shares_{r.symbol}"
+            shares_input = st.number_input(
+                "Shares",
+                min_value=1,
+                value=default_shares,
+                step=1,
+                key=_shares_key,
+                help=f"Default: {default_shares} (${position_size / 1000:.0f}k / ${r.entry:,.2f})",
+            )
+            exposure = shares_input * r.entry
+            st.caption(f"{shares_input} x ${r.entry:,.2f} = ${exposure:,.0f}")
+
+            if st.button("Confirm Trade", key=f"confirm_{r.symbol}", type="primary",
+                         use_container_width=True):
+                if not has_open_trade(r.symbol):
+                    trade_id = open_real_trade(
+                        symbol=r.symbol,
+                        direction="BUY",
+                        entry_price=r.entry,
+                        stop_price=r.stop,
+                        target_price=r.target_1,
+                        target_2_price=r.target_2,
+                        alert_type="scanner_manual",
+                        alert_id=None,
+                        session_date=_date.today().isoformat(),
+                        shares=shares_input,
+                    )
+                else:
+                    _existing = [
+                        t for t in get_open_trades() if t["symbol"] == r.symbol
+                    ]
+                    trade_id = _existing[0]["id"] if _existing else None
+                st.session_state["active_positions"][pos_key] = {
+                    "entry": r.entry,
+                    "shares": shares_input,
+                    "trade_id": trade_id,
+                }
+                st.rerun()
 
         if not tracking and is_tracking:
             # Close trade in DB

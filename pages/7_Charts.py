@@ -15,7 +15,7 @@ from analytics.intraday_data import fetch_intraday, fetch_prior_day, compute_vwa
 from analytics.market_hours import is_market_hours
 import ui_theme
 
-ui_theme.setup_page("charts")
+user = ui_theme.setup_page("charts")
 
 # ── Timeframe definitions ────────────────────────────────────────────────────
 # label → (yf period, yf interval, is_intraday)
@@ -286,7 +286,7 @@ with st.sidebar:
     st.subheader("Charts")
 
     # Symbol
-    all_symbols = get_watchlist()
+    all_symbols = get_watchlist(user["id"] if user else None)
     custom_sym = st.text_input("Custom symbol", placeholder="e.g. AMZN", key="chart_custom_sym")
     if custom_sym:
         sym_clean = custom_sym.strip().upper()

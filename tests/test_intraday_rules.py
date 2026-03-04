@@ -7,6 +7,7 @@ from analytics.intraday_rules import (
     AlertSignal,
     AlertType,
     _cap_risk,
+    _check_ma_confluence,
     _compute_planned_levels,
     _consolidate_signals,
     _detect_volume_exhaustion,
@@ -120,10 +121,12 @@ class TestMABounce50:
         assert sig.direction == "BUY"
         assert sig.entry == 95.0  # entry at MA level
 
-    def test_no_fire_when_prior_close_below_50ma(self):
+    def test_counter_trend_fires_when_prior_close_below_50ma(self):
         bar = _bar(open_=95, high=96, low=94.98, close=95.3)
         sig = check_ma_bounce_50("NVDA", bar, ma20=98.0, ma50=95.0, prior_close=94.0)
-        assert sig is None  # breakdown, not pullback
+        assert sig is not None  # counter-trend bounce now allowed
+        assert "counter-trend" in sig.message
+        assert sig.confidence == "medium"
 
     def test_no_fire_when_close_below_50ma(self):
         bar = _bar(open_=95, high=96, low=94.98, close=94.5)
@@ -3200,3 +3203,97 @@ class TestSessionLowStop:
         # Targets should be set and above entry
         assert sig.target_1 > sig.entry
         assert sig.target_2 > sig.target_1
+
+
+# ===== MA Confluence Detection =====
+
+
+class TestMAConfluence:
+    def test_detects_50ma_near_entry(self):
+        """50MA within 0.23% of entry → confluence detected."""
+        has, label, val = _check_ma_confluence(
+            entry=217.00,
+            alert_type=AlertType.PRIOR_DAY_LOW_RECLAIM,
+            ma20=None, ma50=217.50, ma100=None, ma200=None,
+        )
+        assert has is True
+        assert label == "50MA"
+        assert "217.50" in val
+
+    def test_skips_self_confluence(self):
+        """ma_bounce_50 should not flag 50MA as confluence on itself.
+
+        In reality, MA_BOUNCE_50 entry = round(ma50, 2), so entry == ma50.
+        """
+        has, label, _ = _check_ma_confluence(
+            entry=217.50,
+            alert_type=AlertType.MA_BOUNCE_50,
+            ma20=None, ma50=217.50, ma100=None, ma200=None,
+        )
+        assert has is False
+
+    def test_prioritizes_higher_ma(self):
+        """When both 50MA and 200MA are near entry, 200MA wins."""
+        has, label, _ = _check_ma_confluence(
+            entry=217.00,
+            alert_type=AlertType.PRIOR_DAY_LOW_RECLAIM,
+            ma20=None, ma50=217.50, ma100=None, ma200=217.80,
+        )
+        assert has is True
+        assert label == "200MA"
+
+    def test_outside_band_no_confluence(self):
+        """MA 2% away from entry → no confluence."""
+        has, label, _ = _check_ma_confluence(
+            entry=217.00,
+            alert_type=AlertType.PRIOR_DAY_LOW_RECLAIM,
+            ma20=None, ma50=221.34, ma100=None, ma200=None,
+        )
+        assert has is False
+
+
+# ===== MA50 Counter-Trend Bounce =====
+
+
+class TestMA50CounterTrend:
+    def test_counter_trend_fires(self):
+        """Prior close below 50MA, bar bounces off 50MA → signal fires."""
+        bar = _bar(open_=100, high=101, low=99.98, close=100.3)
+        sig = check_ma_bounce_50("AAPL", bar, ma20=102.0, ma50=100.0, prior_close=99.5)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_BOUNCE_50
+        assert "counter-trend" in sig.message
+
+    def test_counter_trend_lower_confidence(self):
+        """Counter-trend bounce always gets medium confidence, never high."""
+        # proximity <= 0.001 would normally be "high" — counter-trend caps at medium
+        bar = _bar(open_=100, high=101, low=100.05, close=100.3)
+        sig = check_ma_bounce_50("AAPL", bar, ma20=102.0, ma50=100.0, prior_close=99.5)
+        assert sig is not None
+        assert sig.confidence == "medium"
+
+
+# ===== MA Resistance Role-Flip =====
+
+
+class TestMaResistanceRoleFlip:
+    def test_role_flip_message(self):
+        """Prior close below MA, rejection at MA → message includes role-flip note."""
+        bar = _bar(open_=99, high=100.2, low=98.5, close=99.5)
+        sig = check_ma_resistance(
+            "TSLA", bar, ma20=100.1, ma50=None, ma100=None, ma200=None,
+            prior_close=99.0,
+        )
+        assert sig is not None
+        assert "recently broken" in sig.message
+        assert "acting as resistance" in sig.message
+
+    def test_no_role_flip_when_prior_above(self):
+        """Prior close above MA → normal rejection, no role-flip note."""
+        bar = _bar(open_=99, high=100.2, low=98.5, close=99.5)
+        sig = check_ma_resistance(
+            "TSLA", bar, ma20=100.1, ma50=None, ma100=None, ma200=None,
+            prior_close=101.0,
+        )
+        assert sig is not None
+        assert "recently broken" not in sig.message

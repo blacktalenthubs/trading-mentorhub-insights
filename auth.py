@@ -1,4 +1,9 @@
-"""Authentication module — email/password auth with persistent session management."""
+"""Authentication module — email/password auth with persistent session management.
+
+Sessions persist across browser restarts via a cookie (``ts_session``).
+The cookie is set/cleared with a small JS snippet injected via
+``st.components.v1.html``.  No third-party cookie library required.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +13,12 @@ from datetime import datetime, timedelta
 
 import bcrypt
 import streamlit as st
+import streamlit.components.v1 as components
 
 from config import DB_PATH
 
 SESSION_EXPIRY_DAYS = 30
+_COOKIE_NAME = "ts_session"
 
 
 # ---------------------------------------------------------------------------
@@ -122,18 +129,75 @@ def _delete_session_token(token: str):
 
 
 # ---------------------------------------------------------------------------
-# Session management (persistent across page refreshes)
+# Cookie helpers (zero-dependency, JS-based)
+# ---------------------------------------------------------------------------
+
+def _set_cookie(token: str):
+    """Set a persistent browser cookie via injected JS."""
+    max_age = SESSION_EXPIRY_DAYS * 86400
+    components.html(
+        f"""<script>
+        document.cookie = "{_COOKIE_NAME}={token}; path=/; max-age={max_age}; SameSite=Lax";
+        </script>""",
+        height=0,
+    )
+
+
+def _clear_cookie():
+    """Delete the session cookie via injected JS."""
+    components.html(
+        f"""<script>
+        document.cookie = "{_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax";
+        </script>""",
+        height=0,
+    )
+
+
+def _read_cookie() -> str | None:
+    """Read the session cookie from the request headers.
+
+    Streamlit exposes cookies via ``st.context.cookies`` (>=1.37) or via
+    the internal header accessor.  Returns the token string or None.
+    """
+    # st.context.cookies available since Streamlit ~1.37
+    try:
+        cookies = st.context.cookies
+        return cookies.get(_COOKIE_NAME) or None
+    except AttributeError:
+        pass
+
+    # Fallback: parse the Cookie header from the HTTP request
+    try:
+        headers = st.context.headers
+        cookie_header = headers.get("Cookie", "")
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith(f"{_COOKIE_NAME}="):
+                return part.split("=", 1)[1] or None
+    except Exception:
+        pass
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Session management (persistent across page refreshes & browser restarts)
 # ---------------------------------------------------------------------------
 
 def get_current_user() -> dict | None:
-    """Check for logged-in user: session_state first, then persistent token."""
+    """Check for logged-in user: session_state → cookie → query param."""
     # Fast path: already in memory
     user = st.session_state.get("user")
     if user:
         return user
 
-    # Check for persistent token in URL query params
-    token = st.query_params.get("session")
+    # Try persistent cookie first (survives browser restarts)
+    token = _read_cookie()
+
+    # Fallback: legacy query-param token
+    if not token:
+        token = st.query_params.get("session")
+
     if token:
         user = _get_user_by_token(token)
         if user:
@@ -141,22 +205,28 @@ def get_current_user() -> dict | None:
             return user
         else:
             # Token expired or invalid — clean up
-            del st.query_params["session"]
+            _clear_cookie()
+            if "session" in st.query_params:
+                del st.query_params["session"]
     return None
 
 
 def login_user(user: dict):
-    """Log in: save to session_state + create persistent token in query params."""
+    """Log in: save to session_state + set persistent cookie + query param."""
     st.session_state["user"] = user
     token = _create_session_token(user["id"])
-    st.query_params["session"] = token
+    _set_cookie(token)
+    st.query_params["session"] = token  # keep as fallback
+    st.session_state.pop("watchlist", None)  # Re-fetch for this user
 
 
 def logout_user():
-    """Log out: clear session_state + delete persistent token."""
-    token = st.query_params.get("session")
+    """Log out: clear session_state + delete cookie + query param."""
+    token = _read_cookie() or st.query_params.get("session")
     if token:
         _delete_session_token(token)
+    _clear_cookie()
+    if "session" in st.query_params:
         del st.query_params["session"]
     st.session_state.pop("user", None)
 
@@ -166,16 +236,18 @@ def logout_user():
 # ---------------------------------------------------------------------------
 
 def render_sidebar_user_info():
-    """Show logged-in user info + logout button in sidebar."""
+    """Show logged-in user info + logout button in sidebar (compact)."""
     user = get_current_user()
     if not user:
         return
     with st.sidebar:
-        from ui_theme import sidebar_branding
-        sidebar_branding()
-        st.markdown(f"**{user['display_name']}**")
-        st.caption(user["email"])
-        if st.button("Logout", key="sidebar_logout"):
+        _info_col, _logout_col = st.columns([3, 1])
+        _info_col.markdown(
+            f"**{user['display_name']}**"
+            f"<br><span style='color:#888;font-size:0.75rem'>{user['email']}</span>",
+            unsafe_allow_html=True,
+        )
+        if _logout_col.button("Logout", key="sidebar_logout"):
             logout_user()
             st.rerun()
 
@@ -225,28 +297,6 @@ def _render_register_form():
 # ---------------------------------------------------------------------------
 # Page protection
 # ---------------------------------------------------------------------------
-
-def auto_login() -> dict:
-    """Silently log in as default admin. Creates account if needed."""
-    user = get_current_user()
-    if user:
-        render_sidebar_user_info()
-        return user
-
-    from config import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD
-
-    user = authenticate_user(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD)
-    if not user:
-        try:
-            create_user(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD, "Admin")
-        except ValueError:
-            pass  # already exists
-        user = authenticate_user(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD)
-
-    if user:
-        login_user(user)
-    return user
-
 
 def require_auth() -> dict:
     """Call at the top of any protected page.

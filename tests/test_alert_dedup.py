@@ -61,10 +61,12 @@ def tmp_db(tmp_path):
             target_2 REAL,
             confidence TEXT,
             message TEXT,
+            score INTEGER DEFAULT 0,
             notified_email INTEGER DEFAULT 0,
             notified_sms INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            session_date TEXT NOT NULL
+            session_date TEXT NOT NULL,
+            user_id INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS active_entries (
@@ -97,6 +99,33 @@ def tmp_db(tmp_path):
             symbols_checked INTEGER DEFAULT 0,
             alerts_fired INTEGER DEFAULT 0,
             status TEXT DEFAULT 'idle'
+        );
+
+        CREATE TABLE IF NOT EXISTS user_notification_prefs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            telegram_chat_id TEXT DEFAULT '',
+            notification_email TEXT DEFAULT '',
+            telegram_enabled INTEGER DEFAULT 1,
+            email_enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            display_name TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            symbol TEXT NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, symbol)
         );
     """)
     conn.commit()

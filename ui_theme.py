@@ -48,11 +48,13 @@ def inject_custom_css():
         font-family: 'Inter', sans-serif;
     }
 
-    /* ── Hide Streamlit branding ──────────────────────────────────── */
+    /* ── Hide Streamlit branding (keep header for sidebar toggle) ── */
     #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
     footer {visibility: hidden;}
     [data-testid="stStatusWidget"] {visibility: hidden;}
+    /* Hide header text but keep the sidebar collapse/expand button */
+    header [data-testid="stHeader"] {background: transparent;}
+    header {background: transparent !important;}
 
     /* ── Reduce top padding ───────────────────────────────────────── */
     .block-container {
@@ -90,6 +92,16 @@ def inject_custom_css():
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0e1117 0%, #1a1a2e 100%);
         border-right: 1px solid #1e3a5f;
+    }
+    /* Compact sidebar buttons (watchlist grid) */
+    [data-testid="stSidebar"] .stButton > button {
+        padding: 4px 8px;
+        font-size: 0.8rem;
+        min-height: 0;
+    }
+    /* Tighter sidebar column gaps */
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+        gap: 0.3rem;
     }
 
     /* ── Tabs — pill style ────────────────────────────────────────── */
@@ -247,9 +259,6 @@ def empty_state(message: str, icon: str = "info"):
 
 def sidebar_branding():
     """Render the TradeSignal logo block in the sidebar."""
-    if st.session_state.get("_branding_rendered"):
-        return
-    st.session_state["_branding_rendered"] = True
     st.markdown("""
     <div style='
         text-align: center;
@@ -324,6 +333,7 @@ _PAGE_TITLES = {
     "paper_trading": "Paper Trading | TradeSignal",
     "charts": "Charts | TradeSignal",
     "real_trades": "Real Trades | TradeSignal",
+    "settings": "Settings | TradeSignal",
 }
 
 
@@ -331,16 +341,17 @@ _PAGE_TITLES = {
 # Centralized page setup
 # ---------------------------------------------------------------------------
 
-def setup_page(page_key: str, *, run_auto_login: bool = False) -> dict | None:
+def setup_page(page_key: str, *, require_login: bool = False) -> dict | None:
     """One-call page bootstrap — must be the first Streamlit call in every page.
 
     1. ``st.set_page_config`` with sidebar expanded
     2. ``init_db()``
-    3. Optionally ``auto_login()`` (returns user dict)
-    4. ``inject_custom_css()``
-    5. Sidebar branding (skipped when ``auto_login`` already rendered it)
+    3. ``inject_custom_css()``
+    4. Sidebar branding (always)
+    5. If *require_login*: gate with login/register form (``st.stop()``)
+    6. Otherwise: show user info if logged in
 
-    Returns the user dict when *run_auto_login* is True, else ``None``.
+    Returns the user dict (or ``None`` for anonymous visitors on public pages).
     """
     st.set_page_config(
         page_title=_PAGE_TITLES.get(page_key, "TradeSignal"),
@@ -349,22 +360,20 @@ def setup_page(page_key: str, *, run_auto_login: bool = False) -> dict | None:
         initial_sidebar_state="expanded",
     )
 
-    # Reset branding guard so each page render starts clean
-    st.session_state["_branding_rendered"] = False
-
     from db import init_db
     init_db()
 
-    user = None
-    if run_auto_login:
-        from auth import auto_login
-        user = auto_login()  # renders sidebar branding internally
-
     inject_custom_css()
 
-    # Ensure branding is in the sidebar (guard prevents double-render)
-    if not st.session_state.get("_branding_rendered"):
-        with st.sidebar:
-            sidebar_branding()
+    with st.sidebar:
+        sidebar_branding()
 
+    if require_login:
+        from auth import require_auth
+        return require_auth()  # st.stop() if not logged in
+
+    from auth import get_current_user, render_sidebar_user_info
+    user = get_current_user()
+    if user:
+        render_sidebar_user_info()
     return user

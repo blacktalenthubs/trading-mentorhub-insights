@@ -168,6 +168,9 @@ CONSOLIDATION_MAX_BOOST = 15    # max boost from consolidation
 # Overhead MA resistance: suppress BUY when an MA is within this % above entry
 OVERHEAD_MA_RESISTANCE_PCT = 0.005  # 0.5%
 
+# MA Confluence: MA within this % of entry = confluence with horizontal level
+CONFLUENCE_BAND_PCT = 0.005  # 0.5%
+
 # Minimum target distance: T1 must be at least this % above entry
 MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
 

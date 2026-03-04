@@ -25,6 +25,7 @@ from alert_config import (
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
     BUY_ZONE_PROXIMITY_PCT,
+    CONFLUENCE_BAND_PCT,
     CONSOLIDATION_MAX_BOOST,
     CONSOLIDATION_SCORE_BOOST,
     DAY_TRADE_MAX_RISK_PCT,
@@ -120,6 +121,8 @@ class AlertSignal:
     score_label: str = ""
     rs_ratio: float = 0.0
     mtf_aligned: bool = False
+    confluence: bool = False
+    confluence_ma: str = ""
 
 
 def _volume_label(bar_volume: float, avg_volume: float) -> str:
@@ -223,12 +226,11 @@ def check_ma_bounce_50(
     - ma50 is available
     - Bar low within MA_BOUNCE_PROXIMITY_PCT of 50MA
     - Bar closes above 50MA
-    - Prior close was above 50MA (pullback, not breakdown)
+    - Counter-trend bounces (prior_close <= ma50) allowed with reduced confidence
     """
     if ma50 is None or ma50 <= 0:
         return None
-    if prior_close is not None and prior_close <= ma50:
-        return None  # was already below — this is breakdown, not pullback
+    counter_trend = prior_close is not None and prior_close <= ma50
 
     proximity = abs(bar["Low"] - ma50) / ma50
     if proximity > MA_BOUNCE_PROXIMITY_PCT:
@@ -242,6 +244,18 @@ def check_ma_bounce_50(
     if risk <= 0:
         return None
 
+    if counter_trend:
+        confidence = "medium"
+    else:
+        confidence = "high" if proximity <= 0.001 else "medium"
+
+    msg = (
+        f"MA bounce 50MA — price pulled back to ${ma50:.2f} "
+        f"and closed above at ${bar['Close']:.2f}"
+    )
+    if counter_trend:
+        msg += " (counter-trend)"
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.MA_BOUNCE_50,
@@ -251,11 +265,8 @@ def check_ma_bounce_50(
         stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
-        confidence="high" if proximity <= 0.001 else "medium",
-        message=(
-            f"MA bounce 50MA — price pulled back to ${ma50:.2f} "
-            f"and closed above at ${bar['Close']:.2f}"
-        ),
+        confidence=confidence,
+        message=msg,
     )
 
 
@@ -1457,6 +1468,7 @@ def check_ma_resistance(
     ma50: float | None,
     ma100: float | None,
     ma200: float | None,
+    prior_close: float | None = None,
 ) -> AlertSignal | None:
     """Price rallies into overhead MA and gets rejected — bearish warning.
 
@@ -1478,15 +1490,19 @@ def check_ma_resistance(
             continue  # bar didn't reach this MA
         if bar["Close"] >= ma_val:
             continue  # closed above = bounce, not rejection
+        msg = (
+            f"MA{ma_label} RESISTANCE — rejected at ${ma_val:.2f}, "
+            f"closed below at ${bar['Close']:.2f}"
+        )
+        # Role-flip: prior close was below this MA → recently broken, acting as ceiling
+        if prior_close is not None and prior_close < ma_val:
+            msg += " — recently broken, acting as resistance"
         return AlertSignal(
             symbol=symbol,
             alert_type=AlertType.MA_RESISTANCE,
             direction="SELL",
             price=bar["High"],
-            message=(
-                f"MA{ma_label} RESISTANCE — rejected at ${ma_val:.2f}, "
-                f"closed below at ${bar['Close']:.2f}"
-            ),
+            message=msg,
         )
     return None
 
@@ -1715,6 +1731,34 @@ def _has_overhead_ma_resistance(
         if gap_pct <= OVERHEAD_MA_RESISTANCE_PCT:
             return True, f"{label} ${ma:.2f}"
     return False, ""
+
+
+def _check_ma_confluence(
+    entry: float,
+    alert_type: AlertType,
+    ma20: float | None,
+    ma50: float | None,
+    ma100: float | None,
+    ma200: float | None,
+) -> tuple[bool, str, str]:
+    """Check if any MA aligns with a horizontal support entry.
+
+    Returns (has_confluence, ma_label, ma_value_str).
+    Prioritises higher MAs (200 > 100 > 50 > 20) — more institutional weight.
+    Skips any MA whose rounded value equals the entry — that MA IS the signal's
+    own support level (covers MA_BOUNCE, BUY_ZONE with MA candidate, etc.).
+    """
+    entry_r = round(entry, 2)
+    for label, ma in [
+        ("200MA", ma200), ("100MA", ma100), ("50MA", ma50), ("20MA", ma20),
+    ]:
+        if ma is None or ma <= 0:
+            continue
+        if round(ma, 2) == entry_r:
+            continue  # MA value IS the entry — self-referencing
+        if abs(ma - entry) / entry <= CONFLUENCE_BAND_PCT:
+            return True, label, f"${ma:.2f}"
+    return False, "", ""
 
 
 # ---------------------------------------------------------------------------
@@ -2084,7 +2128,7 @@ def evaluate_rules(
     if sig:
         signals.append(sig)
 
-    sig = check_ma_resistance(symbol, last_bar, ma20, ma50, ma100, ma200)
+    sig = check_ma_resistance(symbol, last_bar, ma20, ma50, ma100, ma200, prior_close)
     if sig:
         signals.append(sig)
 
@@ -2322,6 +2366,19 @@ def evaluate_rules(
                 sig.target_1 = round(current_price + risk, 2)
                 sig.target_2 = round(current_price + 2 * risk, 2)
 
+        # MA confluence detection: flag when an MA aligns with a horizontal entry.
+        # Runs before macro demotions so CHOPPY/SPY can still override the boost.
+        if sig.direction == "BUY" and sig.entry:
+            has_conf, conf_label, conf_val = _check_ma_confluence(
+                sig.entry, sig.alert_type, ma20, ma50, ma100, ma200,
+            )
+            if has_conf:
+                sig.confluence = True
+                sig.confluence_ma = conf_label
+                sig.message += f" | {conf_label} confluence at {conf_val}"
+                if sig.confidence == "medium":
+                    sig.confidence = "high"
+
         sig.spy_trend = spy_trend
         sig.session_phase = phase
         sig.volume_label = vol_label
@@ -2437,6 +2494,10 @@ def evaluate_rules(
                 sig.message += " | 15m trend NOT aligned (caution)"
 
         sig.score = _score_alert(sig, ma20, ma50, last_bar["Close"], vol_ratio)
+
+        # Confluence score boost
+        if sig.confluence:
+            sig.score = min(100, sig.score + 10)
 
         # MTF alignment score boost
         if sig.direction == "BUY" and mtf["mtf_aligned"]:

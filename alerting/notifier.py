@@ -117,9 +117,9 @@ def _format_sms_body(signal: AlertSignal) -> str:
     return "\n".join(parts)[:320]
 
 
-def send_email(signal: AlertSignal) -> bool:
-    """Send an alert email via SMTP. Returns True on success."""
-    if not SMTP_USER or not SMTP_PASSWORD or not ALERT_EMAIL_TO:
+def send_email_to(signal: AlertSignal, email_to: str) -> bool:
+    """Send an alert email to an explicit recipient. Returns True on success."""
+    if not SMTP_USER or not SMTP_PASSWORD or not email_to:
         logger.warning("Email not configured — skipping")
         return False
 
@@ -132,36 +132,40 @@ def send_email(signal: AlertSignal) -> bool:
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = ALERT_EMAIL_FROM
-    msg["To"] = ALERT_EMAIL_TO
+    msg["To"] = email_to
 
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(ALERT_EMAIL_FROM, [ALERT_EMAIL_TO], msg.as_string())
-        logger.info("Email sent: %s", subject)
+            server.sendmail(ALERT_EMAIL_FROM, [email_to], msg.as_string())
+        logger.info("Email sent to %s: %s", email_to, subject)
         return True
     except Exception:
-        logger.exception("Failed to send email")
+        logger.exception("Failed to send email to %s", email_to)
         return False
 
 
-def _send_telegram(body: str) -> bool:
-    """Send a message via Telegram Bot API."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+def send_email(signal: AlertSignal) -> bool:
+    """Send an alert email to the global ALERT_EMAIL_TO. Returns True on success."""
+    return send_email_to(signal, ALERT_EMAIL_TO)
+
+
+def _send_telegram_to(body: str, chat_id: str) -> bool:
+    """Send a message via Telegram Bot API to an explicit chat_id."""
+    if not TELEGRAM_BOT_TOKEN or not chat_id:
         logger.warning(
             "Telegram not configured — missing %s",
-            "TELEGRAM_BOT_TOKEN" if not TELEGRAM_BOT_TOKEN else "TELEGRAM_CHAT_ID",
+            "TELEGRAM_BOT_TOKEN" if not TELEGRAM_BOT_TOKEN else "chat_id",
         )
         return False
 
-    import json
     import urllib.parse
     import urllib.request
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = urllib.parse.urlencode({
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": body,
     }).encode()
 
@@ -170,19 +174,24 @@ def _send_telegram(body: str) -> bool:
         resp_body = resp.read().decode("utf-8", errors="replace")
         logger.info(
             "Telegram sent to %s (status=%s): %s",
-            TELEGRAM_CHAT_ID, resp.status, resp_body[:200],
+            chat_id, resp.status, resp_body[:200],
         )
         return True
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8", errors="replace")
         logger.error(
             "Telegram API error %s for chat_id=%s: %s",
-            e.code, TELEGRAM_CHAT_ID, error_body,
+            e.code, chat_id, error_body,
         )
         return False
     except Exception:
-        logger.exception("Failed to send Telegram message to chat_id=%s", TELEGRAM_CHAT_ID)
+        logger.exception("Failed to send Telegram message to chat_id=%s", chat_id)
         return False
+
+
+def _send_telegram(body: str) -> bool:
+    """Send a message via Telegram Bot API to the global TELEGRAM_CHAT_ID."""
+    return _send_telegram_to(body, TELEGRAM_CHAT_ID)
 
 
 def _send_sms_via_email_gateway(body: str) -> bool:
@@ -263,8 +272,30 @@ _TIER1_ALERT_TYPES = {
 }
 
 
+def notify_user(signal: AlertSignal, prefs: dict) -> tuple[bool, bool]:
+    """Send notifications to a specific user based on their preferences.
+
+    Returns (email_sent, telegram_sent).
+    """
+    email_sent = False
+    telegram_sent = False
+
+    if prefs.get("email_enabled"):
+        email_to = prefs.get("notification_email", "")
+        if email_to:
+            email_sent = send_email_to(signal, email_to)
+
+    if prefs.get("telegram_enabled"):
+        chat_id = prefs.get("telegram_chat_id", "")
+        if chat_id:
+            body = _format_sms_body(signal)
+            telegram_sent = _send_telegram_to(body, chat_id)
+
+    return email_sent, telegram_sent
+
+
 def notify(signal: AlertSignal) -> tuple[bool, bool]:
-    """Send notifications for an alert signal.
+    """Send notifications for an alert signal (global fallback).
 
     Both email and Telegram are sent for ALL signals.
 

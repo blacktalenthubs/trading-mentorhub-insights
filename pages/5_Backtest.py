@@ -48,7 +48,7 @@ def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
         "spy_intraday_low": round(spy_low, 2),
     }
 
-ui_theme.setup_page("backtest")
+user = ui_theme.setup_page("backtest")
 
 ui_theme.page_header("Backtest Replay", "Replay historical intraday data through the rule engine to validate signal quality.")
 
@@ -61,13 +61,13 @@ with st.sidebar:
         "Date",
         value=date.today() - timedelta(days=1),
         min_value=date.today() - timedelta(days=59),
-        max_value=date.today() - timedelta(days=1),
+        max_value=date.today(),
         help="Select a date within the last 59 days (yfinance limit)",
     )
 
     symbols_text = st.text_area(
         "Symbols (comma-separated)",
-        value=", ".join(get_watchlist()),
+        value=", ".join(get_watchlist(user["id"] if user else None)),
         height=80,
     )
     symbols = [s.strip().upper() for s in symbols_text.split(",") if s.strip()]
