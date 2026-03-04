@@ -67,6 +67,9 @@ def _format_email_body(signal: AlertSignal) -> str:
     if signal.message:
         lines.append(f"\n{signal.message}")
 
+    if getattr(signal, "narrative", ""):
+        lines.append(f"\nTHESIS:\n{signal.narrative}")
+
     return "\n".join(lines)
 
 
@@ -80,6 +83,18 @@ def _format_sms_body(signal: AlertSignal) -> str:
         parts.append(label)
         if signal.message:
             # Extract first clause for a short hint
+            hint = signal.message.split("|")[0].strip()
+            if hint:
+                parts.append(hint)
+        return "\n".join(parts)[:320]
+
+    if signal.direction == "NOTICE":
+        # Informational alerts (key level touches) — not actionable BUY
+        parts = [f"NOTICE {signal.symbol} ${signal.price:.2f}"]
+        parts.append(label)
+        if signal.entry is not None:
+            parts.append(f"Key Level ${signal.entry:.2f}")
+        if signal.message:
             hint = signal.message.split("|")[0].strip()
             if hint:
                 parts.append(hint)
@@ -113,6 +128,14 @@ def _format_sms_body(signal: AlertSignal) -> str:
         ctx.append(signal.vwap_position.replace("VWAP", "").strip())
     if ctx:
         parts.append(" | ".join(ctx))
+
+    # AI thesis — first sentence only (Telegram char limit)
+    if getattr(signal, "narrative", ""):
+        import re
+        # Split on period followed by space or end-of-string (avoids $185.50)
+        sentences = re.split(r"\.(?:\s|$)", signal.narrative, maxsplit=1)
+        if sentences and sentences[0].strip():
+            parts.append(sentences[0].strip() + ".")
 
     return "\n".join(parts)[:320]
 

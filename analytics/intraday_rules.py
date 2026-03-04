@@ -123,6 +123,7 @@ class AlertSignal:
     mtf_aligned: bool = False
     confluence: bool = False
     confluence_ma: str = ""
+    narrative: str = ""
 
 
 def _volume_label(bar_volume: float, avg_volume: float) -> str:
@@ -1243,7 +1244,7 @@ def check_planned_level_touch(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PLANNED_LEVEL_TOUCH,
-        direction="BUY",
+        direction="NOTICE",
         price=bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
@@ -1252,7 +1253,7 @@ def check_planned_level_touch(
         confidence="high",
         message=(
             f"Planned level touch ({levels['pattern']}) — "
-            f"bounced at ${entry:.2f}, T1=${levels['target_1']:.2f}"
+            f"price at ${entry:.2f}, T1=${levels['target_1']:.2f}"
         ),
     )
 
@@ -1307,7 +1308,7 @@ def check_weekly_level_touch(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.WEEKLY_LEVEL_TOUCH,
-        direction="BUY",
+        direction="NOTICE",
         price=bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
@@ -1315,7 +1316,7 @@ def check_weekly_level_touch(
         target_2=round(target_2, 2),
         confidence="high",
         message=(
-            f"Weekly level touch — bounced at prior week low ${pw_low:.2f}, "
+            f"Weekly level touch — price at prior week low ${pw_low:.2f}, "
             f"T1=${pw_high:.2f}"
         ),
     )
