@@ -3480,15 +3480,14 @@ class TestMaResistanceRoleFlip:
         assert "recently broken" in sig.message
         assert "acting as resistance" in sig.message
 
-    def test_no_role_flip_when_prior_above(self):
-        """Prior close above MA → normal rejection, no role-flip note."""
+    def test_no_fire_when_prior_above_ma(self):
+        """Prior close above MA → MA is support, not resistance → skip."""
         bar = _bar(open_=99, high=100.2, low=98.5, close=99.5)
         sig = check_ma_resistance(
             "TSLA", bar, ma20=100.1, ma50=None, ma100=None, ma200=None,
             prior_close=101.0,
         )
-        assert sig is not None
-        assert "recently broken" not in sig.message
+        assert sig is None  # price dropping into MA = support, not resistance
 
 
 # ===== Fix 1: Widened Resistance Proximity =====

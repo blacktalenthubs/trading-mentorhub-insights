@@ -1851,6 +1851,7 @@ def check_hourly_resistance_approach(
     bar: pd.Series,
     hourly_resistance: list[float],
     has_active_entry: bool,
+    prior_close: float | None = None,
 ) -> AlertSignal | None:
     """Active trade approaching hourly swing high resistance — tighten or take profits.
 
@@ -1858,6 +1859,8 @@ def check_hourly_resistance_approach(
     - has_active_entry is True
     - At least one hourly resistance level exists above current price
     - Bar high within HOURLY_RESISTANCE_APPROACH_PCT of an hourly resistance level
+    - Prior close was BELOW the level (approaching from below = resistance)
+      If prior close was above, the level is support, not resistance — skip.
     """
     if not has_active_entry or not hourly_resistance:
         return None
@@ -1866,6 +1869,10 @@ def check_hourly_resistance_approach(
     for level in sorted(hourly_resistance):
         if level < bar["High"]:
             continue
+        # Direction check: if prior close was above this level, price is
+        # falling into it — the level is acting as support, not resistance.
+        if prior_close is not None and prior_close > level:
+            break
         proximity = (level - bar["High"]) / level if level > 0 else float("inf")
         if proximity <= HOURLY_RESISTANCE_APPROACH_PCT:
             return AlertSignal(
@@ -1917,6 +1924,10 @@ def check_ma_resistance(
             continue  # bar didn't reach this MA
         if bar["Close"] >= ma_val:
             continue  # closed above = bounce, not rejection
+        # Direction check: if prior close was ABOVE this MA, price is falling
+        # into it — the MA is acting as SUPPORT, not resistance.  Skip.
+        if prior_close is not None and prior_close > ma_val:
+            continue
         msg = (
             f"MA{ma_label} RESISTANCE — rejected at ${ma_val:.2f}, "
             f"closed below at ${bar['Close']:.2f}"
@@ -2608,7 +2619,7 @@ def evaluate_rules(
     if sig:
         signals.append(sig)
 
-    sig = check_hourly_resistance_approach(symbol, last_bar, hourly_resistance, has_active)
+    sig = check_hourly_resistance_approach(symbol, last_bar, hourly_resistance, has_active, prior_close)
     if sig:
         signals.append(sig)
 
