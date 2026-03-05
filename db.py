@@ -8,15 +8,115 @@ from typing import Optional
 
 import pandas as pd
 
-from config import DB_PATH
+from config import DB_PATH, TURSO_DB_URL, TURSO_AUTH_TOKEN
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL")
+class _DictRow:
+    """Lightweight sqlite3.Row substitute — supports both row[idx] and row["col"]."""
+
+    def __init__(self, keys, values):
+        self._keys = keys
+        self._values = tuple(values)
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self._values[self._keys.index(key)]
+        return self._values[key]
+
+    def __len__(self):
+        return len(self._values)
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def keys(self):
+        return list(self._keys)
+
+
+class _CursorWrapper:
+    """Wraps a libsql cursor so fetchone/fetchall return dict-like rows."""
+
+    __slots__ = ("_cursor", "_desc")
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self._desc = cursor.description
+
+    def _wrap(self, row):
+        if row is None:
+            return None
+        keys = tuple(d[0] for d in self._desc)
+        return _DictRow(keys, row)
+
+    def fetchone(self):
+        return self._wrap(self._cursor.fetchone())
+
+    def fetchall(self):
+        keys = tuple(d[0] for d in self._desc) if self._desc else ()
+        return [_DictRow(keys, r) for r in self._cursor.fetchall()]
+
+    @property
+    def lastrowid(self):
+        return self._cursor.lastrowid
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+
+class _LibsqlConnWrapper:
+    """Wraps a libsql connection to emulate sqlite3.Row row_factory."""
+
+    __slots__ = ("_conn", "row_factory")
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.row_factory = sqlite3.Row  # cosmetic — for isinstance checks
+
+    def execute(self, sql, params=()):
+        cur = self._conn.execute(sql, params)
+        return _CursorWrapper(cur)
+
+    def executemany(self, sql, params):
+        return self._conn.executemany(sql, params)
+
+    def executescript(self, sql):
+        return self._conn.executescript(sql)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def close(self):
+        return self._conn.close()
+
+    def sync(self):
+        return self._conn.sync()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+def get_connection():
+    """Return a DB connection — Turso embedded replica if configured, else local SQLite."""
+    if TURSO_DB_URL:
+        import libsql_experimental as libsql
+
+        raw = libsql.connect(
+            DB_PATH,
+            sync_url=TURSO_DB_URL,
+            auth_token=TURSO_AUTH_TOKEN,
+        )
+        raw.sync()
+        conn = _LibsqlConnWrapper(raw)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.row_factory = sqlite3.Row
     return conn
 
 
@@ -26,6 +126,8 @@ def get_db():
     try:
         yield conn
         conn.commit()
+        if TURSO_DB_URL:
+            conn.sync()
     finally:
         conn.close()
 
@@ -401,7 +503,7 @@ def _migrate_add_user_id():
                 conn.execute(
                     f"ALTER TABLE {table} ADD COLUMN user_id INTEGER REFERENCES users(id)"
                 )
-            except sqlite3.OperationalError:
+            except (sqlite3.OperationalError, ValueError):
                 pass  # Column already exists
 
         # Create user_id indexes for query performance
@@ -439,7 +541,7 @@ def _migrate_add_alert_score():
     with get_db() as conn:
         try:
             conn.execute("ALTER TABLE alerts ADD COLUMN score INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, ValueError):
             pass  # Column already exists
 
 
@@ -454,7 +556,7 @@ def _migrate_watchlist_user_id():
             conn.execute(
                 "ALTER TABLE watchlist ADD COLUMN user_id INTEGER REFERENCES users(id)"
             )
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, ValueError):
             pass  # Column already exists
 
         admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
@@ -497,7 +599,7 @@ def _migrate_add_narrative():
     with get_db() as conn:
         try:
             conn.execute("ALTER TABLE alerts ADD COLUMN narrative TEXT DEFAULT ''")
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, ValueError):
             pass  # Column already exists
 
 
@@ -508,7 +610,7 @@ def _migrate_add_anthropic_key():
             conn.execute(
                 "ALTER TABLE user_notification_prefs ADD COLUMN anthropic_api_key TEXT DEFAULT ''"
             )
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, ValueError):
             pass  # Column already exists
 
 
@@ -573,7 +675,7 @@ def _migrate_real_trades_swing():
                 conn.execute(
                     f"ALTER TABLE real_trades ADD COLUMN {col} TEXT DEFAULT {default}"
                 )
-            except sqlite3.OperationalError:
+            except (sqlite3.OperationalError, ValueError):
                 pass  # column already exists
 
 
@@ -587,7 +689,7 @@ def _migrate_alert_user_id():
             conn.execute(
                 "ALTER TABLE alerts ADD COLUMN user_id INTEGER REFERENCES users(id)"
             )
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, ValueError):
             pass  # Column already exists
 
         conn.execute(

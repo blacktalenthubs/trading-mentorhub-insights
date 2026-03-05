@@ -15,7 +15,7 @@ import bcrypt
 import streamlit as st
 import streamlit.components.v1 as components
 
-from config import DB_PATH
+from db import get_db
 
 SESSION_EXPIRY_DAYS = 30
 _COOKIE_NAME = "ts_session"
@@ -37,12 +37,6 @@ def verify_password(password: str, password_hash: str) -> bool:
 # User CRUD
 # ---------------------------------------------------------------------------
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def create_user(email: str, password: str, display_name: str | None = None) -> int:
     """Register a new user. Returns user_id. Raises ValueError if email exists."""
     email = email.strip().lower()
@@ -53,7 +47,7 @@ def create_user(email: str, password: str, display_name: str | None = None) -> i
 
     pw_hash = hash_password(password)
     try:
-        with _get_conn() as conn:
+        with get_db() as conn:
             cur = conn.execute(
                 "INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)",
                 (email, pw_hash, display_name or email.split("@")[0]),
@@ -66,7 +60,7 @@ def create_user(email: str, password: str, display_name: str | None = None) -> i
 def authenticate_user(email: str, password: str) -> dict | None:
     """Validate credentials. Returns user dict or None."""
     email = email.strip().lower()
-    with _get_conn() as conn:
+    with get_db() as conn:
         row = conn.execute(
             "SELECT id, email, password_hash, display_name FROM users WHERE email = ?",
             (email,),
@@ -78,7 +72,7 @@ def authenticate_user(email: str, password: str) -> dict | None:
 
 
 def get_user_by_id(user_id: int) -> dict | None:
-    with _get_conn() as conn:
+    with get_db() as conn:
         row = conn.execute(
             "SELECT id, email, display_name FROM users WHERE id = ?",
             (user_id,),
@@ -96,7 +90,7 @@ def _create_session_token(user_id: int) -> str:
     """Create a persistent session token stored in the DB."""
     token = uuid.uuid4().hex
     expires = datetime.utcnow() + timedelta(days=SESSION_EXPIRY_DAYS)
-    with _get_conn() as conn:
+    with get_db() as conn:
         # Clean expired tokens
         conn.execute(
             "DELETE FROM session_tokens WHERE expires_at < ?",
@@ -111,7 +105,7 @@ def _create_session_token(user_id: int) -> str:
 
 def _get_user_by_token(token: str) -> dict | None:
     """Look up a session token and return the associated user."""
-    with _get_conn() as conn:
+    with get_db() as conn:
         row = conn.execute(
             """SELECT u.id, u.email, u.display_name
                FROM session_tokens t JOIN users u ON t.user_id = u.id
@@ -124,7 +118,7 @@ def _get_user_by_token(token: str) -> dict | None:
 
 
 def _delete_session_token(token: str):
-    with _get_conn() as conn:
+    with get_db() as conn:
         conn.execute("DELETE FROM session_tokens WHERE token = ?", (token,))
 
 
