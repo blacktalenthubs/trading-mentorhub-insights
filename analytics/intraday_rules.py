@@ -73,6 +73,11 @@ from alert_config import (
     VWAP_RECLAIM_MORNING_BARS,
     VWAP_RECLAIM_STOP_OFFSET_PCT,
     VWAP_RECLAIM_VOLUME_RATIO,
+    OPENING_LOW_BASE_WINDOW_BARS,
+    OPENING_LOW_BASE_HOLD_BARS,
+    OPENING_LOW_BASE_HOLD_PCT,
+    OPENING_LOW_BASE_MIN_DIP_PCT,
+    OPENING_LOW_BASE_STOP_OFFSET_PCT,
 )
 from analytics.market_hours import get_session_phase, allow_new_entries
 
@@ -104,6 +109,7 @@ class AlertType(str, Enum):
     OUTSIDE_DAY_BREAKOUT = "outside_day_breakout"
     RESISTANCE_PRIOR_LOW = "resistance_prior_low"
     VWAP_RECLAIM = "vwap_reclaim"
+    OPENING_LOW_BASE = "opening_low_base"
     WEEKLY_HIGH_BREAKOUT = "weekly_high_breakout"
     WEEKLY_HIGH_RESISTANCE = "weekly_high_resistance"
     EMA_BOUNCE_20 = "ema_bounce_20"
@@ -1455,6 +1461,93 @@ def check_vwap_reclaim(
 
 
 # ---------------------------------------------------------------------------
+# Rule 16: Opening Low Base (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_opening_low_base(
+    symbol: str,
+    bars: pd.DataFrame,
+) -> AlertSignal | None:
+    """Session low set in first 15 min, price bases and holds above it.
+
+    Pattern: stock dips in first 3 bars (15 min), finds its floor, then
+    holds above that low for at least 3 consecutive bars — confirming a base.
+
+    Conditions:
+    1. Session low is within the first OPENING_LOW_BASE_WINDOW_BARS bars
+    2. Low is a meaningful dip from open (>= MIN_DIP_PCT)
+    3. At least OPENING_LOW_BASE_HOLD_BARS consecutive bars after low
+       with Low > session_low * (1 + HOLD_PCT) — base confirmed
+    4. Last bar closes above the hold threshold (still basing, not breaking)
+    """
+    min_bars = OPENING_LOW_BASE_WINDOW_BARS + OPENING_LOW_BASE_HOLD_BARS + 1
+    if len(bars) < min_bars:
+        return None
+
+    # Session low must be in the opening window
+    window = bars.iloc[:OPENING_LOW_BASE_WINDOW_BARS]
+    window_low = window["Low"].min()
+    session_low = bars["Low"].min()
+
+    if window_low > session_low:
+        return None  # session low came after the opening window
+
+    if window_low <= 0:
+        return None
+
+    # Low must be a meaningful dip from open
+    open_price = bars["Open"].iloc[0]
+    dip_pct = (open_price - window_low) / open_price if open_price > 0 else 0
+    if dip_pct < OPENING_LOW_BASE_MIN_DIP_PCT:
+        return None
+
+    # Find index of the low bar in the window
+    low_idx = window["Low"].idxmin()
+    low_pos = bars.index.get_loc(low_idx)
+
+    # Count consecutive hold bars after the low
+    hold_threshold = window_low * (1 + OPENING_LOW_BASE_HOLD_PCT)
+    consecutive_hold = 0
+    for i in range(low_pos + 1, len(bars)):
+        if bars["Low"].iloc[i] >= hold_threshold:
+            consecutive_hold += 1
+        else:
+            consecutive_hold = 0  # reset on break
+
+    if consecutive_hold < OPENING_LOW_BASE_HOLD_BARS:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= hold_threshold:
+        return None  # not holding
+
+    entry = last_bar["Close"]
+    stop = round(window_low * (1 - OPENING_LOW_BASE_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    confidence = "high" if dip_pct >= 0.005 and consecutive_hold >= 4 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.OPENING_LOW_BASE,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=round(entry, 2),
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=confidence,
+        message=(
+            f"Opening low base — low ${window_low:.2f} set in first 15 min, "
+            f"held {consecutive_hold} bars, dip {dip_pct:.1%} from open"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 15: Session Low Double-Bottom (BUY)
 # ---------------------------------------------------------------------------
 
@@ -2458,6 +2551,19 @@ def evaluate_rules(
             )
             if sig:
                 sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Opening Low Base ---
+        if AlertType.OPENING_LOW_BASE.value in ENABLED_RULES:
+            sig = check_opening_low_base(symbol, intraday_bars)
+            if sig:
+                sig.message += f" ({phase})"
+                if spy.get("spy_bouncing"):
+                    sig.confidence = "high"
+                    sig.message += " | SPY also basing"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix
                 signals.append(sig)
 

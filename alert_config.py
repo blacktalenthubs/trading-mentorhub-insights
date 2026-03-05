@@ -187,6 +187,13 @@ VWAP_RECLAIM_VOLUME_RATIO = 1.2         # volume confirmation threshold
 VWAP_RECLAIM_MIN_BARS_AFTER_LOW = 3     # 15 min after low before firing
 VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
 
+# Opening Low Base: session low in first 15 min, then price holds above it
+OPENING_LOW_BASE_WINDOW_BARS = 3       # first 15 min (3 × 5-min bars) to set the low
+OPENING_LOW_BASE_HOLD_BARS = 3         # 15 min of holding above low to confirm base
+OPENING_LOW_BASE_HOLD_PCT = 0.003      # 0.3% — bars must stay above low * (1 + this)
+OPENING_LOW_BASE_MIN_DIP_PCT = 0.003   # 0.3% — low must be meaningful dip from open
+OPENING_LOW_BASE_STOP_OFFSET_PCT = 0.003  # 0.3% below session low for stop
+
 # Minimum target distance: T1 must be at least this % above entry
 MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
 
@@ -225,6 +232,7 @@ ENABLED_RULES: set[str] = {
     "weekly_level_touch",
     # "intraday_support_bounce",  # disabled — too noisy intraday
     "vwap_reclaim",
+    "opening_low_base",
     # BUY — EMA bounce
     "ema_bounce_20",
     "ema_bounce_50",

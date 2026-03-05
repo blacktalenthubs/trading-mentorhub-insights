@@ -27,6 +27,7 @@ from analytics.intraday_rules import (
     check_ma_bounce_200,
     check_opening_range_breakout,
     check_orb_breakdown,
+    check_opening_low_base,
     check_planned_level_touch,
     check_prior_day_high_breakout,
     check_prior_day_low_reclaim,
@@ -3647,4 +3648,114 @@ class TestVWAPReclaim:
         bars = pd.DataFrame()
         vwap = pd.Series(dtype=float)
         sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+
+# ---------------------------------------------------------------------------
+# Opening Low Base
+# ---------------------------------------------------------------------------
+
+class TestOpeningLowBase:
+    """Tests for check_opening_low_base — first 15 min low holds as base."""
+
+    def _make_bars(self, prices):
+        """Build bars from list of (open, high, low, close) tuples."""
+        rows = []
+        for o, h, l, c in prices:
+            rows.append({"Open": o, "High": h, "Low": l, "Close": c, "Volume": 1000})
+        return pd.DataFrame(rows)
+
+    def test_classic_opening_low_base_fires(self):
+        """LRCX-style: dips in first 3 bars, then holds above low for 3+ bars."""
+        bars = self._make_bars([
+            # Opening window (3 bars) — dip from 220 to 217
+            (220, 221, 218, 219),    # bar 0: opens 220, dips to 218
+            (219, 220, 217, 218),    # bar 1: dips further to 217 (session low)
+            (218, 219, 217.5, 218),  # bar 2: holds near low
+            # Hold bars — price stays above 217 * 1.003 = 217.65
+            (218, 220, 218, 219.5),  # bar 3: hold ✓
+            (219.5, 221, 219, 220),  # bar 4: hold ✓
+            (220, 221, 220, 220.5),  # bar 5: hold ✓
+            (220.5, 222, 220, 221),  # bar 6: hold ✓ — fires here
+        ])
+        sig = check_opening_low_base("LRCX", bars)
+        assert sig is not None
+        assert sig.alert_type == AlertType.OPENING_LOW_BASE
+        assert sig.direction == "BUY"
+        assert sig.stop < 217  # below session low
+
+    def test_no_dip_returns_none(self):
+        """Flat open — no meaningful dip → no signal."""
+        bars = self._make_bars([
+            (220, 221, 219.5, 220),  # tiny dip, < 0.3%
+            (220, 221, 219.8, 220.5),
+            (220.5, 221, 220, 220.5),
+            (220.5, 221, 220, 220.5),
+            (220.5, 221, 220, 220.5),
+            (220.5, 221, 220, 220.5),
+            (220.5, 221, 220, 220.5),
+        ])
+        sig = check_opening_low_base("AAPL", bars)
+        assert sig is None
+
+    def test_low_after_window_returns_none(self):
+        """Session low comes after the 15-min window → no signal."""
+        bars = self._make_bars([
+            # Opening window — mild
+            (220, 221, 219, 220),
+            (220, 221, 219, 220),
+            (220, 221, 219, 220),
+            # Bar 3 makes new low — outside window
+            (220, 220, 215, 216),
+            (216, 218, 216, 217),
+            (217, 218, 217, 217.5),
+            (217.5, 218, 217, 217.5),
+        ])
+        sig = check_opening_low_base("AAPL", bars)
+        assert sig is None
+
+    def test_not_enough_hold_bars_returns_none(self):
+        """Price dips below hold threshold too soon → base not confirmed."""
+        bars = self._make_bars([
+            (220, 221, 217, 218),    # bar 0: dip
+            (218, 219, 217, 218),    # bar 1: session low 217
+            (218, 219, 217.5, 218),  # bar 2
+            (218, 220, 218, 219),    # bar 3: hold ✓
+            (219, 220, 216, 217),    # bar 4: breaks below → reset
+            (217, 218, 217, 217.5),  # bar 5: hold ✓
+            (217.5, 218, 217.5, 218),  # bar 6: hold ✓ — only 2 consecutive
+        ])
+        sig = check_opening_low_base("AAPL", bars)
+        assert sig is None
+
+    def test_too_few_bars_returns_none(self):
+        """Not enough bars → None."""
+        bars = self._make_bars([
+            (220, 221, 217, 218),
+            (218, 219, 217, 218),
+            (218, 219, 218, 219),
+        ])
+        sig = check_opening_low_base("AAPL", bars)
+        assert sig is None
+
+    def test_high_confidence_on_deep_dip(self):
+        """Deep dip (>=0.5%) + 4+ hold bars → high confidence."""
+        bars = self._make_bars([
+            (220, 221, 218, 219),
+            (219, 219, 216, 217),    # 1.8% dip from open
+            (217, 218, 217, 217.5),
+            (217.5, 219, 218, 218.5),  # hold ✓
+            (218.5, 220, 218, 219),    # hold ✓
+            (219, 220, 219, 219.5),    # hold ✓
+            (219.5, 221, 219, 220),    # hold ✓ — 4 consecutive
+            (220, 221, 220, 221),      # hold ✓
+        ])
+        sig = check_opening_low_base("LRCX", bars)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_empty_bars_returns_none(self):
+        """Empty DataFrame → None."""
+        bars = pd.DataFrame()
+        sig = check_opening_low_base("AAPL", bars)
         assert sig is None
