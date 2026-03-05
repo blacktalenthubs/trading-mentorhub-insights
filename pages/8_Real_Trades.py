@@ -1,5 +1,7 @@
 """Real Trades — Track real trades tied to alerts with P&L dashboard."""
 
+import io
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -22,6 +24,7 @@ from alerting.options_trade_store import (
     get_options_trade_stats,
     update_options_trade_notes,
 )
+from db import get_db
 import ui_theme
 
 user = ui_theme.setup_page("real_trades")
@@ -403,3 +406,76 @@ else:
         )
     else:
         ui_theme.empty_state("No closed trades yet.")
+
+# =====================================================================
+# BACKUP & RESTORE (always visible regardless of trade type filter)
+# =====================================================================
+st.divider()
+ui_theme.section_header("Backup & Restore")
+st.caption("Download trades as CSV before a restart. Upload to restore after.")
+
+dl_col1, dl_col2 = st.columns(2)
+
+with dl_col1:
+    with get_db() as conn:
+        eq_df = pd.read_sql_query("SELECT * FROM real_trades ORDER BY opened_at DESC", conn)
+    st.download_button(
+        "Download Equity Trades CSV",
+        data=eq_df.to_csv(index=False).encode(),
+        file_name="real_trades_backup.csv",
+        mime="text/csv",
+        disabled=eq_df.empty,
+    )
+    st.caption(f"{len(eq_df)} equity trades")
+
+with dl_col2:
+    with get_db() as conn:
+        opt_df = pd.read_sql_query("SELECT * FROM real_options_trades ORDER BY opened_at DESC", conn)
+    st.download_button(
+        "Download Options Trades CSV",
+        data=opt_df.to_csv(index=False).encode(),
+        file_name="real_options_trades_backup.csv",
+        mime="text/csv",
+        disabled=opt_df.empty,
+    )
+    st.caption(f"{len(opt_df)} options trades")
+
+# ── Upload / Restore ──────────────────────────────────────────────────
+with st.expander("Restore from CSV"):
+    uploaded = st.file_uploader(
+        "Upload a backup CSV (equity or options)",
+        type=["csv"],
+        key="trade_restore_upload",
+    )
+    if uploaded:
+        restore_df = pd.read_csv(uploaded)
+        st.dataframe(restore_df.head(10), use_container_width=True)
+        st.caption(f"{len(restore_df)} rows found in file")
+
+        # Detect which table based on columns
+        is_options = "option_type" in restore_df.columns and "strike" in restore_df.columns
+        table_name = "real_options_trades" if is_options else "real_trades"
+
+        st.warning(
+            f"This will insert **{len(restore_df)} rows** into `{table_name}`. "
+            "Duplicate rows (same id) will be skipped."
+        )
+
+        if st.button("Restore Trades", type="primary"):
+            inserted = 0
+            skipped = 0
+            with get_db() as conn:
+                cols = [c for c in restore_df.columns if c != "id"]
+                placeholders = ", ".join(["?"] * len(cols))
+                col_names = ", ".join(cols)
+                for _, row in restore_df.iterrows():
+                    try:
+                        conn.execute(
+                            f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})",
+                            tuple(None if pd.isna(v) else v for v in row[cols]),
+                        )
+                        inserted += 1
+                    except Exception:
+                        skipped += 1
+            st.success(f"Restored {inserted} trades ({skipped} skipped/duplicates)")
+            st.rerun()
