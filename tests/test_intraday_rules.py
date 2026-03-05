@@ -32,6 +32,7 @@ from analytics.intraday_rules import (
     check_prior_day_high_breakout,
     check_prior_day_low_reclaim,
     check_weekly_level_touch,
+    check_ema_bounce_100,
     check_resistance_prior_high,
     check_resistance_prior_low,
     check_vwap_reclaim,
@@ -2462,28 +2463,34 @@ class TestMAResistance:
 # ===== Rule 20: Prior Day Low as Resistance =====
 
 class TestResistancePriorLow:
-    def test_fires_when_high_touches_pdl_and_closes_below(self):
-        """High reaches PDL and close stays below → SELL RESISTANCE_PRIOR_LOW."""
-        # PDL=100.0, high=100.10 (within 0.2%), close=99.5 (below PDL)
+    def test_fires_when_prior_close_below_pdl(self):
+        """Prior close below PDL (already broken) + high touches PDL → fire."""
+        # PDL=100.0, prior_close=98.0 (below PDL = broken), high=100.10, close=99.5
         bar = _bar(open_=99.0, high=100.10, low=98.5, close=99.5)
-        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0, prior_close=98.0)
         assert sig is not None
         assert sig.alert_type == AlertType.RESISTANCE_PRIOR_LOW
         assert sig.direction == "NOTICE"
         assert "Prior day low resistance" in sig.message
         assert "$100.00" in sig.message
 
+    def test_no_fire_when_prior_close_above_pdl(self):
+        """Prior close above PDL (support, not resistance) → None."""
+        bar = _bar(open_=99.0, high=100.10, low=98.5, close=99.5)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0, prior_close=102.0)
+        assert sig is None
+
     def test_no_fire_when_close_above_pdl(self):
         """High touches PDL, close above → reclaimed, not rejection."""
         bar = _bar(open_=99.5, high=100.15, low=99.0, close=100.10)
-        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0, prior_close=98.0)
         assert sig is None
 
     def test_no_fire_when_high_too_far_from_pdl(self):
         """High more than 0.2% away from PDL → None."""
         # PDL=100.0, high=99.5 (0.5% away)
         bar = _bar(open_=98.5, high=99.5, low=98.0, close=99.0)
-        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0, prior_close=98.0)
         assert sig is None
 
     def test_no_fire_when_pdl_is_zero(self):
@@ -3763,3 +3770,69 @@ class TestOpeningLowBase:
         bars = pd.DataFrame()
         sig = check_opening_low_base("AAPL", bars)
         assert sig is None
+
+
+# ── EMA Bounce 100 ──────────────────────────────────────────────
+
+
+class TestEmaBounce100:
+    """Tests for check_ema_bounce_100() — intermediate EMA support."""
+
+    @staticmethod
+    def _bar(low, close, high=None, open_=None, volume=100_000):
+        return pd.Series({
+            "Open": open_ or close,
+            "High": high or close,
+            "Low": low,
+            "Close": close,
+            "Volume": volume,
+        })
+
+    def test_classic_bounce_fires(self):
+        """Bar low near EMA100, closes above → BUY."""
+        ema100 = 676.86
+        bar = self._bar(low=676.50, close=679.69, high=680.0)
+        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.EMA_BOUNCE_100
+        assert sig.direction == "BUY"
+        assert sig.entry == round(ema100, 2)
+        assert sig.confidence == "high"
+
+    def test_no_fire_when_close_below_ema(self):
+        """Bar closes below EMA100 → no bounce."""
+        ema100 = 676.86
+        bar = self._bar(low=675.0, close=676.0)
+        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        assert sig is None
+
+    def test_no_fire_when_too_far(self):
+        """Bar low too far from EMA100 → no fire."""
+        ema100 = 676.86
+        bar = self._bar(low=670.0, close=679.0)  # >0.5% away
+        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        assert sig is None
+
+    def test_counter_trend_medium_confidence(self):
+        """Prior close below EMA100 → counter-trend → medium."""
+        ema100 = 676.86
+        bar = self._bar(low=676.50, close=679.69)
+        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=670.0)
+        assert sig is not None
+        assert sig.confidence == "medium"
+        assert "counter-trend" in sig.message
+
+    def test_none_when_ema100_missing(self):
+        """EMA100 is None → None."""
+        bar = self._bar(low=676.50, close=679.69)
+        sig = check_ema_bounce_100("SPY", bar, None, prior_close=685.0)
+        assert sig is None
+
+    def test_stop_uses_ma100_offset(self):
+        """Stop should be EMA100 * (1 - 0.7%)."""
+        ema100 = 676.86
+        bar = self._bar(low=676.50, close=679.69)
+        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        assert sig is not None
+        expected_stop = round(ema100 * (1 - 0.007), 2)
+        assert sig.stop == expected_stop

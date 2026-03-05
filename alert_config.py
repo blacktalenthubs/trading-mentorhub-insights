@@ -61,7 +61,7 @@ MA200_STOP_OFFSET_PCT = 0.010  # 1.0%
 MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
 
 # Prior Day Low Reclaim: minimum dip below prior low to qualify
-PDL_DIP_MIN_PCT = 0.001  # 0.1%
+PDL_DIP_MIN_PCT = 0.0003  # 0.03% — any meaningful touch below PDL counts
 
 # Resistance at Prior High: proximity threshold
 RESISTANCE_PROXIMITY_PCT = 0.003  # 0.3% — symmetric with support bounce
@@ -236,6 +236,7 @@ ENABLED_RULES: set[str] = {
     # BUY — EMA bounce
     "ema_bounce_20",
     "ema_bounce_50",
+    "ema_bounce_100",
     # BUY — breakout / momentum
     "prior_day_high_breakout",
     "weekly_high_breakout",

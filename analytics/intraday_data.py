@@ -122,6 +122,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
         hist["EMA10"] = hist["Close"].ewm(span=10, adjust=False).mean()
         hist["EMA20"] = hist["Close"].ewm(span=20, adjust=False).mean()
         hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
+        hist["EMA100"] = hist["Close"].ewm(span=100, adjust=False).mean()
 
         # Date-aware selection: if last bar is today, it's partial
         today = pd.Timestamp.now().normalize()
@@ -167,6 +168,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
         ema20 = last["EMA20"] if pd.notna(last["EMA20"]) else None
         ema20_prev = prev["EMA20"] if pd.notna(prev["EMA20"]) else None
         ema50 = last["EMA50"] if pd.notna(last["EMA50"]) else None
+        ema100 = last["EMA100"] if pd.notna(last["EMA100"]) else None
 
         sym_rsi14 = compute_rsi_wilder(hist["Close"], period=14)
 
@@ -198,6 +200,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
             "ema20": ema20,
             "ema20_prev": ema20_prev,
             "ema50": ema50,
+            "ema100": ema100,
             "pattern": pattern,
             "direction": direction,
             "is_inside": is_inside,

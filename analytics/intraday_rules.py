@@ -114,6 +114,7 @@ class AlertType(str, Enum):
     WEEKLY_HIGH_RESISTANCE = "weekly_high_resistance"
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
+    EMA_BOUNCE_100 = "ema_bounce_100"
     EMA_RESISTANCE = "ema_resistance"
     # Swing trade — RSI zones
     SWING_RSI_APPROACHING_OVERSOLD = "swing_rsi_approaching_oversold"
@@ -679,7 +680,7 @@ def check_target_1_hit(
         direction="SELL",
         price=target_1,
         message=(
-            f"T1 hit at ${target_1:.2f} (1R from entry ${entry_price:.2f}) "
+            f"T1 hit at ${target_1:.2f} (entry ${entry_price:.2f}) "
             f"— sell half, move stop to breakeven"
         ),
     )
@@ -706,7 +707,7 @@ def check_target_2_hit(
         alert_type=AlertType.TARGET_2_HIT,
         direction="SELL",
         price=target_2,
-        message=f"Target 2 hit at ${target_2:.2f} (2R from entry ${entry_price:.2f})",
+        message=f"Target 2 hit at ${target_2:.2f} (entry ${entry_price:.2f})",
     )
 
 
@@ -976,6 +977,68 @@ def check_ema_bounce_50(
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_50,
+        direction="BUY",
+        price=bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=confidence,
+        message=msg,
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: EMA Bounce 100
+# ---------------------------------------------------------------------------
+
+
+def check_ema_bounce_100(
+    symbol: str,
+    bar: pd.Series,
+    ema100: float | None,
+    prior_close: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to EMA100 and bounces — intermediate institutional level.
+
+    Mirrors check_ma_bounce_100() but uses EMA value.
+    Uses MA100 thresholds (wider proximity/stop for institutional level).
+    """
+    if ema100 is None or ema100 <= 0:
+        return None
+
+    proximity = abs(bar["Low"] - ema100) / ema100
+    if proximity > MA100_BOUNCE_PROXIMITY_PCT:
+        return None
+    if bar["Close"] <= ema100:
+        return None  # didn't bounce above
+
+    # Direction check: if prior close was above EMA100, this is a pullback
+    # into support (bullish). If prior close was already below, it's a
+    # counter-trend bounce (less reliable).
+    counter_trend = prior_close is not None and prior_close <= ema100
+
+    entry = round(ema100, 2)
+    stop = round(ema100 * (1 - MA100_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    if counter_trend:
+        confidence = "medium"
+    else:
+        confidence = "high" if proximity <= 0.002 else "medium"
+
+    msg = (
+        f"EMA bounce 100 — price pulled back to ${ema100:.2f} "
+        f"and closed above at ${bar['Close']:.2f}"
+    )
+    if counter_trend:
+        msg += " (counter-trend)"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_BOUNCE_100,
         direction="BUY",
         price=bar["Close"],
         entry=entry,
@@ -1953,15 +2016,22 @@ def check_resistance_prior_low(
     symbol: str,
     bar: pd.Series,
     prior_day_low: float,
+    prior_close: float | None = None,
 ) -> AlertSignal | None:
     """Price rallies up to prior day low from below and gets rejected.
 
     Conditions:
     - prior_day_low > 0
+    - Direction: prior close must be BELOW prior day low (already broken)
+      If prior close > PDL, the level is support not resistance — skip.
     - Bar high within RESISTANCE_PROXIMITY_PCT of prior day low
     - Bar close below prior day low (rejection confirmed)
     """
     if prior_day_low <= 0:
+        return None
+    # Direction check: if prior close was above PDL, the level is support
+    # (stock just broke below today). Only fire when it was already below.
+    if prior_close is not None and prior_close > prior_day_low:
         return None
     proximity = abs(bar["High"] - prior_day_low) / prior_day_low
     if proximity > RESISTANCE_PROXIMITY_PCT:
@@ -2014,6 +2084,7 @@ def _find_resistance_targets(
         "MA200": prior_day.get("ma200"),
         "EMA20": prior_day.get("ema20"),
         "EMA50": prior_day.get("ema50"),
+        "EMA100": prior_day.get("ema100"),
         "prior week high": prior_day.get("prior_week_high"),
     }
     for label, level in level_map.items():
@@ -2335,6 +2406,7 @@ def evaluate_rules(
     ma200 = prior_day.get("ma200")
     ema20 = prior_day.get("ema20")
     ema50 = prior_day.get("ema50")
+    ema100 = prior_day.get("ema100")
     prior_close = prior_day.get("close")
     prior_high = prior_day.get("high", 0)
     prior_low = prior_day.get("low", 0)
@@ -2466,6 +2538,15 @@ def evaluate_rules(
 
         if AlertType.EMA_BOUNCE_50.value in ENABLED_RULES:
             sig = check_ema_bounce_50(symbol, last_bar, ema50, ema20, prior_close)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        if AlertType.EMA_BOUNCE_100.value in ENABLED_RULES:
+            sig = check_ema_bounce_100(symbol, last_bar, ema100, prior_close)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -2629,7 +2710,7 @@ def evaluate_rules(
     if sig:
         signals.append(sig)
 
-    sig = check_resistance_prior_low(symbol, last_bar, prior_low)
+    sig = check_resistance_prior_low(symbol, last_bar, prior_low, prior_close)
     if sig:
         signals.append(sig)
 
