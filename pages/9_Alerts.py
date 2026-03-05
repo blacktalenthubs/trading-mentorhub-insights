@@ -1,4 +1,4 @@
-"""Alert Reports — Daily alert history with summaries and details."""
+"""Alert Reports — Daily alert history grouped by date."""
 
 from __future__ import annotations
 
@@ -19,110 +19,109 @@ ui_theme.page_header(
     "Daily alert history — browse signals fired each trading session",
 )
 
-# ── Session date picker ─────────────────────────────────────────────────────
+# ── Available dates ───────────────────────────────────────────────────────
 
-session_dates = get_session_dates()
+session_dates = get_session_dates()  # newest first
 
 if not session_dates:
     ui_theme.empty_state("No alerts recorded yet. The monitor will populate alerts during market hours.")
     st.stop()
 
-# Sidebar: date selector
+# ── Sidebar controls ─────────────────────────────────────────────────────
+
 with st.sidebar:
-    st.subheader("Session Date")
-    selected_date = st.selectbox(
-        "Select date",
-        session_dates,
+    st.subheader("Date Range")
+    view_mode = st.radio(
+        "View",
+        ["Latest day", "Last 3 days", "Last 7 days", "All dates"],
         index=0,
-        format_func=lambda d: pd.Timestamp(d).strftime("%a %b %d, %Y"),
         label_visibility="collapsed",
     )
 
-# ── Session summary ─────────────────────────────────────────────────────────
+    if view_mode == "Latest day":
+        dates_to_show = session_dates[:1]
+    elif view_mode == "Last 3 days":
+        dates_to_show = session_dates[:3]
+    elif view_mode == "Last 7 days":
+        dates_to_show = session_dates[:7]
+    else:
+        dates_to_show = session_dates
 
-summary = get_session_summary(session_date=selected_date)
-alerts = summary["alerts"]
+    st.caption(f"{len(dates_to_show)} session(s) · {len(session_dates)} total")
 
-if not alerts:
-    ui_theme.empty_state(f"No alerts fired on {selected_date}.")
+# ── Collect all alerts across selected dates ─────────────────────────────
+
+all_alerts: list[dict] = []
+summaries_by_date: dict[str, dict] = {}
+
+for d in dates_to_show:
+    s = get_session_summary(session_date=d)
+    summaries_by_date[d] = s
+    for a in s["alerts"]:
+        a["_session_date"] = d
+        all_alerts.append(a)
+
+if not all_alerts:
+    ui_theme.empty_state("No alerts in the selected date range.")
     st.stop()
 
-# KPI row
+# ── Global KPIs ──────────────────────────────────────────────────────────
+
+total_buy = sum(s["buy_count"] for s in summaries_by_date.values())
+total_sell = sum(s["sell_count"] for s in summaries_by_date.values())
+total_t1 = sum(s["t1_hits"] for s in summaries_by_date.values())
+total_t2 = sum(s["t2_hits"] for s in summaries_by_date.values())
+total_stopped = sum(s["stopped_out"] for s in summaries_by_date.values())
+
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Total", summary["total"])
-c2.metric("BUY", summary["buy_count"])
-c3.metric("SELL", summary["sell_count"])
-c4.metric("T1 Hits", summary["t1_hits"])
-c5.metric("T2 Hits", summary["t2_hits"])
-c6.metric("Stopped", summary["stopped_out"])
+c1.metric("Total", len(all_alerts))
+c2.metric("BUY", total_buy)
+c3.metric("SELL", total_sell)
+c4.metric("T1 Hits", total_t1)
+c5.metric("T2 Hits", total_t2)
+c6.metric("Stopped", total_stopped)
 
 st.divider()
 
-# ── Filters ─────────────────────────────────────────────────────────────────
+# ── Filters ──────────────────────────────────────────────────────────────
 
 filter_cols = st.columns(3)
 
 with filter_cols[0]:
-    symbols_in_session = sorted(set(a["symbol"] for a in alerts))
+    all_symbols = sorted(set(a["symbol"] for a in all_alerts))
     selected_symbols = st.multiselect(
-        "Symbol",
-        symbols_in_session,
-        default=None,
-        placeholder="All symbols",
+        "Symbol", all_symbols, default=None, placeholder="All symbols",
     )
     if not selected_symbols:
-        selected_symbols = symbols_in_session
+        selected_symbols = all_symbols
 
 with filter_cols[1]:
-    directions = sorted(set(a["direction"] for a in alerts))
+    all_directions = sorted(set(a["direction"] for a in all_alerts))
     selected_directions = st.multiselect(
-        "Direction",
-        directions,
-        default=None,
-        placeholder="All directions",
+        "Direction", all_directions, default=None, placeholder="All directions",
     )
     if not selected_directions:
-        selected_directions = directions
+        selected_directions = all_directions
 
 with filter_cols[2]:
-    alert_types = sorted(set(a["alert_type"] for a in alerts))
+    all_types = sorted(set(a["alert_type"] for a in all_alerts))
     selected_types = st.multiselect(
-        "Alert Type",
-        alert_types,
-        default=None,
-        placeholder="All types",
+        "Alert Type", all_types, default=None, placeholder="All types",
         format_func=lambda t: t.replace("_", " ").title(),
     )
     if not selected_types:
-        selected_types = alert_types
+        selected_types = all_types
 
-# Apply filters
 filtered = [
-    a for a in alerts
+    a for a in all_alerts
     if a["symbol"] in selected_symbols
     and a["direction"] in selected_directions
     and a["alert_type"] in selected_types
 ]
 
-st.caption(f"Showing {len(filtered)} of {len(alerts)} alerts")
+st.caption(f"Showing {len(filtered)} of {len(all_alerts)} alerts")
 
-# ── Signal type breakdown ───────────────────────────────────────────────────
-
-if summary["signals_by_type"]:
-    with st.expander("Signal Breakdown", expanded=False):
-        type_df = pd.DataFrame(
-            [
-                {"Alert Type": k.replace("_", " ").title(), "Count": v}
-                for k, v in sorted(
-                    summary["signals_by_type"].items(),
-                    key=lambda x: x[1],
-                    reverse=True,
-                )
-            ]
-        )
-        st.dataframe(type_df, use_container_width=True, hide_index=True)
-
-# ── Alert cards ─────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────
 
 DIR_COLORS = {
     "BUY": "#3fb950",
@@ -149,7 +148,8 @@ def _score_label(score: int) -> str:
     return "C"
 
 
-for alert in filtered:
+def _render_card(alert: dict) -> None:
+    """Render a single alert card."""
     direction = alert.get("direction", "")
     dir_color = DIR_COLORS.get(direction, "#8b949e")
     score = alert.get("score", 0)
@@ -166,7 +166,6 @@ for alert in filtered:
         except Exception:
             time_str = str(created)[:16]
 
-    # Direction badge background
     if direction == "BUY":
         dir_bg = "rgba(63,185,80,0.15)"
     elif direction in ("SELL", "SHORT"):
@@ -174,7 +173,6 @@ for alert in filtered:
     else:
         dir_bg = "rgba(210,153,34,0.15)"
 
-    # Levels line
     entry = alert.get("entry")
     stop = alert.get("stop")
     t1 = alert.get("target_1")
@@ -194,7 +192,10 @@ for alert in filtered:
 
     message = alert.get("message", "")
     narrative = alert.get("narrative", "")
-    narrative_block = f"<br><span style='color:#8b949e;font-style:italic'>{narrative}</span>" if narrative else ""
+    narrative_block = (
+        f"<br><span style='color:#8b949e;font-style:italic'>{narrative}</span>"
+        if narrative else ""
+    )
 
     st.markdown(
         f"<div style='background:#161b22;border:1px solid #30363d;border-left:3px solid {dir_color};"
@@ -215,15 +216,57 @@ for alert in filtered:
         unsafe_allow_html=True,
     )
 
-# ── Raw data table ──────────────────────────────────────────────────────────
+
+# ── Alerts grouped by date ───────────────────────────────────────────────
+
+# Group filtered alerts by session date
+from collections import defaultdict
+
+grouped: dict[str, list[dict]] = defaultdict(list)
+for a in filtered:
+    grouped[a["_session_date"]].append(a)
+
+for session_date in dates_to_show:
+    day_alerts = grouped.get(session_date, [])
+    if not day_alerts:
+        continue
+
+    day_summary = summaries_by_date[session_date]
+    date_display = pd.Timestamp(session_date).strftime("%A, %b %d %Y")
+
+    # Date header with mini KPIs
+    buy_c = sum(1 for a in day_alerts if a.get("direction") == "BUY")
+    sell_c = sum(1 for a in day_alerts if a.get("direction") in ("SELL", "SHORT", "NOTICE"))
+
+    st.markdown(
+        f"<div style='background:linear-gradient(90deg,#1e3a5f,#16213e);padding:10px 16px;"
+        f"border-radius:8px;margin:1rem 0 0.5rem 0;display:flex;justify-content:space-between;"
+        f"align-items:center'>"
+        f"<span style='font-weight:700;font-size:1.1rem'>{date_display}</span>"
+        f"<span style='font-size:0.85rem;color:#8b949e'>"
+        f"{len(day_alerts)} alerts · "
+        f"<span style='color:#3fb950'>{buy_c} BUY</span> · "
+        f"<span style='color:#f85149'>{sell_c} SELL</span>"
+        f"</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    for alert in day_alerts:
+        _render_card(alert)
+
+# ── Raw data table ───────────────────────────────────────────────────────
+
+st.divider()
 
 with st.expander("Raw Data Table"):
     if not filtered:
         st.caption("No alerts match the current filters.")
     else:
         display_cols = [
-            "created_at", "symbol", "alert_type", "direction", "price",
-            "entry", "stop", "target_1", "target_2", "confidence", "score", "message",
+            "created_at", "_session_date", "symbol", "alert_type", "direction",
+            "price", "entry", "stop", "target_1", "target_2", "confidence",
+            "score", "message",
         ]
         available_cols = [c for c in display_cols if c in filtered[0]]
         df = pd.DataFrame(filtered)[available_cols]
