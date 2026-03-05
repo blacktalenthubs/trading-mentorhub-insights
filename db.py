@@ -101,7 +101,11 @@ class _LibsqlConnWrapper:
 
 
 def get_connection():
-    """Return a DB connection — Turso embedded replica if configured, else local SQLite."""
+    """Return a DB connection — Turso embedded replica if configured, else local SQLite.
+
+    Reads use the local replica file (fast, no network).
+    Syncs happen only after writes in get_db().
+    """
     if TURSO_DB_URL:
         import libsql_experimental as libsql
 
@@ -110,7 +114,6 @@ def get_connection():
             sync_url=TURSO_DB_URL,
             auth_token=TURSO_AUTH_TOKEN,
         )
-        raw.sync()
         conn = _LibsqlConnWrapper(raw)
     else:
         conn = sqlite3.connect(DB_PATH)
@@ -120,6 +123,23 @@ def get_connection():
     return conn
 
 
+def sync_from_remote():
+    """Pull latest data from Turso cloud into the local replica.
+
+    Call once at app startup (e.g. in init_db) — not on every request.
+    """
+    if TURSO_DB_URL:
+        import libsql_experimental as libsql
+
+        raw = libsql.connect(
+            DB_PATH,
+            sync_url=TURSO_DB_URL,
+            auth_token=TURSO_AUTH_TOKEN,
+        )
+        raw.sync()
+        raw.close()
+
+
 @contextmanager
 def get_db():
     conn = get_connection()
@@ -127,13 +147,17 @@ def get_db():
         yield conn
         conn.commit()
         if TURSO_DB_URL:
-            conn.sync()
+            try:
+                conn.sync()
+            except (ValueError, OSError):
+                pass  # sync failed (stale stream) — data is committed locally
     finally:
         conn.close()
 
 
 def init_db():
     """Create all tables if they don't exist, then run migrations."""
+    sync_from_remote()  # pull latest from Turso on startup
     with get_db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
