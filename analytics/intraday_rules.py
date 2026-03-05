@@ -1522,10 +1522,16 @@ def check_opening_low_base(
     if last_bar["Close"] <= hold_threshold:
         return None  # not holding
 
-    entry = last_bar["Close"]
+    # Entry = hold threshold (the base level), not current price
+    entry = round(hold_threshold, 2)
     stop = round(window_low * (1 - OPENING_LOW_BASE_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
+        return None
+
+    # Skip if price already ran past T1 — signal is stale
+    target_1 = round(entry + risk, 2)
+    if last_bar["Close"] > target_1:
         return None
 
     confidence = "high" if dip_pct >= 0.005 and consecutive_hold >= 4 else "medium"
@@ -1535,9 +1541,9 @@ def check_opening_low_base(
         alert_type=AlertType.OPENING_LOW_BASE,
         direction="BUY",
         price=last_bar["Close"],
-        entry=round(entry, 2),
+        entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
+        target_1=target_1,
         target_2=round(entry + 2 * risk, 2),
         confidence=confidence,
         message=(

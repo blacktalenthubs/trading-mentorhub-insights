@@ -3667,16 +3667,18 @@ class TestOpeningLowBase:
 
     def test_classic_opening_low_base_fires(self):
         """LRCX-style: dips in first 3 bars, then holds above low for 3+ bars."""
+        # entry = 217 * 1.003 = 217.65, stop = 216.35, T1 = 218.95
+        # last bar close must be <= T1 to avoid staleness filter
         bars = self._make_bars([
             # Opening window (3 bars) — dip from 220 to 217
             (220, 221, 218, 219),    # bar 0: opens 220, dips to 218
             (219, 220, 217, 218),    # bar 1: dips further to 217 (session low)
             (218, 219, 217.5, 218),  # bar 2: holds near low
-            # Hold bars — price stays above 217 * 1.003 = 217.65
-            (218, 220, 218, 219.5),  # bar 3: hold ✓
-            (219.5, 221, 219, 220),  # bar 4: hold ✓
-            (220, 221, 220, 220.5),  # bar 5: hold ✓
-            (220.5, 222, 220, 221),  # bar 6: hold ✓ — fires here
+            # Hold bars — price stays above 217.65 but below T1 218.95
+            (218, 219, 218, 218.2),  # bar 3: hold ✓
+            (218.2, 219, 218, 218.5),  # bar 4: hold ✓
+            (218.5, 219, 218, 218.3),  # bar 5: hold ✓
+            (218.3, 219, 218, 218.7),  # bar 6: hold ✓ — fires here
         ])
         sig = check_opening_low_base("LRCX", bars)
         assert sig is not None
@@ -3740,15 +3742,17 @@ class TestOpeningLowBase:
 
     def test_high_confidence_on_deep_dip(self):
         """Deep dip (>=0.5%) + 4+ hold bars → high confidence."""
+        # entry = 216 * 1.003 = 216.65, stop = 215.35, T1 = 217.95
+        # last bar close must be <= T1 to avoid staleness
         bars = self._make_bars([
             (220, 221, 218, 219),
-            (219, 219, 216, 217),    # 1.8% dip from open
+            (219, 219, 216, 217),      # 1.8% dip from open
             (217, 218, 217, 217.5),
-            (217.5, 219, 218, 218.5),  # hold ✓
-            (218.5, 220, 218, 219),    # hold ✓
-            (219, 220, 219, 219.5),    # hold ✓
-            (219.5, 221, 219, 220),    # hold ✓ — 4 consecutive
-            (220, 221, 220, 221),      # hold ✓
+            (217.5, 218, 217, 217.2),  # hold ✓
+            (217.2, 218, 217, 217.5),  # hold ✓
+            (217.5, 218, 217, 217.3),  # hold ✓
+            (217.3, 218, 217, 217.6),  # hold ✓ — 4 consecutive
+            (217.6, 218, 217, 217.8),  # hold ✓
         ])
         sig = check_opening_low_base("LRCX", bars)
         assert sig is not None
