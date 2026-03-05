@@ -106,8 +106,8 @@ ORB_VOLUME_RATIO = 1.2
 # Session Low Double-Bottom
 SESSION_LOW_PROXIMITY_PCT = 0.003       # 0.3% — how close bar low must be to session low
 SESSION_LOW_RECOVERY_PCT = 0.003        # 0.3% — minimum bounce above session low between touches
-SESSION_LOW_MIN_AGE_BARS = 6            # ~30 min — session low must be established this long ago
-SESSION_LOW_MIN_RECOVERY_BARS = 4       # ~20 min — consecutive bars above recovery threshold
+SESSION_LOW_MIN_AGE_BARS = 4            # ~20 min — session low must be established this long ago
+SESSION_LOW_MIN_RECOVERY_BARS = 2       # ~10 min — consecutive bars above recovery threshold
 SESSION_LOW_MAX_RETEST_VOL_RATIO = 1.2  # retest must be exhaustion, not panic (< 1.2x avg)
 SESSION_LOW_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 

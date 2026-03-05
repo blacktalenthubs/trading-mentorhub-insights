@@ -1471,10 +1471,10 @@ class TestSessionLowDoubleBottom:
         assert sig.alert_type == AlertType.SESSION_LOW_DOUBLE_BOTTOM
         assert sig.direction == "BUY"
         assert sig.entry == 650.0
-        assert sig.confidence == "medium"
+        assert sig.confidence in ("medium", "high")
 
     def test_no_fire_when_session_low_too_recent(self):
-        """First touch only 2 bars ago → None (need MIN_AGE_BARS=6)."""
+        """First touch only 2 bars ago → None (need MIN_AGE_BARS=4)."""
         bars = self._make_double_bottom_bars(
             session_low=650.0, first_touch_bar=3, num_bars=6,
             retest_close=651.0, retest_low=650.10, retest_volume=800,
@@ -1517,17 +1517,18 @@ class TestSessionLowDoubleBottom:
         sig = check_session_low_retest("META", bars, last_bar, 800, avg_vol)
         assert sig is None
 
-    def test_no_fire_when_retest_volume_too_high(self):
-        """Vol ratio 1.5x → None (breakdown risk, not exhaustion)."""
+    def test_high_volume_retest_fires_medium_confidence(self):
+        """Vol ratio 1.5x → fires with medium confidence (not exhaustion)."""
         bars = self._make_double_bottom_bars(
             session_low=650.0, first_touch_bar=3, num_bars=20,
             retest_close=651.0, retest_low=650.10, retest_volume=1500,
         )
         last_bar = bars.iloc[-1]
         avg_vol = bars["Volume"].mean()
-        # avg_vol ~1000, bar_vol 1500 → ratio 1.5 >= 1.2 threshold
+        # avg_vol ~1000, bar_vol 1500 → ratio 1.5 >= 1.2 → medium confidence
         sig = check_session_low_retest("META", bars, last_bar, 1500, avg_vol)
-        assert sig is None
+        assert sig is not None
+        assert sig.confidence == "medium"
 
 
 # ===== Breakdown Session Low Tag =====

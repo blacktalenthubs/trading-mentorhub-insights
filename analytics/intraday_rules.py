@@ -1570,12 +1570,11 @@ def check_session_low_retest(
     Conditions:
     1. Minimum bars: MIN_AGE + MIN_RECOVERY + 1
     2. Session low = bars["Low"].min()
-    3. Volume cap: vol_ratio < SESSION_LOW_MAX_RETEST_VOL_RATIO (exhaustion, not panic)
-    4. Last bar low within SESSION_LOW_PROXIMITY_PCT of session low (not below it)
-    5. Last bar closes above session low (bounce confirmed)
-    6. First touch: earliest bar (excl. last) with low within proximity of session low
-    7. First touch >= SESSION_LOW_MIN_AGE_BARS bars ago
-    8. Recovery: >= SESSION_LOW_MIN_RECOVERY_BARS consecutive bars with low > session_low * (1 + RECOVERY_PCT)
+    3. Last bar low within SESSION_LOW_PROXIMITY_PCT of session low (allows slight undercut)
+    4. Last bar closes above session low (bounce confirmed)
+    5. First touch: earliest bar (excl. last) with low within proximity of session low
+    6. First touch >= SESSION_LOW_MIN_AGE_BARS bars ago
+    7. Recovery: >= SESSION_LOW_MIN_RECOVERY_BARS consecutive bars with low > session_low * (1 + RECOVERY_PCT)
     """
     min_bars = SESSION_LOW_MIN_AGE_BARS + SESSION_LOW_MIN_RECOVERY_BARS + 1
     if len(bars) < min_bars:
@@ -1585,23 +1584,19 @@ def check_session_low_retest(
     if session_low <= 0:
         return None
 
-    # Volume cap — retest must be exhaustion, not panic selling
-    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
-    if vol_ratio >= SESSION_LOW_MAX_RETEST_VOL_RATIO:
-        return None
-
-    # Last bar low must be near session low but not below it
-    proximity = (last_bar["Low"] - session_low) / session_low
-    if proximity < 0 or proximity > SESSION_LOW_PROXIMITY_PCT:
+    # Last bar low must be near session low — use abs() to allow slight undercuts
+    # (second touch can go marginally below first touch and still be a double bottom)
+    proximity = abs(last_bar["Low"] - session_low) / session_low
+    if proximity > SESSION_LOW_PROXIMITY_PCT:
         return None
 
     # Last bar must close above session low (bounce confirmed)
     if last_bar["Close"] <= session_low:
         return None
 
-    # Find first touch: earliest bar (excluding last) with low within proximity
+    # Find first touch: earliest bar (excluding last few bars) with low near session low
     first_touch_idx = None
-    for i in range(len(bars) - 1):
+    for i in range(len(bars) - SESSION_LOW_MIN_AGE_BARS):
         bar_low = bars["Low"].iloc[i]
         touch_proximity = abs(bar_low - session_low) / session_low
         if touch_proximity <= SESSION_LOW_PROXIMITY_PCT:
@@ -1631,12 +1626,16 @@ def check_session_low_retest(
     if max_consecutive < SESSION_LOW_MIN_RECOVERY_BARS:
         return None
 
-    # Entry/Stop/Targets
+    # Entry/Stop/Targets — use session low as structural stop with buffer
     entry = session_low
-    stop = min(last_bar["Low"], session_low * (1 - SESSION_LOW_STOP_OFFSET_PCT))
+    stop = round(session_low * (1 - SESSION_LOW_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
+
+    # Boost confidence on volume exhaustion (low volume retest = sellers drying up)
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    confidence = "high" if vol_ratio < SESSION_LOW_MAX_RETEST_VOL_RATIO else "medium"
 
     return AlertSignal(
         symbol=symbol,
@@ -1644,10 +1643,10 @@ def check_session_low_retest(
         direction="BUY",
         price=last_bar["Close"],
         entry=round(entry, 2),
-        stop=round(stop, 2),
+        stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
-        confidence="medium",
+        confidence=confidence,
         message=(
             f"Session low double-bottom — ${session_low:.2f} tested twice, "
             f"recovery confirmed, bounce at ${last_bar['Close']:.2f}"
