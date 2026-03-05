@@ -425,7 +425,9 @@ def check_prior_day_low_reclaim(
 
     entry = prior_day_low
     intraday_low = bars["Low"].min()
-    stop = last_bar["Low"]  # bar that confirmed reclaim, not widest intraday low
+    # Use session low as structural stop — last_bar["Low"] may already be above
+    # entry once price has moved, which kills risk calculation.
+    stop = intraday_low - entry * MA_BOUNCE_SESSION_STOP_PCT
     risk = entry - stop
     if risk <= 0:
         return None
