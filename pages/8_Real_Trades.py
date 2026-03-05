@@ -20,12 +20,16 @@ user = ui_theme.setup_page("real_trades")
 
 ui_theme.page_header("Real Trades", "Track real trades tied to alerts — $50k cap ($100k SPY)")
 
+# ── Trade Type Filter ─────────────────────────────────────────────────
+trade_filter = st.radio("Trade Type", ["All", "Intraday", "Swing"], horizontal=True)
+type_param = {"All": None, "Intraday": "intraday", "Swing": "swing"}[trade_filter]
+
 # =====================================================================
 # 1. Performance Summary
 # =====================================================================
 ui_theme.section_header("Performance Summary")
 
-stats = get_real_trade_stats()
+stats = get_real_trade_stats(trade_type=type_param)
 if stats["total_trades"] > 0:
     col1, col2, col3 = st.columns(3)
     pnl_color = "normal" if stats["total_pnl"] >= 0 else "inverse"
@@ -48,7 +52,7 @@ st.divider()
 # =====================================================================
 ui_theme.section_header("Open Positions")
 
-positions = get_open_trades()
+positions = get_open_trades(trade_type=type_param)
 if positions:
     for pos in positions:
         sym = pos["symbol"]
@@ -127,7 +131,7 @@ st.divider()
 # =====================================================================
 ui_theme.section_header("Closed Trades")
 
-history = get_closed_trades(limit=200)
+history = get_closed_trades(limit=200, trade_type=type_param)
 if history:
     df = pd.DataFrame(history)
 
@@ -184,16 +188,25 @@ if history:
 
     # Trade history table
     st.markdown("**Trade History**")
-    df_display = df_sorted[[
+    base_cols = [
         "symbol", "direction", "shares", "entry_price", "exit_price",
         "pnl", "status", "alert_type", "session_date", "notes",
-    ]].copy()
-    df_display = df_display.rename(columns={
+    ]
+    rename_map = {
         "symbol": "Symbol", "direction": "Direction", "shares": "Shares",
         "entry_price": "Entry", "exit_price": "Exit",
         "pnl": "P&L", "status": "Status",
         "alert_type": "Signal", "session_date": "Date", "notes": "Notes",
-    })
+    }
+    # Show extra swing columns when filtering to Swing or All
+    if type_param != "intraday":
+        for col in ("trade_type", "stop_type", "target_type"):
+            if col in df_sorted.columns:
+                base_cols.append(col)
+                rename_map[col] = col.replace("_", " ").title()
+
+    df_display = df_sorted[[c for c in base_cols if c in df_sorted.columns]].copy()
+    df_display = df_display.rename(columns=rename_map)
     st.dataframe(
         df_display.set_index("Symbol").style.format({
             "Entry": "${:,.2f}", "Exit": "${:,.2f}", "P&L": "${:,.2f}",

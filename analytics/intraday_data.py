@@ -118,6 +118,8 @@ def fetch_prior_day(symbol: str) -> dict | None:
         hist["MA200"] = hist["Close"].rolling(window=200).mean()
 
         # Compute EMAs on full history
+        hist["EMA5"] = hist["Close"].ewm(span=5, adjust=False).mean()
+        hist["EMA10"] = hist["Close"].ewm(span=10, adjust=False).mean()
         hist["EMA20"] = hist["Close"].ewm(span=20, adjust=False).mean()
         hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
 
@@ -158,10 +160,19 @@ def fetch_prior_day(symbol: str) -> dict | None:
         ma50 = last["MA50"] if pd.notna(last["MA50"]) else None
         ma100 = last["MA100"] if pd.notna(last["MA100"]) else None
         ma200 = last["MA200"] if pd.notna(last["MA200"]) else None
+        ema5 = last["EMA5"] if pd.notna(last["EMA5"]) else None
+        ema5_prev = prev["EMA5"] if pd.notna(prev["EMA5"]) else None
+        ema10 = last["EMA10"] if pd.notna(last["EMA10"]) else None
+        ema10_prev = prev["EMA10"] if pd.notna(prev["EMA10"]) else None
         ema20 = last["EMA20"] if pd.notna(last["EMA20"]) else None
+        ema20_prev = prev["EMA20"] if pd.notna(prev["EMA20"]) else None
         ema50 = last["EMA50"] if pd.notna(last["EMA50"]) else None
 
         sym_rsi14 = compute_rsi_wilder(hist["Close"], period=14)
+
+        # RSI series for crossover detection (prev, today)
+        rsi_vals = compute_rsi_series(hist["Close"], period=14, lookback=2)
+        rsi14_prev = rsi_vals[0] if len(rsi_vals) >= 2 else None
 
         # Classify the prior day using market_data.classify_day
         from analytics.market_data import classify_day
@@ -180,7 +191,12 @@ def fetch_prior_day(symbol: str) -> dict | None:
             "ma50": ma50,
             "ma100": ma100,
             "ma200": ma200,
+            "ema5": ema5,
+            "ema5_prev": ema5_prev,
+            "ema10": ema10,
+            "ema10_prev": ema10_prev,
             "ema20": ema20,
+            "ema20_prev": ema20_prev,
             "ema50": ema50,
             "pattern": pattern,
             "direction": direction,
@@ -188,9 +204,11 @@ def fetch_prior_day(symbol: str) -> dict | None:
             "parent_high": prev["High"],
             "parent_low": prev["Low"],
             "parent_range": prev["High"] - prev["Low"],
+            "prev_close": prev["Close"],
             "prior_week_high": prior_week_high,
             "prior_week_low": prior_week_low,
             "rsi14": sym_rsi14,
+            "rsi14_prev": rsi14_prev,
         }
     except Exception:
         return None
@@ -401,6 +419,34 @@ def compute_rsi_wilder(closes: pd.Series, period: int = 14) -> float | None:
     rs = last_avg_gain / last_avg_loss
     rsi = 100 - (100 / (1 + rs))
     return round(rsi, 2)
+
+
+def compute_rsi_series(
+    closes: pd.Series, period: int = 14, lookback: int = 2
+) -> list[float]:
+    """Return the last *lookback* RSI values for crossover detection.
+
+    Same Wilder's EWM logic as ``compute_rsi_wilder`` but returns a short
+    list instead of a single scalar.  Returns empty list on insufficient data.
+    """
+    if len(closes) < period + 1:
+        return []
+
+    delta = closes.diff()
+    gains = delta.clip(lower=0)
+    losses = (-delta).clip(lower=0)
+
+    avg_gain = gains.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = losses.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+    rs = avg_gain / avg_loss
+    rsi_series = 100 - (100 / (1 + rs))
+    rsi_series = rsi_series.dropna()
+
+    if rsi_series.empty:
+        return []
+
+    return [round(v, 2) for v in rsi_series.iloc[-lookback:].tolist()]
 
 
 @st.cache_data(ttl=300)

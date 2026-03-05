@@ -317,6 +317,41 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS swing_trades (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol        TEXT NOT NULL,
+                alert_type    TEXT NOT NULL,
+                direction     TEXT NOT NULL DEFAULT 'BUY',
+                entry_price   REAL NOT NULL,
+                current_price REAL,
+                stop_type     TEXT NOT NULL,
+                target_type   TEXT NOT NULL DEFAULT 'rsi_70',
+                entry_rsi     REAL,
+                current_rsi   REAL,
+                status        TEXT NOT NULL DEFAULT 'active',
+                pnl_pct       REAL,
+                entry_date    TEXT NOT NULL,
+                closed_date   TEXT,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, entry_date, alert_type)
+            );
+            CREATE INDEX IF NOT EXISTS idx_swing_trades_status
+                ON swing_trades(status);
+            CREATE INDEX IF NOT EXISTS idx_swing_trades_symbol
+                ON swing_trades(symbol);
+
+            CREATE TABLE IF NOT EXISTS swing_categories (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol        TEXT NOT NULL,
+                category      TEXT NOT NULL,
+                rsi           REAL,
+                session_date  TEXT NOT NULL,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(symbol, session_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_swing_categories_session
+                ON swing_categories(session_date);
         """)
     _migrate_add_user_id()
     _migrate_add_alert_score()
@@ -326,6 +361,7 @@ def init_db():
     _migrate_add_anthropic_key()
     _migrate_add_daily_plans()
     _migrate_ensure_default_watchlist()
+    _migrate_real_trades_swing()
 
 
 def _migrate_add_user_id():
@@ -498,6 +534,24 @@ def _migrate_ensure_default_watchlist():
             "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
             [(uid, s) for s in DEFAULT_WATCHLIST],
         )
+
+
+def _migrate_real_trades_swing():
+    """Add swing-specific columns to real_trades."""
+    cols = [
+        ("trade_type", "'intraday'"),
+        ("stop_type", "NULL"),
+        ("target_type", "NULL"),
+        ("entry_rsi", "NULL"),
+    ]
+    with get_db() as conn:
+        for col, default in cols:
+            try:
+                conn.execute(
+                    f"ALTER TABLE real_trades ADD COLUMN {col} TEXT DEFAULT {default}"
+                )
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 def _migrate_alert_user_id():

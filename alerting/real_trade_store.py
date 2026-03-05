@@ -28,6 +28,10 @@ def open_real_trade(
     alert_id: int | None,
     session_date: str,
     shares: int | None = None,
+    trade_type: str = "intraday",
+    stop_type: str | None = None,
+    target_type: str | None = None,
+    entry_rsi: float | None = None,
 ) -> int:
     """Insert a new real trade. Uses *shares* if provided, otherwise auto-calculates.
 
@@ -40,12 +44,14 @@ def open_real_trade(
             """INSERT INTO real_trades
                (symbol, direction, shares, entry_price, stop_price,
                 target_price, target_2_price, alert_type, alert_id,
-                session_date, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')""",
+                session_date, status, trade_type, stop_type, target_type,
+                entry_rsi)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)""",
             (
                 symbol, direction, shares, entry_price, stop_price,
                 target_price, target_2_price, alert_type, alert_id,
-                session_date,
+                session_date, trade_type, stop_type, target_type,
+                str(entry_rsi) if entry_rsi is not None else None,
             ),
         )
         return cur.lastrowid
@@ -112,33 +118,53 @@ def has_open_trade(symbol: str) -> bool:
         return row is not None
 
 
-def get_open_trades() -> list[dict]:
-    """Return all open real trades."""
+def get_open_trades(trade_type: str | None = None) -> list[dict]:
+    """Return all open real trades, optionally filtered by trade_type."""
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM real_trades WHERE status='open' ORDER BY opened_at DESC",
-        ).fetchall()
+        if trade_type:
+            rows = conn.execute(
+                "SELECT * FROM real_trades WHERE status='open' AND trade_type=? ORDER BY opened_at DESC",
+                (trade_type,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM real_trades WHERE status='open' ORDER BY opened_at DESC",
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_closed_trades(limit: int = 200) -> list[dict]:
+def get_closed_trades(limit: int = 200, trade_type: str | None = None) -> list[dict]:
     """Return closed/stopped trades ordered by most recent."""
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT * FROM real_trades
-               WHERE status IN ('closed', 'stopped')
-               ORDER BY closed_at DESC LIMIT ?""",
-            (limit,),
-        ).fetchall()
+        if trade_type:
+            rows = conn.execute(
+                """SELECT * FROM real_trades
+                   WHERE status IN ('closed', 'stopped') AND trade_type=?
+                   ORDER BY closed_at DESC LIMIT ?""",
+                (trade_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM real_trades
+                   WHERE status IN ('closed', 'stopped')
+                   ORDER BY closed_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_real_trade_stats() -> dict:
-    """Aggregate stats for all closed real trades."""
+def get_real_trade_stats(trade_type: str | None = None) -> dict:
+    """Aggregate stats for closed real trades, optionally filtered by trade_type."""
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT pnl FROM real_trades WHERE status IN ('closed', 'stopped') AND pnl IS NOT NULL",
-        ).fetchall()
+        if trade_type:
+            rows = conn.execute(
+                "SELECT pnl FROM real_trades WHERE status IN ('closed', 'stopped') AND pnl IS NOT NULL AND trade_type=?",
+                (trade_type,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT pnl FROM real_trades WHERE status IN ('closed', 'stopped') AND pnl IS NOT NULL",
+            ).fetchall()
 
     if not rows:
         return {

@@ -16,6 +16,9 @@ logger = logging.getLogger("monitor_thread")
 _started = False
 _lock = threading.Lock()
 
+# Tracks which date we last ran the EOD swing scan for
+_eod_ran_date: str | None = None
+
 
 def _monitor_loop() -> None:
     """Blocking loop that polls every interval during market hours."""
@@ -42,9 +45,40 @@ def _monitor_loop() -> None:
                 alerts = poll_cycle(dry_run=False)
                 logger.info("Background poll complete: %d alerts fired", alerts)
             else:
+                _maybe_run_eod()
                 logger.debug("Market closed — sleeping")
         except Exception:
             logger.exception("Background monitor error")
+
+
+def _maybe_run_eod() -> None:
+    """Run swing EOD scan once per session, after market close on weekdays."""
+    global _eod_ran_date
+    from datetime import datetime
+
+    import pytz
+
+    from alerting.alert_store import today_session
+    from alerting.swing_scanner import swing_scan_eod
+
+    today = today_session()
+    if _eod_ran_date == today:
+        return  # already ran today
+
+    et = pytz.timezone("US/Eastern")
+    now = datetime.now(et)
+    if now.weekday() >= 5:
+        return  # weekend
+    if now.hour < 16:
+        return  # before close
+
+    _eod_ran_date = today
+    logger.info("Running EOD swing scan for %s", today)
+    try:
+        count = swing_scan_eod()
+        logger.info("EOD swing scan complete: %d signals", count)
+    except Exception:
+        logger.exception("EOD swing scan failed")
 
 
 def start() -> None:

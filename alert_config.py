@@ -191,6 +191,19 @@ VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
 MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
 
 # ---------------------------------------------------------------------------
+# Swing trade thresholds
+# ---------------------------------------------------------------------------
+SWING_RSI_OVERSOLD = 30
+SWING_RSI_APPROACHING_OVERSOLD = 35
+SWING_RSI_OVERBOUGHT = 70
+SWING_RSI_APPROACHING_OVERBOUGHT = 65
+SWING_EMA_CROSSOVER_MIN_SEPARATION_PCT = 0.0005  # 0.05% anti-flicker
+SWING_PULLBACK_PROXIMITY_PCT = 0.005              # 0.5% near 20 EMA
+SWING_PULLBACK_EMA_RISING_LOOKBACK = 5            # EMA20 today > EMA20 5 days ago
+SWING_200MA_RECLAIM_CONFIRM_EMA10 = True          # require close > EMA10 too
+SWING_REGIME_GATE = True                          # require SPY > 20 EMA
+
+# ---------------------------------------------------------------------------
 # Enabled rules — only rules listed here will fire via evaluate_rules().
 # Uses string values (not AlertType enum) to avoid circular imports.
 # Disabled: breakout-based (ORB, inside day), momentum (EMA crossover),

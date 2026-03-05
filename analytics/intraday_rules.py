@@ -109,6 +109,18 @@ class AlertType(str, Enum):
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
     EMA_RESISTANCE = "ema_resistance"
+    # Swing trade — RSI zones
+    SWING_RSI_APPROACHING_OVERSOLD = "swing_rsi_approaching_oversold"
+    SWING_RSI_OVERSOLD = "swing_rsi_oversold"
+    SWING_RSI_APPROACHING_OVERBOUGHT = "swing_rsi_approaching_overbought"
+    SWING_RSI_OVERBOUGHT = "swing_rsi_overbought"
+    # Swing trade — setups
+    SWING_EMA_CROSSOVER_5_20 = "swing_ema_crossover_5_20"
+    SWING_200MA_RECLAIM = "swing_200ma_reclaim"
+    SWING_PULLBACK_20EMA = "swing_pullback_20ema"
+    # Swing trade — management
+    SWING_TARGET_HIT = "swing_target_hit"
+    SWING_STOPPED_OUT = "swing_stopped_out"
 
 
 @dataclass
