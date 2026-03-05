@@ -190,6 +190,10 @@ VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
 # Minimum target distance: T1 must be at least this % above entry
 MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
 
+# Options play: minimum score to flag as options-worthy (requires high confidence)
+OPTIONS_MIN_SCORE = 80
+OPTIONS_ELIGIBLE_SYMBOLS = {"SPY", "QQQ", "DIA"}  # index ETFs only — predictable movement
+
 # ---------------------------------------------------------------------------
 # Swing trade thresholds
 # ---------------------------------------------------------------------------

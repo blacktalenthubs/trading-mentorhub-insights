@@ -24,6 +24,10 @@ from db import get_db
 from alerting.real_trade_store import (
     open_real_trade, close_real_trade, has_open_trade, get_open_trades,
 )
+from alerting.options_trade_store import (
+    has_open_options_trade, open_options_trade,
+)
+from alert_config import OPTIONS_ELIGIBLE_SYMBOLS, OPTIONS_MIN_SCORE
 import ui_theme
 
 user = ui_theme.setup_page("scanner")
@@ -525,8 +529,10 @@ for r in results:
     _label = action_label(r.support_status, r.score)
     _acolor = action_color(r.support_status, r.score)
 
+    _opts_label = " | OPTIONS PLAY" if r.symbol in OPTIONS_ELIGIBLE_SYMBOLS and r.score >= OPTIONS_MIN_SCORE else ""
+
     with st.expander(
-        f"{r.symbol}  |  {_label}  |  Score: {r.score_label} ({r.score})  |  "
+        f"{r.symbol}  |  {_label}  |  Score: {r.score_label} ({r.score}){_opts_label}  |  "
         f"Entry ${r.entry:,.2f}  Stop ${r.stop:,.2f}  Target ${r.target_1:,.2f}"
     ):
         # ── Support status + bias ─────────────────────────────────────
@@ -819,6 +825,72 @@ for r in results:
                     "trade_id": trade_id,
                 }
                 st.rerun()
+
+        # Options play form
+        if r.symbol in OPTIONS_ELIGIBLE_SYMBOLS and r.score >= OPTIONS_MIN_SCORE:
+            st.markdown("---")
+            if has_open_options_trade(r.symbol):
+                st.info("Options trade already tracking (see Real Trades)")
+            else:
+                st.markdown(
+                    "<span style='color:#9b59b6;font-weight:bold'>"
+                    "Track Options Play</span>",
+                    unsafe_allow_html=True,
+                )
+                _oc1, _oc2 = st.columns(2)
+                _opt_type = _oc1.radio(
+                    "Type", ["CALL", "PUT"],
+                    key=f"scan_opt_type_{r.symbol}",
+                    horizontal=True,
+                )
+                _opt_strike = _oc2.number_input(
+                    "Strike", value=round(r.entry, 0),
+                    step=1.0, format="%.2f",
+                    key=f"scan_opt_strike_{r.symbol}",
+                )
+                _oc3, _oc4 = st.columns(2)
+                _opt_expiry = _oc3.date_input(
+                    "Expiration",
+                    key=f"scan_opt_expiry_{r.symbol}",
+                )
+                _opt_contracts = _oc4.number_input(
+                    "Contracts", min_value=1, value=1, step=1,
+                    key=f"scan_opt_contracts_{r.symbol}",
+                )
+                _opt_premium = st.number_input(
+                    "Premium per contract",
+                    min_value=0.01, value=1.00, step=0.05,
+                    format="%.2f",
+                    key=f"scan_opt_premium_{r.symbol}",
+                )
+                _opt_cost = _opt_contracts * _opt_premium * 100
+                st.caption(
+                    f"{_opt_contracts} x ${_opt_premium:.2f} x 100 = "
+                    f"${_opt_cost:,.0f} total cost"
+                )
+                if st.button(
+                    "Track Options",
+                    key=f"scan_opt_track_{r.symbol}",
+                    type="primary",
+                ):
+                    from datetime import date as _date
+
+                    open_options_trade(
+                        symbol=r.symbol,
+                        option_type=_opt_type,
+                        strike=_opt_strike,
+                        expiration=_opt_expiry.isoformat(),
+                        contracts=_opt_contracts,
+                        premium_per_contract=_opt_premium,
+                        alert_type="scanner_manual",
+                        alert_id=None,
+                        session_date=_date.today().isoformat(),
+                    )
+                    st.toast(
+                        f"Tracking {r.symbol} {_opt_type} "
+                        f"${_opt_strike:.0f} — ${_opt_cost:,.0f}"
+                    )
+                    st.rerun()
 
         if not tracking and is_tracking:
             # Close trade in DB

@@ -254,6 +254,29 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_real_trades_status ON real_trades(status);
             CREATE INDEX IF NOT EXISTS idx_real_trades_session ON real_trades(session_date);
 
+            CREATE TABLE IF NOT EXISTS real_options_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                option_type TEXT NOT NULL,
+                strike REAL NOT NULL,
+                expiration TEXT NOT NULL,
+                contracts INTEGER NOT NULL,
+                premium_per_contract REAL NOT NULL,
+                entry_cost REAL NOT NULL,
+                exit_premium REAL,
+                exit_proceeds REAL,
+                pnl REAL,
+                status TEXT NOT NULL DEFAULT 'open',
+                alert_type TEXT,
+                alert_id INTEGER,
+                notes TEXT DEFAULT '',
+                session_date TEXT NOT NULL,
+                opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                closed_at TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_real_options_status ON real_options_trades(status);
+            CREATE INDEX IF NOT EXISTS idx_real_options_symbol ON real_options_trades(symbol);
+
             CREATE INDEX IF NOT EXISTS idx_trades_1099_symbol ON trades_1099(symbol);
             CREATE INDEX IF NOT EXISTS idx_trades_1099_account ON trades_1099(account);
             CREATE INDEX IF NOT EXISTS idx_trades_1099_date_sold ON trades_1099(date_sold);

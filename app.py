@@ -27,6 +27,9 @@ from alerting.notifier import notify
 from alerting.real_trade_store import (
     calculate_shares, has_open_trade,
 )
+from alerting.options_trade_store import (
+    has_open_options_trade, open_options_trade,
+)
 from analytics.intraday_rules import AlertType
 from analytics.signal_engine import scan_watchlist
 from db import get_daily_plan
@@ -35,6 +38,8 @@ from alert_config import (
     DAILY_SCORE_VERY_WEAK_THRESHOLD,
     DAILY_SCORE_WEAK_PENALTY,
     DAILY_SCORE_WEAK_THRESHOLD,
+    OPTIONS_ELIGIBLE_SYMBOLS,
+    OPTIONS_MIN_SCORE,
     POLL_INTERVAL_MINUTES,
     REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_POSITION_SIZE,
     TELEGRAM_TIER1_MIN_SCORE,
@@ -421,6 +426,16 @@ else:
                 score_badge = f"<span style='background:#888;color:white;padding:2px 6px;border-radius:3px;font-size:0.75em'>C</span>"
 
             new_badge = " <span style='background:#f39c12;color:white;padding:2px 6px;border-radius:3px;font-size:0.75em'>NEW</span>" if is_new else ""
+            _opts_eligible = (
+                sig.symbol in OPTIONS_ELIGIBLE_SYMBOLS
+                and sig.score >= OPTIONS_MIN_SCORE
+                and sig.confidence == "high"
+            )
+            opts_badge = (
+                " <span style='background:#9b59b6;color:white;padding:2px 6px;"
+                "border-radius:3px;font-size:0.75em;font-weight:bold'>OPTIONS PLAY</span>"
+                if _opts_eligible else ""
+            )
 
             opacity = "0.6" if sig.score < 50 else "1.0"
             padding = "14px 18px" if sig.score >= 90 else "10px 14px"
@@ -431,7 +446,7 @@ else:
                 f"background:{color}10;margin-bottom:8px;border-radius:4px;opacity:{opacity}'>"
                 f"{score_badge} "
                 f"<strong style='color:{color};font-size:{font_size}'>{sig.direction}</strong>"
-                f"{new_badge} "
+                f"{new_badge}{opts_badge} "
                 f"<strong>{sig.symbol}</strong> — "
                 f"{sig.alert_type.value.replace('_', ' ').title()} @ ${sig.price:,.2f}"
                 f"<br><span style='color:#888'>{sig.message}</span>"
@@ -464,6 +479,70 @@ else:
                                 f"${shares * sig.entry:,.0f} (${cap / 1000:.0f}k cap) — "
                                 f"track on **Scanner**"
                             )
+
+                    # Options play form
+                    if _opts_eligible and sig.direction == "BUY":
+                        st.markdown("---")
+                        if has_open_options_trade(sig.symbol):
+                            st.info("Options trade already tracking (see Real Trades)")
+                        else:
+                            st.markdown(
+                                "<span style='color:#9b59b6;font-weight:bold'>"
+                                "Track Options Play</span>",
+                                unsafe_allow_html=True,
+                            )
+                            oc1, oc2 = st.columns(2)
+                            opt_type = oc1.radio(
+                                "Type", ["CALL", "PUT"],
+                                key=f"home_opt_type_{sig.symbol}",
+                                horizontal=True,
+                            )
+                            opt_strike = oc2.number_input(
+                                "Strike", value=round(sig.entry, 0),
+                                step=1.0, format="%.2f",
+                                key=f"home_opt_strike_{sig.symbol}",
+                            )
+                            oc3, oc4 = st.columns(2)
+                            opt_expiry = oc3.date_input(
+                                "Expiration",
+                                key=f"home_opt_expiry_{sig.symbol}",
+                            )
+                            opt_contracts = oc4.number_input(
+                                "Contracts", min_value=1, value=1, step=1,
+                                key=f"home_opt_contracts_{sig.symbol}",
+                            )
+                            opt_premium = st.number_input(
+                                "Premium per contract",
+                                min_value=0.01, value=1.00, step=0.05,
+                                format="%.2f",
+                                key=f"home_opt_premium_{sig.symbol}",
+                            )
+                            opt_cost = opt_contracts * opt_premium * 100
+                            st.caption(
+                                f"{opt_contracts} x ${opt_premium:.2f} x 100 = "
+                                f"${opt_cost:,.0f} total cost"
+                            )
+                            if st.button(
+                                "Track Options",
+                                key=f"home_opt_track_{sig.symbol}",
+                                type="primary",
+                            ):
+                                open_options_trade(
+                                    symbol=sig.symbol,
+                                    option_type=opt_type,
+                                    strike=opt_strike,
+                                    expiration=opt_expiry.isoformat(),
+                                    contracts=opt_contracts,
+                                    premium_per_contract=opt_premium,
+                                    alert_type=sig.alert_type.value,
+                                    alert_id=None,
+                                    session_date=today_session(),
+                                )
+                                st.toast(
+                                    f"Tracking {sig.symbol} {opt_type} "
+                                    f"${opt_strike:.0f} — ${opt_cost:,.0f}"
+                                )
+                                st.rerun()
 
                     # F6: Intraday chart with signal overlays for BUY signals
                     if sig.direction == "BUY":

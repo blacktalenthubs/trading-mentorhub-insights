@@ -20,6 +20,10 @@ from alerting.swing_scanner import (
     get_swing_categories,
     get_swing_trades_history,
 )
+from alerting.options_trade_store import (
+    has_open_options_trade, open_options_trade,
+)
+from alert_config import OPTIONS_ELIGIBLE_SYMBOLS, OPTIONS_MIN_SCORE
 from analytics.intraday_data import fetch_intraday, get_spy_context
 from analytics.swing_rules import check_spy_regime
 from db import get_db
@@ -228,6 +232,19 @@ else:
         else:
             dir_bg = "rgba(210,153,34,0.15)"
 
+        _score = alert.get("score", 0) or 0
+        _confidence = alert.get("confidence", "")
+        _sw_opts_eligible = (
+            symbol in OPTIONS_ELIGIBLE_SYMBOLS
+            and _score >= OPTIONS_MIN_SCORE
+            and _confidence == "high"
+        )
+        _sw_opts_badge = (
+            " <span style='background:#9b59b6;color:white;padding:2px 6px;"
+            "border-radius:3px;font-size:0.75em;font-weight:bold'>OPTIONS PLAY</span>"
+            if _sw_opts_eligible else ""
+        )
+
         st.markdown(
             f"<div style='background:#161b22;border:1px solid #30363d;border-left:3px solid {dir_color};"
             f"border-radius:6px;padding:0.9rem 1.1rem;margin-bottom:0.6rem'>"
@@ -235,6 +252,7 @@ else:
             f"<span style='background:{dir_bg};color:{dir_color};padding:2px 8px;border-radius:10px;"
             f"font-size:0.75rem;font-weight:600'>{direction}</span> "
             f"<span style='color:#8b949e;font-size:0.8rem'>{alert_type_label}</span>"
+            f"{_sw_opts_badge}"
             f"<span style='float:right'>"
             f"<span style='color:#58a6ff;font-size:0.8rem'>{time_str}</span>"
             f"</span>"
@@ -289,6 +307,69 @@ else:
                         entry_rsi=entry_rsi,
                     )
                     st.toast(f"Tracking {symbol} — {shares_input} shares @ ${price:,.2f}")
+                    st.rerun()
+
+        # Options play form
+        if _sw_opts_eligible and direction == "BUY":
+            if has_open_options_trade(symbol):
+                st.info("Options trade already tracking (see Real Trades)")
+            else:
+                st.markdown(
+                    "<span style='color:#9b59b6;font-weight:bold'>"
+                    "Track Options Play</span>",
+                    unsafe_allow_html=True,
+                )
+                _swc1, _swc2 = st.columns(2)
+                _sw_opt_type = _swc1.radio(
+                    "Type", ["CALL", "PUT"],
+                    key=f"sw_opt_type_{alert_id}",
+                    horizontal=True,
+                )
+                _sw_opt_strike = _swc2.number_input(
+                    "Strike", value=round(price, 0),
+                    step=1.0, format="%.2f",
+                    key=f"sw_opt_strike_{alert_id}",
+                )
+                _swc3, _swc4 = st.columns(2)
+                _sw_opt_expiry = _swc3.date_input(
+                    "Expiration",
+                    key=f"sw_opt_expiry_{alert_id}",
+                )
+                _sw_opt_contracts = _swc4.number_input(
+                    "Contracts", min_value=1, value=1, step=1,
+                    key=f"sw_opt_contracts_{alert_id}",
+                )
+                _sw_opt_premium = st.number_input(
+                    "Premium per contract",
+                    min_value=0.01, value=1.00, step=0.05,
+                    format="%.2f",
+                    key=f"sw_opt_premium_{alert_id}",
+                )
+                _sw_opt_cost = _sw_opt_contracts * _sw_opt_premium * 100
+                st.caption(
+                    f"{_sw_opt_contracts} x ${_sw_opt_premium:.2f} x 100 = "
+                    f"${_sw_opt_cost:,.0f} total cost"
+                )
+                if st.button(
+                    "Track Options",
+                    key=f"sw_opt_track_{alert_id}",
+                    type="primary",
+                ):
+                    open_options_trade(
+                        symbol=symbol,
+                        option_type=_sw_opt_type,
+                        strike=_sw_opt_strike,
+                        expiration=_sw_opt_expiry.isoformat(),
+                        contracts=_sw_opt_contracts,
+                        premium_per_contract=_sw_opt_premium,
+                        alert_type=raw_alert_type,
+                        alert_id=alert_id,
+                        session_date=session,
+                    )
+                    st.toast(
+                        f"Tracking {symbol} {_sw_opt_type} "
+                        f"${_sw_opt_strike:.0f} — ${_sw_opt_cost:,.0f}"
+                    )
                     st.rerun()
 
 # ── RSI Heatmap ─────────────────────────────────────────────────────────
