@@ -541,10 +541,9 @@ def _migrate_add_daily_plans():
 
 
 def _migrate_ensure_default_watchlist():
-    """Ensure all DEFAULT_WATCHLIST symbols exist for the first user.
+    """Seed default watchlist only if the user has NO watchlist symbols yet.
 
-    Runs on every startup — INSERT OR IGNORE makes it idempotent.
-    Handles the case where the DB was seeded with a smaller default.
+    Skips if the user already has a watchlist — respects removals across restarts.
     """
     from config import DEFAULT_WATCHLIST
 
@@ -553,6 +552,11 @@ def _migrate_ensure_default_watchlist():
         if not admin:
             return
         uid = admin["id"]
+        has_watchlist = conn.execute(
+            "SELECT 1 FROM watchlist WHERE user_id=? LIMIT 1", (uid,),
+        ).fetchone()
+        if has_watchlist:
+            return  # user already has a watchlist — don't re-seed
         conn.executemany(
             "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
             [(uid, s) for s in DEFAULT_WATCHLIST],
