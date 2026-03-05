@@ -141,44 +141,42 @@ class _LibsqlConnWrapper:
         self.close()
 
 
+import threading
+
+_turso_conn = None
+_turso_lock = threading.Lock()
+
+
+def _get_turso_conn():
+    """Return a single persistent Turso connection (thread-safe singleton)."""
+    global _turso_conn
+    if _turso_conn is None:
+        with _turso_lock:
+            if _turso_conn is None:
+                import libsql_experimental as libsql
+
+                raw = libsql.connect(
+                    DB_PATH,
+                    sync_url=TURSO_DB_URL,
+                    auth_token=TURSO_AUTH_TOKEN,
+                )
+                raw.sync()
+                _turso_conn = _LibsqlConnWrapper(
+                    raw, DB_PATH, TURSO_DB_URL, TURSO_AUTH_TOKEN,
+                )
+                _turso_conn.execute("PRAGMA foreign_keys=ON")
+    return _turso_conn
+
+
 def get_connection():
-    """Return a DB connection — Turso embedded replica if configured, else local SQLite.
-
-    Reads use the local replica file (fast, no network).
-    Syncs happen only after writes in get_db().
-    """
+    """Return a DB connection — Turso singleton if configured, else fresh local SQLite."""
     if TURSO_DB_URL:
-        import libsql_experimental as libsql
-
-        raw = libsql.connect(
-            DB_PATH,
-            sync_url=TURSO_DB_URL,
-            auth_token=TURSO_AUTH_TOKEN,
-        )
-        conn = _LibsqlConnWrapper(raw, DB_PATH, TURSO_DB_URL, TURSO_AUTH_TOKEN)
-    else:
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.row_factory = sqlite3.Row
+        return _get_turso_conn()
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.row_factory = sqlite3.Row
     return conn
-
-
-def sync_from_remote():
-    """Pull latest data from Turso cloud into the local replica.
-
-    Call once at app startup (e.g. in init_db) — not on every request.
-    """
-    if TURSO_DB_URL:
-        import libsql_experimental as libsql
-
-        raw = libsql.connect(
-            DB_PATH,
-            sync_url=TURSO_DB_URL,
-            auth_token=TURSO_AUTH_TOKEN,
-        )
-        raw.sync()
-        raw.close()
 
 
 @contextmanager
@@ -190,12 +188,12 @@ def get_db():
         if TURSO_DB_URL:
             conn.sync()  # best-effort; wrapper handles errors
     finally:
-        conn.close()
+        if not TURSO_DB_URL:
+            conn.close()  # only close local sqlite; Turso singleton stays open
 
 
 def init_db():
     """Create all tables if they don't exist, then run migrations."""
-    sync_from_remote()  # pull latest from Turso on startup
     with get_db() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
