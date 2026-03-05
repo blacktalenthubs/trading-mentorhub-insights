@@ -236,4 +236,4 @@ def generate_alerts_pdf(
 
         pdf.ln(4)
 
-    return pdf.output()
+    return bytes(pdf.output())
