@@ -121,6 +121,17 @@ filtered = [
 
 st.caption(f"Showing {len(filtered)} of {len(all_alerts)} alerts")
 
+# ── PDF download ────────────────────────────────────────────────────
+from alerts_pdf import generate_alerts_pdf
+
+pdf_bytes = generate_alerts_pdf(filtered, summaries_by_date, dates_to_show)
+st.download_button(
+    label="Download PDF Report",
+    data=pdf_bytes,
+    file_name=f"tradesignal_alerts_{dates_to_show[0]}.pdf",
+    mime="application/pdf",
+)
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 DIR_COLORS = {
