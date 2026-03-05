@@ -157,24 +157,13 @@ for alert in filtered:
         except Exception:
             time_str = str(created)[:16]
 
-    # Header line
-    header = f"""
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-        <div style="display:flex; align-items:center; gap:0.6rem;">
-            <span style="font-weight:700; font-size:1.05rem;">{symbol}</span>
-            <span style="background:{'rgba(63,185,80,0.15)' if direction=='BUY' else 'rgba(248,81,73,0.15)' if direction in ('SELL','SHORT') else 'rgba(210,153,34,0.15)'};
-                   color:{dir_color}; padding:2px 8px; border-radius:10px; font-size:0.75rem; font-weight:600;">
-                {direction}
-            </span>
-            <span style="color:#8b949e; font-size:0.8rem;">{alert_type_display}</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:0.6rem;">
-            <span style="color:{score_color}; font-weight:700; font-size:0.85rem;">{score_lbl} ({score})</span>
-            <span style="color:#8b949e; font-size:0.8rem;">{confidence}</span>
-            <span style="color:#58a6ff; font-size:0.8rem;">{time_str}</span>
-        </div>
-    </div>
-    """
+    # Direction badge background
+    if direction == "BUY":
+        dir_bg = "rgba(63,185,80,0.15)"
+    elif direction in ("SELL", "SHORT"):
+        dir_bg = "rgba(248,81,73,0.15)"
+    else:
+        dir_bg = "rgba(210,153,34,0.15)"
 
     # Levels line
     entry = alert.get("entry")
@@ -183,36 +172,39 @@ for alert in filtered:
     t2 = alert.get("target_2")
     price = alert.get("price", 0)
 
-    levels_parts = [f"Price: <span style='color:#e6edf3'>${price:,.2f}</span>"]
+    levels_parts = [f"Price: ${price:,.2f}"]
     if entry:
-        levels_parts.append(f"Entry: <span style='color:#3fb950'>${entry:,.2f}</span>")
+        levels_parts.append(f"Entry: ${entry:,.2f}")
     if stop:
-        levels_parts.append(f"Stop: <span style='color:#f85149'>${stop:,.2f}</span>")
+        levels_parts.append(f"Stop: ${stop:,.2f}")
     if t1:
-        levels_parts.append(f"T1: <span style='color:#58a6ff'>${t1:,.2f}</span>")
+        levels_parts.append(f"T1: ${t1:,.2f}")
     if t2:
-        levels_parts.append(f"T2: <span style='color:#bc8cff'>${t2:,.2f}</span>")
+        levels_parts.append(f"T2: ${t2:,.2f}")
+    levels_text = " · ".join(levels_parts)
 
-    levels_html = " &nbsp;&middot;&nbsp; ".join(levels_parts)
-
-    # Message
     message = alert.get("message", "")
     narrative = alert.get("narrative", "")
+    narrative_block = f"<br><span style='color:#8b949e;font-style:italic'>{narrative}</span>" if narrative else ""
 
-    card_html = f"""
-    <div style="background:#161b22; border:1px solid #30363d; border-left:3px solid {dir_color};
-                border-radius:6px; padding:0.9rem 1.1rem; margin-bottom:0.6rem;">
-        {header}
-        <div style="font-size:0.82rem; color:#8b949e; margin-top:0.5rem;">
-            {levels_html}
-        </div>
-        <div style="font-size:0.85rem; color:#b1bac4; margin-top:0.5rem; line-height:1.5;">
-            {message}
-        </div>
-        {"<div style='font-size:0.83rem; color:#8b949e; margin-top:0.4rem; font-style:italic; border-top:1px solid #30363d; padding-top:0.4rem;'>" + narrative + "</div>" if narrative else ""}
-    </div>
-    """
-    st.markdown(card_html, unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='background:#161b22;border:1px solid #30363d;border-left:3px solid {dir_color};"
+        f"border-radius:6px;padding:0.9rem 1.1rem;margin-bottom:0.6rem'>"
+        f"<span style='font-weight:700;font-size:1.05rem'>{symbol}</span> "
+        f"<span style='background:{dir_bg};color:{dir_color};padding:2px 8px;border-radius:10px;"
+        f"font-size:0.75rem;font-weight:600'>{direction}</span> "
+        f"<span style='color:#8b949e;font-size:0.8rem'>{alert_type_display}</span>"
+        f"<span style='float:right'>"
+        f"<span style='color:{score_color};font-weight:700;font-size:0.85rem'>{score_lbl} ({score})</span> "
+        f"<span style='color:#8b949e;font-size:0.8rem'>{confidence}</span> "
+        f"<span style='color:#58a6ff;font-size:0.8rem'>{time_str}</span>"
+        f"</span>"
+        f"<br><span style='font-size:0.82rem;color:#8b949e'>{levels_text}</span>"
+        f"<br><span style='font-size:0.85rem;color:#b1bac4;line-height:1.5'>{message}</span>"
+        f"{narrative_block}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 # ── Raw data table ──────────────────────────────────────────────────────────
 
