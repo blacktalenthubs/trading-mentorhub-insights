@@ -28,7 +28,15 @@ def _monitor_loop() -> None:
     interval_sec = POLL_INTERVAL_MINUTES * 60
     logger.info("Background monitor thread started (interval=%ds)", interval_sec)
 
+    # Always run one initial poll on startup so the DB has data even after deploy
+    try:
+        alerts = poll_cycle(dry_run=False)
+        logger.info("Initial poll complete: %d alerts fired", alerts)
+    except Exception:
+        logger.exception("Initial poll failed")
+
     while True:
+        time.sleep(interval_sec)
         try:
             if is_market_hours():
                 alerts = poll_cycle(dry_run=False)
@@ -37,8 +45,6 @@ def _monitor_loop() -> None:
                 logger.debug("Market closed — sleeping")
         except Exception:
             logger.exception("Background monitor error")
-
-        time.sleep(interval_sec)
 
 
 def start() -> None:
