@@ -101,6 +101,27 @@ def poll_cycle(dry_run: bool = False) -> int:
         (a["symbol"], a["alert_type"]) for a in db_alerts
     }
 
+    # After a stop-out + cooldown expiry, allow BUY signals to re-fire.
+    # Identify symbols that were stopped out and whose cooldown has expired.
+    _stop_types = {"stop_loss_hit", "auto_stop_out"}
+    stopped_symbols = {
+        a["symbol"] for a in db_alerts if a["alert_type"] in _stop_types
+    }
+    # For stopped symbols no longer in cooldown, remove BUY alerts from dedup
+    _sell_types = _stop_types | {
+        "target_1_hit", "target_2_hit", "support_breakdown",
+        "resistance_prior_high", "resistance_prior_low",
+        "hourly_resistance_approach", "ma_resistance",
+        "weekly_high_resistance", "ema_resistance",
+        "opening_range_breakdown",
+    }
+    for sym in stopped_symbols:
+        if sym not in cooled_symbols:
+            fired_today = {
+                (s, at) for s, at in fired_today
+                if s != sym or at in _sell_types
+            }
+
     for symbol in symbols:
         try:
             intraday = fetch_intraday(symbol)

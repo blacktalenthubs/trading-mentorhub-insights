@@ -226,6 +226,25 @@ else:
     # Build active cooldown set from DB
     cooled_symbols: set[str] = get_active_cooldowns()
 
+    # After a stop-out + cooldown expiry, allow BUY signals to re-fire.
+    _stop_types = {"stop_loss_hit", "auto_stop_out"}
+    stopped_symbols = {
+        a["symbol"] for a in db_alerts if a["alert_type"] in _stop_types
+    }
+    _sell_types = _stop_types | {
+        "target_1_hit", "target_2_hit", "support_breakdown",
+        "resistance_prior_high", "resistance_prior_low",
+        "hourly_resistance_approach", "ma_resistance",
+        "weekly_high_resistance", "ema_resistance",
+        "opening_range_breakdown",
+    }
+    for sym in stopped_symbols:
+        if sym not in cooled_symbols:
+            fired_today = {
+                (s, at) for s, at in fired_today
+                if s != sym or at in _sell_types
+            }
+
     # Collect active positions from Scanner for SELL rule evaluation
     active_positions = st.session_state.get("active_positions", {})
 
