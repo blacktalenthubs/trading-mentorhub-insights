@@ -7,10 +7,6 @@ from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "trades.db")
 
-# Turso embedded replica (cloud persistence)
-TURSO_DB_URL = os.environ.get("TURSO_DB_URL", "")
-TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
-
 # Default admin credentials (for data migration — set via env vars or use defaults)
 DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@tradesignal.local")
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme123")

@@ -21,15 +21,11 @@ import pytest
 
 @pytest.fixture()
 def tmp_db(tmp_path):
-    """Patch DB_PATH + TURSO vars so all code uses a fresh temp DB."""
+    """Patch DB_PATH so all code uses a fresh temp DB."""
     db_path = str(tmp_path / "test.db")
 
     with patch("config.DB_PATH", db_path), \
-         patch("config.TURSO_DB_URL", ""), \
-         patch("config.TURSO_AUTH_TOKEN", ""), \
-         patch("db.DB_PATH", db_path), \
-         patch("db.TURSO_DB_URL", ""), \
-         patch("db.TURSO_AUTH_TOKEN", ""):
+         patch("db.DB_PATH", db_path):
         # Init schema
         from db import init_db
         init_db()
