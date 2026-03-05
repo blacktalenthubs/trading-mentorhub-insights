@@ -243,11 +243,12 @@ ENABLED_RULES: set[str] = {
     "resistance_prior_low",
     # SELL — weekly resistance
     "weekly_high_resistance",
-    # Trade management (always on)
-    "target_1_hit",
-    "target_2_hit",
-    "stop_loss_hit",
-    "auto_stop_out",
+    # Trade management — disabled Phase 1 (targets/stops from stored entries
+    # can be inaccurate; rely on core S/R alerts for exits instead)
+    # "target_1_hit",
+    # "target_2_hit",
+    # "stop_loss_hit",
+    # "auto_stop_out",
     # ── Disabled for Phase 1 — re-enable after accuracy validated ──
     # "session_low_double_bottom",
     # "planned_level_touch",
