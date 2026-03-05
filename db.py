@@ -1107,7 +1107,7 @@ def get_watchlist(user_id: int | None = None) -> list[str]:
 
     In single-user mode (user_id=None), uses the first user in the DB so the
     watchlist is persisted and editable via the UI.
-    If the user's watchlist is empty, seed it from ``DEFAULT_WATCHLIST``.
+    Returns DEFAULT_WATCHLIST if user has no rows (seeding is done by migration).
     """
     from config import DEFAULT_WATCHLIST
 
@@ -1120,11 +1120,6 @@ def get_watchlist(user_id: int | None = None) -> list[str]:
         ).fetchall()
         if rows:
             return [r["symbol"] for r in rows]
-        # Auto-seed on first use for this user
-        conn.executemany(
-            "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?)",
-            [(uid, s) for s in DEFAULT_WATCHLIST],
-        )
         return list(DEFAULT_WATCHLIST)
 
 
