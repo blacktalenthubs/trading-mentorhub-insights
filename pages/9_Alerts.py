@@ -67,25 +67,34 @@ with filter_cols[0]:
     selected_symbols = st.multiselect(
         "Symbol",
         symbols_in_session,
-        default=symbols_in_session,
+        default=None,
+        placeholder="All symbols",
     )
+    if not selected_symbols:
+        selected_symbols = symbols_in_session
 
 with filter_cols[1]:
     directions = sorted(set(a["direction"] for a in alerts))
     selected_directions = st.multiselect(
         "Direction",
         directions,
-        default=directions,
+        default=None,
+        placeholder="All directions",
     )
+    if not selected_directions:
+        selected_directions = directions
 
 with filter_cols[2]:
     alert_types = sorted(set(a["alert_type"] for a in alerts))
     selected_types = st.multiselect(
         "Alert Type",
         alert_types,
-        default=alert_types,
+        default=None,
+        placeholder="All types",
         format_func=lambda t: t.replace("_", " ").title(),
     )
+    if not selected_types:
+        selected_types = alert_types
 
 # Apply filters
 filtered = [
@@ -209,18 +218,21 @@ for alert in filtered:
 # ── Raw data table ──────────────────────────────────────────────────────────
 
 with st.expander("Raw Data Table"):
-    display_cols = [
-        "created_at", "symbol", "alert_type", "direction", "price",
-        "entry", "stop", "target_1", "target_2", "confidence", "score", "message",
-    ]
-    available_cols = [c for c in display_cols if c in filtered[0]]
-    df = pd.DataFrame(filtered)[available_cols]
-    df.columns = [c.replace("_", " ").title() for c in available_cols]
+    if not filtered:
+        st.caption("No alerts match the current filters.")
+    else:
+        display_cols = [
+            "created_at", "symbol", "alert_type", "direction", "price",
+            "entry", "stop", "target_1", "target_2", "confidence", "score", "message",
+        ]
+        available_cols = [c for c in display_cols if c in filtered[0]]
+        df = pd.DataFrame(filtered)[available_cols]
+        df.columns = [c.replace("_", " ").title() for c in available_cols]
 
-    money_cols = ["Price", "Entry", "Stop", "Target 1", "Target 2"]
-    fmt = {c: "${:,.2f}" for c in money_cols if c in df.columns}
-    st.dataframe(
-        df.style.format(fmt, na_rep="—"),
-        use_container_width=True,
-        hide_index=True,
-    )
+        money_cols = ["Price", "Entry", "Stop", "Target 1", "Target 2"]
+        fmt = {c: "${:,.2f}" for c in money_cols if c in df.columns}
+        st.dataframe(
+            df.style.format(fmt, na_rep="—"),
+            use_container_width=True,
+            hide_index=True,
+        )
