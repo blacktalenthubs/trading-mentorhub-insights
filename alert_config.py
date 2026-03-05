@@ -221,41 +221,42 @@ SWING_REGIME_GATE = True                          # require SPY > 20 EMA
 #           informational noise (gap fill), choppy-day noise (intraday bounce).
 # ---------------------------------------------------------------------------
 ENABLED_RULES: set[str] = {
-    # BUY — support bounce / S/R reclaim
+    # ── Phase 1: Core S/R levels only — validate accuracy before expanding ──
+    # BUY — MA/EMA support bounce
     "ma_bounce_20",
     "ma_bounce_50",
     "ma_bounce_100",
     "ma_bounce_200",
-    "prior_day_low_reclaim",
-    "session_low_double_bottom",
-    "planned_level_touch",
-    "weekly_level_touch",
-    # "intraday_support_bounce",  # disabled — too noisy intraday
-    "vwap_reclaim",
-    "opening_low_base",
-    # BUY — EMA bounce
     "ema_bounce_20",
     "ema_bounce_50",
     "ema_bounce_100",
-    # BUY — breakout / momentum
+    # BUY — daily high/low
+    "prior_day_low_reclaim",
     "prior_day_high_breakout",
+    # BUY — weekly high/low
+    "weekly_level_touch",
     "weekly_high_breakout",
-    "outside_day_breakout",
-    "ema_crossover_5_20",
-    # SELL / resistance warnings
-    "resistance_prior_high",
-    "weekly_high_resistance",
-    # "ema_resistance",  # disabled — too noisy intraday
-    "hourly_resistance_approach",
+    # SELL — MA/EMA resistance
     "ma_resistance",
+    # SELL — daily high/low resistance
+    "resistance_prior_high",
     "resistance_prior_low",
-    # Trade management
+    # SELL — weekly resistance
+    "weekly_high_resistance",
+    # Trade management (always on)
     "target_1_hit",
     "target_2_hit",
     "stop_loss_hit",
     "auto_stop_out",
-    # Exit-only (fires only with active position)
-    "support_breakdown",
+    # ── Disabled for Phase 1 — re-enable after accuracy validated ──
+    # "session_low_double_bottom",
+    # "planned_level_touch",
+    # "vwap_reclaim",
+    # "opening_low_base",
+    # "outside_day_breakout",
+    # "ema_crossover_5_20",
+    # "hourly_resistance_approach",
+    # "support_breakdown",
 }
 
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)

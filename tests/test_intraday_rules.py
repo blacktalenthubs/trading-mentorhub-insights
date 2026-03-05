@@ -2768,10 +2768,10 @@ class TestEnabledRules:
         types = {s.alert_type for s in signals}
         assert AlertType.OPENING_RANGE_BREAKOUT not in types
 
-    def test_ema_crossover_is_enabled(self):
-        """ema_crossover_5_20 is enabled (widened detection window, no mega-cap gate)."""
+    def test_ema_crossover_is_disabled_phase1(self):
+        """ema_crossover_5_20 disabled in Phase 1 (core S/R only)."""
         from alert_config import ENABLED_RULES
-        assert "ema_crossover_5_20" in ENABLED_RULES
+        assert "ema_crossover_5_20" not in ENABLED_RULES
 
     def test_disabled_gap_fill_does_not_fire(self):
         """gap_fill is disabled and should not appear in signals."""
