@@ -277,8 +277,20 @@ def analyze_symbol(hist: pd.DataFrame, symbol: str = "") -> SignalResult | None:
         return None
 
     hist = hist.copy()
+
+    # Date-aware: if last bar is today's partial data, use yesterday instead
+    hist.index = hist.index.tz_localize(None) if hist.index.tz is not None else hist.index
+    today = pd.Timestamp.now().normalize()
+    last_bar_date = hist.index[-1].normalize()
+    if last_bar_date >= today and len(hist) >= 3:
+        # Market open — last bar is partial; use prior completed day
+        hist = hist.iloc[:-1]
+
     hist["MA20"] = hist["Close"].rolling(window=20).mean()
     hist["MA50"] = hist["Close"].rolling(window=50).mean()
+
+    if len(hist) < 2:
+        return None
 
     last_idx = len(hist) - 1
     row = hist.iloc[last_idx]
