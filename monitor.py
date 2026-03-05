@@ -13,11 +13,11 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime
 
 from alert_config import (
     COOLDOWN_MINUTES,
     POLL_INTERVAL_MINUTES,
-    TELEGRAM_TIER1_MIN_SCORE,
 )
 from analytics.market_hours import is_market_hours
 from alerting.alert_store import (
@@ -59,6 +59,9 @@ logger = logging.getLogger("monitor")
 # Module-level state for auto stop-out tracking (cooldowns are DB-persisted)
 _auto_stop_entries: dict[str, dict] = {}  # {symbol: {entry_price, stop_price, alert_type}}
 _auto_stop_session: str = ""  # session date when entries were created
+
+# Tracks which date we last ran the EOD swing scan for
+_eod_ran_date: str | None = None
 
 
 def poll_cycle(dry_run: bool = False) -> int:
@@ -161,11 +164,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                     logger.debug("%s: dedup skip %s", symbol, signal.alert_type.value)
                     continue
 
-                # Global notify — gate low-score BUY from Telegram
-                if signal.direction == "BUY" and signal.score < TELEGRAM_TIER1_MIN_SCORE:
-                    email_sent, sms_sent = False, False
-                else:
-                    email_sent, sms_sent = notify(signal)
+                email_sent, sms_sent = notify(signal)
 
                 alert_id = record_alert(signal, session, email_sent, sms_sent)
                 total_alerts += 1
@@ -223,6 +222,33 @@ def poll_cycle(dry_run: bool = False) -> int:
     return total_alerts
 
 
+def _maybe_run_eod() -> None:
+    """Run swing EOD scan once per session, after market close on weekdays."""
+    global _eod_ran_date
+    import pytz
+
+    from alerting.swing_scanner import swing_scan_eod
+
+    today = today_session()
+    if _eod_ran_date == today:
+        return  # already ran today
+
+    et = pytz.timezone("US/Eastern")
+    now = datetime.now(et)
+    if now.weekday() >= 5:
+        return  # weekend
+    if now.hour < 16:
+        return  # before close
+
+    _eod_ran_date = today
+    logger.info("Running EOD swing scan for %s", today)
+    try:
+        count = swing_scan_eod()
+        logger.info("EOD swing scan complete: %d signals", count)
+    except Exception:
+        logger.exception("EOD swing scan failed")
+
+
 def run_monitor():
     """Start the APScheduler-based monitor loop."""
     from apscheduler.schedulers.blocking import BlockingScheduler
@@ -231,6 +257,7 @@ def run_monitor():
 
     def scheduled_poll():
         if not is_market_hours():
+            _maybe_run_eod()
             logger.info("Market closed — skipping poll")
             update_monitor_status(0, 0, "market_closed")
             return

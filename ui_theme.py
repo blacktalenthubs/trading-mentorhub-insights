@@ -366,8 +366,11 @@ def setup_page(page_key: str, *, require_login: bool = False) -> dict | None:
     init_db()
 
     # Start background monitor thread (idempotent — only once per process)
-    import monitor_thread
-    monitor_thread.start()
+    # Disabled when Railway worker handles monitoring (DISABLE_MONITOR_THREAD=true)
+    import os
+    if not os.environ.get("DISABLE_MONITOR_THREAD", "").lower() == "true":
+        import monitor_thread
+        monitor_thread.start()
 
     inject_custom_css()
 

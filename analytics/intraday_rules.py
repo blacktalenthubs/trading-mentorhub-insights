@@ -2737,6 +2737,7 @@ def evaluate_rules(
     # Previously used a session_bar spanning all intraday highs/lows, but
     # that caused false T1/T2 hits when entries were created mid-session
     # (session high from BEFORE the entry would trigger "target hit").
+    _entry_signal_types_seen: set[str] = set()
     for entry in entries:
         ep = entry.get("entry_price") or 0
         t1 = entry.get("target_1") or 0
@@ -2744,15 +2745,18 @@ def evaluate_rules(
         sp = entry.get("stop_price") or 0
 
         sig = check_target_1_hit(symbol, last_bar, ep, t1)
-        if sig:
+        if sig and sig.alert_type.value not in _entry_signal_types_seen:
+            _entry_signal_types_seen.add(sig.alert_type.value)
             signals.append(sig)
 
         sig = check_target_2_hit(symbol, last_bar, ep, t2)
-        if sig:
+        if sig and sig.alert_type.value not in _entry_signal_types_seen:
+            _entry_signal_types_seen.add(sig.alert_type.value)
             signals.append(sig)
 
         sig = check_stop_loss_hit(symbol, last_bar, ep, sp)
-        if sig:
+        if sig and sig.alert_type.value not in _entry_signal_types_seen:
+            _entry_signal_types_seen.add(sig.alert_type.value)
             signals.append(sig)
 
     # --- Auto Stop-Out (SELL — tracked BUY entries) ---

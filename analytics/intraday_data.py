@@ -5,12 +5,13 @@ Uses yfinance for both intraday and daily data.
 
 from __future__ import annotations
 
-import streamlit as st
 import pandas as pd
 import pytz
 import yfinance as yf
 
 import logging
+
+from analytics._cache import cache_data
 
 from alert_config import (
     HOURLY_RESISTANCE_CLUSTER_PCT,
@@ -43,7 +44,7 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@cache_data(ttl=900, show_spinner=False)
 def fetch_hourly_bars(symbol: str, period: str = "5d") -> pd.DataFrame:
     """Fetch hourly bars for a symbol (cached 15 min).
 
@@ -217,7 +218,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
         return None
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@cache_data(ttl=120, show_spinner=False)
 def fetch_premarket_bars(symbol: str, interval: str = "5m") -> pd.DataFrame:
     """Fetch today's pre-market bars (4:00-9:29 AM ET).
 
@@ -452,7 +453,7 @@ def compute_rsi_series(
     return [round(v, 2) for v in rsi_series.iloc[-lookback:].tolist()]
 
 
-@st.cache_data(ttl=300)
+@cache_data(ttl=300)
 def get_spy_context() -> dict:
     """Fetch SPY trend data for market context (cached 5 min).
 
