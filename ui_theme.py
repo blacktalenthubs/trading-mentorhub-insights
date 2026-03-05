@@ -333,6 +333,7 @@ _PAGE_TITLES = {
     "paper_trading": "Paper Trading | TradeSignal",
     "charts": "Charts | TradeSignal",
     "real_trades": "Real Trades | TradeSignal",
+    "alerts": "Alerts | TradeSignal",
     "settings": "Settings | TradeSignal",
 }
 
