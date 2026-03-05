@@ -2008,10 +2008,13 @@ def _find_resistance_targets(
     candidates: list[tuple[float, str]] = []
     level_map = {
         "prior high": prior_day.get("high"),
+        "prior close": prior_day.get("close"),
         "MA20": prior_day.get("ma20"),
         "MA50": prior_day.get("ma50"),
         "MA100": prior_day.get("ma100"),
         "MA200": prior_day.get("ma200"),
+        "EMA20": prior_day.get("ema20"),
+        "EMA50": prior_day.get("ema50"),
         "prior week high": prior_day.get("prior_week_high"),
     }
     for label, level in level_map.items():
@@ -2835,14 +2838,8 @@ def evaluate_rules(
                 sig.target_1 = round(sig.entry + risk, 2)
                 sig.target_2 = round(sig.entry + 2 * risk, 2)
 
-        # Smart resistance-based targets (override R-based defaults)
-        _STRUCTURAL_TARGET_RULES = {
-            AlertType.INSIDE_DAY_BREAKOUT,
-            AlertType.PLANNED_LEVEL_TOUCH,
-            AlertType.WEEKLY_LEVEL_TOUCH,
-        }
-        if (sig.direction == "BUY" and sig.entry and sig.stop
-                and sig.alert_type not in _STRUCTURAL_TARGET_RULES):
+        # Smart resistance-based targets for all BUY signals
+        if (sig.direction == "BUY" and sig.entry and sig.stop):
             smart = _find_resistance_targets(
                 sig.entry, sig.stop, prior_day, current_vwap,
                 hourly_resistance=hourly_resistance,
