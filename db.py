@@ -66,32 +66,73 @@ class _CursorWrapper:
 
 
 class _LibsqlConnWrapper:
-    """Wraps a libsql connection to emulate sqlite3.Row row_factory."""
+    """Wraps a libsql connection to emulate sqlite3.Row row_factory.
 
-    __slots__ = ("_conn", "row_factory")
+    Auto-reconnects once on stale Hrana stream errors.
+    """
 
-    def __init__(self, conn):
+    __slots__ = ("_conn", "_db_path", "_sync_url", "_auth_token", "row_factory")
+
+    def __init__(self, conn, db_path, sync_url, auth_token):
         self._conn = conn
+        self._db_path = db_path
+        self._sync_url = sync_url
+        self._auth_token = auth_token
         self.row_factory = sqlite3.Row  # cosmetic — for isinstance checks
 
+    def _reconnect(self):
+        import libsql_experimental as libsql
+
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self._conn = libsql.connect(
+            self._db_path,
+            sync_url=self._sync_url,
+            auth_token=self._auth_token,
+        )
+
     def execute(self, sql, params=()):
-        cur = self._conn.execute(sql, params)
+        try:
+            cur = self._conn.execute(sql, params)
+        except ValueError:
+            self._reconnect()
+            cur = self._conn.execute(sql, params)
         return _CursorWrapper(cur)
 
     def executemany(self, sql, params):
-        return self._conn.executemany(sql, params)
+        try:
+            return self._conn.executemany(sql, params)
+        except ValueError:
+            self._reconnect()
+            return self._conn.executemany(sql, params)
 
     def executescript(self, sql):
-        return self._conn.executescript(sql)
+        try:
+            return self._conn.executescript(sql)
+        except ValueError:
+            self._reconnect()
+            return self._conn.executescript(sql)
 
     def commit(self):
-        return self._conn.commit()
+        try:
+            return self._conn.commit()
+        except ValueError:
+            self._reconnect()
+            return self._conn.commit()
 
     def close(self):
-        return self._conn.close()
+        try:
+            return self._conn.close()
+        except Exception:
+            pass
 
     def sync(self):
-        return self._conn.sync()
+        try:
+            return self._conn.sync()
+        except (ValueError, OSError):
+            pass  # best-effort sync
 
     def __enter__(self):
         return self
@@ -114,7 +155,7 @@ def get_connection():
             sync_url=TURSO_DB_URL,
             auth_token=TURSO_AUTH_TOKEN,
         )
-        conn = _LibsqlConnWrapper(raw)
+        conn = _LibsqlConnWrapper(raw, DB_PATH, TURSO_DB_URL, TURSO_AUTH_TOKEN)
     else:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -147,10 +188,7 @@ def get_db():
         yield conn
         conn.commit()
         if TURSO_DB_URL:
-            try:
-                conn.sync()
-            except (ValueError, OSError):
-                pass  # sync failed (stale stream) — data is committed locally
+            conn.sync()  # best-effort; wrapper handles errors
     finally:
         conn.close()
 
