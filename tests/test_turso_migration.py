@@ -25,8 +25,10 @@ def tmp_db(tmp_path):
     db_path = str(tmp_path / "test.db")
 
     with patch("config.DB_PATH", db_path), \
-         patch("db.DB_PATH", db_path):
-        # Init schema
+         patch("db.DB_PATH", db_path), \
+         patch("db._init_done", False):
+        import db as _db_mod
+        _db_mod._init_done = False
         from db import init_db
         init_db()
         yield db_path

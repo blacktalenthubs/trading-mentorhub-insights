@@ -203,9 +203,23 @@ def _pd_read_sql(query: str, conn, params=None) -> pd.DataFrame:
 # Connection management
 # ---------------------------------------------------------------------------
 
+_pg_pool = None
+
+
+def _get_pg_pool():
+    global _pg_pool
+    if _pg_pool is None or _pg_pool.closed:
+        from psycopg2 import pool
+        _pg_pool = pool.ThreadedConnectionPool(
+            minconn=1, maxconn=5,
+            dsn=os.environ["DATABASE_URL"],
+        )
+    return _pg_pool
+
+
 def get_connection():
     if _USE_POSTGRES:
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        conn = _get_pg_pool().getconn()
         return PostgresConnectionWrapper(conn)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -221,11 +235,24 @@ def get_db():
         yield conn
         conn.commit()
     finally:
-        conn.close()
+        if _USE_POSTGRES and isinstance(conn, PostgresConnectionWrapper):
+            _get_pg_pool().putconn(conn._conn)
+        else:
+            conn.close()
+
+
+_init_done = False
 
 
 def init_db():
-    """Create all tables if they don't exist, then run migrations."""
+    """Create all tables if they don't exist, then run migrations.
+
+    Safe to call multiple times — only runs once per process.
+    """
+    global _init_done
+    if _init_done:
+        return
+    _init_done = True
     with get_db() as conn:
         conn.executescript(_adapt_ddl("""
             CREATE TABLE IF NOT EXISTS users (
