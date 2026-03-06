@@ -328,18 +328,23 @@ def format_system_prompt(context: dict) -> str:
         if summary.get("stopped_out", 0):
             lines.append(f"Stopped out: {summary['stopped_out']}")
         for a in today_alerts[:20]:
-            score = a.get("score", "?")
-            conf = a.get("confidence", "")
-            msg = a.get("message", "")
+            score = a.get("score") or "?"
+            conf = a.get("confidence") or ""
+            msg = a.get("message") or ""
+            price = a.get("price") or 0
+            entry = a.get("entry") or 0
+            stop = a.get("stop") or 0
+            t1 = a.get("target_1") or 0
+            t2 = a.get("target_2") or 0
             # Truncate message to keep prompt compact
             if len(msg) > 120:
                 msg = msg[:120] + "..."
             lines.append(
                 f"- {a.get('symbol', '?')} {a.get('direction', '?')} "
-                f"{a.get('alert_type', '').replace('_', ' ')}  "
-                f"score={score} conf={conf}  price=${a.get('price', 0):.2f}  "
-                f"entry=${a.get('entry', 0):.2f}  stop=${a.get('stop', 0):.2f}  "
-                f"T1=${a.get('target_1', 0):.2f}  T2=${a.get('target_2', 0):.2f}"
+                f"{(a.get('alert_type') or '').replace('_', ' ')}  "
+                f"score={score} conf={conf}  price=${price:.2f}  "
+                f"entry=${entry:.2f}  stop=${stop:.2f}  "
+                f"T1=${t1:.2f}  T2=${t2:.2f}"
                 + (f"  [{msg}]" if msg else "")
             )
         sections.append("\n".join(lines))
