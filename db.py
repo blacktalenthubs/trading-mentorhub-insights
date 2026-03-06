@@ -772,9 +772,8 @@ def _migrate_add_daily_plans():
 def _migrate_ensure_default_watchlist():
     """Seed default watchlist only if the user has NO watchlist symbols yet.
 
-    Syncs watchlist to DEFAULT_WATCHLIST — adds missing symbols, removes extras.
-    On ephemeral filesystems (Streamlit Cloud), this ensures the watchlist
-    matches the configured default on every restart.
+    Only inserts defaults when the watchlist is empty — never deletes
+    user-added symbols.
     """
     from config import DEFAULT_WATCHLIST
 
@@ -783,16 +782,15 @@ def _migrate_ensure_default_watchlist():
         if not admin:
             return
         uid = admin["id"]
-        # Seed any missing defaults
+        # Only seed if user has zero watchlist symbols
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM watchlist WHERE user_id = ?", (uid,),
+        ).fetchone()
+        if row["cnt"] > 0:
+            return  # user already has symbols — don't touch
         conn.executemany(
             "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?) ON CONFLICT(user_id, symbol) DO NOTHING",
             [(uid, s) for s in DEFAULT_WATCHLIST],
-        )
-        # Remove symbols not in the current default list
-        placeholders = ",".join("?" for _ in DEFAULT_WATCHLIST)
-        conn.execute(
-            f"DELETE FROM watchlist WHERE user_id=? AND symbol NOT IN ({placeholders})",
-            [uid] + list(DEFAULT_WATCHLIST),
         )
 
 
