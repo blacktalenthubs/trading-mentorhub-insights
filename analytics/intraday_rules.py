@@ -48,6 +48,7 @@ from alert_config import (
     ORB_VOLUME_RATIO,
     OVERHEAD_MA_RESISTANCE_PCT,
     PDH_BREAKOUT_VOLUME_RATIO,
+    INSIDE_DAY_DIP_MIN_PCT,
     PDL_DIP_MIN_PCT,
     PER_SYMBOL_RISK,
     RESISTANCE_PROXIMITY_PCT,
@@ -94,6 +95,8 @@ class AlertType(str, Enum):
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
+    INSIDE_DAY_BREAKDOWN = "inside_day_breakdown"
+    INSIDE_DAY_RECLAIM = "inside_day_reclaim"
     RESISTANCE_PRIOR_HIGH = "resistance_prior_high"
     TARGET_1_HIT = "target_1_hit"
     TARGET_2_HIT = "target_2_hit"
@@ -563,6 +566,113 @@ def check_inside_day_breakout(
         message=(
             f"Inside day breakout — broke above ${inside_high:.2f} "
             f"(inside range ${inside_range:.2f})"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: Inside Day Breakdown (informational)
+# ---------------------------------------------------------------------------
+
+
+def check_inside_day_breakdown(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price breaks below inside day low — warning only (no short entry).
+
+    Conditions:
+    - Prior day was classified as inside day
+    - Current bar closes below inside day low
+    """
+    if not prior_day or not prior_day.get("is_inside"):
+        return None
+
+    inside_high = prior_day["high"]
+    inside_low = prior_day["low"]
+    inside_range = inside_high - inside_low
+
+    if inside_range <= 0:
+        return None
+
+    if bar["Close"] >= inside_low:
+        return None  # hasn't broken down
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.INSIDE_DAY_BREAKDOWN,
+        direction="SELL",
+        price=bar["Close"],
+        confidence="high",
+        message=(
+            f"Inside day breakdown — broke below ${inside_low:.2f} "
+            f"(inside range ${inside_range:.2f})"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: Inside Day Reclaim (failed breakdown trap)
+# ---------------------------------------------------------------------------
+
+
+def check_inside_day_reclaim(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price dips below inside day low then reclaims above it.
+
+    Follows check_prior_day_low_reclaim() pattern:
+    - Prior day was inside day
+    - Some bar dipped below inside_low by >= INSIDE_DAY_DIP_MIN_PCT
+    - Last bar closes back above inside_low
+    - Entry = inside_low, Stop = session low − 0.2%, T1 = 1R, T2 = 2R
+    """
+    if not prior_day or not prior_day.get("is_inside"):
+        return None
+
+    inside_low = prior_day["low"]
+    inside_high = prior_day["high"]
+
+    if inside_low <= 0 or (inside_high - inside_low) <= 0:
+        return None
+
+    if bars.empty:
+        return None
+
+    # Check if any bar dipped below inside low
+    min_dip = inside_low * (1 - INSIDE_DAY_DIP_MIN_PCT)
+    dipped = bars["Low"].min() <= min_dip
+
+    if not dipped:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= inside_low:
+        return None  # hasn't reclaimed yet
+
+    entry = inside_low
+    intraday_low = bars["Low"].min()
+    stop = intraday_low - entry * MA_BOUNCE_SESSION_STOP_PCT
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.INSIDE_DAY_RECLAIM,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high",
+        message=(
+            f"Inside day reclaim — dipped to ${intraday_low:.2f}, "
+            f"reclaimed above ${inside_low:.2f} (failed breakdown trap)"
         ),
     )
 
@@ -2676,6 +2786,16 @@ def evaluate_rules(
                 sig.message += caution_suffix
                 signals.append(sig)
 
+        # --- Inside Day Reclaim (failed breakdown trap) ---
+        if AlertType.INSIDE_DAY_RECLAIM.value in ENABLED_RULES:
+            sig = check_inside_day_reclaim(symbol, intraday_bars, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
         if AlertType.OUTSIDE_DAY_BREAKOUT.value in ENABLED_RULES:
             sig = check_outside_day_breakout(symbol, last_bar, prior_day)
             if sig:
@@ -2810,6 +2930,13 @@ def evaluate_rules(
     # --- Opening Range Breakdown (SELL — informational) ---
     if AlertType.OPENING_RANGE_BREAKDOWN.value in ENABLED_RULES:
         sig = check_orb_breakdown(symbol, last_bar, opening_range, bar_vol, avg_vol)
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
+
+    # --- Inside Day Breakdown (SELL — informational) ---
+    if AlertType.INSIDE_DAY_BREAKDOWN.value in ENABLED_RULES:
+        sig = check_inside_day_breakdown(symbol, last_bar, prior_day)
         if sig:
             sig.message += f" ({phase})"
             signals.append(sig)

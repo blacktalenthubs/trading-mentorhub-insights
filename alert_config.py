@@ -63,6 +63,9 @@ MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
 # Prior Day Low Reclaim: minimum dip below prior low to qualify
 PDL_DIP_MIN_PCT = 0.0003  # 0.03% — any meaningful touch below PDL counts
 
+# Inside Day Reclaim: minimum dip below inside low to qualify
+INSIDE_DAY_DIP_MIN_PCT = 0.0003  # 0.03% — same as PDL (any meaningful touch)
+
 # Resistance at Prior High: proximity threshold
 RESISTANCE_PROXIMITY_PCT = 0.003  # 0.3% — symmetric with support bounce
 
@@ -187,6 +190,7 @@ BOUNCE_ALERT_TYPES: set[str] = {
     "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
     "ema_bounce_20", "ema_bounce_50", "ema_bounce_100",
     "prior_day_low_reclaim",
+    "inside_day_reclaim",
     "session_low_double_bottom",
     "intraday_support_bounce",
     "vwap_reclaim",
@@ -281,6 +285,11 @@ ENABLED_RULES: set[str] = {
     # "target_2_hit",
     # "stop_loss_hit",
     # "auto_stop_out",
+    # BUY — inside day
+    "inside_day_breakout",
+    "inside_day_reclaim",
+    # SELL — inside day
+    "inside_day_breakdown",
     # ── Disabled for Phase 1 — re-enable after accuracy validated ──
     # "session_low_double_bottom",
     # "planned_level_touch",

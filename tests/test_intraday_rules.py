@@ -18,6 +18,8 @@ from analytics.intraday_rules import (
     check_gap_fill,
     check_hourly_resistance_approach,
     check_inside_day_breakout,
+    check_inside_day_breakdown,
+    check_inside_day_reclaim,
     check_outside_day_breakout,
     check_ma_resistance,
     check_intraday_support_bounce,
@@ -2136,8 +2138,8 @@ class TestSmartTargetsIntegration:
                 assert sig.target_1 >= sig.entry  # T1 above entry
                 assert sig.target_2 >= sig.target_1  # T2 above T1
 
-    def test_structural_rules_keep_original_targets(self):
-        """Inside day breakout is excluded from resistance target override."""
+    def test_structural_rules_get_smart_targets(self):
+        """Inside day breakout gets smart resistance-based targets like other BUY signals."""
         prior = {
             "is_inside": True, "high": 50.5, "low": 49.0,
             "parent_high": 52.0, "parent_low": 48.0,
@@ -2151,8 +2153,9 @@ class TestSmartTargetsIntegration:
         inside_signals = [s for s in signals if s.alert_type == AlertType.INSIDE_DAY_BREAKOUT]
         if inside_signals:
             sig = inside_signals[0]
-            # Resistance override should NOT be applied (no "T1:" label in message)
-            assert "T1:" not in sig.message
+            # Smart targets applied — T1/T2 set to nearest resistance levels
+            assert sig.target_1 > sig.entry
+            assert sig.target_2 > sig.target_1
 
     def test_falls_back_to_r_based_when_no_resistance(self, monkeypatch):
         """No resistance levels above entry → keeps R-based targets.
@@ -2750,11 +2753,14 @@ class TestEnabledRules:
         return {
             "ma20": 100.0, "ma50": 95.0, "close": 100.5,
             "high": 101.0, "low": 99.0, "is_inside": True,
+            "parent_high": 102.0, "parent_low": 98.0,
         }
 
-    def test_disabled_inside_day_breakout_does_not_fire(self):
-        """inside_day_breakout is disabled and should not appear in signals."""
-        bars = self._make_bars()
+    def test_inside_day_breakout_enabled_but_no_fire_below_high(self):
+        """inside_day_breakout is enabled but doesn't fire when close < inside high."""
+        from alert_config import ENABLED_RULES
+        assert "inside_day_breakout" in ENABLED_RULES
+        bars = self._make_bars()  # close=100.3 < inside high=101.0
         prior = self._make_prior()
         signals = evaluate_rules("AAPL", bars, prior)
         types = {s.alert_type for s in signals}
@@ -3836,3 +3842,188 @@ class TestEmaBounce100:
         assert sig is not None
         expected_stop = round(ema100 * (1 - 0.007), 2)
         assert sig.stop == expected_stop
+
+
+# ===== Inside Day Breakdown (SELL — informational) =====
+
+class TestInsideDayBreakdown:
+    """Tests for check_inside_day_breakdown()."""
+
+    def _inside_prior(self, **overrides):
+        d = {
+            "is_inside": True, "high": 50.5, "low": 49.0,
+            "parent_high": 52.0, "parent_low": 48.0,
+        }
+        d.update(overrides)
+        return d
+
+    def test_fires_on_close_below_inside_low(self):
+        bar = _bar(open_=49.5, high=49.8, low=48.5, close=48.7)
+        sig = check_inside_day_breakdown("SPY", bar, self._inside_prior())
+        assert sig is not None
+        assert sig.alert_type == AlertType.INSIDE_DAY_BREAKDOWN
+        assert sig.direction == "SELL"
+
+    def test_no_fire_when_close_above_inside_low(self):
+        bar = _bar(open_=49.5, high=50.0, low=49.2, close=49.5)
+        sig = check_inside_day_breakdown("SPY", bar, self._inside_prior())
+        assert sig is None
+
+    def test_no_fire_when_close_equals_inside_low(self):
+        bar = _bar(open_=49.5, high=50.0, low=48.8, close=49.0)
+        sig = check_inside_day_breakdown("SPY", bar, self._inside_prior())
+        assert sig is None  # >= inside_low, no breakdown
+
+    def test_no_fire_when_not_inside_day(self):
+        bar = _bar(open_=49.5, high=49.8, low=48.5, close=48.7)
+        prior = self._inside_prior(is_inside=False)
+        sig = check_inside_day_breakdown("SPY", bar, prior)
+        assert sig is None
+
+    def test_no_fire_when_prior_day_none(self):
+        bar = _bar()
+        assert check_inside_day_breakdown("X", bar, None) is None
+
+    def test_no_fire_when_prior_day_empty(self):
+        bar = _bar()
+        assert check_inside_day_breakdown("X", bar, {}) is None
+
+    def test_no_fire_when_zero_range(self):
+        bar = _bar(open_=49.5, high=49.8, low=48.5, close=48.7)
+        prior = self._inside_prior(high=49.0, low=49.0)  # zero range
+        sig = check_inside_day_breakdown("SPY", bar, prior)
+        assert sig is None
+
+    def test_confidence_is_high(self):
+        bar = _bar(open_=49.5, high=49.8, low=48.5, close=48.7)
+        sig = check_inside_day_breakdown("SPY", bar, self._inside_prior())
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_message_includes_inside_low_and_range(self):
+        bar = _bar(open_=49.5, high=49.8, low=48.5, close=48.7)
+        sig = check_inside_day_breakdown("SPY", bar, self._inside_prior())
+        assert sig is not None
+        assert "$49.00" in sig.message  # inside low
+        assert "inside range" in sig.message
+
+
+# ===== Inside Day Reclaim (BUY — failed breakdown trap) =====
+
+class TestInsideDayReclaim:
+    """Tests for check_inside_day_reclaim()."""
+
+    def _inside_prior(self, **overrides):
+        d = {
+            "is_inside": True, "high": 50.5, "low": 49.0,
+            "parent_high": 52.0, "parent_low": 48.0,
+        }
+        d.update(overrides)
+        return d
+
+    def test_fires_on_dip_and_reclaim(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 48.7, "Volume": 1000},
+            {"Open": 48.8, "High": 49.5, "Low": 48.6, "Close": 49.3, "Volume": 1200},
+        ])
+        sig = check_inside_day_reclaim("SPY", bars, self._inside_prior())
+        assert sig is not None
+        assert sig.alert_type == AlertType.INSIDE_DAY_RECLAIM
+        assert sig.direction == "BUY"
+        assert sig.entry == 49.0  # inside low
+
+    def test_stop_below_session_low(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 48.7, "Volume": 1000},
+            {"Open": 48.8, "High": 49.5, "Low": 48.6, "Close": 49.3, "Volume": 1200},
+        ])
+        sig = check_inside_day_reclaim("SPY", bars, self._inside_prior())
+        assert sig is not None
+        # Stop should be below session low (48.5)
+        assert sig.stop < 48.5
+
+    def test_targets_are_1r_and_2r(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 48.7, "Volume": 1000},
+            {"Open": 48.8, "High": 49.5, "Low": 48.6, "Close": 49.3, "Volume": 1200},
+        ])
+        sig = check_inside_day_reclaim("SPY", bars, self._inside_prior())
+        assert sig is not None
+        risk = sig.entry - sig.stop
+        assert risk > 0
+        assert abs(sig.target_1 - (sig.entry + risk)) < 0.01
+        assert abs(sig.target_2 - (sig.entry + 2 * risk)) < 0.01
+
+    def test_no_fire_when_no_dip(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 50.0, "Low": 49.1, "Close": 49.8, "Volume": 1000},
+        ])
+        sig = check_inside_day_reclaim("SPY", bars, self._inside_prior())
+        assert sig is None  # low 49.1 > 49.0 * (1 - 0.0003) ≈ 48.985
+
+    def test_no_fire_when_still_below_inside_low(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 48.7, "Volume": 1000},
+        ])
+        sig = check_inside_day_reclaim("SPY", bars, self._inside_prior())
+        assert sig is None  # close 48.7 <= 49.0
+
+    def test_no_fire_when_not_inside_day(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 49.3, "Volume": 1000},
+        ])
+        prior = self._inside_prior(is_inside=False)
+        sig = check_inside_day_reclaim("SPY", bars, prior)
+        assert sig is None
+
+    def test_no_fire_when_prior_day_none(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 49.3, "Volume": 1000},
+        ])
+        assert check_inside_day_reclaim("X", bars, None) is None
+
+    def test_no_fire_when_prior_day_empty(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 49.3, "Volume": 1000},
+        ])
+        assert check_inside_day_reclaim("X", bars, {}) is None
+
+    def test_no_fire_when_bars_empty(self):
+        sig = check_inside_day_reclaim("X", pd.DataFrame(), self._inside_prior())
+        assert sig is None
+
+    def test_no_fire_when_zero_inside_low(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": -0.01, "Close": 0.5, "Volume": 1000},
+        ])
+        prior = self._inside_prior(low=0)
+        sig = check_inside_day_reclaim("X", bars, prior)
+        assert sig is None
+
+    def test_no_fire_when_zero_range(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 49.3, "Volume": 1000},
+        ])
+        prior = self._inside_prior(high=49.0, low=49.0)  # zero range
+        sig = check_inside_day_reclaim("X", bars, prior)
+        assert sig is None
+
+    def test_confidence_is_high(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 48.7, "Volume": 1000},
+            {"Open": 48.8, "High": 49.5, "Low": 48.6, "Close": 49.3, "Volume": 1200},
+        ])
+        sig = check_inside_day_reclaim("SPY", bars, self._inside_prior())
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_message_includes_dip_and_reclaim_levels(self):
+        bars = _bars([
+            {"Open": 49.5, "High": 49.8, "Low": 48.5, "Close": 48.7, "Volume": 1000},
+            {"Open": 48.8, "High": 49.5, "Low": 48.6, "Close": 49.3, "Volume": 1200},
+        ])
+        sig = check_inside_day_reclaim("SPY", bars, self._inside_prior())
+        assert sig is not None
+        assert "$48.50" in sig.message  # dip level
+        assert "$49.00" in sig.message  # inside low
+        assert "failed breakdown" in sig.message
