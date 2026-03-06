@@ -494,17 +494,18 @@ for r in results:
     shares = int(position_size / r.entry) if r.entry > 0 else 0
     total_risk = shares * r.risk_per_share
 
-    # Projected S/R from available levels
+    # Projected S/R from all available levels (daily + EMA)
     price = r.last_close
+    _prior = _cached_prior_day(r.symbol) or {}
     _levels = []
     if r.prior_low > 0:
         _levels.append(r.prior_low)
     if r.prior_high > 0:
         _levels.append(r.prior_high)
-    if r.ma20 is not None and r.ma20 > 0:
-        _levels.append(r.ma20)
-    if r.ma50 is not None and r.ma50 > 0:
-        _levels.append(r.ma50)
+    for _k in ("ma20", "ma50", "ma100", "ma200", "ema20", "ema50", "ema100"):
+        _v = _prior.get(_k) or (getattr(r, _k, None) if _k in ("ma20", "ma50") else None)
+        if _v and _v > 0:
+            _levels.append(_v)
     _below = [l for l in _levels if l <= price]
     _above = [l for l in _levels if l > price]
     proj_support = max(_below) if _below else None
