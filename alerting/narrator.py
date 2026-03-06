@@ -67,6 +67,9 @@ def _build_user_prompt(signal: AlertSignal) -> str:
         f"MTF Aligned: {'Yes' if signal.mtf_aligned else 'No'}",
         f"Confluence: {'Yes' if signal.confluence else 'No'}"
         + (f" ({signal.confluence_ma})" if signal.confluence_ma else ""),
+        f"Prior Day Pattern: {signal.day_pattern}" if signal.day_pattern else "",
+        f"MA Defending: {signal.ma_defending}" if signal.ma_defending else "",
+        f"MA Rejected By: {signal.ma_rejected_by}" if signal.ma_rejected_by else "",
         f"Message: {signal.message}" if signal.message else "",
     ]
     return "\n".join(line for line in lines if line)

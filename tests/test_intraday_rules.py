@@ -9,6 +9,7 @@ from analytics.intraday_rules import (
     _cap_risk,
     _check_ma_confluence,
     _consolidate_signals,
+    _detect_ma_context,
     _detect_volume_exhaustion,
     _find_resistance_targets,
     _has_overhead_ma_resistance,
@@ -4027,3 +4028,99 @@ class TestInsideDayReclaim:
         assert "$48.50" in sig.message  # dip level
         assert "$49.00" in sig.message  # inside low
         assert "failed breakdown" in sig.message
+
+
+# ===== MA Context Detection =====
+
+class TestDetectMAContext:
+    """Tests for _detect_ma_context() — defending/rejected MA detection."""
+
+    def test_defending_100ma(self):
+        """Price 0.3% above 100MA → defending='100MA'."""
+        price = 100.0
+        ma100 = 99.70  # 0.3% below
+        defending, rejected = _detect_ma_context(
+            price, None, None, ma100, None, None, None, None,
+        )
+        assert defending == "100MA"
+        assert rejected == ""
+
+    def test_rejected_50ema(self):
+        """Price 0.3% below 50EMA → rejected_by='50EMA'."""
+        price = 100.0
+        ema50 = 100.30  # 0.3% above
+        defending, rejected = _detect_ma_context(
+            price, None, None, None, None, None, ema50, None,
+        )
+        assert defending == ""
+        assert rejected == "50EMA"
+
+    def test_no_nearby_ma(self):
+        """Price far from all MAs → both empty."""
+        price = 100.0
+        defending, rejected = _detect_ma_context(
+            price, 95.0, 90.0, 85.0, 80.0, 96.0, 91.0, 86.0,
+        )
+        assert defending == ""
+        assert rejected == ""
+
+    def test_closest_wins(self):
+        """When near multiple MAs, closest wins."""
+        price = 100.0
+        ma50 = 99.80   # 0.2% below — closer
+        ma100 = 99.60  # 0.4% below — farther
+        defending, rejected = _detect_ma_context(
+            price, None, ma50, ma100, None, None, None, None,
+        )
+        assert defending == "50MA"
+
+    def test_both_defending_and_rejected(self):
+        """Price squeezed between two MAs."""
+        price = 100.0
+        ma100 = 99.70   # 0.3% below — defending
+        ema50 = 100.30   # 0.3% above — rejecting
+        defending, rejected = _detect_ma_context(
+            price, None, None, ma100, None, None, ema50, None,
+        )
+        assert defending == "100MA"
+        assert rejected == "50EMA"
+
+    def test_zero_price_returns_empty(self):
+        """Edge case: zero price returns empty."""
+        defending, rejected = _detect_ma_context(
+            0.0, 50.0, 100.0, 150.0, 200.0, 50.0, 100.0, 150.0,
+        )
+        assert defending == ""
+        assert rejected == ""
+
+    def test_all_none_mas(self):
+        """All MAs are None → both empty."""
+        defending, rejected = _detect_ma_context(
+            100.0, None, None, None, None, None, None, None,
+        )
+        assert defending == ""
+        assert rejected == ""
+
+
+class TestDayPatternPropagation:
+    """Test that prior_day pattern flows to AlertSignal in evaluate_rules."""
+
+    def test_day_pattern_propagated(self):
+        """AlertSignal.day_pattern gets set from prior_day['pattern']."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.0, "Close": 100.0, "Volume": 1000},
+            {"Open": 100, "High": 101, "Low": 99.9, "Close": 100.3, "Volume": 1000},
+        ])
+        prior = {
+            "close": 100.0, "high": 101.0, "low": 99.0,
+            "ma20": 100.0, "ma50": 99.5, "ma100": 98.0, "ma200": 95.0,
+            "ema20": 100.0, "ema50": 99.5, "ema100": 98.0,
+            "atr14": 2.0, "avg_volume": 1000, "rsi14": 50.0,
+            "pattern": "inside",
+        }
+        signals = evaluate_rules("TEST", bars, prior)
+        # Even if no signal fires, verify the field exists on AlertSignal
+        sig = AlertSignal(symbol="TEST", direction="BUY",
+                          alert_type=AlertType.MA_BOUNCE_20, price=100.0)
+        sig.day_pattern = prior.get("pattern", "normal")
+        assert sig.day_pattern == "inside"

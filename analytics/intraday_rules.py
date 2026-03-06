@@ -165,6 +165,9 @@ class AlertSignal:
     confluence: bool = False
     confluence_ma: str = ""
     narrative: str = ""
+    day_pattern: str = ""      # "inside", "outside", "normal" — prior day's candle pattern
+    ma_defending: str = ""     # e.g. "100MA" — nearest MA below price acting as support
+    ma_rejected_by: str = ""   # e.g. "50EMA" — nearest MA above price acting as resistance
 
 
 def _volume_label(bar_volume: float, avg_volume: float) -> str:
@@ -2389,6 +2392,61 @@ def _check_ma_confluence(
 
 
 # ---------------------------------------------------------------------------
+# MA defense / rejection context
+# ---------------------------------------------------------------------------
+
+MA_CONTEXT_BAND_PCT = 0.005  # 0.5% proximity threshold
+
+
+def _detect_ma_context(
+    price: float,
+    ma20: float | None,
+    ma50: float | None,
+    ma100: float | None,
+    ma200: float | None,
+    ema20: float | None,
+    ema50: float | None,
+    ema100: float | None,
+) -> tuple[str, str]:
+    """Detect which MA price is defending (support) and rejected by (resistance).
+
+    Returns (defending: str, rejected_by: str).
+    Defending: nearest MA within 0.5% BELOW price.
+    Rejected: nearest MA within 0.5% ABOVE price.
+    """
+    if price <= 0:
+        return "", ""
+
+    candidates = [
+        ("20MA", ma20), ("50MA", ma50), ("100MA", ma100), ("200MA", ma200),
+        ("20EMA", ema20), ("50EMA", ema50), ("100EMA", ema100),
+    ]
+
+    defending = ""
+    defending_dist = float("inf")
+    rejected_by = ""
+    rejected_dist = float("inf")
+
+    for label, ma in candidates:
+        if ma is None or ma <= 0:
+            continue
+        pct_diff = (price - ma) / price
+        if 0 < pct_diff <= MA_CONTEXT_BAND_PCT:
+            # MA is below price (potential support / defending)
+            if pct_diff < defending_dist:
+                defending_dist = pct_diff
+                defending = label
+        elif 0 < -pct_diff <= MA_CONTEXT_BAND_PCT:
+            # MA is above price (potential resistance / rejection)
+            abs_diff = -pct_diff
+            if abs_diff < rejected_dist:
+                rejected_dist = abs_diff
+                rejected_by = label
+
+    return defending, rejected_by
+
+
+# ---------------------------------------------------------------------------
 # Score enrichment for intraday alerts
 # ---------------------------------------------------------------------------
 
@@ -3176,6 +3234,22 @@ def evaluate_rules(
             sig.message += f" | {vol_label}"
         if gap_info and sig.direction == "BUY":
             sig.message += f" | {gap_info}"
+
+        # Day pattern tag (from prior_day)
+        if prior_day:
+            sig.day_pattern = prior_day.get("pattern", "normal")
+
+        # MA defense/rejection context
+        if sig.direction == "BUY":
+            defending, rejected_by = _detect_ma_context(
+                current_price, ma20, ma50, ma100, ma200, ema20, ema50, ema100,
+            )
+            sig.ma_defending = defending
+            sig.ma_rejected_by = rejected_by
+            if defending:
+                sig.message += f" | Defending {defending}"
+            if rejected_by:
+                sig.message += f" | Overhead {rejected_by}"
 
         # Volume exhaustion detection
         exhaustion_type, exhaustion_msg = _detect_volume_exhaustion(intraday_bars, avg_vol)

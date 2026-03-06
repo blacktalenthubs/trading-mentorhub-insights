@@ -139,6 +139,17 @@ def _format_sms_body(signal: AlertSignal) -> str:
     if ctx:
         parts.append(" | ".join(ctx))
 
+    # Day pattern + MA context (compact tags)
+    tags = []
+    if getattr(signal, "day_pattern", "") in ("inside", "outside"):
+        tags.append(f"{signal.day_pattern.upper()} DAY")
+    if getattr(signal, "ma_defending", ""):
+        tags.append(f"Def {signal.ma_defending}")
+    if getattr(signal, "ma_rejected_by", ""):
+        tags.append(f"Res {signal.ma_rejected_by}")
+    if tags:
+        parts.append(" | ".join(tags))
+
     # AI thesis — first sentence only (Telegram char limit)
     if getattr(signal, "narrative", ""):
         import re
