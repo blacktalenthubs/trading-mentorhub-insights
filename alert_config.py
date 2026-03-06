@@ -292,7 +292,7 @@ ENABLED_RULES: set[str] = {
     "inside_day_breakdown",
     # ── Disabled for Phase 1 — re-enable after accuracy validated ──
     # "session_low_double_bottom",
-    # "planned_level_touch",
+    "planned_level_touch",
     # "vwap_reclaim",
     "opening_low_base",
     # "outside_day_breakout",
