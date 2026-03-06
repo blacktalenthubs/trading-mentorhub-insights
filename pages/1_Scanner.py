@@ -506,21 +506,17 @@ for r in results:
         _v = _prior.get(_k) or (getattr(r, _k, None) if _k in ("ma20", "ma50") else None)
         if _v and _v > 0:
             _levels.append(_v)
+
+    # During market hours, add today's session low as support
+    if _market_open:
+        _intra = _cached_intraday(r.symbol)
+        if not _intra.empty:
+            _levels.append(float(_intra["Low"].min()))
+
     _below = [l for l in _levels if l <= price]
     _above = [l for l in _levels if l > price]
     proj_support = max(_below) if _below else None
     proj_resist = min(_above) if _above else None
-
-    # Fallback: hourly swing lows when no daily support below price
-    if proj_support is None:
-        try:
-            _h_bars = fetch_hourly_bars(r.symbol)
-            _h_supports = detect_hourly_support(_h_bars)
-            _h_below = [l for l in _h_supports if l <= price]
-            if _h_below:
-                proj_support = max(_h_below)
-        except Exception:
-            pass
 
     table_rows.append({
         "Symbol": r.symbol,
