@@ -174,6 +174,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 email_sent, sms_sent = notify(signal)
 
                 alert_id = record_alert(signal, session, email_sent, sms_sent)
+                fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
 
                 logger.info(
