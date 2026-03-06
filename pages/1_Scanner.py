@@ -492,6 +492,23 @@ table_rows = []
 for r in results:
     shares = int(position_size / r.entry) if r.entry > 0 else 0
     total_risk = shares * r.risk_per_share
+
+    # Projected S/R from available levels
+    price = r.last_close
+    _levels = []
+    if r.prior_low > 0:
+        _levels.append(r.prior_low)
+    if r.prior_high > 0:
+        _levels.append(r.prior_high)
+    if r.ma20 is not None and r.ma20 > 0:
+        _levels.append(r.ma20)
+    if r.ma50 is not None and r.ma50 > 0:
+        _levels.append(r.ma50)
+    _below = [l for l in _levels if l <= price]
+    _above = [l for l in _levels if l > price]
+    proj_support = max(_below) if _below else None
+    proj_resist = min(_above) if _above else None
+
     table_rows.append({
         "Symbol": r.symbol,
         "Plan": "LIVE" if r.symbol in _alert_entries else "DAILY",
@@ -499,7 +516,8 @@ for r in results:
         price_label: r.last_close,
         "Status": action_label(r.support_status, r.score),
         "Pattern": r.pattern.upper(),
-        "Support": r.nearest_support,
+        "Proj Support": proj_support,
+        "Proj Resist": proj_resist,
         "Entry": r.entry,
         "Stop": r.stop,
         "Re-entry Stop": r.reentry_stop,
@@ -515,7 +533,9 @@ table_df = pd.DataFrame(table_rows)
 st.dataframe(
     table_df.style
     .format({
-        price_label: "${:,.2f}", "Support": "${:,.2f}",
+        price_label: "${:,.2f}",
+        "Proj Support": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
+        "Proj Resist": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
         "Entry": "${:,.2f}", "Stop": "${:,.2f}",
         "Re-entry Stop": "${:,.2f}", "Target": "${:,.2f}",
         "Risk/Sh": "${:,.2f}", "$ Risk": "${:,.0f}",
