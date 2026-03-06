@@ -779,19 +779,14 @@ for r in results:
         )
 
         if tracking and not is_tracking:
-            # Show shares input before confirming
-            _shares_key = f"shares_{r.symbol}"
-            if _shares_key not in st.session_state:
-                st.session_state[_shares_key] = int(position_size / r.entry) if r.entry > 0 else 0
-
-        if tracking and not is_tracking:
             from datetime import date as _date
-            default_shares = int(position_size / r.entry) if r.entry > 0 else 0
             _shares_key = f"shares_{r.symbol}"
+            default_shares = int(position_size / r.entry) if r.entry > 0 else 0
+            if _shares_key not in st.session_state:
+                st.session_state[_shares_key] = default_shares
             shares_input = st.number_input(
                 "Shares",
                 min_value=1,
-                value=default_shares,
                 step=1,
                 key=_shares_key,
                 help=f"Default: {default_shares} (${position_size / 1000:.0f}k / ${r.entry:,.2f})",
