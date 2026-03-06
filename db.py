@@ -1,7 +1,9 @@
-"""SQLite database schema and CRUD operations."""
+"""Database schema and CRUD operations (SQLite + Postgres)."""
 
 from __future__ import annotations
 
+import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from typing import Optional
@@ -11,8 +13,200 @@ import pandas as pd
 from config import DB_PATH
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
+_USE_POSTGRES = bool(os.environ.get("DATABASE_URL"))
 
-def get_connection() -> sqlite3.Connection:
+if _USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+    import psycopg2.errors
+
+# Cross-platform exception tuples
+_DB_OPERATIONAL_ERRORS: tuple[type, ...] = (sqlite3.OperationalError,)
+_DB_INTEGRITY_ERRORS: tuple[type, ...] = (sqlite3.IntegrityError,)
+
+if _USE_POSTGRES:
+    _DB_OPERATIONAL_ERRORS = (sqlite3.OperationalError, psycopg2.errors.DuplicateColumn, psycopg2.errors.DuplicateTable)
+    _DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg2.IntegrityError)
+
+# Public alias for use in auth.py etc.
+IntegrityError = _DB_INTEGRITY_ERRORS
+
+
+# ---------------------------------------------------------------------------
+# Postgres wrapper — translates SQLite conventions to psycopg2
+# ---------------------------------------------------------------------------
+
+class PostgresCursorWrapper:
+    """Wraps a psycopg2 RealDictCursor to add .lastrowid."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self._lastrowid: int | None = None
+
+    @property
+    def lastrowid(self) -> int | None:
+        return self._lastrowid
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+
+class PostgresConnectionWrapper:
+    """Wraps a psycopg2 connection so callers can use SQLite conventions."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    @staticmethod
+    def _translate_params(sql: str) -> str:
+        """Replace ? placeholders with %s for psycopg2.
+
+        Also escapes literal % signs (e.g. in LIKE 'swing_%') so
+        psycopg2 doesn't treat them as format placeholders.
+        """
+        # First escape any literal % (e.g. LIKE 'swing_%') → %%
+        sql = sql.replace("%", "%%")
+        # Then replace ? with %s
+        return sql.replace("?", "%s")
+
+    @staticmethod
+    def _coerce_params(params):
+        """Convert numpy scalars to native Python types for psycopg2."""
+        if params is None:
+            return None
+        import numpy as np
+
+        def _native(v):
+            if isinstance(v, (np.integer,)):
+                return int(v)
+            if isinstance(v, (np.floating,)):
+                return float(v)
+            if isinstance(v, np.bool_):
+                return bool(v)
+            return v
+
+        if isinstance(params, (list, tuple)):
+            return type(params)(_native(v) for v in params)
+        return params
+
+    def execute(self, sql: str, params=None) -> PostgresCursorWrapper:
+        sql = self._translate_params(sql)
+        params = self._coerce_params(params)
+        # Auto-add RETURNING id for INSERT without it
+        needs_returning = (
+            sql.lstrip().upper().startswith("INSERT")
+            and "RETURNING" not in sql.upper()
+        )
+        if needs_returning:
+            sql = sql.rstrip().rstrip(";") + " RETURNING id"
+
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Savepoint for DDL — Postgres aborts the whole transaction on
+        # "column already exists" / "table already exists" errors, unlike
+        # SQLite which just lets you continue.
+        is_ddl = sql.lstrip().upper().startswith(("ALTER", "CREATE"))
+        if is_ddl:
+            cur.execute("SAVEPOINT ddl_sp")
+
+        try:
+            cur.execute(sql, params)
+        except Exception:
+            if is_ddl:
+                cur.execute("ROLLBACK TO SAVEPOINT ddl_sp")
+            raise
+        else:
+            if is_ddl:
+                cur.execute("RELEASE SAVEPOINT ddl_sp")
+
+        wrapper = PostgresCursorWrapper(cur)
+        if needs_returning:
+            try:
+                row = cur.fetchone()
+                wrapper._lastrowid = row["id"] if row else None
+            except Exception:
+                wrapper._lastrowid = None
+        return wrapper
+
+    def executemany(self, sql: str, params_list) -> PostgresCursorWrapper:
+        sql = self._translate_params(sql)
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        for params in params_list:
+            cur.execute(sql, self._coerce_params(params))
+        return PostgresCursorWrapper(cur)
+
+    def executescript(self, sql: str):
+        """Split multi-statement SQL and execute each."""
+        cur = self._conn.cursor()
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                cur.execute(stmt)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+    def cursor(self):
+        """Return raw psycopg2 cursor for DBAPI2 compatibility (pandas)."""
+        return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+
+# ---------------------------------------------------------------------------
+# DDL adapter
+# ---------------------------------------------------------------------------
+
+def _adapt_ddl(sql: str) -> str:
+    """Convert SQLite DDL to Postgres-compatible DDL when using Postgres."""
+    if not _USE_POSTGRES:
+        return sql
+    # INTEGER PRIMARY KEY AUTOINCREMENT → SERIAL PRIMARY KEY
+    sql = re.sub(
+        r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT",
+        "SERIAL PRIMARY KEY",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    return sql
+
+
+# ---------------------------------------------------------------------------
+# Pandas helper
+# ---------------------------------------------------------------------------
+
+def _pd_read_sql(query: str, conn, params=None) -> pd.DataFrame:
+    """Cross-platform pd.read_sql_query that works with both backends."""
+    if _USE_POSTGRES and isinstance(conn, PostgresConnectionWrapper):
+        query = query.replace("%", "%%").replace("?", "%s")
+        return pd.read_sql_query(query, conn._conn, params=params)
+    return pd.read_sql_query(query, conn, params=params)
+
+
+# ---------------------------------------------------------------------------
+# Connection management
+# ---------------------------------------------------------------------------
+
+def get_connection():
+    if _USE_POSTGRES:
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        return PostgresConnectionWrapper(conn)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -33,7 +227,7 @@ def get_db():
 def init_db():
     """Create all tables if they don't exist, then run migrations."""
     with get_db() as conn:
-        conn.executescript("""
+        conn.executescript(_adapt_ddl("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT NOT NULL UNIQUE,
@@ -375,7 +569,7 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_swing_categories_session
                 ON swing_categories(session_date);
-        """)
+        """))
     _migrate_add_user_id()
     _migrate_add_alert_score()
     _migrate_watchlist_user_id()
@@ -401,7 +595,7 @@ def _migrate_add_user_id():
                 conn.execute(
                     f"ALTER TABLE {table} ADD COLUMN user_id INTEGER REFERENCES users(id)"
                 )
-            except sqlite3.OperationalError:
+            except _DB_OPERATIONAL_ERRORS:
                 pass  # Column already exists
 
         # Create user_id indexes for query performance
@@ -439,7 +633,7 @@ def _migrate_add_alert_score():
     with get_db() as conn:
         try:
             conn.execute("ALTER TABLE alerts ADD COLUMN score INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
+        except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
 
 
@@ -454,7 +648,7 @@ def _migrate_watchlist_user_id():
             conn.execute(
                 "ALTER TABLE watchlist ADD COLUMN user_id INTEGER REFERENCES users(id)"
             )
-        except sqlite3.OperationalError:
+        except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
 
         admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
@@ -468,28 +662,30 @@ def _migrate_watchlist_user_id():
         # UNIQUE(user_id, symbol) constraint is missing.  Old DBs may have
         # column-level ``symbol UNIQUE`` or table-level ``UNIQUE(symbol)``
         # which block multi-user inserts.
-        needs_rebuild = False
-        table_sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'"
-        ).fetchone()
-        if table_sql and table_sql["sql"]:
-            ddl_norm = table_sql["sql"].replace(" ", "").upper()
-            needs_rebuild = "UNIQUE(USER_ID,SYMBOL)" not in ddl_norm
+        # Skip on Postgres — DDL already creates correct constraints.
+        if not _USE_POSTGRES:
+            needs_rebuild = False
+            table_sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'"
+            ).fetchone()
+            if table_sql and table_sql["sql"]:
+                ddl_norm = table_sql["sql"].replace(" ", "").upper()
+                needs_rebuild = "UNIQUE(USER_ID,SYMBOL)" not in ddl_norm
 
-        if needs_rebuild:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS watchlist_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER REFERENCES users(id),
-                    symbol TEXT NOT NULL,
-                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(user_id, symbol)
-                );
-                INSERT OR IGNORE INTO watchlist_new (user_id, symbol, added_at)
-                    SELECT user_id, symbol, added_at FROM watchlist;
-                DROP TABLE watchlist;
-                ALTER TABLE watchlist_new RENAME TO watchlist;
-            """)
+            if needs_rebuild:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS watchlist_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER REFERENCES users(id),
+                        symbol TEXT NOT NULL,
+                        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, symbol)
+                    );
+                    INSERT OR IGNORE INTO watchlist_new (user_id, symbol, added_at)
+                        SELECT user_id, symbol, added_at FROM watchlist;
+                    DROP TABLE watchlist;
+                    ALTER TABLE watchlist_new RENAME TO watchlist;
+                """)
 
 
 def _migrate_add_narrative():
@@ -497,7 +693,7 @@ def _migrate_add_narrative():
     with get_db() as conn:
         try:
             conn.execute("ALTER TABLE alerts ADD COLUMN narrative TEXT DEFAULT ''")
-        except sqlite3.OperationalError:
+        except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
 
 
@@ -508,14 +704,14 @@ def _migrate_add_anthropic_key():
             conn.execute(
                 "ALTER TABLE user_notification_prefs ADD COLUMN anthropic_api_key TEXT DEFAULT ''"
             )
-        except sqlite3.OperationalError:
+        except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
 
 
 def _migrate_add_daily_plans():
     """Create daily_plans table if missing (handles DB upgrades for pre-existing DBs)."""
     with get_db() as conn:
-        conn.execute("""
+        conn.execute(_adapt_ddl("""
             CREATE TABLE IF NOT EXISTS daily_plans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
@@ -533,7 +729,7 @@ def _migrate_add_daily_plans():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(symbol, session_date)
             )
-        """)
+        """))
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_daily_plans_session "
             "ON daily_plans(session_date)"
@@ -556,7 +752,7 @@ def _migrate_ensure_default_watchlist():
         uid = admin["id"]
         # Seed any missing defaults
         conn.executemany(
-            "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
+            "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?) ON CONFLICT(user_id, symbol) DO NOTHING",
             [(uid, s) for s in DEFAULT_WATCHLIST],
         )
         # Remove symbols not in the current default list
@@ -581,7 +777,7 @@ def _migrate_real_trades_swing():
                 conn.execute(
                     f"ALTER TABLE real_trades ADD COLUMN {col} TEXT DEFAULT {default}"
                 )
-            except sqlite3.OperationalError:
+            except _DB_OPERATIONAL_ERRORS:
                 pass  # column already exists
 
 
@@ -595,7 +791,7 @@ def _migrate_alert_user_id():
             conn.execute(
                 "ALTER TABLE alerts ADD COLUMN user_id INTEGER REFERENCES users(id)"
             )
-        except sqlite3.OperationalError:
+        except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
 
         conn.execute(
@@ -785,7 +981,7 @@ def update_import_count(import_id: int, count: int):
 
 def get_imports(user_id: int) -> pd.DataFrame:
     with get_db() as conn:
-        return pd.read_sql_query(
+        return _pd_read_sql(
             "SELECT * FROM imports WHERE user_id=? ORDER BY imported_at DESC",
             conn,
             params=[user_id],
@@ -832,7 +1028,7 @@ def get_trades_1099(user_id: int, account: Optional[str] = None) -> pd.DataFrame
             query += " AND account=?"
             params.append(account)
         query += " ORDER BY date_sold"
-        df = pd.read_sql_query(query, conn, params=params)
+        df = _pd_read_sql(query, conn, params=params)
         if not df.empty:
             df["date_sold"] = pd.to_datetime(df["date_sold"])
             df["date_acquired"] = pd.to_datetime(df["date_acquired"])
@@ -867,7 +1063,7 @@ def get_trades_monthly(user_id: int, account: Optional[str] = None) -> pd.DataFr
             query += " AND account=?"
             params.append(account)
         query += " ORDER BY trade_date"
-        df = pd.read_sql_query(query, conn, params=params)
+        df = _pd_read_sql(query, conn, params=params)
         if not df.empty:
             df["trade_date"] = pd.to_datetime(df["trade_date"])
         return df
@@ -895,7 +1091,7 @@ def insert_matched_trades(trades: list[MatchedTrade], user_id: int):
 
 def get_matched_trades(user_id: int) -> pd.DataFrame:
     with get_db() as conn:
-        df = pd.read_sql_query(
+        df = _pd_read_sql(
             "SELECT * FROM matched_trades WHERE user_id=? ORDER BY sell_date",
             conn,
             params=[user_id],
@@ -913,9 +1109,14 @@ def get_matched_trades(user_id: int) -> pd.DataFrame:
 def insert_account_summary(summary: AccountSummary, import_id: int, user_id: int):
     with get_db() as conn:
         conn.execute(
-            """INSERT OR REPLACE INTO account_summaries
+            """INSERT INTO account_summaries
                (import_id, user_id, account, period_start, period_end, opening_balance, closing_balance)
-               VALUES (?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(account, period_start, period_end) DO UPDATE SET
+                   import_id = excluded.import_id,
+                   user_id = excluded.user_id,
+                   opening_balance = excluded.opening_balance,
+                   closing_balance = excluded.closing_balance""",
             (import_id, user_id, summary.account, summary.period_start.isoformat(),
              summary.period_end.isoformat(), summary.opening_balance, summary.closing_balance),
         )
@@ -923,7 +1124,7 @@ def insert_account_summary(summary: AccountSummary, import_id: int, user_id: int
 
 def get_account_summaries(user_id: int) -> pd.DataFrame:
     with get_db() as conn:
-        return pd.read_sql_query(
+        return _pd_read_sql(
             "SELECT * FROM account_summaries WHERE user_id=? ORDER BY period_end DESC",
             conn,
             params=[user_id],
@@ -937,7 +1138,7 @@ def get_account_summaries(user_id: int) -> pd.DataFrame:
 def get_all_trades_combined(user_id: int) -> pd.DataFrame:
     """Get 1099 trades + matched trades in a unified format for analytics."""
     with get_db() as conn:
-        df = pd.read_sql_query("""
+        df = _pd_read_sql("""
             SELECT
                 symbol, date_sold as trade_date, proceeds, cost_basis,
                 gain_loss as realized_pnl, wash_sale_disallowed,
@@ -965,7 +1166,7 @@ def get_all_trades_combined(user_id: int) -> pd.DataFrame:
 def get_user_trades(user_id: int) -> pd.DataFrame:
     """Get trades for a user's accounts (stocks + ETFs, no options)."""
     with get_db() as conn:
-        df = pd.read_sql_query("""
+        df = _pd_read_sql("""
             SELECT
                 symbol, date_sold as trade_date, date_acquired,
                 proceeds, cost_basis,
@@ -1003,7 +1204,7 @@ def get_user_trades(user_id: int) -> pd.DataFrame:
 def get_user_options(user_id: int) -> pd.DataFrame:
     """Get option trades for a user."""
     with get_db() as conn:
-        df = pd.read_sql_query("""
+        df = _pd_read_sql("""
             SELECT
                 symbol, date_sold as trade_date,
                 proceeds, cost_basis,
@@ -1054,7 +1255,7 @@ def upsert_annotation(source: str, symbol: str, trade_date: str,
 def get_annotations(user_id: int) -> pd.DataFrame:
     """Get all trade annotations for a user."""
     with get_db() as conn:
-        return pd.read_sql_query(
+        return _pd_read_sql(
             "SELECT * FROM trade_annotations WHERE user_id=?",
             conn,
             params=[user_id],
@@ -1128,7 +1329,7 @@ def add_to_watchlist(symbol: str, user_id: int | None = None):
     uid = user_id if user_id is not None else _default_user_id()
     with get_db() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO watchlist (user_id, symbol) VALUES (?, ?)",
+            "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?) ON CONFLICT(user_id, symbol) DO NOTHING",
             (uid, symbol),
         )
 

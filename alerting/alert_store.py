@@ -90,10 +90,11 @@ def create_active_entry(signal: AlertSignal, session_date: str | None = None):
     session = session_date or today_session()
     with get_db() as conn:
         conn.execute(
-            """INSERT OR IGNORE INTO active_entries
+            """INSERT INTO active_entries
                (symbol, entry_price, stop_price, target_1, target_2,
                 alert_type, session_date, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'active')""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+               ON CONFLICT(symbol, session_date, alert_type) DO NOTHING""",
             (
                 signal.symbol,
                 signal.entry,

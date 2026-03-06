@@ -7,7 +7,6 @@ The cookie is set/cleared with a small JS snippet injected via
 
 from __future__ import annotations
 
-import sqlite3
 import uuid
 from datetime import datetime, timedelta
 
@@ -15,7 +14,7 @@ import bcrypt
 import streamlit as st
 import streamlit.components.v1 as components
 
-from db import get_db
+from db import IntegrityError, get_db
 
 SESSION_EXPIRY_DAYS = 30
 _COOKIE_NAME = "ts_session"
@@ -53,7 +52,7 @@ def create_user(email: str, password: str, display_name: str | None = None) -> i
                 (email, pw_hash, display_name or email.split("@")[0]),
             )
             return cur.lastrowid
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         raise ValueError("An account with this email already exists.")
 
 

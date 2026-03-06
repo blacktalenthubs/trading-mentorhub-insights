@@ -24,7 +24,7 @@ from alerting.options_trade_store import (
     get_options_trade_stats,
     update_options_trade_notes,
 )
-from db import get_db
+from db import get_db, _pd_read_sql
 import ui_theme
 
 user = ui_theme.setup_page("real_trades")
@@ -418,7 +418,7 @@ dl_col1, dl_col2 = st.columns(2)
 
 with dl_col1:
     with get_db() as conn:
-        eq_df = pd.read_sql_query("SELECT * FROM real_trades ORDER BY opened_at DESC", conn)
+        eq_df = _pd_read_sql("SELECT * FROM real_trades ORDER BY opened_at DESC", conn)
     st.download_button(
         "Download Equity Trades CSV",
         data=eq_df.to_csv(index=False).encode(),
@@ -430,7 +430,7 @@ with dl_col1:
 
 with dl_col2:
     with get_db() as conn:
-        opt_df = pd.read_sql_query("SELECT * FROM real_options_trades ORDER BY opened_at DESC", conn)
+        opt_df = _pd_read_sql("SELECT * FROM real_options_trades ORDER BY opened_at DESC", conn)
     st.download_button(
         "Download Options Trades CSV",
         data=opt_df.to_csv(index=False).encode(),
