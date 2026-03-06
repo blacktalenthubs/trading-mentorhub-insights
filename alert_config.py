@@ -62,7 +62,7 @@ MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
 
 # Prior Day Low Reclaim: minimum dip below prior low to qualify
 PDL_DIP_MIN_PCT = 0.0003  # 0.03% — any meaningful touch below PDL counts
-PDL_RECLAIM_MAX_DISTANCE_PCT = 0.007  # 0.7% — skip if price already ran past entry
+PDL_RECLAIM_MAX_DISTANCE_PCT = 0.012  # 1.2% — skip if price already ran past entry
 
 # Inside Day Reclaim: minimum dip below inside low to qualify
 INSIDE_DAY_DIP_MIN_PCT = 0.0003  # 0.03% — same as PDL (any meaningful touch)

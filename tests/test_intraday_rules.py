@@ -267,10 +267,10 @@ class TestPriorDayLowReclaim:
         assert sig.direction == "BUY"
 
     def test_no_fire_when_price_ran_past_entry(self):
-        """Price reclaimed but already ran >0.7% above entry — stale signal."""
+        """Price reclaimed but already ran >1.2% above entry — stale signal."""
         bars = _bars([
-            {"Open": 100, "High": 100.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},
-            {"Open": 99.0, "High": 100.5, "Low": 98.8, "Close": 100.2, "Volume": 1200},
+            {"Open": 100, "High": 101.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},
+            {"Open": 99.0, "High": 101.5, "Low": 98.8, "Close": 100.5, "Volume": 1200},
         ])
         sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
         assert sig is None
