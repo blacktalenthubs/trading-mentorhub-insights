@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose port (Railway sets $PORT)
-EXPOSE 8501
+EXPOSE 8080
 
 # Run Streamlit
 COPY entrypoint.sh /app/entrypoint.sh
