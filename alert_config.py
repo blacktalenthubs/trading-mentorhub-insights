@@ -299,6 +299,8 @@ ENABLED_RULES: set[str] = {
     # "ema_crossover_5_20",
     # "hourly_resistance_approach",
     # "support_breakdown",
+    # NOTICE — informational
+    "first_hour_summary",
 }
 
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)

@@ -17,6 +17,7 @@ from analytics.intraday_rules import (
     _should_skip_noise,
     check_auto_stop_out,
     check_ema_crossover_5_20,
+    check_first_hour_summary,
     check_gap_fill,
     check_hourly_resistance_approach,
     check_inside_day_breakout,
@@ -4249,3 +4250,159 @@ class TestCryptoIntegration:
         )
         for sig in signals:
             assert "RS CAUTION" not in sig.message
+
+
+# ===== First Hour Close Summary =====
+
+
+class TestFirstHourSummary:
+    """Tests for check_first_hour_summary — NOTICE alert after first hour closes."""
+
+    def _make_bars(self, n=13, open_=100.0, trend="up"):
+        """Create n bars simulating a first-hour session.
+
+        trend: 'up' = gradually rising, 'down' = gradually falling, 'flat' = sideways
+        """
+        rows = []
+        for i in range(n):
+            if trend == "up":
+                o = open_ + i * 0.2
+                c = o + 0.15
+                h = c + 0.05
+                lo = o - 0.05
+            elif trend == "down":
+                o = open_ - i * 0.2
+                c = o - 0.15
+                h = o + 0.05
+                lo = c - 0.05
+            else:  # flat
+                o = open_
+                c = open_ + 0.01
+                h = open_ + 0.05
+                lo = open_ - 0.05
+            rows.append({"Open": o, "High": h, "Low": lo, "Close": c, "Volume": 1000})
+        return _bars(rows)
+
+    def _make_prior(self):
+        return {
+            "close": 99.0, "high": 105.0, "low": 95.0,
+            "ma20": 98.0, "ma50": 96.0, "ma100": 94.0, "ma200": 90.0,
+            "ema20": 98.5, "ema50": 96.5, "ema100": 94.5,
+            "rsi14": 55.0,
+        }
+
+    def test_fires_with_13_bars_bullish(self):
+        """13+ bars and bullish first hour → NOTICE with BULLISH direction label."""
+        bars = self._make_bars(13, trend="up")
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None
+        assert sig.alert_type == AlertType.FIRST_HOUR_SUMMARY
+        assert sig.direction == "NOTICE"
+        assert "BULLISH" in sig.message
+        assert "range" in sig.message
+
+    def test_fires_with_13_bars_bearish(self):
+        """13+ bars and bearish first hour → NOTICE with BEARISH direction label."""
+        bars = self._make_bars(13, trend="down")
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None
+        assert "BEARISH" in sig.message
+
+    def test_fires_with_13_bars_flat(self):
+        """13+ bars and flat first hour → NOTICE with FLAT direction label."""
+        bars = self._make_bars(13, trend="flat")
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None
+        assert "FLAT" in sig.message
+
+    def test_no_fire_with_fewer_than_13_bars(self):
+        """< 13 bars means first hour hasn't completed → None."""
+        bars = self._make_bars(12, trend="up")
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is None
+
+    def test_no_fire_if_already_fired_today(self):
+        """Already in fired_today set → None (dedup)."""
+        bars = self._make_bars(13, trend="up")
+        fired = {("AAPL", "first_hour_summary")}
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior(), fired_today=fired)
+        assert sig is None
+
+    def test_fires_for_different_symbol_in_fired_today(self):
+        """fired_today has NVDA but not AAPL → should fire for AAPL."""
+        bars = self._make_bars(13, trend="up")
+        fired = {("NVDA", "first_hour_summary")}
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior(), fired_today=fired)
+        assert sig is not None
+
+    def test_no_fire_without_prior_day(self):
+        """No prior_day context → None."""
+        bars = self._make_bars(13, trend="up")
+        sig = check_first_hour_summary("AAPL", bars, None)
+        assert sig is None
+
+    def test_message_includes_range_and_finish(self):
+        """Message contains range % and finish description."""
+        bars = self._make_bars(13, trend="up")
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None
+        assert "range" in sig.message
+        assert "finish" in sig.message
+
+    def test_strong_finish_near_high(self):
+        """Close near high of first-hour range → 'strong finish'."""
+        # Build bars where close of bar 11 is near the session high
+        rows = []
+        for i in range(13):
+            rows.append({"Open": 100, "High": 102, "Low": 99, "Close": 101.8, "Volume": 1000})
+        bars = _bars(rows)
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None
+        assert "strong finish" in sig.message
+
+    def test_weak_finish_near_low(self):
+        """Close near low of first-hour range → 'weak finish'."""
+        rows = []
+        for i in range(13):
+            rows.append({"Open": 100, "High": 102, "Low": 99, "Close": 99.2, "Volume": 1000})
+        bars = _bars(rows)
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None
+        assert "weak finish" in sig.message
+
+    def test_level_tags_prior_high_touched(self):
+        """First-hour high touches prior day high → message includes 'touched prior high'."""
+        prior = self._make_prior()
+        prior["high"] = 101.5  # within first-hour range
+        rows = []
+        for i in range(13):
+            rows.append({"Open": 100, "High": 102, "Low": 99, "Close": 101, "Volume": 1000})
+        bars = _bars(rows)
+        sig = check_first_hour_summary("AAPL", bars, prior)
+        assert sig is not None
+        assert "touched prior high" in sig.message
+
+    def test_level_tags_ma_in_range(self):
+        """MA20 within first-hour range → message includes '20MA in range'."""
+        prior = self._make_prior()
+        prior["ma20"] = 100.5  # within the first-hour low-high range
+        rows = []
+        for i in range(13):
+            rows.append({"Open": 100, "High": 102, "Low": 99, "Close": 101, "Volume": 1000})
+        bars = _bars(rows)
+        sig = check_first_hour_summary("AAPL", bars, prior)
+        assert sig is not None
+        assert "20MA in range" in sig.message
+
+    def test_confidence_is_info(self):
+        """Confidence should be 'info' — this is informational, not actionable."""
+        bars = self._make_bars(13, trend="up")
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None
+        assert sig.confidence == "info"
+
+    def test_many_bars_still_fires(self):
+        """With 30+ bars (well past first hour), still fires if not deduped."""
+        bars = self._make_bars(30, trend="up")
+        sig = check_first_hour_summary("AAPL", bars, self._make_prior())
+        assert sig is not None

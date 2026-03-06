@@ -139,6 +139,8 @@ class AlertType(str, Enum):
     # Swing trade — management
     SWING_TARGET_HIT = "swing_target_hit"
     SWING_STOPPED_OUT = "swing_stopped_out"
+    # Informational — first hour summary
+    FIRST_HOUR_SUMMARY = "first_hour_summary"
 
 
 @dataclass
@@ -1877,6 +1879,116 @@ def check_gap_fill(
 
 
 # ---------------------------------------------------------------------------
+# First Hour Close Summary (NOTICE — fires once per symbol after first hour)
+# ---------------------------------------------------------------------------
+
+
+def check_first_hour_summary(
+    symbol: str,
+    intraday_bars: pd.DataFrame,
+    prior_day: dict | None,
+    fired_today: set[tuple[str, str]] | None = None,
+) -> AlertSignal | None:
+    """Summarise the first hour of trading after it closes.
+
+    Fires once per symbol per session when we have >= 13 bars (12 bars =
+    60 min at 5-min cadence, plus 1 confirmation bar).
+
+    Computes:
+    - Direction (bullish / bearish / flat) from first-hour open vs close
+    - First-hour range as % of open
+    - Close position within the range (strong / weak / mid finish)
+    - Volume vs rest-of-day average (when available)
+    """
+    if prior_day is None:
+        return None
+
+    if intraday_bars is None or len(intraday_bars) < 13:
+        return None
+
+    # Dedup — only fire once per session
+    if fired_today and (symbol, AlertType.FIRST_HOUR_SUMMARY.value) in fired_today:
+        return None
+
+    first_hour = intraday_bars.iloc[:12]
+    fh_open = first_hour["Open"].iloc[0]
+    fh_close = first_hour["Close"].iloc[-1]
+    fh_high = first_hour["High"].max()
+    fh_low = first_hour["Low"].min()
+
+    if fh_open <= 0:
+        return None
+
+    # Direction
+    change_pct = (fh_close - fh_open) / fh_open * 100
+    if change_pct > 0.1:
+        direction_label = "BULLISH"
+    elif change_pct < -0.1:
+        direction_label = "BEARISH"
+    else:
+        direction_label = "FLAT"
+
+    # Range as % of open
+    fh_range = fh_high - fh_low
+    range_pct = fh_range / fh_open * 100
+
+    # Close position in range (0 = at low, 1 = at high)
+    if fh_range > 0:
+        close_position = (fh_close - fh_low) / fh_range
+    else:
+        close_position = 0.5
+
+    if close_position >= 0.7:
+        finish = "strong finish (near high)"
+    elif close_position <= 0.3:
+        finish = "weak finish (near low)"
+    else:
+        finish = "mid-range finish"
+
+    # Volume context: first-hour avg vs overall avg
+    fh_avg_vol = first_hour["Volume"].mean()
+    overall_avg_vol = intraday_bars["Volume"].mean()
+    vol_note = ""
+    if overall_avg_vol > 0:
+        vol_ratio = fh_avg_vol / overall_avg_vol
+        if vol_ratio >= 1.5:
+            vol_note = " | heavy volume"
+        elif vol_ratio <= 0.6:
+            vol_note = " | light volume"
+
+    # Key levels touched
+    level_tags = []
+    prior_high = prior_day.get("high", 0)
+    prior_low = prior_day.get("low", 0)
+    if prior_high and fh_high >= prior_high:
+        level_tags.append("touched prior high")
+    if prior_low and fh_low <= prior_low:
+        level_tags.append("touched prior low")
+
+    ma20 = prior_day.get("ma20")
+    ma50 = prior_day.get("ma50")
+    for ma_val, ma_name in [(ma20, "20MA"), (ma50, "50MA")]:
+        if ma_val and fh_low <= ma_val <= fh_high:
+            level_tags.append(f"{ma_name} in range")
+
+    levels_str = f" | {', '.join(level_tags)}" if level_tags else ""
+
+    message = (
+        f"First hour close: {direction_label} ({change_pct:+.1f}%) "
+        f"| range {range_pct:.1f}% | {finish}{vol_note}{levels_str}"
+    )
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.FIRST_HOUR_SUMMARY,
+        direction="NOTICE",
+        price=fh_close,
+        confidence="info",
+        message=message,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 16: Planned Level Touch (BUY)
 # ---------------------------------------------------------------------------
 
@@ -2987,6 +3099,13 @@ def evaluate_rules(
         sig = check_gap_fill(symbol, last_bar, gap_fill_info)
         if sig:
             sig.message += f" ({phase})"
+            signals.append(sig)
+
+    # --- First Hour Summary (NOTICE — fires once per symbol after first hour) ---
+    if AlertType.FIRST_HOUR_SUMMARY.value in ENABLED_RULES:
+        sig = check_first_hour_summary(symbol, intraday_bars, prior_day, fired_today)
+        if sig:
+            sig.session_phase = phase
             signals.append(sig)
 
     # --- SELL rules (always fire regardless of SPY/session) ---
