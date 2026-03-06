@@ -74,6 +74,11 @@ from alert_config import (
     SUPPORT_BOUNCE_LOOKBACK_BARS,
     SUPPORT_BOUNCE_MAX_DISTANCE_PCT,
     SUPPORT_BOUNCE_PROXIMITY_PCT,
+    VWAP_BOUNCE_ABOVE_PCT,
+    VWAP_BOUNCE_MAX_DISTANCE_PCT,
+    VWAP_BOUNCE_MIN_BARS,
+    VWAP_BOUNCE_STOP_OFFSET_PCT,
+    VWAP_BOUNCE_TOUCH_PCT,
     VWAP_RECLAIM_MAX_DISTANCE_PCT,
     VWAP_RECLAIM_MIN_BARS_AFTER_LOW,
     VWAP_RECLAIM_MIN_RECOVERY_PCT,
@@ -122,6 +127,7 @@ class AlertType(str, Enum):
     OUTSIDE_DAY_BREAKOUT = "outside_day_breakout"
     RESISTANCE_PRIOR_LOW = "resistance_prior_low"
     VWAP_RECLAIM = "vwap_reclaim"
+    VWAP_BOUNCE = "vwap_bounce"
     OPENING_LOW_BASE = "opening_low_base"
     WEEKLY_HIGH_BREAKOUT = "weekly_high_breakout"
     WEEKLY_HIGH_RESISTANCE = "weekly_high_resistance"
@@ -1650,6 +1656,86 @@ def check_vwap_reclaim(
 
 
 # ---------------------------------------------------------------------------
+# Rule: VWAP Bounce (BUY) — pullback to VWAP that holds
+# ---------------------------------------------------------------------------
+
+
+def check_vwap_bounce(
+    symbol: str,
+    bars: pd.DataFrame,
+    vwap_series: pd.Series,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price trending above VWAP pulls back to test it and holds — continuation.
+
+    Conditions:
+    1. Enough bars for context (VWAP_BOUNCE_MIN_BARS)
+    2. Majority of recent bars closed above VWAP (uptrend)
+    3. Current bar's Low dips near VWAP (touch/test)
+    4. Current bar closes above VWAP (the hold)
+    5. Close not too far above VWAP (proximity guard)
+    """
+    if bars.empty or vwap_series.empty:
+        return None
+    if len(bars) < VWAP_BOUNCE_MIN_BARS:
+        return None
+
+    last_bar = bars.iloc[-1]
+    current_vwap = vwap_series.iloc[-1]
+    if current_vwap <= 0:
+        return None
+
+    # Last bar must close above VWAP
+    if last_bar["Close"] <= current_vwap:
+        return None
+
+    # Close can't be too far above VWAP — must be near the bounce
+    distance_pct = (last_bar["Close"] - current_vwap) / current_vwap
+    if distance_pct > VWAP_BOUNCE_MAX_DISTANCE_PCT:
+        return None
+
+    # Bar's low must have touched/dipped near VWAP
+    low_distance = (last_bar["Low"] - current_vwap) / current_vwap
+    if abs(low_distance) > VWAP_BOUNCE_TOUCH_PCT:
+        return None
+
+    # Uptrend context: majority of lookback bars closed above VWAP
+    lookback = min(10, len(bars) - 1)
+    recent = bars.iloc[-(lookback + 1):-1]
+    recent_vwap = vwap_series.iloc[-(lookback + 1):-1]
+    above_count = (recent["Close"] > recent_vwap).sum()
+    if above_count / len(recent) < VWAP_BOUNCE_ABOVE_PCT:
+        return None
+
+    entry = round(current_vwap, 2)
+    stop = round(current_vwap * (1 - VWAP_BOUNCE_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 0.0
+    confidence = "high" if vol_ratio >= 1.2 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.VWAP_BOUNCE,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=confidence,
+        message=(
+            f"VWAP bounce — retraced to VWAP ${current_vwap:.2f} and held, "
+            f"close ${last_bar['Close']:.2f} "
+            f"(vol {vol_ratio:.1f}x)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 16: Opening Low Base (BUY)
 # ---------------------------------------------------------------------------
 
@@ -3070,6 +3156,18 @@ def evaluate_rules(
             )
             if sig:
                 sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- VWAP Bounce (Pullback to VWAP that holds) ---
+        if AlertType.VWAP_BOUNCE.value in ENABLED_RULES:
+            sig = check_vwap_bounce(
+                symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix
                 signals.append(sig)
 

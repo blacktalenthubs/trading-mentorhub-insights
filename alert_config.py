@@ -225,6 +225,13 @@ VWAP_RECLAIM_MIN_BARS_AFTER_LOW = 3     # 15 min after low before firing
 VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
 VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.005   # 0.5% — skip if price already ran past VWAP
 
+# VWAP Bounce: pullback to VWAP that holds — continuation signal
+VWAP_BOUNCE_MIN_BARS = 10              # need enough history for trend context
+VWAP_BOUNCE_ABOVE_PCT = 0.60           # 60% of lookback bars must have closed above VWAP
+VWAP_BOUNCE_TOUCH_PCT = 0.003          # 0.3% — bar low must be within this of VWAP
+VWAP_BOUNCE_MAX_DISTANCE_PCT = 0.005   # 0.5% — close can't be too far above VWAP
+VWAP_BOUNCE_STOP_OFFSET_PCT = 0.003    # 0.3% below VWAP for stop
+
 # Opening Low Base: session low in first 15 min, then price holds above it
 OPENING_LOW_BASE_WINDOW_BARS = 3       # first 15 min (3 × 5-min bars) to set the low
 OPENING_LOW_BASE_HOLD_BARS = 3         # 15 min of holding above low to confirm base
@@ -295,6 +302,7 @@ ENABLED_RULES: set[str] = {
     "session_low_double_bottom",
     "planned_level_touch",
     "vwap_reclaim",
+    "vwap_bounce",
     "opening_low_base",
     # "outside_day_breakout",
     # "ema_crossover_5_20",

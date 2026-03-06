@@ -40,6 +40,7 @@ from analytics.intraday_rules import (
     check_ema_bounce_100,
     check_resistance_prior_high,
     check_resistance_prior_low,
+    check_vwap_bounce,
     check_vwap_reclaim,
     check_session_low_retest,
     check_stop_loss_hit,
@@ -3675,6 +3676,121 @@ class TestVWAPReclaim:
         bars = pd.DataFrame()
         vwap = pd.Series(dtype=float)
         sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+
+# ---------------------------------------------------------------------------
+# VWAP Bounce (pullback to VWAP that holds)
+# ---------------------------------------------------------------------------
+
+
+class TestVWAPBounce:
+    """Tests for check_vwap_bounce — pullback to VWAP holds as continuation."""
+
+    @staticmethod
+    def _make_bounce_bars(
+        n_bars=15,
+        last_close=100.3,
+        last_low=100.0,
+        last_volume=1500,
+        above_pct=0.8,
+    ):
+        """Build bars where most bars are above VWAP=100, last bar dips to VWAP.
+
+        above_pct controls what fraction of lookback bars close above VWAP.
+        """
+        rows = []
+        lookback = min(10, n_bars - 1)
+        above_count = int(lookback * above_pct)
+        for i in range(n_bars - 1):
+            if i >= (n_bars - 1 - lookback) and (i - (n_bars - 1 - lookback)) >= above_count:
+                # These bars close below VWAP
+                rows.append({
+                    "Open": 99.8, "High": 100.0, "Low": 99.5,
+                    "Close": 99.7, "Volume": 1000,
+                })
+            else:
+                # Above VWAP
+                rows.append({
+                    "Open": 100.5, "High": 101.0, "Low": 100.2,
+                    "Close": 100.8, "Volume": 1000,
+                })
+        # Last bar: dips to VWAP, closes above
+        rows.append({
+            "Open": 100.5, "High": 100.6, "Low": last_low,
+            "Close": last_close, "Volume": last_volume,
+        })
+        bars = pd.DataFrame(rows)
+        vwap = pd.Series([100.0] * n_bars)
+        return bars, vwap
+
+    def test_fires_on_vwap_bounce(self):
+        """Price above VWAP, dips to test, holds → fire."""
+        bars, vwap = self._make_bounce_bars(last_close=100.3, last_low=100.0)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.VWAP_BOUNCE
+        assert sig.direction == "BUY"
+        assert sig.entry == 100.0
+
+    def test_stop_is_below_vwap(self):
+        """Stop should be VWAP * (1 - offset), i.e. close below VWAP."""
+        bars, vwap = self._make_bounce_bars(last_close=100.3, last_low=100.0)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+        assert sig.stop < 100.0  # below VWAP
+
+    def test_no_fire_when_close_below_vwap(self):
+        """Last bar closes below VWAP → didn't hold."""
+        bars, vwap = self._make_bounce_bars(last_close=99.8, last_low=99.5)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_close_too_far_above(self):
+        """Close 1% above VWAP → already bounced, too late."""
+        bars, vwap = self._make_bounce_bars(last_close=101.0, last_low=100.0)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_low_didnt_touch_vwap(self):
+        """Bar low is 0.5% above VWAP → never tested VWAP."""
+        bars, vwap = self._make_bounce_bars(last_close=100.8, last_low=100.5)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_not_trending_above(self):
+        """Only 30% of bars above VWAP → no uptrend context."""
+        bars, vwap = self._make_bounce_bars(
+            last_close=100.3, last_low=100.0, above_pct=0.3,
+        )
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is None
+
+    def test_high_volume_gives_high_confidence(self):
+        """Volume ≥ 1.2x → confidence='high'."""
+        bars, vwap = self._make_bounce_bars(last_close=100.3, last_low=100.0)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1300, avg_volume=1000)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_low_volume_gives_medium_confidence(self):
+        """Volume < 1.2x → confidence='medium'."""
+        bars, vwap = self._make_bounce_bars(last_close=100.3, last_low=100.0)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=900, avg_volume=1000)
+        assert sig is not None
+        assert sig.confidence == "medium"
+
+    def test_low_dip_below_vwap_still_fires(self):
+        """Bar low dips slightly below VWAP (within touch %) → still a test."""
+        bars, vwap = self._make_bounce_bars(last_close=100.2, last_low=99.8)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+
+    def test_empty_bars_returns_none(self):
+        """Empty bars → None."""
+        bars = pd.DataFrame()
+        vwap = pd.Series(dtype=float)
+        sig = check_vwap_bounce("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
         assert sig is None
 
 
