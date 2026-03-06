@@ -2489,11 +2489,18 @@ class TestResistancePriorLow:
         assert "Prior day low resistance" in sig.message
         assert "$100.00" in sig.message
 
-    def test_no_fire_when_prior_close_above_pdl(self):
-        """Prior close above PDL (support, not resistance) → None."""
-        bar = _bar(open_=99.0, high=100.10, low=98.5, close=99.5)
-        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0, prior_close=102.0)
+    def test_no_fire_when_prior_close_above_pdl_no_gap(self):
+        """Prior close above PDL and no gap down → None."""
+        bar = _bar(open_=100.5, high=100.60, low=99.5, close=100.2)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0, prior_close=102.0, today_open=100.5)
         assert sig is None
+
+    def test_fires_on_gap_down_below_pdl(self):
+        """Prior close above PDL but today gapped below → PDL is resistance."""
+        bar = _bar(open_=99.0, high=100.10, low=98.5, close=99.5)
+        sig = check_resistance_prior_low("AAPL", bar, prior_day_low=100.0, prior_close=102.0, today_open=99.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.RESISTANCE_PRIOR_LOW
 
     def test_no_fire_when_close_above_pdl(self):
         """High touches PDL, close above → reclaimed, not rejection."""

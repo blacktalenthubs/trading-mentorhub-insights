@@ -2258,21 +2258,24 @@ def check_resistance_prior_low(
     bar: pd.Series,
     prior_day_low: float,
     prior_close: float | None = None,
+    today_open: float | None = None,
 ) -> AlertSignal | None:
     """Price rallies up to prior day low from below and gets rejected.
 
     Conditions:
     - prior_day_low > 0
-    - Direction: prior close must be BELOW prior day low (already broken)
-      If prior close > PDL, the level is support not resistance — skip.
+    - Direction: price must be trading BELOW prior day low.
+      Either prior close was already below, OR today gapped down below it.
     - Bar high within RESISTANCE_PROXIMITY_PCT of prior day low
     - Bar close below prior day low (rejection confirmed)
     """
     if prior_day_low <= 0:
         return None
-    # Direction check: if prior close was above PDL, the level is support
-    # (stock just broke below today). Only fire when it was already below.
-    if prior_close is not None and prior_close > prior_day_low:
+    # Direction check: PDL is resistance when price is below it.
+    # True when prior close was already below OR today gapped below.
+    gapped_below = today_open is not None and today_open < prior_day_low
+    closed_below = prior_close is not None and prior_close < prior_day_low
+    if not gapped_below and not closed_below:
         return None
     proximity = abs(bar["High"] - prior_day_low) / prior_day_low
     if proximity > RESISTANCE_PROXIMITY_PCT:
@@ -3132,7 +3135,7 @@ def evaluate_rules(
     if sig:
         signals.append(sig)
 
-    sig = check_resistance_prior_low(symbol, last_bar, prior_low, prior_close)
+    sig = check_resistance_prior_low(symbol, last_bar, prior_low, prior_close, today_open)
     if sig:
         signals.append(sig)
 
