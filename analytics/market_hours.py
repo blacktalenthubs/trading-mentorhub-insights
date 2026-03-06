@@ -66,3 +66,50 @@ def allow_new_entries() -> bool:
     """Returns False during 'opening_range' and 'last_30' phases."""
     phase = get_session_phase()
     return phase not in ("opening_range", "last_30", "closed")
+
+
+# ---------------------------------------------------------------------------
+# Crypto 24h market helpers
+# ---------------------------------------------------------------------------
+
+UTC = pytz.utc
+
+
+def is_market_hours_for_symbol(symbol: str) -> bool:
+    """Crypto symbols: always True. Equities: existing is_market_hours() logic."""
+    from config import is_crypto_alert_symbol
+
+    if is_crypto_alert_symbol(symbol):
+        return True
+    return is_market_hours()
+
+
+def get_session_phase_for_symbol(symbol: str) -> str:
+    """Crypto: map UTC hour to session-like phases. Equities: existing logic."""
+    from config import is_crypto_alert_symbol
+
+    if is_crypto_alert_symbol(symbol):
+        return _get_crypto_session_phase()
+    return get_session_phase()
+
+
+def _get_crypto_session_phase() -> str:
+    """Map current time to crypto session phases based on UTC.
+
+    Crypto sessions (approximate):
+    - asia:    00:00-08:00 UTC
+    - europe:  08:00-13:00 UTC
+    - us:      13:00-21:00 UTC
+    - overlap: 21:00-00:00 UTC
+
+    All phases allow new entries (no 'closed').
+    """
+    now_utc = datetime.now(UTC)
+    hour = now_utc.hour
+    if hour < 8:
+        return "asia"
+    if hour < 13:
+        return "europe"
+    if hour < 21:
+        return "us"
+    return "overlap"

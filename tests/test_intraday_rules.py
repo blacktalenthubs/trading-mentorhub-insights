@@ -8,6 +8,7 @@ from analytics.intraday_rules import (
     AlertType,
     _cap_risk,
     _check_ma_confluence,
+    _compute_crypto_opening_range,
     _consolidate_signals,
     _detect_ma_context,
     _detect_volume_exhaustion,
@@ -4124,3 +4125,127 @@ class TestDayPatternPropagation:
                           alert_type=AlertType.MA_BOUNCE_20, price=100.0)
         sig.day_pattern = prior.get("pattern", "normal")
         assert sig.day_pattern == "inside"
+
+
+# ===== Crypto 24h Integration =====
+
+def _crypto_prior_day():
+    """Standard prior_day dict for crypto tests."""
+    return {
+        "close": 60000.0, "high": 61000.0, "low": 59000.0,
+        "ma20": 60000.0, "ma50": 59500.0, "ma100": 58000.0, "ma200": 55000.0,
+        "ema20": 60000.0, "ema50": 59500.0, "ema100": 58000.0,
+        "atr14": 2000.0, "avg_volume": 5000, "rsi14": 50.0,
+    }
+
+
+def _crypto_bars(n=10):
+    """Generate n synthetic 5-min BTC-like bars."""
+    rows = []
+    for i in range(n):
+        rows.append({
+            "Open": 60000 + i * 10,
+            "High": 60050 + i * 10,
+            "Low": 59950 + i * 10,
+            "Close": 60020 + i * 10,
+            "Volume": 5000,
+        })
+    return _bars(rows)
+
+
+class TestCryptoIntegration:
+    """Tests for BTC-USD/ETH-USD 24h market support."""
+
+    def test_crypto_evaluate_rules_no_spy_demotion(self):
+        """BUY signal for crypto should not get SPY regime demotion."""
+        bars = _crypto_bars(10)
+        # Force a MA bounce by setting ma20 near the bar low
+        prior = _crypto_prior_day()
+        prior["ma20"] = bars.iloc[-1]["Low"] * 1.001  # within 0.3% proximity
+
+        signals = evaluate_rules(
+            "BTC-USD", bars, prior,
+            spy_context={"trend": "bearish", "regime": "CHOPPY"},
+            is_crypto=True,
+        )
+        for sig in signals:
+            if sig.direction == "BUY":
+                assert "CHOPPY market" not in sig.message
+                assert "SPY TRENDING DOWN" not in sig.message
+                assert "SPY bearish" not in sig.message
+
+    def test_crypto_entries_always_allowed(self):
+        """Crypto signals should never get 'session: closed' caution."""
+        bars = _crypto_bars(10)
+        prior = _crypto_prior_day()
+        prior["ma20"] = bars.iloc[-1]["Low"] * 1.001
+
+        signals = evaluate_rules(
+            "BTC-USD", bars, prior,
+            spy_context=None,
+            is_crypto=True,
+        )
+        for sig in signals:
+            assert "session: closed" not in sig.message
+
+    def test_crypto_opening_range_from_first_bars(self):
+        """Crypto ORB uses first 6 bars of data, not 9:30 ET."""
+        bars = _crypto_bars(10)
+        result = _compute_crypto_opening_range(bars)
+        assert result is not None
+        first_6 = bars.iloc[:6]
+        assert result["or_high"] == first_6["High"].max()
+        assert result["or_low"] == first_6["Low"].min()
+        assert result["or_complete"] is True
+
+    def test_crypto_opening_range_insufficient_bars(self):
+        """Crypto ORB returns None with fewer than 6 bars."""
+        bars = _crypto_bars(3)
+        result = _compute_crypto_opening_range(bars)
+        assert result is None
+
+    def test_equity_path_unchanged_with_spy_demotion(self):
+        """Equity symbols still get SPY regime demotion when is_crypto=False."""
+        # Build bars where MA bounce would fire
+        bar_data = []
+        for i in range(10):
+            bar_data.append({
+                "Open": 100 + i * 0.1,
+                "High": 101 + i * 0.1,
+                "Low": 99.95 + i * 0.1,
+                "Close": 100.3 + i * 0.1,
+                "Volume": 1000,
+            })
+        bars = _bars(bar_data)
+        prior = {
+            "close": 100.0, "high": 101.0, "low": 99.0,
+            "ma20": bars.iloc[-1]["Low"] * 1.001,
+            "ma50": 99.5, "ma100": 98.0, "ma200": 95.0,
+            "ema20": 100.0, "ema50": 99.5, "ema100": 98.0,
+            "atr14": 2.0, "avg_volume": 1000, "rsi14": 50.0,
+        }
+        signals = evaluate_rules(
+            "AAPL", bars, prior,
+            spy_context={"trend": "bearish", "regime": "CHOPPY"},
+            is_crypto=False,
+        )
+        buy_signals = [s for s in signals if s.direction == "BUY"]
+        if buy_signals:
+            # At least one BUY should have SPY caution
+            has_choppy = any("CHOPPY" in s.message for s in buy_signals)
+            assert has_choppy
+
+    def test_crypto_no_rs_demotion(self):
+        """Crypto BUY should not get RS (relative strength vs SPY) demotion."""
+        bars = _crypto_bars(10)
+        prior = _crypto_prior_day()
+        prior["ma20"] = bars.iloc[-1]["Low"] * 1.001
+
+        signals = evaluate_rules(
+            "BTC-USD", bars, prior,
+            spy_context={"trend": "neutral", "regime": "TRENDING_UP",
+                         "intraday_change": 1.0},
+            is_crypto=True,
+        )
+        for sig in signals:
+            assert "RS CAUTION" not in sig.message

@@ -20,6 +20,7 @@ from alert_config import (
     POLL_INTERVAL_MINUTES,
 )
 from analytics.market_hours import is_market_hours
+from config import is_crypto_alert_symbol
 from alerting.alert_store import (
     close_all_entries_for_symbol,
     create_active_entry,
@@ -64,8 +65,12 @@ _auto_stop_session: str = ""  # session date when entries were created
 _eod_ran_date: str | None = None
 
 
-def poll_cycle(dry_run: bool = False) -> int:
+def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None) -> int:
     """Run one poll cycle: fetch data, evaluate rules, send notifications.
+
+    Args:
+        dry_run: If True, print results but don't send notifications.
+        symbols_override: If provided, poll only these symbols instead of the full watchlist.
 
     Returns the number of alerts fired.
     """
@@ -83,7 +88,7 @@ def poll_cycle(dry_run: bool = False) -> int:
     if not dry_run and paper_trading_enabled():
         sync_open_trades()
 
-    symbols = get_all_watchlist_symbols()
+    symbols = symbols_override if symbols_override is not None else get_all_watchlist_symbols()
 
     # Seed daily plans if none exist for today's session (ensures plans exist
     # even if nobody opened the Scanner page before the monitor started).
@@ -135,7 +140,8 @@ def poll_cycle(dry_run: bool = False) -> int:
                 continue
 
             active = get_active_entries(symbol, session)
-            spy_ctx = get_spy_context()
+            _is_crypto = is_crypto_alert_symbol(symbol)
+            spy_ctx = None if _is_crypto else get_spy_context()
             plan = get_daily_plan(symbol, session)
             signals = evaluate_rules(
                 symbol, intraday, prior_day, active,
@@ -144,6 +150,7 @@ def poll_cycle(dry_run: bool = False) -> int:
                 is_cooled_down=symbol in cooled_symbols,
                 fired_today=fired_today,
                 daily_plan=plan,
+                is_crypto=_is_crypto,
             )
 
             for signal in signals:
@@ -277,8 +284,16 @@ def run_monitor():
 
         if not is_market_hours():
             _maybe_run_eod()
-            logger.info("Market closed — skipping poll")
-            update_monitor_status(0, 0, "market_closed")
+            # Outside market hours: still poll crypto symbols if any exist
+            all_symbols = get_all_watchlist_symbols()
+            crypto_symbols = [s for s in all_symbols if is_crypto_alert_symbol(s)]
+            if crypto_symbols:
+                logger.info("Market closed — polling crypto only: %s", ", ".join(crypto_symbols))
+                alerts = poll_cycle(symbols_override=crypto_symbols)
+                logger.info("Crypto poll complete: %d alerts fired", alerts)
+            else:
+                logger.info("Market closed — skipping poll")
+                update_monitor_status(0, 0, "market_closed")
             return
         alerts = poll_cycle()
         logger.info("Poll complete: %d alerts fired", alerts)
@@ -291,8 +306,13 @@ def run_monitor():
     if is_market_hours():
         poll_cycle()
     else:
-        logger.info("Market closed — waiting for open")
-        update_monitor_status(0, 0, "waiting_for_open")
+        crypto_symbols = [s for s in watchlist if is_crypto_alert_symbol(s)]
+        if crypto_symbols:
+            logger.info("Market closed — initial crypto poll: %s", ", ".join(crypto_symbols))
+            poll_cycle(symbols_override=crypto_symbols)
+        else:
+            logger.info("Market closed — waiting for open")
+            update_monitor_status(0, 0, "waiting_for_open")
 
     scheduler.add_job(scheduled_poll, "interval", minutes=POLL_INTERVAL_MINUTES)
 

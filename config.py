@@ -47,6 +47,14 @@ INDEX_ETF = {
 
 CRYPTO_SYMBOLS = {"BTC", "ETH", "DOGE", "SOL", "ADA", "XRP"}
 
+# yfinance-format crypto tickers for the alert pipeline (24h markets)
+CRYPTO_ALERT_SYMBOLS = {"BTC-USD", "ETH-USD"}
+
+
+def is_crypto_alert_symbol(symbol: str) -> bool:
+    """Return True if symbol is a crypto ticker tracked by the alert pipeline."""
+    return symbol.upper() in CRYPTO_ALERT_SYMBOLS
+
 # Holding period thresholds (days)
 DAY_TRADE_MAX = 0  # bought and sold same day
 SWING_TRADE_MAX = 30
@@ -81,7 +89,7 @@ STRATEGY_TAGS = [
 def categorize_symbol(symbol: str) -> str:
     """Return category for a ticker symbol."""
     sym = symbol.upper().strip()
-    if sym in CRYPTO_SYMBOLS:
+    if sym in CRYPTO_SYMBOLS or sym in CRYPTO_ALERT_SYMBOLS:
         return "crypto"
     if sym in INDEX_ETF:
         return "index_etf"

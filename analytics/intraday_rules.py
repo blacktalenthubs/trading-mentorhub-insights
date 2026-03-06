@@ -84,7 +84,11 @@ from alert_config import (
     OPENING_LOW_BASE_MIN_DIP_PCT,
     OPENING_LOW_BASE_STOP_OFFSET_PCT,
 )
-from analytics.market_hours import get_session_phase, allow_new_entries
+from analytics.market_hours import (
+    allow_new_entries,
+    get_session_phase,
+    get_session_phase_for_symbol,
+)
 
 
 class AlertType(str, Enum):
@@ -2609,6 +2613,29 @@ def _consolidate_signals(signals: list[AlertSignal]) -> list[AlertSignal]:
 # Orchestrator
 # ---------------------------------------------------------------------------
 
+
+def _compute_crypto_opening_range(bars: pd.DataFrame) -> dict | None:
+    """Compute opening range for crypto from the first 6 bars of the day.
+
+    Uses the same dict format as compute_opening_range() so downstream ORB
+    rules work identically.
+    """
+    if bars.empty or len(bars) < 6:
+        return None
+    first_6 = bars.iloc[:6]
+    or_high = first_6["High"].max()
+    or_low = first_6["Low"].min()
+    or_range = or_high - or_low
+    or_range_pct = or_range / or_low if or_low > 0 else 0.0
+    return {
+        "or_high": or_high,
+        "or_low": or_low,
+        "or_range": or_range,
+        "or_range_pct": or_range_pct,
+        "or_complete": True,
+    }
+
+
 def evaluate_rules(
     symbol: str,
     intraday_bars: pd.DataFrame,
@@ -2619,6 +2646,7 @@ def evaluate_rules(
     is_cooled_down: bool = False,
     fired_today: set[tuple[str, str]] | None = None,
     daily_plan: dict | None = None,
+    is_crypto: bool = False,
 ) -> list[AlertSignal]:
     """Evaluate all rules for a symbol and return fired signals.
 
@@ -2640,6 +2668,7 @@ def evaluate_rules(
         is_cooled_down: If True, suppress all BUY signals (post stop-out cooldown).
         fired_today: Set of (symbol, alert_type) tuples already fired this session.
         daily_plan: Dict from get_daily_plan() with Scanner's planned levels.
+        is_crypto: If True, use 24h crypto session logic and skip SPY demotion.
 
     Returns:
         List of AlertSignal objects for rules that fired.
@@ -2664,8 +2693,12 @@ def evaluate_rules(
     # --- Context filters ---
     spy = spy_context or {}
     spy_trend = spy.get("trend", "neutral")
-    phase = get_session_phase()
-    entries_allowed = allow_new_entries()
+    if is_crypto:
+        phase = get_session_phase_for_symbol(symbol)
+        entries_allowed = True  # crypto markets are always open
+    else:
+        phase = get_session_phase()
+        entries_allowed = allow_new_entries()
 
     # Compute VWAP for context enrichment
     from analytics.intraday_data import (
@@ -2692,7 +2725,10 @@ def evaluate_rules(
     vol_label = _volume_label(bar_vol, avg_vol)
 
     # Compute opening range for ORB rule
-    opening_range = compute_opening_range(intraday_bars)
+    if is_crypto:
+        opening_range = _compute_crypto_opening_range(intraday_bars)
+    else:
+        opening_range = compute_opening_range(intraday_bars)
 
     # Compute MTF alignment
     mtf = check_mtf_alignment(intraday_bars)
@@ -2728,12 +2764,13 @@ def evaluate_rules(
     # --- BUY rules ---
     spy_regime = spy.get("regime", "CHOPPY")
     caution_notes = []
-    if spy_trend == "bearish":
-        caution_notes.append("SPY bearish (below 20MA)")
-    if spy_regime == "CHOPPY":
-        caution_notes.append(f"SPY regime: {spy_regime}")
-    if spy_regime == "TRENDING_DOWN":
-        caution_notes.append("SPY TRENDING DOWN — reduced confidence")
+    if not is_crypto:
+        if spy_trend == "bearish":
+            caution_notes.append("SPY bearish (below 20MA)")
+        if spy_regime == "CHOPPY":
+            caution_notes.append(f"SPY regime: {spy_regime}")
+        if spy_regime == "TRENDING_DOWN":
+            caution_notes.append("SPY TRENDING DOWN — reduced confidence")
     if not entries_allowed:
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
@@ -3260,8 +3297,8 @@ def evaluate_rules(
         elif sig.direction == "BUY" and exhaustion_type == "buyer_exhaustion":
             sig.message += f" | CAUTION: {exhaustion_msg}"
 
-        # RS filter: demote BUY confidence when severely underperforming SPY
-        if sig.direction == "BUY" and spy_intraday_change != 0:
+        # RS filter: demote BUY confidence when severely underperforming SPY (equities only)
+        if not is_crypto and sig.direction == "BUY" and spy_intraday_change != 0:
             rs_ratio = sym_intraday_change / spy_intraday_change if spy_intraday_change != 0 else 0.0
             sig.rs_ratio = round(rs_ratio, 2)
             # If both are negative and symbol is falling N times harder than SPY
@@ -3274,20 +3311,20 @@ def evaluate_rules(
                     f"SPY {spy_intraday_change:+.1f}% (underperforming {rs_ratio:.1f}x)"
                 )
 
-        # Regime demotion: reduce BUY confidence in CHOPPY markets
-        if sig.direction == "BUY" and spy_regime == "CHOPPY":
+        # Regime demotion: reduce BUY confidence in CHOPPY markets (equities only)
+        if not is_crypto and sig.direction == "BUY" and spy_regime == "CHOPPY":
             if sig.confidence == "high":
                 sig.confidence = "medium"
             sig.message += " | CHOPPY market — reduced confidence"
 
-        # SPY TRENDING_DOWN: strongest demotion — demote to medium, strong warning
-        if sig.direction == "BUY" and spy_regime == "TRENDING_DOWN":
+        # SPY TRENDING_DOWN: strongest demotion (equities only)
+        if not is_crypto and sig.direction == "BUY" and spy_regime == "TRENDING_DOWN":
             if sig.confidence == "high":
                 sig.confidence = "medium"
             sig.message += " | SPY TRENDING DOWN — use extreme caution"
 
         # SPY S/R level reaction: adjust BUY confidence based on SPY position
-        if sig.direction == "BUY":
+        if not is_crypto and sig.direction == "BUY":
             spy_at_resistance = spy.get("spy_at_resistance", False)
             spy_at_support = spy.get("spy_at_support", False)
             spy_level_label = spy.get("spy_level_label", "")

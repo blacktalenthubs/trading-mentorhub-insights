@@ -294,7 +294,7 @@ ENABLED_RULES: set[str] = {
     # "session_low_double_bottom",
     # "planned_level_touch",
     # "vwap_reclaim",
-    # "opening_low_base",
+    "opening_low_base",
     # "outside_day_breakout",
     # "ema_crossover_5_20",
     # "hourly_resistance_approach",
@@ -303,8 +303,9 @@ ENABLED_RULES: set[str] = {
 
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)
 PER_SYMBOL_RISK: dict[str, float] = {
-    "SPY": 0.002, "QQQ": 0.002,       # tight for ETFs
-    "NVDA": 0.004, "TSLA": 0.005,     # wider for volatile stocks
+    "SPY": 0.002, "QQQ": 0.002,           # tight for ETFs
+    "NVDA": 0.004, "TSLA": 0.005,         # wider for volatile stocks
+    "BTC-USD": 0.008, "ETH-USD": 0.010,   # crypto — wider for 24h volatility
 }
 
 # ---------------------------------------------------------------------------

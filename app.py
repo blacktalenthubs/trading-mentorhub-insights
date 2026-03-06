@@ -385,12 +385,8 @@ else:
 
             new_signals.append(sig)
 
-            # Send notifications — gate low-score BUY from Telegram
-            active_score = sig.score_v2 if SCORE_VERSION == 2 else sig.score
-            if sig.direction == "BUY" and active_score < TELEGRAM_TIER1_MIN_SCORE:
-                email_sent, sms_sent = False, False
-            else:
-                email_sent, sms_sent = notify(sig)
+            # Send all notifications — no score gate; evaluate accuracy later
+            email_sent, sms_sent = notify(sig)
 
             # Record to DB so alerts persist and dedup works across refreshes
             record_alert(sig, session, email_sent, sms_sent)
