@@ -2003,6 +2003,7 @@ def check_planned_level_touch(
     symbol: str,
     bar: pd.Series,
     plan: dict | None,
+    today_open: float = 0,
 ) -> AlertSignal | None:
     """Price touches the Scanner's daily plan levels and bounces — potential BUY entry.
 
@@ -2027,6 +2028,11 @@ def check_planned_level_touch(
     target_1 = plan.get("target_1") or 0
     target_2 = plan.get("target_2") or 0
     pattern = plan.get("pattern", "normal")
+
+    # Skip stale plan: if plan entry is above today's open, the planned
+    # "support" is actually overhead resistance on a gap-down day.
+    if today_open > 0 and entry > today_open * 1.005:
+        return None
 
     # Check each level for proximity — entry and support are the primary BUY zone levels
     levels_to_check = []
@@ -3087,7 +3093,7 @@ def evaluate_rules(
 
         # --- Planned Level Touch (uses daily plan from DB) ---
         if daily_plan is not None:
-            sig = check_planned_level_touch(symbol, last_bar, daily_plan)
+            sig = check_planned_level_touch(symbol, last_bar, daily_plan, today_open)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:

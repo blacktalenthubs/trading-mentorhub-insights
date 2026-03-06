@@ -527,14 +527,13 @@ for r in results:
         "Pattern": r.pattern.upper(),
         "Proj Support": proj_support,
         "Proj Resist": proj_resist,
-        "Entry": r.entry,
-        "Stop": r.stop,
-        "Re-entry Stop": r.reentry_stop,
-        "Target": r.target_1,
-        "R:R": f"{r.rr_ratio:.1f}:1",
-        "Risk/Sh": r.risk_per_share,
-        "Shares": shares,
-        "$ Risk": total_risk,
+        "Entry": r.entry if r.entry <= price else None,
+        "Stop": r.stop if r.entry <= price else None,
+        "Target": r.target_1 if r.entry <= price else None,
+        "R:R": f"{r.rr_ratio:.1f}:1" if r.entry <= price else "—",
+        "Risk/Sh": r.risk_per_share if r.entry <= price else None,
+        "Shares": shares if r.entry <= price else None,
+        "$ Risk": total_risk if r.entry <= price else None,
     })
 
 table_df = pd.DataFrame(table_rows)
@@ -545,9 +544,12 @@ st.dataframe(
         price_label: "${:,.2f}",
         "Proj Support": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
         "Proj Resist": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
-        "Entry": "${:,.2f}", "Stop": "${:,.2f}",
-        "Re-entry Stop": "${:,.2f}", "Target": "${:,.2f}",
-        "Risk/Sh": "${:,.2f}", "$ Risk": "${:,.0f}",
+        "Entry": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
+        "Stop": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
+        "Target": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
+        "Risk/Sh": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
+        "Shares": lambda v: f"{v:,.0f}" if pd.notna(v) else "—",
+        "$ Risk": lambda v: f"${v:,.0f}" if pd.notna(v) else "—",
     })
     .applymap(_color_plan, subset=["Plan"])
     .applymap(_color_status, subset=["Status"])
