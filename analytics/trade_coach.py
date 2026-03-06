@@ -149,7 +149,7 @@ def assemble_context() -> dict:
     # Lazy imports to avoid circular imports (same pattern as narrator.py)
     from alerting.real_trade_store import get_closed_trades, get_open_trades, get_real_trade_stats
     from alerting.options_trade_store import get_options_trade_stats
-    from alerting.alert_store import get_session_dates, get_session_summary
+    from alerting.alert_store import get_alerts_today, get_session_dates, get_session_summary
     from analytics.intraday_data import get_spy_context
     from db import get_all_daily_plans
 
@@ -167,6 +167,7 @@ def assemble_context() -> dict:
         "trade_stats": _safe_call(get_real_trade_stats),
         "options_stats": _safe_call(get_options_trade_stats),
         "session_summary": _safe_call(get_session_summary, session),
+        "today_alerts": _safe_call(get_alerts_today, session),
         "prev_session_summary": _safe_call(get_session_summary, prev_session) if prev_session else None,
         "prev_session_date": prev_session,
         "spy_context": _safe_call(get_spy_context),
@@ -313,8 +314,9 @@ def format_system_prompt(context: dict) -> str:
             lines.append("  ".join(parts))
         sections.append("\n".join(lines))
 
-    # Session summary (today's alerts)
+    # Session summary + individual alerts (today)
     summary = context.get("session_summary")
+    today_alerts = context.get("today_alerts") or []
     if summary and summary.get("total", 0) > 0:
         lines = [
             "[TODAY'S ALERTS]",
@@ -325,6 +327,21 @@ def format_system_prompt(context: dict) -> str:
             lines.append(f"T1 hits: {summary['t1_hits']}")
         if summary.get("stopped_out", 0):
             lines.append(f"Stopped out: {summary['stopped_out']}")
+        for a in today_alerts[:20]:
+            score = a.get("score", "?")
+            conf = a.get("confidence", "")
+            msg = a.get("message", "")
+            # Truncate message to keep prompt compact
+            if len(msg) > 120:
+                msg = msg[:120] + "..."
+            lines.append(
+                f"- {a.get('symbol', '?')} {a.get('direction', '?')} "
+                f"{a.get('alert_type', '').replace('_', ' ')}  "
+                f"score={score} conf={conf}  price=${a.get('price', 0):.2f}  "
+                f"entry=${a.get('entry', 0):.2f}  stop=${a.get('stop', 0):.2f}  "
+                f"T1=${a.get('target_1', 0):.2f}  T2=${a.get('target_2', 0):.2f}"
+                + (f"  [{msg}]" if msg else "")
+            )
         sections.append("\n".join(lines))
 
     # Previous session alerts (yesterday)
