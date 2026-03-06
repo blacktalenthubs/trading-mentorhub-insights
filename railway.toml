@@ -1,9 +1,0 @@
-[build]
-builder = "nixpacks"
-# Set env var NIXPACKS_PYTHON_REQUIREMENTS=requirements-worker.txt in Railway
-# dashboard to use lean deps (no streamlit/plotly/bcrypt)
-
-[deploy]
-startCommand = "python worker.py"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
