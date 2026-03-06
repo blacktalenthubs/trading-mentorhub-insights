@@ -42,6 +42,7 @@ from alert_config import (
     OPTIONS_MIN_SCORE,
     POLL_INTERVAL_MINUTES,
     REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_POSITION_SIZE,
+    SCORE_VERSION,
     TELEGRAM_TIER1_MIN_SCORE,
 )
 import ui_theme
@@ -385,7 +386,8 @@ else:
             new_signals.append(sig)
 
             # Send notifications — gate low-score BUY from Telegram
-            if sig.direction == "BUY" and sig.score < TELEGRAM_TIER1_MIN_SCORE:
+            active_score = sig.score_v2 if SCORE_VERSION == 2 else sig.score
+            if sig.direction == "BUY" and active_score < TELEGRAM_TIER1_MIN_SCORE:
                 email_sent, sms_sent = False, False
             else:
                 email_sent, sms_sent = notify(sig)

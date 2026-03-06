@@ -63,6 +63,7 @@ def tmp_db(tmp_path):
             message TEXT,
             narrative TEXT DEFAULT '',
             score INTEGER DEFAULT 0,
+            score_v2 INTEGER DEFAULT 0,
             notified_email INTEGER DEFAULT 0,
             notified_sms INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

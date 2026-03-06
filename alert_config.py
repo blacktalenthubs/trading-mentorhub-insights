@@ -174,6 +174,38 @@ DAILY_SCORE_VERY_WEAK_PENALTY = 25    # points deducted for very weak daily setu
 CONSOLIDATION_SCORE_BOOST = 5   # points per confirming signal
 CONSOLIDATION_MAX_BOOST = 15    # max boost from consolidation
 
+# ---------------------------------------------------------------------------
+# Score v2 — signal-type-aware scoring
+# ---------------------------------------------------------------------------
+
+# Feature flag: 1 = v1 active (default), 2 = v2 active for Telegram gating
+SCORE_VERSION = int(_get_secret("SCORE_VERSION", "1"))
+
+# Bounce / dip-buy signal types — mean-reversion setups that fire when price
+# is below MAs and VWAP (conditions that v1 penalises but are *expected*).
+BOUNCE_ALERT_TYPES: set[str] = {
+    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+    "ema_bounce_20", "ema_bounce_50", "ema_bounce_100",
+    "prior_day_low_reclaim",
+    "session_low_double_bottom",
+    "intraday_support_bounce",
+    "vwap_reclaim",
+    "opening_low_base",
+    "weekly_level_touch",
+    "planned_level_touch",
+}
+
+# MA/EMA bounce subset — the MA itself is the level being tested, so
+# "below both MAs" actually *validates* the signal (full 25 pts).
+MA_BOUNCE_ALERT_TYPES: set[str] = {
+    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+    "ema_bounce_20", "ema_bounce_50", "ema_bounce_100",
+}
+
+# Risk:Reward bonus for v2 scoring
+SCORE_V2_RR_BONUS_THRESHOLD = 1.5   # T1 reward / risk >= this → bonus
+SCORE_V2_RR_BONUS_POINTS = 5        # bonus points added
+
 # Overhead MA resistance: suppress BUY when an MA is within this % above entry
 OVERHEAD_MA_RESISTANCE_PCT = 0.005  # 0.5%
 

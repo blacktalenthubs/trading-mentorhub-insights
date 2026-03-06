@@ -39,7 +39,12 @@ def _format_email_body(signal: AlertSignal) -> str:
     ]
 
     if signal.score > 0:
-        lines.append(f"Score:   {signal.score_label} ({signal.score}/100)")
+        score_line = f"Score:   {signal.score_label} ({signal.score}/100)"
+        v2 = getattr(signal, "score_v2", 0)
+        if v2 and v2 != signal.score:
+            v2_label = getattr(signal, "score_v2_label", "")
+            score_line += f" | v2: {v2_label} ({v2}/100)"
+        lines.append(score_line)
 
     if signal.entry is not None:
         lines.append(f"Entry:   ${signal.entry:.2f}")
@@ -103,7 +108,12 @@ def _format_sms_body(signal: AlertSignal) -> str:
     # BUY signals: entry, targets, score on first line
     score_tag = ""
     if signal.score > 0:
-        score_tag = f" — {signal.score_label} ({signal.score})"
+        v2 = getattr(signal, "score_v2", 0)
+        v2_label = getattr(signal, "score_v2_label", "")
+        if v2 and v2 != signal.score:
+            score_tag = f" — {signal.score_label} ({signal.score}) v2:{v2_label} ({v2})"
+        else:
+            score_tag = f" — {signal.score_label} ({signal.score})"
     parts = [f"BUY {signal.symbol} ${signal.price:.2f}{score_tag}"]
     parts.append(label)
 

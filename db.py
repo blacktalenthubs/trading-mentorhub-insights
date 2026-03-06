@@ -389,6 +389,7 @@ def init_db():
                 message TEXT,
                 narrative TEXT DEFAULT '',
                 score INTEGER DEFAULT 0,
+                score_v2 INTEGER DEFAULT 0,
                 notified_email INTEGER DEFAULT 0,
                 notified_sms INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -610,6 +611,7 @@ def init_db():
         _migrate_add_daily_plans()
         _migrate_real_trades_swing()
     _migrate_ensure_default_watchlist()
+    _migrate_add_score_v2()
 
 
 def _migrate_add_user_id():
@@ -851,6 +853,15 @@ def _migrate_alert_user_id():
                        VALUES (?, ?, ?)""",
                     (admin["id"], telegram_chat_id, notification_email),
                 )
+
+
+def _migrate_add_score_v2():
+    """Add score_v2 column to alerts table if missing."""
+    with get_db() as conn:
+        try:
+            conn.execute("ALTER TABLE alerts ADD COLUMN score_v2 INTEGER DEFAULT 0")
+        except _DB_OPERATIONAL_ERRORS:
+            pass  # Column already exists
 
 
 # ---------------------------------------------------------------------------

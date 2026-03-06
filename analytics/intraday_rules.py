@@ -22,6 +22,7 @@ import pandas as pd
 logger = logging.getLogger("intraday_rules")
 
 from alert_config import (
+    BOUNCE_ALERT_TYPES,
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
     BUY_ZONE_PROXIMITY_PCT,
@@ -33,6 +34,7 @@ from alert_config import (
     ENABLED_RULES,
     HOURLY_RESISTANCE_APPROACH_PCT,
     LOW_VOLUME_SKIP_RATIO,
+    MA_BOUNCE_ALERT_TYPES,
     MA_BOUNCE_PROXIMITY_PCT,
     MA_BOUNCE_SESSION_STOP_PCT,
     MA_STOP_OFFSET_PCT,
@@ -52,6 +54,8 @@ from alert_config import (
     WEEKLY_LEVEL_PROXIMITY_PCT,
     WEEKLY_LEVEL_STOP_OFFSET_PCT,
     RS_UNDERPERFORM_FACTOR,
+    SCORE_V2_RR_BONUS_POINTS,
+    SCORE_V2_RR_BONUS_THRESHOLD,
     SPY_EMA_CONVERGENCE_PCT,
     SPY_RSI_OVERBOUGHT,
     SPY_RSI_OVERSOLD,
@@ -151,6 +155,8 @@ class AlertSignal:
     gap_info: str = ""
     score: int = 0
     score_label: str = ""
+    score_v2: int = 0
+    score_v2_label: str = ""
     rs_ratio: float = 0.0
     mtf_aligned: bool = False
     confluence: bool = False
@@ -2303,6 +2309,74 @@ def _score_alert(
     return score
 
 
+def _score_alert_v2(
+    sig: AlertSignal,
+    ma20: float | None,
+    ma50: float | None,
+    close: float,
+    vol_ratio: float,
+) -> int:
+    """Signal-type-aware score (0-100).
+
+    For bounce/dip-buy signals, adjusts MA position and VWAP factors to
+    reflect that being below MAs and VWAP is *expected* (mean-reversion).
+    Adds R:R bonus when T1 reward/risk >= threshold.
+    For breakout signals, identical to v1 (plus R:R bonus).
+    """
+    alert_type_str = sig.alert_type.value
+    is_bounce = alert_type_str in BOUNCE_ALERT_TYPES
+    is_ma_bounce = alert_type_str in MA_BOUNCE_ALERT_TYPES
+
+    score = 0
+
+    # --- MA position (25) ---
+    above_20 = ma20 is not None and close > ma20
+    above_50 = ma50 is not None and close > ma50
+    if is_ma_bounce:
+        # The MA itself is the level being tested — full credit
+        score += 25
+    elif is_bounce:
+        # Other bounce below both MAs: partial credit (10), not 0
+        score += 25 if (above_20 and above_50) else (15 if (above_20 or above_50) else 10)
+    else:
+        # Breakout / non-bounce: same as v1
+        score += 25 if (above_20 and above_50) else (15 if (above_20 or above_50) else 0)
+
+    # --- Volume (25): same as v1 ---
+    score += 25 if vol_ratio >= 1.2 else (15 if vol_ratio >= 0.8 else 5)
+
+    # --- Confidence (25): same as v1 ---
+    score += 25 if sig.confidence == "high" else 15
+
+    # --- VWAP alignment (25) ---
+    vwap_aligned = (
+        (sig.direction == "BUY" and sig.vwap_position == "above VWAP")
+        or (sig.direction == "SHORT" and sig.vwap_position == "below VWAP")
+    )
+    if vwap_aligned:
+        score += 25
+    elif is_bounce:
+        # Below VWAP is neutral/expected for dip-buys
+        score += 15
+    else:
+        score += 10
+
+    # --- R:R bonus (BUY entries only) ---
+    if (
+        sig.direction == "BUY"
+        and sig.entry is not None
+        and sig.stop is not None
+        and sig.target_1 is not None
+    ):
+        risk = sig.entry - sig.stop
+        if risk > 0:
+            reward = sig.target_1 - sig.entry
+            if reward / risk >= SCORE_V2_RR_BONUS_THRESHOLD:
+                score += SCORE_V2_RR_BONUS_POINTS
+
+    return min(100, score)
+
+
 # ---------------------------------------------------------------------------
 # Signal Consolidation
 # ---------------------------------------------------------------------------
@@ -2335,15 +2409,22 @@ def _consolidate_signals(signals: list[AlertSignal]) -> list[AlertSignal]:
         primary = group[0]
         others = group[1:]
 
-        # Boost score
+        # Boost score (v1 and v2)
         boost = min(len(others) * CONSOLIDATION_SCORE_BOOST, CONSOLIDATION_MAX_BOOST)
         primary.score = min(100, primary.score + boost)
+        primary.score_v2 = min(100, primary.score_v2 + boost)
 
-        # Recalculate score_label
+        # Recalculate score labels
         primary.score_label = (
             "A+" if primary.score >= 90
             else "A" if primary.score >= 75
             else "B" if primary.score >= 50
+            else "C"
+        )
+        primary.score_v2_label = (
+            "A+" if primary.score_v2 >= 90
+            else "A" if primary.score_v2 >= 75
+            else "B" if primary.score_v2 >= 50
             else "C"
         )
 
@@ -3074,19 +3155,28 @@ def evaluate_rules(
                 sig.message += " | 15m trend NOT aligned (caution)"
 
         sig.score = _score_alert(sig, ma20, ma50, last_bar["Close"], vol_ratio)
+        sig.score_v2 = _score_alert_v2(sig, ma20, ma50, last_bar["Close"], vol_ratio)
 
-        # Confluence score boost
+        # Confluence score boost (v1 + v2)
         if sig.confluence:
             sig.score = min(100, sig.score + 10)
+            sig.score_v2 = min(100, sig.score_v2 + 10)
 
-        # MTF alignment score boost
+        # MTF alignment score boost (v1 + v2)
         if sig.direction == "BUY" and mtf["mtf_aligned"]:
             sig.score = min(100, sig.score + 10)
+            sig.score_v2 = min(100, sig.score_v2 + 10)
 
         sig.score_label = (
             "A+" if sig.score >= 90
             else "A" if sig.score >= 75
             else "B" if sig.score >= 50
+            else "C"
+        )
+        sig.score_v2_label = (
+            "A+" if sig.score_v2 >= 90
+            else "A" if sig.score_v2 >= 75
+            else "B" if sig.score_v2 >= 50
             else "C"
         )
 

@@ -93,13 +93,16 @@ if positions:
         "unrealized_plpc": "P&L %",
     })
     st.dataframe(
-        df_pos.set_index("Symbol").style.format({
-            "Avg Entry": "${:,.2f}",
-            "Current Price": "${:,.2f}",
-            "Market Value": "${:,.2f}",
-            "Unrealized P&L": "${:,.2f}",
-            "P&L %": "{:+.2f}%",
-        }),
+        df_pos.set_index("Symbol").style.format(
+            {
+                "Avg Entry": "${:,.2f}",
+                "Current Price": "${:,.2f}",
+                "Market Value": "${:,.2f}",
+                "Unrealized P&L": "${:,.2f}",
+                "P&L %": "{:+.2f}%",
+            },
+            na_rep="—",
+        ),
         use_container_width=True,
     )
 else:
@@ -181,11 +184,14 @@ if history:
         "alert_type": "Signal", "session_date": "Date",
     })
     st.dataframe(
-        df_display.set_index("Symbol").style.format({
-            "Entry": "${:,.2f}", "Exit": "${:,.2f}",
-            "Stop": "${:,.2f}", "Target": "${:,.2f}",
-            "P&L": "${:,.2f}",
-        }),
+        df_display.set_index("Symbol").style.format(
+            {
+                "Entry": "${:,.2f}", "Exit": "${:,.2f}",
+                "Stop": "${:,.2f}", "Target": "${:,.2f}",
+                "P&L": "${:,.2f}",
+            },
+            na_rep="—",
+        ),
         use_container_width=True,
     )
 else:
