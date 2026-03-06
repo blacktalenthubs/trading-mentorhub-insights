@@ -3384,15 +3384,25 @@ def evaluate_rules(
             )
 
     # --- Staleness filter: drop BUY signals where price already ran past entry + 1R ---
+    # Exempt breakout alerts — price is supposed to run above entry on breakouts.
+    _breakout_types = {
+        AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
+        AlertType.INSIDE_DAY_BREAKOUT.value,
+        AlertType.OUTSIDE_DAY_BREAKOUT.value,
+        AlertType.WEEKLY_HIGH_BREAKOUT.value,
+        AlertType.OPENING_RANGE_BREAKOUT.value,
+    }
     current_price = last_bar["Close"]
     pre_stale = signals[:]
     signals = [
         s for s in signals
         if not (s.direction == "BUY" and s.entry and s.stop
+                and s.alert_type.value not in _breakout_types
                 and current_price > s.entry + (s.entry - s.stop))
     ]
     for s in pre_stale:
         if (s.direction == "BUY" and s.entry and s.stop
+                and s.alert_type.value not in _breakout_types
                 and current_price > s.entry + (s.entry - s.stop)):
             logger.debug(
                 "%s: staleness filter dropped %s (price=%.2f > entry+1R=%.2f)",
