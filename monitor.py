@@ -248,6 +248,13 @@ def _maybe_run_eod() -> None:
     except Exception:
         logger.exception("EOD swing scan failed")
 
+    # EOD AI Review
+    try:
+        from analytics.eod_review import send_eod_review
+        send_eod_review()
+    except Exception:
+        logger.exception("EOD review failed")
+
 
 def run_monitor():
     """Start the APScheduler-based monitor loop."""
@@ -256,6 +263,18 @@ def run_monitor():
     scheduler = BlockingScheduler()
 
     def scheduled_poll():
+        # Pre-market brief: send once between 9:10-9:29 AM ET
+        try:
+            from analytics.market_hours import is_premarket
+            if is_premarket():
+                import pytz as _pytz
+                now_et = datetime.now(_pytz.timezone("US/Eastern"))
+                if now_et.hour == 9 and now_et.minute >= 10:
+                    from analytics.premarket_brief import send_premarket_brief
+                    send_premarket_brief()
+        except Exception:
+            logger.exception("Pre-market brief failed")
+
         if not is_market_hours():
             _maybe_run_eod()
             logger.info("Market closed — skipping poll")
