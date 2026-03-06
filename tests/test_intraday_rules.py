@@ -259,12 +259,21 @@ class TestPriorDayLowReclaim:
     def test_fires_on_dip_and_reclaim(self):
         bars = _bars([
             {"Open": 100, "High": 100.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},
-            {"Open": 99.0, "High": 100.2, "Low": 98.8, "Close": 100.1, "Volume": 1200},
+            {"Open": 99.0, "High": 99.6, "Low": 98.8, "Close": 99.5, "Volume": 1200},
         ])
         sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
         assert sig.direction == "BUY"
+
+    def test_no_fire_when_price_ran_past_entry(self):
+        """Price reclaimed but already ran >0.7% above entry — stale signal."""
+        bars = _bars([
+            {"Open": 100, "High": 100.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},
+            {"Open": 99.0, "High": 100.5, "Low": 98.8, "Close": 100.2, "Volume": 1200},
+        ])
+        sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
+        assert sig is None
 
     def test_no_fire_when_no_dip_below_prior_low(self):
         bars = _bars([

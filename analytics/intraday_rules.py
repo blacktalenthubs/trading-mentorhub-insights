@@ -50,6 +50,7 @@ from alert_config import (
     PDH_BREAKOUT_VOLUME_RATIO,
     INSIDE_DAY_DIP_MIN_PCT,
     PDL_DIP_MIN_PCT,
+    PDL_RECLAIM_MAX_DISTANCE_PCT,
     PER_SYMBOL_RISK,
     RESISTANCE_PROXIMITY_PCT,
     WEEKLY_LEVEL_PROXIMITY_PCT,
@@ -447,6 +448,11 @@ def check_prior_day_low_reclaim(
     last_bar = bars.iloc[-1]
     if last_bar["Close"] <= prior_day_low:
         return None  # hasn't reclaimed yet
+
+    # Skip if price already ran too far above entry — signal is stale
+    distance_pct = (last_bar["Close"] - prior_day_low) / prior_day_low
+    if distance_pct > PDL_RECLAIM_MAX_DISTANCE_PCT:
+        return None
 
     entry = prior_day_low
     intraday_low = bars["Low"].min()
@@ -2952,17 +2958,18 @@ def evaluate_rules(
                 sig.message += caution_suffix
                 signals.append(sig)
 
-        sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
-        if sig:
-            sig.message += f" ({phase})"
-            # Gap down days boost PDL reclaim confidence
-            if gap["type"] == "gap_down":
-                sig.confidence = "high"
-                sig.message += " — gap fill opportunity"
-            if vwap_pos:
-                sig.message += f" — price {vwap_pos}"
-            sig.message += caution_suffix
-            signals.append(sig)
+        if AlertType.PRIOR_DAY_LOW_RECLAIM.value in ENABLED_RULES:
+            sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
+            if sig:
+                sig.message += f" ({phase})"
+                # Gap down days boost PDL reclaim confidence
+                if gap["type"] == "gap_down":
+                    sig.confidence = "high"
+                    sig.message += " — gap fill opportunity"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
 
         # --- Prior Day High Breakout ---
         if AlertType.PRIOR_DAY_HIGH_BREAKOUT.value in ENABLED_RULES:
