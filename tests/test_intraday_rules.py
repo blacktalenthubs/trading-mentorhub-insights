@@ -1682,6 +1682,34 @@ class TestPlannedLevelTouch:
         assert sig is not None
         assert "50 MA" in sig.message
 
+    def test_fires_when_entry_slightly_above_open(self):
+        """Entry 0.5% above open (normal intraday range) → should fire."""
+        plan = {
+            "pattern": "normal",
+            "entry": 679.62, "stop": 677.14,
+            "target_1": 685.53, "target_2": 690.0,
+            "support": 679.62, "support_label": "Prior Day Low",
+            "support_status": "AT SUPPORT",
+        }
+        # Open at 676, entry at 679.62 = 0.53% above — should NOT be blocked
+        bar = _bar(open_=680.0, high=681.0, low=679.50, close=680.5)
+        sig = check_planned_level_touch("SPY", bar, plan, today_open=676.0)
+        assert sig is not None
+
+    def test_no_fire_on_big_gap_down(self):
+        """Entry 3% above open (gap-down day) → stale, skip."""
+        plan = {
+            "pattern": "normal",
+            "entry": 679.62, "stop": 677.14,
+            "target_1": 685.53, "target_2": 690.0,
+            "support": 679.62, "support_label": "Prior Day Low",
+            "support_status": "AT SUPPORT",
+        }
+        # Open at 660, entry at 679.62 = 2.97% above — blocked
+        bar = _bar(open_=680.0, high=681.0, low=679.50, close=680.5)
+        sig = check_planned_level_touch("SPY", bar, plan, today_open=660.0)
+        assert sig is None
+
 
 # ===== Market Regime Detection =====
 

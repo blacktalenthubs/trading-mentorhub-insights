@@ -2110,9 +2110,9 @@ def check_planned_level_touch(
     target_2 = plan.get("target_2") or 0
     pattern = plan.get("pattern", "normal")
 
-    # Skip stale plan: if plan entry is above today's open, the planned
-    # "support" is actually overhead resistance on a gap-down day.
-    if today_open > 0 and entry > today_open * 1.005:
+    # Skip stale plan on significant gap-down: if plan entry is far above
+    # today's open (>2%), it's overhead resistance, not a buy level.
+    if today_open > 0 and entry > today_open * 1.02:
         return None
 
     # Check each level for proximity — entry and support are the primary BUY zone levels

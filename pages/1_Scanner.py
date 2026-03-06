@@ -527,13 +527,13 @@ for r in results:
         "Pattern": r.pattern.upper(),
         "Proj Support": proj_support,
         "Proj Resist": proj_resist,
-        "Entry": r.entry if r.entry <= price else None,
-        "Stop": r.stop if r.entry <= price else None,
-        "Target": r.target_1 if r.entry <= price else None,
-        "R:R": f"{r.rr_ratio:.1f}:1" if r.entry <= price else "—",
-        "Risk/Sh": r.risk_per_share if r.entry <= price else None,
-        "Shares": shares if r.entry <= price else None,
-        "$ Risk": total_risk if r.entry <= price else None,
+        "Entry": r.entry if r.entry <= price * 1.02 else None,
+        "Stop": r.stop if r.entry <= price * 1.02 else None,
+        "Target": r.target_1 if r.entry <= price * 1.02 else None,
+        "R:R": f"{r.rr_ratio:.1f}:1" if r.entry <= price * 1.02 else "—",
+        "Risk/Sh": r.risk_per_share if r.entry <= price * 1.02 else None,
+        "Shares": shares if r.entry <= price * 1.02 else None,
+        "$ Risk": total_risk if r.entry <= price * 1.02 else None,
     })
 
 table_df = pd.DataFrame(table_rows)
