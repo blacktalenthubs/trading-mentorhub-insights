@@ -1575,43 +1575,19 @@ def check_vwap_reclaim(
     bar_volume: float,
     avg_volume: float,
 ) -> AlertSignal | None:
-    """V-shape morning reversal through VWAP — high-conviction BUY.
+    """Price reclaims VWAP from below — bullish reversal signal.
 
-    Pattern: session low set in first hour → price recovers → reclaims VWAP
-    on above-average volume.
+    Pattern: price was trading below VWAP, last bar closes above it.
 
     Conditions:
-    1. Session low is in first VWAP_RECLAIM_MORNING_BARS bars (first 60 min)
-    2. At least VWAP_RECLAIM_MIN_BARS_AFTER_LOW bars since session low
-    3. Last bar closes above VWAP
+    1. At least VWAP_RECLAIM_MIN_BARS_AFTER_LOW bars of data
+    2. Some recent bar traded below VWAP (confirming price was under)
+    3. Last bar closes above VWAP (reclaim confirmed)
     4. Recovery from session low >= VWAP_RECLAIM_MIN_RECOVERY_PCT
-    5. Volume >= VWAP_RECLAIM_VOLUME_RATIO × avg
     """
     if bars.empty or vwap_series.empty:
         return None
     if len(bars) < VWAP_RECLAIM_MIN_BARS_AFTER_LOW + 1:
-        return None
-
-    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 0.0
-    if vol_ratio < VWAP_RECLAIM_VOLUME_RATIO:
-        return None
-
-    # Session low must be in the morning window
-    morning = bars.iloc[:VWAP_RECLAIM_MORNING_BARS]
-    if morning.empty:
-        return None
-    morning_low = morning["Low"].min()
-    session_low = bars["Low"].min()
-    if morning_low > session_low:
-        return None  # session low came after the morning window
-
-    # Find index of the session-low bar (first occurrence in morning)
-    low_idx = morning["Low"].idxmin()
-    low_pos = bars.index.get_loc(low_idx)
-
-    # Must have enough bars after the low
-    bars_after_low = len(bars) - 1 - low_pos
-    if bars_after_low < VWAP_RECLAIM_MIN_BARS_AFTER_LOW:
         return None
 
     last_bar = bars.iloc[-1]
@@ -1622,6 +1598,18 @@ def check_vwap_reclaim(
     # Last bar must close above VWAP
     if last_bar["Close"] <= current_vwap:
         return None
+
+    # Confirm price was recently below VWAP (lookback last 12 bars = 60 min)
+    lookback = min(12, len(bars) - 1)
+    recent = bars.iloc[-(lookback + 1):-1]  # exclude last bar
+    recent_vwap = vwap_series.iloc[-(lookback + 1):-1]
+    if recent.empty:
+        return None
+    was_below = (recent["Close"] < recent_vwap).any()
+    if not was_below:
+        return None  # wasn't below VWAP recently — not a reclaim
+
+    session_low = bars["Low"].min()
 
     # Recovery must be meaningful
     recovery_pct = (last_bar["Close"] - session_low) / session_low if session_low > 0 else 0
@@ -1634,7 +1622,8 @@ def check_vwap_reclaim(
     if risk <= 0:
         return None
 
-    confidence = "high" if vol_ratio >= 1.5 else "medium"
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 0.0
+    confidence = "high" if vol_ratio >= 1.2 else "medium"
 
     return AlertSignal(
         symbol=symbol,
