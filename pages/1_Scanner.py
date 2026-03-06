@@ -16,6 +16,7 @@ from analytics.signal_engine import (
 from analytics.intraday_data import (
     fetch_intraday, fetch_prior_day, get_spy_context,
     fetch_premarket_bars, compute_premarket_brief,
+    fetch_hourly_bars, detect_hourly_support,
 )
 from analytics.intraday_rules import evaluate_rules
 from analytics.market_hours import is_market_hours, is_premarket
@@ -508,6 +509,17 @@ for r in results:
     _above = [l for l in _levels if l > price]
     proj_support = max(_below) if _below else None
     proj_resist = min(_above) if _above else None
+
+    # Fallback: hourly swing lows when no daily support below price
+    if proj_support is None:
+        try:
+            _h_bars = fetch_hourly_bars(r.symbol)
+            _h_supports = detect_hourly_support(_h_bars)
+            _h_below = [l for l in _h_supports if l <= price]
+            if _h_below:
+                proj_support = max(_h_below)
+        except Exception:
+            pass
 
     table_rows.append({
         "Symbol": r.symbol,

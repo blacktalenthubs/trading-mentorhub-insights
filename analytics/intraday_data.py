@@ -93,6 +93,37 @@ def detect_hourly_resistance(
     return sorted(max(c) for c in clusters)
 
 
+def detect_hourly_support(
+    bars_1h: pd.DataFrame,
+    cluster_pct: float = HOURLY_RESISTANCE_CLUSTER_PCT,
+) -> list[float]:
+    """Find hourly swing low support levels from multi-day 1h bars.
+
+    Mirrors detect_hourly_resistance() but uses swing lows.
+    """
+    if bars_1h.empty or len(bars_1h) < 3:
+        return []
+
+    swing_lows: list[float] = []
+    for i in range(1, len(bars_1h) - 1):
+        if (bars_1h["Low"].iloc[i] < bars_1h["Low"].iloc[i - 1]
+                and bars_1h["Low"].iloc[i] < bars_1h["Low"].iloc[i + 1]):
+            swing_lows.append(float(bars_1h["Low"].iloc[i]))
+
+    if not swing_lows:
+        return []
+
+    swing_lows.sort()
+    clusters: list[list[float]] = [[swing_lows[0]]]
+    for level in swing_lows[1:]:
+        if (level - clusters[-1][0]) / clusters[-1][0] <= cluster_pct:
+            clusters[-1].append(level)
+        else:
+            clusters.append([level])
+
+    return sorted(min(c) for c in clusters)
+
+
 def fetch_prior_day(symbol: str) -> dict | None:
     """Fetch the PRIOR COMPLETED trading day's data.
 
