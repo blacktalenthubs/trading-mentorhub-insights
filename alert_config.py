@@ -291,10 +291,9 @@ ENABLED_RULES: set[str] = {
     "inside_day_reclaim",
     # SELL — inside day
     "inside_day_breakdown",
-    # ── Disabled for Phase 1 — re-enable after accuracy validated ──
-    # "session_low_double_bottom",
+    "session_low_double_bottom",
     "planned_level_touch",
-    # "vwap_reclaim",
+    "vwap_reclaim",
     "opening_low_base",
     # "outside_day_breakout",
     # "ema_crossover_5_20",
