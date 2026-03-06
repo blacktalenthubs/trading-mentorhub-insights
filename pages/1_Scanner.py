@@ -370,6 +370,13 @@ if _market_open:
             r.rr_ratio = (r.target_1 - r.entry) / r.risk_per_share if r.risk_per_share > 0 else 0
             r.reentry_stop = r.stop - 1.50
 
+# ── Intraday price overlay (market hours only) ────────────────────────
+if _market_open:
+    for r in results:
+        _live = _cached_intraday(r.symbol)
+        if not _live.empty:
+            r.last_close = _live["Close"].iloc[-1]
+
 if not results:
     ui_theme.empty_state("No scan results returned.", icon="warning")
     st.stop()
@@ -479,6 +486,8 @@ if _premarket:
 
 ui_theme.section_header("Trade Plans")
 
+price_label = "Price (Live)" if _market_open else "Price"
+
 table_rows = []
 for r in results:
     shares = int(position_size / r.entry) if r.entry > 0 else 0
@@ -487,7 +496,7 @@ for r in results:
         "Symbol": r.symbol,
         "Plan": "LIVE" if r.symbol in _alert_entries else "DAILY",
         "Score": f"{r.score_label} ({r.score})",
-        "Price": r.last_close,
+        price_label: r.last_close,
         "Status": action_label(r.support_status, r.score),
         "Pattern": r.pattern.upper(),
         "Support": r.nearest_support,
@@ -506,7 +515,7 @@ table_df = pd.DataFrame(table_rows)
 st.dataframe(
     table_df.style
     .format({
-        "Price": "${:,.2f}", "Support": "${:,.2f}",
+        price_label: "${:,.2f}", "Support": "${:,.2f}",
         "Entry": "${:,.2f}", "Stop": "${:,.2f}",
         "Re-entry Stop": "${:,.2f}", "Target": "${:,.2f}",
         "Risk/Sh": "${:,.2f}", "$ Risk": "${:,.0f}",
