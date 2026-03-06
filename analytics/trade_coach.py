@@ -60,9 +60,10 @@ def _get_symbol_technicals(symbols: list[str]) -> dict[str, dict]:
     for sym in symbols:
         try:
             if len(symbols) == 1:
-                close = data["Close"].dropna()
+                sym_data = data
             else:
-                close = data[sym]["Close"].dropna()
+                sym_data = data[sym]
+            close = sym_data["Close"].dropna()
             if close.empty or len(close) < 50:
                 continue
 
@@ -83,6 +84,23 @@ def _get_symbol_technicals(symbols: list[str]) -> dict[str, dict]:
                 avg_loss = loss.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean().iloc[-1]
                 if avg_loss > 0:
                     info["rsi14"] = round(100 - 100 / (1 + avg_gain / avg_loss), 1)
+
+            # Weekly high/low (prior completed week)
+            try:
+                highs = sym_data["High"].dropna()
+                lows = sym_data["Low"].dropna()
+                if not highs.empty and not lows.empty:
+                    weekly = pd.DataFrame({"High": highs, "Low": lows}).resample("W-FRI").agg({
+                        "High": "max", "Low": "min",
+                    })
+                    if len(weekly) >= 2:
+                        last_bar_date = close.index[-1].normalize()
+                        last_weekly_date = weekly.index[-1].normalize()
+                        pw = weekly.iloc[-2] if last_bar_date <= last_weekly_date else weekly.iloc[-1]
+                        info["prior_week_high"] = round(float(pw["High"]), 2)
+                        info["prior_week_low"] = round(float(pw["Low"]), 2)
+            except Exception:
+                pass  # weekly levels are best-effort
 
             result[sym] = info
         except Exception:
@@ -288,6 +306,10 @@ def format_system_prompt(context: dict) -> str:
                     parts.append(f"{label}=${t[key]:.2f}")
             if "rsi14" in t:
                 parts.append(f"RSI={t['rsi14']:.1f}")
+            if "prior_week_high" in t:
+                parts.append(f"WeekHi=${t['prior_week_high']:.2f}")
+            if "prior_week_low" in t:
+                parts.append(f"WeekLo=${t['prior_week_low']:.2f}")
             lines.append("  ".join(parts))
         sections.append("\n".join(lines))
 
