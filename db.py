@@ -570,15 +570,19 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_swing_categories_session
                 ON swing_categories(session_date);
         """))
-    _migrate_add_user_id()
-    _migrate_add_alert_score()
-    _migrate_watchlist_user_id()
-    _migrate_alert_user_id()
-    _migrate_add_narrative()
-    _migrate_add_anthropic_key()
-    _migrate_add_daily_plans()
+    # SQLite-only migrations — on Postgres the DDL already creates
+    # all columns/constraints correctly and these cause deadlocks
+    # when multiple services run init_db() concurrently.
+    if not _USE_POSTGRES:
+        _migrate_add_user_id()
+        _migrate_add_alert_score()
+        _migrate_watchlist_user_id()
+        _migrate_alert_user_id()
+        _migrate_add_narrative()
+        _migrate_add_anthropic_key()
+        _migrate_add_daily_plans()
+        _migrate_real_trades_swing()
     _migrate_ensure_default_watchlist()
-    _migrate_real_trades_swing()
 
 
 def _migrate_add_user_id():
