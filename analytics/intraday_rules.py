@@ -74,6 +74,7 @@ from alert_config import (
     SUPPORT_BOUNCE_LOOKBACK_BARS,
     SUPPORT_BOUNCE_MAX_DISTANCE_PCT,
     SUPPORT_BOUNCE_PROXIMITY_PCT,
+    VWAP_RECLAIM_MAX_DISTANCE_PCT,
     VWAP_RECLAIM_MIN_BARS_AFTER_LOW,
     VWAP_RECLAIM_MIN_RECOVERY_PCT,
     VWAP_RECLAIM_MORNING_BARS,
@@ -1597,6 +1598,11 @@ def check_vwap_reclaim(
 
     # Last bar must close above VWAP
     if last_bar["Close"] <= current_vwap:
+        return None
+
+    # Price must be close to VWAP — skip if already ran past
+    distance_pct = (last_bar["Close"] - current_vwap) / current_vwap
+    if distance_pct > VWAP_RECLAIM_MAX_DISTANCE_PCT:
         return None
 
     # Confirm price was recently below VWAP (lookback last 12 bars = 60 min)

@@ -223,6 +223,7 @@ VWAP_RECLAIM_MIN_RECOVERY_PCT = 0.005   # 0.5% minimum bounce from session low
 VWAP_RECLAIM_VOLUME_RATIO = 1.2         # volume confirmation threshold
 VWAP_RECLAIM_MIN_BARS_AFTER_LOW = 3     # 15 min after low before firing
 VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
+VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.005   # 0.5% — skip if price already ran past VWAP
 
 # Opening Low Base: session low in first 15 min, then price holds above it
 OPENING_LOW_BASE_WINDOW_BARS = 3       # first 15 min (3 × 5-min bars) to set the low
