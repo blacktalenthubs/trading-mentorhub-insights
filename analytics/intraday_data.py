@@ -32,6 +32,7 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
 
     Returns DataFrame with Open, High, Low, Close, Volume columns.
     Index is timezone-naive datetime. Returns empty DataFrame on failure.
+    Drops the last bar if it is still forming (incomplete 5-min candle).
     """
     try:
         ticker = yf.Ticker(symbol)
@@ -39,7 +40,16 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
         if hist.empty:
             return pd.DataFrame()
         hist.index = hist.index.tz_localize(None)
-        return hist[["Open", "High", "Low", "Close", "Volume"]].copy()
+        df = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
+        # Drop incomplete (in-progress) bar: if last bar started less than
+        # 5 minutes ago, it hasn't closed yet.
+        if len(df) > 1:
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            last_ts = df.index[-1].to_pydatetime()
+            if now - last_ts < timedelta(minutes=5):
+                df = df.iloc[:-1]
+        return df
     except Exception:
         return pd.DataFrame()
 
