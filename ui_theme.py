@@ -336,6 +336,7 @@ _PAGE_TITLES = {
     "alerts": "Alerts | TradeSignal",
     "settings": "Settings | TradeSignal",
     "swing_trades": "Swing Trades | TradeSignal",
+    "ai_coach": "AI Coach | TradeSignal",
 }
 
 
