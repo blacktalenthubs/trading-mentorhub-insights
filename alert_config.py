@@ -64,6 +64,12 @@ MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
 PDL_DIP_MIN_PCT = 0.0003  # 0.03% — any meaningful touch below PDL counts
 PDL_RECLAIM_MAX_DISTANCE_PCT = 0.008  # 0.8% — skip if price already ran past entry
 
+# Prior Day Low Bounce: price approaches PDL and holds above it (no break below)
+PDL_BOUNCE_PROXIMITY_PCT = 0.005     # 0.5% — bar low must be within this of PDL
+PDL_BOUNCE_HOLD_BARS = 2             # 2 consecutive bars closing above PDL after touch
+PDL_BOUNCE_MAX_DISTANCE_PCT = 0.010  # 1.0% — skip if price ran too far above PDL
+PDL_BOUNCE_STOP_OFFSET_PCT = 0.003   # 0.3% below PDL for stop
+
 # Inside Day Reclaim: minimum dip below inside low to qualify
 INSIDE_DAY_DIP_MIN_PCT = 0.0003  # 0.03% — same as PDL (any meaningful touch)
 
@@ -189,8 +195,9 @@ SCORE_VERSION = int(_get_secret("SCORE_VERSION", "1"))
 # is below MAs and VWAP (conditions that v1 penalises but are *expected*).
 BOUNCE_ALERT_TYPES: set[str] = {
     "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
-    "ema_bounce_20", "ema_bounce_50", "ema_bounce_100",
+    "ema_bounce_20", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
     "prior_day_low_reclaim",
+    "prior_day_low_bounce",
     "inside_day_reclaim",
     "session_low_double_bottom",
     "intraday_support_bounce",
@@ -204,7 +211,7 @@ BOUNCE_ALERT_TYPES: set[str] = {
 # "below both MAs" actually *validates* the signal (full 25 pts).
 MA_BOUNCE_ALERT_TYPES: set[str] = {
     "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
-    "ema_bounce_20", "ema_bounce_50", "ema_bounce_100",
+    "ema_bounce_20", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
 }
 
 # Risk:Reward bonus for v2 scoring
@@ -247,6 +254,18 @@ OPTIONS_MIN_SCORE = 80
 OPTIONS_ELIGIBLE_SYMBOLS = {"SPY", "QQQ", "DIA"}  # index ETFs only — predictable movement
 
 # ---------------------------------------------------------------------------
+# Weekly setup detection
+# ---------------------------------------------------------------------------
+WEEKLY_BASE_LOOKBACK = 8                    # scan last 8 weekly bars
+WEEKLY_BASE_MIN_WEEKS = 3                   # minimum weeks for valid base
+WEEKLY_BASE_MAX_RANGE_PCT = 0.12            # 12% max range to qualify as base
+WEEKLY_BASE_TIGHT_RANGE_PCT = 0.08          # 8% = "tight" base (score boost)
+WEEKLY_VOLUME_CONTRACTION_RATIO = 0.85      # base avg vol < 85% of prior = contraction
+WEEKLY_BREAKOUT_VOLUME_RATIO = 1.2          # breakout week vol > 1.2x base avg
+WEEKLY_PULLBACK_WMA_PCT = 0.02              # 2% proximity to WMA10/WMA20
+WEEKLY_STOP_OFFSET_PCT = 0.02              # 2% below WMA50 for pullback stop
+
+# ---------------------------------------------------------------------------
 # Swing trade thresholds
 # ---------------------------------------------------------------------------
 SWING_RSI_OVERSOLD = 30
@@ -275,14 +294,17 @@ ENABLED_RULES: set[str] = {
     "ema_bounce_20",
     "ema_bounce_50",
     "ema_bounce_100",
+    "ema_bounce_200",
     # BUY — daily high/low
     "prior_day_low_reclaim",
+    "prior_day_low_bounce",
     "prior_day_high_breakout",
     # BUY — weekly high/low
     "weekly_level_touch",
     "weekly_high_breakout",
     # SELL — MA/EMA resistance
     "ma_resistance",
+    "ema_resistance",
     # SELL — daily high/low resistance
     "resistance_prior_high",
     "resistance_prior_low",
@@ -357,6 +379,9 @@ PAPER_TRADE_MIN_SCORE = int(_get_secret("PAPER_TRADE_MIN_SCORE", "65"))
 ANTHROPIC_API_KEY = _get_secret("ANTHROPIC_API_KEY")
 CLAUDE_NARRATIVE_ENABLED = _get_secret("CLAUDE_NARRATIVE_ENABLED", "true").lower() == "true"
 CLAUDE_MODEL = _get_secret("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+
+# Free tier: max push notifications (DM/email) per day
+FREE_DAILY_ALERT_LIMIT = 3
 
 # Real trade position sizing (max dollar exposure per trade)
 REAL_TRADE_POSITION_SIZE = 50_000

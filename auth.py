@@ -7,6 +7,8 @@ The cookie is set/cleared with a small JS snippet injected via
 
 from __future__ import annotations
 
+import logging
+import os
 import uuid
 from datetime import datetime, timedelta
 
@@ -16,8 +18,13 @@ import streamlit.components.v1 as components
 
 from db import IntegrityError, get_db
 
+logger = logging.getLogger(__name__)
+
 SESSION_EXPIRY_DAYS = 30
 _COOKIE_NAME = "ts_session"
+_RESET_TOKEN_EXPIRY_HOURS = 1
+_MAX_RESET_TOKENS_PER_USER = 3
+_APP_URL = os.environ.get("APP_URL", "https://tradecopilot.streamlit.app")
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +86,125 @@ def get_user_by_id(user_id: int) -> dict | None:
     if row:
         return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
     return None
+
+
+# ---------------------------------------------------------------------------
+# Password reset
+# ---------------------------------------------------------------------------
+
+def request_password_reset(email: str) -> bool:
+    """Generate a reset token and email it. Always returns True (no enumeration)."""
+    email = email.strip().lower()
+    if not email:
+        return True
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM users WHERE email = ?", (email,)
+        ).fetchone()
+
+    if not row:
+        return True  # Same response — no email enumeration
+
+    user_id = row["id"]
+    token = uuid.uuid4().hex
+    expires = datetime.utcnow() + timedelta(hours=_RESET_TOKEN_EXPIRY_HOURS)
+
+    with get_db() as conn:
+        # Enforce max tokens per user — delete oldest unused beyond limit
+        conn.execute(
+            """DELETE FROM password_reset_tokens
+               WHERE user_id = ? AND used = 0
+               AND token NOT IN (
+                   SELECT token FROM password_reset_tokens
+                   WHERE user_id = ? AND used = 0
+                   ORDER BY created_at DESC LIMIT ?
+               )""",
+            (user_id, user_id, _MAX_RESET_TOKENS_PER_USER - 1),
+        )
+        conn.execute(
+            """INSERT INTO password_reset_tokens (token, user_id, expires_at)
+               VALUES (?, ?, ?)""",
+            (token, user_id, expires.isoformat()),
+        )
+
+    # Send reset email
+    reset_link = f"{_APP_URL}?reset_token={token}"
+    subject = "TradeCoPilot \u2014 Password Reset"
+    body = (
+        f"You requested a password reset for your TradeCoPilot account.\n\n"
+        f"Click the link below to set a new password:\n{reset_link}\n\n"
+        f"This link expires in {_RESET_TOKEN_EXPIRY_HOURS} hour.\n\n"
+        f"If you didn't request this, you can safely ignore this email."
+    )
+    try:
+        from alerting.notifier import send_plain_email
+        send_plain_email(email, subject, body)
+    except Exception:
+        logger.exception("Failed to send reset email to %s", email)
+
+    return True
+
+
+def validate_reset_token(token: str) -> dict | None:
+    """Check if a reset token is valid. Returns user dict or None."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT u.id, u.email, u.display_name
+               FROM password_reset_tokens t JOIN users u ON t.user_id = u.id
+               WHERE t.token = ? AND t.used = 0 AND t.expires_at > ?""",
+            (token, datetime.utcnow().isoformat()),
+        ).fetchone()
+    if row:
+        return {"id": row["id"], "email": row["email"], "display_name": row["display_name"]}
+    return None
+
+
+def reset_password(token: str, new_password: str) -> bool:
+    """Reset a user's password using a valid token. Returns True on success."""
+    if len(new_password) < 6:
+        return False
+
+    user = validate_reset_token(token)
+    if not user:
+        return False
+
+    pw_hash = hash_password(new_password)
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (pw_hash, user["id"]),
+        )
+        conn.execute(
+            "UPDATE password_reset_tokens SET used = 1 WHERE token = ?",
+            (token,),
+        )
+    return True
+
+
+def change_password(user_id: int, current_password: str, new_password: str) -> tuple[bool, str]:
+    """Change password for a logged-in user. Returns (success, message)."""
+    if len(new_password) < 6:
+        return False, "New password must be at least 6 characters."
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+
+    if not row:
+        return False, "User not found."
+
+    if not verify_password(current_password, row["password_hash"]):
+        return False, "Current password is incorrect."
+
+    pw_hash = hash_password(new_password)
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (pw_hash, user_id),
+        )
+    return True, "Password changed successfully."
 
 
 # ---------------------------------------------------------------------------
@@ -292,13 +418,73 @@ def _render_register_form():
             st.error("Passwords do not match.")
             return
         try:
+            from db import upsert_subscription
             user_id = create_user(email, password, display_name or None)
+            upsert_subscription(user_id, "free")
             user = get_user_by_id(user_id)
             login_user(user)
             st.success("Account created!")
             st.rerun()
         except ValueError as e:
             st.error(str(e))
+
+
+def _render_forgot_password_form():
+    """Forgot password form inside a tab."""
+    with st.form("forgot_password_form"):
+        email = st.text_input("Email", key="forgot_email")
+        submitted = st.form_submit_button("Send Reset Link", use_container_width=True)
+
+    if submitted:
+        if not email:
+            st.error("Please enter your email address.")
+            return
+        request_password_reset(email)
+        st.success(
+            "If an account with that email exists, a reset link has been sent. "
+            "Check your inbox (and spam folder)."
+        )
+
+
+def _render_reset_password_form(token: str):
+    """Password reset form shown when arriving via reset link."""
+    user = validate_reset_token(token)
+    if not user:
+        st.title("Invalid or Expired Link")
+        st.error(
+            "This password reset link is invalid or has expired. "
+            "Please request a new one."
+        )
+        if st.button("Back to Login"):
+            st.query_params.clear()
+            st.rerun()
+        return
+
+    st.title("Reset Your Password")
+    st.caption(f"Resetting password for **{user['email']}**")
+
+    with st.form("reset_password_form"):
+        new_pw = st.text_input("New Password", type="password", key="reset_pw")
+        confirm = st.text_input("Confirm Password", type="password", key="reset_confirm")
+        submitted = st.form_submit_button("Reset Password", use_container_width=True)
+
+    if submitted:
+        if not new_pw or not confirm:
+            st.error("Please fill in both fields.")
+            return
+        if new_pw != confirm:
+            st.error("Passwords do not match.")
+            return
+        if len(new_pw) < 6:
+            st.error("Password must be at least 6 characters.")
+            return
+
+        if reset_password(token, new_pw):
+            st.success("Password reset! You can now log in with your new password.")
+            st.query_params.clear()
+            st.rerun()
+        else:
+            st.error("Reset failed. The link may have expired. Please request a new one.")
 
 
 # ---------------------------------------------------------------------------
@@ -310,19 +496,31 @@ def require_auth() -> dict:
 
     If logged in: returns user dict, renders sidebar info.
     If not logged in: renders login/register form, then st.stop().
+    Handles reset_token query param for password reset flow.
     """
     user = get_current_user()
     if user:
-        render_sidebar_user_info()
+        # Sidebar user info + logout is rendered by ui_theme._render_sidebar_user()
+        # which is called by setup_page() after require_auth() returns.
         return user
 
-    st.title("Login Required")
-    st.caption("Sign in to TradeSignal")
+    # Check for password reset token in query params
+    reset_token = st.query_params.get("reset_token")
+    if reset_token:
+        _render_reset_password_form(reset_token)
+        st.stop()
 
-    tab_login, tab_register = st.tabs(["Login", "Register"])
+    st.title("Login Required")
+    st.caption("Sign in to TradeCoPilot")
+
+    tab_login, tab_register, tab_forgot = st.tabs(
+        ["Login", "Register", "Forgot Password"]
+    )
     with tab_login:
         _render_login_form()
     with tab_register:
         _render_register_form()
+    with tab_forgot:
+        _render_forgot_password_form()
 
     st.stop()

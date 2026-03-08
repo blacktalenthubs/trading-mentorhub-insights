@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradeSignal — Alert Rules Summary</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --blue: #58a6ff;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+    --cyan: #39d2c0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+  }
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 0.25rem;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; font-size: 0.95rem; }
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .toc h2 { font-size: 1.1rem; margin-bottom: 0.75rem; color: var(--blue); }
+  .toc ul { list-style: none; columns: 2; gap: 1rem; }
+  .toc li { margin-bottom: 0.35rem; }
+  .toc a { color: var(--text); text-decoration: none; font-size: 0.9rem; }
+  .toc a:hover { color: var(--blue); text-decoration: underline; }
+  .toc .count { color: var(--muted); font-size: 0.8rem; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+  }
+  .stat-card .num { font-size: 2rem; font-weight: 700; }
+  .stat-card .label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .section { margin-bottom: 2.5rem; }
+  .section-title {
+    font-size: 1.3rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .rule {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+    transition: border-color 0.2s;
+  }
+  .rule:hover { border-color: var(--blue); }
+
+  .rule-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .rule-name { font-size: 1.05rem; font-weight: 600; }
+  .rule-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .badge-buy { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+  .badge-sell { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+  .badge-notice { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
+  .badge-short { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+  .badge-enabled { background: rgba(63,185,80,0.1); color: var(--green); border: 1px solid rgba(63,185,80,0.2); }
+  .badge-disabled { background: rgba(139,148,158,0.1); color: var(--muted); border: 1px solid rgba(139,148,158,0.2); }
+
+  .rule-desc { color: var(--text); margin-bottom: 0.75rem; font-size: 0.92rem; }
+  .rule-why {
+    background: rgba(88,166,255,0.06);
+    border-left: 3px solid var(--blue);
+    padding: 0.6rem 0.9rem;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 0.75rem;
+    font-size: 0.88rem;
+    color: #b1bac4;
+  }
+  .rule-why strong { color: var(--blue); }
+
+  .conditions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .cond {
+    font-size: 0.82rem;
+    color: var(--muted);
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+  .cond::before {
+    content: "•";
+    color: var(--border);
+    flex-shrink: 0;
+    margin-top: 0.05rem;
+  }
+  .threshold {
+    font-family: 'SF Mono', SFMono-Regular, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--cyan);
+    background: rgba(57,210,192,0.08);
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+  }
+
+  .example {
+    margin-top: 0.6rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .example strong { color: var(--orange); font-style: normal; }
+
+  .flow-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .flow-section h2 { color: var(--blue); font-size: 1.1rem; margin-bottom: 1rem; }
+  .flow-diagram {
+    font-family: 'SF Mono', SFMono-Regular, Consolas, monospace;
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: pre;
+    line-height: 1.5;
+    overflow-x: auto;
+  }
+  .flow-diagram .hl { color: var(--green); }
+  .flow-diagram .sl { color: var(--red); }
+  .flow-diagram .bl { color: var(--blue); }
+
+  .filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .filter-card {
+    background: rgba(88,166,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.9rem;
+  }
+  .filter-card h4 { font-size: 0.85rem; color: var(--text); margin-bottom: 0.3rem; }
+  .filter-card p { font-size: 0.8rem; color: var(--muted); }
+
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    .toc ul { columns: 1; }
+    .conditions { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<h1>TradeSignal Alert Rules</h1>
+<p class="subtitle">Complete reference for all intraday alert rules — what triggers, why it matters, and key thresholds. Updated March 2026.</p>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat-card">
+    <div class="num" style="color:var(--green)">16</div>
+    <div class="label">BUY Rules</div>
+  </div>
+  <div class="stat-card">
+    <div class="num" style="color:var(--red)">9</div>
+    <div class="label">SELL / Resistance</div>
+  </div>
+  <div class="stat-card">
+    <div class="num" style="color:var(--blue)">25</div>
+    <div class="label">Enabled</div>
+  </div>
+  <div class="stat-card">
+    <div class="num" style="color:var(--muted)">4</div>
+    <div class="label">Disabled</div>
+  </div>
+</div>
+
+<!-- Signal Flow -->
+<div class="flow-section">
+  <h2>Signal Flow — How Alerts Fire</h2>
+  <div class="flow-diagram">
+<span class="bl">5-min bar arrives</span>
+     │
+     ▼
+┌─────────────┐     ┌──────────────┐     ┌──────────────────┐
+│ <span class="hl">BUY rules</span>   │────▶│ <span class="sl">SELL rules</span>  │────▶│ Context Filters  │
+│ (if !cooled) │     │ (always run) │     │ Noise / Dedup /  │
+│ 16 rules     │     │ 9 rules      │     │ Overhead MA /    │
+│              │     │              │     │ Staleness / RS   │
+└─────────────┘     └──────────────┘     └──────────────────┘
+     │                                            │
+     ▼                                            ▼
+┌──────────────────┐                    ┌──────────────────┐
+│ <span class="bl">Score & Enrich</span>  │                    │ <span class="hl">Consolidate</span>      │
+│ VWAP / Volume /  │───────────────────▶│ Best BUY wins    │
+│ SPY / MTF / RSI  │                    │ +boost per extra │
+└──────────────────┘                    └──────────────────┘
+  </div>
+</div>
+
+<!-- Table of Contents -->
+<div class="toc">
+  <h2>Contents</h2>
+  <ul>
+    <li><a href="#ma-bounce">MA Bounce (SMA 20/50/100/200)</a> <span class="count">— 4 rules</span></li>
+    <li><a href="#ema-bounce">EMA Bounce (EMA 20/50)</a> <span class="count">— 2 rules</span></li>
+    <li><a href="#support-reclaim">Support Reclaim & Reversal</a> <span class="count">— 4 rules</span></li>
+    <li><a href="#breakout">Breakout & Momentum</a> <span class="count">— 4 rules</span></li>
+    <li><a href="#level-touch">Planned & Weekly Level Touch</a> <span class="count">— 2 rules</span></li>
+    <li><a href="#resistance">Resistance & Warnings</a> <span class="count">— 6 rules</span></li>
+    <li><a href="#trade-mgmt">Trade Management</a> <span class="count">— 4 rules</span></li>
+    <li><a href="#exit">Exit — Support Breakdown</a> <span class="count">— 1 rule</span></li>
+    <li><a href="#disabled">Disabled Rules</a> <span class="count">— 4 rules</span></li>
+    <li><a href="#filters">Post-Signal Filters</a></li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!-- BUY: MA Bounce -->
+<!-- ============================================================ -->
+<div class="section" id="ma-bounce">
+  <h2 class="section-title">
+    <span style="color:var(--green)">●</span> MA Bounce — SMA Support
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">MA Bounce 20</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price pulls back to the 20-day SMA in an uptrend and bounces above it.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The 20MA is the most responsive institutional moving average. In an uptrend (20MA > 50MA), pullbacks to the 20MA attract dip buyers and algorithms. A close back above confirms the pullback was healthy, not a trend reversal. This is the highest-frequency bounce signal.</div>
+    <div class="conditions">
+      <div class="cond">Uptrend confirmed: <span class="threshold">SMA20 > SMA50</span></div>
+      <div class="cond">Bar low within <span class="threshold">0.3%</span> of SMA20</div>
+      <div class="cond">Bar closes above SMA20 (bounce confirmed)</div>
+      <div class="cond">Stop: <span class="threshold">0.5%</span> below SMA20</div>
+    </div>
+    <div class="example"><strong>Example:</strong> NVDA at $183 — SMA20=$180, bar wicks to $179.60 (0.2% from SMA20), closes $181 → BUY signal, stop $179.10, T1 $182.90</div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">MA Bounce 50</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Deeper pullback to the 50-day SMA and bounce. Counter-trend bounces allowed with reduced confidence.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The 50MA is a key institutional level — pension funds and large caps often defend this zone. A bounce here after a multi-day pullback is a higher-conviction entry than the 20MA because the discount is larger. Counter-trend bounces (price was below 50MA) fire at "medium" confidence because they're riskier but can catch V-bottoms.</div>
+    <div class="conditions">
+      <div class="cond">Bar low within <span class="threshold">0.3%</span> of SMA50</div>
+      <div class="cond">Bar closes above SMA50</div>
+      <div class="cond">Counter-trend: <span class="threshold">prior close ≤ SMA50</span> → medium confidence</div>
+      <div class="cond">Stop: <span class="threshold">0.5%</span> below SMA50</div>
+    </div>
+    <div class="example"><strong>Example:</strong> PLTR pulls from $160 to $153 over 5 days — SMA50=$152.98, bar low $152.60, closes $154 → BUY, medium confidence (counter-trend), stop $152.22</div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">MA Bounce 100</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Bounce at the 100-day SMA — intermediate institutional level with wider proximity tolerance.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The 100MA sits between the fast (20/50) and slow (200) averages. It's heavily watched by swing traders and intermediate-term funds. The wider <span class="threshold">0.5%</span> proximity accounts for deeper wicks common at this level. Bounces here during broad market corrections often mark higher lows.</div>
+    <div class="conditions">
+      <div class="cond">Bar low within <span class="threshold">0.5%</span> of SMA100</div>
+      <div class="cond">Bar closes above SMA100</div>
+      <div class="cond">Stop: <span class="threshold">0.7%</span> below SMA100 (wider)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">MA Bounce 200</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Bounce at the 200-day SMA — the most widely watched institutional level.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The 200MA defines the long-term trend for virtually every institutional investor. When SPY or a mega-cap bounces here, it's often a "line in the sand" moment — massive buy programs activate. The widest proximity (<span class="threshold">0.8%</span>) and stop (<span class="threshold">1.0%</span>) reflect the deep wicks these levels produce before the reversal sticks.</div>
+    <div class="conditions">
+      <div class="cond">Bar low within <span class="threshold">0.8%</span> of SMA200</div>
+      <div class="cond">Bar closes above SMA200</div>
+      <div class="cond">Stop: <span class="threshold">1.0%</span> below SMA200 (widest)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BUY: EMA Bounce -->
+<!-- ============================================================ -->
+<div class="section" id="ema-bounce">
+  <h2 class="section-title">
+    <span style="color:var(--green)">●</span> EMA Bounce — Exponential MA Support
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">EMA Bounce 20</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price pulls back to the 20-day EMA in an uptrend and bounces. Mirrors MA Bounce 20 but uses exponential weighting.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> EMAs react faster to price changes than SMAs. In V-recoveries, the EMA can be significantly below the SMA (e.g., PLTR EMA50=$153 vs SMA50=$159 — a $6 gap). The EMA catches the bounce signal <em>days earlier</em> because it weights recent prices more heavily. Running both SMA and EMA bounces ensures no signals are missed during rapid reversals.</div>
+    <div class="conditions">
+      <div class="cond">Uptrend: <span class="threshold">EMA20 > EMA50</span></div>
+      <div class="cond">Bar low within <span class="threshold">0.3%</span> of EMA20</div>
+      <div class="cond">Bar closes above EMA20</div>
+      <div class="cond">Stop: <span class="threshold">0.5%</span> below EMA20</div>
+    </div>
+    <div class="example"><strong>Example:</strong> After a sell-off, PLTR EMA20=$148 while SMA20=$152 — price touches $147.80, closes $149 → EMA Bounce fires 2 days before the SMA bounce would have triggered</div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">EMA Bounce 50</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Deeper pullback to the 50-day EMA and bounce. Counter-trend allowed.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> Same logic as SMA Bounce 50 but with EMA's faster responsiveness. Particularly valuable during sharp V-bottoms where EMA50 catches up to falling prices faster, providing an earlier entry signal. Counter-trend bounces (price was below EMA50) included to catch mean-reversion plays.</div>
+    <div class="conditions">
+      <div class="cond">Bar low within <span class="threshold">0.3%</span> of EMA50</div>
+      <div class="cond">Bar closes above EMA50</div>
+      <div class="cond">Counter-trend allowed (reduced confidence)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BUY: Support Reclaim & Reversal -->
+<!-- ============================================================ -->
+<div class="section" id="support-reclaim">
+  <h2 class="section-title">
+    <span style="color:var(--green)">●</span> Support Reclaim & Reversal
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Prior Day Low Reclaim</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price dips below yesterday's low, then recovers above it — bullish reversal / bear trap.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> Prior day low is a key S/R level visible to every trader. A dip below triggers stop-losses and short entries. When price reclaims back above, those shorts are trapped and must cover — creating a short squeeze effect. Gap-down days get boosted confidence because the gap fill provides additional upside fuel.</div>
+    <div class="conditions">
+      <div class="cond">Some bar dipped below PDL by ≥ <span class="threshold">0.1%</span></div>
+      <div class="cond">Last bar closes back above prior day low</div>
+      <div class="cond">Gap down day → boosted to high confidence</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Session Low Double Bottom</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Session low tested twice with meaningful recovery between — classic intraday double bottom.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> A double bottom at the session low is the most reliable intraday reversal pattern. The first test establishes the level, the recovery proves buyers exist, and the second test (on declining volume) shows sellers are exhausted. The volume cap (<span class="threshold">< 1.2x avg</span>) on the retest is critical — if volume is high, it's panic selling, not exhaustion.</div>
+    <div class="conditions">
+      <div class="cond">First touch ≥ <span class="threshold">30 min</span> ago</div>
+      <div class="cond">Recovery: <span class="threshold">4+ bars</span> above session low + 0.3%</div>
+      <div class="cond">Retest volume < <span class="threshold">1.2x</span> average (exhaustion)</div>
+      <div class="cond">Last bar closes above session low</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Intraday Support Bounce</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price bounces off a confirmed intraday support level (hourly lows that held).</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> Intraday supports are detected by finding hourly lows where the next hour's low stayed above and price bounced. The lookback window (last 6 bars / 30 min) catches bounces that started a few bars ago. A staleness guard (<span class="threshold">max 1%</span> above support) prevents firing on stale signals where price already ran.</div>
+    <div class="conditions">
+      <div class="cond">Scan last <span class="threshold">6 bars</span> for support touch</div>
+      <div class="cond">Touch within <span class="threshold">0.3%</span> of support level</div>
+      <div class="cond">Price hasn't run > <span class="threshold">1.0%</span> above support</div>
+      <div class="cond">Volume ≥ <span class="threshold">0.4x</span> average (not dead tape)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">VWAP Reclaim</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">V-shape morning reversal — session low in first hour, price recovers through VWAP on volume.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> This is one of the highest-conviction intraday patterns. Institutional traders use VWAP as their benchmark — when price flushes below VWAP in the morning (triggering retail panic) and then reclaims above it on rising volume, it signals that institutional buying has overwhelmed the morning sellers. The morning timing requirement ensures this is a genuine reversal, not a random VWAP cross.</div>
+    <div class="conditions">
+      <div class="cond">Session low in first <span class="threshold">60 min</span></div>
+      <div class="cond">≥ <span class="threshold">15 min</span> elapsed since session low</div>
+      <div class="cond">Last bar closes above VWAP</div>
+      <div class="cond">Recovery ≥ <span class="threshold">0.5%</span> from session low</div>
+      <div class="cond">Volume ≥ <span class="threshold">1.2x</span> average</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BUY: Breakout & Momentum -->
+<!-- ============================================================ -->
+<div class="section" id="breakout">
+  <h2 class="section-title">
+    <span style="color:var(--green)">●</span> Breakout & Momentum
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Prior Day High Breakout</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price breaks above yesterday's high with volume confirmation — bullish continuation.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The prior day high is the most visible resistance level. A close above it on elevated volume signals that sellers at that level have been absorbed and buyers have control. The volume requirement (<span class="threshold">1.2x avg</span>) filters out low-conviction pokes that are likely to fail.</div>
+    <div class="conditions">
+      <div class="cond">Close above prior day high</div>
+      <div class="cond">Volume ≥ <span class="threshold">1.2x</span> average</div>
+      <div class="cond">Stop = last bar low (risk-capped)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Weekly High Breakout</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price breaks above prior week's high with volume — higher-timeframe breakout.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The prior week high represents a multi-day resistance level. Breaking above it signals that the stock is entering a new weekly range, which attracts momentum traders and trend-following algorithms. The weekly range is used for target calculation — T2 targets the full weekly measured move.</div>
+    <div class="conditions">
+      <div class="cond">Close above prior week high</div>
+      <div class="cond">Volume ≥ <span class="threshold">1.2x</span> average</div>
+      <div class="cond">T2 = entry + prior week range</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Outside Day Breakout</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Follow-through breakout from a bullish outside day — continuation above yesterday's range engulfment.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> An outside day (range engulfs prior day) that closes in the upper portion signals a power shift from sellers to buyers. When the next day breaks above that high, it confirms the trend change. Stop is placed at the midpoint of the outside day range — if price falls back that far, the pattern has failed.</div>
+    <div class="conditions">
+      <div class="cond">Prior day was bullish outside day</div>
+      <div class="cond">Current bar closes above prior day high</div>
+      <div class="cond">Stop = midpoint of outside day range</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">EMA Crossover 5/20</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Daily EMA5 crosses above EMA20 — bullish momentum shift on the daily timeframe.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The 5/20 EMA crossover on daily bars is a classic momentum signal used by swing traders. It catches the transition from pullback to new uptrend. The widened 3-day detection window ensures crossovers that happen on a Friday close aren't missed by Monday. Anti-flicker filter (<span class="threshold">0.05%</span> separation) prevents whipsaw signals. Now fires for all symbols — no longer restricted to mega-caps.</div>
+    <div class="conditions">
+      <div class="cond">EMA5 crosses above EMA20 on daily bars</div>
+      <div class="cond">Scans last <span class="threshold">3 days</span> for crossover</div>
+      <div class="cond">Separation ≥ <span class="threshold">0.05%</span> (anti-flicker)</div>
+      <div class="cond">Crossover day candle must be green</div>
+      <div class="cond">EMA5 still above EMA20 today</div>
+    </div>
+    <div class="example"><strong>Example:</strong> PLTR EMA5 crossed above EMA20 on 03-03 (Friday) — detected on Monday because of the 3-day lookback window</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- BUY: Level Touch -->
+<!-- ============================================================ -->
+<div class="section" id="level-touch">
+  <h2 class="section-title">
+    <span style="color:var(--green)">●</span> Planned & Weekly Level Touch
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Planned Level Touch</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price touches the daily Scanner's pre-planned entry or support levels and bounces.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The Scanner computes optimal entry/support levels each day based on daily patterns. When intraday price touches these pre-planned levels, it fires the alert. This is the "plan your trade, trade your plan" rule — you defined the level in the morning and price has arrived. Uses wider <span class="threshold">0.5%</span> proximity to cover the full buy zone.</div>
+    <div class="conditions">
+      <div class="cond">Daily plan exists for symbol</div>
+      <div class="cond">Bar low within <span class="threshold">0.5%</span> of plan entry/support</div>
+      <div class="cond">Bar close ≥ that level (hold confirmed)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Weekly Level Touch</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price touches prior week's low and bounces — institutional support level.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The prior week low is a major structural level visible on weekly charts. Institutional traders often accumulate at weekly lows. T1 targets the prior week high (full weekly range recovery), making the reward profile very attractive when the entry works.</div>
+    <div class="conditions">
+      <div class="cond">Bar low within <span class="threshold">0.4%</span> of prior week low</div>
+      <div class="cond">Bar closes above prior week low</div>
+      <div class="cond">T1 = prior week high</div>
+      <div class="cond">Stop: <span class="threshold">0.5%</span> below prior week low</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SELL: Resistance & Warnings -->
+<!-- ============================================================ -->
+<div class="section" id="resistance">
+  <h2 class="section-title">
+    <span style="color:var(--red)">●</span> Resistance & Warnings
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Resistance at Prior High</span>
+      <div class="rule-badges">
+        <span class="badge badge-notice">NOTICE</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price reaches prior day's high — take profits or watch for rejection.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The prior day high is where sellers stepped in yesterday. Price reaching this level often triggers profit-taking and new short entries. If you have an active position, this is your cue to tighten stops or take partial profits. Without a position, it's an early warning of resistance ahead.</div>
+    <div class="conditions">
+      <div class="cond">Bar high within <span class="threshold">0.3%</span> of prior day high</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Weekly High Resistance</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price approaches prior week's high from below and gets rejected.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> The prior week high is a major multi-day resistance level. A rejection here (high wicks into the level but close stays below) means sellers are defending it. If you're long, this is a strong signal to take profits. Distinct from weekly high breakout — the breakout fires when price closes <em>above</em> the level.</div>
+    <div class="conditions">
+      <div class="cond">Bar high within <span class="threshold">0.4%</span> of prior week high</div>
+      <div class="cond">Bar close &lt; prior week high (rejection)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">EMA Resistance</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price rallies into overhead EMA20 or EMA50 and gets rejected — bearish warning.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> When price is below an EMA, that EMA acts as dynamic resistance. Rallies that wick into the EMA but close below it indicate sellers are using the EMA as a reference to add shorts. Especially important when the EMA was recently broken — "role flip" from support to resistance. The EMA moves faster than the SMA, so this catches rejections earlier.</div>
+    <div class="conditions">
+      <div class="cond">Bar high within <span class="threshold">0.3%</span> of EMA20 or EMA50</div>
+      <div class="cond">Bar close &lt; EMA (rejection confirmed)</div>
+      <div class="cond">Role-flip annotation if prior close was below EMA</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">MA Resistance</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price rallies into overhead SMA (20/50/100/200) and gets rejected.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> Overhead SMAs act as ceilings during downtrends. The rule scans MAs from lowest to highest and fires for the first rejecting MA — the most immediately relevant resistance. Combined with EMA Resistance, this provides comprehensive moving average overhead detection for both SMA and EMA traders.</div>
+    <div class="conditions">
+      <div class="cond">Scans SMA 20 → 50 → 100 → 200 (nearest first)</div>
+      <div class="cond">Bar high within <span class="threshold">0.3%</span> of MA</div>
+      <div class="cond">Bar close below MA (rejection)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Hourly Resistance Approach</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Active trade approaching hourly swing high resistance — tighten or take profits.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> Only fires when you have an active position. Hourly swing highs from multi-day 1-hour bars represent tested intraday resistance zones. When your position is approaching one, this alert gives you advance warning to lock in profits before price potentially reverses.</div>
+    <div class="conditions">
+      <div class="cond">Active entry exists</div>
+      <div class="cond">Bar high within <span class="threshold">0.3%</span> of hourly swing high</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Resistance at Prior Low</span>
+      <div class="rule-badges">
+        <span class="badge badge-notice">NOTICE</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price rallies up to prior day's low from below and gets rejected — role flip.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> When price breaks below the prior day low and then tries to rally back, the broken support often acts as resistance (role flip). Rejection here signals that the downtrend is intact and lower prices are likely. Important context for avoiding false "recovery" signals.</div>
+    <div class="conditions">
+      <div class="cond">Bar high within <span class="threshold">0.3%</span> of prior day low</div>
+      <div class="cond">Bar close below prior day low (rejection)</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Trade Management -->
+<!-- ============================================================ -->
+<div class="section" id="trade-mgmt">
+  <h2 class="section-title">
+    <span style="color:var(--yellow)">●</span> Trade Management
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Target 1 Hit</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price reaches Target 1 (1R) — sell half, move stop to breakeven.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> At 1R you've achieved a 1:1 reward-to-risk ratio. Selling half locks in profit and moving the stop to breakeven makes the remaining position a "free trade." This is the core trade management discipline that turns winning trades into risk-free runners.</div>
+    <div class="conditions">
+      <div class="cond">Bar high ≥ target 1 price (uses session-wide high)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Target 2 Hit</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price reaches Target 2 (2R) — take remaining position off.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> At 2R the trade has achieved a 2:1 reward-to-risk — an excellent outcome. Taking the remaining position off at this level maximizes realised P&L. Targets are set using smart resistance levels (prior highs, MAs, weekly levels) when available, falling back to R-multiples.</div>
+    <div class="conditions">
+      <div class="cond">Bar high ≥ target 2 price (uses session-wide high)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Stop Loss Hit</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Price hits stop loss level from an active entry — exit immediately.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> Discipline. When the stop is hit, the thesis is invalidated. The alert uses session-wide low (not just the last bar) to catch stops that were breached between poll intervals. No excuses, no hoping — exit and preserve capital.</div>
+    <div class="conditions">
+      <div class="cond">Bar low ≤ stop price (uses session-wide low)</div>
+    </div>
+  </div>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Auto Stop-Out</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Prior BUY entry's stop breached — automated exit signal, triggers cooldown.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> Tracks every BUY signal's entry/stop pair. When the stop is breached, it fires an immediate exit signal and starts a <span class="threshold">30 min</span> cooldown (COOLDOWN_MINUTES) that suppresses new BUY signals. This prevents revenge trading after a stop-out — the most common cause of compounding losses.</div>
+    <div class="conditions">
+      <div class="cond">Tracked BUY entry exists with valid stop</div>
+      <div class="cond">Bar low ≤ stop price</div>
+      <div class="cond">Triggers <span class="threshold">30 min</span> BUY cooldown</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Exit: Support Breakdown -->
+<!-- ============================================================ -->
+<div class="section" id="exit">
+  <h2 class="section-title">
+    <span style="color:var(--purple)">●</span> Exit — Support Breakdown
+  </h2>
+
+  <div class="rule">
+    <div class="rule-header">
+      <span class="rule-name">Support Breakdown</span>
+      <div class="rule-badges">
+        <span class="badge badge-short">SHORT</span>
+        <span class="badge badge-enabled">Enabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Support broken with high volume and conviction close — exit long immediately.</div>
+    <div class="rule-why"><strong>Why it triggers:</strong> When prior day low or intraday support breaks on <span class="threshold">1.5x</span> volume with a conviction close (in the lower 30% of bar range), the structure has changed. This is <em>not</em> a short entry signal — it's an emergency exit for any long position. The conviction close requirement filters out momentary wicks. When it fires, all BUY signals for the same symbol are suppressed (breakdown day filter). Session low breaks get boosted to high confidence.</div>
+    <div class="conditions">
+      <div class="cond">Close below min(prior day low, nearest support)</div>
+      <div class="cond">Volume ≥ <span class="threshold">1.5x</span> average</div>
+      <div class="cond">Close in lower <span class="threshold">30%</span> of bar range</div>
+      <div class="cond">Exit-only: requires active position to fire</div>
+      <div class="cond">Suppresses all BUY signals for this symbol</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Disabled Rules -->
+<!-- ============================================================ -->
+<div class="section" id="disabled">
+  <h2 class="section-title">
+    <span style="color:var(--muted)">●</span> Disabled Rules
+  </h2>
+
+  <div class="rule" style="opacity: 0.6;">
+    <div class="rule-header">
+      <span class="rule-name">Inside Day Breakout</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-disabled">Disabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Break above inside day's high. Disabled — inside day patterns are relatively rare and overlap with other breakout signals.</div>
+  </div>
+
+  <div class="rule" style="opacity: 0.6;">
+    <div class="rule-header">
+      <span class="rule-name">Opening Range Breakout</span>
+      <div class="rule-badges">
+        <span class="badge badge-buy">BUY</span>
+        <span class="badge badge-disabled">Disabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Break above 30-min opening range. Disabled — produces noise in choppy markets.</div>
+  </div>
+
+  <div class="rule" style="opacity: 0.6;">
+    <div class="rule-header">
+      <span class="rule-name">Opening Range Breakdown</span>
+      <div class="rule-badges">
+        <span class="badge badge-sell">SELL</span>
+        <span class="badge badge-disabled">Disabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Break below 30-min opening range. Disabled — informational noise.</div>
+  </div>
+
+  <div class="rule" style="opacity: 0.6;">
+    <div class="rule-header">
+      <span class="rule-name">Gap Fill</span>
+      <div class="rule-badges">
+        <span class="badge badge-notice">INFO</span>
+        <span class="badge badge-disabled">Disabled</span>
+      </div>
+    </div>
+    <div class="rule-desc">Gap fully filled. Disabled — informational only, no actionable trade setup.</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Post-Signal Filters -->
+<!-- ============================================================ -->
+<div class="section" id="filters">
+  <h2 class="section-title">
+    <span style="color:var(--blue)">●</span> Post-Signal Filters
+  </h2>
+  <p style="color:var(--muted); margin-bottom:1rem; font-size:0.9rem;">
+    After rules fire, signals pass through these filters before delivery. Filters can suppress, demote, or enrich signals.
+  </p>
+
+  <div class="filters-grid">
+    <div class="filter-card">
+      <h4>Dedup (fired_today)</h4>
+      <p>Each (symbol, alert_type) pair fires once per session. Prevents alert fatigue from repeated 5-min bar triggers.</p>
+    </div>
+    <div class="filter-card">
+      <h4>Noise Filter</h4>
+      <p>BUY signals on very low volume (&lt; 0.4x avg) are dropped — likely noise on a dead tape.</p>
+    </div>
+    <div class="filter-card">
+      <h4>Staleness Filter</h4>
+      <p>BUY signals where price already ran past entry + 1R are dropped — the trade is no longer at a good risk/reward.</p>
+    </div>
+    <div class="filter-card">
+      <h4>Overhead MA Resistance</h4>
+      <p>BUY signals are suppressed when an SMA sits within 0.5% above the entry — buying into immediate resistance.</p>
+    </div>
+    <div class="filter-card">
+      <h4>Breakdown Day Suppression</h4>
+      <p>When a Support Breakdown fires, all BUY signals for that symbol are removed — the structure has changed.</p>
+    </div>
+    <div class="filter-card">
+      <h4>Cooldown (30 min)</h4>
+      <p>After an Auto Stop-Out, all BUY signals are suppressed for 30 minutes to prevent revenge trading.</p>
+    </div>
+    <div class="filter-card">
+      <h4>SPY Regime Demotion</h4>
+      <p>BUY confidence demoted in CHOPPY or TRENDING_DOWN regimes. SPY at resistance also demotes; SPY at support can boost.</p>
+    </div>
+    <div class="filter-card">
+      <h4>Relative Strength</h4>
+      <p>If symbol is falling 2x+ harder than SPY intraday, BUY confidence is demoted — it's underperforming the market.</p>
+    </div>
+    <div class="filter-card">
+      <h4>RSI Adjustments</h4>
+      <p>SPY RSI &lt; 35 (oversold) can boost BUY; SPY RSI &gt; 70 (overbought) demotes. Per-symbol RSI &lt; 35 flags crash risk.</p>
+    </div>
+    <div class="filter-card">
+      <h4>MA Confluence Boost</h4>
+      <p>When a horizontal support entry aligns with a nearby MA (within 0.5%), confidence is boosted and flagged as "confluence."</p>
+    </div>
+    <div class="filter-card">
+      <h4>Volume Exhaustion</h4>
+      <p>Seller exhaustion (declining vol on pullback) boosts BUY confidence. Buyer exhaustion (volume climax) adds caution.</p>
+    </div>
+    <div class="filter-card">
+      <h4>Score & Consolidation</h4>
+      <p>Each signal scored 0-100 (A+/A/B/C). Multiple BUY signals consolidate — best score wins, boosted by confirming signals.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Risk Management -->
+<!-- ============================================================ -->
+<div class="flow-section">
+  <h2>Risk Management Defaults</h2>
+  <div class="flow-diagram">
+<span class="bl">Per-Trade Risk Cap</span>
+  Default:  <span class="threshold">0.3%</span> of entry price
+  SPY/QQQ: <span class="threshold">0.2%</span>
+  NVDA:    <span class="threshold">0.4%</span>
+  TSLA:    <span class="threshold">0.5%</span>
+
+<span class="bl">Target Calculation</span>
+  T1 = nearest resistance above entry (min 1R, min <span class="threshold">0.5%</span> distance)
+  T2 = next resistance above T1 (or T1 + 1R)
+  Sources: prior high, SMAs, weekly high, VWAP, hourly resistance
+
+<span class="bl">Stop Calculation</span>
+  MA Bounce:  <span class="threshold">0.5-1.0%</span> below MA (varies by MA type)
+  Structural: session low - <span class="threshold">0.2%</span> (when available)
+  Breakout:   last bar low (risk-capped)
+  All stops capped by per-symbol max risk
+
+<span class="bl">Scoring (0-100)</span>
+  25 pts — MA position (above both 20+50 = 25, one = 15)
+  25 pts — Volume (≥1.2x = 25, ≥0.8x = 15, else 5)
+  25 pts — Confidence (high = 25, medium = 15)
+  25 pts — VWAP alignment (BUY above VWAP = 25, else 10)
+  Bonus  — Confluence (+10), MTF aligned (+10), consolidation (+5/signal)
+  </div>
+</div>
+
+<footer>
+  TradeSignal Alert Rules Summary &mdash; Generated March 4, 2026<br>
+  13-symbol watchlist: SPY, QQQ, NVDA, AAPL, GOOGL, META, TSLA, NFLX, PLTR, LRCX, ROKU, DOW, ONDS
+</footer>
+
+</body>
+</html>

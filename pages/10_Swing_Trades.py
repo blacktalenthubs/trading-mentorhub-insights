@@ -29,7 +29,7 @@ from analytics.swing_rules import check_spy_regime
 from db import get_db
 import ui_theme
 
-user = ui_theme.setup_page("swing_trades")
+user = ui_theme.setup_page("swing_trades", tier_required="pro")
 
 ui_theme.page_header(
     "Swing Trades",

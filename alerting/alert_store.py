@@ -13,12 +13,21 @@ def today_session() -> str:
     return date.today().isoformat()
 
 
-def get_session_dates() -> list[str]:
-    """Return distinct session dates with alerts, newest first."""
+def get_session_dates(user_id: int | None = None) -> list[str]:
+    """Return distinct session dates with alerts, newest first.
+
+    If *user_id* is provided, only returns dates where that user has alerts.
+    """
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT session_date FROM alerts ORDER BY session_date DESC"
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                "SELECT DISTINCT session_date FROM alerts WHERE user_id = ? ORDER BY session_date DESC",
+                (user_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT DISTINCT session_date FROM alerts ORDER BY session_date DESC"
+            ).fetchall()
         return [r["session_date"] for r in rows]
 
 
@@ -86,16 +95,20 @@ def record_alert(
         return cur.lastrowid
 
 
-def create_active_entry(signal: AlertSignal, session_date: str | None = None):
+def create_active_entry(
+    signal: AlertSignal,
+    session_date: str | None = None,
+    user_id: int | None = None,
+):
     """Create an active entry record for tracking targets/stops."""
     session = session_date or today_session()
     with get_db() as conn:
         conn.execute(
             """INSERT INTO active_entries
                (symbol, entry_price, stop_price, target_1, target_2,
-                alert_type, session_date, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-               ON CONFLICT(symbol, session_date, alert_type) DO NOTHING""",
+                alert_type, session_date, status, user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)
+               ON CONFLICT(symbol, session_date, alert_type, user_id) DO NOTHING""",
             (
                 signal.symbol,
                 signal.entry,
@@ -104,43 +117,86 @@ def create_active_entry(signal: AlertSignal, session_date: str | None = None):
                 signal.target_2,
                 signal.alert_type.value,
                 session,
+                user_id,
             ),
         )
 
 
-def get_active_entries(symbol: str, session_date: str | None = None) -> list[dict]:
-    """Get active BUY entries for a symbol today (for target/stop tracking)."""
+def get_active_entries(
+    symbol: str,
+    session_date: str | None = None,
+    user_id: int | None = None,
+) -> list[dict]:
+    """Get active BUY entries for a symbol today (for target/stop tracking).
+
+    If *user_id* is provided, returns entries for that user plus legacy
+    entries with NULL user_id.
+    """
     session = session_date or today_session()
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT entry_price, stop_price, target_1, target_2, alert_type
-               FROM active_entries
-               WHERE symbol=? AND session_date=? AND status='active'""",
-            (symbol, session),
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                """SELECT entry_price, stop_price, target_1, target_2, alert_type
+                   FROM active_entries
+                   WHERE symbol=? AND session_date=? AND status='active'
+                     AND (user_id=? OR user_id IS NULL)""",
+                (symbol, session, user_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT entry_price, stop_price, target_1, target_2, alert_type
+                   FROM active_entries
+                   WHERE symbol=? AND session_date=? AND status='active'""",
+                (symbol, session),
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
-def close_active_entry(symbol: str, alert_type: str, session_date: str | None = None):
+def close_active_entry(
+    symbol: str,
+    alert_type: str,
+    session_date: str | None = None,
+    user_id: int | None = None,
+):
     """Mark an active entry as closed (stopped or target hit)."""
     session = session_date or today_session()
     with get_db() as conn:
-        conn.execute(
-            """UPDATE active_entries SET status='closed'
-               WHERE symbol=? AND alert_type=? AND session_date=?""",
-            (symbol, alert_type, session),
-        )
+        if user_id is not None:
+            conn.execute(
+                """UPDATE active_entries SET status='closed'
+                   WHERE symbol=? AND alert_type=? AND session_date=?
+                     AND (user_id=? OR user_id IS NULL)""",
+                (symbol, alert_type, session, user_id),
+            )
+        else:
+            conn.execute(
+                """UPDATE active_entries SET status='closed'
+                   WHERE symbol=? AND alert_type=? AND session_date=?""",
+                (symbol, alert_type, session),
+            )
 
 
-def close_all_entries_for_symbol(symbol: str, session_date: str | None = None):
+def close_all_entries_for_symbol(
+    symbol: str,
+    session_date: str | None = None,
+    user_id: int | None = None,
+):
     """Close all active entries for a symbol (used on stop loss)."""
     session = session_date or today_session()
     with get_db() as conn:
-        conn.execute(
-            """UPDATE active_entries SET status='stopped'
-               WHERE symbol=? AND session_date=? AND status='active'""",
-            (symbol, session),
-        )
+        if user_id is not None:
+            conn.execute(
+                """UPDATE active_entries SET status='stopped'
+                   WHERE symbol=? AND session_date=? AND status='active'
+                     AND (user_id=? OR user_id IS NULL)""",
+                (symbol, session, user_id),
+            )
+        else:
+            conn.execute(
+                """UPDATE active_entries SET status='stopped'
+                   WHERE symbol=? AND session_date=? AND status='active'""",
+                (symbol, session),
+            )
 
 
 def get_alert_id(
@@ -285,6 +341,7 @@ def save_cooldown(
     minutes: int,
     reason: str = "",
     session_date: str | None = None,
+    user_id: int | None = None,
 ):
     """Persist a cooldown for a symbol. Survives process restarts."""
     from datetime import datetime, timedelta
@@ -293,38 +350,65 @@ def save_cooldown(
     until = (datetime.now() + timedelta(minutes=minutes)).isoformat()
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO cooldowns (symbol, cooldown_until, reason, session_date)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(symbol, session_date) DO UPDATE SET
+            """INSERT INTO cooldowns (symbol, cooldown_until, reason, session_date, user_id)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(symbol, session_date, user_id) DO UPDATE SET
                    cooldown_until = excluded.cooldown_until,
                    reason = excluded.reason""",
-            (symbol, until, reason, session),
+            (symbol, until, reason, session, user_id),
         )
 
 
-def get_active_cooldowns(session_date: str | None = None) -> set[str]:
-    """Return set of symbols currently in cooldown."""
+def get_active_cooldowns(
+    session_date: str | None = None,
+    user_id: int | None = None,
+) -> set[str]:
+    """Return set of symbols currently in cooldown.
+
+    If *user_id* is provided, returns cooldowns for that user plus legacy
+    cooldowns with NULL user_id.
+    """
     from datetime import datetime
 
     session = session_date or today_session()
     now = datetime.now().isoformat()
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT symbol FROM cooldowns WHERE session_date = ? AND cooldown_until > ?",
-            (session, now),
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                "SELECT symbol FROM cooldowns WHERE session_date = ? AND cooldown_until > ? AND (user_id = ? OR user_id IS NULL)",
+                (session, now, user_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT symbol FROM cooldowns WHERE session_date = ? AND cooldown_until > ?",
+                (session, now),
+            ).fetchall()
         return {row["symbol"] for row in rows}
 
 
-def is_symbol_cooled_down(symbol: str, session_date: str | None = None) -> bool:
-    """Check if a specific symbol is in cooldown."""
+def is_symbol_cooled_down(
+    symbol: str,
+    session_date: str | None = None,
+    user_id: int | None = None,
+) -> bool:
+    """Check if a specific symbol is in cooldown.
+
+    If *user_id* is provided, checks cooldowns for that user plus legacy
+    cooldowns with NULL user_id.
+    """
     from datetime import datetime
 
     session = session_date or today_session()
     now = datetime.now().isoformat()
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM cooldowns WHERE symbol = ? AND session_date = ? AND cooldown_until > ?",
-            (symbol, session, now),
-        ).fetchone()
+        if user_id is not None:
+            row = conn.execute(
+                "SELECT 1 FROM cooldowns WHERE symbol = ? AND session_date = ? AND cooldown_until > ? AND (user_id = ? OR user_id IS NULL)",
+                (symbol, session, now, user_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT 1 FROM cooldowns WHERE symbol = ? AND session_date = ? AND cooldown_until > ?",
+                (symbol, session, now),
+            ).fetchone()
         return row is not None

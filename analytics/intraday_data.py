@@ -27,6 +27,24 @@ logger = logging.getLogger("intraday_data")
 ET = pytz.timezone("US/Eastern")
 
 
+def _normalize_index_to_et(hist: pd.DataFrame) -> pd.DataFrame:
+    """Convert yfinance index to ET, then strip timezone.
+
+    yfinance returns UTC-aware timestamps for crypto and ET-aware for equities.
+    This normalizes both to naive ET timestamps so date comparisons are
+    consistent regardless of asset type.
+
+    Follows the pattern from fetch_premarket_bars() (line 277-280).
+    """
+    if hist.empty:
+        return hist
+    if hist.index.tz is not None:
+        hist.index = hist.index.tz_convert(ET).tz_localize(None)
+    else:
+        hist.index = hist.index.tz_localize("UTC").tz_convert(ET).tz_localize(None)
+    return hist
+
+
 def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.DataFrame:
     """Fetch intraday bars for a symbol.
 
@@ -39,7 +57,7 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
         hist = ticker.history(period=period, interval=interval)
         if hist.empty:
             return pd.DataFrame()
-        hist.index = hist.index.tz_localize(None)
+        hist = _normalize_index_to_et(hist)
         df = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
         # Drop incomplete (in-progress) bar: if last bar started less than
         # 5 minutes ago, it hasn't closed yet.
@@ -52,6 +70,31 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
         return df
     except Exception:
         return pd.DataFrame()
+
+
+def fetch_intraday_crypto(symbol: str, interval: str = "5m") -> pd.DataFrame:
+    """Fetch intraday bars for crypto with UTC day boundary handling.
+
+    Uses period="5d" and filters to today (ET) to avoid the near-empty
+    bar problem at UTC midnight (7-8 PM ET) when period="1d" returns
+    only the current UTC day's bars.
+
+    Falls back to last 24h if today (ET) has fewer than 6 bars.
+    """
+    bars = fetch_intraday(symbol, period="5d", interval=interval)
+    if bars.empty:
+        return bars
+
+    # After _normalize_index_to_et, index is naive ET. Filter to today (ET).
+    today = pd.Timestamp.now().normalize()
+    today_bars = bars[bars.index.normalize() == today]
+    if len(today_bars) >= 6:
+        return today_bars
+
+    # Fallback: return last 24h of bars (covers UTC midnight transition)
+    cutoff = pd.Timestamp.now() - pd.Timedelta(hours=24)
+    fallback = bars[bars.index >= cutoff]
+    return fallback if not fallback.empty else bars.tail(6)
 
 
 @cache_data(ttl=900, show_spinner=False)
@@ -150,7 +193,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
         hist = ticker.history(period="1y")
         if hist.empty or len(hist) < 3:
             return None
-        hist.index = hist.index.tz_localize(None)
+        hist = _normalize_index_to_et(hist)
         hist = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
 
         # Compute MAs on full history
@@ -165,6 +208,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
         hist["EMA20"] = hist["Close"].ewm(span=20, adjust=False).mean()
         hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
         hist["EMA100"] = hist["Close"].ewm(span=100, adjust=False).mean()
+        hist["EMA200"] = hist["Close"].ewm(span=200, adjust=False).mean()
 
         # Date-aware selection: if last bar is today, it's partial
         today = pd.Timestamp.now().normalize()
@@ -211,6 +255,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
         ema20_prev = prev["EMA20"] if pd.notna(prev["EMA20"]) else None
         ema50 = last["EMA50"] if pd.notna(last["EMA50"]) else None
         ema100 = last["EMA100"] if pd.notna(last["EMA100"]) else None
+        ema200 = last["EMA200"] if pd.notna(last["EMA200"]) else None
 
         sym_rsi14 = compute_rsi_wilder(hist["Close"], period=14)
 
@@ -243,6 +288,7 @@ def fetch_prior_day(symbol: str) -> dict | None:
             "ema20_prev": ema20_prev,
             "ema50": ema50,
             "ema100": ema100,
+            "ema200": ema200,
             "pattern": pattern,
             "direction": direction,
             "is_inside": is_inside,
@@ -909,7 +955,7 @@ def fetch_historical_intraday(
         hist = ticker.history(start=start, end=end, interval=interval)
         if hist.empty:
             return pd.DataFrame()
-        hist.index = hist.index.tz_localize(None)
+        hist = _normalize_index_to_et(hist)
         return hist[["Open", "High", "Low", "Close", "Volume"]].copy()
     except Exception:
         return pd.DataFrame()

@@ -48,7 +48,7 @@ def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
         "spy_intraday_low": round(spy_low, 2),
     }
 
-user = ui_theme.setup_page("backtest")
+user = ui_theme.setup_page("backtest", tier_required="elite")
 
 ui_theme.page_header("Backtest Replay", "Replay historical intraday data through the rule engine to validate signal quality.")
 
@@ -135,21 +135,23 @@ for idx, symbol in enumerate(symbols):
         # Draw chart with signal overlays
         if signals:
             with st.expander(f"{symbol} — {len(signals)} signal(s)", expanded=True):
-                fig = go.Figure()
-                fig.add_trace(go.Candlestick(
-                    x=intra.index.strftime("%H:%M"),
-                    open=intra["Open"], high=intra["High"],
-                    low=intra["Low"], close=intra["Close"],
-                    name=symbol,
-                    increasing_line_color="#2ecc71",
-                    decreasing_line_color="#e74c3c",
-                ))
+                # Gap-free integer x-axis with time labels
+                x_int = list(range(len(intra)))
+                time_labels = intra.index.strftime("%H:%M")
+                step = max(1, len(intra) // 10)
+                tick_vals = x_int[::step]
+                tick_text = [time_labels[i] for i in tick_vals]
+
+                fig = ui_theme.build_candlestick_fig(
+                    intra, x_int, symbol,
+                    height=350, tick_vals=tick_vals, tick_text=tick_text,
+                )
 
                 # VWAP
                 vwap = compute_vwap(intra)
                 if not vwap.empty:
                     fig.add_trace(go.Scatter(
-                        x=intra.index.strftime("%H:%M"), y=vwap.values,
+                        x=list(range(len(vwap))), y=vwap.values,
                         mode="lines", name="VWAP",
                         line=dict(color="#9b59b6", width=1.5, dash="dash"),
                     ))
@@ -157,33 +159,25 @@ for idx, symbol in enumerate(symbols):
                 # Session low reference line
                 session_low = intra["Low"].min()
                 if session_low > 0:
-                    fig.add_hline(
-                        y=session_low, line_dash="dot", line_color="#f39c12",
-                        line_width=1.5,
-                        annotation_text=f"Session Low ${session_low:,.2f}",
-                        annotation_font=dict(size=9, color="#f39c12"),
-                        annotation_position="bottom left",
+                    ui_theme.add_level_line(
+                        fig, session_low, "Session Low", "#f39c12",
+                        position="bottom left", dash="dot", width=1.5,
                     )
 
                 # Signal markers
                 for sig in signals:
                     if sig.entry:
-                        fig.add_hline(
-                            y=sig.entry, line_dash="dash", line_color="#3498db",
-                            line_width=1, annotation_text=f"{sig.direction} ${sig.entry:,.2f}",
-                            annotation_font=dict(size=9),
+                        ui_theme.add_level_line(
+                            fig, sig.entry, f"{sig.direction}", "#3498db",
+                            position="top left",
                         )
                     if sig.stop:
-                        fig.add_hline(
-                            y=sig.stop, line_dash="dot", line_color="#e74c3c", line_width=1,
+                        ui_theme.add_level_line(
+                            fig, sig.stop, "Stop", "#e74c3c",
+                            position="bottom left", dash="dot", width=1,
                         )
 
-                fig.update_layout(
-                    height=350, xaxis_rangeslider_visible=False,
-                    title=f"{symbol} — {date_str}",
-                    margin=dict(l=40, r=20, t=40, b=30),
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, config=ui_theme.PLOTLY_CONFIG_MINIMAL)
 
     else:
         # Bar-by-bar replay

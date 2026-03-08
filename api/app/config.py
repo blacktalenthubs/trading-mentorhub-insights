@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """All settings are read from env vars (or .env file)."""
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/tradesignal"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/tradecopilot"
 
     # JWT
     JWT_SECRET: str = "change-me-in-production"
@@ -27,15 +27,15 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = [
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://tradesignalwithai.com",
-        "https://www.tradesignalwithai.com",
+        "https://aicopilottrader.com",
+        "https://www.aicopilottrader.com",
     ]
 
     # Feature limits
     FREE_WATCHLIST_MAX: int = 5
 
     # App
-    APP_NAME: str = "TradeSignal API"
+    APP_NAME: str = "TradeCoPilot API"
     DEBUG: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

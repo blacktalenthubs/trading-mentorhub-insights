@@ -12,7 +12,7 @@ from alerting.alert_store import (
 )
 import ui_theme
 
-user = ui_theme.setup_page("alerts")
+user = ui_theme.setup_page("alerts", tier_required="pro")
 
 ui_theme.page_header(
     "Alert Reports",
@@ -21,7 +21,7 @@ ui_theme.page_header(
 
 # ── Available dates ───────────────────────────────────────────────────────
 
-session_dates = get_session_dates()  # newest first
+session_dates = get_session_dates(user_id=user["id"] if user else None)  # newest first
 
 if not session_dates:
     ui_theme.empty_state("No alerts recorded yet. The monitor will populate alerts during market hours.")
@@ -55,7 +55,7 @@ all_alerts: list[dict] = []
 summaries_by_date: dict[str, dict] = {}
 
 for d in dates_to_show:
-    s = get_session_summary(session_date=d)
+    s = get_session_summary(session_date=d, user_id=user["id"] if user else None)
     summaries_by_date[d] = s
     for a in s["alerts"]:
         a["_session_date"] = d
@@ -75,8 +75,8 @@ total_stopped = sum(s["stopped_out"] for s in summaries_by_date.values())
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Total", len(all_alerts))
-c2.metric("BUY", total_buy)
-c3.metric("SELL", total_sell)
+c2.metric("Entries", total_buy)
+c3.metric("Exits", total_sell)
 c4.metric("T1 Hits", total_t1)
 c5.metric("T2 Hits", total_t2)
 c6.metric("Stopped", total_stopped)
@@ -128,7 +128,7 @@ pdf_bytes = generate_alerts_pdf(filtered, summaries_by_date, dates_to_show)
 st.download_button(
     label="Download PDF Report",
     data=pdf_bytes,
-    file_name=f"tradesignal_alerts_{dates_to_show[0]}.pdf",
+    file_name=f"tradecopilot_alerts_{dates_to_show[0]}.pdf",
     mime="application/pdf",
 )
 
@@ -213,7 +213,7 @@ def _render_card(alert: dict) -> None:
         f"border-radius:6px;padding:0.9rem 1.1rem;margin-bottom:0.6rem'>"
         f"<span style='font-weight:700;font-size:1.05rem'>{symbol}</span> "
         f"<span style='background:{dir_bg};color:{dir_color};padding:2px 8px;border-radius:10px;"
-        f"font-size:0.75rem;font-weight:600'>{direction}</span> "
+        f"font-size:0.75rem;font-weight:600'>{ui_theme.display_direction(direction)[0]}</span> "
         f"<span style='color:#8b949e;font-size:0.8rem'>{alert_type_display}</span>"
         f"<span style='float:right'>"
         f"<span style='color:{score_color};font-weight:700;font-size:0.85rem'>{score_lbl} ({score})</span> "
@@ -256,8 +256,8 @@ for session_date in dates_to_show:
         f"<span style='font-weight:700;font-size:1.1rem'>{date_display}</span>"
         f"<span style='font-size:0.85rem;color:#8b949e'>"
         f"{len(day_alerts)} alerts · "
-        f"<span style='color:#3fb950'>{buy_c} BUY</span> · "
-        f"<span style='color:#f85149'>{sell_c} SELL</span>"
+        f"<span style='color:#3fb950'>{buy_c} Entry</span> · "
+        f"<span style='color:#f85149'>{sell_c} Exit</span>"
         f"</span>"
         f"</div>",
         unsafe_allow_html=True,
@@ -282,6 +282,10 @@ with st.expander("Raw Data Table"):
         available_cols = [c for c in display_cols if c in filtered[0]]
         df = pd.DataFrame(filtered)[available_cols]
         df.columns = [c.replace("_", " ").title() for c in available_cols]
+        if "Direction" in df.columns:
+            df["Direction"] = df["Direction"].map(
+                lambda d: ui_theme.display_direction(d)[0]
+            )
 
         money_cols = ["Price", "Entry", "Stop", "Target 1", "Target 2"]
         fmt = {c: "${:,.2f}" for c in money_cols if c in df.columns}

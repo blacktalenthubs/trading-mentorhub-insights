@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from analytics.market_data import classify_day, fetch_ohlc, get_levels
+from analytics.market_hours import is_market_hours
 
 
 @dataclass
@@ -65,28 +66,28 @@ class SignalResult:
 # ---------------------------------------------------------------------------
 
 ACTION_LABELS = {
-    "AT SUPPORT": {"label": "BUY ZONE", "color": "#2ecc71", "help": "Price at support — place entry order"},
-    "PULLBACK WATCH": {"label": "WAIT FOR DIP", "color": "#f39c12", "help": "Above support — wait for pullback to entry"},
-    "BROKEN": {"label": "NO TRADE", "color": "#e74c3c", "help": "Support broken — no valid long setup"},
+    "AT SUPPORT": {"label": "Potential Entry", "color": "#2ecc71", "help": "Price at support — potential entry zone"},
+    "PULLBACK WATCH": {"label": "Watch", "color": "#f39c12", "help": "Above support — watching for pullback"},
+    "BROKEN": {"label": "No Setup", "color": "#e74c3c", "help": "Support broken — no valid long setup"},
 }
 
 
-_BUY_ZONE_MIN_SCORE = 65  # Below this, "AT SUPPORT" is demoted to "WAIT FOR DIP"
+_POTENTIAL_ENTRY_MIN_SCORE = 65  # Below this, "AT SUPPORT" is demoted to "Watch"
 
 
 def action_label(support_status: str, score: int = 100) -> str:
     """Map internal support status to user-facing action label.
 
-    AT SUPPORT with score < 65 is demoted to WAIT FOR DIP (weak setup).
+    AT SUPPORT with score < 65 is demoted to Watch (weak setup).
     """
-    if support_status == "AT SUPPORT" and score < _BUY_ZONE_MIN_SCORE:
+    if support_status == "AT SUPPORT" and score < _POTENTIAL_ENTRY_MIN_SCORE:
         return ACTION_LABELS["PULLBACK WATCH"]["label"]
     return ACTION_LABELS.get(support_status, {}).get("label", support_status)
 
 
 def action_color(support_status: str, score: int = 100) -> str:
     """Get the display color for a support status."""
-    if support_status == "AT SUPPORT" and score < _BUY_ZONE_MIN_SCORE:
+    if support_status == "AT SUPPORT" and score < _POTENTIAL_ENTRY_MIN_SCORE:
         return ACTION_LABELS["PULLBACK WATCH"]["color"]
     return ACTION_LABELS.get(support_status, {}).get("color", "#95a5a6")
 
@@ -282,7 +283,7 @@ def analyze_symbol(hist: pd.DataFrame, symbol: str = "") -> SignalResult | None:
     hist.index = hist.index.tz_localize(None) if hist.index.tz is not None else hist.index
     today = pd.Timestamp.now().normalize()
     last_bar_date = hist.index[-1].normalize()
-    if last_bar_date >= today and len(hist) >= 3:
+    if last_bar_date >= today and len(hist) >= 3 and is_market_hours():
         # Market open — last bar is partial; use prior completed day
         hist = hist.iloc[:-1]
 
@@ -360,6 +361,83 @@ def analyze_symbol(hist: pd.DataFrame, symbol: str = "") -> SignalResult | None:
     result.score_label = _score_label(result.score)
 
     return result
+
+
+def reproject_after_stop(
+    current_price: float,
+    broken_stop: float,
+    prior_low: float,
+    ma20: float | None,
+    ma50: float | None,
+    ema20: float | None = None,
+    ema50: float | None = None,
+    prior_high: float | None = None,
+    pattern: str = "normal",
+) -> dict | None:
+    """Re-project a trade plan after a stop is hit.
+
+    Finds the next valid support BELOW the broken stop and builds a new
+    entry/stop/target plan.  Read-only — no DB writes.
+
+    Returns dict with entry, stop, target_1, target_2, risk_per_share,
+    rr_ratio, support, support_label.  Returns None when no valid support
+    exists below the broken stop.
+    """
+    candidates: list[tuple[float, str]] = []
+    if prior_low and prior_low > 0:
+        candidates.append((prior_low, "Prior Day Low"))
+    if ma20 is not None and ma20 > 0:
+        candidates.append((ma20, "20 SMA"))
+    if ma50 is not None and ma50 > 0:
+        candidates.append((ma50, "50 SMA"))
+    if ema20 is not None and ema20 > 0:
+        candidates.append((ema20, "20 EMA"))
+    if ema50 is not None and ema50 > 0:
+        candidates.append((ema50, "50 EMA"))
+
+    # Only supports STRICTLY below the broken stop
+    below = [(lvl, label) for lvl, label in candidates if lvl < broken_stop]
+    if not below:
+        return None
+
+    # Nearest to current price (closest below current_price, or closest overall)
+    below.sort(key=lambda x: abs(current_price - x[0]))
+    new_support, support_label = below[0]
+
+    support_status = _classify_support_status(
+        current_price, current_price, new_support, pattern,
+    )
+
+    risk = new_support * 0.01  # 1% default risk
+
+    # Targets: use prior_high if available, else multiples of risk
+    if prior_high and prior_high > new_support:
+        target_1 = prior_high
+        target_2 = prior_high + (prior_high - new_support)
+    else:
+        target_1 = new_support + 2 * risk
+        target_2 = new_support + 3 * risk
+
+    levels = {
+        "entry_long": new_support,
+        "stop_long": new_support,
+        "target_1": target_1,
+        "target_2": target_2,
+        "risk_per_share": risk,
+    }
+
+    plan = _build_trade_plan(levels, new_support, support_status, pattern)
+
+    return {
+        "entry": plan["entry"],
+        "stop": plan["stop"],
+        "target_1": plan["target_1"],
+        "target_2": plan["target_2"],
+        "risk_per_share": plan["risk_per_share"],
+        "rr_ratio": plan["rr_ratio"],
+        "support": new_support,
+        "support_label": support_label,
+    }
 
 
 def scan_watchlist(

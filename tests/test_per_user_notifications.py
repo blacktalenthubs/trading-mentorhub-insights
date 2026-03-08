@@ -69,6 +69,7 @@ def tmp_db(tmp_path):
             message TEXT,
             narrative TEXT DEFAULT '',
             score INTEGER DEFAULT 0,
+            score_v2 INTEGER DEFAULT 0,
             notified_email INTEGER DEFAULT 0,
             notified_sms INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -106,8 +107,9 @@ def tmp_db(tmp_path):
             alert_type TEXT,
             session_date TEXT,
             status TEXT DEFAULT 'active',
+            user_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(symbol, session_date, alert_type)
+            UNIQUE(symbol, session_date, alert_type, user_id)
         );
 
         CREATE TABLE IF NOT EXISTS cooldowns (
@@ -116,8 +118,9 @@ def tmp_db(tmp_path):
             cooldown_until TEXT NOT NULL,
             reason TEXT,
             session_date TEXT NOT NULL,
+            user_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(symbol, session_date)
+            UNIQUE(symbol, session_date, user_id)
         );
 
         CREATE TABLE IF NOT EXISTS monitor_status (

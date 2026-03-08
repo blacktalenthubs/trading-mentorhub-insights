@@ -87,14 +87,14 @@ class TestSmsFormat:
         body = _format_sms_body(sig)
         first_line = body.split("\n")[0]
         assert "A (82)" in first_line
-        assert "BUY AAPL" in first_line
+        assert "POTENTIAL ENTRY AAPL" in first_line
 
     def test_buy_includes_entry_and_stop(self):
         sig = _make_signal(score=70, score_label="B+")
         sig.target_1 = 101.5
         sig.target_2 = 103.0
         body = _format_sms_body(sig)
-        assert "Entry $100.00" in body
+        assert "Potential Entry $100.00" in body
         assert "Stop $99.00" in body
 
     def test_buy_includes_t1_and_t2(self):
@@ -114,7 +114,7 @@ class TestSmsFormat:
             message="Prior High Resistance $182.59",
         )
         body = _format_sms_body(sig)
-        assert "SELL NVDA $182.57" in body
+        assert "EXIT ZONE NVDA $182.57" in body
         assert "Resistance Prior High" in body
         assert "Entry" not in body
         assert "Stop" not in body

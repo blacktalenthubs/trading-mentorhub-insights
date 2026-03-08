@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alert Rules Inventory — TradeSignal</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f1117;
+    color: #e0e0e0;
+    padding: 2rem;
+    line-height: 1.6;
+  }
+  h1 {
+    font-size: 1.8rem;
+    margin-bottom: 0.3rem;
+    color: #fff;
+  }
+  .subtitle {
+    color: #888;
+    font-size: 0.95rem;
+    margin-bottom: 2rem;
+  }
+  .stats {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    min-width: 140px;
+  }
+  .stat-card .number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .stat-card .label {
+    font-size: 0.8rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stat-card.green .number { color: #22c55e; }
+  .stat-card.red .number { color: #ef4444; }
+  .stat-card.yellow .number { color: #eab308; }
+  .stat-card.blue .number { color: #3b82f6; }
+
+  .section {
+    margin-bottom: 2rem;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
+  }
+  .section-header h2 {
+    font-size: 1.1rem;
+    color: #fff;
+  }
+  .badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .badge.buy { background: #14532d; color: #4ade80; }
+  .badge.sell { background: #451a03; color: #fb923c; }
+  .badge.mgmt { background: #1e1b4b; color: #818cf8; }
+  .badge.exit { background: #431407; color: #f87171; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #1a1d27;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #2a2d3a;
+  }
+  thead th {
+    text-align: left;
+    padding: 0.7rem 1rem;
+    background: #22253a;
+    color: #aaa;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  tbody td {
+    padding: 0.65rem 1rem;
+    border-top: 1px solid #2a2d3a;
+    font-size: 0.9rem;
+  }
+  tbody tr:hover {
+    background: #22253a;
+  }
+  code {
+    background: #2a2d3a;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    color: #c4b5fd;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .status-enabled {
+    color: #4ade80;
+    font-weight: 600;
+  }
+  .status-disabled {
+    color: #666;
+  }
+  .tag-new {
+    background: #14532d;
+    color: #4ade80;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    font-weight: 700;
+    margin-left: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .desc {
+    color: #999;
+    font-size: 0.85rem;
+  }
+  .footer {
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #2a2d3a;
+    color: #555;
+    font-size: 0.8rem;
+  }
+</style>
+</head>
+<body>
+
+<h1>Alert Rules Inventory</h1>
+<p class="subtitle">All intraday alert rules in <code>analytics/intraday_rules.py</code> &mdash; updated 2026-03-04</p>
+
+<div class="stats">
+  <div class="stat-card">
+    <div class="number">23</div>
+    <div class="label">Total Rules</div>
+  </div>
+  <div class="stat-card green">
+    <div class="number">17</div>
+    <div class="label">Enabled</div>
+  </div>
+  <div class="stat-card yellow">
+    <div class="number">6</div>
+    <div class="label">Disabled</div>
+  </div>
+  <div class="stat-card blue">
+    <div class="number">9</div>
+    <div class="label">BUY Support</div>
+  </div>
+  <div class="stat-card green">
+    <div class="number">5</div>
+    <div class="label">BUY Breakout</div>
+  </div>
+  <div class="stat-card red">
+    <div class="number">4</div>
+    <div class="label">SELL / Resist</div>
+  </div>
+</div>
+
+<!-- BUY — Support Bounce -->
+<div class="section">
+  <div class="section-header">
+    <h2>BUY &mdash; Support Bounce / S/R Reclaim</h2>
+    <span class="badge buy">BUY</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>Description</th>
+        <th>Key Thresholds</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ma_bounce_20</code></td>
+        <td>Bar low touches 20MA, closes above it (uptrend: 20MA &gt; 50MA)</td>
+        <td class="desc">Proximity 0.3%, stop offset 0.5%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>ma_bounce_50</code></td>
+        <td>Bar low touches 50MA, closes above (incl. counter-trend)</td>
+        <td class="desc">Proximity 0.3%, stop offset 0.5%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>ma_bounce_100</code></td>
+        <td>Bar low touches 100MA, closes above (institutional level)</td>
+        <td class="desc">Proximity 0.5%, stop offset 0.7%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>ma_bounce_200</code></td>
+        <td>Bar low touches 200MA, closes above (major level)</td>
+        <td class="desc">Proximity 0.8%, stop offset 1.0%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>prior_day_low_reclaim</code></td>
+        <td>Dips below yesterday's low, then reclaims above it</td>
+        <td class="desc">Min dip 0.1%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>session_low_double_bottom</code></td>
+        <td>Retests session low on exhaustion volume (double bottom)</td>
+        <td class="desc">Proximity 0.3%, min age 6 bars, vol &lt; 1.2x</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>planned_level_touch</code></td>
+        <td>Touches Scanner's daily planned entry level from DB</td>
+        <td class="desc">Proximity 0.3%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>weekly_level_touch</code></td>
+        <td>Touches prior week high/low level</td>
+        <td class="desc">Proximity 0.4%, stop offset 0.5%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>intraday_support_bounce</code></td>
+        <td>Bounces off detected intraday support zone</td>
+        <td class="desc">Proximity 0.3%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- BUY — Breakout / Momentum -->
+<div class="section">
+  <div class="section-header">
+    <h2>BUY &mdash; Breakout / Momentum</h2>
+    <span class="badge buy">BUY</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>Description</th>
+        <th>Key Thresholds</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>prior_day_high_breakout</code> <span class="tag-new">new</span></td>
+        <td>Closes above yesterday's high with volume confirmation</td>
+        <td class="desc">Vol &ge; 1.2x avg, high conf at 1.5x</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>outside_day_breakout</code></td>
+        <td>Closes above outside day high</td>
+        <td class="desc">&mdash;</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>inside_day_breakout</code></td>
+        <td>Closes above inside day high</td>
+        <td class="desc">&mdash;</td>
+        <td class="status-disabled">Disabled</td>
+      </tr>
+      <tr>
+        <td><code>opening_range_breakout</code></td>
+        <td>Breaks 30-min opening range high on volume</td>
+        <td class="desc">Min range 0.3%, vol &ge; 1.2x</td>
+        <td class="status-disabled">Disabled</td>
+      </tr>
+      <tr>
+        <td><code>ema_crossover_5_20</code></td>
+        <td>5 EMA crosses above 20 EMA (momentum shift)</td>
+        <td class="desc">Min 25 bars</td>
+        <td class="status-disabled">Disabled &mdash; yfinance false positives</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SELL / Resistance -->
+<div class="section">
+  <div class="section-header">
+    <h2>SELL / Resistance Warnings</h2>
+    <span class="badge sell">SELL</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>Description</th>
+        <th>Key Thresholds</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>resistance_prior_high</code></td>
+        <td>Price approaching yesterday's high (warning to take profit)</td>
+        <td class="desc">Proximity 0.2%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>resistance_prior_low</code></td>
+        <td>Price approaching yesterday's low from above</td>
+        <td class="desc">&mdash;</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>hourly_resistance_approach</code></td>
+        <td>Price nearing clustered hourly swing highs</td>
+        <td class="desc">Cluster 0.3%, approach 0.2%</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>ma_resistance</code></td>
+        <td>Price approaching MA from below (role flip: prior support now resistance)</td>
+        <td class="desc">&mdash;</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Trade Management -->
+<div class="section">
+  <div class="section-header">
+    <h2>Trade Management</h2>
+    <span class="badge mgmt">MGMT</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>Description</th>
+        <th>Trigger</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>target_1_hit</code></td>
+        <td>Price reached T1 on an active entry</td>
+        <td class="desc">Session high &ge; target_1</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>target_2_hit</code></td>
+        <td>Price reached T2 on an active entry</td>
+        <td class="desc">Session high &ge; target_2</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>stop_loss_hit</code></td>
+        <td>Price hit stop on an active entry</td>
+        <td class="desc">Session low &le; stop_price</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+      <tr>
+        <td><code>auto_stop_out</code></td>
+        <td>Tracked BUY entry hits auto-calculated stop</td>
+        <td class="desc">Close &le; tracked stop</td>
+        <td class="status-enabled">Enabled</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Exit-Only -->
+<div class="section">
+  <div class="section-header">
+    <h2>Exit-Only / Informational</h2>
+    <span class="badge exit">EXIT</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>Description</th>
+        <th>Notes</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>support_breakdown</code></td>
+        <td>Breaks below support on volume (short signal)</td>
+        <td class="desc">Vol &ge; 1.5x, conviction in lower 30% of bar</td>
+        <td class="status-enabled">Enabled &mdash; exit-only</td>
+      </tr>
+      <tr>
+        <td><code>opening_range_breakdown</code></td>
+        <td>Breaks below 30-min opening range low</td>
+        <td class="desc">Vol &ge; 1.2x</td>
+        <td class="status-disabled">Disabled</td>
+      </tr>
+      <tr>
+        <td><code>gap_fill</code></td>
+        <td>Gap from open gets filled during session</td>
+        <td class="desc">Informational only</td>
+        <td class="status-disabled">Disabled</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Context Enrichment -->
+<div class="section">
+  <div class="section-header">
+    <h2>Context Enrichment (applied to all signals)</h2>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Filter</th>
+        <th>Effect</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>SPY trend</td><td class="desc">Bearish SPY adds CAUTION suffix, regime demotion (CHOPPY, TRENDING_DOWN)</td></tr>
+      <tr><td>Session phase</td><td class="desc">Tags opening range / midday / power hour / last 30 min</td></tr>
+      <tr><td>Volume label</td><td class="desc">High / normal / low volume tag on signal bar</td></tr>
+      <tr><td>VWAP position</td><td class="desc">Above VWAP (bullish) / below VWAP (caution)</td></tr>
+      <tr><td>Gap analysis</td><td class="desc">Gap up/down % noted, boosts PDL reclaim on gap-down days</td></tr>
+      <tr><td>RSI check</td><td class="desc">Symbol &lt; 35 = crash risk suppress, &gt; 70 = overbought caution</td></tr>
+      <tr><td>Relative strength</td><td class="desc">Underperforming SPY by 2x &rarr; confidence demotion</td></tr>
+      <tr><td>MA confluence</td><td class="desc">MA within 0.5% of entry = confluence boost</td></tr>
+      <tr><td>Overhead MA</td><td class="desc">MA within 0.5% above entry = resistance warning</td></tr>
+      <tr><td>MTF alignment</td><td class="desc">Multi-timeframe trend alignment check</td></tr>
+      <tr><td>Cooldown</td><td class="desc">30-min BUY suppression after stop-out</td></tr>
+      <tr><td>Dedup</td><td class="desc">Same (symbol, alert_type) only fires once per session</td></tr>
+      <tr><td>Score consolidation</td><td class="desc">+5 pts per confirming BUY signal (max +15)</td></tr>
+      <tr><td>Noise filter</td><td class="desc">Skip BUY when vol ratio &lt; 0.4x avg</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer">
+  Generated 2026-03-04 &mdash; Source: <code>analytics/intraday_rules.py</code> + <code>alert_config.py</code>
+</div>
+
+</body>
+</html>

@@ -34,20 +34,23 @@ from alerting.alert_store import (
     was_alert_fired,
 )
 from alerting.narrator import generate_narrative
-from alerting.notifier import notify, send_email, send_sms
+from alerting.notifier import notify, notify_user, send_email, send_sms
 from alerting.paper_trader import (
     close_position as paper_close_position,
     is_enabled as paper_trading_enabled,
     place_bracket_order,
     sync_open_trades,
 )
-from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context
+from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day, get_spy_context
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
 from db import (
     init_db,
     get_all_daily_plans,
     get_all_watchlist_symbols,
     get_daily_plan,
+    get_notification_prefs,
+    get_user_tier,
+    get_users_for_symbol,
 )
 
 logging.basicConfig(
@@ -132,7 +135,8 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
 
     for symbol in symbols:
         try:
-            intraday = fetch_intraday(symbol)
+            _is_crypto = is_crypto_alert_symbol(symbol)
+            intraday = fetch_intraday_crypto(symbol) if _is_crypto else fetch_intraday(symbol)
             prior_day = fetch_prior_day(symbol)
 
             if intraday.empty:
@@ -140,7 +144,6 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 continue
 
             active = get_active_entries(symbol, session)
-            _is_crypto = is_crypto_alert_symbol(symbol)
             spy_ctx = None if _is_crypto else get_spy_context()
             plan = get_daily_plan(symbol, session)
             signals = evaluate_rules(
@@ -173,7 +176,29 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
 
                 email_sent, sms_sent = notify(signal)
 
-                alert_id = record_alert(signal, session, email_sent, sms_sent)
+                # Per-user: record alert, entries, cooldowns, and notifications
+                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
+                alert_id = None
+                for uid in get_users_for_symbol(symbol):
+                    alert_id = record_alert(signal, session, email_sent, sms_sent, user_id=uid)
+
+                    if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
+                        create_active_entry(signal, session, user_id=uid)
+
+                    if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
+                        close_all_entries_for_symbol(symbol, session, user_id=uid)
+                        save_cooldown(symbol, COOLDOWN_MINUTES, reason=signal.alert_type.value, session_date=session, user_id=uid)
+
+                    if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
+                        close_all_entries_for_symbol(symbol, session, user_id=uid)
+
+                    # Per-user DM (Pro/Elite)
+                    tier = get_user_tier(uid)
+                    if tier in ("pro", "elite"):
+                        prefs = get_notification_prefs(uid)
+                        if prefs:
+                            notify_user(signal, prefs)
+
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
 
@@ -183,10 +208,8 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     signal.price, email_sent, sms_sent,
                 )
 
-                # Entry tracking / cooldowns / paper trading
-                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
+                # Module-level auto-stop tracking (for evaluate_rules)
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
-                    create_active_entry(signal, session)
                     if signal.entry and signal.stop:
                         _auto_stop_entries[symbol] = {
                             "entry_price": signal.entry,
@@ -196,17 +219,14 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     if paper_trading_enabled():
                         place_bracket_order(signal, alert_id=alert_id)
 
-                # Stop loss / auto stop-out: cancel entries and start cooldown
+                # Stop loss / auto stop-out: clear auto-stop tracking + paper
                 if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
-                    close_all_entries_for_symbol(symbol, session)
                     _auto_stop_entries.pop(symbol, None)
-                    save_cooldown(symbol, COOLDOWN_MINUTES, reason=signal.alert_type.value, session_date=session)
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 
-                # Target hit: close active entry and paper position
+                # Target hit: close paper position
                 if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
-                    close_all_entries_for_symbol(symbol, session)
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 

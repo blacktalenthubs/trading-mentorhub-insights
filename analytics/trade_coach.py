@@ -137,8 +137,12 @@ def _get_spy_hourly_bars(days: int = 2) -> list[dict]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def assemble_context() -> dict:
-    """Gather trading context from existing DB functions. Cached 5 min."""
+def assemble_context(hub_symbol: str | None = None) -> dict:
+    """Gather trading context from existing DB functions. Cached 5 min.
+
+    If *hub_symbol* is provided, also gathers hub-specific context
+    (fundamentals, S/R levels, weekly trend, win rates) via intel_hub.
+    """
     session = date.today().isoformat()
     bucket = _time_bucket()
     cache_key = (session, bucket)
@@ -195,6 +199,14 @@ def assemble_context() -> dict:
     # SPY hourly bars (last 2 days) for intraday chart questions
     ctx["spy_hourly"] = _safe_call(_get_spy_hourly_bars, 2)
 
+    # Hub-specific context for focused symbol analysis
+    if hub_symbol:
+        try:
+            from analytics.intel_hub import assemble_hub_context
+            ctx["hub"] = assemble_hub_context(hub_symbol)
+        except Exception:
+            logger.debug("trade_coach: hub context failed for %s", hub_symbol)
+
     _context_cache[cache_key] = ctx
     return ctx
 
@@ -204,14 +216,31 @@ def format_system_prompt(context: dict) -> str:
     sections: list[str] = []
 
     # Persona
-    sections.append(
-        "You are a sharp day-trading coach. Be extremely concise — 2-4 sentences max. "
-        "Lead with key levels and action: 'Next support 679.62, resistance 685.53. "
-        "Watch for bounce at 100 EMA — good entry if it holds.' "
-        "Skip explanations the trader already knows. No filler, no preamble. "
-        "Talk like a trading buddy on a desk, not a textbook. "
-        "Reference actual data from the context sections below."
-    )
+    hub = context.get("hub")
+    if hub:
+        # Hub mode: structured, symbol-focused analysis
+        sections.append(
+            "You are a sharp day-trading coach. Structure every response clearly using markdown:\n"
+            "- Use **bold** for key levels and numbers\n"
+            "- Use bullet points for multiple items\n"
+            "- Use section headers (###) when covering multiple topics\n"
+            "- Write dollar amounts WITHOUT the $ symbol — use 'USD' or just the number "
+            "(e.g. '150.25' not '$150.25') to avoid rendering issues\n"
+            "- Keep it actionable — lead with the trade thesis, then supporting data\n"
+            "- Reference actual numbers from the context sections below\n"
+            "- Use probability language, never guarantee outcomes\n"
+            "- Talk like a sharp trading buddy, not a textbook"
+        )
+    else:
+        # Classic mode: quick desk-style responses
+        sections.append(
+            "You are a sharp day-trading coach. Be extremely concise — 2-4 sentences max. "
+            "Lead with key levels and action: 'Next support 679.62, resistance 685.53. "
+            "Watch for bounce at 100 EMA — good entry if it holds.' "
+            "Skip explanations the trader already knows. No filler, no preamble. "
+            "Talk like a trading buddy on a desk, not a textbook. "
+            "Reference actual data from the context sections below."
+        )
 
     # Open positions
     trades = context.get("open_trades")
@@ -382,15 +411,94 @@ def format_system_prompt(context: dict) -> str:
             lines.append(f"- {t['symbol']}  P&L: {pnl_str}  status={t.get('status', 'closed')}")
         sections.append("\n".join(lines))
 
+    # Hub context (when user is focused on a specific symbol)
+    hub = context.get("hub")
+    if hub:
+        hub_sym = hub.get("symbol", "")
+
+        # Fundamentals
+        fnd = hub.get("fundamentals")
+        if fnd:
+            lines = [f"[SYMBOL FUNDAMENTALS — {hub_sym}]"]
+            if fnd.get("pe"):
+                lines.append(f"PE: {fnd['pe']:.1f}")
+            if fnd.get("forward_pe"):
+                lines.append(f"Forward PE: {fnd['forward_pe']:.1f}")
+            if fnd.get("market_cap_fmt"):
+                lines.append(f"Market Cap: {fnd['market_cap_fmt']}")
+            if fnd.get("sector"):
+                lines.append(f"Sector: {fnd['sector']}")
+            if fnd.get("beta"):
+                lines.append(f"Beta: {fnd['beta']:.2f}")
+            if fnd.get("earnings_date"):
+                lines.append(f"Next Earnings: {fnd['earnings_date']}")
+            if fnd.get("dividend_yield"):
+                lines.append(f"Div Yield: {fnd['dividend_yield']:.2%}")
+            sections.append("\n".join(lines))
+
+        # S/R levels (top 10)
+        sr = hub.get("sr_levels")
+        if sr:
+            lines = [f"[KEY S/R LEVELS — {hub_sym}]"]
+            for lvl in sr[:10]:
+                lines.append(
+                    f"- ${lvl['level']:.2f} {lvl['label']} ({lvl['type']}) "
+                    f"dist={lvl['distance_pct']:+.2f}%"
+                )
+            sections.append("\n".join(lines))
+
+        # Weekly trend
+        wt = hub.get("weekly_trend")
+        if wt:
+            lines = [f"[WEEKLY TREND — {hub_sym}]"]
+            lines.append(f"Direction: {wt.get('direction', 'unknown')}")
+            if wt.get("close"):
+                lines.append(f"Weekly close: ${wt['close']:.2f}")
+            for key in ("wma10", "wma20", "wma50"):
+                if key in wt:
+                    lines.append(f"{key.upper()}: ${wt[key]:.2f}")
+            sections.append("\n".join(lines))
+
+        # Win rates
+        wr = hub.get("win_rates")
+        if wr:
+            lines = [f"[HISTORICAL WIN RATES — {hub_sym}]"]
+            sym_wr = wr.get("symbol")
+            if sym_wr:
+                lines.append(
+                    f"{hub_sym}: {sym_wr['win_rate']}% "
+                    f"({sym_wr['wins']}W/{sym_wr['losses']}L/{sym_wr['unknown']}U)"
+                )
+            overall = wr.get("overall", {})
+            if overall:
+                lines.append(
+                    f"Overall: {overall.get('win_rate', 0)}% "
+                    f"({overall.get('total', 0)} signals)"
+                )
+            sections.append("\n".join(lines))
+
     # Rules
-    sections.append(
-        "[RULES]\n"
-        "- 2-4 sentences max. Lead with levels and action.\n"
-        "- Use probability language, never guarantee outcomes\n"
-        "- Call out overexposure if 3+ open positions\n"
-        "- Say 'not enough data' if context is missing\n"
-        "- No markdown formatting — plain text only"
-    )
+    if hub:
+        sections.append(
+            "[RULES]\n"
+            "- Structure responses with markdown: headers, bold, bullets\n"
+            "- NEVER use the $ character for dollar amounts — write '150.25' or 'USD 150.25' instead\n"
+            "- Lead with trade thesis, then key levels, then supporting data\n"
+            "- Use probability language, never guarantee outcomes\n"
+            "- Call out overexposure if 3+ open positions\n"
+            "- Say 'not enough data' if context is missing\n"
+            "- Keep responses focused but thorough (5-15 lines)"
+        )
+    else:
+        sections.append(
+            "[RULES]\n"
+            "- 2-4 sentences max. Lead with levels and action.\n"
+            "- NEVER use the $ character — write dollar amounts as plain numbers\n"
+            "- Use probability language, never guarantee outcomes\n"
+            "- Call out overexposure if 3+ open positions\n"
+            "- Say 'not enough data' if context is missing\n"
+            "- No markdown formatting — plain text only"
+        )
 
     return "\n\n".join(sections)
 

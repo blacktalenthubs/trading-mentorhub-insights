@@ -15,7 +15,7 @@ from analytics.intraday_data import fetch_intraday, fetch_prior_day, compute_vwa
 from analytics.market_hours import is_market_hours
 import ui_theme
 
-user = ui_theme.setup_page("charts")
+user = ui_theme.setup_page("charts", tier_required="free")
 
 # ── Timeframe definitions ────────────────────────────────────────────────────
 # label → (yf period, yf interval, is_intraday)
@@ -46,7 +46,8 @@ def _fetch_bars(symbol: str, period: str, interval: str | None) -> pd.DataFrame:
         hist = yf.Ticker(symbol).history(period=period)
         if hist.empty:
             return pd.DataFrame()
-        hist.index = hist.index.tz_localize(None)
+        from analytics.intraday_data import _normalize_index_to_et
+        hist = _normalize_index_to_et(hist)
         ohlcv = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
         if interval == "weekly":
             ohlcv = ohlcv.resample("W-FRI").agg({
@@ -263,6 +264,12 @@ def _build_chart(
         margin=dict(l=50, r=20, t=10, b=30),
         legend=dict(orientation="h", y=1.02),
         dragmode="pan",
+        hovermode="x unified",
+        hoverlabel=dict(
+            bgcolor="#1a1a2e",
+            bordercolor="#1e3a5f",
+            font=dict(color="#c9d1d9", size=11),
+        ),
         xaxis=dict(
             range=[x_start - 0.5, x_end + 0.5],
             tickvals=tick_vals,
@@ -276,6 +283,13 @@ def _build_chart(
         ),
         yaxis2=dict(fixedrange=False),
     )
+
+    _spike_kw = dict(
+        showspikes=True, spikemode="across", spikethickness=1,
+        spikecolor="#888", spikedash="dot", spikesnap="cursor",
+    )
+    fig.update_xaxes(**_spike_kw)
+    fig.update_yaxes(**_spike_kw)
 
     return fig
 
@@ -344,15 +358,17 @@ with st.sidebar:
             st.rerun()
 
 
-# ── Timeframe dropdown (above chart) ─────────────────────────────────────────
+# ── Timeframe selector (above chart) ─────────────────────────────────────────
 
-tf_col, spacer = st.columns([1, 5])
-with tf_col:
-    tf_label = st.selectbox(
-        "Timeframe", list(TIMEFRAMES.keys()),
-        index=1,  # default "5m"
-        key="chart_tf", label_visibility="collapsed",
-    )
+tf_label = st.segmented_control(
+    "Timeframe",
+    options=list(TIMEFRAMES.keys()),
+    default="5m",
+    key="chart_tf",
+    label_visibility="collapsed",
+)
+if tf_label is None:
+    tf_label = "5m"
 
 period, interval, is_intraday = TIMEFRAMES[tf_label]
 
@@ -370,26 +386,37 @@ if bars.empty:
     st.stop()
 
 prior = fetch_prior_day(symbol) if is_intraday else None
-active_entries = get_active_entries(symbol)
+active_entries = get_active_entries(symbol, user_id=user["id"] if user else None)
+
+# ── Price / change header ────────────────────────────────────────────────────
+_last_close = bars["Close"].iloc[-1]
+_prev_close = bars["Close"].iloc[-2] if len(bars) > 1 else _last_close
+_change = _last_close - _prev_close
+_change_pct = (_change / _prev_close * 100) if _prev_close else 0
+_hi = bars["High"].max()
+_lo = bars["Low"].min()
+_vol = bars["Volume"].iloc[-1] if "Volume" in bars.columns else 0
+
+mc1, mc2, mc3, mc4 = st.columns(4)
+mc1.metric(
+    symbol, f"${_last_close:,.2f}",
+    delta=f"{_change:+.2f} ({_change_pct:+.1f}%)",
+    delta_color="normal",
+)
+mc2.metric("High", f"${_hi:,.2f}")
+mc3.metric("Low", f"${_lo:,.2f}")
+mc4.metric("Volume", f"{_vol:,.0f}")
 
 fig = _build_chart(
     symbol, bars, ema_periods, sma_periods,
     show_vwap and is_intraday, prior, active_entries, levels, is_intraday, tf_label,
 )
 
-st.plotly_chart(
-    fig, use_container_width=True,
-    config={
-        "scrollZoom": True,
-        "displayModeBar": True,
-        "modeBarButtonsToAdd": ["drawline", "eraseshape"],
-        "displaylogo": False,
-    },
-)
+st.plotly_chart(fig, use_container_width=True, config=ui_theme.PLOTLY_CONFIG)
 
 # ── Alert context ─────────────────────────────────────────────────────────────
 
-alerts_today = get_alerts_today()
+alerts_today = get_alerts_today(user_id=user["id"] if user else None)
 symbol_alerts = [a for a in alerts_today if a.get("symbol") == symbol]
 
 if symbol_alerts:
@@ -400,6 +427,9 @@ if symbol_alerts:
     ]
     alert_df.columns = ["Time", "Type", "Dir", "Price", "Entry", "Stop",
                         "T1", "Confidence", "Message"]
+    alert_df["Dir"] = alert_df["Dir"].map(
+        lambda d: ui_theme.display_direction(d)[0]
+    )
     st.dataframe(
         alert_df.style.format({
             "Price": "${:,.2f}", "Entry": "${:,.2f}",

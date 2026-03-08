@@ -1,4 +1,4 @@
-"""Data models for TradeSignal."""
+"""Data models for TradeCoPilot."""
 
 from __future__ import annotations
 

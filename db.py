@@ -406,8 +406,9 @@ def init_db():
                 alert_type TEXT,
                 session_date TEXT,
                 status TEXT DEFAULT 'active',
+                user_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(symbol, session_date, alert_type)
+                UNIQUE(symbol, session_date, alert_type, user_id)
             );
 
             CREATE TABLE IF NOT EXISTS cooldowns (
@@ -416,8 +417,9 @@ def init_db():
                 cooldown_until TEXT NOT NULL,
                 reason TEXT,
                 session_date TEXT NOT NULL,
+                user_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(symbol, session_date)
+                UNIQUE(symbol, session_date, user_id)
             );
 
             CREATE TABLE IF NOT EXISTS monitor_status (
@@ -597,6 +599,35 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_swing_categories_session
                 ON swing_categories(session_date);
+
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+                tier TEXT NOT NULL DEFAULT 'free',
+                status TEXT NOT NULL DEFAULT 'active',
+                stripe_customer_id TEXT DEFAULT '',
+                stripe_subscription_id TEXT DEFAULT '',
+                current_period_start TEXT,
+                current_period_end TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                used INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                used INTEGER DEFAULT 0
+            );
         """))
     # SQLite-only migrations — on Postgres the DDL already creates
     # all columns/constraints correctly and these cause deadlocks
@@ -610,8 +641,10 @@ def init_db():
         _migrate_add_anthropic_key()
         _migrate_add_daily_plans()
         _migrate_real_trades_swing()
+    _migrate_per_user_entries_cooldowns()
     _migrate_ensure_default_watchlist()
     _migrate_add_score_v2()
+    _migrate_seed_subscriptions()
 
 
 def _migrate_add_user_id():
@@ -853,6 +886,100 @@ def _migrate_alert_user_id():
                 )
 
 
+def _migrate_per_user_entries_cooldowns():
+    """Add user_id column to active_entries and cooldowns tables.
+
+    Rebuilds tables to update UNIQUE constraints (SQLite can't ALTER constraints).
+    On Postgres the DDL already creates the correct schema.
+    """
+    with get_db() as conn:
+        # --- active_entries ---
+        try:
+            conn.execute("ALTER TABLE active_entries ADD COLUMN user_id INTEGER")
+        except _DB_OPERATIONAL_ERRORS:
+            pass  # Column already exists
+
+        # Rebuild table for new UNIQUE constraint (SQLite only)
+        if not _USE_POSTGRES:
+            table_sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='active_entries'"
+            ).fetchone()
+            if table_sql and table_sql["sql"]:
+                ddl_norm = table_sql["sql"].replace(" ", "").upper()
+                if "USER_ID" in ddl_norm and "UNIQUE(SYMBOL,SESSION_DATE,ALERT_TYPE,USER_ID)" not in ddl_norm:
+                    conn.executescript("""
+                        CREATE TABLE IF NOT EXISTS _ae_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            symbol TEXT NOT NULL,
+                            entry_price REAL,
+                            stop_price REAL,
+                            target_1 REAL,
+                            target_2 REAL,
+                            alert_type TEXT,
+                            session_date TEXT,
+                            status TEXT DEFAULT 'active',
+                            user_id INTEGER,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE(symbol, session_date, alert_type, user_id)
+                        );
+                        INSERT OR IGNORE INTO _ae_new
+                            (symbol, entry_price, stop_price, target_1, target_2,
+                             alert_type, session_date, status, user_id, created_at)
+                            SELECT symbol, entry_price, stop_price, target_1, target_2,
+                                   alert_type, session_date, status, user_id, created_at
+                            FROM active_entries;
+                        DROP TABLE active_entries;
+                        ALTER TABLE _ae_new RENAME TO active_entries;
+                        CREATE INDEX IF NOT EXISTS idx_active_entries_symbol
+                            ON active_entries(symbol, session_date);
+                    """)
+
+        # --- cooldowns ---
+        try:
+            conn.execute("ALTER TABLE cooldowns ADD COLUMN user_id INTEGER")
+        except _DB_OPERATIONAL_ERRORS:
+            pass  # Column already exists
+
+        # Rebuild table for new UNIQUE constraint (SQLite only)
+        if not _USE_POSTGRES:
+            table_sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='cooldowns'"
+            ).fetchone()
+            if table_sql and table_sql["sql"]:
+                ddl_norm = table_sql["sql"].replace(" ", "").upper()
+                if "USER_ID" in ddl_norm and "UNIQUE(SYMBOL,SESSION_DATE,USER_ID)" not in ddl_norm:
+                    conn.executescript("""
+                        CREATE TABLE IF NOT EXISTS _cd_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            symbol TEXT NOT NULL,
+                            cooldown_until TEXT NOT NULL,
+                            reason TEXT,
+                            session_date TEXT NOT NULL,
+                            user_id INTEGER,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE(symbol, session_date, user_id)
+                        );
+                        INSERT OR IGNORE INTO _cd_new
+                            (symbol, cooldown_until, reason, session_date, user_id, created_at)
+                            SELECT symbol, cooldown_until, reason, session_date, user_id, created_at
+                            FROM cooldowns;
+                        DROP TABLE cooldowns;
+                        ALTER TABLE _cd_new RENAME TO cooldowns;
+                    """)
+
+        # Assign orphan rows to first user
+        admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        if admin:
+            conn.execute(
+                "UPDATE active_entries SET user_id = ? WHERE user_id IS NULL",
+                (admin["id"],),
+            )
+            conn.execute(
+                "UPDATE cooldowns SET user_id = ? WHERE user_id IS NULL",
+                (admin["id"],),
+            )
+
+
 def _migrate_add_score_v2():
     """Add score_v2 column to alerts table if missing."""
     with get_db() as conn:
@@ -860,6 +987,76 @@ def _migrate_add_score_v2():
             conn.execute("ALTER TABLE alerts ADD COLUMN score_v2 INTEGER DEFAULT 0")
         except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
+
+
+def _migrate_seed_subscriptions():
+    """Seed subscriptions for existing users: first user → elite, others → free."""
+    with get_db() as conn:
+        users = conn.execute("SELECT id FROM users ORDER BY id").fetchall()
+        for i, u in enumerate(users):
+            conn.execute(
+                """INSERT INTO subscriptions (user_id, tier, status)
+                   VALUES (?, ?, 'active')
+                   ON CONFLICT(user_id) DO NOTHING""",
+                (u["id"], "elite" if i == 0 else "free"),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions
+# ---------------------------------------------------------------------------
+
+TIER_LEVELS = {"free": 0, "pro": 1, "elite": 2}
+
+
+def get_user_tier(user_id: int) -> str:
+    """Return the user's subscription tier ('free', 'pro', 'elite')."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT tier FROM subscriptions WHERE user_id = ? AND status = 'active'",
+            (user_id,),
+        ).fetchone()
+        return row["tier"] if row else "free"
+
+
+def upsert_subscription(user_id: int, tier: str, **kwargs):
+    """Insert or update a user's subscription."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO subscriptions
+               (user_id, tier, status, stripe_customer_id, stripe_subscription_id,
+                current_period_start, current_period_end)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   tier = excluded.tier,
+                   status = excluded.status,
+                   stripe_customer_id = excluded.stripe_customer_id,
+                   stripe_subscription_id = excluded.stripe_subscription_id,
+                   current_period_start = excluded.current_period_start,
+                   current_period_end = excluded.current_period_end,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                user_id,
+                tier,
+                kwargs.get("status", "active"),
+                kwargs.get("stripe_customer_id", ""),
+                kwargs.get("stripe_subscription_id", ""),
+                kwargs.get("current_period_start"),
+                kwargs.get("current_period_end"),
+            ),
+        )
+
+
+def get_subscription(user_id: int) -> dict | None:
+    """Get full subscription details for a user."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT tier, status, stripe_customer_id, stripe_subscription_id,
+                      current_period_start, current_period_end, created_at, updated_at
+               FROM subscriptions WHERE user_id = ?""",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -920,6 +1117,16 @@ def get_users_for_symbol(symbol: str) -> list[int]:
             (symbol,),
         ).fetchall()
         return [r["user_id"] for r in rows]
+
+
+def get_daily_alert_count(user_id: int, session_date: str) -> int:
+    """Count alerts sent to a user today (for free-tier limiting)."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM alerts WHERE user_id = ? AND session_date = ?",
+            (user_id, session_date),
+        ).fetchone()
+        return row["cnt"] if row else 0
 
 
 # ---------------------------------------------------------------------------

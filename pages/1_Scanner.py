@@ -7,11 +7,10 @@ import pandas as pd
 import plotly.graph_objects as go
 from streamlit_autorefresh import st_autorefresh
 
-from db import get_watchlist, add_to_watchlist, remove_from_watchlist, set_watchlist
 from config import DEFAULT_POSITION_SIZE
 from analytics.market_data import classify_day, fetch_ohlc
 from analytics.signal_engine import (
-    scan_watchlist, SignalResult, ACTION_LABELS, action_label, action_color, action_help,
+    scan_watchlist, SignalResult, action_label, action_color, action_help,
 )
 from analytics.intraday_data import (
     fetch_intraday, fetch_prior_day, get_spy_context,
@@ -19,7 +18,7 @@ from analytics.intraday_data import (
     fetch_hourly_bars, detect_hourly_support,
 )
 from analytics.intraday_rules import evaluate_rules
-from analytics.market_hours import is_market_hours, is_premarket
+from analytics.market_hours import is_market_hours, is_premarket, get_session_phase
 from alerting.alert_store import get_active_entries, today_session
 from db import get_db
 from alerting.real_trade_store import (
@@ -31,7 +30,7 @@ from alerting.options_trade_store import (
 from alert_config import OPTIONS_ELIGIBLE_SYMBOLS, OPTIONS_MIN_SCORE
 import ui_theme
 
-user = ui_theme.setup_page("scanner")
+user = ui_theme.setup_page("scanner", tier_required="free")
 
 # ── Sync active positions from DB (survive page refresh) ──────────────────
 if "active_positions" not in st.session_state:
@@ -111,9 +110,9 @@ def _cached_prior_day(symbol: str) -> dict | None:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _cached_active_entries(symbol: str, session_date: str) -> list[dict]:
+def _cached_active_entries(symbol: str, session_date: str, user_id: int | None = None) -> list[dict]:
     """Active alert entries for a symbol today (1-min cache)."""
-    return get_active_entries(symbol, session_date)
+    return get_active_entries(symbol, session_date, user_id=user_id)
 
 
 def _get_alert_narrative(symbol: str, session_date: str) -> str:
@@ -126,44 +125,14 @@ def _get_alert_narrative(symbol: str, session_date: str) -> str:
         return row["narrative"] if row else ""
 
 
-# ── Status styling ──────────────────────────────────────────────────────────
-
-_STATUS_COLORS = {v["label"]: v["color"] for v in ACTION_LABELS.values()}
-
-
-def _color_status(val):
-    color = _STATUS_COLORS.get(val, "")
-    return f"color: {color}; font-weight: bold" if color else ""
-
-
-def _color_pattern(val):
-    if val == "INSIDE":
-        return "background-color: #3498db33; font-weight: bold"
-    if val == "OUTSIDE":
-        return "background-color: #e74c3c33; font-weight: bold"
-    return ""
-
-
-def _color_score(val):
-    if "A+" in str(val):
-        return "color: #2ecc71; font-weight: bold"
-    if "A " in str(val) or str(val).startswith("A ("):
-        return "color: #2ecc71; font-weight: bold"
-    if "B" in str(val):
-        return "color: #f39c12; font-weight: bold"
-    if "C" in str(val):
-        return "color: #e74c3c; font-weight: bold"
-    return ""
-
-
-def _color_plan(val):
-    if val == "LIVE":
-        return "color: #2ecc71; font-weight: bold"
-    return "color: #888"
+# Shared chart helpers (from ui_theme)
+_add_level_line = ui_theme.add_level_line
+_volume_colors = ui_theme.volume_colors
+_build_candlestick_fig = ui_theme.build_candlestick_fig
 
 
 def _draw_mini_chart(r: SignalResult):
-    """30-day candlestick chart with levels."""
+    """30-day candlestick + volume chart with levels."""
     hist = _cached_fetch(r.symbol)
     if hist.empty:
         st.caption("Chart data unavailable.")
@@ -174,107 +143,71 @@ def _draw_mini_chart(r: SignalResult):
     hist["MA50"] = hist["Close"].rolling(window=50).mean()
     chart = hist.tail(30).copy()
 
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=chart.index.strftime("%Y-%m-%d"),
-        open=chart["Open"], high=chart["High"],
-        low=chart["Low"], close=chart["Close"],
-        name=r.symbol,
-        increasing_line_color="#2ecc71",
-        decreasing_line_color="#e74c3c",
-    ))
+    # Gap-free integer x-axis
+    x_int = list(range(len(chart)))
+    date_labels = chart.index.strftime("%b %d")
+    step = max(1, len(chart) // 8)
+    tick_vals = x_int[::step]
+    tick_text = [date_labels[i] for i in tick_vals]
 
+    fig = _build_candlestick_fig(
+        chart, x_int, r.symbol,
+        height=450, tick_vals=tick_vals, tick_text=tick_text,
+    )
+
+    # Moving averages
     for col, label, color in [("MA20", "20 MA", "#f39c12"), ("MA50", "50 MA", "#9b59b6")]:
         ma = chart[col].dropna()
         if not ma.empty:
+            ma_x = [x_int[chart.index.get_loc(idx)] for idx in ma.index]
             fig.add_trace(go.Scatter(
-                x=ma.index.strftime("%Y-%m-%d"), y=ma.values,
-                mode="lines", name=label, line=dict(color=color, width=1.5),
+                x=ma_x, y=ma.values,
+                mode="lines", name=label,
+                line=dict(color=color, width=1.5),
             ))
 
-    # Trade plan levels — bold labels with colored badges
-    fig.add_hline(y=r.entry, line_dash="dash", line_color="#3498db", line_width=2,
-                  annotation_text=f"  ENTRY ${r.entry:,.2f}  ",
-                  annotation_font=dict(size=12, color="white", family="Arial Black"),
-                  annotation_bgcolor="#3498db", annotation_borderpad=3,
-                  annotation_position="top left")
-    fig.add_hline(y=r.stop, line_dash="dash", line_color="#e74c3c", line_width=2,
-                  annotation_text=f"  STOP ${r.stop:,.2f}  ",
-                  annotation_font=dict(size=12, color="white", family="Arial Black"),
-                  annotation_bgcolor="#e74c3c", annotation_borderpad=3,
-                  annotation_position="bottom left")
-    fig.add_hline(y=r.target_1, line_dash="dash", line_color="#2ecc71", line_width=2,
-                  annotation_text=f"  TARGET ${r.target_1:,.2f}  ",
-                  annotation_font=dict(size=12, color="white", family="Arial Black"),
-                  annotation_bgcolor="#2ecc71", annotation_borderpad=3,
-                  annotation_position="top left")
-    # Support level
-    fig.add_hline(y=r.nearest_support, line_dash="dot", line_color="#f39c12", line_width=1,
-                  annotation_text=f"  SUPPORT ${r.nearest_support:,.2f}  ",
-                  annotation_font=dict(size=11, color="white"),
-                  annotation_bgcolor="#f39c12", annotation_borderpad=3,
-                  annotation_position="bottom left")
+    # Key levels — alternate left/right to reduce overlap
+    _add_level_line(fig, r.entry, "WATCH", "#3498db", position="top left")
+    _add_level_line(fig, r.stop, "RISK", "#e74c3c", position="bottom right")
+    _add_level_line(fig, r.target_1, "TARGET", "#2ecc71", position="top right")
+    _add_level_line(fig, r.nearest_support, "SUPPORT", "#f39c12",
+                    position="bottom left", dash="dot", width=1)
 
-    fig.update_layout(
-        height=350, xaxis_rangeslider_visible=False,
-        yaxis_title="Price ($)",
-        margin=dict(l=40, r=20, t=30, b=30),
-        legend=dict(orientation="h", y=1.08),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config=ui_theme.PLOTLY_CONFIG)
 
 
 def _draw_intraday_chart(symbol: str, bars: pd.DataFrame, prior: dict | None, r: SignalResult):
-    """5-minute intraday candlestick chart with key levels."""
+    """5-minute intraday candlestick + volume chart with key levels."""
     if bars.empty:
         return
 
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=bars.index.strftime("%H:%M"),
-        open=bars["Open"], high=bars["High"],
-        low=bars["Low"], close=bars["Close"],
-        name=symbol,
-        increasing_line_color="#2ecc71",
-        decreasing_line_color="#e74c3c",
-    ))
+    chart = bars.copy()
 
-    # Add key levels
-    if prior:
-        fig.add_hline(y=prior["high"], line_dash="dot", line_color="#e74c3c", line_width=1,
-                      annotation_text=f"  Prior High ${prior['high']:,.2f}  ",
-                      annotation_font=dict(size=10, color="white"),
-                      annotation_bgcolor="#e74c3c", annotation_borderpad=2,
-                      annotation_position="top left")
-        fig.add_hline(y=prior["low"], line_dash="dot", line_color="#2ecc71", line_width=1,
-                      annotation_text=f"  Prior Low ${prior['low']:,.2f}  ",
-                      annotation_font=dict(size=10, color="white"),
-                      annotation_bgcolor="#2ecc71", annotation_borderpad=2,
-                      annotation_position="bottom left")
+    # Gap-free integer x-axis with time labels
+    x_int = list(range(len(chart)))
+    time_labels = chart.index.strftime("%H:%M")
+    step = max(1, len(chart) // 10)
+    tick_vals = x_int[::step]
+    tick_text = [time_labels[i] for i in tick_vals]
 
-    fig.add_hline(y=r.entry, line_dash="dash", line_color="#3498db", line_width=1.5,
-                  annotation_text=f"  Entry ${r.entry:,.2f}  ",
-                  annotation_font=dict(size=10, color="white"),
-                  annotation_bgcolor="#3498db", annotation_borderpad=2,
-                  annotation_position="top left")
-    fig.add_hline(y=r.stop, line_dash="dash", line_color="#e74c3c", line_width=1.5,
-                  annotation_text=f"  Stop ${r.stop:,.2f}  ",
-                  annotation_font=dict(size=10, color="white"),
-                  annotation_bgcolor="#e74c3c", annotation_borderpad=2,
-                  annotation_position="bottom left")
-    fig.add_hline(y=r.target_1, line_dash="dash", line_color="#2ecc71", line_width=1.5,
-                  annotation_text=f"  T1 ${r.target_1:,.2f}  ",
-                  annotation_font=dict(size=10, color="white"),
-                  annotation_bgcolor="#2ecc71", annotation_borderpad=2,
-                  annotation_position="top left")
-
-    fig.update_layout(
-        height=300, xaxis_rangeslider_visible=False,
-        yaxis_title="Price ($)", title=f"{symbol} — Intraday 5m",
-        margin=dict(l=40, r=20, t=40, b=30),
-        legend=dict(orientation="h", y=1.08),
+    fig = _build_candlestick_fig(
+        chart, x_int, symbol,
+        height=380, tick_vals=tick_vals, tick_text=tick_text,
     )
-    st.plotly_chart(fig, use_container_width=True)
+
+    # Prior day levels
+    if prior:
+        _add_level_line(fig, prior["high"], "Prior High", "#e74c3c",
+                        position="top right", dash="dot", width=1)
+        _add_level_line(fig, prior["low"], "Prior Low", "#2ecc71",
+                        position="bottom right", dash="dot", width=1)
+
+    # Key levels
+    _add_level_line(fig, r.entry, "Watch", "#3498db", position="top left")
+    _add_level_line(fig, r.stop, "Risk", "#e74c3c", position="bottom left")
+    _add_level_line(fig, r.target_1, "T1", "#2ecc71", position="top right")
+
+    st.plotly_chart(fig, use_container_width=True, config=ui_theme.PLOTLY_CONFIG_MINIMAL)
 
 
 # ── Page layout ─────────────────────────────────────────────────────────────
@@ -284,60 +217,7 @@ ui_theme.page_header("Signal Scanner", "Trade plans for your watchlist — entry
 # ── Sidebar ─────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.subheader("Watchlist")
-
-    # Initialize watchlist in session state from DB
-    if "watchlist" not in st.session_state:
-        st.session_state["watchlist"] = get_watchlist(user["id"] if user else None)
-
-    _uid = user["id"] if user else None
-
-    # Add symbol one at a time
-    add_col, btn_col = st.columns([3, 1])
-    with add_col:
-        new_sym = st.text_input("Add symbol", key="add_sym_input", label_visibility="collapsed",
-                                placeholder="Add symbol...")
-    with btn_col:
-        add_clicked = st.button("Add", key="add_sym_btn", use_container_width=True)
-
-    if add_clicked and new_sym:
-        sym_clean = new_sym.strip().upper()
-        if sym_clean and sym_clean not in st.session_state["watchlist"]:
-            add_to_watchlist(sym_clean, _uid)
-            st.session_state["watchlist"].append(sym_clean)
-            st.rerun()
-
-    # Display current watchlist as compact grid with remove buttons
-    if st.session_state["watchlist"]:
-        remove_sym = None
-        _wl = st.session_state["watchlist"]
-        # 3-column grid for compactness
-        _grid_cols = st.columns(3)
-        for i, sym in enumerate(_wl):
-            col = _grid_cols[i % 3]
-            if col.button(f"{sym}  x", key=f"rm_{sym}_{i}", use_container_width=True):
-                remove_sym = sym
-        if remove_sym is not None:
-            remove_from_watchlist(remove_sym, _uid)
-            st.session_state["watchlist"].remove(remove_sym)
-            st.rerun()
-    else:
-        st.caption("No symbols. Add one above.")
-
-    # Bulk edit in collapsible expander
-    with st.expander("Bulk Edit"):
-        bulk_text = st.text_area(
-            "Symbols (comma-separated)",
-            value=", ".join(st.session_state["watchlist"]),
-            height=80,
-            key="bulk_edit_area",
-            label_visibility="collapsed",
-        )
-        if st.button("Apply", key="bulk_apply", use_container_width=True):
-            parsed = [s.strip().upper() for s in bulk_text.split(",") if s.strip()]
-            set_watchlist(parsed, _uid)
-            st.session_state["watchlist"] = parsed
-            st.rerun()
+    ui_theme.render_sidebar_watchlist(user)
 
     st.divider()
     position_size = st.number_input(
@@ -359,7 +239,7 @@ _alert_entries: dict[str, dict] = {}
 _session = today_session()
 if _market_open:
     for r in results:
-        entries = _cached_active_entries(r.symbol, _session)
+        entries = _cached_active_entries(r.symbol, _session, user_id=user["id"])
         if entries:
             ae = entries[-1]  # most recent active entry
             _alert_entries[r.symbol] = ae
@@ -384,20 +264,23 @@ if not results:
 
 # ── KPI Row ─────────────────────────────────────────────────────────────────
 
-at_support = sum(1 for r in results if r.support_status == "AT SUPPORT" and r.score >= 65)
-watching = sum(
-    1 for r in results
-    if r.support_status == "PULLBACK WATCH"
-    or (r.support_status == "AT SUPPORT" and r.score < 65)
-)
-a_plus_count = sum(1 for r in results if r.score >= 90)
-a_count = sum(1 for r in results if 75 <= r.score < 90)
+potential_entries = sum(1 for r in results if r.support_status == "AT SUPPORT" and r.score >= 65)
+avg_score = int(sum(r.score for r in results) / len(results)) if results else 0
 
-col1, col2, col3 = st.columns(3)
-col1.metric("BUY ZONE", at_support, help=action_help("AT SUPPORT"))
-col2.metric("WAIT FOR DIP", watching, help=action_help("PULLBACK WATCH"))
-col3.metric("A+ / A Signals", f"{a_plus_count} / {a_count}",
-            help="A+ (90+): full size | A (75+): normal size")
+_phase = get_session_phase()
+_phase_labels = {
+    "premarket": "Pre-Market",
+    "market": "Market Open",
+    "afterhours": "After Hours",
+    "closed": "Closed",
+}
+_market_label = _phase_labels.get(_phase, _phase.replace("_", " ").title())
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Scanned", len(results))
+col2.metric("Potential Entries", potential_entries, help=action_help("AT SUPPORT"))
+col3.metric("Avg Score", avg_score)
+col4.metric("Market", _market_label)
 
 st.divider()
 
@@ -483,116 +366,78 @@ if _premarket:
 
     st.divider()
 
-# ── Trade Plan Table ────────────────────────────────────────────────────────
+# ── Trade Plans (expandable cards) ─────────────────────────────────────────
 
 ui_theme.section_header("Trade Plans")
-
-price_label = "Price (Live)" if _market_open else "Price"
-
-table_rows = []
-for r in results:
-    shares = int(position_size / r.entry) if r.entry > 0 else 0
-    total_risk = shares * r.risk_per_share
-
-    # Projected S/R from all available levels (daily + EMA)
-    price = r.last_close
-    _prior = _cached_prior_day(r.symbol) or {}
-    _levels = []
-    if r.prior_low > 0:
-        _levels.append(r.prior_low)
-    if r.prior_high > 0:
-        _levels.append(r.prior_high)
-    for _k in ("ma20", "ma50", "ma100", "ma200", "ema20", "ema50", "ema100"):
-        _v = _prior.get(_k) or (getattr(r, _k, None) if _k in ("ma20", "ma50") else None)
-        if _v and _v > 0:
-            _levels.append(_v)
-
-    # During market hours, add today's session low as support
-    if _market_open:
-        _intra = _cached_intraday(r.symbol)
-        if not _intra.empty:
-            _levels.append(float(_intra["Low"].min()))
-
-    _below = [l for l in _levels if l <= price]
-    _above = [l for l in _levels if l > price]
-    proj_support = max(_below) if _below else None
-    proj_resist = min(_above) if _above else None
-
-    table_rows.append({
-        "Symbol": r.symbol,
-        "Plan": "LIVE" if r.symbol in _alert_entries else "DAILY",
-        "Score": f"{r.score_label} ({r.score})",
-        price_label: r.last_close,
-        "Status": action_label(r.support_status, r.score),
-        "Pattern": r.pattern.upper(),
-        "Proj Support": proj_support,
-        "Proj Resist": proj_resist,
-        "Entry": r.entry if r.entry <= price * 1.02 else None,
-        "Stop": r.stop if r.entry <= price * 1.02 else None,
-        "Target": r.target_1 if r.entry <= price * 1.02 else None,
-        "R:R": f"{r.rr_ratio:.1f}:1" if r.entry <= price * 1.02 else "—",
-        "Risk/Sh": r.risk_per_share if r.entry <= price * 1.02 else None,
-        "Shares": shares if r.entry <= price * 1.02 else None,
-        "$ Risk": total_risk if r.entry <= price * 1.02 else None,
-    })
-
-table_df = pd.DataFrame(table_rows)
-
-st.dataframe(
-    table_df.style
-    .format({
-        price_label: "${:,.2f}",
-        "Proj Support": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
-        "Proj Resist": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
-        "Entry": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
-        "Stop": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
-        "Target": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
-        "Risk/Sh": lambda v: f"${v:,.2f}" if pd.notna(v) else "—",
-        "Shares": lambda v: f"{v:,.0f}" if pd.notna(v) else "—",
-        "$ Risk": lambda v: f"${v:,.0f}" if pd.notna(v) else "—",
-    })
-    .applymap(_color_plan, subset=["Plan"])
-    .applymap(_color_status, subset=["Status"])
-    .applymap(_color_pattern, subset=["Pattern"])
-    .applymap(_color_score, subset=["Score"]),
-    use_container_width=True,
-    hide_index=True,
-)
-
-st.divider()
-
-# ── Detail per Symbol ───────────────────────────────────────────────────────
-
-ui_theme.section_header("Detail")
 
 for r in results:
     _label = action_label(r.support_status, r.score)
     _acolor = action_color(r.support_status, r.score)
 
-    _opts_label = " | OPTIONS PLAY" if r.symbol in OPTIONS_ELIGIBLE_SYMBOLS and r.score >= OPTIONS_MIN_SCORE else ""
+    _live_tag = " | LIVE" if r.symbol in _alert_entries else ""
+    _pattern_tag = f" | {r.pattern.upper()}" if r.pattern != "normal" else ""
+    _opts_tag = " | OPTIONS" if r.symbol in OPTIONS_ELIGIBLE_SYMBOLS and r.score >= OPTIONS_MIN_SCORE else ""
 
     with st.expander(
-        f"{r.symbol}  |  {_label}  |  Score: {r.score_label} ({r.score}){_opts_label}  |  "
-        f"Entry ${r.entry:,.2f}  Stop ${r.stop:,.2f}  Target ${r.target_1:,.2f}"
+        f"{r.symbol}  |  {_label}  |  {r.score_label} ({r.score})"
+        f"  |  ${r.last_close:,.2f}{_live_tag}{_pattern_tag}{_opts_tag}"
     ):
-        # ── Support status + bias ─────────────────────────────────────
+        # ── Signal card summary ───────────────────────────────────
+        ui_theme.render_signal_card(
+            symbol=r.symbol,
+            score_label=r.score_label,
+            score=r.score,
+            status_label=_label,
+            status_color=_acolor,
+            price=r.last_close,
+            support_level=r.nearest_support,
+            support_name=r.support_label,
+            distance_pct=r.distance_pct,
+            ma20=r.ma20,
+            ma50=r.ma50,
+            is_live=r.symbol in _alert_entries,
+            pattern=r.pattern,
+        )
+
+        # ── Key levels ─────────────────────────────────────────────
+        st.markdown("**Key Levels**")
+        tc1, tc2, tc3, tc4, tc5 = st.columns(5)
+        tc1.metric("Watch Near", f"${r.entry:,.2f}")
+        tc2.metric("Risk Below", f"${r.stop:,.2f}",
+                    delta=f"-${r.risk_per_share:,.2f}/sh", delta_color="off")
+        tc3.metric("Target 1", f"${r.target_1:,.2f}")
+        tc4.metric("Target 2", f"${r.target_2:,.2f}")
+        tc5.metric("R:R", f"{r.rr_ratio:.1f}:1",
+                    delta="GOOD" if r.rr_ratio >= 1.5 else "WEAK",
+                    delta_color="normal" if r.rr_ratio >= 1.5 else "inverse")
+
+        # ── Context ────────────────────────────────────────────────
         st.markdown(
-            f"### <span style='color:{_acolor}'>{_label}</span> — "
-            f"{r.pattern.upper()} Day, {r.direction.title()}",
+            f"<span style='color:{_acolor};font-weight:600'>{_label}</span>"
+            f" &mdash; {r.pattern.upper()} Day, {r.direction.title()}",
             unsafe_allow_html=True,
         )
-        st.markdown(f"**{r.bias}**")
 
-        # ── LIVE plan banner ──────────────────────────────────────
+        # LIVE plan banner
         if r.symbol in _alert_entries:
             _ae = _alert_entries[r.symbol]
             _ae_type = _ae.get("alert_type", "alert").replace("_", " ").title()
             st.markdown(
                 f"<div style='padding:8px 12px;border:2px solid #2ecc71;"
                 f"border-radius:6px;background:#2ecc7115;margin-bottom:12px'>"
-                f"<strong style='color:#2ecc71'>LIVE PLAN</strong> &mdash; "
+                f"<strong style='color:#2ecc71'>LIVE</strong> &mdash; "
                 f"from <em>{_ae_type}</em> alert. "
-                f"Entry/Stop/Targets from intraday signal.</div>",
+                f"Levels updated from intraday signal.</div>",
+                unsafe_allow_html=True,
+            )
+
+        # AI Thesis (primary context) — falls back to pattern label when unavailable
+        _narrative = _get_alert_narrative(r.symbol, _session)
+        if _narrative:
+            st.markdown(
+                f"<div style='padding:10px 14px;border-left:4px solid #3498db;"
+                f"background:#3498db10;border-radius:4px;margin:8px 0;font-size:0.95rem'>"
+                f"<strong>AI Thesis:</strong> {_narrative}</div>",
                 unsafe_allow_html=True,
             )
 
@@ -675,63 +520,6 @@ for r in results:
                     )
                     st.markdown(_badges, unsafe_allow_html=True)
 
-        # ── Trade plan ────────────────────────────────────────────────
-        st.markdown("**Trade Plan**")
-        tc1, tc2, tc3, tc4, tc5 = st.columns(5)
-        tc1.metric("Entry", f"${r.entry:,.2f}")
-        tc2.metric("Stop", f"${r.stop:,.2f}",
-                    delta=f"-${r.risk_per_share:,.2f}/sh", delta_color="off")
-        tc3.metric("Target 1", f"${r.target_1:,.2f}")
-        tc4.metric("Target 2", f"${r.target_2:,.2f}")
-        tc5.metric("R:R", f"{r.rr_ratio:.1f}:1",
-                    delta="GOOD" if r.rr_ratio >= 1.5 else "WEAK",
-                    delta_color="normal" if r.rr_ratio >= 1.5 else "inverse")
-
-        # ── AI Trade Thesis ──────────────────────────────────────────
-        _narrative = _get_alert_narrative(r.symbol, _session)
-        if _narrative:
-            st.markdown(
-                f"<div style='padding:10px 14px;border-left:4px solid #3498db;"
-                f"background:#3498db10;border-radius:4px;margin:8px 0;font-size:0.95rem'>"
-                f"<strong>AI Thesis:</strong> {_narrative}</div>",
-                unsafe_allow_html=True,
-            )
-
-        # ── Re-entry protocol ─────────────────────────────────────────
-        st.markdown("**Re-entry Protocol**")
-        st.markdown(f"""
-| | Attempt 1 | Attempt 2 |
-|---|---|---|
-| **Entry** | ${r.entry:,.2f} | ${r.entry:,.2f} (same level) |
-| **Stop** | ${r.stop:,.2f} | ${r.reentry_stop:,.2f} ($1.50 wider) |
-| **Risk/Share** | ${r.risk_per_share:,.2f} | ${r.risk_per_share + 1.50:,.2f} |
-| **Rule** | First test of support | Only if price reclaims after stop |
-""")
-        st.caption("Max 2 attempts. If stopped twice, the level is dead — walk away.")
-
-        # ── Position sizing ───────────────────────────────────────────
-        if r.entry > 0 and r.risk_per_share > 0:
-            st.markdown("**Position Size**")
-            shares = position_size / r.entry
-            total_risk = shares * r.risk_per_share
-            total_reward_1 = shares * (r.target_1 - r.entry)
-            risk_pct = total_risk / position_size * 100
-
-            pc1, pc2, pc3, pc4 = st.columns(4)
-            pc1.metric("Shares", f"{shares:,.0f}")
-            pc2.metric("$ Risk", f"-${total_risk:,.0f}",
-                        delta=f"{risk_pct:.1f}% of position", delta_color="off")
-            pc3.metric("$ Reward (T1)", f"+${total_reward_1:,.0f}")
-            pc4.metric("Day Range", f"${r.day_range:,.2f}")
-
-            if r.pattern == "outside":
-                st.warning(
-                    f"Outside day — wide stop. Consider half position "
-                    f"({shares/2:,.0f} shares, ${total_risk/2:,.0f} risk)."
-                )
-            elif risk_pct > 2.0:
-                st.warning(f"Risk is {risk_pct:.1f}%. Consider reducing size.")
-
         # ── MA context ────────────────────────────────────────────────
         ma_parts = [f"Close ${r.last_close:,.2f}"]
         if r.ma20 is not None:
@@ -792,11 +580,11 @@ for r in results:
                 signals = evaluate_rules(r.symbol, intra_bars, prior, active_entries, spy_context=_spy_ctx)
                 if signals:
                     for sig in signals:
-                        sig_color = "#2ecc71" if sig.direction == "BUY" else "#e74c3c"
+                        _dir_label, sig_color = ui_theme.display_direction(sig.direction)
                         st.markdown(
                             f"<div style='padding:8px 12px;border-left:4px solid {sig_color};"
                             f"background:{sig_color}15;margin-bottom:8px;border-radius:4px'>"
-                            f"<strong style='color:{sig_color}'>{sig.direction}</strong> "
+                            f"<strong style='color:{sig_color}'>{_dir_label}</strong> "
                             f"&mdash; {sig.message}</div>",
                             unsafe_allow_html=True,
                         )

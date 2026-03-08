@@ -49,6 +49,10 @@ from alert_config import (
     OVERHEAD_MA_RESISTANCE_PCT,
     PDH_BREAKOUT_VOLUME_RATIO,
     INSIDE_DAY_DIP_MIN_PCT,
+    PDL_BOUNCE_HOLD_BARS,
+    PDL_BOUNCE_MAX_DISTANCE_PCT,
+    PDL_BOUNCE_PROXIMITY_PCT,
+    PDL_BOUNCE_STOP_OFFSET_PCT,
     PDL_DIP_MIN_PCT,
     PDL_RECLAIM_MAX_DISTANCE_PCT,
     PER_SYMBOL_RISK,
@@ -104,6 +108,7 @@ class AlertType(str, Enum):
     MA_BOUNCE_100 = "ma_bounce_100"
     MA_BOUNCE_200 = "ma_bounce_200"
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
+    PRIOR_DAY_LOW_BOUNCE = "prior_day_low_bounce"
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
     INSIDE_DAY_BREAKDOWN = "inside_day_breakdown"
@@ -134,6 +139,7 @@ class AlertType(str, Enum):
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
     EMA_BOUNCE_100 = "ema_bounce_100"
+    EMA_BOUNCE_200 = "ema_bounce_200"
     EMA_RESISTANCE = "ema_resistance"
     # Swing trade — RSI zones
     SWING_RSI_APPROACHING_OVERSOLD = "swing_rsi_approaching_oversold"
@@ -483,6 +489,75 @@ def check_prior_day_low_reclaim(
         message=(
             f"Prior day low reclaim — dipped to ${intraday_low:.2f}, "
             f"reclaimed above ${prior_day_low:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule 5b: Prior Day Low Bounce (hold above level)
+# ---------------------------------------------------------------------------
+
+
+def check_prior_day_low_bounce(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day_low: float,
+) -> AlertSignal | None:
+    """Price approaches prior day low and bounces/holds above it.
+
+    Unlike prior_day_low_reclaim (which requires a dip below), this fires
+    when price gets close to PDL but doesn't break it — a "level hold" signal.
+
+    Conditions:
+    - Some bar's low was within PDL_BOUNCE_PROXIMITY_PCT of prior day low
+    - No bar broke below prior day low (if it did, PDL reclaim handles it)
+    - Last N bars all closed above prior day low (hold confirmed)
+    - Price hasn't already run too far above
+    """
+    if bars.empty or prior_day_low <= 0 or len(bars) < PDL_BOUNCE_HOLD_BARS + 1:
+        return None
+
+    # If any bar broke below PDL, this is a reclaim scenario — let PDL reclaim handle it
+    if bars["Low"].min() < prior_day_low * (1 - PDL_DIP_MIN_PCT):
+        return None
+
+    # Check if any bar's low touched within proximity of PDL
+    proximity_level = prior_day_low * (1 + PDL_BOUNCE_PROXIMITY_PCT)
+    touched = (bars["Low"] <= proximity_level).any()
+    if not touched:
+        return None
+
+    # Confirm hold: last N bars all closed above PDL
+    recent = bars.iloc[-PDL_BOUNCE_HOLD_BARS:]
+    if not (recent["Close"] > prior_day_low).all():
+        return None
+
+    last_bar = bars.iloc[-1]
+
+    # Skip if price already ran too far
+    distance_pct = (last_bar["Close"] - prior_day_low) / prior_day_low
+    if distance_pct > PDL_BOUNCE_MAX_DISTANCE_PCT:
+        return None
+
+    entry = last_bar["Close"]
+    stop = prior_day_low * (1 - PDL_BOUNCE_STOP_OFFSET_PCT)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PRIOR_DAY_LOW_BOUNCE,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high",
+        message=(
+            f"Prior day low bounce — held above ${prior_day_low:.2f}, "
+            f"low ${bars['Low'].min():.2f}"
         ),
     )
 
@@ -1189,6 +1264,68 @@ def check_ema_bounce_100(
 
 
 # ---------------------------------------------------------------------------
+# BUY Rule: EMA Bounce 200
+# ---------------------------------------------------------------------------
+
+
+def check_ema_bounce_200(
+    symbol: str,
+    bar: pd.Series,
+    ema200: float | None,
+    prior_close: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to EMA200 and bounces — major institutional level.
+
+    Mirrors check_ema_bounce_100() but uses EMA200 value.
+    Uses MA200 thresholds (widest proximity/stop for long-term level).
+    """
+    if ema200 is None or ema200 <= 0:
+        return None
+
+    proximity = abs(bar["Low"] - ema200) / ema200
+    if proximity > MA200_BOUNCE_PROXIMITY_PCT:
+        return None
+    if bar["Close"] <= ema200:
+        return None  # didn't bounce above
+
+    # Direction check: if prior close was above EMA200, this is a pullback
+    # into support (bullish). If prior close was already below, it's a
+    # counter-trend bounce (less reliable).
+    counter_trend = prior_close is not None and prior_close <= ema200
+
+    entry = round(ema200, 2)
+    stop = round(ema200 * (1 - MA200_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    if counter_trend:
+        confidence = "medium"
+    else:
+        confidence = "high" if proximity <= 0.004 else "medium"
+
+    msg = (
+        f"EMA bounce 200 — price pulled back to ${ema200:.2f} "
+        f"and closed above at ${bar['Close']:.2f}"
+    )
+    if counter_trend:
+        msg += " (counter-trend)"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_BOUNCE_200,
+        direction="BUY",
+        price=bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=confidence,
+        message=msg,
+    )
+
+
+# ---------------------------------------------------------------------------
 # SELL Rule: EMA Resistance
 # ---------------------------------------------------------------------------
 
@@ -1199,15 +1336,22 @@ def check_ema_resistance(
     ema20: float | None,
     ema50: float | None,
     prior_close: float | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price rallies into overhead EMA and gets rejected — bearish warning."""
-    for ema_val, label in [(ema20, "20"), (ema50, "50")]:
+    for ema_val, label in [(ema20, "20"), (ema50, "50"), (ema100, "100"), (ema200, "200")]:
         if ema_val is None or ema_val <= 0 or ema_val <= bar["Close"]:
             continue
         proximity = abs(bar["High"] - ema_val) / ema_val
         if proximity > MA_BOUNCE_PROXIMITY_PCT:
             continue
         if bar["Close"] >= ema_val:
+            continue
+        # Direction check: if prior close was ABOVE this EMA, price is falling
+        # into it — the EMA is acting as SUPPORT, not resistance.  Skip.
+        # (Mirrors check_ma_resistance directional guard.)
+        if prior_close is not None and prior_close > ema_val:
             continue
         msg = f"EMA{label} RESISTANCE — rejected at ${ema_val:.2f}, closed ${bar['Close']:.2f}"
         if prior_close is not None and prior_close < ema_val:
@@ -2893,6 +3037,7 @@ def evaluate_rules(
     ema20 = prior_day.get("ema20")
     ema50 = prior_day.get("ema50")
     ema100 = prior_day.get("ema100")
+    ema200 = prior_day.get("ema200")
     prior_close = prior_day.get("close")
     prior_high = prior_day.get("high", 0)
     prior_low = prior_day.get("low", 0)
@@ -3048,6 +3193,15 @@ def evaluate_rules(
                 sig.message += caution_suffix
                 signals.append(sig)
 
+        if AlertType.EMA_BOUNCE_200.value in ENABLED_RULES:
+            sig = check_ema_bounce_200(symbol, last_bar, ema200, prior_close)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
         if AlertType.PRIOR_DAY_LOW_RECLAIM.value in ENABLED_RULES:
             sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
             if sig:
@@ -3056,6 +3210,15 @@ def evaluate_rules(
                 if gap["type"] == "gap_down":
                     sig.confidence = "high"
                     sig.message += " — gap fill opportunity"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        if AlertType.PRIOR_DAY_LOW_BOUNCE.value in ENABLED_RULES:
+            sig = check_prior_day_low_bounce(symbol, intraday_bars, prior_low)
+            if sig:
+                sig.message += f" ({phase})"
                 if vwap_pos:
                     sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix
@@ -3246,7 +3409,7 @@ def evaluate_rules(
 
     # --- EMA Resistance ---
     if AlertType.EMA_RESISTANCE.value in ENABLED_RULES:
-        sig = check_ema_resistance(symbol, last_bar, ema20, ema50, prior_close)
+        sig = check_ema_resistance(symbol, last_bar, ema20, ema50, prior_close, ema100=ema100, ema200=ema200)
         if sig:
             signals.append(sig)
 

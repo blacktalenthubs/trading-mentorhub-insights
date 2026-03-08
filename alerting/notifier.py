@@ -84,7 +84,7 @@ def _format_sms_body(signal: AlertSignal) -> str:
 
     if signal.direction == "SELL":
         # SELL signals: compact 2-3 line format
-        parts = [f"SELL {signal.symbol} ${signal.price:.2f}"]
+        parts = [f"EXIT ZONE {signal.symbol} ${signal.price:.2f}"]
         parts.append(label)
         if signal.message:
             # Extract first clause for a short hint
@@ -94,8 +94,8 @@ def _format_sms_body(signal: AlertSignal) -> str:
         return "\n".join(parts)[:320]
 
     if signal.direction == "NOTICE":
-        # Informational alerts (key level touches) — not actionable BUY
-        parts = [f"NOTICE {signal.symbol} ${signal.price:.2f}"]
+        # Informational alerts (key level touches) — not actionable
+        parts = [f"MARKET UPDATE {signal.symbol} ${signal.price:.2f}"]
         parts.append(label)
         if signal.entry is not None:
             parts.append(f"Key Level ${signal.entry:.2f}")
@@ -105,7 +105,8 @@ def _format_sms_body(signal: AlertSignal) -> str:
                 parts.append(hint)
         return "\n".join(parts)[:320]
 
-    # BUY signals: entry, targets, score on first line
+    # BUY / SHORT signals: entry, targets, score on first line
+    _prefix = "POTENTIAL SHORT" if signal.direction == "SHORT" else "POTENTIAL ENTRY"
     score_tag = ""
     if signal.score > 0:
         v2 = getattr(signal, "score_v2", 0)
@@ -114,12 +115,12 @@ def _format_sms_body(signal: AlertSignal) -> str:
             score_tag = f" — {signal.score_label} ({signal.score}) v2:{v2_label} ({v2})"
         else:
             score_tag = f" — {signal.score_label} ({signal.score})"
-    parts = [f"BUY {signal.symbol} ${signal.price:.2f}{score_tag}"]
+    parts = [f"{_prefix} {signal.symbol} ${signal.price:.2f}{score_tag}"]
     parts.append(label)
 
-    # Entry | Stop
+    # Potential Entry | Stop
     if signal.entry is not None and signal.stop is not None:
-        parts.append(f"Entry ${signal.entry:.2f} | Stop ${signal.stop:.2f}")
+        parts.append(f"Potential Entry ${signal.entry:.2f} | Stop ${signal.stop:.2f}")
 
     # T1 | T2
     t_bits = []
@@ -161,14 +162,39 @@ def _format_sms_body(signal: AlertSignal) -> str:
     return "\n".join(parts)[:320]
 
 
+def send_plain_email(email_to: str, subject: str, body: str) -> bool:
+    """Send a plain-text email. Returns True on success."""
+    if not SMTP_USER or not SMTP_PASSWORD or not email_to:
+        logger.warning("Email not configured — skipping plain email")
+        return False
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = ALERT_EMAIL_FROM
+    msg["To"] = email_to
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(ALERT_EMAIL_FROM, [email_to], msg.as_string())
+        logger.info("Plain email sent to %s: %s", email_to, subject)
+        return True
+    except Exception:
+        logger.exception("Failed to send plain email to %s", email_to)
+        return False
+
+
 def send_email_to(signal: AlertSignal, email_to: str) -> bool:
     """Send an alert email to an explicit recipient. Returns True on success."""
     if not SMTP_USER or not SMTP_PASSWORD or not email_to:
         logger.warning("Email not configured — skipping")
         return False
 
+    from ui_theme import display_direction
+    dir_label, _ = display_direction(signal.direction)
     subject = (
-        f"[TRADE ALERT] {signal.direction} {signal.symbol} "
+        f"[TRADE ALERT] {dir_label} {signal.symbol} "
         f"- {signal.alert_type.value.replace('_', ' ').title()} @ ${signal.price:.2f}"
     )
     body = _format_email_body(signal)

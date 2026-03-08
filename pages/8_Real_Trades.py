@@ -27,7 +27,7 @@ from alerting.options_trade_store import (
 from db import get_db, _pd_read_sql
 import ui_theme
 
-user = ui_theme.setup_page("real_trades")
+user = ui_theme.setup_page("real_trades", tier_required="pro")
 
 ui_theme.page_header("Real Trades", "Track real trades tied to alerts — $50k cap ($100k SPY)")
 
