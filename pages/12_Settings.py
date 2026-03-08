@@ -249,27 +249,29 @@ with tab_subscription:
         if tier == "free":
             with upgrade_cols[0]:
                 st.markdown(
-                    f"<div style='background:#16213e;border:1px solid #3498db40;"
-                    f"border-radius:8px;padding:1rem;text-align:center'>"
-                    f"<div style='font-weight:600;color:#3498db'>Pro</div>"
-                    f"<div style='font-size:1.5rem;font-weight:700;color:#fafafa'>$29<span style='font-size:0.8rem;color:#888'>/mo</span></div>"
-                    f"</div>",
+                    "<div style='background:#16213e;border:1px solid #3498db40;"
+                    "border-radius:8px;padding:1rem;text-align:center'>"
+                    "<div style='font-weight:600;color:#3498db'>Pro</div>"
+                    "<div style='font-size:1.5rem;font-weight:700;color:#fafafa'>$59<span style='font-size:0.8rem;color:#888'>/mo</span></div>"
+                    "</div>",
                     unsafe_allow_html=True,
                 )
         with upgrade_cols[-1]:
             st.markdown(
-                f"<div style='background:#16213e;border:1px solid #f39c1240;"
-                f"border-radius:8px;padding:1rem;text-align:center'>"
-                f"<div style='font-weight:600;color:#f39c12'>Elite</div>"
-                f"<div style='font-size:1.5rem;font-weight:700;color:#fafafa'>$79<span style='font-size:0.8rem;color:#888'>/mo</span></div>"
-                f"</div>",
+                "<div style='background:#16213e;border:1px solid #f39c1240;"
+                "border-radius:8px;padding:1rem;text-align:center'>"
+                "<div style='font-weight:600;color:#f39c12'>Elite</div>"
+                "<div style='font-size:1.5rem;font-weight:700;color:#fafafa'>$59<span style='font-size:0.8rem;color:#888'>/mo</span></div>"
+                "</div>",
                 unsafe_allow_html=True,
             )
 
         st.markdown("")
-        st.info(
-            "To upgrade, contact **support@aicopilottrader.com**. "
-            "Self-serve Stripe payments coming soon."
+        st.link_button(
+            "Subscribe Now \u2192",
+            "https://square.link/u/FdEAnalM",
+            use_container_width=True,
         )
+        st.caption("Powered by Square · Secure checkout")
     else:
         st.success("You have the highest tier. All features are unlocked.")

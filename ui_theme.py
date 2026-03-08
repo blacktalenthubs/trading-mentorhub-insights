@@ -770,7 +770,7 @@ TIER_FEATURES = {
     ],
 }
 
-TIER_PRICES = {"free": "$0", "pro": "$29/mo", "elite": "$79/mo"}
+TIER_PRICES = {"free": "$0", "pro": "$59/mo", "elite": "$59/mo"}
 
 
 # ---------------------------------------------------------------------------
@@ -807,8 +807,14 @@ def _render_upgrade_prompt(current_tier: str, required_tier: str):
             </div>
             {features_html}
         </div>
-        <p style='color:#888;font-size:0.85rem'>
-            Contact <strong>support@aicopilottrader.com</strong> to upgrade.
+        <a href='https://square.link/u/FdEAnalM' target='_blank'
+           style='display:inline-block;background:{color};color:white;
+                  padding:10px 24px;border-radius:6px;text-decoration:none;
+                  font-weight:600;font-size:0.95rem'>
+            Subscribe Now &#8594;
+        </a>
+        <p style='color:#666;font-size:0.75rem;margin-top:8px'>
+            Powered by Square &middot; Secure checkout
         </p>
     </div>
     """, unsafe_allow_html=True)
