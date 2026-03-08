@@ -65,6 +65,12 @@ class PostgresCursorWrapper:
         return iter(self._cursor)
 
 
+# Tables that use a non-id primary key (e.g. token TEXT PRIMARY KEY)
+_NO_RETURNING_ID_TABLES = frozenset({
+    "session_tokens", "telegram_link_tokens", "password_reset_tokens",
+})
+
+
 class PostgresConnectionWrapper:
     """Wraps a psycopg2 connection so callers can use SQLite conventions."""
 
@@ -106,13 +112,17 @@ class PostgresConnectionWrapper:
     def execute(self, sql: str, params=None) -> PostgresCursorWrapper:
         sql = self._translate_params(sql)
         params = self._coerce_params(params)
-        # Auto-add RETURNING id for INSERT without it
+        # Auto-add RETURNING id for INSERT without it (skip tables with no id column)
         needs_returning = (
             sql.lstrip().upper().startswith("INSERT")
             and "RETURNING" not in sql.upper()
         )
         if needs_returning:
-            sql = sql.rstrip().rstrip(";") + " RETURNING id"
+            m = re.search(r'INSERT\s+INTO\s+(\w+)', sql, re.IGNORECASE)
+            if m and m.group(1).lower() in _NO_RETURNING_ID_TABLES:
+                needs_returning = False
+            else:
+                sql = sql.rstrip().rstrip(";") + " RETURNING id"
 
         cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
