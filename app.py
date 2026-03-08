@@ -43,43 +43,52 @@ st.session_state["_nav_mode"] = True
 with st.sidebar:
     ui_theme.sidebar_branding()
 
+# Resolve user tier for lock badges + sidebar display
+from db import get_user_tier
+
+tier = get_user_tier(user["id"])
+_user_level = ui_theme.TIER_LEVELS.get(tier, 0)
+
+
+def _page(file: str, title: str, icon: str, tier_req: str = "free", **kw) -> st.Page:
+    """Build st.Page, appending lock icon if user's tier is insufficient."""
+    if ui_theme.TIER_LEVELS.get(tier_req, 0) > _user_level:
+        title = f"{title} \U0001F512"
+    return st.Page(file, title=title, icon=icon, **kw)
+
+
 # Build grouped navigation
 pg = st.navigation(
     {
         "": [
-            st.Page("pages/home.py", title="Dashboard", icon=":material/dashboard:", default=True),
+            _page("pages/home.py", "Dashboard", ":material/dashboard:", "free", default=True),
         ],
         "Signals": [
-            st.Page("pages/1_Scanner.py", title="Scanner", icon=":material/radar:"),
-            st.Page("pages/10_Swing_Trades.py", title="Swing Trades", icon=":material/trending_up:"),
+            _page("pages/1_Scanner.py", "Scanner", ":material/radar:", "free"),
+            _page("pages/10_Swing_Trades.py", "Swing Trades", ":material/trending_up:", "pro"),
         ],
         "Analysis": [
-            st.Page("pages/7_Charts.py", title="Charts", icon=":material/show_chart:"),
-            st.Page("pages/5_Backtest.py", title="Backtest", icon=":material/replay:"),
+            _page("pages/7_Charts.py", "Charts", ":material/show_chart:", "free"),
+            _page("pages/5_Backtest.py", "Backtest", ":material/replay:", "elite"),
         ],
         "Trading": [
-            st.Page("pages/8_Real_Trades.py", title="Real Trades", icon=":material/attach_money:"),
-            st.Page("pages/6_Paper_Trading.py", title="Paper Trading", icon=":material/edit_note:"),
+            _page("pages/8_Real_Trades.py", "Real Trades", ":material/attach_money:", "pro"),
+            _page("pages/6_Paper_Trading.py", "Paper Trading", ":material/edit_note:", "elite"),
         ],
         "Journal": [
-            st.Page("pages/9_Alerts.py", title="Alert History", icon=":material/notifications:"),
-            st.Page("pages/2_Scorecard.py", title="Scorecard", icon=":material/assessment:"),
-            st.Page("pages/3_History.py", title="History", icon=":material/history:"),
-            st.Page("pages/4_Import.py", title="Import", icon=":material/upload_file:"),
+            _page("pages/9_Alerts.py", "Alert History", ":material/notifications:", "pro"),
+            _page("pages/2_Scorecard.py", "Scorecard", ":material/assessment:", "pro"),
+            _page("pages/3_History.py", "History", ":material/history:", "pro"),
+            _page("pages/4_Import.py", "Import", ":material/upload_file:", "pro"),
         ],
         "AI": [
-            st.Page("pages/11_AI_Coach.py", title="AI Coach", icon=":material/psychology:"),
+            _page("pages/11_AI_Coach.py", "AI Coach", ":material/psychology:", "elite"),
         ],
         "Account": [
-            st.Page("pages/12_Settings.py", title="Settings", icon=":material/settings:"),
+            _page("pages/12_Settings.py", "Settings", ":material/settings:", "free"),
         ],
     }
 )
-
-# Sidebar user info (below navigation links)
-from db import get_user_tier
-
-tier = get_user_tier(user["id"])
 ui_theme._render_sidebar_user(user, tier)
 
 pg.run()
