@@ -1,4 +1,9 @@
-"""Pre-market brief — build and send a daily pre-market Telegram summary."""
+"""Pre-market brief — build and send a daily pre-market Telegram summary.
+
+Includes an AI analysis layer that synthesizes the data dump into an
+actionable game plan (top 3 setups, SPY outlook, risk warnings).
+Sent to Pro/Elite users with Telegram enabled.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,7 @@ from datetime import datetime
 import pytz
 
 from alerting.alert_store import today_session
-from alerting.notifier import _send_telegram
+from alerting.notifier import _send_telegram, _send_telegram_to
 from analytics.intraday_data import (
     compute_premarket_brief,
     fetch_premarket_bars,
@@ -21,8 +26,38 @@ logger = logging.getLogger(__name__)
 
 ET = pytz.timezone("US/Eastern")
 
-# Once-per-day guard
+# Once-per-day guards
 _brief_sent_date: str | None = None
+_ai_brief_sent_date: str | None = None
+
+_AI_PREMARKET_MODEL = "claude-sonnet-4-20250514"
+
+_AI_PREMARKET_SYSTEM = """\
+You are a sharp day-trading coach delivering a pre-market game plan. Given \
+today's pre-market data, daily plans, and SPY regime, produce a concise \
+actionable briefing.
+
+Structure your response EXACTLY like this:
+TOP 3 SETUPS:
+1. [SYMBOL] — [one-line thesis with key level]
+2. [SYMBOL] — [one-line thesis with key level]
+3. [SYMBOL] — [one-line thesis with key level]
+
+SPY OUTLOOK: [1-2 sentences on regime, trend, key levels to watch]
+
+TODAY'S BIAS: [Bullish/Bearish/Neutral] — [one-line reason]
+
+RISK WARNINGS: [any caution flags: earnings, high gaps, weak regime, etc.]
+
+ACTION PLAN: [1 sentence — what to do in the first 30 minutes]
+
+Rules:
+- Lead with the highest-conviction setup
+- Reference actual price levels from the data
+- Keep the entire brief under 150 words
+- Use probability language, never guarantee outcomes
+- No markdown formatting — plain text only
+- Write dollar amounts WITHOUT the $ symbol to avoid rendering issues"""
 
 
 def _format_spy_header(spy_ctx: dict) -> str:
@@ -106,6 +141,84 @@ def build_premarket_message() -> str | None:
     return "\n".join(parts)
 
 
+def _build_ai_premarket_prompt(data_brief: str) -> str:
+    """Build the user prompt for AI pre-market analysis."""
+    session = today_session()
+    plans_text = ""
+    try:
+        from db import get_all_daily_plans
+        plans = get_all_daily_plans(session)
+        if plans:
+            sorted_plans = sorted(plans, key=lambda p: p.get("score", 0), reverse=True)[:10]
+            lines = ["DAILY PLANS (top 10 by score):"]
+            for p in sorted_plans:
+                lines.append(
+                    f"  {p['symbol']} score={p.get('score', '?')}({p.get('score_label', '')}) "
+                    f"pattern={p.get('pattern', 'N/A')} "
+                    f"entry={p.get('entry', 'N/A')} stop={p.get('stop', 'N/A')} "
+                    f"T1={p.get('target_1', 'N/A')}"
+                )
+            plans_text = "\n".join(lines)
+    except Exception:
+        logger.debug("AI premarket: daily plans not available")
+
+    parts = [data_brief]
+    if plans_text:
+        parts.append("")
+        parts.append(plans_text)
+
+    return "\n".join(parts)
+
+
+def build_ai_premarket_analysis(data_brief: str) -> str | None:
+    """Generate AI pre-market analysis using Sonnet.
+
+    Takes the raw data brief as input, enriches with daily plans,
+    and returns the AI game plan text or None on failure.
+    """
+    from alert_config import ANTHROPIC_API_KEY
+
+    api_key = ANTHROPIC_API_KEY
+    if not api_key:
+        try:
+            from db import get_db
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT anthropic_api_key FROM user_notification_prefs "
+                    "WHERE anthropic_api_key != '' LIMIT 1"
+                ).fetchone()
+                api_key = row["anthropic_api_key"] if row else ""
+        except Exception:
+            pass
+
+    if not api_key:
+        logger.info("AI premarket: no API key available")
+        return None
+
+    prompt = _build_ai_premarket_prompt(data_brief)
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=_AI_PREMARKET_MODEL,
+            max_tokens=512,
+            system=_AI_PREMARKET_SYSTEM,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=30.0,
+        )
+        analysis = response.content[0].text.strip()
+
+        now_et = datetime.now(ET)
+        date_str = now_et.strftime("%b %-d, %Y")
+        return f"AI GAME PLAN \u2014 {date_str}\n\n{analysis}"
+
+    except Exception:
+        logger.exception("Failed to generate AI premarket analysis")
+        return None
+
+
 def send_premarket_brief() -> bool:
     """Send the pre-market brief via Telegram (once per day).
 
@@ -128,3 +241,62 @@ def send_premarket_brief() -> bool:
         _brief_sent_date = session
         logger.info("Pre-market brief sent for %s", session)
     return sent
+
+
+def send_ai_premarket_brief() -> bool:
+    """Send AI pre-market game plan to Pro/Elite users (once per day).
+
+    Generates the AI analysis from the data brief, then sends to each
+    qualifying user's Telegram.
+
+    Returns True if at least one message was sent.
+    """
+    global _ai_brief_sent_date
+
+    session = today_session()
+    if _ai_brief_sent_date == session:
+        logger.debug("AI premarket brief already sent for %s", session)
+        return False
+
+    data_brief = build_premarket_message()
+    if not data_brief:
+        logger.info("AI premarket: no data for analysis")
+        return False
+
+    analysis = build_ai_premarket_analysis(data_brief)
+    if not analysis:
+        logger.info("AI premarket: analysis generation failed")
+        return False
+
+    # Send to all Pro/Elite users with Telegram enabled
+    try:
+        from db import get_pro_users_with_telegram
+        users = get_pro_users_with_telegram()
+    except Exception:
+        logger.exception("AI premarket: failed to get user list")
+        users = []
+
+    if not users:
+        # Fallback: send to global chat ID
+        sent = _send_telegram(analysis)
+        if sent:
+            _ai_brief_sent_date = session
+        return sent
+
+    any_sent = False
+    for u in users:
+        chat_id = u.get("telegram_chat_id", "")
+        if chat_id:
+            ok = _send_telegram_to(analysis, chat_id)
+            if ok:
+                any_sent = True
+                logger.info(
+                    "AI premarket sent to user %s (tier=%s)",
+                    u["user_id"], u.get("tier", "?"),
+                )
+
+    if any_sent:
+        _ai_brief_sent_date = session
+        logger.info("AI premarket brief delivered for %s", session)
+
+    return any_sent

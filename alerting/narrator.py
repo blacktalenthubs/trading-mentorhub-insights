@@ -5,7 +5,13 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_NARRATIVE_ENABLED
+from alert_config import (
+    ANTHROPIC_API_KEY,
+    CLAUDE_MODEL,
+    CLAUDE_MODEL_SONNET,
+    CLAUDE_NARRATIVE_ENABLED,
+    NARRATIVE_SONNET_MIN_SCORE,
+)
 from analytics.intraday_rules import AlertSignal, AlertType
 from db import get_db
 
@@ -35,6 +41,23 @@ Rules:
 - Be direct — traders need fast go/no-go decisions
 - Never use more than 3 sentences
 - No markdown formatting (no bold, italic, headers) — plain text only"""
+
+_SYSTEM_PROMPT_ENHANCED = """\
+You are a sharp day-trading analyst writing a detailed trade thesis. Given an \
+alert's full context, write a 4-5 sentence analysis covering:
+
+1. The setup — what pattern triggered and at what price level
+2. Conviction — rate this HIGH, MEDIUM, or LOW conviction with a one-line reason
+3. Key invalidation level — the price where this thesis breaks
+4. Context — how SPY regime, volume, and nearby S/R levels affect this trade
+5. Action — specific recommendation (take it, wait for confirmation, or skip)
+
+Rules:
+- Be direct and specific — use actual numbers from the context
+- Include risk/reward ratio and grade
+- Use probability language, never guarantee outcomes
+- No markdown formatting — plain text only
+- Keep to 4-5 sentences max"""
 
 
 def _build_user_prompt(signal: AlertSignal) -> str:
@@ -121,21 +144,31 @@ def generate_narrative(signal: AlertSignal) -> str:
         logger.debug("Narrative cache hit: %s", cache_key)
         return _narrative_cache[cache_key]
 
+    # Select model + prompt based on signal quality
+    use_sonnet = signal.score >= NARRATIVE_SONNET_MIN_SCORE
+    model = CLAUDE_MODEL_SONNET if use_sonnet else CLAUDE_MODEL
+    system_prompt = _SYSTEM_PROMPT_ENHANCED if use_sonnet else _SYSTEM_PROMPT
+    max_tokens = 384 if use_sonnet else 256
+
     # Call Claude API
     try:
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=256,
-            system=_SYSTEM_PROMPT,
+            model=model,
+            max_tokens=max_tokens,
+            system=system_prompt,
             messages=[{"role": "user", "content": _build_user_prompt(signal)}],
-            timeout=10.0,
+            timeout=15.0 if use_sonnet else 10.0,
         )
         narrative = response.content[0].text.strip()
         _narrative_cache[cache_key] = narrative
-        logger.info("Narrative generated for %s %s: %s", signal.symbol, signal.alert_type.value, narrative[:80])
+        logger.info(
+            "Narrative [%s] for %s %s: %s",
+            "sonnet" if use_sonnet else "haiku",
+            signal.symbol, signal.alert_type.value, narrative[:80],
+        )
         return narrative
 
     except Exception:

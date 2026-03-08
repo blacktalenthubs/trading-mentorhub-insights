@@ -1173,6 +1173,23 @@ def get_users_for_symbol(symbol: str) -> list[int]:
         return [r["user_id"] for r in rows]
 
 
+def get_pro_users_with_telegram() -> list[dict]:
+    """Return Pro/Elite users who have Telegram enabled.
+
+    Each dict has: user_id, tier, telegram_chat_id.
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT s.user_id, s.tier, n.telegram_chat_id
+               FROM subscriptions s
+               JOIN user_notification_prefs n ON s.user_id = n.user_id
+               WHERE s.tier IN ('pro', 'elite')
+                 AND n.telegram_enabled = 1
+                 AND n.telegram_chat_id != ''""",
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_daily_alert_count(user_id: int, session_date: str) -> int:
     """Count alerts sent to a user today (for free-tier limiting)."""
     with get_db() as conn:

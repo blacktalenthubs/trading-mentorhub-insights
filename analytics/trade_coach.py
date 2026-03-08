@@ -507,8 +507,11 @@ def ask_coach(
     system_prompt: str,
     messages: list[dict],
     max_tokens: int = 768,
+    model: str | None = None,
 ) -> Generator[str, None, None]:
     """Send conversation to Claude, yield streamed text chunks.
+
+    *model* overrides the default CLAUDE_MODEL (e.g., Sonnet for Pro/Elite).
 
     Raises ValueError if no API key is configured.
     """
@@ -522,9 +525,10 @@ def ask_coach(
     import anthropic
 
     client = anthropic.Anthropic(api_key=api_key)
+    use_model = model or CLAUDE_MODEL
 
     with client.messages.stream(
-        model=CLAUDE_MODEL,
+        model=use_model,
         max_tokens=max_tokens,
         system=system_prompt,
         messages=messages,

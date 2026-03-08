@@ -168,7 +168,6 @@ with tab_notifications:
             notification_email=notif_email,
             telegram_enabled=telegram_enabled,
             email_enabled=email_enabled,
-            anthropic_api_key=prefs.get("anthropic_api_key", ""),
         )
         st.success("Notification settings saved.")
 

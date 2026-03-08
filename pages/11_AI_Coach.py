@@ -52,17 +52,33 @@ _uid = user["id"] if user else None
 watchlist = get_watchlist(_uid)
 sym_options = watchlist if watchlist else ["SPY"]
 
+# Check for deep link query params (from Telegram alert links)
+_qp_symbol = st.query_params.get("symbol", "").strip().upper()
+_qp_alert = st.query_params.get("alert", "").strip()
+
 sel_col, custom_col = st.columns([2, 1])
 with sel_col:
+    _default_idx = 0
+    if _qp_symbol and _qp_symbol in sym_options:
+        _default_idx = sym_options.index(_qp_symbol)
     selected_sym = st.selectbox(
-        "Symbol", sym_options, key="hub_symbol_select",
+        "Symbol", sym_options, index=_default_idx, key="hub_symbol_select",
     )
 with custom_col:
     custom_sym = st.text_input(
         "Custom symbol", key="hub_custom_sym",
         placeholder="e.g. NVDA",
+        value=_qp_symbol if (_qp_symbol and _qp_symbol not in sym_options) else "",
     )
 hub_symbol = custom_sym.strip().upper() if custom_sym.strip() else selected_sym
+
+# If deep-linked from a Telegram alert, pre-seed the chat with context
+if _qp_alert and "coach_messages" in st.session_state and not st.session_state["coach_messages"]:
+    _alert_label = _qp_alert.replace("_", " ").title()
+    st.session_state["_deeplink_prompt"] = (
+        f"Analyze this {_alert_label} signal for {hub_symbol} — should I take it? "
+        f"What's the conviction level and key invalidation price?"
+    )
 
 # ---------------------------------------------------------------------------
 # Sidebar — context snapshot + controls
@@ -118,10 +134,25 @@ with st.sidebar:
     except Exception:
         st.caption("Could not load context")
 
+    # Position Advisor button (Pro+)
+    if not _is_free:
+        st.divider()
+        if st.button("Check My Positions", use_container_width=True, key="pos_check"):
+            st.session_state["_run_position_check"] = True
+
 
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
+
+# Position check result (if triggered from sidebar)
+if st.session_state.pop("_run_position_check", False):
+    with st.expander("Position Check", expanded=True):
+        try:
+            from analytics.position_advisor import check_positions_stream
+            st.write_stream(check_positions_stream())
+        except Exception as e:
+            st.error(f"Position check failed: {e}")
 
 tab_analysis, tab_fundamentals, tab_weekly, tab_coach, tab_scanner = st.tabs([
     "Trade Analysis", "Fundamentals", "Weekly View", "AI Coach", "Scanner",
@@ -604,6 +635,14 @@ with tab_coach:
                 f"**{hub_symbol}** with full context: fundamentals, S/R levels, "
                 f"weekly trend, and historical win rates. Ask me anything!"
             )
+        # Auto-send deeplink prompt from Telegram alert link
+        _dl_prompt = st.session_state.pop("_deeplink_prompt", None)
+        if _dl_prompt:
+            if _is_free and user:
+                from db import increment_daily_usage
+                increment_daily_usage(user["id"], "ai_query")
+            _send_prompt(_dl_prompt)
+            st.rerun()
 
     _can_qp, _ = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
     cols = st.columns(len(_QUICK_PROMPTS))
@@ -658,9 +697,15 @@ with tab_coach:
                 ctx = assemble_context(hub_symbol=hub_symbol)
                 system_prompt = format_system_prompt(ctx)
 
+                # Pro/Elite get Sonnet; free tier gets Haiku (default)
+                _coach_model = None
+                if not _is_free:
+                    from alert_config import CLAUDE_MODEL_SONNET
+                    _coach_model = CLAUDE_MODEL_SONNET
+
                 response = st.write_stream(
                     ask_coach(system_prompt, st.session_state["coach_messages"],
-                              max_tokens=1024)
+                              max_tokens=1024, model=_coach_model)
                 )
                 st.session_state["coach_messages"].append(
                     {"role": "assistant", "content": response}

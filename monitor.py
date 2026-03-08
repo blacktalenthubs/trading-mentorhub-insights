@@ -283,6 +283,16 @@ def _maybe_run_eod() -> None:
     except Exception:
         logger.exception("EOD review failed")
 
+    # Weekly AI Journal — send on Sundays after market close
+    try:
+        import pytz as _pytz
+        now_et = datetime.now(_pytz.timezone("US/Eastern"))
+        if now_et.weekday() == 6:  # Sunday
+            from analytics.journal_insights import send_weekly_journals
+            send_weekly_journals()
+    except Exception:
+        logger.exception("Weekly journal failed")
+
 
 def run_monitor():
     """Start the APScheduler-based monitor loop."""
@@ -298,8 +308,16 @@ def run_monitor():
                 import pytz as _pytz
                 now_et = datetime.now(_pytz.timezone("US/Eastern"))
                 if now_et.hour == 9 and now_et.minute >= 10:
-                    from analytics.premarket_brief import send_premarket_brief
+                    from analytics.premarket_brief import (
+                        send_premarket_brief,
+                        send_ai_premarket_brief,
+                    )
                     send_premarket_brief()
+                    # AI game plan for Pro/Elite users (after data brief)
+                    try:
+                        send_ai_premarket_brief()
+                    except Exception:
+                        logger.exception("AI pre-market brief failed")
         except Exception:
             logger.exception("Pre-market brief failed")
 
@@ -318,6 +336,16 @@ def run_monitor():
             return
         alerts = poll_cycle()
         logger.info("Poll complete: %d alerts fired", alerts)
+
+        # Position advisor: send updates hourly during market hours
+        try:
+            import pytz as _pytz
+            now_et = datetime.now(_pytz.timezone("US/Eastern"))
+            if now_et.minute < POLL_INTERVAL_MINUTES + 1:  # ~top of hour
+                from analytics.position_advisor import send_position_updates
+                send_position_updates()
+        except Exception:
+            logger.exception("Position advisor failed")
 
     # Run immediately on start
     watchlist = get_all_watchlist_symbols()

@@ -756,6 +756,12 @@ TIER_FEATURES = {
     ],
     "pro": [
         "Everything in Free",
+        "AI pre-market game plan via Telegram",
+        "Sonnet-powered AI Coach (unlimited)",
+        "Enhanced AI narratives for A+ signals",
+        "Daily AI EOD review via Telegram",
+        "Position advisor (on-demand)",
+        "Score breakdown on every alert",
         "Full alert history (all sessions)",
         "Scorecard & performance analytics",
         "Trade journal with stop discipline lab",
@@ -765,7 +771,8 @@ TIER_FEATURES = {
     ],
     "elite": [
         "Everything in Pro",
-        "Unlimited AI Trade Coach",
+        "Auto position updates via Telegram (hourly)",
+        "Weekly AI trading journal",
         "Backtesting engine",
         "Paper trading simulator",
         "Priority support",

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
+from urllib.parse import quote
 
 from analytics.intraday_rules import AlertSignal, AlertType
 from alert_config import (
@@ -45,6 +47,14 @@ def _format_email_body(signal: AlertSignal) -> str:
             v2_label = getattr(signal, "score_v2_label", "")
             score_line += f" | v2: {v2_label} ({v2}/100)"
         lines.append(score_line)
+        _factors = getattr(signal, "score_factors", None)
+        if _factors:
+            _fl = {"ma": "MA", "vol": "Vol", "conf": "Conf", "vwap": "VWAP",
+                   "rr": "R:R", "confluence": "Cnfl", "mtf": "MTF",
+                   "consolidation": "Multi"}
+            _fb = [f"{_fl.get(k, k)}+{v}" for k, v in _factors.items() if v]
+            if _fb:
+                lines.append(f"         {' '.join(_fb)}")
 
     if signal.entry is not None:
         lines.append(f"Entry:   ${signal.entry:.2f}")
@@ -151,6 +161,18 @@ def _format_sms_body(signal: AlertSignal) -> str:
     if tags:
         parts.append(" | ".join(tags))
 
+    # Score breakdown (compact factor list)
+    _factors = getattr(signal, "score_factors", None)
+    if _factors:
+        _factor_labels = {
+            "ma": "MA", "vol": "Vol", "conf": "Conf", "vwap": "VWAP",
+            "rr": "R:R", "confluence": "Cnfl", "mtf": "MTF",
+            "consolidation": "Multi",
+        }
+        _fb = [f"{_factor_labels.get(k, k)}+{v}" for k, v in _factors.items() if v]
+        if _fb:
+            parts.append("Score: " + " ".join(_fb))
+
     # AI thesis — first sentence only (Telegram char limit)
     if getattr(signal, "narrative", ""):
         import re
@@ -159,7 +181,15 @@ def _format_sms_body(signal: AlertSignal) -> str:
         if sentences and sentences[0].strip():
             parts.append(sentences[0].strip() + ".")
 
-    return "\n".join(parts)[:320]
+    # Deep link to AI Coach for further analysis
+    _app_url = os.environ.get("APP_URL", "https://tradecopilot.streamlit.app")
+    _alert_type_val = signal.alert_type.value
+    parts.append(
+        f"Analyze: {_app_url}/AI_Coach"
+        f"?symbol={quote(signal.symbol)}&alert={quote(_alert_type_val)}"
+    )
+
+    return "\n".join(parts)[:480]
 
 
 def send_plain_email(email_to: str, subject: str, body: str) -> bool:

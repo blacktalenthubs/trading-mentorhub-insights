@@ -379,6 +379,8 @@ PAPER_TRADE_MIN_SCORE = int(_get_secret("PAPER_TRADE_MIN_SCORE", "65"))
 ANTHROPIC_API_KEY = _get_secret("ANTHROPIC_API_KEY")
 CLAUDE_NARRATIVE_ENABLED = _get_secret("CLAUDE_NARRATIVE_ENABLED", "true").lower() == "true"
 CLAUDE_MODEL = _get_secret("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+CLAUDE_MODEL_SONNET = _get_secret("CLAUDE_MODEL_SONNET", "claude-sonnet-4-20250514")
+NARRATIVE_SONNET_MIN_SCORE = int(_get_secret("NARRATIVE_SONNET_MIN_SCORE", "65"))
 
 # Free tier: max push notifications (DM/email) per day
 FREE_DAILY_ALERT_LIMIT = 3
