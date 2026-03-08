@@ -252,11 +252,16 @@ def _delete_session_token(token: str):
 # ---------------------------------------------------------------------------
 
 def _set_cookie(token: str):
-    """Set a persistent browser cookie via injected JS."""
+    """Set a persistent browser cookie via injected JS.
+
+    Uses ``window.parent.document.cookie`` so the cookie is set on the
+    Streamlit app's domain rather than inside the components iframe.
+    """
     max_age = SESSION_EXPIRY_DAYS * 86400
     components.html(
         f"""<script>
-        document.cookie = "{_COOKIE_NAME}={token}; path=/; max-age={max_age}; SameSite=Lax";
+        try {{ window.parent.document.cookie = "{_COOKIE_NAME}={token}; path=/; max-age={max_age}; SameSite=Lax"; }}
+        catch(e) {{ document.cookie = "{_COOKIE_NAME}={token}; path=/; max-age={max_age}; SameSite=Lax"; }}
         </script>""",
         height=0,
     )
@@ -266,7 +271,8 @@ def _clear_cookie():
     """Delete the session cookie via injected JS."""
     components.html(
         f"""<script>
-        document.cookie = "{_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax";
+        try {{ window.parent.document.cookie = "{_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax"; }}
+        catch(e) {{ document.cookie = "{_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax"; }}
         </script>""",
         height=0,
     )
@@ -330,6 +336,9 @@ def get_current_user() -> dict | None:
         user = _get_user_by_token(token)
         if user:
             st.session_state["user"] = user
+            # Ensure query param is always present as reliable fallback
+            if st.query_params.get("session") != token:
+                st.query_params["session"] = token
             return user
 
     # Both tokens invalid — clean up
