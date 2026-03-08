@@ -29,7 +29,11 @@ from analytics.swing_rules import check_spy_regime
 from db import get_db
 import ui_theme
 
-user = ui_theme.setup_page("swing_trades", tier_required="pro")
+from ui_theme import get_current_tier, render_inline_upgrade
+
+user = ui_theme.setup_page("swing_trades", tier_required="pro", tier_preview="free")
+
+_is_free = get_current_tier() == "free"
 
 ui_theme.page_header(
     "Swing Trades",
@@ -81,100 +85,102 @@ else:
 
 # ── Manual Scan Button ──────────────────────────────────────────────────
 
-col_scan, col_spacer = st.columns([1, 3])
-with col_scan:
-    if st.button("Run EOD Scan Now"):
-        with st.spinner("Running swing scan..."):
-            from alerting.swing_scanner import swing_scan_eod
+if not _is_free:
+    col_scan, col_spacer = st.columns([1, 3])
+    with col_scan:
+        if st.button("Run EOD Scan Now"):
+            with st.spinner("Running swing scan..."):
+                from alerting.swing_scanner import swing_scan_eod
 
-            count = swing_scan_eod()
-        st.success(f"Scan complete — {count} signals fired")
-        st.rerun()
+                count = swing_scan_eod()
+            st.success(f"Scan complete — {count} signals fired")
+            st.rerun()
 
 # ── Active Swing Trades (real_trades) ──────────────────────────────────
 
-ui_theme.section_header("Active Swing Trades")
+if not _is_free:
+    ui_theme.section_header("Active Swing Trades")
 
-swing_positions = get_open_trades(trade_type="swing")
+    swing_positions = get_open_trades(trade_type="swing")
 
-if not swing_positions:
-    ui_theme.empty_state("No active swing trades. Use 'Took It' on a signal below to start tracking.")
-else:
-    for pos in swing_positions:
-        sym = pos["symbol"]
-        shares = pos["shares"]
-        entry = pos["entry_price"]
-        stop = pos["stop_price"]
-        direction = pos["direction"]
+    if not swing_positions:
+        ui_theme.empty_state("No active swing trades. Use 'Took It' on a signal below to start tracking.")
+    else:
+        for pos in swing_positions:
+            sym = pos["symbol"]
+            shares = pos["shares"]
+            entry = pos["entry_price"]
+            stop = pos["stop_price"]
+            direction = pos["direction"]
 
-        intra = fetch_intraday(sym)
-        current = intra["Close"].iloc[-1] if not intra.empty else entry
+            intra = fetch_intraday(sym)
+            current = intra["Close"].iloc[-1] if not intra.empty else entry
 
-        if direction == "SHORT":
-            unrealized = (entry - current) * shares
-        else:
-            unrealized = (current - entry) * shares
-        pnl_pct = (unrealized / (entry * shares) * 100) if entry * shares > 0 else 0
+            if direction == "SHORT":
+                unrealized = (entry - current) * shares
+            else:
+                unrealized = (current - entry) * shares
+            pnl_pct = (unrealized / (entry * shares) * 100) if entry * shares > 0 else 0
 
-        entry_date = pos.get("session_date", "")
-        days_held = 0
-        if entry_date:
-            try:
-                days_held = (pd.Timestamp.now() - pd.Timestamp(entry_date)).days
-            except Exception:
-                pass
+            entry_date = pos.get("session_date", "")
+            days_held = 0
+            if entry_date:
+                try:
+                    days_held = (pd.Timestamp.now() - pd.Timestamp(entry_date)).days
+                except Exception:
+                    pass
 
-        pnl_color = "#2ecc71" if unrealized >= 0 else "#e74c3c"
-        stop_label = (pos.get("stop_type") or "").replace("_", " ").title()
-        rsi_label = pos.get("entry_rsi") or ""
+            pnl_color = "#2ecc71" if unrealized >= 0 else "#e74c3c"
+            stop_label = (pos.get("stop_type") or "").replace("_", " ").title()
+            rsi_label = pos.get("entry_rsi") or ""
 
-        st.markdown(
-            f"**{sym}** — {direction} {shares} shares @ ${entry:,.2f} | "
-            f"Now: ${current:,.2f} | "
-            f"<span style='color:{pnl_color}'>${unrealized:+,.2f} ({pnl_pct:+.2f}%)</span>"
-            f" | Days: {days_held}"
-            f"{f' | Stop: {stop_label}' if stop_label else ''}"
-            f"{f' | RSI: {rsi_label}' if rsi_label else ''}",
-            unsafe_allow_html=True,
-        )
+            st.markdown(
+                f"**{sym}** — {direction} {shares} shares @ ${entry:,.2f} | "
+                f"Now: ${current:,.2f} | "
+                f"<span style='color:{pnl_color}'>${unrealized:+,.2f} ({pnl_pct:+.2f}%)</span>"
+                f" | Days: {days_held}"
+                f"{f' | Stop: {stop_label}' if stop_label else ''}"
+                f"{f' | RSI: {rsi_label}' if rsi_label else ''}",
+                unsafe_allow_html=True,
+            )
 
-        with st.expander(f"Manage {sym} (ID: {pos['id']})"):
-            mc1, mc2, mc3 = st.columns(3)
-            mc1.metric("Entry", f"${entry:,.2f}")
-            mc2.metric("Current", f"${current:,.2f}")
-            if stop:
-                mc3.metric("Stop", f"${stop:,.2f}")
+            with st.expander(f"Manage {sym} (ID: {pos['id']})"):
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("Entry", f"${entry:,.2f}")
+                mc2.metric("Current", f"${current:,.2f}")
+                if stop:
+                    mc3.metric("Stop", f"${stop:,.2f}")
 
-            close_col, stop_col = st.columns(2)
-            with close_col:
-                exit_price = st.number_input(
-                    "Exit Price", value=current, step=0.01,
-                    key=f"sw_exit_{pos['id']}",
-                )
-                close_notes = st.text_input("Notes", key=f"sw_notes_close_{pos['id']}")
-                if st.button("Close Trade", key=f"sw_close_{pos['id']}"):
-                    pnl = close_real_trade(pos["id"], exit_price, close_notes)
-                    st.toast(f"Closed {sym} — P&L: ${pnl:+,.2f}")
-                    st.rerun()
+                close_col, stop_col = st.columns(2)
+                with close_col:
+                    exit_price = st.number_input(
+                        "Exit Price", value=current, step=0.01,
+                        key=f"sw_exit_{pos['id']}",
+                    )
+                    close_notes = st.text_input("Notes", key=f"sw_notes_close_{pos['id']}")
+                    if st.button("Close Trade", key=f"sw_close_{pos['id']}"):
+                        pnl = close_real_trade(pos["id"], exit_price, close_notes)
+                        st.toast(f"Closed {sym} — P&L: ${pnl:+,.2f}")
+                        st.rerun()
 
-            with stop_col:
-                stop_exit = st.number_input(
-                    "Stop Exit Price", value=stop or current, step=0.01,
-                    key=f"sw_stop_exit_{pos['id']}",
-                )
-                stop_notes = st.text_input("Notes", key=f"sw_notes_stop_{pos['id']}")
-                if st.button("Stopped Out", key=f"sw_stopped_{pos['id']}"):
-                    pnl = stop_real_trade(pos["id"], stop_exit, stop_notes)
-                    st.toast(f"Stopped {sym} — P&L: ${pnl:+,.2f}")
-                    st.rerun()
+                with stop_col:
+                    stop_exit = st.number_input(
+                        "Stop Exit Price", value=stop or current, step=0.01,
+                        key=f"sw_stop_exit_{pos['id']}",
+                    )
+                    stop_notes = st.text_input("Notes", key=f"sw_notes_stop_{pos['id']}")
+                    if st.button("Stopped Out", key=f"sw_stopped_{pos['id']}"):
+                        pnl = stop_real_trade(pos["id"], stop_exit, stop_notes)
+                        st.toast(f"Stopped {sym} — P&L: ${pnl:+,.2f}")
+                        st.rerun()
 
-            cur_notes = pos.get("notes", "") or ""
-            new_notes = st.text_area("Journal", value=cur_notes, key=f"sw_journal_{pos['id']}")
-            if new_notes != cur_notes:
-                if st.button("Save Notes", key=f"sw_save_notes_{pos['id']}"):
-                    update_trade_notes(pos["id"], new_notes)
-                    st.toast("Notes saved")
-                    st.rerun()
+                cur_notes = pos.get("notes", "") or ""
+                new_notes = st.text_area("Journal", value=cur_notes, key=f"sw_journal_{pos['id']}")
+                if new_notes != cur_notes:
+                    if st.button("Save Notes", key=f"sw_save_notes_{pos['id']}"):
+                        update_trade_notes(pos["id"], new_notes)
+                        st.toast("Notes saved")
+                        st.rerun()
 
 # ── Today's Swing Signals ───────────────────────────────────────────────
 
@@ -263,114 +269,125 @@ else:
         )
 
         # "Took It" button — only for BUY setup signals, not management/RSI alerts
-        is_setup = direction == "BUY" and raw_alert_type in _SETUP_TYPES
-        if is_setup:
-            if has_open_trade(symbol):
-                st.markdown(
-                    "<span style='color:#58a6ff;font-size:0.8rem;font-weight:600'>"
-                    "Already tracking</span>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                default_shares = calculate_shares(symbol, price) if price > 0 else 100
-                shares_input = st.number_input(
-                    f"Shares for {symbol}",
-                    min_value=1,
-                    value=default_shares,
-                    step=1,
-                    key=f"sw_shares_{alert_id}",
-                )
-                if st.button("Took It", key=f"sw_took_{alert_id}"):
-                    # Extract RSI from the alert message if present
-                    entry_rsi = None
-                    msg = alert.get("message", "")
-                    if "RSI" in msg:
-                        import re
-                        m = re.search(r"RSI\s*[=:]?\s*([\d.]+)", msg)
-                        if m:
-                            entry_rsi = float(m.group(1))
+        # Hidden for free tier users (view-only mode)
+        if not _is_free:
+            is_setup = direction == "BUY" and raw_alert_type in _SETUP_TYPES
+            if is_setup:
+                if has_open_trade(symbol):
+                    st.markdown(
+                        "<span style='color:#58a6ff;font-size:0.8rem;font-weight:600'>"
+                        "Already tracking</span>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    default_shares = calculate_shares(symbol, price) if price > 0 else 100
+                    shares_input = st.number_input(
+                        f"Shares for {symbol}",
+                        min_value=1,
+                        value=default_shares,
+                        step=1,
+                        key=f"sw_shares_{alert_id}",
+                    )
+                    if st.button("Took It", key=f"sw_took_{alert_id}"):
+                        # Extract RSI from the alert message if present
+                        entry_rsi = None
+                        msg = alert.get("message", "")
+                        if "RSI" in msg:
+                            import re
+                            m = re.search(r"RSI\s*[=:]?\s*([\d.]+)", msg)
+                            if m:
+                                entry_rsi = float(m.group(1))
 
-                    open_real_trade(
-                        symbol=symbol,
-                        direction="BUY",
-                        entry_price=price,
-                        stop_price=None,
-                        target_price=None,
-                        target_2_price=None,
-                        alert_type=raw_alert_type,
-                        alert_id=alert_id,
-                        session_date=session,
-                        shares=shares_input,
-                        trade_type="swing",
-                        stop_type=_STOP_MAP.get(raw_alert_type),
-                        target_type="rsi_70",
-                        entry_rsi=entry_rsi,
-                    )
-                    st.toast(f"Tracking {symbol} — {shares_input} shares @ ${price:,.2f}")
-                    st.rerun()
+                        open_real_trade(
+                            symbol=symbol,
+                            direction="BUY",
+                            entry_price=price,
+                            stop_price=None,
+                            target_price=None,
+                            target_2_price=None,
+                            alert_type=raw_alert_type,
+                            alert_id=alert_id,
+                            session_date=session,
+                            shares=shares_input,
+                            trade_type="swing",
+                            stop_type=_STOP_MAP.get(raw_alert_type),
+                            target_type="rsi_70",
+                            entry_rsi=entry_rsi,
+                        )
+                        st.toast(f"Tracking {symbol} — {shares_input} shares @ ${price:,.2f}")
+                        st.rerun()
 
-        # Options play form
-        if _sw_opts_eligible and direction == "BUY":
-            if has_open_options_trade(symbol):
-                st.info("Options trade already tracking (see Real Trades)")
-            else:
-                st.markdown(
-                    "<span style='color:#9b59b6;font-weight:bold'>"
-                    "Track Options Play</span>",
-                    unsafe_allow_html=True,
-                )
-                _swc1, _swc2 = st.columns(2)
-                _sw_opt_type = _swc1.radio(
-                    "Type", ["CALL", "PUT"],
-                    key=f"sw_opt_type_{alert_id}",
-                    horizontal=True,
-                )
-                _sw_opt_strike = _swc2.number_input(
-                    "Strike", value=round(price, 0),
-                    step=1.0, format="%.2f",
-                    key=f"sw_opt_strike_{alert_id}",
-                )
-                _swc3, _swc4 = st.columns(2)
-                _sw_opt_expiry = _swc3.date_input(
-                    "Expiration",
-                    key=f"sw_opt_expiry_{alert_id}",
-                )
-                _sw_opt_contracts = _swc4.number_input(
-                    "Contracts", min_value=1, value=1, step=1,
-                    key=f"sw_opt_contracts_{alert_id}",
-                )
-                _sw_opt_premium = st.number_input(
-                    "Premium per contract",
-                    min_value=0.01, value=1.00, step=0.05,
-                    format="%.2f",
-                    key=f"sw_opt_premium_{alert_id}",
-                )
-                _sw_opt_cost = _sw_opt_contracts * _sw_opt_premium * 100
-                st.caption(
-                    f"{_sw_opt_contracts} x ${_sw_opt_premium:.2f} x 100 = "
-                    f"${_sw_opt_cost:,.0f} total cost"
-                )
-                if st.button(
-                    "Track Options",
-                    key=f"sw_opt_track_{alert_id}",
-                    type="primary",
-                ):
-                    open_options_trade(
-                        symbol=symbol,
-                        option_type=_sw_opt_type,
-                        strike=_sw_opt_strike,
-                        expiration=_sw_opt_expiry.isoformat(),
-                        contracts=_sw_opt_contracts,
-                        premium_per_contract=_sw_opt_premium,
-                        alert_type=raw_alert_type,
-                        alert_id=alert_id,
-                        session_date=session,
+            # Options play form
+            if _sw_opts_eligible and direction == "BUY":
+                if has_open_options_trade(symbol):
+                    st.info("Options trade already tracking (see Real Trades)")
+                else:
+                    st.markdown(
+                        "<span style='color:#9b59b6;font-weight:bold'>"
+                        "Track Options Play</span>",
+                        unsafe_allow_html=True,
                     )
-                    st.toast(
-                        f"Tracking {symbol} {_sw_opt_type} "
-                        f"${_sw_opt_strike:.0f} — ${_sw_opt_cost:,.0f}"
+                    _swc1, _swc2 = st.columns(2)
+                    _sw_opt_type = _swc1.radio(
+                        "Type", ["CALL", "PUT"],
+                        key=f"sw_opt_type_{alert_id}",
+                        horizontal=True,
                     )
-                    st.rerun()
+                    _sw_opt_strike = _swc2.number_input(
+                        "Strike", value=round(price, 0),
+                        step=1.0, format="%.2f",
+                        key=f"sw_opt_strike_{alert_id}",
+                    )
+                    _swc3, _swc4 = st.columns(2)
+                    _sw_opt_expiry = _swc3.date_input(
+                        "Expiration",
+                        key=f"sw_opt_expiry_{alert_id}",
+                    )
+                    _sw_opt_contracts = _swc4.number_input(
+                        "Contracts", min_value=1, value=1, step=1,
+                        key=f"sw_opt_contracts_{alert_id}",
+                    )
+                    _sw_opt_premium = st.number_input(
+                        "Premium per contract",
+                        min_value=0.01, value=1.00, step=0.05,
+                        format="%.2f",
+                        key=f"sw_opt_premium_{alert_id}",
+                    )
+                    _sw_opt_cost = _sw_opt_contracts * _sw_opt_premium * 100
+                    st.caption(
+                        f"{_sw_opt_contracts} x ${_sw_opt_premium:.2f} x 100 = "
+                        f"${_sw_opt_cost:,.0f} total cost"
+                    )
+                    if st.button(
+                        "Track Options",
+                        key=f"sw_opt_track_{alert_id}",
+                        type="primary",
+                    ):
+                        open_options_trade(
+                            symbol=symbol,
+                            option_type=_sw_opt_type,
+                            strike=_sw_opt_strike,
+                            expiration=_sw_opt_expiry.isoformat(),
+                            contracts=_sw_opt_contracts,
+                            premium_per_contract=_sw_opt_premium,
+                            alert_type=raw_alert_type,
+                            alert_id=alert_id,
+                            session_date=session,
+                        )
+                        st.toast(
+                            f"Tracking {symbol} {_sw_opt_type} "
+                            f"${_sw_opt_strike:.0f} — ${_sw_opt_cost:,.0f}"
+                        )
+                        st.rerun()
+
+# Free tier: show upgrade CTA after signals, stop before advanced sections
+if _is_free:
+    st.divider()
+    render_inline_upgrade(
+        "Track swing trades, see P&L, RSI heatmap, watchlist categories & history",
+        "pro",
+    )
+    st.stop()
 
 # ── RSI Heatmap ─────────────────────────────────────────────────────────
 

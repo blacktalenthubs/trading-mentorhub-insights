@@ -748,29 +748,36 @@ TIER_COLORS = {
 
 TIER_FEATURES = {
     "free": [
-        "Basic signal scanner",
-        "5-symbol watchlist",
-        "Delayed alerts (15 min)",
-        "Basic candlestick charts",
+        "Live signal scanner & daily plans",
+        "Interactive candlestick charts",
+        "Today's alerts feed",
+        "AI Coach preview (3 queries/day)",
+        "Swing trade setups (view only)",
     ],
     "pro": [
-        "Real-time signals (no delay)",
+        "Everything in Free",
+        "Full alert history (all sessions)",
+        "Scorecard & performance analytics",
+        "Trade journal with stop discipline lab",
+        "Real trade P&L tracking",
+        "Swing trade tracking & options",
         "Telegram DM alerts",
-        "AI Trade Narrator",
-        "Full trade history & analytics",
-        "Unlimited watchlist symbols",
-        "Scorecard & performance tracking",
     ],
     "elite": [
         "Everything in Pro",
-        "AI Trade Coach",
+        "Unlimited AI Trade Coach",
         "Backtesting engine",
         "Paper trading simulator",
         "Priority support",
     ],
 }
 
-TIER_PRICES = {"free": "$0", "pro": "$59/mo", "elite": "$59/mo"}
+TIER_PRICES = {"free": "$0", "pro": "$29/mo", "elite": "$59/mo"}
+
+FREE_TIER_LIMITS = {
+    "ai_queries_per_day": 3,
+    "alerts_days_back": 1,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -818,6 +825,71 @@ def _render_upgrade_prompt(current_tier: str, required_tier: str):
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# Inline upgrade helpers (for preview-mode pages)
+# ---------------------------------------------------------------------------
+
+def get_current_tier() -> str:
+    """Return the current user's tier from session state."""
+    return st.session_state.get("_user_tier", "free")
+
+
+def render_inline_upgrade(what_you_get: str, required_tier: str = "pro"):
+    """Compact inline upgrade CTA — used within pages for section-level gating."""
+    color = TIER_COLORS.get(required_tier, "#3498db")
+    price = TIER_PRICES.get(required_tier, "")
+    st.markdown(f"""
+    <div style='
+        background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+        border: 1px solid {color}40;
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+        margin: 1rem 0;
+        text-align: center;
+    '>
+        <span style='font-size:1.2rem'>&#128274;</span>
+        <span style='color:#ccc;margin-left:8px'>{what_you_get}</span>
+        <br>
+        <a href='https://square.link/u/FdEAnalM' target='_blank'
+           style='display:inline-block;background:{color};color:white;
+                  padding:6px 18px;border-radius:5px;text-decoration:none;
+                  font-weight:600;font-size:0.85rem;margin-top:8px'>
+            Upgrade to {required_tier.title()} ({price}) &#8594;
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_usage_counter(current: int, limit: int, label: str = "AI queries"):
+    """Show usage progress bar: '2/3 AI queries used today'."""
+    pct = min(current / limit, 1.0) if limit > 0 else 1.0
+    remaining = max(limit - current, 0)
+    if pct < 0.67:
+        bar_color = "#2ecc71"
+    elif pct < 1.0:
+        bar_color = "#f39c12"
+    else:
+        bar_color = "#e74c3c"
+    limit_msg = '<strong style="color:#e74c3c">limit reached</strong>' if remaining == 0 else f"{remaining} remaining"
+    st.markdown(f"""
+    <div style='margin:8px 0'>
+        <div style='color:#aaa;font-size:0.8rem;margin-bottom:4px'>
+            {current}/{limit} {label} used today &mdash; {limit_msg}
+        </div>
+        <div style='background:#1a1a2e;border-radius:4px;height:6px;overflow:hidden'>
+            <div style='background:{bar_color};width:{pct*100:.0f}%;height:100%;border-radius:4px'></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def check_usage_limit(user_id: int, feature: str, limit: int) -> tuple:
+    """Check if user is within daily usage limit. Returns (allowed, current_count)."""
+    from db import get_daily_usage
+    count = get_daily_usage(user_id, feature)
+    return (count < limit, count)
 
 
 # ---------------------------------------------------------------------------
@@ -1111,7 +1183,8 @@ def render_landing_page():
 # Centralized page setup
 # ---------------------------------------------------------------------------
 
-def setup_page(page_key: str, *, tier_required: str | None = None) -> dict | None:
+def setup_page(page_key: str, *, tier_required: str | None = None,
+               tier_preview: str | None = None) -> dict | None:
     """One-call page bootstrap — must be the first Streamlit call in every page.
 
     1. ``st.set_page_config`` with sidebar expanded (skipped under nav shell)
@@ -1124,6 +1197,10 @@ def setup_page(page_key: str, *, tier_required: str | None = None) -> dict | Non
     **tier_required='free'**: Auth required, any tier works.
     **tier_required='pro'**: Auth required, pro or elite tier needed.
     **tier_required='elite'**: Auth required, elite tier needed.
+
+    **tier_preview**: When set, users at this tier level can access the page
+    in preview mode (limited functionality) instead of being fully blocked.
+    The page checks ``get_current_tier()`` to decide what to render.
 
     Returns the user dict (or ``None`` for public pages when not logged in).
     """
@@ -1167,9 +1244,14 @@ def setup_page(page_key: str, *, tier_required: str | None = None) -> dict | Non
 
     # Tier check
     tier = get_user_tier(user["id"])
+    st.session_state["_user_tier"] = tier
     if TIER_LEVELS.get(tier, 0) < TIER_LEVELS.get(tier_required, 0):
-        _render_upgrade_prompt(tier, tier_required)
-        st.stop()
+        # Allow through in preview mode if tier >= preview level
+        if tier_preview and TIER_LEVELS.get(tier, 0) >= TIER_LEVELS.get(tier_preview, 0):
+            pass  # Page handles its own gating via get_current_tier()
+        else:
+            _render_upgrade_prompt(tier, tier_required)
+            st.stop()
 
     # Show sidebar user info with tier badge (nav shell renders this itself)
     if not _nav_mode:

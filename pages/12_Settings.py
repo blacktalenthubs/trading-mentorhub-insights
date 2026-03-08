@@ -252,7 +252,7 @@ with tab_subscription:
                     "<div style='background:#16213e;border:1px solid #3498db40;"
                     "border-radius:8px;padding:1rem;text-align:center'>"
                     "<div style='font-weight:600;color:#3498db'>Pro</div>"
-                    "<div style='font-size:1.5rem;font-weight:700;color:#fafafa'>$59<span style='font-size:0.8rem;color:#888'>/mo</span></div>"
+                    "<div style='font-size:1.5rem;font-weight:700;color:#fafafa'>$29<span style='font-size:0.8rem;color:#888'>/mo</span></div>"
                     "</div>",
                     unsafe_allow_html=True,
                 )

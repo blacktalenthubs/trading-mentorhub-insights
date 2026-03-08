@@ -8,7 +8,11 @@ import plotly.graph_objects as go
 from db import get_user_trades, get_user_options, get_annotations
 import ui_theme
 
-user = ui_theme.setup_page("scorecard", tier_required="pro")
+from ui_theme import get_current_tier, render_inline_upgrade
+
+user = ui_theme.setup_page("scorecard", tier_required="pro", tier_preview="free")
+
+_is_free = get_current_tier() == "free"
 
 ui_theme.page_header("Monthly Scorecard", "Am I making money? What's working? Am I disciplined?")
 
@@ -48,6 +52,14 @@ if not opts.empty:
     st.info(f"Options P&L: **${opt_pnl:,.2f}** across {len(opts)} trades (excluded from analysis).")
 
 st.divider()
+
+# Free tier: show KPIs only, gate the rest
+if _is_free:
+    render_inline_upgrade(
+        "Full scorecard — monthly charts, equity curve, drawdown analysis, strategy breakdown",
+        "pro",
+    )
+    st.stop()
 
 # =====================================================================
 # Precompute monthly aggregates (shared by several sections)

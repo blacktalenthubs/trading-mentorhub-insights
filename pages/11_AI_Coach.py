@@ -18,7 +18,15 @@ from ui_theme import (
     section_header,
 )
 
-user = ui_theme.setup_page("ai_coach", tier_required="elite")
+from ui_theme import (
+    FREE_TIER_LIMITS,
+    get_current_tier,
+    render_inline_upgrade,
+    render_usage_counter,
+    check_usage_limit,
+)
+
+user = ui_theme.setup_page("ai_coach", tier_required="elite", tier_preview="free")
 
 page_header(
     "AI Intelligence Hub",
@@ -60,7 +68,16 @@ hub_symbol = custom_sym.strip().upper() if custom_sym.strip() else selected_sym
 # Sidebar — context snapshot + controls
 # ---------------------------------------------------------------------------
 
+_is_free = get_current_tier() == "free"
+_ai_limit = FREE_TIER_LIMITS["ai_queries_per_day"]
+
 with st.sidebar:
+    # Usage counter for free users
+    if _is_free and user:
+        _, _current_usage = check_usage_limit(user["id"], "ai_query", _ai_limit)
+        render_usage_counter(_current_usage, _ai_limit, "AI queries")
+        st.divider()
+
     # Clear chat
     if st.button("Clear conversation"):
         st.session_state["coach_messages"] = []
@@ -214,7 +231,13 @@ with tab_analysis:
 
             # AI Analysis button
             section_header("AI Analysis")
-            if st.button("Get AI Analysis", key="ai_win_rate"):
+            _can_ai_1, _cnt_1 = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+            if not _can_ai_1:
+                render_inline_upgrade("Unlimited AI analysis — no daily limits", "elite")
+            elif st.button("Get AI Analysis", key="ai_win_rate"):
+                if _is_free and user:
+                    from db import increment_daily_usage
+                    increment_daily_usage(user["id"], "ai_query")
                 try:
                     from analytics.intel_hub import ask_ai_insight
 
@@ -313,7 +336,13 @@ with tab_fundamentals:
 
             # AI Fundamental Analysis
             section_header("AI Analysis")
-            if st.button("AI Fundamental Analysis", key="ai_fundamentals"):
+            _can_ai_2, _cnt_2 = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+            if not _can_ai_2:
+                render_inline_upgrade("Unlimited AI analysis — no daily limits", "elite")
+            elif st.button("AI Fundamental Analysis", key="ai_fundamentals"):
+                if _is_free and user:
+                    from db import increment_daily_usage
+                    increment_daily_usage(user["id"], "ai_query")
                 try:
                     from analytics.intel_hub import ask_ai_insight
 
@@ -497,7 +526,13 @@ with tab_weekly:
 
             # AI Weekly Trend button
             section_header("AI Analysis")
-            if st.button("AI Weekly Trend", key="ai_weekly"):
+            _can_ai_3, _cnt_3 = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+            if not _can_ai_3:
+                render_inline_upgrade("Unlimited AI analysis — no daily limits", "elite")
+            elif st.button("AI Weekly Trend", key="ai_weekly"):
+                if _is_free and user:
+                    from db import increment_daily_usage
+                    increment_daily_usage(user["id"], "ai_query")
                 try:
                     from analytics.intel_hub import ask_ai_insight
 
@@ -570,10 +605,15 @@ with tab_coach:
                 f"weekly trend, and historical win rates. Ask me anything!"
             )
 
+    _can_qp, _ = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
     cols = st.columns(len(_QUICK_PROMPTS))
     for col, label in zip(cols, _QUICK_PROMPTS):
         with col:
-            if st.button(label, use_container_width=True, key=f"qp_{label}"):
+            if st.button(label, use_container_width=True, key=f"qp_{label}",
+                         disabled=(not _can_qp)):
+                if _is_free and user:
+                    from db import increment_daily_usage
+                    increment_daily_usage(user["id"], "ai_query")
                 _send_prompt(label)
                 st.rerun()
 
@@ -588,14 +628,22 @@ with tab_coach:
         and st.session_state["coach_messages"][-1]["role"] == "user"
     )
 
-    # Chat input
-    if prompt := st.chat_input("Ask your trade coach..."):
-        with st.chat_message("user"):
-            st.write(prompt)
-        st.session_state["coach_messages"].append(
-            {"role": "user", "content": prompt}
-        )
-        _needs_response = True
+    # Chat input — gate for free users
+    _can_chat, _cnt_chat = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+
+    if not _can_chat:
+        render_inline_upgrade("Unlimited AI Coach conversations — no daily limits", "elite")
+    else:
+        if prompt := st.chat_input("Ask your trade coach..."):
+            if _is_free and user:
+                from db import increment_daily_usage
+                increment_daily_usage(user["id"], "ai_query")
+            with st.chat_message("user"):
+                st.write(prompt)
+            st.session_state["coach_messages"].append(
+                {"role": "user", "content": prompt}
+            )
+            _needs_response = True
 
     # Generate assistant response
     if _needs_response:

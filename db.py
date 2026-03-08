@@ -638,6 +638,15 @@ def init_db():
                 expires_at TIMESTAMP NOT NULL,
                 used INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS usage_limits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                feature TEXT NOT NULL,
+                usage_date TEXT NOT NULL,
+                usage_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(user_id, feature, usage_date)
+            );
         """))
     # SQLite-only migrations — on Postgres the DDL already creates
     # all columns/constraints correctly and these cause deadlocks
@@ -1067,6 +1076,41 @@ def get_subscription(user_id: int) -> dict | None:
             (user_id,),
         ).fetchone()
         return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Usage Limits (free-tier daily caps)
+# ---------------------------------------------------------------------------
+
+def get_daily_usage(user_id: int, feature: str) -> int:
+    """Return today's usage count for a feature."""
+    from datetime import date
+    today = date.today().isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT usage_count FROM usage_limits WHERE user_id = ? AND feature = ? AND usage_date = ?",
+            (user_id, feature, today),
+        ).fetchone()
+        return dict(row)["usage_count"] if row else 0
+
+
+def increment_daily_usage(user_id: int, feature: str) -> int:
+    """Increment and return the new usage count for today."""
+    from datetime import date
+    today = date.today().isoformat()
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO usage_limits (user_id, feature, usage_date, usage_count)
+               VALUES (?, ?, ?, 1)
+               ON CONFLICT(user_id, feature, usage_date) DO UPDATE SET
+                   usage_count = usage_count + 1""",
+            (user_id, feature, today),
+        )
+        row = conn.execute(
+            "SELECT usage_count FROM usage_limits WHERE user_id = ? AND feature = ? AND usage_date = ?",
+            (user_id, feature, today),
+        ).fetchone()
+        return dict(row)["usage_count"] if row else 1
 
 
 # ---------------------------------------------------------------------------

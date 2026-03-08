@@ -12,7 +12,11 @@ from alerting.alert_store import (
 )
 import ui_theme
 
-user = ui_theme.setup_page("alerts", tier_required="pro")
+from ui_theme import get_current_tier, render_inline_upgrade
+
+user = ui_theme.setup_page("alerts", tier_required="pro", tier_preview="free")
+
+_is_free = get_current_tier() == "free"
 
 ui_theme.page_header(
     "Alert Reports",
@@ -31,23 +35,29 @@ if not session_dates:
 
 with st.sidebar:
     st.subheader("Date Range")
-    view_mode = st.radio(
-        "View",
-        ["Latest day", "Last 3 days", "Last 7 days", "All dates"],
-        index=0,
-        label_visibility="collapsed",
-    )
-
-    if view_mode == "Latest day":
+    if _is_free:
+        # Free users: latest day only
         dates_to_show = session_dates[:1]
-    elif view_mode == "Last 3 days":
-        dates_to_show = session_dates[:3]
-    elif view_mode == "Last 7 days":
-        dates_to_show = session_dates[:7]
+        st.caption(f"1 session (free tier) · {len(session_dates)} total")
+        render_inline_upgrade("Full alert history — browse all sessions", "pro")
     else:
-        dates_to_show = session_dates
+        view_mode = st.radio(
+            "View",
+            ["Latest day", "Last 3 days", "Last 7 days", "All dates"],
+            index=0,
+            label_visibility="collapsed",
+        )
 
-    st.caption(f"{len(dates_to_show)} session(s) · {len(session_dates)} total")
+        if view_mode == "Latest day":
+            dates_to_show = session_dates[:1]
+        elif view_mode == "Last 3 days":
+            dates_to_show = session_dates[:3]
+        elif view_mode == "Last 7 days":
+            dates_to_show = session_dates[:7]
+        else:
+            dates_to_show = session_dates
+
+        st.caption(f"{len(dates_to_show)} session(s) · {len(session_dates)} total")
 
 # ── Collect all alerts across selected dates ─────────────────────────────
 
@@ -265,6 +275,14 @@ for session_date in dates_to_show:
 
     for alert in day_alerts:
         _render_card(alert)
+
+# Free tier footer CTA
+if _is_free:
+    st.divider()
+    render_inline_upgrade(
+        f"Unlock {len(session_dates)} days of alert history with filters & PDF export",
+        "pro",
+    )
 
 # ── Raw data table ───────────────────────────────────────────────────────
 

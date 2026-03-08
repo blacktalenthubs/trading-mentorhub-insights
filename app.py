@@ -50,9 +50,16 @@ tier = get_user_tier(user["id"])
 _user_level = ui_theme.TIER_LEVELS.get(tier, 0)
 
 
+# Pages that allow free-tier preview (no lock badge for free users)
+_PREVIEW_PAGES = {
+    "pages/11_AI_Coach.py", "pages/9_Alerts.py",
+    "pages/2_Scorecard.py", "pages/10_Swing_Trades.py",
+}
+
+
 def _page(file: str, title: str, icon: str, tier_req: str = "free", **kw) -> st.Page:
     """Build st.Page, appending lock icon if user's tier is insufficient."""
-    if ui_theme.TIER_LEVELS.get(tier_req, 0) > _user_level:
+    if ui_theme.TIER_LEVELS.get(tier_req, 0) > _user_level and file not in _PREVIEW_PAGES:
         title = f"{title} \U0001F512"
     return st.Page(file, title=title, icon=icon, **kw)
 
