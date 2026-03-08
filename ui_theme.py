@@ -738,12 +738,13 @@ _PAGE_TITLES = {
 # Tier definitions
 # ---------------------------------------------------------------------------
 
-TIER_LEVELS = {"free": 0, "pro": 1, "elite": 2}
+TIER_LEVELS = {"free": 0, "pro": 1, "elite": 2, "admin": 99}
 
 TIER_COLORS = {
     "free": "#888",
     "pro": "#3498db",
     "elite": "#f39c12",
+    "admin": "#e74c3c",
 }
 
 TIER_FEATURES = {
@@ -920,8 +921,8 @@ def _render_sidebar_user(user: dict, tier: str):
             unsafe_allow_html=True,
         )
 
-        # Upgrade CTA (only for non-elite)
-        if tier != "elite":
+        # Upgrade CTA (only for non-elite, non-admin)
+        if tier not in ("elite", "admin"):
             next_tier = "pro" if tier == "free" else "elite"
             next_color = TIER_COLORS[next_tier]
             st.markdown(

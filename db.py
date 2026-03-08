@@ -1029,8 +1029,18 @@ TIER_LEVELS = {"free": 0, "pro": 1, "elite": 2}
 
 
 def get_user_tier(user_id: int) -> str:
-    """Return the user's subscription tier ('free', 'pro', 'elite')."""
+    """Return the user's subscription tier ('free', 'pro', 'elite', 'admin').
+
+    The admin account (matched by ADMIN_EMAIL env var) always gets full access.
+    """
+    from config import DEFAULT_ADMIN_EMAIL
     with get_db() as conn:
+        # Check if this is the admin account
+        user_row = conn.execute(
+            "SELECT email FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if user_row and user_row["email"] == DEFAULT_ADMIN_EMAIL:
+            return "admin"
         row = conn.execute(
             "SELECT tier FROM subscriptions WHERE user_id = ? AND status = 'active'",
             (user_id,),
