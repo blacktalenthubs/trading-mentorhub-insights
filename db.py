@@ -1103,7 +1103,7 @@ def increment_daily_usage(user_id: int, feature: str) -> int:
             """INSERT INTO usage_limits (user_id, feature, usage_date, usage_count)
                VALUES (?, ?, ?, 1)
                ON CONFLICT(user_id, feature, usage_date) DO UPDATE SET
-                   usage_count = usage_count + 1""",
+                   usage_count = usage_limits.usage_count + 1""",
             (user_id, feature, today),
         )
         row = conn.execute(
