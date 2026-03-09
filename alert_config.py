@@ -57,12 +57,20 @@ MA100_STOP_OFFSET_PCT = 0.007  # 0.7%
 # MA200 Bounce: widest stop for long-term institutional level
 MA200_STOP_OFFSET_PCT = 0.010  # 1.0%
 
+# MA/EMA Bounce Lookback: scan last N bars for a touch (30 min at 5-min bars)
+# Catches bounces that happened 2-3 bars ago and are already running.
+MA_BOUNCE_LOOKBACK_BARS = 6
+
+# MA/EMA Bounce Max Distance: don't fire if price ran >2% above the MA
+# (wider than support bounce — MA bounces are higher-conviction setups)
+MA_BOUNCE_MAX_DISTANCE_PCT = 0.020  # 2.0%
+
 # MA Bounce: structural stop buffer below session low
 MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
 
 # Prior Day Low Reclaim: minimum dip below prior low to qualify
 PDL_DIP_MIN_PCT = 0.0003  # 0.03% — any meaningful touch below PDL counts
-PDL_RECLAIM_MAX_DISTANCE_PCT = 0.008  # 0.8% — skip if price already ran past entry
+PDL_RECLAIM_MAX_DISTANCE_PCT = 0.020  # 2.0% — skip if price already ran past entry (widened for volatile names)
 
 # PDL level-based stop: stop just below the level itself (0.5% below PDL)
 # Data-driven (2yr, 10 symbols): 78% survival for SPY, 3-5x R:R.
@@ -241,7 +249,7 @@ VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
 VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.003   # 0.3% — skip if price already ran past VWAP
 
 # VWAP Bounce: pullback to VWAP that holds — continuation signal
-VWAP_BOUNCE_MIN_BARS = 10              # need enough history for trend context
+VWAP_BOUNCE_MIN_BARS = 18              # ~90 min context (after 11:00 AM)
 VWAP_BOUNCE_ABOVE_PCT = 0.60           # 60% of lookback bars must have closed above VWAP
 VWAP_BOUNCE_TOUCH_PCT = 0.003          # 0.3% — bar low must be within this of VWAP
 VWAP_BOUNCE_MAX_DISTANCE_PCT = 0.005   # 0.5% — close can't be too far above VWAP

@@ -23,7 +23,8 @@ from alerting.alert_store import (
     today_session,
     was_alert_fired,
 )
-from alerting.notifier import notify
+from alerting.notifier import notify_user
+from db import get_notification_prefs
 from alerting.real_trade_store import (
     calculate_shares, has_open_trade,
 )
@@ -364,8 +365,11 @@ else:
 
             new_signals.append(sig)
 
-            # Send all notifications — no score gate; evaluate accuracy later
-            email_sent, sms_sent = notify(sig)
+            # Per-user notification (matches worker.py pattern)
+            email_sent, sms_sent = False, False
+            prefs = get_notification_prefs(user["id"])
+            if prefs:
+                notify_user(sig, prefs)
 
             # Record to DB so alerts persist and dedup works across refreshes
             record_alert(sig, session, email_sent, sms_sent, user_id=user["id"])

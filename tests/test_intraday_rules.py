@@ -88,7 +88,7 @@ def _bars(rows: list[dict]) -> pd.DataFrame:
 class TestMABounce20:
     def test_fires_when_bar_low_touches_ma20_and_closes_above(self):
         bar = _bar(open_=100, high=101, low=99.98, close=100.3)
-        sig = check_ma_bounce_20("AAPL", bar, ma20=100.0, ma50=95.0)
+        sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=100.0, ma50=95.0)
         assert sig is not None
         assert sig.alert_type == AlertType.MA_BOUNCE_20
         assert sig.direction == "BUY"
@@ -96,33 +96,33 @@ class TestMABounce20:
 
     def test_no_fire_when_close_below_ma20(self):
         bar = _bar(open_=100, high=101, low=99.98, close=99.8)
-        sig = check_ma_bounce_20("AAPL", bar, ma20=100.0, ma50=95.0)
+        sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=100.0, ma50=95.0)
         assert sig is None
 
     def test_no_fire_when_not_in_uptrend(self):
         bar = _bar(open_=100, high=101, low=99.98, close=100.3)
-        sig = check_ma_bounce_20("AAPL", bar, ma20=94.0, ma50=95.0)  # ma20 < ma50
+        sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=94.0, ma50=95.0)  # ma20 < ma50
         assert sig is None
 
     def test_no_fire_when_bar_low_too_far_from_ma20(self):
         bar = _bar(open_=100, high=101, low=98.0, close=100.3)
-        sig = check_ma_bounce_20("AAPL", bar, ma20=100.0, ma50=95.0)
+        sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=100.0, ma50=95.0)
         assert sig is None
 
     def test_no_fire_when_ma_missing(self):
         bar = _bar()
-        assert check_ma_bounce_20("X", bar, ma20=None, ma50=95.0) is None
-        assert check_ma_bounce_20("X", bar, ma20=100.0, ma50=None) is None
+        assert check_ma_bounce_20("X", pd.DataFrame([bar]), ma20=None, ma50=95.0) is None
+        assert check_ma_bounce_20("X", pd.DataFrame([bar]), ma20=100.0, ma50=None) is None
 
     def test_high_confidence_when_very_close_to_ma(self):
         bar = _bar(open_=100, high=101, low=100.05, close=100.3)
-        sig = check_ma_bounce_20("AAPL", bar, ma20=100.0, ma50=95.0)
+        sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=100.0, ma50=95.0)
         assert sig is not None
         assert sig.confidence == "high"
 
     def test_targets_are_1r_and_2r(self):
         bar = _bar(open_=100, high=101, low=99.98, close=100.3)
-        sig = check_ma_bounce_20("AAPL", bar, ma20=100.0, ma50=95.0)
+        sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=100.0, ma50=95.0)
         assert sig is not None
         risk = sig.entry - sig.stop
         assert risk > 0
@@ -135,7 +135,7 @@ class TestMABounce20:
 class TestMABounce50:
     def test_fires_on_pullback_to_50ma(self):
         bar = _bar(open_=95, high=96, low=94.98, close=95.3)
-        sig = check_ma_bounce_50("NVDA", bar, ma20=98.0, ma50=95.0, prior_close=96.0)
+        sig = check_ma_bounce_50("NVDA", pd.DataFrame([bar]), ma20=98.0, ma50=95.0, prior_close=96.0)
         assert sig is not None
         assert sig.alert_type == AlertType.MA_BOUNCE_50
         assert sig.direction == "BUY"
@@ -143,19 +143,19 @@ class TestMABounce50:
 
     def test_counter_trend_fires_when_prior_close_below_50ma(self):
         bar = _bar(open_=95, high=96, low=94.98, close=95.3)
-        sig = check_ma_bounce_50("NVDA", bar, ma20=98.0, ma50=95.0, prior_close=94.0)
+        sig = check_ma_bounce_50("NVDA", pd.DataFrame([bar]), ma20=98.0, ma50=95.0, prior_close=94.0)
         assert sig is not None  # counter-trend bounce now allowed
         assert "counter-trend" in sig.message
         assert sig.confidence == "medium"
 
     def test_no_fire_when_close_below_50ma(self):
         bar = _bar(open_=95, high=96, low=94.98, close=94.5)
-        sig = check_ma_bounce_50("NVDA", bar, ma20=98.0, ma50=95.0, prior_close=96.0)
+        sig = check_ma_bounce_50("NVDA", pd.DataFrame([bar]), ma20=98.0, ma50=95.0, prior_close=96.0)
         assert sig is None
 
     def test_no_fire_when_ma50_missing(self):
         bar = _bar()
-        assert check_ma_bounce_50("X", bar, ma20=100.0, ma50=None, prior_close=96.0) is None
+        assert check_ma_bounce_50("X", pd.DataFrame([bar]), ma20=100.0, ma50=None, prior_close=96.0) is None
 
 
 # ===== Rule 3: MA Bounce 100MA =====
@@ -163,7 +163,7 @@ class TestMABounce50:
 class TestMABounce100:
     def test_fires_when_bar_low_touches_ma100_and_closes_above(self):
         bar = _bar(open_=200, high=202, low=199.95, close=200.5)
-        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        sig = check_ma_bounce_100("NVDA", pd.DataFrame([bar]), ma100=200.0, prior_close=202.0)
         assert sig is not None
         assert sig.alert_type == AlertType.MA_BOUNCE_100
         assert sig.direction == "BUY"
@@ -172,33 +172,33 @@ class TestMABounce100:
 
     def test_no_fire_when_close_below_ma100(self):
         bar = _bar(open_=200, high=201, low=199.95, close=199.5)
-        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        sig = check_ma_bounce_100("NVDA", pd.DataFrame([bar]), ma100=200.0, prior_close=202.0)
         assert sig is None
 
     def test_fires_even_when_prior_close_below_ma100(self):
         """100MA is institutional level — multi-day pullbacks are valid bounces."""
         bar = _bar(open_=200, high=202, low=199.95, close=200.5)
-        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=198.0)
+        sig = check_ma_bounce_100("NVDA", pd.DataFrame([bar]), ma100=200.0, prior_close=198.0)
         assert sig is not None  # no longer rejected
 
     def test_no_fire_when_too_far_from_ma100(self):
         bar = _bar(open_=200, high=202, low=198.0, close=200.5)
-        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        sig = check_ma_bounce_100("NVDA", pd.DataFrame([bar]), ma100=200.0, prior_close=202.0)
         assert sig is None  # low too far from MA (1% > 0.5%)
 
     def test_wider_proximity_allows_05pct_wick(self):
         """0.5% proximity — bar low at $199.00 on $200 MA should fire."""
         bar = _bar(open_=200, high=202, low=199.0, close=200.5)
-        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        sig = check_ma_bounce_100("NVDA", pd.DataFrame([bar]), ma100=200.0, prior_close=202.0)
         assert sig is not None  # 0.5% wick now accepted
 
     def test_no_fire_when_ma100_missing(self):
         bar = _bar()
-        assert check_ma_bounce_100("X", bar, ma100=None, prior_close=102.0) is None
+        assert check_ma_bounce_100("X", pd.DataFrame([bar]), ma100=None, prior_close=102.0) is None
 
     def test_targets_are_1r_and_2r(self):
         bar = _bar(open_=200, high=202, low=199.95, close=200.5)
-        sig = check_ma_bounce_100("NVDA", bar, ma100=200.0, prior_close=202.0)
+        sig = check_ma_bounce_100("NVDA", pd.DataFrame([bar]), ma100=200.0, prior_close=202.0)
         assert sig is not None
         risk = sig.entry - sig.stop
         assert risk > 0
@@ -211,7 +211,7 @@ class TestMABounce100:
 class TestMABounce200:
     def test_fires_when_bar_low_touches_ma200_and_closes_above(self):
         bar = _bar(open_=150, high=152, low=149.95, close=150.5)
-        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        sig = check_ma_bounce_200("TSLA", pd.DataFrame([bar]), ma200=150.0, prior_close=153.0)
         assert sig is not None
         assert sig.alert_type == AlertType.MA_BOUNCE_200
         assert sig.direction == "BUY"
@@ -219,24 +219,24 @@ class TestMABounce200:
 
     def test_no_fire_when_close_below_ma200(self):
         bar = _bar(open_=150, high=151, low=149.95, close=149.5)
-        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        sig = check_ma_bounce_200("TSLA", pd.DataFrame([bar]), ma200=150.0, prior_close=153.0)
         assert sig is None
 
     def test_fires_even_when_prior_close_below_ma200(self):
         """200MA is major institutional level — multi-day pullbacks bounce."""
         bar = _bar(open_=150, high=152, low=149.95, close=150.5)
-        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=148.0)
+        sig = check_ma_bounce_200("TSLA", pd.DataFrame([bar]), ma200=150.0, prior_close=148.0)
         assert sig is not None  # no longer rejected
 
     def test_always_high_confidence(self):
         bar = _bar(open_=150, high=152, low=149.95, close=150.5)
-        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        sig = check_ma_bounce_200("TSLA", pd.DataFrame([bar]), ma200=150.0, prior_close=153.0)
         assert sig is not None
         assert sig.confidence == "high"
 
     def test_targets_are_1r_and_2r(self):
         bar = _bar(open_=150, high=152, low=149.95, close=150.5)
-        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        sig = check_ma_bounce_200("TSLA", pd.DataFrame([bar]), ma200=150.0, prior_close=153.0)
         assert sig is not None
         risk = sig.entry - sig.stop
         assert risk > 0
@@ -245,13 +245,14 @@ class TestMABounce200:
 
     def test_no_fire_when_ma200_missing(self):
         bar = _bar()
-        assert check_ma_bounce_200("X", bar, ma200=None, prior_close=102.0) is None
+        assert check_ma_bounce_200("X", pd.DataFrame([bar]), ma200=None, prior_close=102.0) is None
 
     def test_nvda_scenario_wide_wick_fires(self):
-        """NVDA: 200MA=$175.21, bar wicked to $174.64 (0.33%), close=$182.48.
-        With 0.8% proximity, this should fire. Entry at MA, not chased close."""
-        bar = _bar(open_=176.0, high=183.0, low=174.64, close=182.48)
-        sig = check_ma_bounce_200("NVDA", bar, ma200=175.21, prior_close=173.0)
+        """NVDA: 200MA=$175.21, bar wicked to $174.64 (0.33%), close=$178.50.
+        With 0.8% proximity, this should fire. Entry at MA, not chased close.
+        Close must be within MA_BOUNCE_MAX_DISTANCE_PCT (2%) of MA."""
+        bar = _bar(open_=176.0, high=179.0, low=174.64, close=178.50)
+        sig = check_ma_bounce_200("NVDA", pd.DataFrame([bar]), ma200=175.21, prior_close=173.0)
         assert sig is not None
         assert sig.entry == 175.21
         assert sig.stop == round(175.21 * (1 - 0.010), 2)  # 1% below MA
@@ -261,8 +262,175 @@ class TestMABounce200:
         """Bar low more than 0.8% below 200MA should not fire."""
         # 200MA=150, 0.8% = 1.20 → low must be above 148.80
         bar = _bar(open_=150, high=152, low=148.5, close=150.5)
-        sig = check_ma_bounce_200("TSLA", bar, ma200=150.0, prior_close=153.0)
+        sig = check_ma_bounce_200("TSLA", pd.DataFrame([bar]), ma200=150.0, prior_close=153.0)
         assert sig is None
+
+
+# ===== MA Bounce Lookback Tests =====
+
+class TestMABounceLookback:
+    """Verify MA bounce functions scan recent bars (not just last bar)."""
+
+    def test_ma200_bounce_detected_from_earlier_bar(self):
+        """Bounce touched 200MA 3 bars ago, price has since run up — should fire."""
+        ma200 = 176.37
+        bars = _bars([
+            {"Open": 177.0, "High": 178.0, "Low": 176.20, "Close": 177.5, "Volume": 5000},  # touch
+            {"Open": 177.5, "High": 179.0, "Low": 177.0, "Close": 178.5, "Volume": 4000},
+            {"Open": 178.5, "High": 180.0, "Low": 178.0, "Close": 179.5, "Volume": 4000},
+            {"Open": 179.5, "High": 180.5, "Low": 179.0, "Close": 179.8, "Volume": 3500},  # last bar ~1.9% above
+        ])
+        sig = check_ma_bounce_200("NVDA", bars, ma200=ma200, prior_close=173.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_BOUNCE_200
+        assert sig.entry == round(ma200, 2)
+
+    def test_ma200_bounce_too_far_above_does_not_fire(self):
+        """Price ran >2% above 200MA — stale, should not fire."""
+        ma200 = 176.37
+        bars = _bars([
+            {"Open": 177.0, "High": 178.0, "Low": 176.20, "Close": 177.5, "Volume": 5000},  # touch
+            {"Open": 177.5, "High": 179.0, "Low": 177.0, "Close": 178.5, "Volume": 4000},
+            {"Open": 178.5, "High": 181.0, "Low": 178.0, "Close": 180.5, "Volume": 4000},
+            {"Open": 180.5, "High": 182.0, "Low": 180.0, "Close": 181.0, "Volume": 3500},  # 2.6% above
+        ])
+        sig = check_ma_bounce_200("NVDA", bars, ma200=ma200, prior_close=173.0)
+        assert sig is None
+
+    def test_ma20_bounce_from_lookback_bar(self):
+        """20MA touch from 2 bars ago, close still above — fires."""
+        ma20 = 100.0
+        bars = _bars([
+            {"Open": 100.2, "High": 100.5, "Low": 99.98, "Close": 100.3, "Volume": 1000},  # touch
+            {"Open": 100.3, "High": 100.8, "Low": 100.1, "Close": 100.6, "Volume": 1000},
+            {"Open": 100.6, "High": 101.0, "Low": 100.4, "Close": 100.8, "Volume": 1000},  # last bar
+        ])
+        sig = check_ma_bounce_20("AAPL", bars, ma20=ma20, ma50=95.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_BOUNCE_20
+
+    def test_ma100_bounce_from_lookback_bar(self):
+        """100MA touch from earlier bar — fires within 2% distance."""
+        ma100 = 200.0
+        bars = _bars([
+            {"Open": 200.5, "High": 201.0, "Low": 199.50, "Close": 200.5, "Volume": 2000},  # touch (0.25%)
+            {"Open": 200.5, "High": 202.0, "Low": 200.0, "Close": 201.5, "Volume": 2000},
+            {"Open": 201.5, "High": 203.0, "Low": 201.0, "Close": 202.5, "Volume": 2000},  # 1.25% above
+        ])
+        sig = check_ma_bounce_100("NVDA", bars, ma100=ma100, prior_close=202.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_BOUNCE_100
+
+    def test_no_touch_in_lookback_window_returns_none(self):
+        """No bar in lookback window touched the MA — should not fire."""
+        ma200 = 176.37
+        bars = _bars([
+            {"Open": 180.0, "High": 181.0, "Low": 179.0, "Close": 180.5, "Volume": 3000},
+            {"Open": 180.5, "High": 181.5, "Low": 179.5, "Close": 181.0, "Volume": 3000},
+            {"Open": 181.0, "High": 182.0, "Low": 180.0, "Close": 181.5, "Volume": 3000},
+        ])
+        sig = check_ma_bounce_200("NVDA", bars, ma200=ma200, prior_close=178.0)
+        assert sig is None
+
+    def test_ema200_bounce_from_lookback_bar(self):
+        """EMA200 touch from earlier bar — fires."""
+        ema200 = 176.37
+        bars = _bars([
+            {"Open": 177.0, "High": 178.0, "Low": 175.80, "Close": 177.0, "Volume": 5000},  # touch
+            {"Open": 177.0, "High": 179.0, "Low": 176.5, "Close": 178.5, "Volume": 4000},
+            {"Open": 178.5, "High": 179.5, "Low": 178.0, "Close": 179.0, "Volume": 3500},  # 1.5% above
+        ])
+        sig = check_ema_bounce_200("NVDA", bars, ema200=ema200, prior_close=173.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.EMA_BOUNCE_200
+
+    def test_ema100_bounce_from_lookback_bar(self):
+        """EMA100 touch from earlier bar — fires."""
+        ema100 = 685.0
+        bars = _bars([
+            {"Open": 686.0, "High": 687.0, "Low": 684.50, "Close": 686.0, "Volume": 5000},  # touch
+            {"Open": 686.0, "High": 688.0, "Low": 685.5, "Close": 687.5, "Volume": 4000},
+            {"Open": 687.5, "High": 690.0, "Low": 687.0, "Close": 689.0, "Volume": 3500},  # 0.58% above
+        ])
+        sig = check_ema_bounce_100("SPY", bars, ema100=ema100, prior_close=690.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.EMA_BOUNCE_100
+
+    def test_nvda_real_scenario_ma200_bounce(self):
+        """NVDA 2026-03-09: Open 176.83, Low 175.56, bounced to 182.65.
+        MA200=176.37. Bounce touched in early bars, price ran to 179.8 (~1.9%).
+        Should fire within 2% max distance."""
+        ma200 = 176.37
+        bars = _bars([
+            # Early morning: price near/below MA200
+            {"Open": 176.83, "High": 177.50, "Low": 175.56, "Close": 176.00, "Volume": 8000},
+            {"Open": 176.00, "High": 177.80, "Low": 175.80, "Close": 177.50, "Volume": 7000},
+            # Recovery bars
+            {"Open": 177.50, "High": 178.50, "Low": 177.00, "Close": 178.20, "Volume": 5000},
+            {"Open": 178.20, "High": 179.00, "Low": 177.80, "Close": 178.80, "Volume": 4500},
+            {"Open": 178.80, "High": 179.50, "Low": 178.30, "Close": 179.20, "Volume": 4000},
+            {"Open": 179.20, "High": 180.00, "Low": 178.80, "Close": 179.80, "Volume": 3800},
+        ])
+        sig = check_ma_bounce_200("NVDA", bars, ma200=ma200, prior_close=173.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MA_BOUNCE_200
+        assert sig.entry == round(ma200, 2)
+        assert sig.confidence == "high"  # MA200 bounce always high confidence
+
+
+# ===== PDL Reclaim Distance Tests =====
+
+class TestPDLReclaimWidenedDistance:
+    """Verify PDL reclaim fires within the widened 2% max distance."""
+
+    def test_fires_at_1_5pct_above_pdl(self):
+        """Price reclaimed and is 1.5% above PDL — should now fire (was blocked at 0.8%)."""
+        pdl = 177.88
+        close = pdl * 1.015  # 1.5% above
+        bars = _bars([
+            {"Open": 178.0, "High": 178.5, "Low": 177.50, "Close": 177.0, "Volume": 5000},  # dip below
+            {"Open": 177.0, "High": close + 0.5, "Low": 177.60, "Close": close, "Volume": 4000},
+        ])
+        sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
+        assert sig.entry == pdl
+
+    def test_fires_at_1_9pct_above_pdl(self):
+        """Price 1.9% above PDL — still within 2% threshold."""
+        pdl = 100.0
+        close = 101.9  # 1.9% above
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.5, "Close": 99.8, "Volume": 1000},  # dip
+            {"Open": 99.8, "High": 102.0, "Low": 99.9, "Close": close, "Volume": 1200},
+        ])
+        sig = check_prior_day_low_reclaim("META", bars, prior_day_low=pdl)
+        assert sig is not None
+
+    def test_no_fire_at_2_5pct_above_pdl(self):
+        """Price 2.5% above PDL — exceeds 2% threshold, still stale."""
+        pdl = 100.0
+        close = 102.5
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.5, "Close": 99.8, "Volume": 1000},
+            {"Open": 99.8, "High": 103.0, "Low": 99.9, "Close": close, "Volume": 1200},
+        ])
+        sig = check_prior_day_low_reclaim("META", bars, prior_day_low=pdl)
+        assert sig is None
+
+    def test_nvda_real_scenario_pdl_reclaim(self):
+        """NVDA 2026-03-09: PDL=177.88, dipped to 175.56, reclaimed to 179.5 (0.9%).
+        Should fire within widened 2% threshold."""
+        pdl = 177.88
+        bars = _bars([
+            {"Open": 176.83, "High": 177.50, "Low": 175.56, "Close": 176.00, "Volume": 8000},
+            {"Open": 176.00, "High": 178.50, "Low": 175.80, "Close": 178.20, "Volume": 7000},
+            {"Open": 178.20, "High": 179.80, "Low": 178.00, "Close": 179.50, "Volume": 5000},
+        ])
+        sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl)
+        assert sig is not None
+        assert sig.entry == pdl
+        assert sig.stop == round(pdl * (1 - 0.005), 2)
 
 
 # ===== Rule 5: Prior Day Low Reclaim =====
@@ -294,10 +462,10 @@ class TestPriorDayLowReclaim:
         assert sig.stop > 99.0  # well above the session low
 
     def test_no_fire_when_price_ran_past_entry(self):
-        """Price reclaimed but already ran >0.8% above entry — stale signal."""
+        """Price reclaimed but already ran >2% above entry — stale signal."""
         bars = _bars([
-            {"Open": 100, "High": 101.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},
-            {"Open": 99.0, "High": 101.5, "Low": 98.8, "Close": 100.5, "Volume": 1200},
+            {"Open": 100, "High": 102.0, "Low": 98.5, "Close": 99.0, "Volume": 1000},
+            {"Open": 99.0, "High": 102.0, "Low": 98.8, "Close": 101.5, "Volume": 1200},
         ])
         sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
         assert sig is None
@@ -1014,7 +1182,7 @@ class TestCapRisk:
     def test_ma_bounce_20_stop_at_offset_below_ma(self):
         """MA bounce stop is always MA * (1 - offset), not tied to bar low."""
         bar = _bar(open_=100, high=101, low=99.70, close=100.3)
-        sig = check_ma_bounce_20("SPY", bar, ma20=100.0, ma50=95.0)
+        sig = check_ma_bounce_20("SPY", pd.DataFrame([bar]), ma20=100.0, ma50=95.0)
         assert sig is not None
         # stop = 100.0 * (1 - 0.005) = 99.50
         assert sig.stop == 99.50
@@ -3647,7 +3815,7 @@ class TestSessionLowStop:
         bars = _bars(rows)
         prior = {
             "ma20": 687.0, "ma50": 685.0, "ma100": ma100,
-            "close": 682.0, "high": 690.0, "low": 675.0, "is_inside": False,
+            "close": 682.0, "high": 690.0, "low": 650.0, "is_inside": False,
         }
         signals = evaluate_rules("SPY", bars, prior)
         ma100_sigs = [s for s in signals if s.alert_type == AlertType.MA_BOUNCE_100]
@@ -3827,7 +3995,7 @@ class TestMA50CounterTrend:
     def test_counter_trend_fires(self):
         """Prior close below 50MA, bar bounces off 50MA → signal fires."""
         bar = _bar(open_=100, high=101, low=99.98, close=100.3)
-        sig = check_ma_bounce_50("AAPL", bar, ma20=102.0, ma50=100.0, prior_close=99.5)
+        sig = check_ma_bounce_50("AAPL", pd.DataFrame([bar]), ma20=102.0, ma50=100.0, prior_close=99.5)
         assert sig is not None
         assert sig.alert_type == AlertType.MA_BOUNCE_50
         assert "counter-trend" in sig.message
@@ -3836,7 +4004,7 @@ class TestMA50CounterTrend:
         """Counter-trend bounce always gets medium confidence, never high."""
         # proximity <= 0.001 would normally be "high" — counter-trend caps at medium
         bar = _bar(open_=100, high=101, low=100.05, close=100.3)
-        sig = check_ma_bounce_50("AAPL", bar, ma20=102.0, ma50=100.0, prior_close=99.5)
+        sig = check_ma_bounce_50("AAPL", pd.DataFrame([bar]), ma20=102.0, ma50=100.0, prior_close=99.5)
         assert sig is not None
         assert sig.confidence == "medium"
 
@@ -4125,7 +4293,7 @@ class TestVWAPBounce:
 
     @staticmethod
     def _make_bounce_bars(
-        n_bars=15,
+        n_bars=20,
         last_close=100.3,
         last_low=100.0,
         last_volume=1500,
@@ -4364,7 +4532,7 @@ class TestEmaBounce100:
         """Bar low near EMA100, closes above → BUY."""
         ema100 = 676.86
         bar = self._bar(low=676.50, close=679.69, high=680.0)
-        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        sig = check_ema_bounce_100("SPY", pd.DataFrame([bar]), ema100, prior_close=685.0)
         assert sig is not None
         assert sig.alert_type == AlertType.EMA_BOUNCE_100
         assert sig.direction == "BUY"
@@ -4375,21 +4543,21 @@ class TestEmaBounce100:
         """Bar closes below EMA100 → no bounce."""
         ema100 = 676.86
         bar = self._bar(low=675.0, close=676.0)
-        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        sig = check_ema_bounce_100("SPY", pd.DataFrame([bar]), ema100, prior_close=685.0)
         assert sig is None
 
     def test_no_fire_when_too_far(self):
         """Bar low too far from EMA100 → no fire."""
         ema100 = 676.86
         bar = self._bar(low=670.0, close=679.0)  # >0.5% away
-        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        sig = check_ema_bounce_100("SPY", pd.DataFrame([bar]), ema100, prior_close=685.0)
         assert sig is None
 
     def test_counter_trend_medium_confidence(self):
         """Prior close below EMA100 → counter-trend → medium."""
         ema100 = 676.86
         bar = self._bar(low=676.50, close=679.69)
-        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=670.0)
+        sig = check_ema_bounce_100("SPY", pd.DataFrame([bar]), ema100, prior_close=670.0)
         assert sig is not None
         assert sig.confidence == "medium"
         assert "counter-trend" in sig.message
@@ -4397,14 +4565,14 @@ class TestEmaBounce100:
     def test_none_when_ema100_missing(self):
         """EMA100 is None → None."""
         bar = self._bar(low=676.50, close=679.69)
-        sig = check_ema_bounce_100("SPY", bar, None, prior_close=685.0)
+        sig = check_ema_bounce_100("SPY", pd.DataFrame([bar]), None, prior_close=685.0)
         assert sig is None
 
     def test_stop_uses_ma100_offset(self):
         """Stop should be EMA100 * (1 - 0.7%)."""
         ema100 = 676.86
         bar = self._bar(low=676.50, close=679.69)
-        sig = check_ema_bounce_100("SPY", bar, ema100, prior_close=685.0)
+        sig = check_ema_bounce_100("SPY", pd.DataFrame([bar]), ema100, prior_close=685.0)
         assert sig is not None
         expected_stop = round(ema100 * (1 - 0.007), 2)
         assert sig.stop == expected_stop
@@ -4429,7 +4597,7 @@ class TestEmaBounce200:
         """Bar low near EMA200, closes above → BUY."""
         ema200 = 650.0
         bar = self._bar(low=649.50, close=653.0, high=654.0)
-        sig = check_ema_bounce_200("SPY", bar, ema200, prior_close=660.0)
+        sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), ema200, prior_close=660.0)
         assert sig is not None
         assert sig.alert_type == AlertType.EMA_BOUNCE_200
         assert sig.direction == "BUY"
@@ -4440,21 +4608,21 @@ class TestEmaBounce200:
         """Bar closes below EMA200 → no bounce."""
         ema200 = 650.0
         bar = self._bar(low=648.0, close=649.0)
-        sig = check_ema_bounce_200("SPY", bar, ema200, prior_close=660.0)
+        sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), ema200, prior_close=660.0)
         assert sig is None
 
     def test_no_fire_when_too_far(self):
         """Bar low too far from EMA200 → no fire (>0.8%)."""
         ema200 = 650.0
         bar = self._bar(low=642.0, close=653.0)  # >0.8% away
-        sig = check_ema_bounce_200("SPY", bar, ema200, prior_close=660.0)
+        sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), ema200, prior_close=660.0)
         assert sig is None
 
     def test_counter_trend_medium_confidence(self):
         """Prior close below EMA200 → counter-trend → medium."""
         ema200 = 650.0
         bar = self._bar(low=649.50, close=653.0)
-        sig = check_ema_bounce_200("SPY", bar, ema200, prior_close=640.0)
+        sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), ema200, prior_close=640.0)
         assert sig is not None
         assert sig.confidence == "medium"
         assert "counter-trend" in sig.message
@@ -4462,14 +4630,14 @@ class TestEmaBounce200:
     def test_none_when_ema200_missing(self):
         """EMA200 is None → None."""
         bar = self._bar(low=649.50, close=653.0)
-        sig = check_ema_bounce_200("SPY", bar, None, prior_close=660.0)
+        sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), None, prior_close=660.0)
         assert sig is None
 
     def test_stop_uses_ma200_offset(self):
         """Stop should be EMA200 * (1 - 1.0%)."""
         ema200 = 650.0
         bar = self._bar(low=649.50, close=653.0)
-        sig = check_ema_bounce_200("SPY", bar, ema200, prior_close=660.0)
+        sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), ema200, prior_close=660.0)
         assert sig is not None
         expected_stop = round(ema200 * (1 - 0.010), 2)
         assert sig.stop == expected_stop
@@ -4478,7 +4646,7 @@ class TestEmaBounce200:
         """T1 = entry + risk, T2 = entry + 2*risk."""
         ema200 = 650.0
         bar = self._bar(low=649.50, close=653.0)
-        sig = check_ema_bounce_200("SPY", bar, ema200, prior_close=660.0)
+        sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), ema200, prior_close=660.0)
         assert sig is not None
         risk = sig.entry - sig.stop
         assert sig.target_1 == round(sig.entry + risk, 2)

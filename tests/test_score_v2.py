@@ -5,7 +5,9 @@ v2 treats bounce/dip-buy signals differently from breakout signals:
 - Other bounce types get 10 pts when below both MAs (not 0)
 - Below VWAP = 15 pts for bounces (neutral/expected), not 10
 - R:R bonus of +5 when T1/risk >= 1.5
-- Breakout signals score identically to v1
+- Breakout signals score identically to v1 (ignoring R:R bonus)
+
+v2 returns (score, factors_dict) tuple; v1 returns int.
 """
 
 from __future__ import annotations
@@ -45,6 +47,17 @@ def _make_signal(
     )
 
 
+def _v2_score(sig, **kwargs) -> int:
+    """Call _score_alert_v2 and return only the score (first element of tuple)."""
+    score, _factors = _score_alert_v2(sig, **kwargs)
+    return score
+
+
+def _v2_full(sig, **kwargs) -> tuple[int, dict]:
+    """Call _score_alert_v2 and return (score, factors)."""
+    return _score_alert_v2(sig, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # TestScoreV2MaBounce — MA/EMA bounce types
 # ---------------------------------------------------------------------------
@@ -66,16 +79,17 @@ class TestScoreV2MaBounce:
         sig = _make_signal(alert_type=alert_type, confidence="medium", vwap_position="below VWAP")
         # close below both MAs
         v1 = _score_alert(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=0.9)
-        v2, _ = _score_alert_v2(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=0.9)
+        v2_score, v2_factors = _v2_full(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=0.9)
         # v1 gives 0 for MA position; v2 gives 25
-        assert v2 > v1
-        assert v2 >= v1 + 25  # at least 25 more from MA position
+        assert v2_score > v1
+        assert v2_factors["ma"] == 25
+        assert v2_score >= v1 + 25  # at least 25 more from MA position
 
     def test_ma_bounce_above_both_mas(self):
         """When above both MAs, v1 and v2 MA position should both be 25."""
         sig = _make_signal(alert_type=AlertType.MA_BOUNCE_20)
         v1 = _score_alert(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.0)
-        v2, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.0)
+        v2 = _v2_score(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.0)
         # Both get 25 for MA position — so v2 may still be slightly higher from VWAP/RR
         assert v2 >= v1
 
@@ -95,10 +109,11 @@ class TestScoreV2NonMaBounce:
         """Below both MAs: v1=0, v2=10 for MA position."""
         sig = _make_signal(alert_type=alert_type)
         v1 = _score_alert(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=0.9)
-        v2, _ = _score_alert_v2(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=0.9)
-        assert v2 > v1
+        v2_score, v2_factors = _v2_full(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=0.9)
+        assert v2_score > v1
+        assert v2_factors["ma"] == 10
         # v2 should be at least 10 more (MA position 0→10, plus VWAP 10→15)
-        assert v2 >= v1 + 10
+        assert v2_score >= v1 + 10
 
     def test_non_ma_bounce_vwap_below_is_neutral(self):
         """Below VWAP for bounce: v2 gives 15 (neutral) vs v1's 10."""
@@ -107,8 +122,9 @@ class TestScoreV2NonMaBounce:
             vwap_position="below VWAP",
         )
         v1 = _score_alert(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=1.0)
-        v2, _ = _score_alert_v2(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=1.0)
-        assert v2 > v1
+        v2_score, v2_factors = _v2_full(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=1.0)
+        assert v2_score > v1
+        assert v2_factors["vwap"] == 15
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +152,7 @@ class TestScoreV2Breakout:
             target_1=186.00,  # R:R = 1.0, no bonus
         )
         v1 = _score_alert(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
-        v2, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
+        v2 = _v2_score(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
         assert v2 == v1
 
     def test_breakout_with_rr_bonus(self):
@@ -150,9 +166,10 @@ class TestScoreV2Breakout:
             target_1=186.50,  # R:R = 1.5, qualifies
         )
         v1 = _score_alert(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
-        v2, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
+        v2_score, v2_factors = _v2_full(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
         assert v1 < 100, f"v1 must be < 100 to test bonus (was {v1})"
-        assert v2 == v1 + 5
+        assert v2_factors.get("rr", 0) == 5
+        assert v2_score == v1 + 5
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +192,7 @@ class TestMarch5Fixtures:
             target_2=175.00,
         )
         v1 = _score_alert(sig, ma20=173.0, ma50=172.0, close=171.50, vol_ratio=0.6)
-        v2, _ = _score_alert_v2(sig, ma20=173.0, ma50=172.0, close=171.50, vol_ratio=0.6)
+        v2 = _v2_score(sig, ma20=173.0, ma50=172.0, close=171.50, vol_ratio=0.6)
         assert v1 <= 40, f"v1 should be low (was {v1})"
         assert v2 >= 60, f"v2 should be >= 60 (was {v2})"
 
@@ -193,7 +210,7 @@ class TestMarch5Fixtures:
         )
         # close below 20MA but above 50MA → v1 gives 15 for MA position
         v1 = _score_alert(sig, ma20=590.50, ma50=588.00, close=590.00, vol_ratio=1.0)
-        v2, _ = _score_alert_v2(sig, ma20=590.50, ma50=588.00, close=590.00, vol_ratio=1.0)
+        v2 = _v2_score(sig, ma20=590.50, ma50=588.00, close=590.00, vol_ratio=1.0)
         assert v2 > v1, f"v2 ({v2}) should exceed v1 ({v1})"
         assert v2 >= 70, f"v2 should be >= 70 (was {v2})"
 
@@ -211,7 +228,7 @@ class TestMarch5Fixtures:
         )
         # close below 20MA but above 50MA → v1 gives 15 for MA position
         v1 = _score_alert(sig, ma20=89.0, ma50=87.0, close=88.0, vol_ratio=0.9)
-        v2, _ = _score_alert_v2(sig, ma20=89.0, ma50=87.0, close=88.0, vol_ratio=0.9)
+        v2 = _v2_score(sig, ma20=89.0, ma50=87.0, close=88.0, vol_ratio=0.9)
         assert v2 > v1, f"v2 ({v2}) should exceed v1 ({v1})"
         assert v2 >= 65, f"v2 should be >= 65 (was {v2})"
 
@@ -226,13 +243,13 @@ class TestScoreV2EdgeCases:
     def test_none_entry_no_crash(self):
         """No entry price: R:R bonus should not crash."""
         sig = _make_signal(entry=None, stop=None, target_1=None)
-        score, _ = _score_alert_v2(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=1.0)
+        score = _v2_score(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=1.0)
         assert 0 <= score <= 100
 
     def test_zero_risk_no_div_by_zero(self):
         """Entry == stop: R:R is undefined, should not crash."""
         sig = _make_signal(entry=185.0, stop=185.0, target_1=187.0)
-        score, _ = _score_alert_v2(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=1.0)
+        score = _v2_score(sig, ma20=190.0, ma50=195.0, close=185.0, vol_ratio=1.0)
         assert 0 <= score <= 100
 
     def test_score_capped_at_100(self):
@@ -245,7 +262,7 @@ class TestScoreV2EdgeCases:
             stop=184.0,
             target_1=187.0,  # R:R = 2.0
         )
-        score, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=2.0)
+        score = _v2_score(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=2.0)
         assert score <= 100
 
     def test_sell_signal_unchanged(self):
@@ -261,7 +278,7 @@ class TestScoreV2EdgeCases:
             target_2=None,
         )
         v1 = _score_alert(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
-        v2, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
+        v2 = _v2_score(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
         assert v2 == v1
 
 
@@ -283,8 +300,9 @@ class TestScoreV2RRBonus:
             target_1=186.0,  # R:R = 1.0
         )
         v1 = _score_alert(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
-        v2, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
-        assert v2 == v1  # no signal-type diff and no R:R bonus
+        v2_score, v2_factors = _v2_full(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
+        assert "rr" not in v2_factors  # no R:R bonus
+        assert v2_score == v1  # no signal-type diff and no R:R bonus
 
     def test_rr_at_threshold_gets_bonus(self):
         """R:R = 1.5 → +5 bonus."""
@@ -297,9 +315,10 @@ class TestScoreV2RRBonus:
             target_1=186.50,  # R:R = 1.5
         )
         v1 = _score_alert(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
-        v2, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
+        v2_score, v2_factors = _v2_full(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
         assert v1 < 100, f"v1 must be < 100 to test bonus (was {v1})"
-        assert v2 == v1 + 5
+        assert v2_factors.get("rr", 0) == 5
+        assert v2_score == v1 + 5
 
     def test_rr_above_threshold_gets_bonus(self):
         """R:R = 3.0 → still +5 (no scaling)."""
@@ -312,6 +331,7 @@ class TestScoreV2RRBonus:
             target_1=188.0,  # R:R = 3.0
         )
         v1 = _score_alert(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
-        v2, _ = _score_alert_v2(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
+        v2_score, v2_factors = _v2_full(sig, ma20=180.0, ma50=175.0, close=185.0, vol_ratio=1.3)
         assert v1 < 100, f"v1 must be < 100 to test bonus (was {v1})"
-        assert v2 == v1 + 5
+        assert v2_factors.get("rr", 0) == 5
+        assert v2_score == v1 + 5

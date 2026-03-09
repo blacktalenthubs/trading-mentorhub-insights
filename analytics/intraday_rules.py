@@ -36,6 +36,8 @@ from alert_config import (
     HOURLY_RESISTANCE_APPROACH_PCT,
     LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_ALERT_TYPES,
+    MA_BOUNCE_LOOKBACK_BARS,
+    MA_BOUNCE_MAX_DISTANCE_PCT,
     MA_BOUNCE_PROXIMITY_PCT,
     MA_BOUNCE_SESSION_STOP_PCT,
     MA_STOP_OFFSET_PCT,
@@ -257,18 +259,41 @@ def _cap_risk(
 # BUY Rule 1: MA Bounce 20MA
 # ---------------------------------------------------------------------------
 
+def _find_ma_bounce_touch(
+    bars: pd.DataFrame,
+    ma_level: float,
+    proximity_pct: float,
+) -> float | None:
+    """Scan last MA_BOUNCE_LOOKBACK_BARS bars for a touch near *ma_level*.
+
+    Returns the best (closest) proximity found, or None if no bar touched.
+    """
+    lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+    best_proximity: float | None = None
+    for _, row in lookback.iterrows():
+        prox = abs(row["Low"] - ma_level) / ma_level
+        if prox <= proximity_pct:
+            if best_proximity is None or prox < best_proximity:
+                best_proximity = prox
+    return best_proximity
+
+
 def check_ma_bounce_20(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ma20: float | None,
     ma50: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to 20MA and bounces — bullish in uptrend.
 
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near 20MA.
+    Last bar must close above 20MA (bounce confirmed).
+
     Conditions:
     - ma20 and ma50 are available
-    - Bar low within MA_BOUNCE_PROXIMITY_PCT of 20MA
-    - Bar closes above 20MA
+    - Some recent bar low within MA_BOUNCE_PROXIMITY_PCT of 20MA
+    - Last bar closes above 20MA
+    - Last bar not too far above 20MA (max distance guard)
     - 20MA > 50MA (uptrend confirmation)
     """
     if ma20 is None or ma50 is None:
@@ -277,12 +302,21 @@ def check_ma_bounce_20(
         return None
     if ma20 <= ma50:
         return None  # not in uptrend
-
-    proximity = abs(bar["Low"] - ma20) / ma20
-    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+    if bars.empty:
         return None
-    if bar["Close"] <= ma20:
+
+    proximity = _find_ma_bounce_touch(bars, ma20, MA_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ma20:
         return None  # didn't bounce above
+
+    # Max-distance guard: don't fire if price already ran too far above MA
+    distance = (last_bar["Close"] - ma20) / ma20
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
+        return None
 
     entry = round(ma20, 2)
     stop = round(ma20 * (1 - MA_STOP_OFFSET_PCT), 2)
@@ -294,7 +328,7 @@ def check_ma_bounce_20(
         symbol=symbol,
         alert_type=AlertType.MA_BOUNCE_20,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -302,7 +336,7 @@ def check_ma_bounce_20(
         confidence="high" if proximity <= 0.001 else "medium",
         message=(
             f"MA bounce 20MA — price pulled back to ${ma20:.2f} "
-            f"and closed above at ${bar['Close']:.2f}"
+            f"and closed above at ${last_bar['Close']:.2f}"
         ),
     )
 
@@ -313,27 +347,31 @@ def check_ma_bounce_20(
 
 def check_ma_bounce_50(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ma20: float | None,
     ma50: float | None,
     prior_close: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to 50MA and bounces — deeper pullback buy.
 
-    Conditions:
-    - ma50 is available
-    - Bar low within MA_BOUNCE_PROXIMITY_PCT of 50MA
-    - Bar closes above 50MA
-    - Counter-trend bounces (prior_close <= ma50) allowed with reduced confidence
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near 50MA.
     """
     if ma50 is None or ma50 <= 0:
         return None
+    if bars.empty:
+        return None
     counter_trend = prior_close is not None and prior_close <= ma50
 
-    proximity = abs(bar["Low"] - ma50) / ma50
-    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+    proximity = _find_ma_bounce_touch(bars, ma50, MA_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
         return None
-    if bar["Close"] <= ma50:
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ma50:
+        return None
+
+    distance = (last_bar["Close"] - ma50) / ma50
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
     entry = round(ma50, 2)
@@ -349,7 +387,7 @@ def check_ma_bounce_50(
 
     msg = (
         f"MA bounce 50MA — price pulled back to ${ma50:.2f} "
-        f"and closed above at ${bar['Close']:.2f}"
+        f"and closed above at ${last_bar['Close']:.2f}"
     )
     if counter_trend:
         msg += " (counter-trend)"
@@ -358,7 +396,7 @@ def check_ma_bounce_50(
         symbol=symbol,
         alert_type=AlertType.MA_BOUNCE_50,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -374,24 +412,29 @@ def check_ma_bounce_50(
 
 def check_ma_bounce_100(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ma100: float | None,
     prior_close: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to 100MA and bounces — intermediate institutional level.
 
-    Conditions:
-    - ma100 is available
-    - Bar low within MA100_BOUNCE_PROXIMITY_PCT of 100MA (0.5%)
-    - Bar closes above 100MA
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near 100MA.
     """
     if ma100 is None or ma100 <= 0:
         return None
-
-    proximity = abs(bar["Low"] - ma100) / ma100
-    if proximity > MA100_BOUNCE_PROXIMITY_PCT:
+    if bars.empty:
         return None
-    if bar["Close"] <= ma100:
+
+    proximity = _find_ma_bounce_touch(bars, ma100, MA100_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ma100:
+        return None
+
+    distance = (last_bar["Close"] - ma100) / ma100
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
     entry = round(ma100, 2)
@@ -404,7 +447,7 @@ def check_ma_bounce_100(
         symbol=symbol,
         alert_type=AlertType.MA_BOUNCE_100,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -412,7 +455,7 @@ def check_ma_bounce_100(
         confidence="high",
         message=(
             f"MA bounce 100MA — price pulled back to ${ma100:.2f} "
-            f"and closed above at ${bar['Close']:.2f}"
+            f"and closed above at ${last_bar['Close']:.2f}"
         ),
     )
 
@@ -423,24 +466,29 @@ def check_ma_bounce_100(
 
 def check_ma_bounce_200(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ma200: float | None,
     prior_close: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to 200MA and bounces — major institutional level.
 
-    Conditions:
-    - ma200 is available
-    - Bar low within MA200_BOUNCE_PROXIMITY_PCT of 200MA (0.8%)
-    - Bar closes above 200MA
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near 200MA.
     """
     if ma200 is None or ma200 <= 0:
         return None
-
-    proximity = abs(bar["Low"] - ma200) / ma200
-    if proximity > MA200_BOUNCE_PROXIMITY_PCT:
+    if bars.empty:
         return None
-    if bar["Close"] <= ma200:
+
+    proximity = _find_ma_bounce_touch(bars, ma200, MA200_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ma200:
+        return None
+
+    distance = (last_bar["Close"] - ma200) / ma200
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
     entry = round(ma200, 2)
@@ -453,7 +501,7 @@ def check_ma_bounce_200(
         symbol=symbol,
         alert_type=AlertType.MA_BOUNCE_200,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -461,7 +509,7 @@ def check_ma_bounce_200(
         confidence="high",
         message=(
             f"MA bounce 200MA — price pulled back to ${ma200:.2f} "
-            f"and closed above at ${bar['Close']:.2f}"
+            f"and closed above at ${last_bar['Close']:.2f}"
         ),
     )
 
@@ -1204,13 +1252,13 @@ def check_weekly_high_resistance(
 
 def check_ema_bounce_20(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ema20: float | None,
     ema50: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA20 and bounces — bullish in uptrend.
 
-    Mirrors check_ma_bounce_20() but uses EMA values.
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near EMA20.
     """
     if ema20 is None or ema50 is None:
         return None
@@ -1218,12 +1266,20 @@ def check_ema_bounce_20(
         return None
     if ema20 <= ema50:
         return None  # not in uptrend
-
-    proximity = abs(bar["Low"] - ema20) / ema20
-    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+    if bars.empty:
         return None
-    if bar["Close"] <= ema20:
+
+    proximity = _find_ma_bounce_touch(bars, ema20, MA_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ema20:
         return None  # didn't bounce above
+
+    distance = (last_bar["Close"] - ema20) / ema20
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
+        return None
 
     entry = round(ema20, 2)
     stop = round(ema20 * (1 - MA_STOP_OFFSET_PCT), 2)
@@ -1235,7 +1291,7 @@ def check_ema_bounce_20(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_20,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -1243,7 +1299,7 @@ def check_ema_bounce_20(
         confidence="high" if proximity <= 0.001 else "medium",
         message=(
             f"EMA bounce 20 — price pulled back to ${ema20:.2f} "
-            f"and closed above at ${bar['Close']:.2f}"
+            f"and closed above at ${last_bar['Close']:.2f}"
         ),
     )
 
@@ -1255,23 +1311,31 @@ def check_ema_bounce_20(
 
 def check_ema_bounce_50(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ema50: float | None,
     ema20: float | None,
     prior_close: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA50 and bounces — deeper pullback buy.
 
-    Mirrors check_ma_bounce_50() but uses EMA values.
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near EMA50.
     """
     if ema50 is None or ema50 <= 0:
         return None
+    if bars.empty:
+        return None
     counter_trend = prior_close is not None and prior_close <= ema50
 
-    proximity = abs(bar["Low"] - ema50) / ema50
-    if proximity > MA_BOUNCE_PROXIMITY_PCT:
+    proximity = _find_ma_bounce_touch(bars, ema50, MA_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
         return None
-    if bar["Close"] <= ema50:
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ema50:
+        return None
+
+    distance = (last_bar["Close"] - ema50) / ema50
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
     entry = round(ema50, 2)
@@ -1287,7 +1351,7 @@ def check_ema_bounce_50(
 
     msg = (
         f"EMA bounce 50 — price pulled back to ${ema50:.2f} "
-        f"and closed above at ${bar['Close']:.2f}"
+        f"and closed above at ${last_bar['Close']:.2f}"
     )
     if counter_trend:
         msg += " (counter-trend)"
@@ -1296,7 +1360,7 @@ def check_ema_bounce_50(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_50,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -1313,27 +1377,32 @@ def check_ema_bounce_50(
 
 def check_ema_bounce_100(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ema100: float | None,
     prior_close: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA100 and bounces — intermediate institutional level.
 
-    Mirrors check_ma_bounce_100() but uses EMA value.
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near EMA100.
     Uses MA100 thresholds (wider proximity/stop for institutional level).
     """
     if ema100 is None or ema100 <= 0:
         return None
-
-    proximity = abs(bar["Low"] - ema100) / ema100
-    if proximity > MA100_BOUNCE_PROXIMITY_PCT:
+    if bars.empty:
         return None
-    if bar["Close"] <= ema100:
+
+    proximity = _find_ma_bounce_touch(bars, ema100, MA100_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ema100:
         return None  # didn't bounce above
 
-    # Direction check: if prior close was above EMA100, this is a pullback
-    # into support (bullish). If prior close was already below, it's a
-    # counter-trend bounce (less reliable).
+    distance = (last_bar["Close"] - ema100) / ema100
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
+        return None
+
     counter_trend = prior_close is not None and prior_close <= ema100
 
     entry = round(ema100, 2)
@@ -1349,7 +1418,7 @@ def check_ema_bounce_100(
 
     msg = (
         f"EMA bounce 100 — price pulled back to ${ema100:.2f} "
-        f"and closed above at ${bar['Close']:.2f}"
+        f"and closed above at ${last_bar['Close']:.2f}"
     )
     if counter_trend:
         msg += " (counter-trend)"
@@ -1358,7 +1427,7 @@ def check_ema_bounce_100(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_100,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -1375,27 +1444,32 @@ def check_ema_bounce_100(
 
 def check_ema_bounce_200(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     ema200: float | None,
     prior_close: float | None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA200 and bounces — major institutional level.
 
-    Mirrors check_ema_bounce_100() but uses EMA200 value.
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near EMA200.
     Uses MA200 thresholds (widest proximity/stop for long-term level).
     """
     if ema200 is None or ema200 <= 0:
         return None
-
-    proximity = abs(bar["Low"] - ema200) / ema200
-    if proximity > MA200_BOUNCE_PROXIMITY_PCT:
+    if bars.empty:
         return None
-    if bar["Close"] <= ema200:
+
+    proximity = _find_ma_bounce_touch(bars, ema200, MA200_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ema200:
         return None  # didn't bounce above
 
-    # Direction check: if prior close was above EMA200, this is a pullback
-    # into support (bullish). If prior close was already below, it's a
-    # counter-trend bounce (less reliable).
+    distance = (last_bar["Close"] - ema200) / ema200
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
+        return None
+
     counter_trend = prior_close is not None and prior_close <= ema200
 
     entry = round(ema200, 2)
@@ -1411,7 +1485,7 @@ def check_ema_bounce_200(
 
     msg = (
         f"EMA bounce 200 — price pulled back to ${ema200:.2f} "
-        f"and closed above at ${bar['Close']:.2f}"
+        f"and closed above at ${last_bar['Close']:.2f}"
     )
     if counter_trend:
         msg += " (counter-trend)"
@@ -1420,7 +1494,7 @@ def check_ema_bounce_200(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_200,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=entry,
         stop=stop,
         target_1=round(entry + risk, 2),
@@ -3632,7 +3706,7 @@ def evaluate_rules(
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
     if not is_cooled_down:
-        sig = check_ma_bounce_20(symbol, last_bar, ma20, ma50)
+        sig = check_ma_bounce_20(symbol, intraday_bars, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
@@ -3644,7 +3718,7 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        sig = check_ma_bounce_50(symbol, last_bar, ma20, ma50, prior_close)
+        sig = check_ma_bounce_50(symbol, intraday_bars, ma20, ma50, prior_close)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
@@ -3652,7 +3726,7 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        sig = check_ma_bounce_100(symbol, last_bar, ma100, prior_close)
+        sig = check_ma_bounce_100(symbol, intraday_bars, ma100, prior_close)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
@@ -3660,7 +3734,7 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        sig = check_ma_bounce_200(symbol, last_bar, ma200, prior_close)
+        sig = check_ma_bounce_200(symbol, intraday_bars, ma200, prior_close)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
@@ -3670,7 +3744,7 @@ def evaluate_rules(
 
         # --- EMA Bounces ---
         if AlertType.EMA_BOUNCE_20.value in ENABLED_RULES:
-            sig = check_ema_bounce_20(symbol, last_bar, ema20, ema50)
+            sig = check_ema_bounce_20(symbol, intraday_bars, ema20, ema50)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -3679,7 +3753,7 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.EMA_BOUNCE_50.value in ENABLED_RULES:
-            sig = check_ema_bounce_50(symbol, last_bar, ema50, ema20, prior_close)
+            sig = check_ema_bounce_50(symbol, intraday_bars, ema50, ema20, prior_close)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -3688,7 +3762,7 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.EMA_BOUNCE_100.value in ENABLED_RULES:
-            sig = check_ema_bounce_100(symbol, last_bar, ema100, prior_close)
+            sig = check_ema_bounce_100(symbol, intraday_bars, ema100, prior_close)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -3697,7 +3771,7 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.EMA_BOUNCE_200.value in ENABLED_RULES:
-            sig = check_ema_bounce_200(symbol, last_bar, ema200, prior_close)
+            sig = check_ema_bounce_200(symbol, intraday_bars, ema200, prior_close)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -4095,27 +4169,31 @@ def evaluate_rules(
 
     # --- Staleness filter: drop BUY signals where price already ran past entry + 1R ---
     # Exempt breakout alerts — price is supposed to run above entry on breakouts.
-    _breakout_types = {
+    # Exempt MA bounce + PDL — these are "level" signals; price running confirms thesis.
+    _staleness_exempt = {
         AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
         AlertType.INSIDE_DAY_BREAKOUT.value,
         AlertType.OUTSIDE_DAY_BREAKOUT.value,
         AlertType.WEEKLY_HIGH_BREAKOUT.value,
         AlertType.OPENING_RANGE_BREAKOUT.value,
-        AlertType.BB_SQUEEZE_BREAKOUT.value,
-        AlertType.GAP_AND_GO.value,
-        AlertType.MACD_HISTOGRAM_FLIP.value,
+        AlertType.MA_BOUNCE_100.value,
+        AlertType.MA_BOUNCE_200.value,
+        AlertType.EMA_BOUNCE_100.value,
+        AlertType.EMA_BOUNCE_200.value,
+        AlertType.PRIOR_DAY_LOW_RECLAIM.value,
+        AlertType.PRIOR_DAY_LOW_BOUNCE.value,
     }
     current_price = last_bar["Close"]
     pre_stale = signals[:]
     signals = [
         s for s in signals
         if not (s.direction == "BUY" and s.entry and s.stop
-                and s.alert_type.value not in _breakout_types
+                and s.alert_type.value not in _staleness_exempt
                 and current_price > s.entry + (s.entry - s.stop))
     ]
     for s in pre_stale:
         if (s.direction == "BUY" and s.entry and s.stop
-                and s.alert_type.value not in _breakout_types
+                and s.alert_type.value not in _staleness_exempt
                 and current_price > s.entry + (s.entry - s.stop)):
             logger.debug(
                 "%s: staleness filter dropped %s (price=%.2f > entry+1R=%.2f)",
@@ -4124,10 +4202,19 @@ def evaluate_rules(
             )
 
     # --- Overhead MA resistance filter: suppress BUY heading into nearby MA above ---
+    # Exempt MA bounce (the MA IS the entry) and PDL (nearby MA is a target, not blocker).
+    _overhead_exempt = {
+        AlertType.MA_BOUNCE_100.value,
+        AlertType.MA_BOUNCE_200.value,
+        AlertType.EMA_BOUNCE_100.value,
+        AlertType.EMA_BOUNCE_200.value,
+        AlertType.PRIOR_DAY_LOW_RECLAIM.value,
+        AlertType.PRIOR_DAY_LOW_BOUNCE.value,
+    }
     pre_overhead = signals[:]
     filtered_signals: list[AlertSignal] = []
     for s in signals:
-        if s.direction == "BUY" and s.entry:
+        if s.direction == "BUY" and s.entry and s.alert_type.value not in _overhead_exempt:
             blocked, ma_label = _has_overhead_ma_resistance(
                 s.entry, ma20, ma50, ma100, ma200,
             )

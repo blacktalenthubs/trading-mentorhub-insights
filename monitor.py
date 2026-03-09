@@ -36,7 +36,7 @@ from alerting.alert_store import (
     was_alert_fired,
 )
 from alerting.narrator import generate_narrative
-from alerting.notifier import notify, notify_user, send_email, send_sms
+from alerting.notifier import notify, send_email, send_sms
 from alerting.paper_trader import (
     close_position as paper_close_position,
     is_enabled as paper_trading_enabled,
@@ -48,11 +48,8 @@ from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
 from db import (
     init_db,
     get_all_daily_plans,
-    get_all_watchlist_symbols,
     get_daily_plan,
-    get_notification_prefs,
-    get_user_tier,
-    get_users_for_symbol,
+    get_watchlist,
 )
 
 logging.basicConfig(
@@ -68,6 +65,20 @@ _auto_stop_session: str = ""  # session date when entries were created
 
 # Tracks which date we last ran the EOD swing scan for
 _eod_ran_date: str | None = None
+
+# Single-user mode: resolve admin user ID once (lazy)
+_ADMIN_UID: int | None = None
+
+
+def _get_admin_uid() -> int:
+    """Return the admin (first) user ID, resolved once and cached."""
+    global _ADMIN_UID
+    if _ADMIN_UID is None:
+        from db import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT id FROM users LIMIT 1").fetchone()
+            _ADMIN_UID = row["id"] if row else 1
+    return _ADMIN_UID
 
 
 def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None) -> int:
@@ -93,7 +104,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     if not dry_run and paper_trading_enabled():
         sync_open_trades()
 
-    symbols = symbols_override if symbols_override is not None else get_all_watchlist_symbols()
+    symbols = symbols_override if symbols_override is not None else get_watchlist(_get_admin_uid())
 
     # Seed daily plans if none exist for today's session (ensures plans exist
     # even if nobody opened the Scanner page before the monitor started).
@@ -176,53 +187,23 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     logger.debug("%s: dedup skip %s", symbol, signal.alert_type.value)
                     continue
 
-                # Per-user notify_user() handles all notifications below;
-                # the old global notify() sent duplicates to the same chat ID.
-                email_sent, sms_sent = False, False
+                # Single-user mode: record alert + entries for admin uid
+                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
+                uid = _get_admin_uid()
+                alert_id = record_alert(signal, session, False, False, user_id=uid)
 
-                # Per-user: record alert, entries, cooldowns, and notifications
-                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.PDH_REJECTION, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
-                alert_id = None
-                _notified_chat_ids: set[str] = set()  # Dedup same Telegram chat across users
-                for uid in get_users_for_symbol(symbol):
-                    alert_id = record_alert(signal, session, email_sent, sms_sent, user_id=uid)
+                if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
+                    create_active_entry(signal, session, user_id=uid)
 
-                    if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
-                        create_active_entry(signal, session, user_id=uid)
+                if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
+                    close_all_entries_for_symbol(symbol, session, user_id=uid)
+                    save_cooldown(symbol, COOLDOWN_MINUTES, reason=signal.alert_type.value, session_date=session, user_id=uid)
 
-                    if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
-                        close_all_entries_for_symbol(symbol, session, user_id=uid)
-                        save_cooldown(symbol, COOLDOWN_MINUTES, reason=signal.alert_type.value, session_date=session, user_id=uid)
+                if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
+                    close_all_entries_for_symbol(symbol, session, user_id=uid)
 
-                    if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
-                        close_all_entries_for_symbol(symbol, session, user_id=uid)
-
-                    # Per-user DM (Pro/Elite/Admin)
-                    tier = get_user_tier(uid)
-                    if tier in ("pro", "elite", "admin"):
-                        prefs = get_notification_prefs(uid)
-                        if prefs:
-                            # Suppress exit Telegram alerts for trades user never ACK'd
-                            _exit_types = {AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT,
-                                           AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT}
-                            if signal.alert_type in _exit_types:
-                                if user_has_used_ack(uid) and not has_acked_entry(signal.symbol, uid, session):
-                                    logger.debug(
-                                        "Skipping exit Telegram for %s %s — user %s has no ACK'd entry",
-                                        signal.symbol, signal.alert_type.value, uid,
-                                    )
-                                    continue
-                            # Skip duplicate Telegram to same chat (multiple accounts, one Telegram)
-                            tg_chat = prefs.get("telegram_chat_id", "")
-                            if tg_chat and tg_chat in _notified_chat_ids:
-                                logger.debug(
-                                    "Skipping duplicate Telegram for %s %s — chat_id %s already notified",
-                                    signal.symbol, signal.alert_type.value, tg_chat,
-                                )
-                                continue
-                            notify_user(signal, prefs, alert_id=alert_id)
-                            if tg_chat:
-                                _notified_chat_ids.add(tg_chat)
+                # Single group notification
+                email_sent, sms_sent = notify(signal)
 
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
@@ -350,7 +331,7 @@ def run_monitor():
         if not is_market_hours():
             _maybe_run_eod()
             # Outside market hours: still poll crypto symbols if any exist
-            all_symbols = get_all_watchlist_symbols()
+            all_symbols = get_watchlist(_get_admin_uid())
             crypto_symbols = [s for s in all_symbols if is_crypto_alert_symbol(s)]
             if crypto_symbols:
                 logger.info("Market closed — polling crypto only: %s", ", ".join(crypto_symbols))
@@ -374,7 +355,7 @@ def run_monitor():
             logger.exception("Position advisor failed")
 
     # Run immediately on start
-    watchlist = get_all_watchlist_symbols()
+    watchlist = get_watchlist(_get_admin_uid())
     logger.info("Starting monitor — watchlist: %s", ", ".join(watchlist))
     logger.info("Poll interval: %d minutes", POLL_INTERVAL_MINUTES)
 

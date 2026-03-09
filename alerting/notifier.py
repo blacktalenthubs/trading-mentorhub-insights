@@ -458,8 +458,11 @@ def notify_user(
         chat_id = prefs.get("telegram_chat_id", "")
         if chat_id:
             body = _format_sms_body(signal)
-            markup = _build_trade_buttons(signal, alert_id)
-            telegram_sent = _send_telegram_to(body, chat_id, reply_markup=markup)
+            telegram_sent = _send_telegram_to(body, chat_id)
+        else:
+            logger.warning("notify_user: telegram_enabled but chat_id empty")
+    else:
+        logger.debug("notify_user: telegram_enabled=False, skipping")
 
     return email_sent, telegram_sent
 
