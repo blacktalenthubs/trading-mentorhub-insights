@@ -14,6 +14,7 @@ Context filters (applied before/after rules):
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from enum import Enum
 
@@ -452,23 +453,44 @@ def check_prior_day_low_reclaim(
     - Some bar went below prior day low by >= PDL_DIP_MIN_PCT
     - Current (last) bar closes back above prior day low
     """
-    if bars.empty or prior_day_low <= 0:
+    # NaN guard: yfinance can return NaN for prior day low
+    if (bars.empty
+            or prior_day_low is None
+            or (isinstance(prior_day_low, float) and math.isnan(prior_day_low))
+            or prior_day_low <= 0):
+        logger.debug(
+            "%s: PDL reclaim skip — bars_empty=%s, prior_day_low=%s",
+            symbol, bars.empty, prior_day_low,
+        )
         return None
 
     # Check if any bar dipped below prior day low
     min_dip = prior_day_low * (1 - PDL_DIP_MIN_PCT)
-    dipped = bars["Low"].min() <= min_dip
+    bar_low_min = bars["Low"].min()
+    dipped = bar_low_min <= min_dip
 
     if not dipped:
+        logger.debug(
+            "%s: PDL reclaim skip — no dip (low=%.2f, threshold=%.2f, pdl=%.2f)",
+            symbol, bar_low_min, min_dip, prior_day_low,
+        )
         return None
 
     last_bar = bars.iloc[-1]
     if last_bar["Close"] <= prior_day_low:
+        logger.debug(
+            "%s: PDL reclaim skip — not reclaimed (close=%.2f <= pdl=%.2f)",
+            symbol, last_bar["Close"], prior_day_low,
+        )
         return None  # hasn't reclaimed yet
 
     # Skip if price already ran too far above entry — signal is stale
     distance_pct = (last_bar["Close"] - prior_day_low) / prior_day_low
     if distance_pct > PDL_RECLAIM_MAX_DISTANCE_PCT:
+        logger.debug(
+            "%s: PDL reclaim skip — stale (dist=%.3f%% > max=%.3f%%)",
+            symbol, distance_pct * 100, PDL_RECLAIM_MAX_DISTANCE_PCT * 100,
+        )
         return None
 
     entry = prior_day_low
@@ -480,6 +502,10 @@ def check_prior_day_low_reclaim(
     if risk <= 0:
         return None
 
+    logger.debug(
+        "%s: PDL reclaim FIRED — entry=%.2f stop=%.2f price=%.2f pdl=%.2f",
+        symbol, entry, stop, last_bar["Close"], prior_day_low,
+    )
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PRIOR_DAY_LOW_RECLAIM,
@@ -3107,6 +3133,13 @@ def evaluate_rules(
     prior_close = prior_day.get("close")
     prior_high = prior_day.get("high", 0)
     prior_low = prior_day.get("low", 0)
+    # NaN guard: yfinance can return NaN for missing data
+    if prior_high is None or (isinstance(prior_high, float) and math.isnan(prior_high)):
+        prior_high = 0
+    if prior_low is None or (isinstance(prior_low, float) and math.isnan(prior_low)):
+        prior_low = 0
+    if prior_low > 0:
+        logger.debug("%s: prior_low=%.2f prior_high=%.2f", symbol, prior_low, prior_high)
     sym_rsi14 = prior_day.get("rsi14")
 
     # --- Context filters ---
