@@ -35,6 +35,7 @@ def handle_start(token: str, chat_id: int) -> str:
     from db import get_db, init_db
     from db import upsert_notification_prefs, get_notification_prefs
 
+    logger.info("handle_start called: token=%s... chat_id=%s", token[:8], chat_id)
     init_db()
 
     with get_db() as conn:
@@ -45,12 +46,18 @@ def handle_start(token: str, chat_id: int) -> str:
         ).fetchone()
 
     if not row:
+        logger.warning("Token not found in DB: %s...", token[:8])
         return "Invalid link token. Please generate a new one from Settings."
 
     if row["used"]:
+        logger.info("Token already used: %s...", token[:8])
         return "This link has already been used."
 
-    if datetime.fromisoformat(row["expires_at"]) < datetime.utcnow():
+    expires_at = row["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at < datetime.utcnow():
+        logger.info("Token expired: %s...", token[:8])
         return "This link has expired. Please generate a new one from Settings."
 
     user_id = row["user_id"]
@@ -103,7 +110,14 @@ def _build_app(bot_token: str):
 
         token = context.args[0]
         chat_id = update.effective_chat.id
-        result = handle_start(token, chat_id)
+        try:
+            result = handle_start(token, chat_id)
+        except Exception:
+            logger.exception("handle_start failed for chat_id=%s", chat_id)
+            result = (
+                "Something went wrong linking your account. "
+                "Please try generating a new link from Settings > Notifications."
+            )
         await update.message.reply_text(result)
 
     app = ApplicationBuilder().token(bot_token).build()
