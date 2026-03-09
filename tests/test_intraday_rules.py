@@ -39,6 +39,7 @@ from analytics.intraday_rules import (
     check_orb_breakdown,
     check_opening_low_base,
     check_planned_level_touch,
+    check_pdh_retest_hold,
     check_prior_day_high_breakout,
     check_ema_resistance,
     check_prior_day_low_bounce,
@@ -678,6 +679,144 @@ class TestPriorDayHighBreakout:
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
                                              bar_volume=1500, avg_volume=1000)
         assert sig is None
+
+
+# ===== Rule 3c: Prior Day High Retest & Hold =====
+
+class TestPDHRetestHold:
+    """After breakout above PDH, price pulls back to retest and holds."""
+
+    def test_fires_on_breakout_pullback_and_hold(self):
+        """Breakout bar closes above PDH, pullback touches near PDH, holds → fires."""
+        # PDH = 100.0
+        bars = _bars([
+            {"Open": 99, "High": 100.5, "Low": 98.5, "Close": 99.5, "Volume": 1000},
+            {"Open": 100, "High": 101.5, "Low": 99.8, "Close": 101.0, "Volume": 1500},  # breakout
+            {"Open": 101, "High": 101.2, "Low": 100.1, "Close": 100.3, "Volume": 1200},  # pullback touches near PDH
+            {"Open": 100.3, "High": 100.8, "Low": 100.2, "Close": 100.5, "Volume": 1100},  # hold bar 1
+            {"Open": 100.5, "High": 101.0, "Low": 100.3, "Close": 100.7, "Volume": 1000},  # hold bar 2
+        ])
+        sig = check_pdh_retest_hold("BTC-USD", bars, prior_day_high=100.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PDH_RETEST_HOLD
+        assert sig.direction == "BUY"
+        assert sig.confidence == "high"
+
+    def test_no_fire_when_no_breakout(self):
+        """Price never closed above PDH — no breakout means no retest."""
+        bars = _bars([
+            {"Open": 99, "High": 99.8, "Low": 98.5, "Close": 99.5, "Volume": 1000},
+            {"Open": 99.5, "High": 100.0, "Low": 99.0, "Close": 99.8, "Volume": 1200},
+            {"Open": 99.8, "High": 100.0, "Low": 99.5, "Close": 99.7, "Volume": 1100},
+            {"Open": 99.7, "High": 99.9, "Low": 99.5, "Close": 99.8, "Volume": 1000},
+        ])
+        sig = check_pdh_retest_hold("AAPL", bars, prior_day_high=100.0)
+        assert sig is None
+
+    def test_no_fire_when_no_pullback_touch(self):
+        """Breakout happened but price never pulled back near PDH."""
+        bars = _bars([
+            {"Open": 99, "High": 100.5, "Low": 98.5, "Close": 99.5, "Volume": 1000},
+            {"Open": 100, "High": 102, "Low": 99.8, "Close": 101.5, "Volume": 1500},  # breakout
+            {"Open": 101.5, "High": 103, "Low": 101.2, "Close": 102.5, "Volume": 1200},  # no pullback
+            {"Open": 102.5, "High": 104, "Low": 102.0, "Close": 103.5, "Volume": 1100},  # running away
+            {"Open": 103.5, "High": 105, "Low": 103.0, "Close": 104.0, "Volume": 1000},
+        ])
+        sig = check_pdh_retest_hold("NVDA", bars, prior_day_high=100.0)
+        # Should be None because max distance filter (>1% above PDH)
+        assert sig is None
+
+    def test_no_fire_when_recent_close_below_pdh(self):
+        """Last bar closes below PDH — hold not confirmed."""
+        bars = _bars([
+            {"Open": 99, "High": 100.5, "Low": 98.5, "Close": 99.5, "Volume": 1000},
+            {"Open": 100, "High": 101.5, "Low": 99.8, "Close": 101.0, "Volume": 1500},  # breakout
+            {"Open": 101, "High": 101.2, "Low": 100.1, "Close": 100.3, "Volume": 1200},  # pullback
+            {"Open": 100.3, "High": 100.5, "Low": 99.5, "Close": 99.7, "Volume": 1100},  # failed hold
+            {"Open": 99.7, "High": 100.0, "Low": 99.3, "Close": 99.5, "Volume": 1000},
+        ])
+        sig = check_pdh_retest_hold("AAPL", bars, prior_day_high=100.0)
+        assert sig is None
+
+    def test_no_fire_when_price_ran_too_far(self):
+        """Price already >1% above PDH — stale retest signal."""
+        bars = _bars([
+            {"Open": 99, "High": 100.5, "Low": 98.5, "Close": 99.5, "Volume": 1000},
+            {"Open": 100, "High": 101.5, "Low": 99.8, "Close": 101.0, "Volume": 1500},  # breakout
+            {"Open": 101, "High": 101.2, "Low": 100.1, "Close": 100.3, "Volume": 1200},  # pullback
+            {"Open": 100.3, "High": 101.5, "Low": 100.2, "Close": 101.3, "Volume": 1100},
+            {"Open": 101.3, "High": 102.0, "Low": 101.0, "Close": 101.8, "Volume": 1000},
+        ])
+        sig = check_pdh_retest_hold("SPY", bars, prior_day_high=100.0)
+        # 101.8 is 1.8% above PDH 100.0, exceeds 1.0% max
+        assert sig is None
+
+    def test_stop_below_pdh(self):
+        """Stop should be below PDH, possibly capped by _cap_risk."""
+        bars = _bars([
+            {"Open": 99, "High": 100.5, "Low": 98.5, "Close": 99.5, "Volume": 1000},
+            {"Open": 100, "High": 101.5, "Low": 99.8, "Close": 101.0, "Volume": 1500},
+            {"Open": 101, "High": 101.2, "Low": 100.1, "Close": 100.3, "Volume": 1200},
+            {"Open": 100.3, "High": 100.8, "Low": 100.2, "Close": 100.5, "Volume": 1100},
+            {"Open": 100.5, "High": 101.0, "Low": 100.3, "Close": 100.7, "Volume": 1000},
+        ])
+        sig = check_pdh_retest_hold("BTC-USD", bars, prior_day_high=100.0)
+        assert sig is not None
+        # Stop below PDH (may be tightened by _cap_risk for BTC-USD's 0.8% limit)
+        assert sig.stop < 100.0
+        assert sig.stop <= sig.entry
+
+    def test_targets_are_1r_and_2r(self):
+        """Verify T1 = entry + risk, T2 = entry + 2*risk."""
+        bars = _bars([
+            {"Open": 99, "High": 100.5, "Low": 98.5, "Close": 99.5, "Volume": 1000},
+            {"Open": 100, "High": 101.5, "Low": 99.8, "Close": 101.0, "Volume": 1500},
+            {"Open": 101, "High": 101.2, "Low": 100.1, "Close": 100.3, "Volume": 1200},
+            {"Open": 100.3, "High": 100.8, "Low": 100.2, "Close": 100.5, "Volume": 1100},
+            {"Open": 100.5, "High": 101.0, "Low": 100.3, "Close": 100.7, "Volume": 1000},
+        ])
+        sig = check_pdh_retest_hold("ETH-USD", bars, prior_day_high=100.0)
+        assert sig is not None
+        risk = sig.entry - sig.stop
+        assert risk > 0
+        assert sig.target_1 == round(sig.entry + risk, 2)
+        assert sig.target_2 == round(sig.entry + 2 * risk, 2)
+
+    def test_empty_bars_returns_none(self):
+        sig = check_pdh_retest_hold("X", pd.DataFrame(), prior_day_high=100.0)
+        assert sig is None
+
+    def test_zero_prior_high_returns_none(self):
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_pdh_retest_hold("X", bars, prior_day_high=0)
+        assert sig is None
+
+    def test_insufficient_bars_returns_none(self):
+        """Need at least PDH_RETEST_HOLD_BARS + 2 bars."""
+        bars = _bars([
+            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 1500},
+            {"Open": 101.5, "High": 102, "Low": 100.5, "Close": 100.8, "Volume": 1200},
+        ])
+        sig = check_pdh_retest_hold("AAPL", bars, prior_day_high=100.0)
+        assert sig is None
+
+    def test_works_for_crypto_btc(self):
+        """Confirm it works for BTC-USD with wider risk cap."""
+        # PDH = 68000 (realistic BTC price)
+        bars = _bars([
+            {"Open": 67500, "High": 68200, "Low": 67000, "Close": 67800, "Volume": 100},
+            {"Open": 67800, "High": 68500, "Low": 67700, "Close": 68300, "Volume": 150},  # breakout
+            {"Open": 68300, "High": 68400, "Low": 68050, "Close": 68100, "Volume": 120},  # pullback
+            {"Open": 68100, "High": 68300, "Low": 68020, "Close": 68200, "Volume": 110},  # hold
+            {"Open": 68200, "High": 68400, "Low": 68100, "Close": 68300, "Volume": 100},  # hold
+        ])
+        sig = check_pdh_retest_hold("BTC-USD", bars, prior_day_high=68000.0)
+        assert sig is not None
+        assert sig.symbol == "BTC-USD"
+        assert sig.direction == "BUY"
+        assert sig.stop < 68000.0  # stop below PDH
 
 
 # ===== Rule 4: Inside Day Breakout =====

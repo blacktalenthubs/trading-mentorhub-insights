@@ -52,6 +52,10 @@ from alert_config import (
     OVERHEAD_MA_RESISTANCE_PCT,
     PDH_BREAKOUT_VOLUME_RATIO,
     PDH_REJECTION_PROXIMITY_PCT,
+    PDH_RETEST_HOLD_BARS,
+    PDH_RETEST_MAX_DISTANCE_PCT,
+    PDH_RETEST_PROXIMITY_PCT,
+    PDH_RETEST_STOP_OFFSET_PCT,
     INSIDE_DAY_DIP_MIN_PCT,
     PDL_BOUNCE_HOLD_BARS,
     PDL_BOUNCE_MAX_DISTANCE_PCT,
@@ -131,6 +135,7 @@ class AlertType(str, Enum):
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     PRIOR_DAY_LOW_BOUNCE = "prior_day_low_bounce"
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
+    PDH_RETEST_HOLD = "pdh_retest_hold"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
     INSIDE_DAY_BREAKDOWN = "inside_day_breakdown"
     INSIDE_DAY_RECLAIM = "inside_day_reclaim"
@@ -718,6 +723,83 @@ def check_prior_day_high_breakout(
         message=(
             f"Prior day high breakout — closed above ${prior_day_high:.2f} "
             f"(vol {vol_ratio:.1f}x avg)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule 3c: Prior Day High Retest & Hold
+# ---------------------------------------------------------------------------
+
+def check_pdh_retest_hold(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day_high: float,
+) -> AlertSignal | None:
+    """Price broke above prior day high, pulled back to retest PDH, and holds.
+
+    Classic breakout-retest pattern: PDH flips from resistance to support.
+    Catches the re-entry if you missed the initial breakout.
+
+    Conditions:
+    - At least one prior bar closed above PDH (breakout confirmed)
+    - Some recent bar's low touched within PDH_RETEST_PROXIMITY_PCT of PDH
+    - Last N bars all closed above PDH (hold confirmed)
+    - Price hasn't run too far above PDH
+    """
+    if bars.empty or prior_day_high <= 0 or len(bars) < PDH_RETEST_HOLD_BARS + 2:
+        return None
+
+    # Step 1: confirm breakout happened — at least one bar closed above PDH
+    breakout_mask = bars["Close"] > prior_day_high
+    if not breakout_mask.any():
+        return None
+
+    # Step 2: after breakout, price pulled back near PDH
+    # Look for a bar whose low dipped within proximity of PDH
+    first_breakout_idx = breakout_mask.idxmax()
+    breakout_pos = bars.index.get_loc(first_breakout_idx)
+    post_breakout = bars.iloc[breakout_pos:]
+    if len(post_breakout) < PDH_RETEST_HOLD_BARS + 1:
+        return None
+
+    proximity_level = prior_day_high * (1 + PDH_RETEST_PROXIMITY_PCT)
+    touched = (post_breakout["Low"] <= proximity_level).any()
+    if not touched:
+        return None
+
+    # Step 3: confirm hold — last N bars all closed above PDH
+    recent = bars.iloc[-PDH_RETEST_HOLD_BARS:]
+    if not (recent["Close"] > prior_day_high).all():
+        return None
+
+    last_bar = bars.iloc[-1]
+
+    # Step 4: skip if price already ran too far above PDH
+    distance_pct = (last_bar["Close"] - prior_day_high) / prior_day_high
+    if distance_pct > PDH_RETEST_MAX_DISTANCE_PCT:
+        return None
+
+    entry = round(last_bar["Close"], 2)
+    stop = round(prior_day_high * (1 - PDH_RETEST_STOP_OFFSET_PCT), 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PDH_RETEST_HOLD,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high",
+        message=(
+            f"PDH retest & hold — broke above ${prior_day_high:.2f}, "
+            f"pulled back and holding"
         ),
     )
 
@@ -3808,6 +3890,16 @@ def evaluate_rules(
             )
             if sig:
                 sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Prior Day High Retest & Hold ---
+        if AlertType.PDH_RETEST_HOLD.value in ENABLED_RULES:
+            sig = check_pdh_retest_hold(symbol, intraday_bars, prior_high)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix
                 signals.append(sig)
 

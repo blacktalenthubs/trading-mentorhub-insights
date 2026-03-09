@@ -79,9 +79,15 @@ PDL_STOP_OFFSET_PCT = 0.005   # 0.5% below PDL for both reclaim and bounce stops
 
 # Prior Day Low Bounce: price approaches PDL and holds above it (no break below)
 PDL_BOUNCE_PROXIMITY_PCT = 0.005     # 0.5% — bar low must be within this of PDL
-PDL_BOUNCE_HOLD_BARS = 2             # 2 consecutive bars closing above PDL after touch
+PDL_BOUNCE_HOLD_BARS = 1             # 1 bar (5 min) closing above PDL after touch
 PDL_BOUNCE_MAX_DISTANCE_PCT = 0.010  # 1.0% — skip if price ran too far above PDL
 PDL_BOUNCE_STOP_OFFSET_PCT = 0.003   # 0.3% below PDL for stop (legacy, superseded by PDL_STOP_OFFSET_PCT)
+
+# Prior Day High Retest & Hold: after breakout, price pulls back to PDH and holds
+PDH_RETEST_PROXIMITY_PCT = 0.005     # 0.5% — bar low must be within this of PDH
+PDH_RETEST_HOLD_BARS = 1             # 1 bar (5 min) closing above PDH after pullback
+PDH_RETEST_MAX_DISTANCE_PCT = 0.010  # 1.0% — skip if price ran too far above PDH
+PDH_RETEST_STOP_OFFSET_PCT = 0.005   # 0.5% below PDH for stop
 
 # Inside Day Reclaim: minimum dip below inside low to qualify
 INSIDE_DAY_DIP_MIN_PCT = 0.0003  # 0.03% — same as PDL (any meaningful touch)
@@ -132,8 +138,8 @@ ORB_VOLUME_RATIO = 1.2
 # Session Low Double-Bottom
 SESSION_LOW_PROXIMITY_PCT = 0.003       # 0.3% — how close bar low must be to session low
 SESSION_LOW_RECOVERY_PCT = 0.003        # 0.3% — minimum bounce above session low between touches
-SESSION_LOW_MIN_AGE_BARS = 4            # ~20 min — session low must be established this long ago
-SESSION_LOW_MIN_RECOVERY_BARS = 2       # ~10 min — consecutive bars above recovery threshold
+SESSION_LOW_MIN_AGE_BARS = 3            # ~15 min — session low must be established this long ago
+SESSION_LOW_MIN_RECOVERY_BARS = 1       # ~5 min — consecutive bars above recovery threshold
 SESSION_LOW_MAX_RETEST_VOL_RATIO = 1.2  # retest must be exhaustion, not panic (< 1.2x avg)
 SESSION_LOW_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 
@@ -257,7 +263,7 @@ VWAP_BOUNCE_STOP_OFFSET_PCT = 0.003    # 0.3% below VWAP for stop
 
 # Opening Low Base: session low in first 15 min, then price holds above it
 OPENING_LOW_BASE_WINDOW_BARS = 3       # first 15 min (3 × 5-min bars) to set the low
-OPENING_LOW_BASE_HOLD_BARS = 3         # 15 min of holding above low to confirm base
+OPENING_LOW_BASE_HOLD_BARS = 2         # 10 min of holding above low to confirm base
 OPENING_LOW_BASE_HOLD_PCT = 0.003      # 0.3% — bars must stay above low * (1 + this)
 OPENING_LOW_BASE_MIN_DIP_PCT = 0.003   # 0.3% — low must be meaningful dip from open
 OPENING_LOW_BASE_STOP_OFFSET_PCT = 0.003  # 0.3% below session low for stop
@@ -387,6 +393,7 @@ ENABLED_RULES: set[str] = {
     "prior_day_low_reclaim",
     "prior_day_low_bounce",
     "prior_day_high_breakout",
+    "pdh_retest_hold",
     # BUY — weekly high/low
     "weekly_level_touch",
     "weekly_high_breakout",
