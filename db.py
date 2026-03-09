@@ -883,8 +883,8 @@ def _migrate_alert_user_id():
 
         # Add trade ACK columns to alerts
         for col_def in [
-            "ALTER TABLE alerts ADD COLUMN user_action TEXT DEFAULT NULL",
-            "ALTER TABLE alerts ADD COLUMN acked_at TIMESTAMP DEFAULT NULL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS user_action TEXT DEFAULT NULL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS acked_at TIMESTAMP DEFAULT NULL",
         ]:
             try:
                 conn.execute(col_def)
