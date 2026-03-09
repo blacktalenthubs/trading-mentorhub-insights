@@ -928,8 +928,14 @@ def _migrate_per_user_entries_cooldowns():
         except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
 
-        # Rebuild table for new UNIQUE constraint (SQLite only)
-        if not _USE_POSTGRES:
+        # Rebuild table for new UNIQUE constraint
+        if _USE_POSTGRES:
+            # Add unique constraint on Postgres (idempotent via IF NOT EXISTS)
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_entries_dedup "
+                "ON active_entries(symbol, session_date, alert_type, user_id)"
+            )
+        else:
             table_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='active_entries'"
             ).fetchone()
@@ -969,8 +975,13 @@ def _migrate_per_user_entries_cooldowns():
         except _DB_OPERATIONAL_ERRORS:
             pass  # Column already exists
 
-        # Rebuild table for new UNIQUE constraint (SQLite only)
-        if not _USE_POSTGRES:
+        # Rebuild table for new UNIQUE constraint
+        if _USE_POSTGRES:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_cooldowns_dedup "
+                "ON cooldowns(symbol, session_date, user_id)"
+            )
+        else:
             table_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='cooldowns'"
             ).fetchone()
