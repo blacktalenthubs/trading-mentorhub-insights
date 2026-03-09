@@ -174,7 +174,9 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     logger.debug("%s: dedup skip %s", symbol, signal.alert_type.value)
                     continue
 
-                email_sent, sms_sent = notify(signal)
+                # Per-user notify_user() handles all notifications below;
+                # the old global notify() sent duplicates to the same chat ID.
+                email_sent, sms_sent = False, False
 
                 # Per-user: record alert, entries, cooldowns, and notifications
                 _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
