@@ -183,6 +183,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 # Per-user: record alert, entries, cooldowns, and notifications
                 _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.PDH_REJECTION, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
                 alert_id = None
+                _notified_chat_ids: set[str] = set()  # Dedup same Telegram chat across users
                 for uid in get_users_for_symbol(symbol):
                     alert_id = record_alert(signal, session, email_sent, sms_sent, user_id=uid)
 
@@ -211,7 +212,17 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                                         signal.symbol, signal.alert_type.value, uid,
                                     )
                                     continue
+                            # Skip duplicate Telegram to same chat (multiple accounts, one Telegram)
+                            tg_chat = prefs.get("telegram_chat_id", "")
+                            if tg_chat and tg_chat in _notified_chat_ids:
+                                logger.debug(
+                                    "Skipping duplicate Telegram for %s %s — chat_id %s already notified",
+                                    signal.symbol, signal.alert_type.value, tg_chat,
+                                )
+                                continue
                             notify_user(signal, prefs, alert_id=alert_id)
+                            if tg_chat:
+                                _notified_chat_ids.add(tg_chat)
 
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
