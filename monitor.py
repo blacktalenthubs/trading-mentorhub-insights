@@ -390,7 +390,7 @@ def run_monitor():
 
 
 def run_test():
-    """Send a test email and SMS to verify notification config."""
+    """Send a test alert with ACK buttons to verify notification + button flow."""
     test_signal = AlertSignal(
         symbol="TEST",
         alert_type=AlertType.MA_BOUNCE_20,
@@ -401,16 +401,19 @@ def run_test():
         target_1=101.00,
         target_2=102.00,
         confidence="high",
-        message="Test alert — ignore this message",
+        message="Test alert — tap Took It or Skip to test ACK flow",
     )
 
-    logger.info("Sending test email...")
-    email_ok = send_email(test_signal)
-    logger.info("Email: %s", "OK" if email_ok else "FAILED (check .env config)")
+    # Record alert to get an ID for buttons
+    uid = _get_admin_uid()
+    session = today_session()
+    alert_id = record_alert(test_signal, session, user_id=uid)
+    logger.info("Recorded test alert_id=%s", alert_id)
 
-    logger.info("Sending test SMS...")
-    sms_ok = send_sms(test_signal)
-    logger.info("SMS: %s", "OK" if sms_ok else "FAILED (check .env config)")
+    # Send with buttons
+    email_ok, sms_ok = notify(test_signal, alert_id=alert_id)
+    logger.info("Email: %s", "OK" if email_ok else "FAILED")
+    logger.info("Telegram: %s", "OK" if sms_ok else "FAILED")
 
 
 def main():
