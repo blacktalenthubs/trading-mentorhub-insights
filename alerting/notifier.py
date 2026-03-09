@@ -88,32 +88,45 @@ def _format_email_body(signal: AlertSignal) -> str:
     return "\n".join(lines)
 
 
+def _get_app_url() -> str:
+    """Return the public-facing app URL, ignoring localhost values."""
+    _default = "https://tradecopilot.streamlit.app"
+    url = os.environ.get("APP_URL", "") or _default
+    if "localhost" in url or "127.0.0.1" in url:
+        return _default
+    return url.rstrip("/")
+
+
 def _format_sms_body(signal: AlertSignal) -> str:
-    """Build a concise SMS/Telegram message optimised for at-a-glance action."""
+    """Build a concise SMS/Telegram message optimised for at-a-glance action.
+
+    Output uses HTML formatting for Telegram (clickable links, bold headers).
+    """
+    import html as _html
+
     label = signal.alert_type.value.replace("_", " ").title()
 
     if signal.direction == "SELL":
         # SELL signals: compact 2-3 line format
-        parts = [f"EXIT ZONE {signal.symbol} ${signal.price:.2f}"]
-        parts.append(label)
+        parts = [f"<b>EXIT ZONE {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
+        parts.append(_html.escape(label))
         if signal.message:
-            # Extract first clause for a short hint
             hint = signal.message.split("|")[0].strip()
             if hint:
-                parts.append(hint)
-        return "\n".join(parts)[:320]
+                parts.append(_html.escape(hint))
+        return "\n".join(parts)[:400]
 
     if signal.direction == "NOTICE":
         # Informational alerts (key level touches) — not actionable
-        parts = [f"MARKET UPDATE {signal.symbol} ${signal.price:.2f}"]
-        parts.append(label)
+        parts = [f"<b>MARKET UPDATE {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
+        parts.append(_html.escape(label))
         if signal.entry is not None:
             parts.append(f"Key Level ${signal.entry:.2f}")
         if signal.message:
             hint = signal.message.split("|")[0].strip()
             if hint:
-                parts.append(hint)
-        return "\n".join(parts)[:320]
+                parts.append(_html.escape(hint))
+        return "\n".join(parts)[:400]
 
     # BUY / SHORT signals: entry, targets, score on first line
     _prefix = "POTENTIAL SHORT" if signal.direction == "SHORT" else "POTENTIAL ENTRY"
@@ -125,8 +138,8 @@ def _format_sms_body(signal: AlertSignal) -> str:
             score_tag = f" — {signal.score_label} ({signal.score}) v2:{v2_label} ({v2})"
         else:
             score_tag = f" — {signal.score_label} ({signal.score})"
-    parts = [f"{_prefix} {signal.symbol} ${signal.price:.2f}{score_tag}"]
-    parts.append(label)
+    parts = [f"<b>{_prefix} {_html.escape(signal.symbol)} ${signal.price:.2f}{_html.escape(score_tag)}</b>"]
+    parts.append(_html.escape(label))
 
     # Potential Entry | Stop
     if signal.entry is not None and signal.stop is not None:
@@ -144,9 +157,9 @@ def _format_sms_body(signal: AlertSignal) -> str:
     # Vol + VWAP (compact context)
     ctx = []
     if signal.volume_label:
-        ctx.append(f"Vol: {signal.volume_label.split(' (')[0]}")
+        ctx.append(f"Vol: {_html.escape(signal.volume_label.split(' (')[0])}")
     if signal.vwap_position:
-        ctx.append(signal.vwap_position.replace("VWAP", "").strip())
+        ctx.append(_html.escape(signal.vwap_position.replace("VWAP", "").strip()))
     if ctx:
         parts.append(" | ".join(ctx))
 
@@ -155,9 +168,9 @@ def _format_sms_body(signal: AlertSignal) -> str:
     if getattr(signal, "day_pattern", "") in ("inside", "outside"):
         tags.append(f"{signal.day_pattern.upper()} DAY")
     if getattr(signal, "ma_defending", ""):
-        tags.append(f"Def {signal.ma_defending}")
+        tags.append(f"Def {_html.escape(signal.ma_defending)}")
     if getattr(signal, "ma_rejected_by", ""):
-        tags.append(f"Res {signal.ma_rejected_by}")
+        tags.append(f"Res {_html.escape(signal.ma_rejected_by)}")
     if tags:
         parts.append(" | ".join(tags))
 
@@ -176,20 +189,20 @@ def _format_sms_body(signal: AlertSignal) -> str:
     # AI thesis — first sentence only (Telegram char limit)
     if getattr(signal, "narrative", ""):
         import re
-        # Split on period followed by space or end-of-string (avoids $185.50)
         sentences = re.split(r"\.(?:\s|$)", signal.narrative, maxsplit=1)
         if sentences and sentences[0].strip():
-            parts.append(sentences[0].strip() + ".")
+            parts.append(_html.escape(sentences[0].strip()) + ".")
 
-    # Deep link to AI Coach for further analysis
-    _app_url = os.environ.get("APP_URL", "https://tradecopilot.streamlit.app")
+    # Deep link to AI Coach for further analysis (clickable HTML link)
+    _app_url = _get_app_url()
     _alert_type_val = signal.alert_type.value
-    parts.append(
-        f"Analyze: {_app_url}/AI_Coach"
+    _link = (
+        f"{_app_url}/AI_Coach"
         f"?symbol={quote(signal.symbol)}&alert={quote(_alert_type_val)}"
     )
+    parts.append(f'<a href="{_link}">Analyze in AI Coach</a>')
 
-    return "\n".join(parts)[:480]
+    return "\n".join(parts)[:600]
 
 
 def send_plain_email(email_to: str, subject: str, body: str) -> bool:
@@ -251,10 +264,13 @@ def send_email(signal: AlertSignal) -> bool:
     return send_email_to(signal, ALERT_EMAIL_TO)
 
 
-def _send_telegram_to(body: str, chat_id: str, reply_markup: dict | None = None) -> bool:
+def _send_telegram_to(
+    body: str, chat_id: str, reply_markup: dict | None = None, parse_mode: str | None = None,
+) -> bool:
     """Send a message via Telegram Bot API to an explicit chat_id.
 
     *reply_markup* — optional InlineKeyboardMarkup dict for interactive buttons.
+    *parse_mode* — "HTML" or "Markdown". Auto-detected if body contains HTML tags.
     """
     if not TELEGRAM_BOT_TOKEN or not chat_id:
         logger.warning(
@@ -268,10 +284,16 @@ def _send_telegram_to(body: str, chat_id: str, reply_markup: dict | None = None)
     import urllib.request
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
+    # Auto-detect HTML if body contains tags; callers can also pass parse_mode explicitly
+    _mode = parse_mode
+    if _mode is None and ("<b>" in body or "<a " in body or "<i>" in body):
+        _mode = "HTML"
+    payload: dict = {
         "chat_id": chat_id,
         "text": body,
     }
+    if _mode:
+        payload["parse_mode"] = _mode
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     data = urllib.parse.urlencode(payload).encode()

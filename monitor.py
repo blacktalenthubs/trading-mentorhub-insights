@@ -27,10 +27,12 @@ from alerting.alert_store import (
     get_active_cooldowns,
     get_active_entries,
     get_alerts_today,
+    has_acked_entry,
     record_alert,
     save_cooldown,
     today_session,
     update_monitor_status,
+    user_has_used_ack,
     was_alert_fired,
 )
 from alerting.narrator import generate_narrative
@@ -199,6 +201,16 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     if tier in ("pro", "elite", "admin"):
                         prefs = get_notification_prefs(uid)
                         if prefs:
+                            # Suppress exit Telegram alerts for trades user never ACK'd
+                            _exit_types = {AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT,
+                                           AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT}
+                            if signal.alert_type in _exit_types:
+                                if user_has_used_ack(uid) and not has_acked_entry(signal.symbol, uid, session):
+                                    logger.debug(
+                                        "Skipping exit Telegram for %s %s — user %s has no ACK'd entry",
+                                        signal.symbol, signal.alert_type.value, uid,
+                                    )
+                                    continue
                             notify_user(signal, prefs, alert_id=alert_id)
 
                 fired_today.add((symbol, signal.alert_type.value))
