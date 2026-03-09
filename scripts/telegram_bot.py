@@ -80,20 +80,10 @@ def handle_start(token: str, chat_id: int) -> str:
     )
 
 
-def main():
-    """Run the Telegram bot using polling."""
-    try:
-        from telegram import Update
-        from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-    except ImportError:
-        print("Error: python-telegram-bot not installed.")
-        print("  pip install python-telegram-bot")
-        sys.exit(1)
-
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        print("Error: TELEGRAM_BOT_TOKEN environment variable not set.")
-        sys.exit(1)
+def _build_app(bot_token: str):
+    """Build the telegram Application with /start handler."""
+    from telegram import Update
+    from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
@@ -110,7 +100,74 @@ def main():
 
     app = ApplicationBuilder().token(bot_token).build()
     app.add_handler(CommandHandler("start", start_command))
+    return app
 
+
+def start_bot_thread() -> bool:
+    """Start the Telegram bot polling in a background daemon thread.
+
+    Returns True if the bot was started, False if dependencies are missing
+    or TELEGRAM_BOT_TOKEN is not set.  Safe to call multiple times — only
+    the first call starts the bot.
+    """
+    import threading
+
+    # Guard: only start once
+    if getattr(start_bot_thread, "_started", False):
+        return True
+    start_bot_thread._started = True
+
+    try:
+        from telegram import Update  # noqa: F401
+        from telegram.ext import ApplicationBuilder  # noqa: F401
+    except ImportError:
+        logger.warning("python-telegram-bot not installed — bot listener disabled")
+        start_bot_thread._started = False
+        return False
+
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        logger.warning("TELEGRAM_BOT_TOKEN not set — bot listener disabled")
+        start_bot_thread._started = False
+        return False
+
+    def _run():
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            app = _build_app(bot_token)
+            logger.info("Telegram bot listener starting (background thread)...")
+            loop.run_until_complete(app.initialize())
+            loop.run_until_complete(app.start())
+            loop.run_until_complete(app.updater.start_polling())
+            loop.run_forever()
+        except Exception:
+            logger.exception("Telegram bot listener crashed")
+            start_bot_thread._started = False
+
+    t = threading.Thread(target=_run, daemon=True, name="telegram-bot")
+    t.start()
+    logger.info("Telegram bot listener thread started")
+    return True
+
+
+def main():
+    """Run the Telegram bot using polling (standalone mode)."""
+    try:
+        from telegram import Update  # noqa: F401
+        from telegram.ext import ApplicationBuilder  # noqa: F401
+    except ImportError:
+        print("Error: python-telegram-bot not installed.")
+        print("  pip install python-telegram-bot")
+        sys.exit(1)
+
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        print("Error: TELEGRAM_BOT_TOKEN environment variable not set.")
+        sys.exit(1)
+
+    app = _build_app(bot_token)
     logger.info("TradeCoPilot Telegram bot starting...")
     app.run_polling()
 

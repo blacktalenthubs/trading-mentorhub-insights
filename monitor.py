@@ -194,9 +194,9 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
                         close_all_entries_for_symbol(symbol, session, user_id=uid)
 
-                    # Per-user DM (Pro/Elite)
+                    # Per-user DM (Pro/Elite/Admin)
                     tier = get_user_tier(uid)
-                    if tier in ("pro", "elite"):
+                    if tier in ("pro", "elite", "admin"):
                         prefs = get_notification_prefs(uid)
                         if prefs:
                             notify_user(signal, prefs)

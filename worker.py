@@ -46,6 +46,15 @@ def main():
     if args.test:
         run_test()
     else:
+        # Start Telegram bot listener in background thread
+        # so /start deep-link tokens can be processed
+        try:
+            from scripts.telegram_bot import start_bot_thread
+            if start_bot_thread():
+                logger.info("Telegram bot listener active")
+        except Exception:
+            logger.exception("Failed to start Telegram bot listener")
+
         logger.info("Starting Railway alert monitor worker")
         run_monitor()
 

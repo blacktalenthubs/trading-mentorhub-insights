@@ -264,7 +264,7 @@ def send_position_updates() -> bool:
         from db import get_pro_users_with_telegram
         from alerting.notifier import _send_telegram_to
         users = get_pro_users_with_telegram()
-        elite_users = [u for u in users if u.get("tier") == "elite"]
+        elite_users = [u for u in users if u.get("tier") in ("elite", "admin")]
     except Exception:
         logger.exception("Position advisor: failed to get user list")
         return False

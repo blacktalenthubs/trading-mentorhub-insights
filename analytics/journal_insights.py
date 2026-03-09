@@ -249,7 +249,7 @@ def send_weekly_journals() -> bool:
     try:
         from db import get_pro_users_with_telegram
         users = get_pro_users_with_telegram()
-        elite_users = [u for u in users if u.get("tier") == "elite"]
+        elite_users = [u for u in users if u.get("tier") in ("elite", "admin")]
     except Exception:
         logger.exception("Weekly journal: failed to get user list")
         return False
