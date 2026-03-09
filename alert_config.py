@@ -81,6 +81,9 @@ INSIDE_DAY_DIP_MIN_PCT = 0.0003  # 0.03% — same as PDL (any meaningful touch)
 # Resistance at Prior High: proximity threshold
 RESISTANCE_PROXIMITY_PCT = 0.003  # 0.3% — symmetric with support bounce
 
+# Prior Day High Rejection: confirmed rejection (high touched, close below)
+PDH_REJECTION_PROXIMITY_PCT = 0.003  # 0.3% — same as resistance proximity
+
 # Hourly Resistance Detection
 HOURLY_RESISTANCE_CLUSTER_PCT = 0.003   # 0.3% — merge swing highs within this distance
 HOURLY_RESISTANCE_APPROACH_PCT = 0.003  # 0.3% — symmetric with RESISTANCE_PROXIMITY_PCT
@@ -312,6 +315,7 @@ ENABLED_RULES: set[str] = {
     "ema_resistance",
     # SELL — daily high/low resistance
     "resistance_prior_high",
+    "pdh_rejection",
     "resistance_prior_low",
     # SELL — weekly resistance
     "weekly_high_resistance",

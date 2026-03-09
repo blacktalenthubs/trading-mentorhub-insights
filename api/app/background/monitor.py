@@ -187,7 +187,8 @@ def poll_all_users(sync_session_factory) -> int:
                     # Create active entry for BUY signals
                     _non_entry_types = {
                         AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN,
-                        AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH,
+                        AlertType.RESISTANCE_PRIOR_HIGH, AlertType.PDH_REJECTION,
+                        AlertType.HOURLY_RESISTANCE_APPROACH,
                         AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW,
                         AlertType.OPENING_RANGE_BREAKDOWN,
                     }
