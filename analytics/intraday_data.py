@@ -107,6 +107,138 @@ def fetch_hourly_bars(symbol: str, period: str = "5d") -> pd.DataFrame:
     return fetch_intraday(symbol, period=period, interval="1h")
 
 
+# ---------------------------------------------------------------------------
+# Overnight futures
+# ---------------------------------------------------------------------------
+
+FUTURES_EQUITY_MAP = {"ES=F": "SPY", "NQ=F": "QQQ"}
+
+
+def fetch_overnight_futures(
+    symbol: str = "ES=F",
+    period: str = "5d",
+    interval: str = "1h",
+) -> pd.DataFrame:
+    """Fetch overnight futures bars from prior equity close (4 PM ET) to now.
+
+    Futures trade Sunday 6 PM - Friday 5 PM ET with a daily break 5-6 PM ET.
+    Filters to bars AFTER the most recent 4 PM ET equity close.
+
+    Returns DataFrame with Open, High, Low, Close, Volume columns.
+    Index is timezone-naive ET datetime. Returns empty DataFrame on failure.
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period=period, interval=interval)
+        if hist.empty:
+            return pd.DataFrame()
+        hist = _normalize_index_to_et(hist)
+        df = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
+
+        # Find the most recent 4 PM ET cutoff (prior equity close)
+        now_et = pd.Timestamp.now()
+        today_4pm = now_et.normalize() + pd.Timedelta(hours=16)
+
+        if now_et >= today_4pm:
+            cutoff = today_4pm
+        else:
+            cutoff = today_4pm - pd.Timedelta(days=1)
+            # Skip weekends: if cutoff lands on Sat/Sun, go back to Friday
+            while cutoff.weekday() >= 5:
+                cutoff -= pd.Timedelta(days=1)
+
+        overnight = df[df.index >= cutoff]
+        return overnight
+    except Exception:
+        logger.warning("Failed to fetch overnight futures for %s", symbol)
+        return pd.DataFrame()
+
+
+def compute_overnight_context(
+    es_bars: pd.DataFrame,
+    nq_bars: pd.DataFrame,
+    spy_prior_close: float,
+    qqq_prior_close: float,
+) -> dict | None:
+    """Compute overnight futures context for the premarket brief.
+
+    Returns dict with per-futures metrics and overall overnight_bias,
+    or None if no data available.
+    """
+    if es_bars.empty and nq_bars.empty:
+        return None
+
+    result = {}
+
+    for bars, future_sym, equity_sym, equity_close in [
+        (es_bars, "ES=F", "SPY", spy_prior_close),
+        (nq_bars, "NQ=F", "QQQ", qqq_prior_close),
+    ]:
+        if bars.empty or equity_close <= 0:
+            result[future_sym] = None
+            continue
+
+        on_high = bars["High"].max()
+        on_low = bars["Low"].min()
+        on_last = bars["Close"].iloc[-1]
+        on_open = bars["Open"].iloc[0]
+        on_change_pct = (on_last - on_open) / on_open * 100 if on_open > 0 else 0.0
+
+        # Projected gap: futures % change applies to equity
+        projected_gap_pct = on_change_pct
+
+        # Overnight VWAP (volume-weighted)
+        on_vwap = None
+        if "Volume" in bars.columns and bars["Volume"].sum() > 0:
+            typical = (bars["High"] + bars["Low"] + bars["Close"]) / 3
+            cum_vol = bars["Volume"].cumsum()
+            cum_tp_vol = (typical * bars["Volume"]).cumsum()
+            vwap_series = cum_tp_vol / cum_vol
+            on_vwap = round(float(vwap_series.iloc[-1]), 2)
+
+        if on_change_pct > 0.3:
+            on_trend = "BULLISH"
+        elif on_change_pct < -0.3:
+            on_trend = "BEARISH"
+        else:
+            on_trend = "FLAT"
+
+        result[future_sym] = {
+            "future_symbol": future_sym,
+            "equity_symbol": equity_sym,
+            "on_high": round(float(on_high), 2),
+            "on_low": round(float(on_low), 2),
+            "on_last": round(float(on_last), 2),
+            "on_open": round(float(on_open), 2),
+            "on_change_pct": round(on_change_pct, 2),
+            "on_vwap": on_vwap,
+            "on_trend": on_trend,
+            "projected_gap_pct": round(projected_gap_pct, 2),
+            "equity_prior_close": round(equity_close, 2),
+            "bar_count": len(bars),
+        }
+
+    # Overall overnight bias
+    es = result.get("ES=F")
+    nq = result.get("NQ=F")
+    if es and nq:
+        avg_change = (es["on_change_pct"] + nq["on_change_pct"]) / 2
+        if avg_change > 0.3:
+            result["overnight_bias"] = "BULLISH"
+        elif avg_change < -0.3:
+            result["overnight_bias"] = "BEARISH"
+        else:
+            result["overnight_bias"] = "FLAT"
+    elif es:
+        result["overnight_bias"] = es["on_trend"]
+    elif nq:
+        result["overnight_bias"] = nq["on_trend"]
+    else:
+        result["overnight_bias"] = "UNKNOWN"
+
+    return result
+
+
 def detect_hourly_resistance(
     bars_1h: pd.DataFrame,
     cluster_pct: float = HOURLY_RESISTANCE_CLUSTER_PCT,

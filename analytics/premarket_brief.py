@@ -15,7 +15,9 @@ import pytz
 from alerting.alert_store import today_session
 from alerting.notifier import _send_telegram, _send_telegram_to
 from analytics.intraday_data import (
+    compute_overnight_context,
     compute_premarket_brief,
+    fetch_overnight_futures,
     fetch_premarket_bars,
     fetch_prior_day,
     get_spy_context,
@@ -34,8 +36,8 @@ _AI_PREMARKET_MODEL = "claude-sonnet-4-20250514"
 
 _AI_PREMARKET_SYSTEM = """\
 You are a sharp day-trading coach delivering a pre-market game plan. Given \
-today's pre-market data, daily plans, and SPY regime, produce a concise \
-actionable briefing.
+today's pre-market data, overnight futures, daily plans, and SPY regime, \
+produce a concise actionable briefing.
 
 Structure your response EXACTLY like this:
 TOP 3 SETUPS:
@@ -54,6 +56,9 @@ ACTION PLAN: [1 sentence — what to do in the first 30 minutes]
 Rules:
 - Lead with the highest-conviction setup
 - Reference actual price levels from the data
+- If overnight futures data is provided, use it to assess gap direction and \
+magnitude, adjust setup conviction when overnight trend confirms or conflicts \
+with daily bias, and flag overnight high/low as potential intraday S/R levels
 - Keep the entire brief under 150 words
 - Use probability language, never guarantee outcomes
 - No markdown formatting — plain text only
@@ -90,6 +95,32 @@ def _format_symbol_line(brief: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_overnight_section(overnight: dict) -> str:
+    """Format the OVERNIGHT FUTURES section for the premarket brief."""
+    lines = ["\nOVERNIGHT FUTURES"]
+
+    for future_sym in ["ES=F", "NQ=F"]:
+        data = overnight.get(future_sym)
+        if data is None:
+            continue
+        sign = "+" if data["on_change_pct"] >= 0 else ""
+        gap_sign = "+" if data["projected_gap_pct"] >= 0 else ""
+        lines.append(
+            f"  {future_sym} ({data['equity_symbol']}): "
+            f"{data['on_last']:.2f} ({sign}{data['on_change_pct']:.1f}%) "
+            f"| H: {data['on_high']:.2f} L: {data['on_low']:.2f} "
+            f"| Gap est: {gap_sign}{data['projected_gap_pct']:.1f}%"
+        )
+
+    bias = overnight.get("overnight_bias", "UNKNOWN")
+    bias_emoji = {
+        "BULLISH": "\U0001f7e2", "BEARISH": "\U0001f534", "FLAT": "\U0001f7e1",
+    }.get(bias, "\u2753")
+    lines.append(f"  {bias_emoji} Overnight Bias: {bias}")
+
+    return "\n".join(lines)
+
+
 def build_premarket_message() -> str | None:
     """Build the pre-market brief message text.
 
@@ -115,7 +146,7 @@ def build_premarket_message() -> str | None:
     if not briefs:
         return None
 
-    # SPY header
+    # SPY header + overnight futures
     spy_ctx = get_spy_context()
     now_et = datetime.now(ET)
     date_str = now_et.strftime("%b %-d, %Y")
@@ -125,6 +156,21 @@ def build_premarket_message() -> str | None:
         "",
         _format_spy_header(spy_ctx),
     ]
+
+    # Overnight futures context (ES=F, NQ=F)
+    try:
+        es_bars = fetch_overnight_futures("ES=F")
+        nq_bars = fetch_overnight_futures("NQ=F")
+        spy_close = spy_ctx.get("close", 0.0)
+        qqq_prior = fetch_prior_day("QQQ")
+        qqq_close = qqq_prior["close"] if qqq_prior else 0.0
+        overnight_ctx = compute_overnight_context(
+            es_bars, nq_bars, spy_close, qqq_close,
+        )
+        if overnight_ctx:
+            parts.append(_format_overnight_section(overnight_ctx))
+    except Exception:
+        logger.warning("Overnight futures data unavailable")
 
     # Group by priority
     priority_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
