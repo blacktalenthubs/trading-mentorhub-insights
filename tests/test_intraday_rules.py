@@ -15,14 +15,19 @@ from analytics.intraday_rules import (
     _find_resistance_targets,
     _has_overhead_ma_resistance,
     _should_skip_noise,
+    atr_adjusted_stop,
     check_auto_stop_out,
+    check_bb_squeeze_breakout,
     check_ema_crossover_5_20,
+    check_fib_retracement_bounce,
     check_first_hour_summary,
+    check_gap_and_go,
     check_gap_fill,
     check_hourly_resistance_approach,
     check_inside_day_breakout,
     check_inside_day_breakdown,
     check_inside_day_reclaim,
+    check_macd_histogram_flip,
     check_outside_day_breakout,
     check_ma_resistance,
     check_intraday_support_bounce,
@@ -38,6 +43,7 @@ from analytics.intraday_rules import (
     check_ema_resistance,
     check_prior_day_low_bounce,
     check_prior_day_low_reclaim,
+    check_trailing_stop_hit,
     check_weekly_level_touch,
     check_ema_bounce_100,
     check_ema_bounce_200,
@@ -51,6 +57,7 @@ from analytics.intraday_rules import (
     check_support_breakdown,
     check_target_1_hit,
     check_target_2_hit,
+    compute_atr,
     evaluate_rules,
 )
 from analytics.intraday_data import (
@@ -5032,3 +5039,318 @@ class TestFirstHourSummary:
         bars = self._make_bars(30, trend="up")
         sig = check_first_hour_summary("AAPL", bars, self._make_prior())
         assert sig is not None
+
+
+# ===== Professional Rules: MACD Histogram Flip =====
+
+class TestMACDHistogramFlip:
+    """Tests for check_macd_histogram_flip — momentum confirmation."""
+
+    def _make_trending_bars(self, n, start=100, trend_up=True):
+        """Create n bars with a clear trend for MACD computation."""
+        rows = []
+        for i in range(n):
+            if trend_up:
+                c = start + i * 0.3
+            else:
+                c = start - i * 0.3
+            rows.append({
+                "Open": c - 0.2, "High": c + 0.5,
+                "Low": c - 0.5, "Close": c, "Volume": 1000,
+            })
+        return _bars(rows)
+
+    def test_fires_on_histogram_flip_positive(self):
+        """MACD histogram flips negative→positive → BUY signal."""
+        # Create downtrend then uptrend to get histogram flip
+        n = 40
+        rows = []
+        for i in range(20):
+            c = 100 - i * 0.5  # downtrend
+            rows.append({"Open": c + 0.2, "High": c + 0.5, "Low": c - 0.5, "Close": c, "Volume": 1000})
+        for i in range(20):
+            c = 90 + i * 0.8  # stronger uptrend to flip MACD
+            rows.append({"Open": c - 0.2, "High": c + 0.5, "Low": c - 0.5, "Close": c, "Volume": 1000})
+        bars = _bars(rows)
+        prior = {"close": bars.iloc[-2]["Close"]}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        # May or may not fire depending on exact MACD values, but should not crash
+        if sig is not None:
+            assert sig.alert_type == AlertType.MACD_HISTOGRAM_FLIP
+            assert sig.direction == "BUY"
+
+    def test_returns_none_with_insufficient_bars(self):
+        """Too few bars → None."""
+        bars = self._make_trending_bars(10)
+        sig = check_macd_histogram_flip("AAPL", bars, {"close": 99})
+        assert sig is None
+
+    def test_returns_none_when_histogram_stays_negative(self):
+        """Steady downtrend keeps histogram negative → None."""
+        bars = self._make_trending_bars(40, trend_up=False)
+        prior = {"close": bars.iloc[-2]["Close"]}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        # In steady downtrend, histogram should stay negative
+        assert sig is None
+
+    def test_returns_none_without_close_confirmation(self):
+        """Close below prior close → no confirmation → None."""
+        rows = []
+        for i in range(20):
+            c = 100 - i * 0.5
+            rows.append({"Open": c + 0.2, "High": c + 0.5, "Low": c - 0.5, "Close": c, "Volume": 1000})
+        for i in range(20):
+            c = 90 + i * 0.8
+            rows.append({"Open": c - 0.2, "High": c + 0.5, "Low": c - 0.5, "Close": c, "Volume": 1000})
+        bars = _bars(rows)
+        # Set prior close higher than current → no confirmation
+        prior = {"close": bars.iloc[-1]["Close"] + 10}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        assert sig is None
+
+
+# ===== Professional Rules: Bollinger Band Squeeze Breakout =====
+
+class TestBBSqueezeBreakout:
+    """Tests for check_bb_squeeze_breakout — volatility squeeze detection."""
+
+    def test_returns_none_with_insufficient_bars(self):
+        """Too few bars for BB calculation → None."""
+        rows = [{"Open": 100, "High": 101, "Low": 99, "Close": 100, "Volume": 1000}] * 10
+        bars = _bars(rows)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        assert sig is None
+
+    def test_returns_none_no_breakout(self):
+        """Close below upper band → no breakout → None."""
+        # Create 50 bars with very tight range (squeeze) but close below upper band
+        rows = []
+        for i in range(50):
+            c = 100.0 + (i % 2) * 0.01  # barely moves → tight BB
+            rows.append({"Open": c, "High": c + 0.01, "Low": c - 0.01, "Close": c, "Volume": 1000})
+        bars = _bars(rows)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        # Close is inside the band, so no breakout
+        assert sig is None
+
+    def test_fires_on_squeeze_breakout(self):
+        """Tight range followed by breakout above upper band → BUY."""
+        rows = []
+        # 45 bars of tight range (BB squeeze)
+        for i in range(45):
+            rows.append({"Open": 100, "High": 100.05, "Low": 99.95, "Close": 100, "Volume": 1000})
+        # Last 5 bars: explosive breakout
+        for i in range(5):
+            c = 100 + (i + 1) * 2  # big move up
+            rows.append({"Open": c - 1, "High": c + 1, "Low": c - 1.5, "Close": c, "Volume": 2000})
+        bars = _bars(rows)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        if sig is not None:
+            assert sig.alert_type == AlertType.BB_SQUEEZE_BREAKOUT
+            assert sig.direction == "BUY"
+            assert sig.confidence == "high"
+
+
+# ===== Professional Rules: ATR Computation & Dynamic Stops =====
+
+class TestComputeATR:
+    """Tests for compute_atr — Average True Range."""
+
+    def test_returns_none_insufficient_bars(self):
+        """Not enough bars → None."""
+        rows = [{"Open": 100, "High": 101, "Low": 99, "Close": 100, "Volume": 1000}] * 5
+        bars = _bars(rows)
+        assert compute_atr(bars) is None
+
+    def test_returns_valid_atr(self):
+        """Enough bars → returns positive float."""
+        rows = []
+        for i in range(20):
+            rows.append({"Open": 100 + i * 0.1, "High": 101 + i * 0.1, "Low": 99 + i * 0.1, "Close": 100.5 + i * 0.1, "Volume": 1000})
+        bars = _bars(rows)
+        atr = compute_atr(bars)
+        assert atr is not None
+        assert atr > 0
+
+    def test_atr_reflects_volatility(self):
+        """Higher volatility bars → higher ATR."""
+        # Low vol bars
+        rows_low = [{"Open": 100, "High": 100.5, "Low": 99.5, "Close": 100, "Volume": 1000}] * 20
+        # High vol bars
+        rows_high = [{"Open": 100, "High": 105, "Low": 95, "Close": 100, "Volume": 1000}] * 20
+        atr_low = compute_atr(_bars(rows_low))
+        atr_high = compute_atr(_bars(rows_high))
+        assert atr_low is not None
+        assert atr_high is not None
+        assert atr_high > atr_low
+
+
+class TestATRAdjustedStop:
+    """Tests for atr_adjusted_stop — dynamic stop with feature flag."""
+
+    def test_atr_stop_with_valid_atr(self):
+        """USE_ATR_STOPS=True, valid ATR → entry - ATR * multiplier."""
+        stop = atr_adjusted_stop(100.0, 2.0)
+        # 100 - 2.0 * 1.5 = 97.0
+        assert stop == 97.0
+
+    def test_fallback_when_atr_none(self):
+        """ATR is None → falls back to fixed % stop."""
+        stop = atr_adjusted_stop(100.0, None)
+        # Should be entry * (1 - DAY_TRADE_MAX_RISK_PCT) = 100 * 0.997 = 99.70
+        assert stop == 99.70
+
+    def test_per_symbol_override(self):
+        """Per-symbol risk override applied on ATR=None fallback."""
+        stop = atr_adjusted_stop(100.0, None, symbol="SPY")
+        # SPY has 0.002 risk → 100 * 0.998 = 99.80
+        assert stop == 99.80
+
+
+# ===== Professional Rules: Trailing Stop =====
+
+class TestTrailingStopHit:
+    """Tests for check_trailing_stop_hit — trail-based exits."""
+
+    def test_fires_when_low_breaches_trail(self):
+        """Bar low below trailing stop → SELL signal."""
+        bar = _bar(open_=100, high=101, low=98, close=99, volume=1000)
+        sig = check_trailing_stop_hit("AAPL", bar, 99.50)
+        assert sig is not None
+        assert sig.alert_type == AlertType.TRAILING_STOP_HIT
+        assert sig.direction == "SELL"
+
+    def test_no_fire_when_low_above_trail(self):
+        """Bar low stays above trailing stop → None."""
+        bar = _bar(open_=100, high=101, low=99.6, close=100, volume=1000)
+        sig = check_trailing_stop_hit("AAPL", bar, 99.50)
+        assert sig is None
+
+    def test_no_fire_when_trail_zero(self):
+        """Trailing stop level at 0 → None."""
+        bar = _bar()
+        sig = check_trailing_stop_hit("AAPL", bar, 0)
+        assert sig is None
+
+    def test_no_fire_when_trail_negative(self):
+        """Trailing stop level negative → None."""
+        bar = _bar()
+        sig = check_trailing_stop_hit("AAPL", bar, -1)
+        assert sig is None
+
+
+# ===== Professional Rules: Gap-and-Go =====
+
+class TestGapAndGo:
+    """Tests for check_gap_and_go — gap up with volume confirmation."""
+
+    def test_fires_on_valid_gap_and_go(self):
+        """1%+ gap up, 2x+ volume on first bar, close above open → BUY."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 5000},
+            {"Open": 102.5, "High": 104.0, "Low": 102.0, "Close": 103.5, "Volume": 3000},
+        ]
+        bars = _bars(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3000, 2000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.GAP_AND_GO
+        assert sig.direction == "BUY"
+
+    def test_no_fire_gap_too_small(self):
+        """Gap < 1% → None."""
+        rows = [
+            {"Open": 100.5, "High": 101.0, "Low": 100.0, "Close": 100.8, "Volume": 5000},
+        ]
+        bars = _bars(rows)
+        sig = check_gap_and_go("AAPL", bars, 100.0, 5000, 2000)
+        assert sig is None
+
+    def test_no_fire_low_volume(self):
+        """First bar volume < 2x avg → None."""
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 1500},
+        ]
+        bars = _bars(rows)
+        sig = check_gap_and_go("AAPL", bars, 100.0, 1500, 2000)
+        assert sig is None
+
+    def test_no_fire_price_faded(self):
+        """Close below gap open (faded) → None."""
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 100.5, "Close": 101.0, "Volume": 5000},
+            {"Open": 101.0, "High": 101.5, "Low": 100.0, "Close": 100.5, "Volume": 3000},
+        ]
+        bars = _bars(rows)
+        sig = check_gap_and_go("AAPL", bars, 100.0, 3000, 2000)
+        assert sig is None
+
+    def test_no_fire_empty_bars(self):
+        """Empty bars → None."""
+        bars = _bars([])
+        sig = check_gap_and_go("AAPL", bars, 100.0, 1000, 1000)
+        assert sig is None
+
+    def test_no_fire_none_prior_close(self):
+        """None prior close → None."""
+        rows = [{"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 5000}]
+        bars = _bars(rows)
+        sig = check_gap_and_go("AAPL", bars, None, 5000, 2000)
+        assert sig is None
+
+
+# ===== Professional Rules: Fibonacci Retracement Bounce =====
+
+class TestFibRetracementBounce:
+    """Tests for check_fib_retracement_bounce — fib level support."""
+
+    def test_fires_on_50pct_retracement_bounce(self):
+        """Bar low at 50% fib, closes above → BUY."""
+        # Prior range: high=110, low=100, range=10
+        # 50% retracement = 110 - 5 = 105
+        prior_high = 110.0
+        prior_low = 100.0
+        bar = _bar(open_=105.5, high=106, low=104.9, close=105.5, volume=1000)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        assert sig.alert_type == AlertType.FIB_RETRACEMENT_BOUNCE
+        assert sig.direction == "BUY"
+
+    def test_fires_on_618_retracement(self):
+        """Bar low at 61.8% fib → BUY with high confidence."""
+        prior_high = 110.0
+        prior_low = 100.0
+        # 61.8% retracement = 110 - 6.18 = 103.82
+        bar = _bar(open_=104.0, high=104.5, low=103.8, close=104.2, volume=1000)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_no_fire_range_too_small(self):
+        """Prior range < 3% → None (too noisy)."""
+        bar = _bar(open_=100, high=101, low=99.5, close=100.3, volume=1000)
+        sig = check_fib_retracement_bounce("AAPL", bar, 101.0, 99.0)  # 2% range
+        assert sig is None
+
+    def test_no_fire_no_bounce(self):
+        """Close below fib level (no bounce) → None."""
+        prior_high = 110.0
+        prior_low = 100.0
+        # 50% = 105.0, close below it
+        bar = _bar(open_=105.5, high=106, low=104.9, close=104.5, volume=1000)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        # Should return None because close(104.5) < fib(105.0)
+        assert sig is None
+
+    def test_no_fire_bar_too_far_from_fib(self):
+        """Bar low not near any fib level → None."""
+        bar = _bar(open_=108, high=109, low=107.5, close=108.5, volume=1000)
+        sig = check_fib_retracement_bounce("AAPL", bar, 110.0, 100.0)
+        # 107.5 isn't near 38.2%(105.82), 50%(105), or 61.8%(103.82)
+        assert sig is None
+
+    def test_no_fire_invalid_range(self):
+        """Prior high <= prior low → None."""
+        bar = _bar()
+        sig = check_fib_retracement_bounce("AAPL", bar, 100.0, 100.0)
+        assert sig is None

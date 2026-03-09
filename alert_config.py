@@ -287,6 +287,78 @@ SWING_200MA_RECLAIM_CONFIRM_EMA10 = True          # require close > EMA10 too
 SWING_REGIME_GATE = True                          # require SPY > 20 EMA
 
 # ---------------------------------------------------------------------------
+# MACD parameters (standard 12/26/9)
+# ---------------------------------------------------------------------------
+MACD_FAST = 12
+MACD_SLOW = 26
+MACD_SIGNAL = 9
+
+# ---------------------------------------------------------------------------
+# Bollinger Band Squeeze & Breakout
+# ---------------------------------------------------------------------------
+BB_PERIOD = 20
+BB_STD_DEV = 2.0
+BB_SQUEEZE_LOOKBACK = 20           # bars to look back for width percentile
+BB_SQUEEZE_PERCENTILE = 10         # width < 10th percentile of lookback = squeeze
+
+# ---------------------------------------------------------------------------
+# ATR-Based Dynamic Stops (feature flag: set False to use fixed % stops only)
+# ---------------------------------------------------------------------------
+ATR_PERIOD = 14
+ATR_DAY_TRADE_MULTIPLIER = 1.5     # 1.5x ATR for day-trade stops
+ATR_SWING_MULTIPLIER = 2.0         # 2.0x ATR for swing-trade stops
+USE_ATR_STOPS = True               # feature flag — False reverts to fixed % stops
+
+# ---------------------------------------------------------------------------
+# Trailing Stops
+# ---------------------------------------------------------------------------
+TRAILING_STOP_ATR_MULTIPLIER = 1.5  # trail by 1.5x ATR from highest high
+ENABLE_TRAILING_STOPS = True        # feature flag
+
+# ---------------------------------------------------------------------------
+# Fibonacci Retracement
+# ---------------------------------------------------------------------------
+FIB_LEVELS = [0.382, 0.5, 0.618]
+FIB_BOUNCE_PROXIMITY_PCT = 0.003   # 0.3% — bar low within this of fib level
+
+# ---------------------------------------------------------------------------
+# Bull Flag Pattern Detection
+# ---------------------------------------------------------------------------
+FLAG_IMPULSE_MIN_PCT = 0.05        # 5% minimum impulse move
+FLAG_PULLBACK_MAX_RETRACE = 0.50   # max 50% retracement of impulse
+FLAG_CONSOLIDATION_MIN_DAYS = 3
+FLAG_CONSOLIDATION_MAX_DAYS = 8
+
+# ---------------------------------------------------------------------------
+# Gap and Go
+# ---------------------------------------------------------------------------
+GAP_AND_GO_MIN_PCT = 0.01         # 1% minimum gap size
+GAP_AND_GO_VOLUME_RATIO = 2.0     # first bar volume > 2x average
+
+# ---------------------------------------------------------------------------
+# Relative Volume (RVOL)
+# ---------------------------------------------------------------------------
+RVOL_HIGH_THRESHOLD = 2.0         # 2x same-time-of-day average = high RVOL
+RVOL_LOOKBACK_DAYS = 20           # days of history for RVOL calculation
+
+# ---------------------------------------------------------------------------
+# Candle Patterns (Swing)
+# ---------------------------------------------------------------------------
+HAMMER_WICK_RATIO = 2.0           # lower wick > 2x body = hammer
+ENGULFING_MIN_BODY_RATIO = 1.1    # engulfing body > 1.1x prior body
+
+# ---------------------------------------------------------------------------
+# Consecutive Red/Green Days (Swing)
+# ---------------------------------------------------------------------------
+CONSECUTIVE_DAYS_THRESHOLD = 3     # 3+ consecutive red/green days
+
+# ---------------------------------------------------------------------------
+# RSI/Price Divergence Detection (Swing)
+# ---------------------------------------------------------------------------
+DIVERGENCE_LOOKBACK_BARS = 20      # bars to look back for divergence
+DIVERGENCE_MIN_SWING_SIZE = 0.02   # 2% minimum swing size
+
+# ---------------------------------------------------------------------------
 # Enabled rules — only rules listed here will fire via evaluate_rules().
 # Uses string values (not AlertType enum) to avoid circular imports.
 # Disabled: breakout-based (ORB, inside day), momentum (EMA crossover),
@@ -341,6 +413,11 @@ ENABLED_RULES: set[str] = {
     # "support_breakdown",
     # NOTICE — informational
     "first_hour_summary",
+    # Phase 2: Professional rules
+    "macd_histogram_flip",
+    "bb_squeeze_breakout",
+    "gap_and_go",
+    "fib_retracement_bounce",
 }
 
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)
