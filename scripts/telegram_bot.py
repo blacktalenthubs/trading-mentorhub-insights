@@ -89,7 +89,15 @@ def _build_app(bot_token: str):
         if not context.args:
             await update.message.reply_text(
                 "Welcome to TradeCoPilot Bot!\n\n"
-                "To link your account, use the link from Settings > Notifications."
+                "To link your Telegram to your TradeCoPilot account:\n\n"
+                "1. Log in to TradeCoPilot (your web dashboard)\n"
+                "2. Go to Settings > Notifications\n"
+                "3. Scroll to Telegram DM Alerts\n"
+                "4. Click \"Generate Link\"\n"
+                "5. Open the link it gives you — it will send "
+                "a special /start command back here that connects "
+                "your account automatically\n\n"
+                "Note: Telegram DM alerts require a Pro or Elite subscription."
             )
             return
 
