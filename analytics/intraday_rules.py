@@ -96,6 +96,22 @@ from alert_config import (
     OPENING_LOW_BASE_HOLD_PCT,
     OPENING_LOW_BASE_MIN_DIP_PCT,
     OPENING_LOW_BASE_STOP_OFFSET_PCT,
+    ATR_PERIOD,
+    ATR_DAY_TRADE_MULTIPLIER,
+    USE_ATR_STOPS,
+    TRAILING_STOP_ATR_MULTIPLIER,
+    ENABLE_TRAILING_STOPS,
+    MACD_FAST,
+    MACD_SLOW,
+    MACD_SIGNAL,
+    BB_PERIOD,
+    BB_STD_DEV,
+    BB_SQUEEZE_LOOKBACK,
+    BB_SQUEEZE_PERCENTILE,
+    FIB_LEVELS,
+    FIB_BOUNCE_PROXIMITY_PCT,
+    GAP_AND_GO_MIN_PCT,
+    GAP_AND_GO_VOLUME_RATIO,
 )
 from analytics.market_hours import (
     allow_new_entries,
@@ -158,6 +174,18 @@ class AlertType(str, Enum):
     SWING_STOPPED_OUT = "swing_stopped_out"
     # Informational — first hour summary
     FIRST_HOUR_SUMMARY = "first_hour_summary"
+    # Professional rules — day trade
+    MACD_HISTOGRAM_FLIP = "macd_histogram_flip"
+    BB_SQUEEZE_BREAKOUT = "bb_squeeze_breakout"
+    TRAILING_STOP_HIT = "trailing_stop_hit"
+    GAP_AND_GO = "gap_and_go"
+    FIB_RETRACEMENT_BOUNCE = "fib_retracement_bounce"
+    # Professional rules — swing
+    SWING_MACD_CROSSOVER = "swing_macd_crossover"
+    SWING_RSI_DIVERGENCE = "swing_rsi_divergence"
+    SWING_BULL_FLAG = "swing_bull_flag"
+    SWING_CANDLE_PATTERN = "swing_candle_pattern"
+    SWING_CONSECUTIVE_RED = "swing_consecutive_red"
 
 
 @dataclass
@@ -2966,6 +2994,349 @@ def _score_alert_v2(
 
 
 # ---------------------------------------------------------------------------
+# Professional rules — MACD Histogram Flip
+# ---------------------------------------------------------------------------
+
+
+def _compute_macd(bars: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Compute MACD line, signal line, and histogram from close prices."""
+    close = bars["Close"]
+    ema_fast = close.ewm(span=MACD_FAST, adjust=False).mean()
+    ema_slow = close.ewm(span=MACD_SLOW, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=MACD_SIGNAL, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+
+def check_macd_histogram_flip(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict | None,
+) -> AlertSignal | None:
+    """MACD histogram flips from negative to positive → bullish momentum shift.
+
+    Conditions:
+    - At least MACD_SLOW + MACD_SIGNAL bars available
+    - Previous histogram bar was negative
+    - Current histogram bar is positive (flip)
+    - Close above prior close (confirmation)
+    """
+    min_bars = MACD_SLOW + MACD_SIGNAL
+    if len(bars) < min_bars:
+        return None
+
+    _, _, histogram = _compute_macd(bars)
+    if len(histogram) < 2:
+        return None
+
+    prev_hist = histogram.iloc[-2]
+    curr_hist = histogram.iloc[-1]
+
+    # Flip: negative → positive
+    if prev_hist >= 0 or curr_hist <= 0:
+        return None
+
+    last_bar = bars.iloc[-1]
+    prior_close = prior_day.get("close", 0) if prior_day else 0
+    if prior_close > 0 and last_bar["Close"] <= prior_close:
+        return None  # no bullish confirmation
+
+    price = last_bar["Close"]
+    # Use session low as stop, 1R/2R targets
+    session_low = bars["Low"].min()
+    entry = round(price, 2)
+    stop = round(session_low * 0.998, 2)  # 0.2% below session low
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MACD_HISTOGRAM_FLIP,
+        direction="BUY",
+        price=price,
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high" if curr_hist > abs(prev_hist) else "medium",
+        message=(
+            f"MACD histogram flip — momentum turning bullish "
+            f"(hist {prev_hist:.4f} → {curr_hist:.4f})"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Professional rules — Bollinger Band Squeeze & Breakout
+# ---------------------------------------------------------------------------
+
+
+def check_bb_squeeze_breakout(
+    symbol: str,
+    bars: pd.DataFrame,
+) -> AlertSignal | None:
+    """BB width contracts to squeeze, then close breaks above upper band → BUY.
+
+    Conditions:
+    - At least BB_PERIOD + BB_SQUEEZE_LOOKBACK bars available
+    - BB width is in bottom BB_SQUEEZE_PERCENTILE of recent lookback
+    - Close is above upper Bollinger Band
+    """
+    min_bars = BB_PERIOD + BB_SQUEEZE_LOOKBACK
+    if len(bars) < min_bars:
+        return None
+
+    close = bars["Close"]
+    sma = close.rolling(BB_PERIOD).mean()
+    std = close.rolling(BB_PERIOD).std()
+    upper = sma + BB_STD_DEV * std
+    lower = sma - BB_STD_DEV * std
+    width = (upper - lower) / sma  # normalized bandwidth
+
+    if width.iloc[-1] is None or pd.isna(width.iloc[-1]):
+        return None
+
+    # Check squeeze: current width in bottom percentile of lookback
+    recent_widths = width.iloc[-BB_SQUEEZE_LOOKBACK:]
+    threshold = recent_widths.quantile(BB_SQUEEZE_PERCENTILE / 100.0)
+    if width.iloc[-1] > threshold:
+        return None  # not in squeeze
+
+    last_bar = bars.iloc[-1]
+    upper_val = upper.iloc[-1]
+    middle_val = sma.iloc[-1]
+    if pd.isna(upper_val) or pd.isna(middle_val):
+        return None
+
+    # Close must break above upper band
+    if last_bar["Close"] <= upper_val:
+        return None
+
+    entry = round(upper_val, 2)
+    stop = round(middle_val, 2)  # middle band as stop
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.BB_SQUEEZE_BREAKOUT,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high",
+        message=(
+            f"Bollinger squeeze breakout — bandwidth at "
+            f"{width.iloc[-1]:.4f} (squeeze), close above upper band "
+            f"${upper_val:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Professional rules — ATR-Based Dynamic Stops
+# ---------------------------------------------------------------------------
+
+
+def compute_atr(bars: pd.DataFrame, period: int = ATR_PERIOD) -> float | None:
+    """Compute Average True Range over the given period."""
+    if len(bars) < period + 1:
+        return None
+    high = bars["High"]
+    low = bars["Low"]
+    close = bars["Close"]
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean()
+    val = atr.iloc[-1]
+    return float(val) if not pd.isna(val) else None
+
+
+def atr_adjusted_stop(entry: float, atr: float | None, symbol: str | None = None) -> float:
+    """Return ATR-based stop if USE_ATR_STOPS is True and ATR is available.
+
+    Falls back to fixed % stop from _cap_risk() when ATR is unavailable.
+    """
+    if not USE_ATR_STOPS or atr is None or atr <= 0:
+        rate = PER_SYMBOL_RISK.get(symbol, DAY_TRADE_MAX_RISK_PCT) if symbol else DAY_TRADE_MAX_RISK_PCT
+        return round(entry * (1 - rate), 2)
+    return round(entry - atr * ATR_DAY_TRADE_MULTIPLIER, 2)
+
+
+# ---------------------------------------------------------------------------
+# Professional rules — Trailing Stop
+# ---------------------------------------------------------------------------
+
+
+def check_trailing_stop_hit(
+    symbol: str,
+    bar: pd.Series,
+    trailing_stop_level: float,
+) -> AlertSignal | None:
+    """Fire when bar low breaches the trailing stop level.
+
+    The trailing stop level is computed externally (highest high - ATR * multiplier)
+    and passed in from the caller.
+    """
+    if not ENABLE_TRAILING_STOPS or trailing_stop_level <= 0:
+        return None
+    if bar["Low"] > trailing_stop_level:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.TRAILING_STOP_HIT,
+        direction="SELL",
+        price=bar["Close"],
+        message=(
+            f"Trailing stop hit — low ${bar['Low']:.2f} breached "
+            f"trail ${trailing_stop_level:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Professional rules — Gap-and-Go
+# ---------------------------------------------------------------------------
+
+
+def check_gap_and_go(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_close: float | None,
+    bar_vol: float,
+    avg_vol: float,
+) -> AlertSignal | None:
+    """Gap up >1% + first-bar volume >2x avg → momentum continuation BUY.
+
+    Conditions:
+    - Gap up >= GAP_AND_GO_MIN_PCT
+    - First 5-min bar volume >= GAP_AND_GO_VOLUME_RATIO * average
+    - Current bar (latest) closes above the gap open
+    """
+    if bars.empty or prior_close is None or prior_close <= 0:
+        return None
+
+    today_open = bars["Open"].iloc[0]
+    gap_pct = (today_open - prior_close) / prior_close
+    if gap_pct < GAP_AND_GO_MIN_PCT:
+        return None
+
+    # First bar volume confirmation
+    first_bar_vol = bars["Volume"].iloc[0]
+    if avg_vol <= 0 or first_bar_vol < GAP_AND_GO_VOLUME_RATIO * avg_vol:
+        return None
+
+    last_bar = bars.iloc[-1]
+    # Must still be above the gap open (not a gap-and-fade)
+    if last_bar["Close"] <= today_open:
+        return None
+
+    entry = round(today_open, 2)
+    stop = round(prior_close, 2)  # stop at gap fill
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.GAP_AND_GO,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="high" if gap_pct >= 0.02 else "medium",
+        message=(
+            f"Gap-and-Go — gap up {gap_pct:.1%} with {first_bar_vol / avg_vol:.1f}x "
+            f"volume on first bar. Momentum continuation."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Professional rules — Fibonacci Retracement Bounce
+# ---------------------------------------------------------------------------
+
+
+def check_fib_retracement_bounce(
+    symbol: str,
+    bar: pd.Series,
+    prior_high: float,
+    prior_low: float,
+) -> AlertSignal | None:
+    """Bar low touches 50% or 61.8% fib retracement of prior day range and bounces.
+
+    Conditions:
+    - Prior range is meaningful (> 0)
+    - Bar low within FIB_BOUNCE_PROXIMITY_PCT of a key fib level (50% or 61.8%)
+    - Bar closes above the fib level (bounce confirmed)
+    """
+    if prior_high <= prior_low or prior_high <= 0:
+        return None
+
+    swing_range = prior_high - prior_low
+    # Require meaningful range (at least 3% of price) to avoid noise on tiny ranges
+    if swing_range / prior_high < 0.03:
+        return None
+
+    for fib_pct in FIB_LEVELS:
+        # Fib levels measured as retracement from high
+        fib_level = prior_high - swing_range * fib_pct
+        if fib_level <= 0:
+            continue
+
+        proximity = abs(bar["Low"] - fib_level) / fib_level
+        if proximity > FIB_BOUNCE_PROXIMITY_PCT:
+            continue
+
+        # Must bounce: close above the fib level
+        if bar["Close"] <= fib_level:
+            continue
+
+        entry = round(fib_level, 2)
+        # Stop below next fib level or prior low
+        next_fibs = [prior_high - swing_range * f for f in FIB_LEVELS if f > fib_pct]
+        stop_level = next_fibs[0] if next_fibs else prior_low
+        stop = round(stop_level * 0.998, 2)  # small buffer
+        risk = entry - stop
+        if risk <= 0:
+            continue
+
+        fib_label = f"{fib_pct:.1%}"
+        confidence = "high" if fib_pct >= 0.5 else "medium"
+
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.FIB_RETRACEMENT_BOUNCE,
+            direction="BUY",
+            price=bar["Close"],
+            entry=entry,
+            stop=stop,
+            target_1=round(entry + risk, 2),
+            target_2=round(entry + 2 * risk, 2),
+            confidence=confidence,
+            message=(
+                f"Fibonacci {fib_label} retracement bounce — "
+                f"low ${bar['Low']:.2f} touched fib ${fib_level:.2f}, "
+                f"bounced to ${bar['Close']:.2f}"
+            ),
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Signal Consolidation
 # ---------------------------------------------------------------------------
 
@@ -3165,6 +3536,9 @@ def evaluate_rules(
 
     # Session low for structural MA bounce stops
     session_low = intraday_bars["Low"].min() if not intraday_bars.empty else 0
+
+    # ATR for dynamic stops
+    current_atr = compute_atr(intraday_bars)
 
     # Fetch multi-day 1h bars (used for both hourly resistance and hourly support)
     from analytics.intraday_data import (
@@ -3462,6 +3836,46 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
+        # --- MACD Histogram Flip ---
+        if AlertType.MACD_HISTOGRAM_FLIP.value in ENABLED_RULES:
+            sig = check_macd_histogram_flip(symbol, intraday_bars, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Bollinger Band Squeeze Breakout ---
+        if AlertType.BB_SQUEEZE_BREAKOUT.value in ENABLED_RULES:
+            sig = check_bb_squeeze_breakout(symbol, intraday_bars)
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Gap-and-Go ---
+        if AlertType.GAP_AND_GO.value in ENABLED_RULES:
+            sig = check_gap_and_go(
+                symbol, intraday_bars, prior_close, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Fibonacci Retracement Bounce ---
+        if AlertType.FIB_RETRACEMENT_BOUNCE.value in ENABLED_RULES:
+            sig = check_fib_retracement_bounce(
+                symbol, last_bar, prior_high, prior_low,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
     # --- Gap Fill (INFO — fires regardless of cooldown) ---
     if AlertType.GAP_FILL.value in ENABLED_RULES:
         sig = check_gap_fill(symbol, last_bar, gap_fill_info)
@@ -3654,6 +4068,9 @@ def evaluate_rules(
         AlertType.OUTSIDE_DAY_BREAKOUT.value,
         AlertType.WEEKLY_HIGH_BREAKOUT.value,
         AlertType.OPENING_RANGE_BREAKOUT.value,
+        AlertType.BB_SQUEEZE_BREAKOUT.value,
+        AlertType.GAP_AND_GO.value,
+        AlertType.MACD_HISTOGRAM_FLIP.value,
     }
     current_price = last_bar["Close"]
     pre_stale = signals[:]
@@ -3719,6 +4136,17 @@ def evaluate_rules(
                 risk = sig.entry - sig.stop
                 sig.target_1 = round(sig.entry + risk, 2)
                 sig.target_2 = round(sig.entry + 2 * risk, 2)
+
+        # ATR-based dynamic stop (feature flag: USE_ATR_STOPS)
+        if sig.direction == "BUY" and sig.entry and sig.stop and current_atr:
+            atr_stop = atr_adjusted_stop(sig.entry, current_atr, symbol=symbol)
+            # Use ATR stop only if it's tighter (higher) than current stop
+            if atr_stop > sig.stop:
+                sig.stop = atr_stop
+                risk = sig.entry - sig.stop
+                if risk > 0:
+                    sig.target_1 = round(sig.entry + risk, 2)
+                    sig.target_2 = round(sig.entry + 2 * risk, 2)
 
         # Smart resistance-based targets for all BUY signals
         if (sig.direction == "BUY" and sig.entry and sig.stop):

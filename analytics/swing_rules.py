@@ -10,6 +10,18 @@ from __future__ import annotations
 import logging
 
 from alert_config import (
+    CONSECUTIVE_DAYS_THRESHOLD,
+    DIVERGENCE_LOOKBACK_BARS,
+    DIVERGENCE_MIN_SWING_SIZE,
+    ENGULFING_MIN_BODY_RATIO,
+    FLAG_CONSOLIDATION_MAX_DAYS,
+    FLAG_CONSOLIDATION_MIN_DAYS,
+    FLAG_IMPULSE_MIN_PCT,
+    FLAG_PULLBACK_MAX_RETRACE,
+    HAMMER_WICK_RATIO,
+    MACD_FAST,
+    MACD_SIGNAL,
+    MACD_SLOW,
     SWING_200MA_RECLAIM_CONFIRM_EMA10,
     SWING_EMA_CROSSOVER_MIN_SEPARATION_PCT,
     SWING_PULLBACK_PROXIMITY_PCT,
@@ -248,6 +260,331 @@ def check_swing_pullback_20ema(
 
 
 # ---------------------------------------------------------------------------
+# Professional swing rules — MACD Signal Line Crossover
+# ---------------------------------------------------------------------------
+
+
+def check_swing_macd_crossover(
+    symbol: str, prior_day: dict,
+) -> AlertSignal | None:
+    """Daily MACD crosses above signal line → bullish momentum.
+
+    Requires macd_line, macd_signal, macd_line_prev, macd_signal_prev
+    in prior_day dict.
+    """
+    macd = prior_day.get("macd_line")
+    macd_prev = prior_day.get("macd_line_prev")
+    signal = prior_day.get("macd_signal")
+    signal_prev = prior_day.get("macd_signal_prev")
+    close = prior_day.get("close")
+
+    if None in (macd, macd_prev, signal, signal_prev, close):
+        return None
+
+    # Crossover: MACD was at/below signal, now above
+    if macd_prev > signal_prev or macd <= signal:
+        return None
+
+    score = _score_signal(prior_day)
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_MACD_CROSSOVER,
+        direction="BUY",
+        price=close,
+        entry=close,
+        message=(
+            f"[SWING] MACD bullish crossover — "
+            f"MACD {macd:.4f} > Signal {signal:.4f} | "
+            f"Stop: MACD crosses back below signal | Target: RSI 70"
+        ),
+        score=score,
+        score_label=_score_label(score),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Professional swing rules — RSI Divergence
+# ---------------------------------------------------------------------------
+
+
+def check_swing_rsi_divergence(
+    symbol: str, daily_closes: list[float], daily_rsi: list[float],
+) -> AlertSignal | None:
+    """Detect bullish RSI divergence: price lower low but RSI higher low.
+
+    Args:
+        daily_closes: Last N daily close prices (oldest first).
+        daily_rsi: Last N daily RSI values (oldest first).
+    """
+    n = DIVERGENCE_LOOKBACK_BARS
+    if len(daily_closes) < n or len(daily_rsi) < n:
+        return None
+
+    closes = daily_closes[-n:]
+    rsi_vals = daily_rsi[-n:]
+
+    # Find swing lows: local minima in price
+    price_lows = []
+    for i in range(1, len(closes) - 1):
+        if closes[i] < closes[i - 1] and closes[i] < closes[i + 1]:
+            price_lows.append((i, closes[i], rsi_vals[i]))
+
+    if len(price_lows) < 2:
+        return None
+
+    # Check last two swing lows for divergence
+    prev_low = price_lows[-2]
+    curr_low = price_lows[-1]
+
+    # Bullish divergence: price lower low, RSI higher low
+    price_made_lower_low = curr_low[1] < prev_low[1]
+    swing_size = abs(curr_low[1] - prev_low[1]) / prev_low[1]
+    rsi_made_higher_low = curr_low[2] > prev_low[2]
+
+    if not (price_made_lower_low and rsi_made_higher_low
+            and swing_size >= DIVERGENCE_MIN_SWING_SIZE):
+        return None
+
+    close = closes[-1]
+    score = 60  # divergence is a moderate-confidence signal
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_RSI_DIVERGENCE,
+        direction="BUY",
+        price=close,
+        entry=close,
+        message=(
+            f"[SWING] Bullish RSI divergence — "
+            f"price ${prev_low[1]:.2f}→${curr_low[1]:.2f} (lower low), "
+            f"RSI {prev_low[2]:.1f}→{curr_low[2]:.1f} (higher low)"
+        ),
+        score=score,
+        score_label=_score_label(score),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Professional swing rules — Bull Flag Pattern
+# ---------------------------------------------------------------------------
+
+
+def check_swing_bull_flag(
+    symbol: str, daily_bars: list[dict],
+) -> AlertSignal | None:
+    """Detect bull flag: strong impulse → tight consolidation → breakout.
+
+    Args:
+        daily_bars: List of dicts with open/high/low/close, oldest first.
+                    Needs at least impulse + flag + 1 breakout bar.
+    """
+    min_bars = 5 + FLAG_CONSOLIDATION_MAX_DAYS + 1
+    if len(daily_bars) < min_bars:
+        return None
+
+    # Search for impulse move in the window before consolidation
+    for impulse_start in range(len(daily_bars) - FLAG_CONSOLIDATION_MIN_DAYS - 2):
+        impulse_end = impulse_start + 5  # minimum 5-day impulse
+        if impulse_end >= len(daily_bars) - FLAG_CONSOLIDATION_MIN_DAYS:
+            break
+
+        impulse_low = daily_bars[impulse_start]["low"]
+        impulse_high = max(d["high"] for d in daily_bars[impulse_start:impulse_end])
+        if impulse_low <= 0:
+            continue
+        impulse_pct = (impulse_high - impulse_low) / impulse_low
+
+        if impulse_pct < FLAG_IMPULSE_MIN_PCT:
+            continue
+
+        # Look for consolidation (flag) after impulse
+        flag_start = impulse_end
+        for flag_len in range(FLAG_CONSOLIDATION_MIN_DAYS, FLAG_CONSOLIDATION_MAX_DAYS + 1):
+            flag_end = flag_start + flag_len
+            if flag_end >= len(daily_bars):
+                break
+
+            flag_bars = daily_bars[flag_start:flag_end]
+            flag_high = max(d["high"] for d in flag_bars)
+            flag_low = min(d["low"] for d in flag_bars)
+
+            # Check retracement: flag low shouldn't drop more than 50% of impulse
+            retrace = (impulse_high - flag_low) / (impulse_high - impulse_low)
+            if retrace > FLAG_PULLBACK_MAX_RETRACE:
+                continue
+
+            # Check breakout: last bar closes above flag high
+            breakout_bar = daily_bars[flag_end] if flag_end < len(daily_bars) else daily_bars[-1]
+            if breakout_bar["close"] <= flag_high:
+                continue
+
+            entry = round(flag_high, 2)
+            stop = round(flag_low, 2)
+            risk = entry - stop
+            if risk <= 0:
+                continue
+
+            return AlertSignal(
+                symbol=symbol,
+                alert_type=AlertType.SWING_BULL_FLAG,
+                direction="BUY",
+                price=breakout_bar["close"],
+                entry=entry,
+                stop=stop,
+                target_1=round(entry + risk, 2),
+                target_2=round(entry + 2 * risk, 2),
+                confidence="high",
+                message=(
+                    f"[SWING] Bull flag breakout — "
+                    f"{impulse_pct:.1%} impulse, {flag_len}-day flag, "
+                    f"breakout above ${flag_high:.2f}"
+                ),
+                score=75,
+                score_label="A",
+            )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Professional swing rules — Candle Patterns (Hammer / Engulfing)
+# ---------------------------------------------------------------------------
+
+
+def check_swing_candle_patterns(
+    symbol: str, prior_day: dict,
+) -> AlertSignal | None:
+    """Detect hammer or bullish engulfing at support.
+
+    Hammer: small body, long lower wick (>2x body).
+    Bullish Engulfing: current green candle body > prior red candle body.
+    """
+    close = prior_day.get("close")
+    open_ = prior_day.get("open")
+    high = prior_day.get("high")
+    low = prior_day.get("low")
+    prev_close = prior_day.get("prev_close")
+    prev_open = prior_day.get("prev_open")
+    ema20 = prior_day.get("ema20")
+
+    if None in (close, open_, high, low):
+        return None
+
+    body = abs(close - open_)
+    bar_range = high - low
+    if bar_range <= 0:
+        return None
+
+    # Hammer: long lower wick, small body in upper half
+    lower_wick = min(close, open_) - low
+    upper_wick = high - max(close, open_)
+    is_hammer = (
+        body > 0
+        and lower_wick >= HAMMER_WICK_RATIO * body
+        and upper_wick < body  # small upper wick
+        and close > open_  # green candle preferred
+    )
+
+    # Bullish Engulfing: current green body > prior red body
+    is_engulfing = False
+    if prev_close is not None and prev_open is not None:
+        prev_body = abs(prev_close - prev_open)
+        is_engulfing = (
+            close > open_  # current is green
+            and prev_close < prev_open  # prior was red
+            and prev_body > 0
+            and body >= ENGULFING_MIN_BODY_RATIO * prev_body
+        )
+
+    if not is_hammer and not is_engulfing:
+        return None
+
+    # Prefer signals near support (EMA20 or below)
+    near_support = True
+    if ema20 and close > 0:
+        distance = (close - ema20) / ema20
+        near_support = distance < 0.02  # within 2% of EMA20
+
+    pattern_name = "Hammer" if is_hammer else "Bullish Engulfing"
+    confidence = "high" if near_support else "medium"
+    score = _score_signal(prior_day)
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_CANDLE_PATTERN,
+        direction="BUY",
+        price=close,
+        entry=close,
+        message=(
+            f"[SWING] {pattern_name} candle at "
+            f"{'support' if near_support else 'current level'} — "
+            f"close ${close:.2f}"
+        ),
+        confidence=confidence,
+        score=score,
+        score_label=_score_label(score),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Professional swing rules — Consecutive Red Days
+# ---------------------------------------------------------------------------
+
+
+def check_swing_consecutive_days(
+    symbol: str, daily_bars: list[dict],
+) -> AlertSignal | None:
+    """3+ consecutive red days near support → mean-reversion BUY signal.
+
+    Args:
+        daily_bars: List of dicts with open/close/ema20, oldest first.
+    """
+    if len(daily_bars) < CONSECUTIVE_DAYS_THRESHOLD:
+        return None
+
+    # Count consecutive red days from the end
+    red_count = 0
+    for bar in reversed(daily_bars):
+        if bar.get("close", 0) < bar.get("open", 0):
+            red_count += 1
+        else:
+            break
+
+    if red_count < CONSECUTIVE_DAYS_THRESHOLD:
+        return None
+
+    last = daily_bars[-1]
+    close = last.get("close", 0)
+    ema20 = last.get("ema20")
+
+    # Check proximity to support (EMA20)
+    near_support = False
+    if ema20 and close > 0:
+        distance = abs(close - ema20) / ema20
+        near_support = distance < 0.02  # within 2%
+
+    if not near_support:
+        return None
+
+    score = 55  # mean-reversion is moderate confidence
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_CONSECUTIVE_RED,
+        direction="BUY",
+        price=close,
+        entry=close,
+        message=(
+            f"[SWING] {red_count} consecutive red days near 20 EMA support "
+            f"(${ema20:.2f}) — mean-reversion setup"
+        ),
+        score=score,
+        score_label=_score_label(score),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -275,10 +612,36 @@ def evaluate_swing_rules(
         check_swing_ema_crossover_5_20,
         check_swing_200ma_reclaim,
         check_swing_pullback_20ema,
+        check_swing_macd_crossover,
+        check_swing_candle_patterns,
     ):
         sig = check_fn(symbol, prior_day)
         if sig and (symbol, sig.alert_type.value) not in fired_today:
             # Enrich with SPY trend
+            sig.spy_trend = spy_context.get("trend", "")
+            signals.append(sig)
+
+    # RSI divergence (needs historical series, passed via prior_day)
+    daily_closes = prior_day.get("daily_closes", [])
+    daily_rsi = prior_day.get("daily_rsi", [])
+    if daily_closes and daily_rsi:
+        sig = check_swing_rsi_divergence(symbol, daily_closes, daily_rsi)
+        if sig and (symbol, sig.alert_type.value) not in fired_today:
+            sig.spy_trend = spy_context.get("trend", "")
+            signals.append(sig)
+
+    # Consecutive red days (needs daily bar history)
+    daily_bars = prior_day.get("daily_bars", [])
+    if daily_bars:
+        sig = check_swing_consecutive_days(symbol, daily_bars)
+        if sig and (symbol, sig.alert_type.value) not in fired_today:
+            sig.spy_trend = spy_context.get("trend", "")
+            signals.append(sig)
+
+    # Bull flag (needs daily bar history)
+    if daily_bars:
+        sig = check_swing_bull_flag(symbol, daily_bars)
+        if sig and (symbol, sig.alert_type.value) not in fired_today:
             sig.spy_trend = spy_context.get("trend", "")
             signals.append(sig)
 
