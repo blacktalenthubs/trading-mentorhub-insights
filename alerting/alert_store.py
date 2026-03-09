@@ -304,6 +304,30 @@ def get_user_id_by_chat_id(chat_id: str) -> int | None:
         return row["user_id"] if row else None
 
 
+def has_acked_entry(symbol: str, user_id: int, session_date: str | None = None) -> bool:
+    """Check if user has ACK'd (took) any BUY/SHORT alert for this symbol today."""
+    session = session_date or today_session()
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT 1 FROM alerts
+               WHERE symbol=? AND user_id=? AND session_date=?
+                 AND direction IN ('BUY','SHORT') AND user_action='took'
+               LIMIT 1""",
+            (symbol, user_id, session),
+        ).fetchone()
+        return row is not None
+
+
+def user_has_used_ack(user_id: int) -> bool:
+    """Check if user has ever ACK'd or skipped any alert (used the button system)."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM alerts WHERE user_id=? AND user_action IS NOT NULL LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        return row is not None
+
+
 def update_monitor_status(symbols_checked: int, alerts_fired: int, status: str = "running"):
     """Update the single-row monitor heartbeat."""
     with get_db() as conn:
