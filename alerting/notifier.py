@@ -280,7 +280,6 @@ def _send_telegram_to(
         return False
 
     import json
-    import urllib.parse
     import urllib.request
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -295,11 +294,18 @@ def _send_telegram_to(
     if _mode:
         payload["parse_mode"] = _mode
     if reply_markup:
-        payload["reply_markup"] = json.dumps(reply_markup)
-    data = urllib.parse.urlencode(payload).encode()
+        payload["reply_markup"] = reply_markup  # kept as dict for JSON body
+
+    # Use JSON content-type for reliable inline-keyboard delivery;
+    # form-urlencoded can mangle nested JSON with emoji characters.
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json"},
+    )
 
     try:
-        resp = urllib.request.urlopen(url, data, timeout=10)
+        resp = urllib.request.urlopen(req, timeout=10)
         resp_body = resp.read().decode("utf-8", errors="replace")
         logger.info(
             "Telegram sent to %s (status=%s): %s",
