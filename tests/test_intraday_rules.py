@@ -3623,6 +3623,11 @@ class TestSessionLowStop:
             "analytics.intraday_rules._cap_risk",
             lambda entry, stop, **kw: stop,
         )
+        # Disable consolidation so the MA100 signal isn't merged with other BUY signals
+        monkeypatch.setattr(
+            "analytics.intraday_rules._consolidate_signals",
+            lambda signals: signals,
+        )
         session_low = 678.02
         ma100 = 680.33
         # Build bars: session low in earlier bars, last bar bounces off MA100

@@ -385,13 +385,14 @@ class TestDisplayLanguage:
     """Verify non-prescriptive language in Telegram/email messages."""
 
     def test_buy_telegram_says_potential_entry(self):
-        """BUY direction → 'POTENTIAL ENTRY' in Telegram body."""
+        """BUY direction → 'POTENTIAL ENTRY' in Telegram body (HTML formatted)."""
         from alerting.notifier import _format_sms_body
 
         signal = _make_signal(direction="BUY", score=80, score_label="A")
         body = _format_sms_body(signal)
         assert "POTENTIAL ENTRY AAPL" in body
-        assert body.startswith("POTENTIAL ENTRY")
+        # Body uses HTML bold tags, so first line starts with <b>POTENTIAL ENTRY
+        assert body.startswith("<b>POTENTIAL ENTRY")
         # Must NOT contain raw "BUY"
         assert "BUY AAPL" not in body
 
@@ -444,48 +445,93 @@ class TestDisplayLanguage:
 
     def test_ui_display_direction_helper(self):
         """ui_theme.display_direction() returns correct label and color."""
-        from ui_theme import display_direction
+        import importlib
+        import sys
+        from unittest.mock import MagicMock
 
-        label, color = display_direction("BUY")
-        assert label == "Potential Entry"
-        assert color == "#2ecc71"
+        # Mock heavy UI deps so ui_theme can be imported in test env
+        _mocked = {}
+        for mod in ("plotly", "plotly.graph_objects", "streamlit"):
+            if mod not in sys.modules:
+                sys.modules[mod] = MagicMock()
+                _mocked[mod] = True
 
-        label, color = display_direction("SELL")
-        assert label == "Exit Zone"
-        assert color == "#e74c3c"
+        try:
+            # Force re-import if ui_theme was not previously loaded
+            if "ui_theme" in sys.modules:
+                import ui_theme
+                importlib.reload(ui_theme)
+            from ui_theme import display_direction
 
-        label, color = display_direction("SHORT")
-        assert label == "Potential Short"
-        assert color == "#9b59b6"
+            label, color = display_direction("BUY")
+            assert label == "Potential Entry"
+            assert color == "#2ecc71"
 
-        label, color = display_direction("NOTICE")
-        assert label == "Market Update"
-        assert color == "#3498db"
+            label, color = display_direction("SELL")
+            assert label == "Exit Zone"
+            assert color == "#e74c3c"
+
+            label, color = display_direction("SHORT")
+            assert label == "Potential Short"
+            assert color == "#9b59b6"
+
+            label, color = display_direction("NOTICE")
+            assert label == "Market Update"
+            assert color == "#3498db"
+        finally:
+            for mod in _mocked:
+                sys.modules.pop(mod, None)
 
     def test_unknown_direction_falls_back(self):
         """Unknown direction returns itself with gray color."""
-        from ui_theme import display_direction
+        import sys
+        from unittest.mock import MagicMock
 
-        label, color = display_direction("UNKNOWN")
-        assert label == "UNKNOWN"
-        assert color == "#888"
+        _mocked = {}
+        for mod in ("plotly", "plotly.graph_objects", "streamlit"):
+            if mod not in sys.modules:
+                sys.modules[mod] = MagicMock()
+                _mocked[mod] = True
+
+        try:
+            from ui_theme import display_direction
+
+            label, color = display_direction("UNKNOWN")
+            assert label == "UNKNOWN"
+            assert color == "#888"
+        finally:
+            for mod in _mocked:
+                sys.modules.pop(mod, None)
 
     def test_email_subject_uses_display_language(self):
         """Email subject shows 'Potential Entry' not 'BUY'."""
-        from alerting.notifier import send_email_to
+        import sys
+        from unittest.mock import MagicMock
 
-        signal = _make_signal(direction="BUY")
+        _mocked = {}
+        for mod in ("plotly", "plotly.graph_objects", "streamlit"):
+            if mod not in sys.modules:
+                sys.modules[mod] = MagicMock()
+                _mocked[mod] = True
 
-        with patch("alerting.notifier.smtplib") as mock_smtp:
-            mock_server = mock_smtp.SMTP.return_value.__enter__.return_value
-            mock_server.sendmail = lambda *a: None
-
-            # We can't easily intercept the subject, so test via _format approach
+        try:
+            from alerting.notifier import send_email_to
             from ui_theme import display_direction
-            dir_label, _ = display_direction(signal.direction)
-            expected_subject_part = f"[TRADE ALERT] {dir_label} {signal.symbol}"
-            assert "Potential Entry" in expected_subject_part
-            assert "BUY" not in expected_subject_part
+
+            signal = _make_signal(direction="BUY")
+
+            with patch("alerting.notifier.smtplib") as mock_smtp:
+                mock_server = mock_smtp.SMTP.return_value.__enter__.return_value
+                mock_server.sendmail = lambda *a: None
+
+                # We can't easily intercept the subject, so test via _format approach
+                dir_label, _ = display_direction(signal.direction)
+                expected_subject_part = f"[TRADE ALERT] {dir_label} {signal.symbol}"
+                assert "Potential Entry" in expected_subject_part
+                assert "BUY" not in expected_subject_part
+        finally:
+            for mod in _mocked:
+                sys.modules.pop(mod, None)
 
 
 # ---------------------------------------------------------------------------
@@ -651,4 +697,5 @@ class TestMonitorRoutingE2E:
         assert "Potential Entry $150.00" in tg_body
         # Should not contain raw "BUY AAPL" as the first-line prefix
         first_line = tg_body.split("\n")[0]
-        assert first_line.startswith("POTENTIAL ENTRY")
+        # Body uses HTML bold tags, so first line starts with <b>POTENTIAL ENTRY
+        assert first_line.startswith("<b>POTENTIAL ENTRY")
