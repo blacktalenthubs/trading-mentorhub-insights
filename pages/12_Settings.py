@@ -127,6 +127,16 @@ with tab_notifications:
 
         if telegram_chat_id:
             st.success(f"Telegram connected (chat ID: ...{telegram_chat_id[-4:]})")
+            if st.button("Unlink Telegram", key="unlink_telegram"):
+                upsert_notification_prefs(
+                    user["id"],
+                    telegram_chat_id="",
+                    notification_email=prefs.get("notification_email", ""),
+                    telegram_enabled=False,
+                    email_enabled=bool(prefs.get("email_enabled", 1)),
+                )
+                st.success("Telegram unlinked. You can re-link below.")
+                st.rerun()
         else:
             st.warning("Telegram not connected.")
             st.markdown(
