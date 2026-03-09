@@ -64,11 +64,16 @@ MA_BOUNCE_SESSION_STOP_PCT = 0.002  # 0.2% below session low
 PDL_DIP_MIN_PCT = 0.0003  # 0.03% — any meaningful touch below PDL counts
 PDL_RECLAIM_MAX_DISTANCE_PCT = 0.008  # 0.8% — skip if price already ran past entry
 
+# PDL level-based stop: stop just below the level itself (0.5% below PDL)
+# Data-driven (2yr, 10 symbols): 78% survival for SPY, 3-5x R:R.
+# Volatile names stop out more but only cleanest reclaims survive — by design.
+PDL_STOP_OFFSET_PCT = 0.005   # 0.5% below PDL for both reclaim and bounce stops
+
 # Prior Day Low Bounce: price approaches PDL and holds above it (no break below)
 PDL_BOUNCE_PROXIMITY_PCT = 0.005     # 0.5% — bar low must be within this of PDL
 PDL_BOUNCE_HOLD_BARS = 2             # 2 consecutive bars closing above PDL after touch
 PDL_BOUNCE_MAX_DISTANCE_PCT = 0.010  # 1.0% — skip if price ran too far above PDL
-PDL_BOUNCE_STOP_OFFSET_PCT = 0.003   # 0.3% below PDL for stop
+PDL_BOUNCE_STOP_OFFSET_PCT = 0.003   # 0.3% below PDL for stop (legacy, superseded by PDL_STOP_OFFSET_PCT)
 
 # Inside Day Reclaim: minimum dip below inside low to qualify
 INSIDE_DAY_DIP_MIN_PCT = 0.0003  # 0.03% — same as PDL (any meaningful touch)

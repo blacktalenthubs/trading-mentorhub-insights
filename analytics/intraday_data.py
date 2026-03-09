@@ -964,6 +964,70 @@ def detect_intraday_supports(bars_5m: pd.DataFrame, min_bounce_pct: float = 0.00
     return supports
 
 
+def detect_5m_swing_lows(
+    bars_5m: pd.DataFrame,
+    min_bounce_pct: float = 0.002,
+    cluster_pct: float = 0.003,
+) -> list[dict]:
+    """Find swing low supports from 5-min bars for fast detection.
+
+    A swing low at bar *i*: Low[i] < Low[i-1] AND Low[i] < Low[i+1],
+    with a minimum bounce (next bar close >= low * (1 + min_bounce_pct))
+    to filter noise.
+
+    Returns list of dicts matching detect_intraday_supports() format:
+    level, touch_count, hold_hours (always 0), strength ("weak").
+    """
+    if bars_5m.empty or len(bars_5m) < 3:
+        return []
+
+    # Step 1: find swing lows with bounce confirmation
+    raw_levels: list[float] = []
+    for i in range(1, len(bars_5m) - 1):
+        low_i = bars_5m["Low"].iloc[i]
+        if low_i <= 0:
+            continue
+        if (low_i < bars_5m["Low"].iloc[i - 1]
+                and low_i < bars_5m["Low"].iloc[i + 1]):
+            # Require minimum bounce on next bar
+            next_close = bars_5m["Close"].iloc[i + 1]
+            bounce = (next_close - low_i) / low_i
+            if bounce >= min_bounce_pct:
+                raw_levels.append(round(float(low_i), 2))
+
+    if not raw_levels:
+        return []
+
+    # Step 2: cluster nearby levels
+    raw_levels.sort()
+    clusters: list[list[float]] = [[raw_levels[0]]]
+    for level in raw_levels[1:]:
+        if (level - clusters[-1][0]) / clusters[-1][0] <= cluster_pct:
+            clusters[-1].append(level)
+        else:
+            clusters.append([level])
+
+    # Step 3: build support dicts (same format as detect_intraday_supports)
+    supports: list[dict] = []
+    for cluster in clusters:
+        rep_level = round(min(cluster), 2)  # use lowest in cluster
+
+        # Count touches: bar lows within 0.3% of representative level
+        touch_count = 0
+        for i in range(len(bars_5m)):
+            if abs(bars_5m["Low"].iloc[i] - rep_level) / rep_level <= cluster_pct:
+                touch_count += 1
+
+        supports.append({
+            "level": rep_level,
+            "touch_count": touch_count,
+            "hold_hours": 0,
+            "strength": "weak",
+        })
+
+    return supports
+
+
 def classify_gap(today_open: float, prior_close: float, prior_range: float) -> dict:
     """Classify gap type and size."""
     if prior_close <= 0:

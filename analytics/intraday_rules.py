@@ -55,6 +55,7 @@ from alert_config import (
     PDL_BOUNCE_STOP_OFFSET_PCT,
     PDL_DIP_MIN_PCT,
     PDL_RECLAIM_MAX_DISTANCE_PCT,
+    PDL_STOP_OFFSET_PCT,
     PER_SYMBOL_RISK,
     RESISTANCE_PROXIMITY_PCT,
     WEEKLY_LEVEL_PROXIMITY_PCT,
@@ -470,9 +471,9 @@ def check_prior_day_low_reclaim(
 
     entry = prior_day_low
     intraday_low = bars["Low"].min()
-    # Use session low as structural stop — last_bar["Low"] may already be above
-    # entry once price has moved, which kills risk calculation.
-    stop = intraday_low - entry * MA_BOUNCE_SESSION_STOP_PCT
+    # Level-based stop: PDL is the thesis — if it breaks, trade is wrong.
+    # Data-driven: 0.5% below PDL gives 78% survival for SPY, 3-5x R:R.
+    stop = prior_day_low * (1 - PDL_STOP_OFFSET_PCT)
     risk = entry - stop
     if risk <= 0:
         return None
@@ -541,7 +542,7 @@ def check_prior_day_low_bounce(
         return None
 
     entry = last_bar["Close"]
-    stop = prior_day_low * (1 - PDL_BOUNCE_STOP_OFFSET_PCT)
+    stop = prior_day_low * (1 - PDL_STOP_OFFSET_PCT)
     risk = entry - stop
     if risk <= 0:
         return None
@@ -2554,6 +2555,7 @@ def _find_resistance_targets(
     level_map = {
         "prior high": prior_day.get("high"),
         "prior close": prior_day.get("close"),
+        "prior low": prior_day.get("low"),  # PDL as resistance when buying below it
         "MA20": prior_day.get("ma20"),
         "MA50": prior_day.get("ma50"),
         "MA100": prior_day.get("ma100"),
@@ -3115,19 +3117,49 @@ def evaluate_rules(
     # Session low for structural MA bounce stops
     session_low = intraday_bars["Low"].min() if not intraday_bars.empty else 0
 
-    # Detect intraday supports (used by both bounce BUY rule and breakdown SHORT)
-    from analytics.intraday_data import detect_intraday_supports
-    intraday_supports = detect_intraday_supports(intraday_bars)
-
-    # Detect hourly resistance from multi-day 1h bars
-    from analytics.intraday_data import fetch_hourly_bars, detect_hourly_resistance
+    # Fetch multi-day 1h bars (used for both hourly resistance and hourly support)
+    from analytics.intraday_data import (
+        fetch_hourly_bars, detect_hourly_resistance,
+        detect_hourly_support, detect_intraday_supports, detect_5m_swing_lows,
+    )
     hourly_resistance: list[float] = []
+    bars_1h = pd.DataFrame()
     try:
         bars_1h = fetch_hourly_bars(symbol)
         if not bars_1h.empty:
             hourly_resistance = detect_hourly_resistance(bars_1h)
     except Exception:
         pass
+
+    # Detect intraday supports (used by both bounce BUY rule and breakdown SHORT)
+    intraday_supports = detect_intraday_supports(intraday_bars)
+
+    # Merge multi-day hourly swing low supports (catches prior-day levels)
+    try:
+        if not bars_1h.empty:
+            for lvl in detect_hourly_support(bars_1h):
+                is_dup = any(
+                    abs(s["level"] - lvl) / lvl <= 0.003
+                    for s in intraday_supports
+                ) if intraday_supports else False
+                if not is_dup:
+                    intraday_supports.append({
+                        "level": round(lvl, 2),
+                        "touch_count": 1,
+                        "hold_hours": 0,
+                        "strength": "weak",
+                    })
+    except Exception:
+        pass
+
+    # Merge 5-min swing lows for faster support detection (~15 min vs ~2 hours)
+    for sl in detect_5m_swing_lows(intraday_bars):
+        is_dup = any(
+            abs(s["level"] - sl["level"]) / sl["level"] <= 0.003
+            for s in intraday_supports
+        ) if intraday_supports else False
+        if not is_dup:
+            intraday_supports.append(sl)
 
     # --- BUY rules ---
     spy_regime = spy.get("regime", "CHOPPY")
