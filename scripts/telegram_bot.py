@@ -70,6 +70,32 @@ def handle_start(token: str, chat_id: int) -> str:
             (token,),
         )
 
+    # Check if this Telegram chat_id is already linked to a DIFFERENT user.
+    # One Telegram account can only receive alerts for one TradeCoPilot account
+    # at a time — otherwise the user sees alerts from multiple watchlists mixed.
+    with get_db() as conn:
+        existing = conn.execute(
+            """SELECT n.user_id, u.email
+               FROM user_notification_prefs n
+               JOIN users u ON u.id = n.user_id
+               WHERE n.telegram_chat_id = ? AND n.user_id != ?""",
+            (str(chat_id), user_id),
+        ).fetchall()
+    if existing:
+        for prev in existing:
+            logger.info(
+                "Unlinking Telegram chat_id=%s from previous user_id=%s (%s)",
+                chat_id, prev["user_id"], prev["email"],
+            )
+            upsert_notification_prefs(
+                prev["user_id"],
+                telegram_chat_id="",
+                notification_email=get_notification_prefs(prev["user_id"]).get("notification_email", ""),
+                telegram_enabled=False,
+                email_enabled=bool(get_notification_prefs(prev["user_id"]).get("email_enabled", 1)),
+                anthropic_api_key=get_notification_prefs(prev["user_id"]).get("anthropic_api_key", ""),
+            )
+
     # Update user's notification prefs with chat_id
     prefs = get_notification_prefs(user_id) or {}
     upsert_notification_prefs(
@@ -82,10 +108,18 @@ def handle_start(token: str, chat_id: int) -> str:
     )
 
     logger.info("Linked Telegram chat_id=%s to user_id=%s", chat_id, user_id)
-    return (
+    msg = (
         "Your Telegram account is now linked to TradeCoPilot! "
         "You'll receive DM alerts here for your watchlist signals."
     )
+    if existing:
+        prev_emails = ", ".join(r["email"] for r in existing)
+        msg += (
+            f"\n\nNote: This Telegram was previously linked to {prev_emails}. "
+            "That account's Telegram alerts have been disabled to avoid "
+            "mixed alerts. Only your current account's watchlist will be notified."
+        )
+    return msg
 
 
 # ---------------------------------------------------------------------------
