@@ -16,11 +16,15 @@ from analytics.intraday_data import (
 from analytics.intraday_rules import evaluate_rules, AlertSignal
 from analytics.market_hours import is_market_hours, get_session_phase
 from alerting.alert_store import (
+    ack_alert,
     create_active_entry,
+    create_active_entry_from_alert,
     get_active_cooldowns, get_alerts_today, get_session_dates,
     get_session_summary,
+    has_acked_entry,
     record_alert,
     today_session,
+    user_has_used_ack,
     was_alert_fired,
 )
 from alerting.notifier import notify_user
@@ -354,29 +358,36 @@ else:
         AlertType.OPENING_RANGE_BREAKDOWN,
     }
     session = today_session()
+    _ack_active = user_has_used_ack(user["id"])
 
     new_signals = []
     for sig in all_signals:
         key = (sig.symbol, sig.alert_type.value, sig.direction)
         if key not in existing_keys:
+            # Gate: suppress ALL exit/sell signals for un-ACK'd symbols
+            if _ack_active and sig.direction != "BUY":
+                if not has_acked_entry(sig.symbol, user["id"], session):
+                    continue
+
             # Final DB dedup check (another tab may have recorded it)
             if was_alert_fired(sig.symbol, sig.alert_type.value, session, user_id=user["id"]):
                 continue
 
             new_signals.append(sig)
 
+            # Record to DB so alerts persist and dedup works across refreshes
+            alert_id = record_alert(sig, session, False, False, user_id=user["id"])
+
             # Per-user notification (matches worker.py pattern)
-            email_sent, sms_sent = False, False
             prefs = get_notification_prefs(user["id"])
             if prefs:
-                notify_user(sig, prefs)
-
-            # Record to DB so alerts persist and dedup works across refreshes
-            record_alert(sig, session, email_sent, sms_sent, user_id=user["id"])
+                notify_user(sig, prefs, alert_id=alert_id)
 
             # Track active entries for actionable BUY signals
             if sig.direction == "BUY" and sig.alert_type not in _non_entry_types:
-                create_active_entry(sig, session, user_id=user["id"])
+                if not _ack_active:
+                    create_active_entry(sig, session, user_id=user["id"])  # legacy fallback
+                # else: created on ACK callback
 
             st.session_state["alert_history"].append({
                 "symbol": sig.symbol,
@@ -479,6 +490,35 @@ else:
                                 f"${shares * sig.entry:,.0f} (${cap / 1000:.0f}k cap) — "
                                 f"track on **Scanner**"
                             )
+
+                    # ACK buttons (desktop fallback for Telegram)
+                    if _ack_active and sig.direction in ("BUY", "SHORT") and is_new:
+                        from alerting.alert_store import get_alert_id as _get_alert_id
+                        from alerting.real_trade_store import open_real_trade
+                        _sig_alert_id = _get_alert_id(sig.symbol, sig.alert_type.value, session, user_id=user["id"])
+                        if _sig_alert_id:
+                            _bc1, _bc2, _ = st.columns([1, 1, 3])
+                            if _bc1.button("Took It", key=f"ack_{sig.symbol}_{sig.alert_type.value}", type="primary"):
+                                ack_alert(_sig_alert_id, "took")
+                                create_active_entry_from_alert(_sig_alert_id, user_id=user["id"])
+                                if not has_open_trade(sig.symbol):
+                                    open_real_trade(
+                                        symbol=sig.symbol,
+                                        direction=sig.direction,
+                                        entry_price=sig.entry or sig.price,
+                                        stop_price=sig.stop,
+                                        target_price=sig.target_1,
+                                        target_2_price=sig.target_2,
+                                        alert_type=sig.alert_type.value,
+                                        alert_id=_sig_alert_id,
+                                        session_date=session,
+                                    )
+                                st.toast(f"Trade opened: {sig.symbol}")
+                                st.rerun()
+                            if _bc2.button("Skip", key=f"skip_{sig.symbol}_{sig.alert_type.value}"):
+                                ack_alert(_sig_alert_id, "skipped")
+                                st.toast(f"Skipped {sig.symbol}")
+                                st.rerun()
 
                     # Options play form
                     if _opts_eligible and sig.direction == "BUY":

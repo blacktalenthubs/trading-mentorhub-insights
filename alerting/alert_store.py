@@ -328,6 +328,30 @@ def user_has_used_ack(user_id: int) -> bool:
         return row is not None
 
 
+def create_active_entry_from_alert(alert_id: int, user_id: int | None = None):
+    """Create an active entry from an existing alert record (ACK callback)."""
+    alert = get_alert_by_id(alert_id)
+    if not alert:
+        return
+    signal = AlertSignal(
+        symbol=alert["symbol"],
+        alert_type=AlertType(alert["alert_type"]),
+        direction=alert["direction"],
+        price=alert["price"],
+        entry=alert.get("entry"),
+        stop=alert.get("stop"),
+        target_1=alert.get("target_1"),
+        target_2=alert.get("target_2"),
+        confidence=alert.get("confidence", "medium"),
+        message=alert.get("message", ""),
+    )
+    create_active_entry(
+        signal,
+        alert.get("session_date") or today_session(),
+        user_id=user_id or alert.get("user_id"),
+    )
+
+
 def update_monitor_status(symbols_checked: int, alerts_fired: int, status: str = "running"):
     """Update the single-row monitor heartbeat."""
     with get_db() as conn:

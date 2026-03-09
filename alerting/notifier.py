@@ -458,7 +458,8 @@ def notify_user(
         chat_id = prefs.get("telegram_chat_id", "")
         if chat_id:
             body = _format_sms_body(signal)
-            telegram_sent = _send_telegram_to(body, chat_id)
+            buttons = _build_trade_buttons(signal, alert_id)
+            telegram_sent = _send_telegram_to(body, chat_id, reply_markup=buttons)
         else:
             logger.warning("notify_user: telegram_enabled but chat_id empty")
     else:
@@ -467,14 +468,21 @@ def notify_user(
     return email_sent, telegram_sent
 
 
-def notify(signal: AlertSignal) -> tuple[bool, bool]:
+def notify(signal: AlertSignal, alert_id: int | None = None) -> tuple[bool, bool]:
     """Send notifications for an alert signal (global fallback).
 
     Both email and Telegram are sent for ALL signals.
+    If *alert_id* is provided, BUY/SELL Telegram messages include inline
+    buttons for trade acknowledgement (Took It / Skip / Exited).
 
     Returns (email_sent, sms_sent).
     """
     email_sent = send_email(signal)
-    sms_sent = send_sms(signal)
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        body = _format_sms_body(signal)
+        buttons = _build_trade_buttons(signal, alert_id)
+        sms_sent = _send_telegram_to(body, TELEGRAM_CHAT_ID, reply_markup=buttons)
+    else:
+        sms_sent = send_sms(signal)
 
     return email_sent, sms_sent

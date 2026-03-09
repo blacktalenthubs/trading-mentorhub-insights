@@ -127,9 +127,12 @@ def handle_start(token: str, chat_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def _handle_ack(alert_id: int, chat_id: int) -> str:
-    """User tapped 'Took It' — open a real trade from the alert."""
+    """User tapped 'Took It' — open a real trade and activate exit monitoring."""
     from db import init_db
-    from alerting.alert_store import ack_alert, get_alert_by_id, get_user_id_by_chat_id, today_session
+    from alerting.alert_store import (
+        ack_alert, create_active_entry_from_alert, get_alert_by_id,
+        get_user_id_by_chat_id, today_session,
+    )
     from alerting.real_trade_store import open_real_trade, has_open_trade
 
     init_db()
@@ -142,6 +145,9 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
 
     # ACK the alert
     ack_alert(alert_id, "took")
+
+    # Create active entry for exit monitoring (targets/stops)
+    create_active_entry_from_alert(alert_id, user_id=alert.get("user_id"))
 
     symbol = alert["symbol"]
     if has_open_trade(symbol):

@@ -146,6 +146,10 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 if s != sym or at in _sell_types
             }
 
+    # Check once whether this user has started using ACK buttons
+    uid = _get_admin_uid()
+    _ack_active = user_has_used_ack(uid)
+
     for symbol in symbols:
         try:
             _is_crypto = is_crypto_alert_symbol(symbol)
@@ -170,6 +174,11 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
             )
 
             for signal in signals:
+                # Gate: suppress ALL exit/sell signals for un-ACK'd symbols
+                if _ack_active and signal.direction != "BUY":
+                    if not has_acked_entry(symbol, uid, session):
+                        logger.debug("%s: suppressing %s (not ACK'd)", symbol, signal.alert_type.value)
+                        continue
                 signal.narrative = generate_narrative(signal)
 
                 if dry_run:
@@ -189,11 +198,12 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
 
                 # Single-user mode: record alert + entries for admin uid
                 _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
-                uid = _get_admin_uid()
                 alert_id = record_alert(signal, session, False, False, user_id=uid)
 
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
-                    create_active_entry(signal, session, user_id=uid)
+                    if not _ack_active:
+                        create_active_entry(signal, session, user_id=uid)  # legacy fallback
+                    # else: created on ACK callback
 
                 if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
                     close_all_entries_for_symbol(symbol, session, user_id=uid)
@@ -203,7 +213,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     close_all_entries_for_symbol(symbol, session, user_id=uid)
 
                 # Single group notification
-                email_sent, sms_sent = notify(signal)
+                email_sent, sms_sent = notify(signal, alert_id=alert_id)
 
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1

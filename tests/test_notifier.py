@@ -28,8 +28,9 @@ def _make_signal(
 class TestTelegramTierRouting:
     @patch("alerting.notifier.send_sms", return_value=True)
     @patch("alerting.notifier.send_email", return_value=True)
+    @patch("alerting.notifier.TELEGRAM_BOT_TOKEN", "")
     def test_high_score_sends_email_and_telegram(self, mock_email, mock_sms):
-        """A+ signal (score=90) → email + Telegram sent."""
+        """A+ signal (score=90) → email + SMS fallback when no Telegram config."""
         sig = _make_signal(score=90, score_label="A+")
         email_sent, sms_sent = notify(sig)
         assert email_sent is True
@@ -39,8 +40,9 @@ class TestTelegramTierRouting:
 
     @patch("alerting.notifier.send_sms", return_value=True)
     @patch("alerting.notifier.send_email", return_value=True)
+    @patch("alerting.notifier.TELEGRAM_BOT_TOKEN", "")
     def test_low_score_still_sends_both(self, mock_email, mock_sms):
-        """C signal (score=40) → both email and Telegram (no tier routing)."""
+        """C signal (score=40) → both email and SMS fallback."""
         sig = _make_signal(score=40, score_label="C")
         email_sent, sms_sent = notify(sig)
         assert email_sent is True
@@ -50,8 +52,9 @@ class TestTelegramTierRouting:
 
     @patch("alerting.notifier.send_sms", return_value=True)
     @patch("alerting.notifier.send_email", return_value=True)
+    @patch("alerting.notifier.TELEGRAM_BOT_TOKEN", "")
     def test_stop_loss_always_sends_telegram(self, mock_email, mock_sms):
-        """STOP_LOSS_HIT (score=0) → email + Telegram (exit = always Tier 1)."""
+        """STOP_LOSS_HIT (score=0) → email + SMS fallback."""
         sig = _make_signal(
             alert_type=AlertType.STOP_LOSS_HIT,
             direction="SELL",
@@ -65,8 +68,9 @@ class TestTelegramTierRouting:
 
     @patch("alerting.notifier.send_sms", return_value=True)
     @patch("alerting.notifier.send_email", return_value=True)
+    @patch("alerting.notifier.TELEGRAM_BOT_TOKEN", "")
     def test_target_hit_always_sends_telegram(self, mock_email, mock_sms):
-        """TARGET_1_HIT → email + Telegram (exit = always Tier 1)."""
+        """TARGET_1_HIT → email + SMS fallback."""
         sig = _make_signal(
             alert_type=AlertType.TARGET_1_HIT,
             direction="SELL",
@@ -77,6 +81,31 @@ class TestTelegramTierRouting:
         assert email_sent is True
         assert sms_sent is True
         mock_sms.assert_called_once_with(sig)
+
+    @patch("alerting.notifier._send_telegram_to", return_value=True)
+    @patch("alerting.notifier.send_email", return_value=True)
+    @patch("alerting.notifier.TELEGRAM_CHAT_ID", "12345")
+    @patch("alerting.notifier.TELEGRAM_BOT_TOKEN", "fake-token")
+    def test_telegram_buttons_sent_with_alert_id(self, mock_email, mock_tg):
+        """When alert_id is provided + Telegram configured, buttons are included."""
+        sig = _make_signal(score=80, score_label="A")
+        notify(sig, alert_id=42)
+        mock_tg.assert_called_once()
+        _, kwargs = mock_tg.call_args
+        assert kwargs.get("reply_markup") is not None
+        assert "inline_keyboard" in kwargs["reply_markup"]
+
+    @patch("alerting.notifier._send_telegram_to", return_value=True)
+    @patch("alerting.notifier.send_email", return_value=True)
+    @patch("alerting.notifier.TELEGRAM_CHAT_ID", "12345")
+    @patch("alerting.notifier.TELEGRAM_BOT_TOKEN", "fake-token")
+    def test_telegram_no_buttons_without_alert_id(self, mock_email, mock_tg):
+        """When no alert_id, no buttons are sent."""
+        sig = _make_signal(score=80, score_label="A")
+        notify(sig)
+        mock_tg.assert_called_once()
+        _, kwargs = mock_tg.call_args
+        assert kwargs.get("reply_markup") is None
 
 
 class TestSmsFormat:
