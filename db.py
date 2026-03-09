@@ -32,6 +32,26 @@ if _USE_POSTGRES:
 IntegrityError = _DB_INTEGRITY_ERRORS
 
 
+def _safe_add_column(conn, sql: str):
+    """Execute ALTER TABLE ADD COLUMN, ignoring 'already exists' errors.
+
+    On Postgres, a caught DuplicateColumn error aborts the current transaction,
+    so we wrap the attempt in a SAVEPOINT to isolate the failure.
+    """
+    if _USE_POSTGRES:
+        conn.execute("SAVEPOINT _add_col")
+        try:
+            conn.execute(sql)
+            conn.execute("RELEASE SAVEPOINT _add_col")
+        except _DB_OPERATIONAL_ERRORS:
+            conn.execute("ROLLBACK TO SAVEPOINT _add_col")
+    else:
+        try:
+            conn.execute(sql)
+        except _DB_OPERATIONAL_ERRORS:
+            pass  # Column already exists
+
+
 # ---------------------------------------------------------------------------
 # Postgres wrapper — translates SQLite conventions to psycopg2
 # ---------------------------------------------------------------------------
@@ -676,12 +696,7 @@ def _migrate_add_user_id():
     ]
     with get_db() as conn:
         for table in tables:
-            try:
-                conn.execute(
-                    f"ALTER TABLE {table} ADD COLUMN user_id INTEGER REFERENCES users(id)"
-                )
-            except _DB_OPERATIONAL_ERRORS:
-                pass  # Column already exists
+            _safe_add_column(conn, f"ALTER TABLE {table} ADD COLUMN user_id INTEGER REFERENCES users(id)")
 
         # Create user_id indexes for query performance
         for table in tables:
@@ -716,10 +731,7 @@ def _migrate_add_user_id():
 def _migrate_add_alert_score():
     """Add score column to alerts table if missing (handles DB upgrades)."""
     with get_db() as conn:
-        try:
-            conn.execute("ALTER TABLE alerts ADD COLUMN score INTEGER DEFAULT 0")
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN score INTEGER DEFAULT 0")
 
 
 def _migrate_watchlist_user_id():
@@ -729,12 +741,7 @@ def _migrate_watchlist_user_id():
     with UNIQUE(user_id, symbol), which is required for multi-user watchlists.
     """
     with get_db() as conn:
-        try:
-            conn.execute(
-                "ALTER TABLE watchlist ADD COLUMN user_id INTEGER REFERENCES users(id)"
-            )
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE watchlist ADD COLUMN user_id INTEGER REFERENCES users(id)")
 
         admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
         if admin:
@@ -776,21 +783,13 @@ def _migrate_watchlist_user_id():
 def _migrate_add_narrative():
     """Add narrative column to alerts table if missing (handles DB upgrades)."""
     with get_db() as conn:
-        try:
-            conn.execute("ALTER TABLE alerts ADD COLUMN narrative TEXT DEFAULT ''")
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN narrative TEXT DEFAULT ''")
 
 
 def _migrate_add_anthropic_key():
     """Add anthropic_api_key column to user_notification_prefs if missing."""
     with get_db() as conn:
-        try:
-            conn.execute(
-                "ALTER TABLE user_notification_prefs ADD COLUMN anthropic_api_key TEXT DEFAULT ''"
-            )
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE user_notification_prefs ADD COLUMN anthropic_api_key TEXT DEFAULT ''")
 
 
 def _migrate_add_daily_plans():
@@ -856,12 +855,7 @@ def _migrate_real_trades_swing():
     ]
     with get_db() as conn:
         for col, default in cols:
-            try:
-                conn.execute(
-                    f"ALTER TABLE real_trades ADD COLUMN {col} TEXT DEFAULT {default}"
-                )
-            except _DB_OPERATIONAL_ERRORS:
-                pass  # column already exists
+            _safe_add_column(conn, f"ALTER TABLE real_trades ADD COLUMN {col} TEXT DEFAULT {default}")
 
 
 def _migrate_alert_user_id():
@@ -870,26 +864,15 @@ def _migrate_alert_user_id():
 
     with get_db() as conn:
         # Add user_id column to alerts
-        try:
-            conn.execute(
-                "ALTER TABLE alerts ADD COLUMN user_id INTEGER REFERENCES users(id)"
-            )
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN user_id INTEGER REFERENCES users(id)")
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_alerts_user_id ON alerts(user_id)"
         )
 
         # Add trade ACK columns to alerts
-        for col_def in [
-            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS user_action TEXT DEFAULT NULL",
-            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS acked_at TIMESTAMP DEFAULT NULL",
-        ]:
-            try:
-                conn.execute(col_def)
-            except _DB_OPERATIONAL_ERRORS:
-                pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN user_action TEXT DEFAULT NULL")
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN acked_at TIMESTAMP DEFAULT NULL")
 
         # Assign orphan alerts to first user
         admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
@@ -923,10 +906,7 @@ def _migrate_per_user_entries_cooldowns():
     """
     with get_db() as conn:
         # --- active_entries ---
-        try:
-            conn.execute("ALTER TABLE active_entries ADD COLUMN user_id INTEGER")
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE active_entries ADD COLUMN user_id INTEGER")
 
         # Rebuild table for new UNIQUE constraint
         if _USE_POSTGRES:
@@ -970,10 +950,7 @@ def _migrate_per_user_entries_cooldowns():
                     """)
 
         # --- cooldowns ---
-        try:
-            conn.execute("ALTER TABLE cooldowns ADD COLUMN user_id INTEGER")
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE cooldowns ADD COLUMN user_id INTEGER")
 
         # Rebuild table for new UNIQUE constraint
         if _USE_POSTGRES:
@@ -1023,10 +1000,7 @@ def _migrate_per_user_entries_cooldowns():
 def _migrate_add_score_v2():
     """Add score_v2 column to alerts table if missing."""
     with get_db() as conn:
-        try:
-            conn.execute("ALTER TABLE alerts ADD COLUMN score_v2 INTEGER DEFAULT 0")
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN score_v2 INTEGER DEFAULT 0")
 
 
 def _migrate_seed_subscriptions():
