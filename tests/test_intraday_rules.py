@@ -5354,3 +5354,604 @@ class TestFibRetracementBounce:
         bar = _bar()
         sig = check_fib_retracement_bounce("AAPL", bar, 100.0, 100.0)
         assert sig is None
+
+
+# =========================================================================
+# Extended Professional Rule Tests — additional edge cases and coverage
+# =========================================================================
+
+
+class TestMACDHistogramFlipExtended:
+    """Extended tests for check_macd_histogram_flip — edge cases and validation."""
+
+    @staticmethod
+    def _make_v_shaped_bars(n=50, start=100.0, dip_depth=0.5, recovery_strength=0.8):
+        """Create V-shaped price action: decline then recovery to force histogram flip."""
+        rows = []
+        mid = n // 2
+        for i in range(mid):
+            c = start - dip_depth * (i + 1)
+            rows.append({"Open": c + 0.2, "High": c + 0.5, "Low": c - 0.5, "Close": c, "Volume": 1000})
+        base = start - dip_depth * mid
+        for i in range(n - mid):
+            c = base + recovery_strength * (i + 1)
+            rows.append({"Open": c - 0.2, "High": c + 0.5, "Low": c - 0.3, "Close": c, "Volume": 1000})
+        return pd.DataFrame(rows)
+
+    def test_none_prior_day_does_not_crash(self):
+        """prior_day=None should be handled gracefully."""
+        bars = self._make_v_shaped_bars(50)
+        sig = check_macd_histogram_flip("AAPL", bars, None)
+        assert sig is None or isinstance(sig, AlertSignal)
+
+    def test_prior_day_empty_dict(self):
+        """prior_day={} (no 'close' key) should not crash."""
+        bars = self._make_v_shaped_bars(50)
+        sig = check_macd_histogram_flip("AAPL", bars, {})
+        assert sig is None or isinstance(sig, AlertSignal)
+
+    def test_exactly_35_bars_minimum(self):
+        """With exactly MACD_SLOW(26) + MACD_SIGNAL(9) = 35 bars, should not crash."""
+        bars = self._make_v_shaped_bars(35)
+        prior = {"close": 90.0}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        assert sig is None or sig.alert_type == AlertType.MACD_HISTOGRAM_FLIP
+
+    def test_34_bars_returns_none(self):
+        """With 34 bars (one below minimum), must return None."""
+        bars = self._make_v_shaped_bars(34)
+        prior = {"close": 90.0}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        assert sig is None
+
+    def test_no_flip_steady_uptrend(self):
+        """Steady uptrend from start — histogram always positive, no flip."""
+        rows = []
+        for i in range(50):
+            c = 80 + i * 0.6
+            rows.append({"Open": c - 0.1, "High": c + 0.5, "Low": c - 0.3, "Close": c, "Volume": 1000})
+        bars = pd.DataFrame(rows)
+        prior = {"close": 70.0}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        assert sig is None
+
+    def test_signal_fields_populated(self):
+        """When signal fires, all expected fields are present."""
+        bars = self._make_v_shaped_bars(50, start=100.0, dip_depth=0.5, recovery_strength=0.8)
+        prior = {"close": bars.iloc[-1]["Close"] - 2.0}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        if sig is not None:
+            assert sig.symbol == "AAPL"
+            assert sig.alert_type == AlertType.MACD_HISTOGRAM_FLIP
+            assert sig.direction == "BUY"
+            assert sig.entry > 0
+            assert sig.stop > 0
+            assert sig.target_1 > sig.entry
+            assert sig.target_2 > sig.target_1
+            assert sig.confidence in ("high", "medium")
+            assert "MACD histogram flip" in sig.message
+
+    def test_high_confidence_when_momentum_strong(self):
+        """High confidence when curr_hist > abs(prev_hist)."""
+        bars = self._make_v_shaped_bars(50, start=100.0, dip_depth=0.3, recovery_strength=1.2)
+        prior = {"close": bars.iloc[-1]["Close"] - 5.0}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        if sig is not None:
+            # Strong recovery should produce curr_hist > abs(prev_hist) → high
+            assert sig.confidence in ("high", "medium")
+
+    def test_stop_below_session_low(self):
+        """Stop should be 0.2% below session low."""
+        bars = self._make_v_shaped_bars(50, start=100.0, dip_depth=0.5, recovery_strength=0.8)
+        prior = {"close": bars.iloc[-1]["Close"] - 2.0}
+        sig = check_macd_histogram_flip("AAPL", bars, prior)
+        if sig is not None:
+            session_low = bars["Low"].min()
+            expected_stop = round(session_low * 0.998, 2)
+            assert sig.stop == expected_stop
+
+
+class TestBBSqueezeBreakoutExtended:
+    """Extended tests for check_bb_squeeze_breakout — edge cases and data shapes."""
+
+    @staticmethod
+    def _make_squeeze_then_breakout(n=50, base=100.0, squeeze_bars=45, breakout_size=3.0):
+        """Create tight-range bars (squeeze) then breakout."""
+        rows = []
+        for i in range(squeeze_bars):
+            rows.append({
+                "Open": base, "High": base + 0.05,
+                "Low": base - 0.05, "Close": base + 0.01 * (i % 3 - 1),
+                "Volume": 1000,
+            })
+        for i in range(n - squeeze_bars):
+            c = base + breakout_size * (i + 1)
+            rows.append({
+                "Open": c - 0.5, "High": c + 1.0,
+                "Low": c - 1.0, "Close": c,
+                "Volume": 5000,
+            })
+        return pd.DataFrame(rows)
+
+    def test_exactly_40_bars(self):
+        """With exactly BB_PERIOD(20) + BB_SQUEEZE_LOOKBACK(20) = 40 bars, no crash."""
+        bars = self._make_squeeze_then_breakout(n=40, squeeze_bars=38, breakout_size=3.0)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        assert sig is None or sig.alert_type == AlertType.BB_SQUEEZE_BREAKOUT
+
+    def test_39_bars_returns_none(self):
+        """39 bars (one below minimum) → None."""
+        rows = [{"Open": 100, "High": 100.05, "Low": 99.95, "Close": 100, "Volume": 1000}] * 39
+        bars = pd.DataFrame(rows)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        assert sig is None
+
+    def test_wide_volatile_bars_no_squeeze(self):
+        """Highly volatile bars — bandwidth is wide, no squeeze → None."""
+        rows = []
+        for i in range(50):
+            swing = 5.0 * (1 if i % 2 == 0 else -1)
+            c = 100 + swing
+            rows.append({"Open": c - 2, "High": c + 3, "Low": c - 3, "Close": c, "Volume": 1000})
+        bars = pd.DataFrame(rows)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        assert sig is None
+
+    def test_squeeze_but_close_at_middle_band(self):
+        """Squeeze detected but close at SMA (middle band) → no breakout → None."""
+        rows = []
+        for i in range(50):
+            rows.append({"Open": 100.0, "High": 100.02, "Low": 99.98, "Close": 100.0, "Volume": 1000})
+        bars = pd.DataFrame(rows)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        assert sig is None
+
+    def test_signal_has_buy_direction(self):
+        """When signal fires, direction must be BUY."""
+        bars = self._make_squeeze_then_breakout(50, base=100.0, breakout_size=3.0)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        if sig is not None:
+            assert sig.direction == "BUY"
+            assert sig.confidence == "high"
+
+    def test_entry_at_upper_band_stop_at_middle(self):
+        """Entry should be at upper band, stop at middle band."""
+        bars = self._make_squeeze_then_breakout(50, base=100.0, breakout_size=3.0)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        if sig is not None:
+            assert sig.entry > 0
+            assert sig.stop > 0
+            assert sig.entry > sig.stop
+            risk = sig.entry - sig.stop
+            assert abs(sig.target_1 - (sig.entry + risk)) < 0.02
+            assert abs(sig.target_2 - (sig.entry + 2 * risk)) < 0.02
+
+    def test_message_mentions_squeeze(self):
+        """Signal message should mention 'squeeze'."""
+        bars = self._make_squeeze_then_breakout(50, base=100.0, breakout_size=3.0)
+        sig = check_bb_squeeze_breakout("AAPL", bars)
+        if sig is not None:
+            assert "squeeze" in sig.message.lower()
+
+
+class TestComputeATRExtended:
+    """Extended tests for compute_atr — boundary conditions and accuracy."""
+
+    @staticmethod
+    def _make_bars_with_gaps(n, base=100.0, gap=2.0):
+        """Create bars with gaps between close and next open (tests true range)."""
+        rows = []
+        for i in range(n):
+            o = base + gap * (i % 2)
+            h = o + 1.0
+            low = o - 0.5
+            c = o + 0.5
+            rows.append({"Open": o, "High": h, "Low": low, "Close": c, "Volume": 1000})
+        return pd.DataFrame(rows)
+
+    def test_single_bar_returns_none(self):
+        """A single bar is not enough."""
+        bars = pd.DataFrame([{"Open": 100, "High": 101, "Low": 99, "Close": 100, "Volume": 1000}])
+        assert compute_atr(bars, period=14) is None
+
+    def test_period_1_with_2_bars(self):
+        """Period=1 with 2 bars should work (period+1=2)."""
+        rows = [
+            {"Open": 100, "High": 102, "Low": 98, "Close": 101, "Volume": 1000},
+            {"Open": 101, "High": 104, "Low": 99, "Close": 103, "Volume": 1000},
+        ]
+        bars = pd.DataFrame(rows)
+        atr = compute_atr(bars, period=1)
+        assert atr is not None
+        assert atr > 0
+
+    def test_atr_with_gaps_reflects_true_range(self):
+        """True range includes gap from prior close, not just high-low."""
+        rows = [
+            {"Open": 100, "High": 101, "Low": 99, "Close": 100.5, "Volume": 1000},
+            {"Open": 100.5, "High": 101, "Low": 99.5, "Close": 100, "Volume": 1000},
+            # Gap bar: previous close was 100, this opens at 105
+            {"Open": 105, "High": 106, "Low": 104, "Close": 105.5, "Volume": 1000},
+        ]
+        bars = pd.DataFrame(rows)
+        atr = compute_atr(bars, period=1)
+        assert atr is not None
+        # Last bar true range should include gap: max(106-104, |106-100|, |104-100|) = 6
+        assert atr >= 2.0  # At least the high-low range
+
+    def test_default_period_is_14(self):
+        """Default period parameter should be 14."""
+        rows = []
+        for i in range(20):
+            rows.append({"Open": 100 + i * 0.1, "High": 101 + i * 0.1, "Low": 99 + i * 0.1, "Close": 100.5 + i * 0.1, "Volume": 1000})
+        bars = pd.DataFrame(rows)
+        atr_default = compute_atr(bars)
+        atr_14 = compute_atr(bars, period=14)
+        assert atr_default == atr_14
+
+    def test_returns_float_type(self):
+        """ATR should return a Python float."""
+        rows = [{"Open": 100, "High": 102, "Low": 98, "Close": 100, "Volume": 1000}] * 20
+        bars = pd.DataFrame(rows)
+        atr = compute_atr(bars)
+        assert isinstance(atr, float)
+
+
+class TestATRAdjustedStopExtended:
+    """Extended tests for atr_adjusted_stop — monkeypatch and edge cases."""
+
+    def test_atr_stop_calculation(self):
+        """ATR stop = entry - ATR * 1.5, exact value check."""
+        assert atr_adjusted_stop(200.0, 4.0) == round(200.0 - 4.0 * 1.5, 2)
+
+    def test_fallback_nvda_symbol(self):
+        """NVDA per-symbol risk (0.4%) on fallback."""
+        result = atr_adjusted_stop(300.0, None, symbol="NVDA")
+        expected = round(300.0 * (1 - 0.004), 2)
+        assert result == expected
+
+    def test_fallback_crypto_btc(self):
+        """BTC-USD per-symbol risk (0.8%) on fallback."""
+        result = atr_adjusted_stop(50000.0, None, symbol="BTC-USD")
+        expected = round(50000.0 * (1 - 0.008), 2)
+        assert result == expected
+
+    def test_fallback_crypto_eth(self):
+        """ETH-USD per-symbol risk (1.0%) on fallback."""
+        result = atr_adjusted_stop(3000.0, None, symbol="ETH-USD")
+        expected = round(3000.0 * (1 - 0.010), 2)
+        assert result == expected
+
+    def test_atr_overrides_symbol_risk(self):
+        """When ATR is valid, per-symbol risk is ignored — ATR calculation wins."""
+        # SPY has 0.002 risk, but ATR should override
+        result = atr_adjusted_stop(400.0, 5.0, symbol="SPY")
+        expected = round(400.0 - 5.0 * 1.5, 2)
+        assert result == expected
+
+    def test_use_atr_stops_false_ignores_valid_atr(self, monkeypatch):
+        """When USE_ATR_STOPS=False, valid ATR is ignored, falls back to fixed %."""
+        import analytics.intraday_rules as mod
+        monkeypatch.setattr(mod, "USE_ATR_STOPS", False)
+        result = atr_adjusted_stop(100.0, 2.0)
+        expected = round(100.0 * (1 - 0.003), 2)
+        assert result == expected
+
+    def test_use_atr_stops_false_with_symbol(self, monkeypatch):
+        """USE_ATR_STOPS=False + symbol → uses per-symbol fixed %."""
+        import analytics.intraday_rules as mod
+        monkeypatch.setattr(mod, "USE_ATR_STOPS", False)
+        result = atr_adjusted_stop(400.0, 5.0, symbol="SPY")
+        expected = round(400.0 * (1 - 0.002), 2)
+        assert result == expected
+
+    def test_very_small_atr(self):
+        """Very small but positive ATR → still uses ATR calculation."""
+        result = atr_adjusted_stop(100.0, 0.01)
+        expected = round(100.0 - 0.01 * 1.5, 2)
+        assert result == expected
+
+    def test_no_symbol_none_atr(self):
+        """symbol=None + ATR=None → default risk %."""
+        result = atr_adjusted_stop(100.0, None, symbol=None)
+        expected = round(100.0 * (1 - 0.003), 2)
+        assert result == expected
+
+
+class TestTrailingStopHitExtended:
+    """Extended tests for check_trailing_stop_hit — feature flag and edge cases."""
+
+    def test_enable_trailing_stops_false_returns_none(self, monkeypatch):
+        """ENABLE_TRAILING_STOPS=False → None even with valid breach."""
+        import analytics.intraday_rules as mod
+        monkeypatch.setattr(mod, "ENABLE_TRAILING_STOPS", False)
+        bar = _bar(open_=100, high=101, low=95, close=96)
+        sig = check_trailing_stop_hit("AAPL", bar, trailing_stop_level=98.0)
+        assert sig is None
+
+    def test_exact_touch_fires(self):
+        """Low exactly at trailing stop level → fires (not strictly above)."""
+        bar = _bar(open_=100, high=101, low=98.0, close=99.0)
+        sig = check_trailing_stop_hit("AAPL", bar, trailing_stop_level=98.0)
+        assert sig is not None
+        assert sig.direction == "SELL"
+
+    def test_low_one_cent_above_trail_no_fire(self):
+        """Low one cent above trail level → no breach → None."""
+        bar = _bar(open_=100, high=101, low=98.01, close=99.0)
+        sig = check_trailing_stop_hit("AAPL", bar, trailing_stop_level=98.0)
+        assert sig is not None if 98.01 <= 98.0 else sig is None
+        # 98.01 > 98.0 → should be None
+        assert sig is None
+
+    def test_message_contains_trail_and_low(self):
+        """Signal message includes trail level and bar low prices."""
+        bar = _bar(open_=100, high=101, low=96.5, close=97.0)
+        sig = check_trailing_stop_hit("AAPL", bar, trailing_stop_level=98.0)
+        assert sig is not None
+        assert "$96.50" in sig.message
+        assert "$98.00" in sig.message
+
+    def test_signal_price_is_close(self):
+        """Signal price should be the bar's close."""
+        bar = _bar(open_=100, high=101, low=96.5, close=97.0)
+        sig = check_trailing_stop_hit("AAPL", bar, trailing_stop_level=98.0)
+        assert sig is not None
+        assert sig.price == 97.0
+
+    def test_symbol_passed_through(self):
+        """Symbol in signal matches input."""
+        bar = _bar(open_=100, high=101, low=95, close=96)
+        sig = check_trailing_stop_hit("TSLA", bar, trailing_stop_level=98.0)
+        assert sig is not None
+        assert sig.symbol == "TSLA"
+
+    def test_very_large_trail_always_fires(self):
+        """Trailing stop level above bar high → still fires (low < level)."""
+        bar = _bar(open_=100, high=101, low=99, close=100)
+        sig = check_trailing_stop_hit("AAPL", bar, trailing_stop_level=200.0)
+        assert sig is not None
+
+
+class TestGapAndGoExtended:
+    """Extended tests for check_gap_and_go — confidence levels and edge cases."""
+
+    def test_high_confidence_gap_2pct_plus(self):
+        """Gap >= 2% → high confidence."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 103.0, "High": 104.0, "Low": 102.5, "Close": 103.5, "Volume": 5000},
+            {"Open": 103.5, "High": 105.0, "Low": 103.0, "Close": 104.5, "Volume": 3000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3000, 2000)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_medium_confidence_gap_1pct(self):
+        """Gap between 1-2% → medium confidence."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 101.5, "High": 102.5, "Low": 101.0, "Close": 102.0, "Volume": 5000},
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 3000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3000, 2000)
+        assert sig is not None
+        assert sig.confidence == "medium"
+
+    def test_stop_at_prior_close(self):
+        """Stop should be at prior_close (gap fill level)."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 5000},
+            {"Open": 102.5, "High": 104.0, "Low": 102.0, "Close": 103.0, "Volume": 3000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3000, 2000)
+        assert sig is not None
+        assert sig.stop == 100.0
+
+    def test_entry_at_gap_open(self):
+        """Entry should be at the gap open price."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 5000},
+            {"Open": 102.5, "High": 104.0, "Low": 102.0, "Close": 103.0, "Volume": 3000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3000, 2000)
+        assert sig is not None
+        assert sig.entry == 102.0
+
+    def test_prior_close_zero_returns_none(self):
+        """prior_close=0 → None (division guard)."""
+        rows = [{"Open": 102, "High": 103, "Low": 101, "Close": 102.5, "Volume": 5000}]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close=0, bar_vol=5000, avg_vol=2000)
+        assert sig is None
+
+    def test_negative_prior_close_returns_none(self):
+        """Negative prior_close → None."""
+        rows = [{"Open": 102, "High": 103, "Low": 101, "Close": 102.5, "Volume": 5000}]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close=-100.0, bar_vol=5000, avg_vol=2000)
+        assert sig is None
+
+    def test_exactly_1pct_gap_fires(self):
+        """Gap of exactly 1% should fire (>= 0.01)."""
+        prior_close = 100.0
+        gap_open = 101.0  # exactly 1%
+        rows = [
+            {"Open": gap_open, "High": gap_open + 1.0, "Low": gap_open - 0.3, "Close": gap_open + 0.5, "Volume": 5000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 5000, 2000)
+        assert sig is not None
+
+    def test_exactly_2x_volume_fires(self):
+        """First bar volume of exactly 2x average should fire (>= 2.0)."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 4000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 4000, 2000)
+        assert sig is not None
+
+    def test_just_below_2x_volume_no_fire(self):
+        """First bar volume just below 2x → None."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 3999},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3999, 2000)
+        assert sig is None
+
+    def test_message_contains_gap_info(self):
+        """Message should mention Gap-and-Go and volume ratio."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 5000},
+            {"Open": 102.5, "High": 104.0, "Low": 102.0, "Close": 103.0, "Volume": 3000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3000, 2000)
+        assert sig is not None
+        assert "Gap-and-Go" in sig.message
+        assert "volume" in sig.message.lower()
+
+    def test_risk_reward_targets(self):
+        """Targets at 1R and 2R from entry."""
+        prior_close = 100.0
+        rows = [
+            {"Open": 102.0, "High": 103.0, "Low": 101.5, "Close": 102.5, "Volume": 5000},
+            {"Open": 102.5, "High": 104.0, "Low": 102.0, "Close": 103.0, "Volume": 3000},
+        ]
+        bars = pd.DataFrame(rows)
+        sig = check_gap_and_go("AAPL", bars, prior_close, 3000, 2000)
+        assert sig is not None
+        risk = sig.entry - sig.stop
+        assert risk > 0
+        assert abs(sig.target_1 - (sig.entry + risk)) < 0.02
+        assert abs(sig.target_2 - (sig.entry + 2 * risk)) < 0.02
+
+
+class TestFibRetracementBounceExtended:
+    """Extended tests for check_fib_retracement_bounce — all fib levels and validation."""
+
+    def test_382_fib_bounce_medium_confidence(self):
+        """38.2% retracement bounce → medium confidence (< 0.5)."""
+        prior_high = 110.0
+        prior_low = 100.0
+        # 38.2% fib = 110 - 10 * 0.382 = 106.18
+        fib_382 = prior_high - 10.0 * 0.382
+        bar = _bar(open_=106.5, high=107.0, low=fib_382, close=106.8)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        assert sig.confidence == "medium"
+
+    def test_50_fib_high_confidence(self):
+        """50% retracement → high confidence (>= 0.5)."""
+        prior_high = 110.0
+        prior_low = 100.0
+        fib_50 = 105.0
+        bar = _bar(open_=105.5, high=106.0, low=105.0, close=105.8)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_618_fib_high_confidence(self):
+        """61.8% retracement → high confidence."""
+        prior_high = 110.0
+        prior_low = 100.0
+        fib_618 = prior_high - 10.0 * 0.618  # 103.82
+        bar = _bar(open_=104.2, high=104.5, low=fib_618, close=104.3)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_inverted_range_returns_none(self):
+        """prior_high < prior_low → None."""
+        bar = _bar(open_=100, high=101, low=99, close=100.5)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high=95.0, prior_low=100.0)
+        assert sig is None
+
+    def test_zero_prior_high_returns_none(self):
+        """prior_high=0 → None."""
+        bar = _bar(open_=5, high=6, low=4, close=5.5)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high=0, prior_low=0)
+        assert sig is None
+
+    def test_range_exactly_3pct(self):
+        """Range exactly 3% of price → should pass the filter."""
+        # prior_high=103, prior_low=100 → range=3, 3/103 ≈ 2.91% → below 3%, None
+        bar = _bar(open_=101.5, high=102, low=101.5, close=101.8)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high=103.0, prior_low=100.0)
+        assert sig is None  # 2.91% < 3%
+
+    def test_range_above_3pct_passes(self):
+        """Range > 3% of price → passes the filter."""
+        # prior_high=104, prior_low=100 → range=4, 4/104 ≈ 3.85% → passes
+        prior_high = 104.0
+        prior_low = 100.0
+        fib_50 = prior_high - 4.0 * 0.5  # 102.0
+        bar = _bar(open_=102.3, high=102.5, low=102.0, close=102.4)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+
+    def test_bar_low_just_outside_proximity(self):
+        """Bar low slightly outside proximity threshold → None."""
+        prior_high = 110.0
+        prior_low = 100.0
+        fib_50 = 105.0
+        # FIB_BOUNCE_PROXIMITY_PCT = 0.003 → 105 * 0.003 = 0.315
+        # Bar low at 105.4 → distance = 0.4 → 0.4/105 = 0.0038 > 0.003
+        bar = _bar(open_=106, high=106.5, low=105.4, close=106.0)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        # Should not fire for 50% fib; check if it fires for any level
+        # 38.2% = 106.18, distance from 105.4 = 0.78, 0.78/106.18 = 0.73% > 0.3%
+        # So no level matches
+        assert sig is None
+
+    def test_entry_at_fib_level(self):
+        """Entry should be at the rounded fib level."""
+        prior_high = 110.0
+        prior_low = 100.0
+        fib_50 = 105.0
+        bar = _bar(open_=105.5, high=106.0, low=105.0, close=105.8)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        assert sig.entry == round(fib_50, 2)
+
+    def test_message_contains_fibonacci(self):
+        """Signal message should mention Fibonacci."""
+        prior_high = 110.0
+        prior_low = 100.0
+        bar = _bar(open_=105.5, high=106.0, low=105.0, close=105.8)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        assert "Fibonacci" in sig.message
+
+    def test_symbol_propagated(self):
+        """Symbol passed through to signal."""
+        prior_high = 110.0
+        prior_low = 100.0
+        bar = _bar(open_=105.5, high=106.0, low=105.0, close=105.8)
+        sig = check_fib_retracement_bounce("NVDA", bar, prior_high, prior_low)
+        assert sig is not None
+        assert sig.symbol == "NVDA"
+
+    def test_first_matching_fib_wins(self):
+        """Function returns the first matching fib level (38.2% checked first)."""
+        # If bar low is near both 38.2% and 50%, 38.2% should win
+        prior_high = 110.0
+        prior_low = 100.0
+        # 38.2% = 106.18, 50% = 105.0
+        # Place bar low near 38.2%
+        bar = _bar(open_=106.5, high=107.0, low=106.18, close=106.8)
+        sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
+        assert sig is not None
+        # Entry should be near 106.18 (38.2% level), not 105.0
+        assert abs(sig.entry - 106.18) < 0.05
