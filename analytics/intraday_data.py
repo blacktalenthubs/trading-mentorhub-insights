@@ -177,12 +177,16 @@ def detect_hourly_support(
     return sorted(min(c) for c in clusters)
 
 
-def fetch_prior_day(symbol: str) -> dict | None:
+def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
     """Fetch the PRIOR COMPLETED trading day's data.
 
     During market hours the last bar from yfinance is today's partial data,
     so we use iloc[-2] (yesterday) and iloc[-3] (day before).
     After close the last bar is the completed day, so iloc[-1] and iloc[-2].
+
+    For crypto (is_crypto=True): yfinance daily bars are aggregated on UTC
+    midnight boundaries. We keep UTC dates and compare against UTC "today"
+    to avoid an off-by-one error from ET conversion.
 
     Returns dict with keys: open, high, low, close, volume, ma20, ma50,
     ma100, ma200, pattern, direction, parent_high, parent_low.
@@ -193,7 +197,15 @@ def fetch_prior_day(symbol: str) -> dict | None:
         hist = ticker.history(period="1y")
         if hist.empty or len(hist) < 3:
             return None
-        hist = _normalize_index_to_et(hist)
+
+        if is_crypto:
+            # Crypto daily bars aggregate on UTC midnight boundaries.
+            # Keep UTC dates (don't convert to ET) for correct day selection.
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_convert("UTC").tz_localize(None)
+        else:
+            hist = _normalize_index_to_et(hist)
+
         hist = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
 
         # Compute MAs on full history
@@ -211,7 +223,14 @@ def fetch_prior_day(symbol: str) -> dict | None:
         hist["EMA200"] = hist["Close"].ewm(span=200, adjust=False).mean()
 
         # Date-aware selection: if last bar is today, it's partial
-        today = pd.Timestamp.now().normalize()
+        if is_crypto:
+            # Use naive UTC "today" to match the naive UTC index
+            from datetime import datetime, timezone
+            today = pd.Timestamp(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+            ).normalize()
+        else:
+            today = pd.Timestamp.now().normalize()
         last_bar_date = hist.index[-1].normalize()
 
         if last_bar_date >= today:

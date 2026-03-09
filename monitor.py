@@ -137,7 +137,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
         try:
             _is_crypto = is_crypto_alert_symbol(symbol)
             intraday = fetch_intraday_crypto(symbol) if _is_crypto else fetch_intraday(symbol)
-            prior_day = fetch_prior_day(symbol)
+            prior_day = fetch_prior_day(symbol, is_crypto=_is_crypto)
 
             if intraday.empty:
                 logger.warning("%s: no intraday data", symbol)
