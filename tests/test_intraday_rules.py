@@ -452,11 +452,11 @@ class TestPriorDayHighBreakout:
 
     def test_no_fire_when_volume_insufficient(self):
         bars = _bars([
-            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 800},
+            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 700},
         ])
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
-                                             bar_volume=800, avg_volume=1000)
-        assert sig is None  # vol 0.8x < 1.2 threshold
+                                             bar_volume=700, avg_volume=1000)
+        assert sig is None  # vol 0.7x < 0.8 threshold
 
     def test_empty_bars_returns_none(self):
         sig = check_prior_day_high_breakout("X", pd.DataFrame(), prior_day_high=101.0,
@@ -4030,7 +4030,7 @@ class TestVWAPReclaim:
     def test_fires_on_vwap_reclaim(self):
         """Was below VWAP recently, last bar closes above → fire."""
         bars, vwap = self._make_vwap_bars(
-            low_bar=14, below_vwap_bars=[14, 15, 16], last_close=100.4,
+            low_bar=14, below_vwap_bars=[14, 15, 16], last_close=100.25,
         )
         sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
         assert sig is not None
@@ -4042,7 +4042,7 @@ class TestVWAPReclaim:
         """Low in afternoon (bar 15), not just morning — should still fire."""
         bars, vwap = self._make_vwap_bars(
             n_bars=20, low_bar=15, below_vwap_bars=[15, 16, 17],
-            last_close=100.4,
+            last_close=100.25,
         )
         sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1500, avg_volume=1000)
         assert sig is not None
@@ -4084,7 +4084,7 @@ class TestVWAPReclaim:
     def test_high_volume_gives_high_confidence(self):
         """Volume ≥ 1.2x → confidence='high'."""
         bars, vwap = self._make_vwap_bars(
-            low_bar=14, below_vwap_bars=[14, 15, 16], last_close=100.4,
+            low_bar=14, below_vwap_bars=[14, 15, 16], last_close=100.25,
         )
         sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=1300, avg_volume=1000)
         assert sig is not None
@@ -4093,7 +4093,7 @@ class TestVWAPReclaim:
     def test_low_volume_gives_medium_confidence(self):
         """Volume < 1.2x → confidence='medium'."""
         bars, vwap = self._make_vwap_bars(
-            low_bar=14, below_vwap_bars=[14, 15, 16], last_close=100.4,
+            low_bar=14, below_vwap_bars=[14, 15, 16], last_close=100.25,
         )
         sig = check_vwap_reclaim("AAPL", bars, vwap, bar_volume=900, avg_volume=1000)
         assert sig is not None

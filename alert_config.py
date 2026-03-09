@@ -174,7 +174,7 @@ SUPPORT_STRONG_HOLD_HOURS = 2
 SUPPORT_STRONG_RETEST_COUNT = 2
 
 # Prior Day High Breakout: volume must be >= this multiple of average
-PDH_BREAKOUT_VOLUME_RATIO = 1.2
+PDH_BREAKOUT_VOLUME_RATIO = 0.8
 
 # Opening Range Breakdown: volume must be >= this multiple of average
 ORB_BREAKDOWN_VOLUME_RATIO = 1.2  # same threshold as upside breakout
@@ -238,7 +238,7 @@ VWAP_RECLAIM_MIN_RECOVERY_PCT = 0.005   # 0.5% minimum bounce from session low
 VWAP_RECLAIM_VOLUME_RATIO = 1.2         # volume confirmation threshold
 VWAP_RECLAIM_MIN_BARS_AFTER_LOW = 3     # 15 min after low before firing
 VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
-VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.005   # 0.5% — skip if price already ran past VWAP
+VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.003   # 0.3% — skip if price already ran past VWAP
 
 # VWAP Bounce: pullback to VWAP that holds — continuation signal
 VWAP_BOUNCE_MIN_BARS = 10              # need enough history for trend context
@@ -407,6 +407,7 @@ ENABLED_RULES: set[str] = {
     "vwap_reclaim",
     "vwap_bounce",
     "opening_low_base",
+    "intraday_support_bounce",
     # "outside_day_breakout",
     # "ema_crossover_5_20",
     # "hourly_resistance_approach",
