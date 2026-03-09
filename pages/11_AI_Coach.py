@@ -164,17 +164,28 @@ tab_analysis, tab_fundamentals, tab_weekly, tab_coach, tab_scanner = st.tabs([
 with tab_analysis:
     section_header("Alert Win Rates", "Historical signal accuracy")
 
-    lookback = st.selectbox(
-        "Lookback period", [30, 60, 90, 180],
-        index=2, key="win_rate_lookback",
-        format_func=lambda d: f"{d} days",
-    )
+    _wr_col1, _wr_col2 = st.columns(2)
+    with _wr_col1:
+        lookback = st.selectbox(
+            "Lookback period", [30, 60, 90, 180],
+            index=2, key="win_rate_lookback",
+            format_func=lambda d: f"{d} days",
+        )
+    with _wr_col2:
+        _metric_mode = st.radio(
+            "View", ["All Alerts", "My Trades"],
+            horizontal=True, key="win_rate_mode",
+            help="'My Trades' shows only alerts you acknowledged via Telegram.",
+        )
 
     try:
-        from analytics.intel_hub import get_alert_win_rates
+        from analytics.intel_hub import get_alert_win_rates, get_acked_trade_win_rates
 
         with st.spinner("Analyzing alerts..."):
-            rates = get_alert_win_rates(days=lookback, user_id=_uid)
+            if _metric_mode == "My Trades" and _uid is not None:
+                rates = get_acked_trade_win_rates(user_id=_uid, days=lookback)
+            else:
+                rates = get_alert_win_rates(days=lookback, user_id=_uid)
 
         overall = rates.get("overall", {})
         if overall.get("total", 0) == 0:

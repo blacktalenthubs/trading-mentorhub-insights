@@ -262,6 +262,48 @@ def get_alerts_history(limit: int = 100, user_id: int | None = None):
         return [dict(r) for r in rows]
 
 
+def ack_alert(alert_id: int, action: str) -> bool:
+    """Mark an alert as 'took' or 'skipped'. Returns True on success."""
+    if action not in ("took", "skipped"):
+        return False
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE alerts SET user_action = ?, acked_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (action, alert_id),
+        )
+    return True
+
+
+def get_alert_by_id(alert_id: int) -> dict | None:
+    """Fetch a single alert by its id."""
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_acked_trades(user_id: int, days: int = 90) -> list[dict]:
+    """Return alerts where user_action='took' within the last N days."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM alerts
+               WHERE user_id = ? AND user_action = 'took'
+                 AND created_at >= datetime('now', ? || ' days')
+               ORDER BY created_at DESC""",
+            (user_id, f"-{days}"),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_user_id_by_chat_id(chat_id: str) -> int | None:
+    """Look up a user_id by their Telegram chat_id."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM user_notification_prefs WHERE telegram_chat_id = ? LIMIT 1",
+            (str(chat_id),),
+        ).fetchone()
+        return row["user_id"] if row else None
+
+
 def update_monitor_status(symbols_checked: int, alerts_fired: int, status: str = "running"):
     """Update the single-row monitor heartbeat."""
     with get_db() as conn:
