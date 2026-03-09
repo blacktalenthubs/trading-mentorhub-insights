@@ -137,6 +137,114 @@ def get_alert_win_rates(days: int = 90, user_id: int | None = None) -> dict:
     }
 
 
+def get_acked_trade_win_rates(user_id: int, days: int = 90) -> dict:
+    """Win rates for trades the user actually took (user_action='took').
+
+    Same structure as get_alert_win_rates but filtered to ACK'd entries only.
+    Returns dict with keys: by_symbol, by_alert_type, by_hour, overall, total_trades.
+    """
+    from db import get_db
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+
+    with get_db() as conn:
+        # Get all alerts for this user in the period
+        all_rows = conn.execute(
+            "SELECT * FROM alerts WHERE session_date >= ? "
+            "AND (user_id=? OR user_id IS NULL) ORDER BY created_at",
+            (cutoff, user_id),
+        ).fetchall()
+
+    alerts = [dict(r) for r in all_rows]
+
+    _OUTCOME_TYPES = {"target_1_hit", "target_2_hit", "stop_loss_hit", "auto_stop_out"}
+    _WIN_TYPES = {"target_1_hit", "target_2_hit"}
+    _LOSS_TYPES = {"stop_loss_hit", "auto_stop_out"}
+
+    # Group by (symbol, session_date) to find outcomes
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for a in alerts:
+        key = (a.get("symbol", ""), a.get("session_date", ""))
+        groups.setdefault(key, []).append(a)
+
+    entry_outcomes: list[dict] = []
+    for (symbol, session), group_alerts in groups.items():
+        outcomes = set()
+        for a in group_alerts:
+            at = a.get("alert_type", "")
+            if at in _WIN_TYPES:
+                outcomes.add("win")
+            elif at in _LOSS_TYPES:
+                outcomes.add("loss")
+
+        # Only include ACK'd entry alerts
+        for a in group_alerts:
+            at = a.get("alert_type", "")
+            direction = a.get("direction", "")
+            if at in _OUTCOME_TYPES:
+                continue
+            if direction not in ("BUY", "SHORT"):
+                continue
+            if a.get("user_action") != "took":
+                continue
+
+            result = "unknown"
+            if "win" in outcomes:
+                result = "win"
+            elif "loss" in outcomes:
+                result = "loss"
+
+            created = a.get("created_at", "")
+            hour = None
+            if created:
+                try:
+                    hour = datetime.fromisoformat(str(created)).hour
+                except (ValueError, TypeError):
+                    pass
+
+            entry_outcomes.append({
+                "symbol": symbol,
+                "alert_type": at,
+                "hour": hour,
+                "result": result,
+            })
+
+    def _bucket(items: list[dict]) -> dict:
+        wins = sum(1 for i in items if i["result"] == "win")
+        losses = sum(1 for i in items if i["result"] == "loss")
+        unknown = sum(1 for i in items if i["result"] == "unknown")
+        total = len(items)
+        win_rate = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0.0
+        return {"wins": wins, "losses": losses, "unknown": unknown,
+                "total": total, "win_rate": win_rate}
+
+    by_symbol: dict[str, dict] = {}
+    for e in entry_outcomes:
+        by_symbol.setdefault(e["symbol"], []).append(e)
+    by_symbol = {sym: _bucket(items) for sym, items in by_symbol.items()}
+
+    by_alert_type: dict[str, dict] = {}
+    for e in entry_outcomes:
+        by_alert_type.setdefault(e["alert_type"], []).append(e)
+    by_alert_type = {at: _bucket(items) for at, items in by_alert_type.items()}
+
+    by_hour: dict[int, dict] = {}
+    for e in entry_outcomes:
+        if e["hour"] is not None:
+            by_hour.setdefault(e["hour"], []).append(e)
+    by_hour = {h: _bucket(items) for h, items in sorted(by_hour.items())}
+
+    overall = _bucket(entry_outcomes)
+
+    return {
+        "by_symbol": by_symbol,
+        "by_alert_type": by_alert_type,
+        "by_hour": by_hour,
+        "overall": overall,
+        "total_trades": len(entry_outcomes),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Multi-timeframe S/R levels
 # ---------------------------------------------------------------------------

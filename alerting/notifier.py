@@ -251,8 +251,11 @@ def send_email(signal: AlertSignal) -> bool:
     return send_email_to(signal, ALERT_EMAIL_TO)
 
 
-def _send_telegram_to(body: str, chat_id: str) -> bool:
-    """Send a message via Telegram Bot API to an explicit chat_id."""
+def _send_telegram_to(body: str, chat_id: str, reply_markup: dict | None = None) -> bool:
+    """Send a message via Telegram Bot API to an explicit chat_id.
+
+    *reply_markup* — optional InlineKeyboardMarkup dict for interactive buttons.
+    """
     if not TELEGRAM_BOT_TOKEN or not chat_id:
         logger.warning(
             "Telegram not configured — missing %s",
@@ -260,14 +263,18 @@ def _send_telegram_to(body: str, chat_id: str) -> bool:
         )
         return False
 
+    import json
     import urllib.parse
     import urllib.request
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = urllib.parse.urlencode({
+    payload = {
         "chat_id": chat_id,
         "text": body,
-    }).encode()
+    }
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    data = urllib.parse.urlencode(payload).encode()
 
     try:
         resp = urllib.request.urlopen(url, data, timeout=10)
@@ -372,8 +379,42 @@ _TIER1_ALERT_TYPES = {
 }
 
 
-def notify_user(signal: AlertSignal, prefs: dict) -> tuple[bool, bool]:
+def _build_trade_buttons(signal: AlertSignal, alert_id: int | None) -> dict | None:
+    """Build InlineKeyboardMarkup for trade ACK buttons.
+
+    BUY/SHORT signals get "Took It" + "Skip" buttons.
+    SELL signals get "Exited" + "Still Holding" buttons.
+    NOTICE signals get no buttons.
+    """
+    if alert_id is None:
+        return None
+
+    if signal.direction in ("BUY", "SHORT"):
+        return {
+            "inline_keyboard": [[
+                {"text": "\u2705 Took It", "callback_data": f"ack:{alert_id}"},
+                {"text": "\u274c Skip", "callback_data": f"skip:{alert_id}"},
+            ]]
+        }
+
+    if signal.direction == "SELL":
+        return {
+            "inline_keyboard": [[
+                {"text": "\U0001f4b0 Exited", "callback_data": f"exit:{alert_id}"},
+                {"text": "\U0001f4aa Still Holding", "callback_data": f"hold:{alert_id}"},
+            ]]
+        }
+
+    return None
+
+
+def notify_user(
+    signal: AlertSignal, prefs: dict, alert_id: int | None = None,
+) -> tuple[bool, bool]:
     """Send notifications to a specific user based on their preferences.
+
+    *alert_id* — if provided, BUY/SELL Telegram messages include inline
+    buttons for trade acknowledgement (Took It / Skip / Exited).
 
     Returns (email_sent, telegram_sent).
     """
@@ -389,7 +430,8 @@ def notify_user(signal: AlertSignal, prefs: dict) -> tuple[bool, bool]:
         chat_id = prefs.get("telegram_chat_id", "")
         if chat_id:
             body = _format_sms_body(signal)
-            telegram_sent = _send_telegram_to(body, chat_id)
+            markup = _build_trade_buttons(signal, alert_id)
+            telegram_sent = _send_telegram_to(body, chat_id, reply_markup=markup)
 
     return email_sent, telegram_sent
 

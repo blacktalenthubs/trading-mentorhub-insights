@@ -881,6 +881,16 @@ def _migrate_alert_user_id():
             "CREATE INDEX IF NOT EXISTS idx_alerts_user_id ON alerts(user_id)"
         )
 
+        # Add trade ACK columns to alerts
+        for col_def in [
+            "ALTER TABLE alerts ADD COLUMN user_action TEXT DEFAULT NULL",
+            "ALTER TABLE alerts ADD COLUMN acked_at TIMESTAMP DEFAULT NULL",
+        ]:
+            try:
+                conn.execute(col_def)
+            except _DB_OPERATIONAL_ERRORS:
+                pass  # Column already exists
+
         # Assign orphan alerts to first user
         admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
         if admin:

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Telegram bot handler for deep-link token verification.
+"""Telegram bot handler for deep-link token verification and trade ACK.
 
-Listens for /start <token> messages and links the user's Telegram chat_id
-to their TradeCoPilot account via the telegram_link_tokens table.
+Listens for:
+- /start <token> — links Telegram chat_id to TradeCoPilot account
+- Inline button callbacks — Took It / Skip / Exited / Still Holding
 
 Usage:
     TELEGRAM_BOT_TOKEN=xxx python scripts/telegram_bot.py
@@ -87,10 +88,131 @@ def handle_start(token: str, chat_id: int) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Trade ACK callback handlers
+# ---------------------------------------------------------------------------
+
+def _handle_ack(alert_id: int, chat_id: int) -> str:
+    """User tapped 'Took It' — open a real trade from the alert."""
+    from db import init_db
+    from alerting.alert_store import ack_alert, get_alert_by_id, get_user_id_by_chat_id, today_session
+    from alerting.real_trade_store import open_real_trade, has_open_trade
+
+    init_db()
+    alert = get_alert_by_id(alert_id)
+    if not alert:
+        return "Alert not found."
+
+    if alert.get("user_action") == "took":
+        return "Already acknowledged this trade."
+
+    # ACK the alert
+    ack_alert(alert_id, "took")
+
+    symbol = alert["symbol"]
+    if has_open_trade(symbol):
+        return f"\u2705 Trade ACK'd for {symbol} (already have an open position)."
+
+    # Open a real trade from the alert data
+    open_real_trade(
+        symbol=symbol,
+        direction=alert["direction"],
+        entry_price=alert.get("entry") or alert["price"],
+        stop_price=alert.get("stop"),
+        target_price=alert.get("target_1"),
+        target_2_price=alert.get("target_2"),
+        alert_type=alert["alert_type"],
+        alert_id=alert_id,
+        session_date=alert.get("session_date") or today_session(),
+    )
+
+    entry = alert.get("entry") or alert["price"]
+    return f"\u2705 Trade opened: {symbol} @ ${entry:.2f}"
+
+
+def _handle_skip(alert_id: int) -> str:
+    """User tapped 'Skip' — mark alert as skipped."""
+    from db import init_db
+    from alerting.alert_store import ack_alert, get_alert_by_id
+
+    init_db()
+    alert = get_alert_by_id(alert_id)
+    if not alert:
+        return "Alert not found."
+
+    ack_alert(alert_id, "skipped")
+    return f"\u274c Skipped {alert['symbol']} alert."
+
+
+def _handle_exit(alert_id: int, chat_id: int) -> str:
+    """User tapped 'Exited' on a SELL alert — close the real trade.
+
+    Uses the SELL alert's price as exit price (auto-fill from exit alert).
+    """
+    from db import init_db, get_db
+    from alerting.alert_store import get_alert_by_id
+    from alerting.real_trade_store import close_real_trade
+
+    init_db()
+    alert = get_alert_by_id(alert_id)
+    if not alert:
+        return "Alert not found."
+
+    symbol = alert["symbol"]
+    exit_price = alert["price"]
+
+    # Find the open real trade for this symbol
+    with get_db() as conn:
+        trade = conn.execute(
+            "SELECT id, entry_price FROM real_trades WHERE symbol=? AND status='open' ORDER BY opened_at DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+
+    if not trade:
+        return f"No open trade found for {symbol}."
+
+    pnl = close_real_trade(trade["id"], exit_price, notes=f"Exited via Telegram ({alert['alert_type']})")
+    sign = "+" if pnl >= 0 else ""
+    return f"\U0001f4b0 Exited {symbol} @ ${exit_price:.2f} | P&L: {sign}${pnl:.2f}"
+
+
+def _handle_exit_manual(symbol: str, chat_id: int) -> str:
+    """User wants to exit manually (no exit alert) — prompt for price.
+
+    This is triggered by the /exit command. Returns a message asking for the price.
+    """
+    from db import init_db, get_db
+
+    init_db()
+
+    with get_db() as conn:
+        trade = conn.execute(
+            "SELECT id, entry_price FROM real_trades WHERE symbol=? AND status='open' ORDER BY opened_at DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+
+    if not trade:
+        return f"No open trade found for {symbol}."
+
+    return f"_awaiting_exit_price:{trade['id']}"
+
+
+def _handle_hold(alert_id: int) -> str:
+    """User tapped 'Still Holding' — acknowledge but keep position open."""
+    return "\U0001f4aa Holding position. You'll get the next exit signal."
+
+
+# ---------------------------------------------------------------------------
+# Bot application builder
+# ---------------------------------------------------------------------------
+
 def _build_app(bot_token: str):
-    """Build the telegram Application with /start handler."""
+    """Build the telegram Application with /start handler and trade ACK callbacks."""
     from telegram import Update
-    from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+    from telegram.ext import (
+        ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+        ContextTypes, MessageHandler, filters,
+    )
 
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args:
@@ -104,6 +226,9 @@ def _build_app(bot_token: str):
                 "5. Open the link it gives you — it will send "
                 "a special /start command back here that connects "
                 "your account automatically\n\n"
+                "Commands:\n"
+                "/exit SYMBOL PRICE — manually exit a trade\n"
+                "/trades — list open trades\n\n"
                 "Note: Telegram DM alerts require a Pro or Elite subscription."
             )
             return
@@ -120,8 +245,118 @@ def _build_app(bot_token: str):
             )
         await update.message.reply_text(result)
 
+    async def exit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /exit SYMBOL PRICE — manually exit an open trade."""
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "Usage: /exit SYMBOL PRICE\n"
+                "Example: /exit AAPL 185.50"
+            )
+            return
+
+        symbol = context.args[0].upper()
+        try:
+            exit_price = float(context.args[1])
+        except ValueError:
+            await update.message.reply_text("Invalid price. Usage: /exit AAPL 185.50")
+            return
+
+        from db import init_db, get_db
+        from alerting.real_trade_store import close_real_trade
+
+        init_db()
+
+        with get_db() as conn:
+            trade = conn.execute(
+                "SELECT id FROM real_trades WHERE symbol=? AND status='open' ORDER BY opened_at DESC LIMIT 1",
+                (symbol,),
+            ).fetchone()
+
+        if not trade:
+            await update.message.reply_text(f"No open trade found for {symbol}.")
+            return
+
+        pnl = close_real_trade(trade["id"], exit_price, notes="Manual exit via Telegram /exit command")
+        sign = "+" if pnl >= 0 else ""
+        await update.message.reply_text(
+            f"\U0001f4b0 Exited {symbol} @ ${exit_price:.2f} | P&L: {sign}${pnl:.2f}"
+        )
+
+    async def trades_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /trades — list open trades."""
+        from db import init_db
+        from alerting.real_trade_store import get_open_trades
+
+        init_db()
+        trades = get_open_trades()
+        if not trades:
+            await update.message.reply_text("No open trades.")
+            return
+
+        lines = ["Open Trades:\n"]
+        for t in trades:
+            entry = t.get("entry_price", 0)
+            symbol = t["symbol"]
+            stop = t.get("stop_price")
+            stop_str = f" | Stop ${stop:.2f}" if stop else ""
+            lines.append(f"  {symbol} @ ${entry:.2f}{stop_str}")
+        await update.message.reply_text("\n".join(lines))
+
+    async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle inline button callbacks for trade ACK."""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data or ""
+        chat_id = query.message.chat_id
+
+        try:
+            action, alert_id_str = data.split(":", 1)
+            alert_id = int(alert_id_str)
+        except (ValueError, AttributeError):
+            logger.warning("Invalid callback data: %s", data)
+            return
+
+        try:
+            if action == "ack":
+                result = _handle_ack(alert_id, chat_id)
+            elif action == "skip":
+                result = _handle_skip(alert_id)
+            elif action == "exit":
+                result = _handle_exit(alert_id, chat_id)
+            elif action == "hold":
+                result = _handle_hold(alert_id)
+            else:
+                result = "Unknown action."
+        except Exception:
+            logger.exception("Callback handler failed: %s", data)
+            result = "Something went wrong. Please try again."
+
+        # Edit the original message to show the action taken
+        original_text = query.message.text or ""
+        badge = {
+            "ack": "\n\n\u2705 TOOK IT",
+            "skip": "\n\n\u274c SKIPPED",
+            "exit": f"\n\n\U0001f4b0 EXITED",
+            "hold": "\n\n\U0001f4aa HOLDING",
+        }.get(action, "")
+
+        try:
+            await query.edit_message_text(
+                text=original_text + badge,
+                reply_markup=None,  # Remove buttons after action
+            )
+        except Exception:
+            logger.debug("Could not edit original message (may be too old)")
+
+        # Send confirmation as a separate message
+        await query.message.reply_text(result)
+
     app = ApplicationBuilder().token(bot_token).build()
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("exit", exit_command))
+    app.add_handler(CommandHandler("trades", trades_command))
+    app.add_handler(CallbackQueryHandler(callback_handler))
     return app
 
 

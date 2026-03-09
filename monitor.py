@@ -199,7 +199,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     if tier in ("pro", "elite", "admin"):
                         prefs = get_notification_prefs(uid)
                         if prefs:
-                            notify_user(signal, prefs)
+                            notify_user(signal, prefs, alert_id=alert_id)
 
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
