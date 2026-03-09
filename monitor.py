@@ -179,7 +179,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 email_sent, sms_sent = False, False
 
                 # Per-user: record alert, entries, cooldowns, and notifications
-                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
+                _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.PDH_REJECTION, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
                 alert_id = None
                 for uid in get_users_for_symbol(symbol):
                     alert_id = record_alert(signal, session, email_sent, sms_sent, user_id=uid)
@@ -236,6 +236,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 _exit_long_types = {
                     AlertType.RESISTANCE_PRIOR_LOW,
                     AlertType.RESISTANCE_PRIOR_HIGH,
+                    AlertType.PDH_REJECTION,
                     AlertType.SUPPORT_BREAKDOWN,
                     AlertType.OPENING_RANGE_BREAKDOWN,
                 }

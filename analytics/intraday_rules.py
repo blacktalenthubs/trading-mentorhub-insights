@@ -48,6 +48,7 @@ from alert_config import (
     ORB_VOLUME_RATIO,
     OVERHEAD_MA_RESISTANCE_PCT,
     PDH_BREAKOUT_VOLUME_RATIO,
+    PDH_REJECTION_PROXIMITY_PCT,
     INSIDE_DAY_DIP_MIN_PCT,
     PDL_BOUNCE_HOLD_BARS,
     PDL_BOUNCE_MAX_DISTANCE_PCT,
@@ -115,6 +116,7 @@ class AlertType(str, Enum):
     INSIDE_DAY_BREAKDOWN = "inside_day_breakdown"
     INSIDE_DAY_RECLAIM = "inside_day_reclaim"
     RESISTANCE_PRIOR_HIGH = "resistance_prior_high"
+    PDH_REJECTION = "pdh_rejection"
     TARGET_1_HIT = "target_1_hit"
     TARGET_2_HIT = "target_2_hit"
     STOP_LOSS_HIT = "stop_loss_hit"
@@ -870,6 +872,53 @@ def check_resistance_prior_high(
         price=bar["High"],
         confidence="medium",
         message=f"At prior day high ${prior_day_high:.2f} — resistance zone, watch for rejection",
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule 5b: Prior Day High Rejection (confirmed)
+# ---------------------------------------------------------------------------
+
+
+def check_pdh_rejection(
+    symbol: str,
+    bar: pd.Series,
+    prior_day_high: float,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Price rallies into prior day high and gets rejected — bearish warning.
+
+    Conditions (mirrors check_ema_resistance pattern):
+    - Bar high within PDH_REJECTION_PROXIMITY_PCT of prior day high (touched)
+    - Bar close is BELOW prior day high (rejection confirmed)
+    - Directional guard: prior close below PDH (approaching from below = resistance)
+    """
+    if prior_day_high <= 0:
+        return None
+
+    proximity = abs(bar["High"] - prior_day_high) / prior_day_high
+    if proximity > PDH_REJECTION_PROXIMITY_PCT:
+        return None
+
+    # Must close below prior day high — confirmed rejection
+    if bar["Close"] >= prior_day_high:
+        return None
+
+    # Directional guard: if prior close was ABOVE PDH, price is pulling back
+    # into it — PDH is acting as support, not resistance.  Skip.
+    if prior_close is not None and prior_close > prior_day_high:
+        return None
+
+    msg = f"PRIOR DAY HIGH REJECTION — rejected at ${prior_day_high:.2f}, closed ${bar['Close']:.2f}"
+    if prior_close is not None and prior_close < prior_day_high:
+        msg += " — approaching from below, acting as resistance"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PDH_REJECTION,
+        direction="SELL",
+        price=bar["High"],
+        message=msg,
     )
 
 
@@ -3433,6 +3482,10 @@ def evaluate_rules(
     has_active = len(entries) > 0
 
     sig = check_resistance_prior_high(symbol, last_bar, prior_high, has_active)
+    if sig:
+        signals.append(sig)
+
+    sig = check_pdh_rejection(symbol, last_bar, prior_high, prior_close)
     if sig:
         signals.append(sig)
 

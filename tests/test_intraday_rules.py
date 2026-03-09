@@ -41,6 +41,7 @@ from analytics.intraday_rules import (
     check_weekly_level_touch,
     check_ema_bounce_100,
     check_ema_bounce_200,
+    check_pdh_rejection,
     check_resistance_prior_high,
     check_resistance_prior_low,
     check_vwap_bounce,
@@ -667,6 +668,52 @@ class TestResistancePriorHigh:
     def test_no_fire_when_too_far_from_prior_high(self):
         bar = _bar(high=99.0)
         sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=True)
+        assert sig is None
+
+
+# ===== Rule 5b: Prior Day High Rejection (confirmed) =====
+
+class TestPDHRejection:
+    def test_fires_on_confirmed_rejection(self):
+        """High touched PDH, close below → confirmed rejection."""
+        bar = _bar(high=100.10, close=99.80)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PDH_REJECTION
+        assert sig.direction == "SELL"
+        assert "PRIOR DAY HIGH REJECTION" in sig.message
+        assert "approaching from below" in sig.message
+
+    def test_no_fire_when_close_above_pdh(self):
+        """Close above PDH = breakout, not rejection."""
+        bar = _bar(high=100.50, close=100.20)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is None
+
+    def test_no_fire_when_too_far_from_pdh(self):
+        """High too far from PDH — didn't actually test the level."""
+        bar = _bar(high=99.0, close=98.5)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_above_pdh(self):
+        """Prior close above PDH = price pulling back into support, not rejection."""
+        bar = _bar(high=100.10, close=99.80)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=101.0)
+        assert sig is None
+
+    def test_fires_without_prior_close(self):
+        """No prior_close available → skip directional guard, still fires."""
+        bar = _bar(high=100.10, close=99.80)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=None)
+        assert sig is not None
+        assert sig.direction == "SELL"
+        assert "approaching from below" not in sig.message
+
+    def test_no_fire_when_pdh_is_zero(self):
+        """PDH of zero → skip."""
+        bar = _bar(high=100.10, close=99.80)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=0, prior_close=98.0)
         assert sig is None
 
 
