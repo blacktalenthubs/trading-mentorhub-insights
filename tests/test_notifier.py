@@ -148,14 +148,13 @@ class TestSmsFormat:
         assert "Entry" not in body
         assert "Stop" not in body
 
-    def test_buy_vol_and_vwap_context(self):
+    def test_buy_message_context_included(self):
         sig = _make_signal(score=80, score_label="A")
         sig.target_1 = 101.0
-        sig.volume_label = "high volume (2.1x avg)"
-        sig.vwap_position = "above VWAP"
+        sig.message = "MA bounce 20 — pulled back to $100 (prime_time) — price above VWAP"
         body = _format_sms_body(sig)
-        assert "Vol: high volume" in body
-        assert "above" in body
+        assert "above VWAP" in body
+        assert "prime_time" in body
 
     def test_truncated_to_4000_chars(self):
         sig = _make_signal(score=80, score_label="A")

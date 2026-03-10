@@ -154,30 +154,7 @@ def _format_sms_body(signal: AlertSignal) -> str:
     if t_bits:
         parts.append(" | ".join(t_bits))
 
-    # Vol + VWAP (compact context)
-    ctx = []
-    if signal.volume_label:
-        ctx.append(f"Vol: {_html.escape(signal.volume_label.split(' (')[0])}")
-    if signal.vwap_position:
-        ctx.append(_html.escape(signal.vwap_position.replace("VWAP", "").strip()))
-    if ctx:
-        parts.append(" | ".join(ctx))
-
-    # Day pattern + MA context (compact tags)
-    tags = []
-    if getattr(signal, "day_pattern", "") in ("inside", "outside"):
-        tags.append(f"{signal.day_pattern.upper()} DAY")
-    if getattr(signal, "ma_defending", ""):
-        tags.append(f"Def {_html.escape(signal.ma_defending)}")
-    if getattr(signal, "ma_rejected_by", ""):
-        tags.append(f"Res {_html.escape(signal.ma_rejected_by)}")
-    if tags:
-        parts.append(" | ".join(tags))
-
-    # Score breakdown omitted — A+ (100) in header is sufficient for Telegram.
-    # Full factor breakdown available in email and dashboard.
-
-    # Signal context — phase, VWAP, confluence, hourly targets
+    # Signal context — the message has phase, VWAP, confluence, hourly targets
     if signal.message:
         parts.append(_html.escape(signal.message))
 
@@ -187,15 +164,6 @@ def _format_sms_body(signal: AlertSignal) -> str:
         sentences = re.split(r"\.(?:\s|$)", signal.narrative, maxsplit=1)
         if sentences and sentences[0].strip():
             parts.append(_html.escape(sentences[0].strip()) + ".")
-
-    # Deep link to AI Coach for further analysis (clickable HTML link)
-    _app_url = _get_app_url()
-    _alert_type_val = signal.alert_type.value
-    _link = (
-        f"{_app_url}/AI_Coach"
-        f"?symbol={quote(signal.symbol)}&alert={quote(_alert_type_val)}"
-    )
-    parts.append(f'<a href="{_link}">Analyze in AI Coach</a>')
 
     # Telegram message limit is 4096 chars; truncate safely
     return "\n".join(parts)[:4000]
