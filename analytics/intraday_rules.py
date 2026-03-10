@@ -271,12 +271,17 @@ def _find_ma_bounce_touch(
 ) -> float | None:
     """Scan last MA_BOUNCE_LOOKBACK_BARS bars for a touch near *ma_level*.
 
+    Checks both Low and Close proximity — a bar whose Close is near the MA
+    is just as valid a "touch" as one whose Low wicked to the MA.
+
     Returns the best (closest) proximity found, or None if no bar touched.
     """
     lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
     best_proximity: float | None = None
     for _, row in lookback.iterrows():
-        prox = abs(row["Low"] - ma_level) / ma_level
+        low_prox = abs(row["Low"] - ma_level) / ma_level
+        close_prox = abs(row["Close"] - ma_level) / ma_level
+        prox = min(low_prox, close_prox)
         if prox <= proximity_pct:
             if best_proximity is None or prox < best_proximity:
                 best_proximity = prox
@@ -688,7 +693,7 @@ def check_prior_day_high_breakout(
 
     Conditions:
     - Last bar closes above prior_day_high
-    - Volume >= PDH_BREAKOUT_VOLUME_RATIO * avg_volume
+    - Any bar above PDH in lookback has volume >= PDH_BREAKOUT_VOLUME_RATIO * avg
     - Entry = prior_day_high, Stop = last bar low (capped by _cap_risk)
     - Targets = 1R, 2R
     """
@@ -699,7 +704,16 @@ def check_prior_day_high_breakout(
     if last_bar["Close"] <= prior_day_high:
         return None
 
-    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    # Scan lookback bars above PDH for best volume (breakout bar may not be current)
+    lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+    above = lookback[lookback["Close"] > prior_day_high]
+    if above.empty:
+        # Fallback: at least the last bar is above
+        best_vol = bar_volume
+    else:
+        best_vol = above["Volume"].max()
+
+    vol_ratio = best_vol / avg_volume if avg_volume > 0 else 1.0
     if vol_ratio < PDH_BREAKOUT_VOLUME_RATIO:
         return None
 
@@ -1266,11 +1280,21 @@ def check_weekly_high_breakout(
     if not pw_high or pw_high <= 0:
         return None
 
-    last_bar = bars.iloc[-1] if not bars.empty else None
-    if last_bar is None or last_bar["Close"] <= pw_high:
+    if bars.empty:
+        return None
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= pw_high:
         return None
 
-    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    # Scan lookback bars above weekly high for best volume
+    lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+    above = lookback[lookback["Close"] > pw_high]
+    if above.empty:
+        best_vol = bar_volume
+    else:
+        best_vol = above["Volume"].max()
+
+    vol_ratio = best_vol / avg_volume if avg_volume > 0 else 1.0
     if vol_ratio < PDH_BREAKOUT_VOLUME_RATIO:
         return None
 
@@ -2487,7 +2511,7 @@ def check_first_hour_summary(
 
 def check_planned_level_touch(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     plan: dict | None,
     today_open: float = 0,
 ) -> AlertSignal | None:
@@ -2496,16 +2520,17 @@ def check_planned_level_touch(
     Uses the daily plan from the DB (single source of truth computed by Scanner)
     instead of recalculating levels from prior_day.
 
-    Checks all plan levels: entry, support, target_1, target_2, stop.
-    Uses BUY_ZONE_PROXIMITY_PCT (0.5%) to cover the former buy_zone_approach range.
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near plan levels.
 
     Conditions:
     1. A daily plan exists for this symbol
-    2. Bar low within BUY_ZONE_PROXIMITY_PCT of any plan level
-    3. Bar close >= that level (bounce/hold confirmed)
+    2. Any recent bar low within BUY_ZONE_PROXIMITY_PCT of a plan level
+    3. Last bar close >= that level (bounce/hold confirmed)
     4. Risk > 0
     """
     if plan is None:
+        return None
+    if bars.empty:
         return None
 
     entry = plan.get("entry") or 0
@@ -2530,18 +2555,26 @@ def check_planned_level_touch(
     if not levels_to_check:
         return None
 
-    # Find the closest level the bar low touched
-    bar_low = bar["Low"]
-    bar_close = bar["Close"]
+    # Scan lookback window for a touch near any plan level
+    lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+    last_bar = bars.iloc[-1]
+    bar_close = last_bar["Close"]
+
     touched_level = None
     touched_label = None
 
     for lvl, label in levels_to_check:
-        proximity = abs(bar_low - lvl) / lvl
-        if proximity <= BUY_ZONE_PROXIMITY_PCT and bar_close >= lvl:
-            if touched_level is None or abs(bar_low - lvl) < abs(bar_low - touched_level):
-                touched_level = lvl
-                touched_label = label
+        # Last bar must close at or above the level (bounce confirmed)
+        if bar_close < lvl:
+            continue
+        # Scan lookback for any bar that touched the level
+        for _, row in lookback.iterrows():
+            proximity = abs(row["Low"] - lvl) / lvl
+            if proximity <= BUY_ZONE_PROXIMITY_PCT:
+                if touched_level is None or abs(row["Low"] - lvl) < abs(row["Low"] - (touched_level or 0)):
+                    touched_level = lvl
+                    touched_label = label
+                break  # found a touch for this level
 
     if touched_level is None:
         return None
@@ -2579,16 +2612,19 @@ def check_planned_level_touch(
 
 def check_weekly_level_touch(
     symbol: str,
-    bar: pd.Series,
+    bars: pd.DataFrame,
     prior_day: dict,
 ) -> AlertSignal | None:
     """Price touches prior week low and bounces — bullish entry at institutional level.
 
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near prior week low
+    (same lookback window as MA bounce rules).
+
     Conditions:
     1. prior_week_high and prior_week_low available and > 0
     2. Weekly range > 0
-    3. Bar low within WEEKLY_LEVEL_PROXIMITY_PCT of prior_week_low
-    4. Bar close > prior_week_low (bounce confirmed)
+    3. Any recent bar low within WEEKLY_LEVEL_PROXIMITY_PCT of prior_week_low
+    4. Last bar close > prior_week_low (bounce confirmed)
     5. Risk > 0 (after _cap_risk)
     """
     pw_high = prior_day.get("prior_week_high")
@@ -2597,16 +2633,27 @@ def check_weekly_level_touch(
         return None
     if pw_high <= 0 or pw_low <= 0:
         return None
+    if bars.empty:
+        return None
 
     weekly_range = pw_high - pw_low
     if weekly_range <= 0:
         return None
 
-    proximity = abs(bar["Low"] - pw_low) / pw_low
-    if proximity > WEEKLY_LEVEL_PROXIMITY_PCT:
+    # Scan lookback window for a touch near prior week low
+    lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+    touched = False
+    for _, row in lookback.iterrows():
+        prox = abs(row["Low"] - pw_low) / pw_low
+        if prox <= WEEKLY_LEVEL_PROXIMITY_PCT:
+            touched = True
+            break
+
+    if not touched:
         return None
 
-    if bar["Close"] <= pw_low:
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= pw_low:
         return None  # no bounce
 
     entry = pw_low
@@ -2623,7 +2670,7 @@ def check_weekly_level_touch(
         symbol=symbol,
         alert_type=AlertType.WEEKLY_LEVEL_TOUCH,
         direction="BUY",
-        price=bar["Close"],
+        price=last_bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
         target_1=round(target_1, 2),
@@ -4018,7 +4065,7 @@ def evaluate_rules(
 
         # --- Planned Level Touch (uses daily plan from DB) ---
         if daily_plan is not None:
-            sig = check_planned_level_touch(symbol, last_bar, daily_plan, today_open)
+            sig = check_planned_level_touch(symbol, intraday_bars, daily_plan, today_open)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -4027,7 +4074,7 @@ def evaluate_rules(
                 signals.append(sig)
 
         # --- Weekly Level Touch ---
-        sig = check_weekly_level_touch(symbol, last_bar, prior_day)
+        sig = check_weekly_level_touch(symbol, intraday_bars, prior_day)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:

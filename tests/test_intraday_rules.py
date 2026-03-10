@@ -105,10 +105,11 @@ class TestMABounce20:
         sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=94.0, ma50=95.0)  # ma20 < ma50
         assert sig is None
 
-    def test_no_fire_when_bar_low_too_far_from_ma20(self):
-        bar = _bar(open_=100, high=101, low=98.0, close=100.3)
+    def test_no_fire_when_bar_too_far_from_ma20(self):
+        # Both Low and Close far from MA20 — no touch detected
+        bar = _bar(open_=102, high=103, low=101.0, close=102.5)
         sig = check_ma_bounce_20("AAPL", pd.DataFrame([bar]), ma20=100.0, ma50=95.0)
-        assert sig is None
+        assert sig is None  # Close 2.5% from MA > max distance 2%
 
     def test_no_fire_when_ma_missing(self):
         bar = _bar()
@@ -183,9 +184,10 @@ class TestMABounce100:
         assert sig is not None  # no longer rejected
 
     def test_no_fire_when_too_far_from_ma100(self):
-        bar = _bar(open_=200, high=202, low=198.0, close=200.5)
+        # Both Low and Close far from MA100 — no touch
+        bar = _bar(open_=204, high=206, low=198.0, close=205.0)
         sig = check_ma_bounce_100("NVDA", pd.DataFrame([bar]), ma100=200.0, prior_close=202.0)
-        assert sig is None  # low too far from MA (1% > 0.5%)
+        assert sig is None  # Close 2.5% from MA > max distance 2%
 
     def test_wider_proximity_allows_05pct_wick(self):
         """0.5% proximity — bar low at $199.00 on $200 MA should fire."""
@@ -260,9 +262,9 @@ class TestMABounce200:
         assert sig.direction == "BUY"
 
     def test_no_fire_when_wick_beyond_08pct(self):
-        """Bar low more than 0.8% below 200MA should not fire."""
-        # 200MA=150, 0.8% = 1.20 → low must be above 148.80
-        bar = _bar(open_=150, high=152, low=148.5, close=150.5)
+        """Both Low and Close far from 200MA should not fire."""
+        # 200MA=150, Close at 154 = 2.7% → exceeds max distance
+        bar = _bar(open_=153, high=155, low=148.5, close=154.0)
         sig = check_ma_bounce_200("TSLA", pd.DataFrame([bar]), ma200=150.0, prior_close=153.0)
         assert sig is None
 
@@ -2153,6 +2155,10 @@ class TestBreakdownSessionLowTag:
 # ===== Rule 16: Planned Level Touch =====
 
 class TestPlannedLevelTouch:
+    def _make_bars(self, open_=682.0, high=684.0, low=681.50, close=683.5, volume=1000):
+        """Helper to wrap a single bar dict into a DataFrame."""
+        return pd.DataFrame([{"Open": open_, "High": high, "Low": low, "Close": close, "Volume": volume}])
+
     def test_fires_on_normal_day_bounce(self):
         """Normal day: bar bounces at planned entry → BUY with plan levels."""
         plan = {
@@ -2163,9 +2169,8 @@ class TestPlannedLevelTouch:
             "support_status": "AT SUPPORT",
             "score": 80, "score_label": "A",
         }
-        # Bar low touches entry (681.65), closes above
-        bar = _bar(open_=682.0, high=684.0, low=681.50, close=683.5)
-        sig = check_planned_level_touch("SPY", bar, plan)
+        bars = self._make_bars(open_=682.0, high=684.0, low=681.50, close=683.5)
+        sig = check_planned_level_touch("SPY", bars, plan)
         assert sig is not None
         assert sig.alert_type == AlertType.PLANNED_LEVEL_TOUCH
         assert sig.direction == "BUY"
@@ -2185,8 +2190,8 @@ class TestPlannedLevelTouch:
             "support_status": "PULLBACK WATCH",
             "score": 70, "score_label": "B",
         }
-        bar = _bar(open_=691.0, high=693.0, low=689.80, close=692.0)
-        sig = check_planned_level_touch("SPY", bar, plan)
+        bars = self._make_bars(open_=691.0, high=693.0, low=689.80, close=692.0)
+        sig = check_planned_level_touch("SPY", bars, plan)
         assert sig is not None
         assert sig.entry == midpoint
         assert sig.target_1 == 700.0
@@ -2201,9 +2206,8 @@ class TestPlannedLevelTouch:
             "support": 681.65, "support_label": "Prior Day Low",
             "support_status": "AT SUPPORT",
         }
-        # Bar low at 670.0, way below 681.65
-        bar = _bar(open_=672.0, high=675.0, low=670.0, close=674.0)
-        sig = check_planned_level_touch("SPY", bar, plan)
+        bars = self._make_bars(open_=672.0, high=675.0, low=670.0, close=674.0)
+        sig = check_planned_level_touch("SPY", bars, plan)
         assert sig is None
 
     def test_no_fire_when_close_below_entry(self):
@@ -2215,14 +2219,14 @@ class TestPlannedLevelTouch:
             "support": 681.65, "support_label": "Prior Day Low",
             "support_status": "AT SUPPORT",
         }
-        bar = _bar(open_=682.0, high=682.5, low=681.50, close=681.0)
-        sig = check_planned_level_touch("SPY", bar, plan)
+        bars = self._make_bars(open_=682.0, high=682.5, low=681.50, close=681.0)
+        sig = check_planned_level_touch("SPY", bars, plan)
         assert sig is None
 
     def test_no_plan_returns_none(self):
         """No daily plan available → None."""
-        bar = _bar(open_=682.0, high=684.0, low=681.50, close=683.5)
-        sig = check_planned_level_touch("SPY", bar, None)
+        bars = self._make_bars(open_=682.0, high=684.0, low=681.50, close=683.5)
+        sig = check_planned_level_touch("SPY", bars, None)
         assert sig is None
 
     def test_fires_on_support_touch(self):
@@ -2234,9 +2238,8 @@ class TestPlannedLevelTouch:
             "support": 682.0, "support_label": "50 MA",
             "support_status": "PULLBACK WATCH",
         }
-        # Bar low touches support (682.0), closes above
-        bar = _bar(open_=683.0, high=685.0, low=681.80, close=684.0)
-        sig = check_planned_level_touch("SPY", bar, plan)
+        bars = self._make_bars(open_=683.0, high=685.0, low=681.80, close=684.0)
+        sig = check_planned_level_touch("SPY", bars, plan)
         assert sig is not None
         assert "50 MA" in sig.message
 
@@ -2249,9 +2252,8 @@ class TestPlannedLevelTouch:
             "support": 679.62, "support_label": "Prior Day Low",
             "support_status": "AT SUPPORT",
         }
-        # Open at 676, entry at 679.62 = 0.53% above — should NOT be blocked
-        bar = _bar(open_=680.0, high=681.0, low=679.50, close=680.5)
-        sig = check_planned_level_touch("SPY", bar, plan, today_open=676.0)
+        bars = self._make_bars(open_=680.0, high=681.0, low=679.50, close=680.5)
+        sig = check_planned_level_touch("SPY", bars, plan, today_open=676.0)
         assert sig is not None
 
     def test_no_fire_on_big_gap_down(self):
@@ -2263,10 +2265,26 @@ class TestPlannedLevelTouch:
             "support": 679.62, "support_label": "Prior Day Low",
             "support_status": "AT SUPPORT",
         }
-        # Open at 660, entry at 679.62 = 2.97% above — blocked
-        bar = _bar(open_=680.0, high=681.0, low=679.50, close=680.5)
-        sig = check_planned_level_touch("SPY", bar, plan, today_open=660.0)
+        bars = self._make_bars(open_=680.0, high=681.0, low=679.50, close=680.5)
+        sig = check_planned_level_touch("SPY", bars, plan, today_open=660.0)
         assert sig is None
+
+    def test_lookback_catches_earlier_touch(self):
+        """Touch was 3 bars ago, last bar bounced above → should fire."""
+        plan = {
+            "pattern": "normal",
+            "entry": 681.65, "stop": 679.56,
+            "target_1": 690.0, "target_2": 694.18,
+            "support": 681.65, "support_label": "Prior Day Low",
+            "support_status": "AT SUPPORT",
+        }
+        bars = pd.DataFrame([
+            {"Open": 682.0, "High": 683.0, "Low": 681.50, "Close": 681.0, "Volume": 1000},  # touch, close below
+            {"Open": 681.0, "High": 683.0, "Low": 680.5, "Close": 682.5, "Volume": 1000},
+            {"Open": 682.5, "High": 684.0, "Low": 682.0, "Close": 683.5, "Volume": 1000},   # last bar above
+        ])
+        sig = check_planned_level_touch("SPY", bars, plan)
+        assert sig is not None
 
 
 # ===== Market Regime Detection =====
@@ -2334,8 +2352,10 @@ class TestWeeklyLevelTouch:
         """Bar low within 0.4% of pw_low, closes above → BUY, entry=pw_low, T1=pw_high."""
         prior = self._prior(pw_high=110.0, pw_low=100.0)
         # Bar low at 100.30 → proximity = 0.3% < 0.4%
-        bar = _bar(open_=101.0, high=102.0, low=100.30, close=101.5)
-        sig = check_weekly_level_touch("AAPL", bar, prior)
+        bars = pd.DataFrame([
+            {"Open": 101.0, "High": 102.0, "Low": 100.30, "Close": 101.5, "Volume": 1000},
+        ])
+        sig = check_weekly_level_touch("AAPL", bars, prior)
         assert sig is not None
         assert sig.alert_type == AlertType.WEEKLY_LEVEL_TOUCH
         assert sig.direction == "BUY"
@@ -2347,26 +2367,30 @@ class TestWeeklyLevelTouch:
     def test_targets_use_weekly_range(self):
         """T1=pw_high, T2=pw_high + 50% weekly range."""
         prior = self._prior(pw_high=110.0, pw_low=100.0)
-        bar = _bar(open_=101.0, high=102.0, low=100.30, close=101.5)
-        sig = check_weekly_level_touch("AAPL", bar, prior)
+        bars = pd.DataFrame([
+            {"Open": 101.0, "High": 102.0, "Low": 100.30, "Close": 101.5, "Volume": 1000},
+        ])
+        sig = check_weekly_level_touch("AAPL", bars, prior)
         assert sig is not None
         assert sig.target_1 == 110.0
-        # weekly_range = 110 - 100 = 10, T2 = 110 + 5 = 115
         assert sig.target_2 == 115.0
 
     def test_no_fire_when_far_from_weekly_level(self):
         """Bar low 2%+ away from pw_low → None."""
         prior = self._prior(pw_high=110.0, pw_low=100.0)
-        # Bar low at 98.0 → proximity = 2% > 0.4%
-        bar = _bar(open_=99.0, high=100.0, low=98.0, close=99.5)
-        sig = check_weekly_level_touch("AAPL", bar, prior)
+        bars = pd.DataFrame([
+            {"Open": 99.0, "High": 100.0, "Low": 98.0, "Close": 99.5, "Volume": 1000},
+        ])
+        sig = check_weekly_level_touch("AAPL", bars, prior)
         assert sig is None
 
     def test_no_fire_when_close_below_weekly_low(self):
         """Touches but no bounce (close <= pw_low) → None."""
         prior = self._prior(pw_high=110.0, pw_low=100.0)
-        bar = _bar(open_=100.5, high=101.0, low=100.20, close=99.8)
-        sig = check_weekly_level_touch("AAPL", bar, prior)
+        bars = pd.DataFrame([
+            {"Open": 100.5, "High": 101.0, "Low": 100.20, "Close": 99.8, "Volume": 1000},
+        ])
+        sig = check_weekly_level_touch("AAPL", bars, prior)
         assert sig is None
 
     def test_no_fire_when_weekly_data_unavailable(self):
@@ -2374,9 +2398,22 @@ class TestWeeklyLevelTouch:
         prior = self._prior()
         prior["prior_week_high"] = None
         prior["prior_week_low"] = None
-        bar = _bar(open_=101.0, high=102.0, low=100.30, close=101.5)
-        sig = check_weekly_level_touch("AAPL", bar, prior)
+        bars = pd.DataFrame([
+            {"Open": 101.0, "High": 102.0, "Low": 100.30, "Close": 101.5, "Volume": 1000},
+        ])
+        sig = check_weekly_level_touch("AAPL", bars, prior)
         assert sig is None
+
+    def test_lookback_catches_earlier_touch(self):
+        """Touch was 3 bars ago, last bar bounced above → should fire."""
+        prior = self._prior(pw_high=110.0, pw_low=100.0)
+        bars = pd.DataFrame([
+            {"Open": 101.0, "High": 102.0, "Low": 100.20, "Close": 100.8, "Volume": 1000},  # touch
+            {"Open": 100.8, "High": 101.5, "Low": 100.5, "Close": 101.0, "Volume": 1000},
+            {"Open": 101.0, "High": 102.0, "Low": 100.8, "Close": 101.5, "Volume": 1000},  # last bar
+        ])
+        sig = check_weekly_level_touch("AAPL", bars, prior)
+        assert sig is not None
 
 
 # ===== SPY Bounce Rate Helper =====
@@ -4686,9 +4723,10 @@ class TestEmaBounce100:
         assert sig is None
 
     def test_no_fire_when_too_far(self):
-        """Bar low too far from EMA100 → no fire."""
+        """Both Low and Close far from EMA100 → no fire."""
         ema100 = 676.86
-        bar = self._bar(low=670.0, close=679.0)  # >0.5% away
+        # Low >0.5% below, Close >2% above (exceeds max distance)
+        bar = self._bar(low=670.0, close=691.0)
         sig = check_ema_bounce_100("SPY", pd.DataFrame([bar]), ema100, prior_close=685.0)
         assert sig is None
 
@@ -4751,9 +4789,10 @@ class TestEmaBounce200:
         assert sig is None
 
     def test_no_fire_when_too_far(self):
-        """Bar low too far from EMA200 → no fire (>0.8%)."""
+        """Both Low and Close far from EMA200 → no fire."""
         ema200 = 650.0
-        bar = self._bar(low=642.0, close=653.0)  # >0.8% away
+        # Low >0.8% below, Close >2% above (exceeds max distance)
+        bar = self._bar(low=642.0, close=665.0)
         sig = check_ema_bounce_200("SPY", pd.DataFrame([bar]), ema200, prior_close=660.0)
         assert sig is None
 
