@@ -378,6 +378,9 @@ else:
             # Record to DB so alerts persist and dedup works across refreshes
             alert_id = record_alert(sig, session, False, False, user_id=user["id"])
 
+            if alert_id is None:
+                continue  # duplicate — already recorded by another tab or worker
+
             # Per-user notification (matches worker.py pattern)
             prefs = get_notification_prefs(user["id"])
             if prefs:

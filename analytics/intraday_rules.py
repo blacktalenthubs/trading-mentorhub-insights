@@ -2330,6 +2330,12 @@ def check_session_low_retest(
     if max_consecutive < SESSION_LOW_MIN_RECOVERY_BARS:
         return None
 
+    # True double bottom: retest must not make a significantly lower low
+    # than the first touch. Reject descending lows masquerading as double bottoms.
+    first_touch_low = bars["Low"].iloc[first_touch_idx]
+    if last_bar["Low"] < first_touch_low * (1 - SESSION_LOW_PROXIMITY_PCT):
+        return None
+
     # Entry/Stop/Targets — use session low as structural stop with buffer
     entry = session_low
     stop = round(session_low * (1 - SESSION_LOW_STOP_OFFSET_PCT), 2)
@@ -2578,6 +2584,12 @@ def check_planned_level_touch(
 
     if touched_level is None:
         return None
+
+    # When the touch is on the support level (not the plan entry), override
+    # entry/stop — the plan entry may be a breakout level far above price.
+    if touched_label != "entry":
+        entry = round(touched_level, 2)
+        stop = round(touched_level * (1 - BUY_ZONE_PROXIMITY_PCT), 2)
 
     if entry <= 0 or stop <= 0:
         return None

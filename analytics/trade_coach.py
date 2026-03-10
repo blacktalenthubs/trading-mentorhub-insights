@@ -165,6 +165,12 @@ def assemble_context(hub_symbol: str | None = None) -> dict:
         if past:
             prev_session = past[0]  # most recent before today
 
+    from alerting.paper_trader import (
+        get_open_paper_trades_for_coach,
+        get_closed_paper_trades_for_coach,
+        get_paper_trade_stats,
+    )
+
     ctx = {
         "open_trades": _safe_call(get_open_trades),
         "recent_closed": _safe_call(get_closed_trades, 10),
@@ -176,6 +182,9 @@ def assemble_context(hub_symbol: str | None = None) -> dict:
         "prev_session_date": prev_session,
         "spy_context": _safe_call(get_spy_context),
         "daily_plans": _safe_call(get_all_daily_plans, session),
+        "paper_open": _safe_call(get_open_paper_trades_for_coach),
+        "paper_closed": _safe_call(get_closed_paper_trades_for_coach, 10),
+        "paper_stats": _safe_call(get_paper_trade_stats),
     }
 
     # Collect symbols from watchlist + open trades for technical data
@@ -185,6 +194,8 @@ def assemble_context(hub_symbol: str | None = None) -> dict:
         symbols.update(p["symbol"] for p in ctx["daily_plans"])
     if ctx["open_trades"]:
         symbols.update(t["symbol"] for t in ctx["open_trades"])
+    if ctx["paper_open"]:
+        symbols.update(t["symbol"] for t in ctx["paper_open"])
 
     technicals = _safe_call(_get_symbol_technicals, list(symbols))
     ctx["technicals"] = technicals or {}
@@ -420,6 +431,42 @@ def format_system_prompt(context: dict) -> str:
         lines = ["[RECENT CLOSED TRADES]"]
         for t in closed[:10]:
             pnl = t.get("pnl", 0)
+            pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+            lines.append(f"- {t['symbol']}  P&L: {pnl_str}  status={t.get('status', 'closed')}")
+        sections.append("\n".join(lines))
+
+    # Paper trading positions
+    paper_open = context.get("paper_open")
+    if paper_open:
+        lines = ["[PAPER POSITIONS (Alpaca)]"]
+        for t in paper_open:
+            stop = t.get("stop_price") or "N/A"
+            target = t.get("target_price") or "N/A"
+            lines.append(
+                f"- {t['symbol']} {t.get('direction', 'BUY')} {t.get('shares', '?')} shares "
+                f"@ ${t.get('entry_price', 0):.2f}  stop={stop}  target={target}"
+            )
+        sections.append("\n".join(lines))
+
+    # Paper trading performance
+    paper_stats = context.get("paper_stats")
+    if paper_stats and paper_stats.get("total_trades", 0) > 0:
+        lines = [
+            "[PAPER TRADING PERFORMANCE]",
+            f"Total P&L: ${paper_stats['total_pnl']:.2f}",
+            f"Win rate: {paper_stats['win_rate']:.1f}%",
+            f"Trades: {paper_stats['total_trades']}",
+            f"Expectancy: ${paper_stats['expectancy']:.2f}",
+            f"Avg win: ${paper_stats['avg_win']:.2f}  Avg loss: ${paper_stats['avg_loss']:.2f}",
+        ]
+        sections.append("\n".join(lines))
+
+    # Recent closed paper trades
+    paper_closed = context.get("paper_closed")
+    if paper_closed:
+        lines = ["[RECENT CLOSED PAPER TRADES]"]
+        for t in paper_closed[:10]:
+            pnl = t.get("pnl", 0) or 0
             pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
             lines.append(f"- {t['symbol']}  P&L: {pnl_str}  status={t.get('status', 'closed')}")
         sections.append("\n".join(lines))

@@ -89,6 +89,7 @@ def routing_db(tmp_path):
             session_date TEXT NOT NULL,
             user_id INTEGER
         );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(symbol, alert_type, session_date, user_id);
 
         CREATE TABLE IF NOT EXISTS user_notification_prefs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -551,12 +552,13 @@ class TestFreeTierDailyLimit:
         from db import get_daily_alert_count
 
         session = date.today().isoformat()
-        signal = _make_signal(symbol="AAPL")
+        signal1 = _make_signal(symbol="AAPL")
+        signal2 = _make_signal(symbol="MSFT")
 
-        record_alert(signal, session_date=session, user_id=2)
+        record_alert(signal1, session_date=session, user_id=2)
         assert get_daily_alert_count(2, session) == 1
 
-        record_alert(signal, session_date=session, user_id=2)
+        record_alert(signal2, session_date=session, user_id=2)
         assert get_daily_alert_count(2, session) == 2
 
     def test_daily_alert_count_scoped_to_user(self, routing_db):
@@ -565,10 +567,11 @@ class TestFreeTierDailyLimit:
         from db import get_daily_alert_count
 
         session = date.today().isoformat()
-        signal = _make_signal(symbol="AAPL")
+        signal1 = _make_signal(symbol="AAPL")
+        signal2 = _make_signal(symbol="MSFT")
 
-        record_alert(signal, session_date=session, user_id=1)
-        record_alert(signal, session_date=session, user_id=1)
+        record_alert(signal1, session_date=session, user_id=1)
+        record_alert(signal2, session_date=session, user_id=1)
 
         assert get_daily_alert_count(1, session) == 2
         assert get_daily_alert_count(2, session) == 0

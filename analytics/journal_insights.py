@@ -142,6 +142,37 @@ def _build_journal_prompt(user_id: int) -> str | None:
     if len(week_trades) > 20:
         lines.append(f"  ... and {len(week_trades) - 20} more trades")
 
+    # Paper trades this week
+    try:
+        from alerting.paper_trader import get_paper_trades_history
+        all_paper = get_paper_trades_history(500)
+        week_paper = [
+            t for t in all_paper
+            if t.get("closed_at", "") >= start_date
+        ]
+        if week_paper:
+            paper_pnl = sum(t.get("pnl", 0) or 0 for t in week_paper)
+            paper_wins = [t for t in week_paper if (t.get("pnl") or 0) > 0]
+            paper_losses = [t for t in week_paper if (t.get("pnl") or 0) <= 0]
+            paper_wr = len(paper_wins) / len(week_paper) * 100 if week_paper else 0
+
+            lines.append("")
+            lines.append("PAPER TRADES THIS WEEK:")
+            lines.append(
+                f"  Total: {len(week_paper)} | Wins: {len(paper_wins)} | "
+                f"Losses: {len(paper_losses)} | P&L: ${paper_pnl:.2f} | "
+                f"Win Rate: {paper_wr:.0f}%"
+            )
+            for t in week_paper[:20]:
+                pnl = t.get("pnl", 0) or 0
+                lines.append(
+                    f"  {t['symbol']} {t.get('direction', 'BUY')} | "
+                    f"Entry: ${t.get('entry_price', 0):.2f} Exit: ${t.get('exit_price', 0):.2f} | "
+                    f"P&L: ${pnl:.2f} | {t.get('status', 'closed')} | {t.get('alert_type', '?')}"
+                )
+    except Exception:
+        logger.debug("Journal: could not fetch paper trades")
+
     # Alert history for the week (what was available vs what they took)
     try:
         from alerting.alert_store import get_session_dates, get_session_summary

@@ -70,6 +70,7 @@ def tmp_db(tmp_path):
             session_date TEXT NOT NULL,
             user_id INTEGER
         );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(symbol, alert_type, session_date, user_id);
 
         CREATE TABLE IF NOT EXISTS active_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

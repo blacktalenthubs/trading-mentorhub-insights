@@ -32,7 +32,8 @@ Include:
 2. Best setup of the day: which alert worked and why
 3. Worst setup: what went wrong
 4. Pattern observation: any trends across alert types, times, or symbols
-5. 1-2 actionable takeaways for tomorrow
+5. Paper trade summary if any ran today
+6. 1-2 actionable takeaways for tomorrow
 
 Rules:
 - Be direct and specific — reference actual symbols, prices, and alert types
@@ -100,6 +101,33 @@ def _build_eod_prompt(summary: dict, spy_ctx: dict) -> str:
 
     if len(alerts) > _MAX_PROMPT_ALERTS:
         lines.append(f"  ... and {len(alerts) - _MAX_PROMPT_ALERTS} more alerts (omitted)")
+
+    # Paper trades today
+    try:
+        session = today_session()
+        with get_db() as conn:
+            paper_rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE session_date = ?",
+                (session,),
+            ).fetchall()
+        if paper_rows:
+            paper_trades = [dict(r) for r in paper_rows]
+            open_count = sum(1 for t in paper_trades if t.get("status") == "open")
+            closed_count = len(paper_trades) - open_count
+            paper_pnl = sum(t.get("pnl", 0) or 0 for t in paper_trades if t.get("pnl") is not None)
+
+            lines.append("")
+            lines.append("--- PAPER TRADES TODAY ---")
+            lines.append(f"Total: {len(paper_trades)} | Open: {open_count} | Closed: {closed_count} | P&L: ${paper_pnl:.2f}")
+            for t in paper_trades:
+                pnl = t.get("pnl")
+                pnl_str = f"P&L: ${pnl:.2f}" if pnl is not None else "open"
+                lines.append(
+                    f"  {t['symbol']} {t.get('direction', 'BUY')} {t.get('shares', '?')} shares "
+                    f"@ ${t.get('entry_price', 0):.2f} | {t.get('status', '?')} | {pnl_str}"
+                )
+    except Exception:
+        logger.debug("EOD: paper trades section failed")
 
     return "\n".join(lines)
 

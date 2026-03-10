@@ -83,6 +83,7 @@ def _build_position_prompt(trades: list[dict], spy_ctx: dict | None,
     lines.append("OPEN POSITIONS:")
     for t in trades:
         symbol = t.get("symbol", "?")
+        tag = "[PAPER] " if t.get("_paper") else ""
         direction = t.get("direction", "BUY")
         entry = t.get("entry_price", 0)
         current = t.get("current_price", entry)
@@ -95,7 +96,7 @@ def _build_position_prompt(trades: list[dict], spy_ctx: dict | None,
         pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
 
         pos_line = (
-            f"  {symbol} {direction} {shares} shares @ {entry:.2f} "
+            f"  {tag}{symbol} {direction} {shares} shares @ {entry:.2f} "
             f"| Current: {current:.2f} ({pnl_pct:+.1f}%)"
         )
         if stop:
@@ -130,7 +131,16 @@ def check_positions(trades: list[dict] | None = None) -> str | None:
     """
     if trades is None:
         from alerting.real_trade_store import get_open_trades
-        trades = get_open_trades()
+        trades = get_open_trades() or []
+        # Also include open paper trades
+        try:
+            from alerting.paper_trader import get_open_paper_trades_for_coach
+            paper = get_open_paper_trades_for_coach() or []
+            for t in paper:
+                t["_paper"] = True
+            trades = trades + paper
+        except Exception:
+            pass
 
     if not trades:
         return None
@@ -195,7 +205,15 @@ def check_positions_stream(trades: list[dict] | None = None) -> Generator[str, N
     """
     if trades is None:
         from alerting.real_trade_store import get_open_trades
-        trades = get_open_trades()
+        trades = get_open_trades() or []
+        try:
+            from alerting.paper_trader import get_open_paper_trades_for_coach
+            paper = get_open_paper_trades_for_coach() or []
+            for t in paper:
+                t["_paper"] = True
+            trades = trades + paper
+        except Exception:
+            pass
 
     if not trades:
         yield "No open positions to check."
@@ -250,7 +268,15 @@ def send_position_updates() -> bool:
     Returns True if at least one message was sent.
     """
     from alerting.real_trade_store import get_open_trades
-    trades = get_open_trades()
+    trades = get_open_trades() or []
+    try:
+        from alerting.paper_trader import get_open_paper_trades_for_coach
+        paper = get_open_paper_trades_for_coach() or []
+        for t in paper:
+            t["_paper"] = True
+        trades = trades + paper
+    except Exception:
+        pass
     if not trades:
         logger.debug("Position advisor: no open trades")
         return False

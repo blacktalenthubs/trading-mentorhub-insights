@@ -62,8 +62,12 @@ def record_alert(
     notified_email: bool = False,
     notified_sms: bool = False,
     user_id: int | None = None,
-) -> int:
-    """Insert a fired alert into the alerts table. Returns the new row id."""
+) -> int | None:
+    """Insert a fired alert into the alerts table.
+
+    Returns the new row id, or None if the alert was a duplicate
+    (same symbol + alert_type + session_date + user_id already exists).
+    """
     session = session_date or today_session()
     with get_db() as conn:
         cur = conn.execute(
@@ -71,7 +75,8 @@ def record_alert(
                (symbol, alert_type, direction, price, entry, stop, target_1, target_2,
                 confidence, message, narrative, score, score_v2, notified_email, notified_sms,
                 session_date, user_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(symbol, alert_type, session_date, user_id) DO NOTHING""",
             (
                 signal.symbol,
                 signal.alert_type.value,
@@ -92,7 +97,7 @@ def record_alert(
                 user_id,
             ),
         )
-        return cur.lastrowid
+        return cur.lastrowid or None
 
 
 def create_active_entry(

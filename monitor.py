@@ -200,6 +200,10 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 _non_entry_types = {AlertType.GAP_FILL, AlertType.SUPPORT_BREAKDOWN, AlertType.RESISTANCE_PRIOR_HIGH, AlertType.HOURLY_RESISTANCE_APPROACH, AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW, AlertType.OPENING_RANGE_BREAKDOWN}
                 alert_id = record_alert(signal, session, False, False, user_id=uid)
 
+                if alert_id is None:
+                    logger.debug("%s: dedup (DB constraint) skip %s", symbol, signal.alert_type.value)
+                    continue
+
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
                     if not _ack_active:
                         create_active_entry(signal, session, user_id=uid)  # legacy fallback

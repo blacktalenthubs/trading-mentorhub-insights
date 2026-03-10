@@ -870,6 +870,10 @@ def _migrate_alert_user_id():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_alerts_user_id ON alerts(user_id)"
         )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup "
+            "ON alerts(symbol, alert_type, session_date, user_id)"
+        )
 
         # Add trade ACK columns to alerts
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN user_action TEXT DEFAULT NULL")

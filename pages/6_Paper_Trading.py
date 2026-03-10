@@ -108,6 +108,30 @@ if positions:
 else:
     ui_theme.empty_state("No open positions.")
 
+# AI Position Check button (for open paper positions)
+if positions:
+    if st.button("AI Position Check", key="paper_ai_position_check"):
+        with st.spinner("Analyzing paper positions..."):
+            from analytics.position_advisor import check_positions_stream
+            # Build paper trade dicts for the advisor
+            paper_trades = []
+            for p in positions:
+                paper_trades.append({
+                    "symbol": p["symbol"],
+                    "direction": "BUY",
+                    "shares": p["qty"],
+                    "entry_price": p["avg_entry_price"],
+                    "current_price": p["current_price"],
+                    "stop_price": None,
+                    "target_price": None,
+                    "_paper": True,
+                })
+            response_box = st.empty()
+            full_text = ""
+            for chunk in check_positions_stream(paper_trades):
+                full_text += chunk
+                response_box.text(full_text)
+
 st.divider()
 
 # =====================================================================
@@ -225,3 +249,17 @@ if history:
             )
 else:
     ui_theme.empty_state("No closed trades yet.")
+
+# =====================================================================
+# 5. AI EOD Review
+# =====================================================================
+st.divider()
+with st.expander("AI EOD Review"):
+    if st.button("Generate EOD Review", key="paper_eod_review"):
+        with st.spinner("Building EOD review..."):
+            from analytics.eod_review import build_eod_review
+            review = build_eod_review()
+            if review:
+                st.text(review)
+            else:
+                st.info("No review available — either no alerts today or no API key configured.")

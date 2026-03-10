@@ -416,6 +416,28 @@ def get_paper_trades_history(limit: int = 100) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_open_paper_trades_for_coach() -> list[dict]:
+    """Open paper trades from local DB, shaped for AI consumption."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM paper_trades WHERE status = 'open' ORDER BY opened_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_closed_paper_trades_for_coach(limit: int = 10) -> list[dict]:
+    """Recent closed paper trades for AI consumption."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM paper_trades
+               WHERE status != 'open'
+               ORDER BY closed_at DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_paper_trade_stats() -> dict:
     """Aggregate stats: win rate, total P&L, expectancy, avg win/loss, R:R."""
     with get_db() as conn:

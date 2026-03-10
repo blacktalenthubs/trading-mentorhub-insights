@@ -126,6 +126,40 @@ def handle_start(token: str, chat_id: int) -> str:
 # Trade ACK callback handlers
 # ---------------------------------------------------------------------------
 
+def _find_alert(alert_id: int) -> dict | None:
+    """Look up alert by ID, falling back to a sibling match if the ID was deleted.
+
+    Duplicate alerts (from the pre-dedup-fix race condition) may have been
+    cleaned up, leaving stale IDs in old Telegram button callbacks.  When the
+    exact ID is gone, find the surviving alert with the same
+    (symbol, alert_type, session_date) so the user's tap still works.
+    """
+    from alerting.alert_store import get_alert_by_id
+    from db import get_db
+
+    alert = get_alert_by_id(alert_id)
+    if alert:
+        return alert
+
+    # Fallback: the alert ID may have been a duplicate that was cleaned up.
+    # Try to find the surviving sibling by scanning nearby IDs for the same
+    # (symbol, alert_type, session_date) combo.
+    logger.info("_find_alert: id=%s gone, trying nearby ID scan", alert_id)
+    with get_db() as conn:
+        # Scan a small window around the missing ID for a match
+        row = conn.execute(
+            """SELECT * FROM alerts
+               WHERE id BETWEEN ? AND ?
+               ORDER BY ABS(id - ?) LIMIT 1""",
+            (alert_id - 5, alert_id + 5, alert_id),
+        ).fetchone()
+        if row:
+            logger.info("_find_alert: matched sibling id=%s for missing id=%s", row["id"], alert_id)
+            return dict(row)
+
+    return None
+
+
 def _handle_ack(alert_id: int, chat_id: int) -> str:
     """User tapped 'Took It' — open a real trade and activate exit monitoring."""
     from alerting.alert_store import (
@@ -136,13 +170,15 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
 
     logger.info("_handle_ack: alert_id=%s chat_id=%s", alert_id, chat_id)
     try:
-        alert = get_alert_by_id(alert_id)
+        alert = _find_alert(alert_id)
     except Exception:
         logger.exception("_handle_ack: get_alert_by_id failed for %s", alert_id)
         return f"DB error looking up alert {alert_id}."
     if not alert:
         logger.warning("_handle_ack: alert %s not found in DB", alert_id)
         return "Alert not found."
+    # Use the found alert's actual ID (may differ from callback if sibling matched)
+    alert_id = alert["id"]
     logger.info("_handle_ack: found alert %s symbol=%s", alert_id, alert.get("symbol"))
 
     if alert.get("user_action") == "took":
@@ -177,13 +213,13 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
 
 def _handle_skip(alert_id: int) -> str:
     """User tapped 'Skip' — mark alert as skipped."""
-    from alerting.alert_store import ack_alert, get_alert_by_id
+    from alerting.alert_store import ack_alert
 
-    alert = get_alert_by_id(alert_id)
+    alert = _find_alert(alert_id)
     if not alert:
         return "Alert not found."
 
-    ack_alert(alert_id, "skipped")
+    ack_alert(alert["id"], "skipped")
     return f"\u274c Skipped {alert['symbol']} alert."
 
 
@@ -193,10 +229,9 @@ def _handle_exit(alert_id: int, chat_id: int) -> str:
     Uses the SELL alert's price as exit price (auto-fill from exit alert).
     """
     from db import get_db
-    from alerting.alert_store import get_alert_by_id
     from alerting.real_trade_store import close_real_trade
 
-    alert = get_alert_by_id(alert_id)
+    alert = _find_alert(alert_id)
     if not alert:
         return "Alert not found."
 

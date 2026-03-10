@@ -1026,6 +1026,50 @@ def ask_ai_insight(prompt: str, context_text: str) -> Generator[str, None, None]
 # Hub context assembly (for enriching AI Coach system prompt)
 # ---------------------------------------------------------------------------
 
+def get_paper_trade_win_rates(days: int = 90) -> dict:
+    """Paper trade win rates bucketed by symbol, alert_type, and overall.
+
+    Returns {by_symbol: {SYM: {wins, losses, total, win_rate, total_pnl}},
+             by_alert_type: {TYPE: ...}, overall: {...}}.
+    """
+    from db import get_db
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT symbol, alert_type, pnl FROM paper_trades "
+            "WHERE status != 'open' AND pnl IS NOT NULL AND session_date >= ?",
+            (cutoff,),
+        ).fetchall()
+
+    if not rows:
+        return {}
+
+    def _bucket(items):
+        wins = sum(1 for r in items if r["pnl"] > 0)
+        losses = sum(1 for r in items if r["pnl"] <= 0)
+        total = len(items)
+        return {
+            "wins": wins,
+            "losses": losses,
+            "total": total,
+            "win_rate": round(wins / total * 100, 1) if total else 0,
+            "total_pnl": round(sum(r["pnl"] for r in items), 2),
+        }
+
+    by_symbol: dict[str, list] = {}
+    by_type: dict[str, list] = {}
+    for r in rows:
+        by_symbol.setdefault(r["symbol"], []).append(r)
+        by_type.setdefault(r["alert_type"] or "unknown", []).append(r)
+
+    return {
+        "by_symbol": {k: _bucket(v) for k, v in by_symbol.items()},
+        "by_alert_type": {k: _bucket(v) for k, v in by_type.items()},
+        "overall": _bucket(rows),
+    }
+
+
 def assemble_hub_context(symbol: str) -> dict:
     """Assemble hub data for a single symbol — used by trade_coach.
 
@@ -1069,12 +1113,19 @@ def assemble_hub_context(symbol: str) -> dict:
     except Exception:
         logger.debug("intel_hub: win rates context failed for %s", symbol)
 
+    paper_win_rates = {}
+    try:
+        paper_win_rates = get_paper_trade_win_rates(days=90)
+    except Exception:
+        logger.debug("intel_hub: paper win rates failed")
+
     return {
         "symbol": symbol,
         "fundamentals": fundamentals,
         "sr_levels": sr_levels,
         "weekly_trend": weekly_trend,
         "win_rates": win_rates,
+        "paper_win_rates": paper_win_rates,
     }
 
 
