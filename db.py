@@ -892,9 +892,25 @@ def _migrate_alert_user_id():
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN user_action TEXT DEFAULT NULL")
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN acked_at TIMESTAMP DEFAULT NULL")
 
-        # Assign orphan alerts to first user
+        # Assign orphan alerts to first user (skip any that would conflict
+        # with the new unique index)
         admin = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
         if admin:
+            # Delete orphans that would duplicate an existing row with user_id
+            try:
+                conn.execute(
+                    """DELETE FROM alerts WHERE user_id IS NULL
+                       AND EXISTS (
+                           SELECT 1 FROM alerts a2
+                           WHERE a2.symbol = alerts.symbol
+                             AND a2.alert_type = alerts.alert_type
+                             AND a2.session_date = alerts.session_date
+                             AND a2.user_id = ?
+                       )""",
+                    (admin["id"],),
+                )
+            except _DB_OPERATIONAL_ERRORS:
+                pass
             conn.execute(
                 "UPDATE alerts SET user_id = ? WHERE user_id IS NULL",
                 (admin["id"],),
