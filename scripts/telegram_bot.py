@@ -134,9 +134,16 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
     )
     from alerting.real_trade_store import open_real_trade, has_open_trade
 
-    alert = get_alert_by_id(alert_id)
+    logger.info("_handle_ack: alert_id=%s chat_id=%s", alert_id, chat_id)
+    try:
+        alert = get_alert_by_id(alert_id)
+    except Exception:
+        logger.exception("_handle_ack: get_alert_by_id failed for %s", alert_id)
+        return f"DB error looking up alert {alert_id}."
     if not alert:
+        logger.warning("_handle_ack: alert %s not found in DB", alert_id)
         return "Alert not found."
+    logger.info("_handle_ack: found alert %s symbol=%s", alert_id, alert.get("symbol"))
 
     if alert.get("user_action") == "took":
         return "Already acknowledged this trade."
