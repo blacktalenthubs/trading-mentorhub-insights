@@ -305,27 +305,39 @@ def get_user_id_by_chat_id(chat_id: str) -> int | None:
 
 
 def has_acked_entry(symbol: str, user_id: int, session_date: str | None = None) -> bool:
-    """Check if user has ACK'd (took) any BUY/SHORT alert for this symbol today."""
+    """Check if user has ACK'd (took) any BUY/SHORT alert for this symbol today.
+
+    Returns False if the user_action column doesn't exist yet (pre-migration).
+    """
     session = session_date or today_session()
-    with get_db() as conn:
-        row = conn.execute(
-            """SELECT 1 FROM alerts
-               WHERE symbol=? AND user_id=? AND session_date=?
-                 AND direction IN ('BUY','SHORT') AND user_action='took'
-               LIMIT 1""",
-            (symbol, user_id, session),
-        ).fetchone()
-        return row is not None
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT 1 FROM alerts
+                   WHERE symbol=? AND user_id=? AND session_date=?
+                     AND direction IN ('BUY','SHORT') AND user_action='took'
+                   LIMIT 1""",
+                (symbol, user_id, session),
+            ).fetchone()
+            return row is not None
+    except Exception:
+        return False
 
 
 def user_has_used_ack(user_id: int) -> bool:
-    """Check if user has ever ACK'd or skipped any alert (used the button system)."""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT 1 FROM alerts WHERE user_id=? AND user_action IS NOT NULL LIMIT 1",
-            (user_id,),
-        ).fetchone()
-        return row is not None
+    """Check if user has ever ACK'd or skipped any alert (used the button system).
+
+    Returns False if the user_action column doesn't exist yet (pre-migration).
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM alerts WHERE user_id=? AND user_action IS NOT NULL LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            return row is not None
+    except Exception:
+        return False
 
 
 def create_active_entry_from_alert(alert_id: int, user_id: int | None = None):
