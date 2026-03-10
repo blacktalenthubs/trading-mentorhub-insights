@@ -174,17 +174,8 @@ def _format_sms_body(signal: AlertSignal) -> str:
     if tags:
         parts.append(" | ".join(tags))
 
-    # Score breakdown (compact factor list)
-    _factors = getattr(signal, "score_factors", None)
-    if _factors:
-        _factor_labels = {
-            "ma": "MA", "vol": "Vol", "conf": "Conf", "vwap": "VWAP",
-            "rr": "R:R", "confluence": "Cnfl", "mtf": "MTF",
-            "consolidation": "Multi",
-        }
-        _fb = [f"{_factor_labels.get(k, k)}+{v}" for k, v in _factors.items() if v]
-        if _fb:
-            parts.append("Score: " + " ".join(_fb))
+    # Score breakdown omitted — A+ (100) in header is sufficient for Telegram.
+    # Full factor breakdown available in email and dashboard.
 
     # Signal context — phase, VWAP, confluence, hourly targets
     if signal.message:
