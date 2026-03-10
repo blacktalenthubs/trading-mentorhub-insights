@@ -883,10 +883,13 @@ def _migrate_alert_user_id():
         except _DB_OPERATIONAL_ERRORS:
             pass  # Table may not have user_id yet on first run
 
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup "
-            "ON alerts(symbol, alert_type, session_date, user_id)"
-        )
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup "
+                "ON alerts(symbol, alert_type, session_date, user_id)"
+            )
+        except (*_DB_OPERATIONAL_ERRORS, *_DB_INTEGRITY_ERRORS):
+            pass  # Duplicates may still exist; index will be retried next startup
 
         # Add trade ACK columns to alerts
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN user_action TEXT DEFAULT NULL")
