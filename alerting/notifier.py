@@ -186,6 +186,10 @@ def _format_sms_body(signal: AlertSignal) -> str:
         if _fb:
             parts.append("Score: " + " ".join(_fb))
 
+    # Signal context — phase, VWAP, confluence, hourly targets
+    if signal.message:
+        parts.append(_html.escape(signal.message))
+
     # AI thesis — first sentence only (Telegram char limit)
     if getattr(signal, "narrative", ""):
         import re
@@ -202,7 +206,8 @@ def _format_sms_body(signal: AlertSignal) -> str:
     )
     parts.append(f'<a href="{_link}">Analyze in AI Coach</a>')
 
-    return "\n".join(parts)[:600]
+    # Telegram message limit is 4096 chars; truncate safely
+    return "\n".join(parts)[:4000]
 
 
 def send_plain_email(email_to: str, subject: str, body: str) -> bool:

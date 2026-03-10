@@ -157,13 +157,13 @@ class TestSmsFormat:
         assert "Vol: high volume" in body
         assert "above" in body
 
-    def test_truncated_to_320_chars(self):
+    def test_truncated_to_4000_chars(self):
         sig = _make_signal(score=80, score_label="A")
         sig.target_1 = 101.0
         sig.target_2 = 102.0
-        sig.message = "x" * 500
+        sig.message = "x" * 5000
         body = _format_sms_body(sig)
-        assert len(body) <= 320
+        assert len(body) <= 4000
 
 
 class TestEmailFormat:
