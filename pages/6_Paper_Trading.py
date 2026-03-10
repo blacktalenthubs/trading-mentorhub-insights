@@ -182,12 +182,13 @@ if history:
         day_losses = len(day_df[day_df["pnl"] <= 0])
         day_total = len(day_df)
         day_wr = day_wins / day_total * 100 if day_total else 0
-        pnl_color = "#2ecc71" if day_pnl >= 0 else "#e74c3c"
+        pnl_sign = "+" if day_pnl >= 0 else ""
+        pnl_icon = "+" if day_pnl >= 0 else "-"
 
         header = (
-            f"**{day}** — {day_total} trade{'s' if day_total != 1 else ''} | "
+            f"{day} — {day_total} trade{'s' if day_total != 1 else ''} | "
             f"{day_wins}W/{day_losses}L ({day_wr:.0f}%) | "
-            f"P&L: <span style='color:{pnl_color}'>${day_pnl:+,.2f}</span>"
+            f"P&L: {pnl_sign}${abs(day_pnl):,.2f}"
         )
 
         with st.expander(header, expanded=(i == 0)):
