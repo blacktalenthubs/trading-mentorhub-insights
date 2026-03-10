@@ -246,13 +246,19 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 
-                # Resistance SELL signals: close paper position (exit long)
+                # Any SELL signal: close paper position (exit long)
+                # Covers resistance, rejection, breakdown, trailing stop, etc.
                 _exit_long_types = {
                     AlertType.RESISTANCE_PRIOR_LOW,
                     AlertType.RESISTANCE_PRIOR_HIGH,
                     AlertType.PDH_REJECTION,
                     AlertType.SUPPORT_BREAKDOWN,
                     AlertType.OPENING_RANGE_BREAKDOWN,
+                    AlertType.MA_RESISTANCE,
+                    AlertType.EMA_RESISTANCE,
+                    AlertType.WEEKLY_HIGH_RESISTANCE,
+                    AlertType.HOURLY_RESISTANCE_APPROACH,
+                    AlertType.TRAILING_STOP_HIT,
                 }
                 if signal.direction == "SELL" and signal.alert_type in _exit_long_types:
                     if paper_trading_enabled():

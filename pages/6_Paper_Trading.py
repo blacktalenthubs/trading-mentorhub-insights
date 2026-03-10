@@ -169,30 +169,58 @@ if history:
         fig_pie.update_layout(height=300)
         st.plotly_chart(fig_pie, use_container_width=True)
 
-    # Trade history table
-    st.markdown("**Trade History**")
-    df_display = df_sorted[[
-        "symbol", "shares", "entry_price", "exit_price",
-        "stop_price", "target_price", "pnl", "status",
-        "alert_type", "session_date",
-    ]].copy()
-    df_display = df_display.rename(columns={
-        "symbol": "Symbol", "shares": "Shares",
-        "entry_price": "Entry", "exit_price": "Exit",
-        "stop_price": "Stop", "target_price": "Target",
-        "pnl": "P&L", "status": "Status",
-        "alert_type": "Signal", "session_date": "Date",
-    })
-    st.dataframe(
-        df_display.set_index("Symbol").style.format(
-            {
-                "Entry": "${:,.2f}", "Exit": "${:,.2f}",
-                "Stop": "${:,.2f}", "Target": "${:,.2f}",
-                "P&L": "${:,.2f}",
-            },
-            na_rep="—",
-        ),
-        use_container_width=True,
-    )
+    # ── Daily grouped trade history ──────────────────────────────────────
+    st.markdown("**Trade History by Day**")
+
+    # Group by session_date, most recent first
+    days = sorted(df_sorted["session_date"].dropna().unique(), reverse=True)
+
+    for i, day in enumerate(days):
+        day_df = df_sorted[df_sorted["session_date"] == day].copy()
+        day_pnl = day_df["pnl"].sum()
+        day_wins = len(day_df[day_df["pnl"] > 0])
+        day_losses = len(day_df[day_df["pnl"] <= 0])
+        day_total = len(day_df)
+        day_wr = day_wins / day_total * 100 if day_total else 0
+        pnl_color = "#2ecc71" if day_pnl >= 0 else "#e74c3c"
+
+        header = (
+            f"**{day}** — {day_total} trade{'s' if day_total != 1 else ''} | "
+            f"{day_wins}W/{day_losses}L ({day_wr:.0f}%) | "
+            f"P&L: <span style='color:{pnl_color}'>${day_pnl:+,.2f}</span>"
+        )
+
+        with st.expander(header, expanded=(i == 0)):
+            # Day summary metrics
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Trades", day_total)
+            c2.metric("Win Rate", f"{day_wr:.0f}%")
+            c3.metric("Day P&L", f"${day_pnl:+,.2f}")
+            c4.metric("Symbols", ", ".join(day_df["symbol"].unique()))
+
+            # Day's trade table
+            day_display = day_df[[
+                "symbol", "shares", "entry_price", "exit_price",
+                "stop_price", "target_price", "pnl", "status",
+                "alert_type",
+            ]].copy()
+            day_display = day_display.rename(columns={
+                "symbol": "Symbol", "shares": "Shares",
+                "entry_price": "Entry", "exit_price": "Exit",
+                "stop_price": "Stop", "target_price": "Target",
+                "pnl": "P&L", "status": "Status",
+                "alert_type": "Signal",
+            })
+            st.dataframe(
+                day_display.set_index("Symbol").style.format(
+                    {
+                        "Entry": "${:,.2f}", "Exit": "${:,.2f}",
+                        "Stop": "${:,.2f}", "Target": "${:,.2f}",
+                        "P&L": "${:,.2f}",
+                    },
+                    na_rep="—",
+                ),
+                use_container_width=True,
+            )
 else:
     ui_theme.empty_state("No closed trades yet.")
