@@ -128,14 +128,12 @@ def handle_start(token: str, chat_id: int) -> str:
 
 def _handle_ack(alert_id: int, chat_id: int) -> str:
     """User tapped 'Took It' — open a real trade and activate exit monitoring."""
-    from db import init_db
     from alerting.alert_store import (
         ack_alert, create_active_entry_from_alert, get_alert_by_id,
         get_user_id_by_chat_id, today_session,
     )
     from alerting.real_trade_store import open_real_trade, has_open_trade
 
-    init_db()
     alert = get_alert_by_id(alert_id)
     if not alert:
         return "Alert not found."
@@ -172,10 +170,8 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
 
 def _handle_skip(alert_id: int) -> str:
     """User tapped 'Skip' — mark alert as skipped."""
-    from db import init_db
     from alerting.alert_store import ack_alert, get_alert_by_id
 
-    init_db()
     alert = get_alert_by_id(alert_id)
     if not alert:
         return "Alert not found."
@@ -189,11 +185,10 @@ def _handle_exit(alert_id: int, chat_id: int) -> str:
 
     Uses the SELL alert's price as exit price (auto-fill from exit alert).
     """
-    from db import init_db, get_db
+    from db import get_db
     from alerting.alert_store import get_alert_by_id
     from alerting.real_trade_store import close_real_trade
 
-    init_db()
     alert = get_alert_by_id(alert_id)
     if not alert:
         return "Alert not found."
@@ -221,9 +216,7 @@ def _handle_exit_manual(symbol: str, chat_id: int) -> str:
 
     This is triggered by the /exit command. Returns a message asking for the price.
     """
-    from db import init_db, get_db
-
-    init_db()
+    from db import get_db
 
     with get_db() as conn:
         trade = conn.execute(
