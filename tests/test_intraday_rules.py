@@ -53,6 +53,7 @@ from analytics.intraday_rules import (
     check_resistance_prior_low,
     check_vwap_bounce,
     check_vwap_reclaim,
+    check_session_high_retracement,
     check_session_low_retest,
     check_stop_loss_hit,
     check_support_breakdown,
@@ -6306,3 +6307,155 @@ class TestFibRetracementBounceExtended:
         assert sig is not None
         # Entry should be near 106.18 (38.2% level), not 105.0
         assert abs(sig.entry - 106.18) < 0.05
+
+
+# ---------------------------------------------------------------------------
+# Session High Retracement
+# ---------------------------------------------------------------------------
+
+
+class TestSessionHighRetracement:
+    """Tests for check_session_high_retracement — rally then pullback to session low."""
+
+    def _make_bars(self, prices):
+        """Build bars from list of (open, high, low, close) tuples."""
+        rows = []
+        for o, h, l, c in prices:
+            rows.append({"Open": o, "High": h, "Low": l, "Close": c, "Volume": 1000})
+        return pd.DataFrame(rows)
+
+    def test_classic_retracement_fires(self):
+        """BTC-style: rally 2% then pull back to session low → fires."""
+        bars = self._make_bars([
+            # Open at 100, rally to ~103
+            (100, 101, 99.5, 101),    # bar 0
+            (101, 102, 100.5, 102),   # bar 1
+            (102, 103, 101.5, 103),   # bar 2: session high
+            (103, 103, 102, 102),     # bar 3: start pullback
+            (102, 102, 101, 101),     # bar 4
+            (101, 101, 100, 100),     # bar 5
+            (100, 100.5, 99.5, 99.8),  # bar 6
+            (99.8, 100, 99.5, 99.7),   # bar 7
+            (99.7, 100, 99.5, 99.8),   # bar 8: near session low 99.5, close above
+        ])
+        last = bars.iloc[-1]
+        sig = check_session_high_retracement("BTC", bars, last, 1000, 1500)
+        assert sig is not None
+        assert sig.alert_type == AlertType.SESSION_HIGH_RETRACEMENT
+        assert sig.direction == "BUY"
+        assert sig.entry == 99.5
+        assert sig.stop < 99.5
+
+    def test_no_rally_returns_none(self):
+        """Flat day — no meaningful rally from open → no signal."""
+        bars = self._make_bars([
+            (100, 100.5, 99.5, 100),
+            (100, 100.8, 99.5, 100),
+            (100, 100.5, 99.5, 100),
+            (100, 100.5, 99.5, 100),
+            (100, 100.5, 99.5, 100),
+            (100, 100.5, 99.5, 100),
+            (100, 100.5, 99.5, 100),
+            (100, 100.5, 99.5, 99.8),
+        ])
+        last = bars.iloc[-1]
+        sig = check_session_high_retracement("AAPL", bars, last, 1000, 1500)
+        assert sig is None
+
+    def test_high_too_recent_returns_none(self):
+        """Session high on the last bar — not enough time → no signal."""
+        bars = self._make_bars([
+            (100, 101, 99.5, 101),
+            (101, 102, 100, 102),
+            (102, 103, 101, 103),
+            (103, 104, 102, 104),
+            (104, 105, 103, 105),
+            (105, 106, 104, 106),
+            (106, 107, 105, 107),     # high on bar 6
+            (107, 107, 99.5, 99.8),   # bar 7: pullback (high only 1 bar ago)
+        ])
+        last = bars.iloc[-1]
+        sig = check_session_high_retracement("AAPL", bars, last, 1000, 1500)
+        assert sig is None
+
+    def test_not_near_session_low_returns_none(self):
+        """Pullback only to midrange, not near session low → no signal."""
+        bars = self._make_bars([
+            (100, 101, 99, 101),      # session low = 99
+            (101, 103, 100, 103),     # rally
+            (103, 103, 102, 102),     # bar 2: session high
+            (102, 102, 101, 101),
+            (101, 101, 100, 100),
+            (100, 100.5, 100, 100.2),
+            (100.2, 100.5, 100, 100.2),
+            (100.2, 100.5, 100, 100.2),
+            (100.2, 100.5, 100, 100.2),  # low=100, session low=99 → 1% away
+        ])
+        last = bars.iloc[-1]
+        sig = check_session_high_retracement("AAPL", bars, last, 1000, 1500)
+        assert sig is None
+
+    def test_close_below_session_low_returns_none(self):
+        """Still falling — close below session low → no bounce confirmed."""
+        bars = self._make_bars([
+            (100, 101, 99.5, 101),
+            (101, 103, 100, 103),     # session high
+            (103, 103, 102, 102),
+            (102, 102, 101, 101),
+            (101, 101, 100, 100),
+            (100, 100, 99, 99),
+            (99, 99.5, 98.5, 98.5),
+            (98.5, 99, 98, 98),
+            (98, 98.5, 97, 97.5),     # close below session low
+        ])
+        last = bars.iloc[-1]
+        sig = check_session_high_retracement("AAPL", bars, last, 1000, 1500)
+        assert sig is None
+
+    def test_too_few_bars_returns_none(self):
+        """Not enough bars → None."""
+        bars = self._make_bars([
+            (100, 103, 99.5, 103),
+            (103, 103, 99.5, 99.8),
+        ])
+        last = bars.iloc[-1]
+        sig = check_session_high_retracement("AAPL", bars, last, 1000, 1500)
+        assert sig is None
+
+    def test_high_confidence_on_low_volume(self):
+        """Low volume retest (exhaustion) → high confidence."""
+        bars = self._make_bars([
+            (100, 101, 99, 101),
+            (101, 103, 100, 103),     # session high
+            (103, 103, 102, 102),
+            (102, 102, 101, 101),
+            (101, 101, 100, 100),
+            (100, 100, 99.2, 99.5),
+            (99.5, 100, 99.2, 99.5),
+            (99.5, 100, 99, 99.3),
+            (99.3, 99.5, 99, 99.2),   # near session low 99, low vol
+        ])
+        last = bars.iloc[-1]
+        # bar_volume < 0.8 * avg_volume → high confidence
+        sig = check_session_high_retracement("BTC", bars, last, 500, 1000)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_stale_signal_past_t1_returns_none(self):
+        """Price already ran past T1 → stale, no signal."""
+        bars = self._make_bars([
+            (100, 101, 95, 101),      # session low = 95
+            (101, 103, 100, 103),     # session high (3% rally)
+            (103, 103, 102, 102),
+            (102, 102, 101, 101),
+            (101, 101, 100, 100),
+            (100, 100, 98, 98),
+            (98, 98, 96, 96),
+            (96, 97, 95, 96),
+            (96, 97, 95.2, 96.5),     # near low but close already above T1
+        ])
+        last = bars.iloc[-1]
+        sig = check_session_high_retracement("AAPL", bars, last, 1000, 1500)
+        # T1 = 95 + (95 - 95*0.995) = 95 + 0.475 = 95.475
+        # close 96.5 > T1 → stale
+        assert sig is None

@@ -103,6 +103,10 @@ from alert_config import (
     OPENING_LOW_BASE_HOLD_PCT,
     OPENING_LOW_BASE_MIN_DIP_PCT,
     OPENING_LOW_BASE_STOP_OFFSET_PCT,
+    RETRACEMENT_MIN_RALLY_PCT,
+    RETRACEMENT_MIN_AGE_BARS,
+    RETRACEMENT_PROXIMITY_PCT,
+    RETRACEMENT_STOP_OFFSET_PCT,
     ATR_PERIOD,
     ATR_DAY_TRADE_MULTIPLIER,
     USE_ATR_STOPS,
@@ -186,6 +190,7 @@ class AlertType(str, Enum):
     MACD_HISTOGRAM_FLIP = "macd_histogram_flip"
     BB_SQUEEZE_BREAKOUT = "bb_squeeze_breakout"
     TRAILING_STOP_HIT = "trailing_stop_hit"
+    SESSION_HIGH_RETRACEMENT = "session_high_retracement"
     GAP_AND_GO = "gap_and_go"
     FIB_RETRACEMENT_BOUNCE = "fib_retracement_bounce"
     # Professional rules — swing
@@ -2258,6 +2263,100 @@ def check_opening_low_base(
 
 
 # ---------------------------------------------------------------------------
+# Rule: Session High Retracement (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_session_high_retracement(
+    symbol: str,
+    bars: pd.DataFrame,
+    last_bar: pd.Series,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Stock rallies from open, then retraces back near session low — buy the dip.
+
+    Pattern: price makes a significant intraday high, then pulls back most/all
+    of the rally, returning near the session low.  The prior rally proves demand
+    at these levels; the retracement is a potential re-entry.
+
+    Conditions:
+    1. Session high >= open * (1 + RETRACEMENT_MIN_RALLY_PCT) — meaningful rally
+    2. Session high was set >= RETRACEMENT_MIN_AGE_BARS ago — not an early spike
+    3. Last bar low within RETRACEMENT_PROXIMITY_PCT of session low
+    4. Last bar closes above session low (bounce confirmed, not free-falling)
+    """
+    min_bars = RETRACEMENT_MIN_AGE_BARS + 2
+    if len(bars) < min_bars:
+        return None
+
+    open_price = bars["Open"].iloc[0]
+    session_high = bars["High"].max()
+    session_low = bars["Low"].min()
+
+    if open_price <= 0 or session_low <= 0:
+        return None
+
+    # 1. Meaningful rally from open
+    rally_pct = (session_high - open_price) / open_price
+    if rally_pct < RETRACEMENT_MIN_RALLY_PCT:
+        return None
+
+    # 2. Session high must be old enough (not a spike on the current bar)
+    high_idx = bars["High"].idxmax()
+    high_pos = bars.index.get_loc(high_idx)
+    bars_since_high = len(bars) - 1 - high_pos
+    if bars_since_high < RETRACEMENT_MIN_AGE_BARS:
+        return None
+
+    # 3. Last bar low near session low
+    proximity = abs(last_bar["Low"] - session_low) / session_low
+    if proximity > RETRACEMENT_PROXIMITY_PCT:
+        return None
+
+    # 4. Bounce confirmed — close above session low
+    if last_bar["Close"] <= session_low:
+        return None
+
+    # Entry/stop/targets
+    entry = round(session_low, 2)
+    stop = round(session_low * (1 - RETRACEMENT_STOP_OFFSET_PCT), 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry + risk, 2)
+    target_2 = round(entry + 2 * risk, 2)
+
+    # Skip if price already ran past T1
+    if last_bar["Close"] > target_1:
+        return None
+
+    # Confidence: high on exhaustion volume (sellers drying up)
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    confidence = "high" if vol_ratio < 0.8 else "medium"
+
+    retracement_pct = (session_high - last_bar["Low"]) / (session_high - session_low) * 100 if session_high > session_low else 0
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SESSION_HIGH_RETRACEMENT,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"Session high retracement — rallied {rally_pct:.1%} to ${session_high:.2f}, "
+            f"pulled back {retracement_pct:.0f}% to session low ${session_low:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 15: Session Low Double-Bottom (BUY)
 # ---------------------------------------------------------------------------
 
@@ -4070,6 +4169,21 @@ def evaluate_rules(
                 if spy.get("spy_bouncing"):
                     sig.confidence = "high"
                     sig.message += " | SPY also basing"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Session High Retracement ---
+        if AlertType.SESSION_HIGH_RETRACEMENT.value in ENABLED_RULES:
+            sig = check_session_high_retracement(
+                symbol, intraday_bars, last_bar, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                if spy.get("spy_bouncing"):
+                    sig.confidence = "high"
+                    sig.message += " | SPY also pulling back"
                 if vwap_pos:
                     sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix

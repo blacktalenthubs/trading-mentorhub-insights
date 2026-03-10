@@ -268,6 +268,12 @@ OPENING_LOW_BASE_HOLD_PCT = 0.003      # 0.3% — bars must stay above low * (1 
 OPENING_LOW_BASE_MIN_DIP_PCT = 0.003   # 0.3% — low must be meaningful dip from open
 OPENING_LOW_BASE_STOP_OFFSET_PCT = 0.003  # 0.3% below session low for stop
 
+# Session High Retracement: stock rallies then pulls back near session low
+RETRACEMENT_MIN_RALLY_PCT = 0.015       # 1.5% — minimum rally from open to session high
+RETRACEMENT_MIN_AGE_BARS = 6            # 30 min — high must be established this long ago
+RETRACEMENT_PROXIMITY_PCT = 0.004       # 0.4% — how close to session low for entry
+RETRACEMENT_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
+
 # Minimum target distance: T1 must be at least this % above entry
 MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
 
@@ -422,6 +428,7 @@ ENABLED_RULES: set[str] = {
     "vwap_reclaim",
     "vwap_bounce",
     "opening_low_base",
+    "session_high_retracement",
     "intraday_support_bounce",
     # "outside_day_breakout",
     # "ema_crossover_5_20",
