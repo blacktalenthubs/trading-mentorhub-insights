@@ -199,6 +199,19 @@ def assemble_context(hub_symbol: str | None = None) -> dict:
     # SPY hourly bars (last 2 days) for intraday chart questions
     ctx["spy_hourly"] = _safe_call(_get_spy_hourly_bars, 2)
 
+    # ACK history — decision quality and recent journal entries
+    try:
+        from analytics.intel_hub import get_decision_quality, get_trading_journal
+        # Get admin uid (same as monitor.py pattern)
+        from db import get_db
+        with get_db() as conn:
+            _row = conn.execute("SELECT id FROM users LIMIT 1").fetchone()
+            _uid = _row["id"] if _row else 1
+        ctx["decision_quality"] = _safe_call(get_decision_quality, _uid, 90)
+        ctx["ack_journal"] = _safe_call(get_trading_journal, _uid, 30)
+    except Exception:
+        logger.debug("trade_coach: ACK history failed")
+
     # Hub-specific context for focused symbol analysis
     if hub_symbol:
         try:
@@ -476,6 +489,46 @@ def format_system_prompt(context: dict) -> str:
                     f"({overall.get('total', 0)} signals)"
                 )
             sections.append("\n".join(lines))
+
+    # ACK decision history
+    dq = context.get("decision_quality")
+    if dq:
+        took = dq.get("took", {})
+        skipped = dq.get("skipped", {})
+        if took.get("total", 0) > 0 or skipped.get("total", 0) > 0:
+            lines = ["[TRADE DECISION QUALITY — 90 DAYS]"]
+            if took.get("total", 0) > 0:
+                lines.append(
+                    f"Took: {took['total']} trades, {took['win_rate']}% win rate "
+                    f"({took['wins']}W/{took['losses']}L)"
+                )
+            if skipped.get("total", 0) > 0:
+                lines.append(
+                    f"Skipped: {skipped['total']} alerts, {skipped['win_rate']}% would have won "
+                    f"({skipped['wins']}W/{skipped['losses']}L)"
+                )
+            edge = dq.get("decision_edge")
+            if edge is not None:
+                if edge > 0:
+                    lines.append(f"Decision edge: +{edge}% (good filtering — took better trades)")
+                elif edge < 0:
+                    lines.append(f"Decision edge: {edge}% (skipped trades did better)")
+                else:
+                    lines.append("Decision edge: 0% (same performance)")
+            sections.append("\n".join(lines))
+
+    ack_journal = context.get("ack_journal")
+    if ack_journal:
+        lines = ["[RECENT TRADE DECISIONS — LAST 30 DAYS]"]
+        for entry in ack_journal[:15]:
+            action = entry["user_action"]
+            sym = entry["symbol"]
+            setup = entry["alert_type"].replace("_", " ")
+            outcome = entry.get("outcome", "open")
+            pnl = entry.get("pnl")
+            pnl_str = f" PnL={pnl:+.2f}" if pnl is not None else ""
+            lines.append(f"- {sym} {setup}: {action.upper()} → {outcome}{pnl_str}")
+        sections.append("\n".join(lines))
 
     # Rules
     if hub:

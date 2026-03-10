@@ -35,21 +35,14 @@ IntegrityError = _DB_INTEGRITY_ERRORS
 def _safe_add_column(conn, sql: str):
     """Execute ALTER TABLE ADD COLUMN, ignoring 'already exists' errors.
 
-    On Postgres, a caught DuplicateColumn error aborts the current transaction,
-    so we wrap the attempt in a SAVEPOINT to isolate the failure.
+    On Postgres, the wrapper's execute() already isolates DDL in a SAVEPOINT
+    (see PostgresConnectionWrapper.execute lines 152-164), so we just need to
+    catch the re-raised DuplicateColumn / OperationalError.
     """
-    if _USE_POSTGRES:
-        conn.execute("SAVEPOINT _add_col")
-        try:
-            conn.execute(sql)
-            conn.execute("RELEASE SAVEPOINT _add_col")
-        except _DB_OPERATIONAL_ERRORS:
-            conn.execute("ROLLBACK TO SAVEPOINT _add_col")
-    else:
-        try:
-            conn.execute(sql)
-        except _DB_OPERATIONAL_ERRORS:
-            pass  # Column already exists
+    try:
+        conn.execute(sql)
+    except _DB_OPERATIONAL_ERRORS:
+        pass  # Column already exists
 
 
 # ---------------------------------------------------------------------------

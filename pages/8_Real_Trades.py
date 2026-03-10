@@ -377,8 +377,10 @@ else:
             fig_pie.update_layout(height=300)
             st.plotly_chart(fig_pie, use_container_width=True)
 
-        # Trade history table
+        # ── Trade History — Grouped by Day ────────────────────────────
         st.markdown("**Trade History**")
+
+        # Build column list
         base_cols = [
             "symbol", "direction", "shares", "entry_price", "exit_price",
             "pnl", "status", "alert_type", "session_date", "notes",
@@ -389,21 +391,62 @@ else:
             "pnl": "P&L", "status": "Status",
             "alert_type": "Signal", "session_date": "Date", "notes": "Notes",
         }
-        # Show extra swing columns when filtering to Swing or All
         if type_param != "intraday":
             for col in ("trade_type", "stop_type", "target_type"):
                 if col in df_sorted.columns:
                     base_cols.append(col)
                     rename_map[col] = col.replace("_", " ").title()
 
-        df_display = df_sorted[[c for c in base_cols if c in df_sorted.columns]].copy()
-        df_display = df_display.rename(columns=rename_map)
-        st.dataframe(
-            df_display.set_index("Symbol").style.format({
-                "Entry": "${:,.2f}", "Exit": "${:,.2f}", "P&L": "${:,.2f}",
-            }),
-            use_container_width=True,
-        )
+        # Group by session_date (most recent first)
+        df_by_day = df_sorted.copy()
+        df_by_day["_session"] = df_by_day["session_date"].fillna("")
+        day_groups = df_by_day.groupby("_session", sort=False)
+
+        # Sort days descending
+        day_order = sorted(day_groups.groups.keys(), reverse=True)
+
+        for day_date in day_order:
+            day_df = day_groups.get_group(day_date)
+            day_pnl = day_df["pnl"].sum()
+            day_wins = len(day_df[day_df["pnl"] > 0])
+            day_losses = len(day_df[day_df["pnl"] <= 0])
+            n_trades = len(day_df)
+
+            pnl_sign = "+" if day_pnl >= 0 else ""
+            pnl_color = "#2ecc71" if day_pnl >= 0 else "#e74c3c"
+            wr = round(day_wins / n_trades * 100) if n_trades else 0
+
+            header = (
+                f"{day_date or 'Unknown'} — "
+                f"{n_trades} trade{'s' if n_trades != 1 else ''} | "
+                f"{day_wins}W/{day_losses}L ({wr}%) | "
+                f"P&L: {pnl_sign}${day_pnl:,.2f}"
+            )
+
+            with st.expander(header, expanded=(day_date == day_order[0])):
+                # Day summary metrics
+                dc1, dc2, dc3, dc4 = st.columns(4)
+                with dc1:
+                    st.metric("Trades", n_trades)
+                with dc2:
+                    st.metric("Win Rate", f"{wr}%")
+                with dc3:
+                    st.metric("Day P&L", f"${day_pnl:+,.2f}")
+                with dc4:
+                    symbols = ", ".join(day_df["symbol"].unique())
+                    st.metric("Symbols", symbols)
+
+                # Day's trade table
+                display_cols = [c for c in base_cols if c in day_df.columns and c != "session_date"]
+                day_display = day_df[display_cols].copy()
+                day_rename = {k: v for k, v in rename_map.items() if k in display_cols}
+                day_display = day_display.rename(columns=day_rename)
+                st.dataframe(
+                    day_display.set_index("Symbol").style.format({
+                        "Entry": "${:,.2f}", "Exit": "${:,.2f}", "P&L": "${:,.2f}",
+                    }),
+                    use_container_width=True,
+                )
     else:
         ui_theme.empty_state("No closed trades yet.")
 

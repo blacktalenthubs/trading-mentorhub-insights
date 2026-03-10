@@ -245,6 +245,246 @@ def get_acked_trade_win_rates(user_id: int, days: int = 90) -> dict:
     }
 
 
+def get_trading_journal(user_id: int, days: int = 30) -> list[dict]:
+    """Return ACK'd trades with outcomes and P&L for the journal view.
+
+    Each entry includes: symbol, alert_type, direction, price, entry, stop,
+    target_1, target_2, user_action, acked_at, session_date, outcome, pnl,
+    real_trade (matched real_trade row if exists).
+    """
+    from db import get_db
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+
+    with get_db() as conn:
+        # All alerts with user_action set (took or skipped)
+        alerts = conn.execute(
+            """SELECT * FROM alerts
+               WHERE user_id = ? AND user_action IS NOT NULL
+                 AND session_date >= ?
+               ORDER BY created_at DESC""",
+            (user_id, cutoff),
+        ).fetchall()
+        alerts = [dict(r) for r in alerts]
+
+        # All real trades in the period (matched by alert_id)
+        trades = conn.execute(
+            """SELECT * FROM real_trades
+               WHERE session_date >= ?
+               ORDER BY opened_at DESC""",
+            (cutoff,),
+        ).fetchall()
+        trades_by_alert = {r["alert_id"]: dict(r) for r in trades if r.get("alert_id")}
+
+    # Also build outcome map: (symbol, session_date) → outcome
+    _WIN_TYPES = {"target_1_hit", "target_2_hit"}
+    _LOSS_TYPES = {"stop_loss_hit", "auto_stop_out"}
+
+    outcome_map: dict[tuple[str, str], str] = {}
+    for a in alerts:
+        at = a.get("alert_type", "")
+        key = (a.get("symbol", ""), a.get("session_date", ""))
+        if at in _WIN_TYPES:
+            outcome_map[key] = "win"
+        elif at in _LOSS_TYPES and key not in outcome_map:
+            outcome_map[key] = "loss"
+
+    journal: list[dict] = []
+    for a in alerts:
+        at = a.get("alert_type", "")
+        direction = a.get("direction", "")
+        # Only include entry alerts (BUY/SHORT with took/skipped)
+        if at in _WIN_TYPES | _LOSS_TYPES:
+            continue
+        if direction not in ("BUY", "SHORT"):
+            continue
+
+        key = (a.get("symbol", ""), a.get("session_date", ""))
+        outcome = outcome_map.get(key, "open")
+        real_trade = trades_by_alert.get(a.get("id"))
+
+        journal.append({
+            "id": a.get("id"),
+            "symbol": a["symbol"],
+            "alert_type": at,
+            "direction": direction,
+            "price": a.get("price", 0),
+            "entry": a.get("entry"),
+            "stop": a.get("stop"),
+            "target_1": a.get("target_1"),
+            "target_2": a.get("target_2"),
+            "score": a.get("score", 0),
+            "score_label": a.get("score_label", ""),
+            "user_action": a.get("user_action"),
+            "acked_at": a.get("acked_at"),
+            "session_date": a.get("session_date"),
+            "created_at": a.get("created_at"),
+            "outcome": outcome,
+            "pnl": real_trade.get("pnl") if real_trade else None,
+            "exit_price": real_trade.get("exit_price") if real_trade else None,
+            "trade_status": real_trade.get("status") if real_trade else None,
+        })
+
+    return journal
+
+
+def get_decision_quality(user_id: int, days: int = 90) -> dict:
+    """Compare win rates of took vs skipped alerts to measure decision quality.
+
+    Returns:
+        took: {wins, losses, unknown, total, win_rate, total_pnl}
+        skipped: {wins, losses, unknown, total, win_rate, hypothetical_pnl}
+        decision_edge: took_win_rate - skipped_win_rate (positive = good filtering)
+    """
+    from db import get_db
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+
+    with get_db() as conn:
+        all_rows = conn.execute(
+            "SELECT * FROM alerts WHERE session_date >= ? "
+            "AND (user_id=? OR user_id IS NULL) ORDER BY created_at",
+            (cutoff, user_id),
+        ).fetchall()
+
+    alerts = [dict(r) for r in all_rows]
+
+    _OUTCOME_TYPES = {"target_1_hit", "target_2_hit", "stop_loss_hit", "auto_stop_out"}
+    _WIN_TYPES = {"target_1_hit", "target_2_hit"}
+    _LOSS_TYPES = {"stop_loss_hit", "auto_stop_out"}
+
+    # Group by (symbol, session_date)
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for a in alerts:
+        key = (a.get("symbol", ""), a.get("session_date", ""))
+        groups.setdefault(key, []).append(a)
+
+    took_outcomes: list[dict] = []
+    skipped_outcomes: list[dict] = []
+
+    for (symbol, session), group_alerts in groups.items():
+        outcomes = set()
+        for a in group_alerts:
+            at = a.get("alert_type", "")
+            if at in _WIN_TYPES:
+                outcomes.add("win")
+            elif at in _LOSS_TYPES:
+                outcomes.add("loss")
+
+        for a in group_alerts:
+            at = a.get("alert_type", "")
+            direction = a.get("direction", "")
+            action = a.get("user_action")
+            if at in _OUTCOME_TYPES or direction not in ("BUY", "SHORT"):
+                continue
+            if action not in ("took", "skipped"):
+                continue
+
+            result = "unknown"
+            if "win" in outcomes:
+                result = "win"
+            elif "loss" in outcomes:
+                result = "loss"
+
+            entry = {"symbol": symbol, "result": result}
+            if action == "took":
+                took_outcomes.append(entry)
+            else:
+                skipped_outcomes.append(entry)
+
+    def _stats(items):
+        wins = sum(1 for i in items if i["result"] == "win")
+        losses = sum(1 for i in items if i["result"] == "loss")
+        unknown = sum(1 for i in items if i["result"] == "unknown")
+        total = len(items)
+        wr = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0.0
+        return {"wins": wins, "losses": losses, "unknown": unknown,
+                "total": total, "win_rate": wr}
+
+    took = _stats(took_outcomes)
+    skipped = _stats(skipped_outcomes)
+
+    edge = round(took["win_rate"] - skipped["win_rate"], 1) if (
+        took["total"] > 0 and skipped["total"] > 0
+    ) else None
+
+    return {
+        "took": took,
+        "skipped": skipped,
+        "decision_edge": edge,
+    }
+
+
+def get_symbol_ack_stats(user_id: int, days: int = 90) -> dict[str, dict]:
+    """Per-symbol ACK stats for scanner badges.
+
+    Returns {symbol: {took, skipped, wins, losses, win_rate}}.
+    """
+    from db import get_db
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+
+    with get_db() as conn:
+        all_rows = conn.execute(
+            "SELECT * FROM alerts WHERE session_date >= ? "
+            "AND (user_id=? OR user_id IS NULL) ORDER BY created_at",
+            (cutoff, user_id),
+        ).fetchall()
+
+    alerts = [dict(r) for r in all_rows]
+
+    _OUTCOME_TYPES = {"target_1_hit", "target_2_hit", "stop_loss_hit", "auto_stop_out"}
+    _WIN_TYPES = {"target_1_hit", "target_2_hit"}
+    _LOSS_TYPES = {"stop_loss_hit", "auto_stop_out"}
+
+    # Group by (symbol, session_date) for outcome matching
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for a in alerts:
+        key = (a.get("symbol", ""), a.get("session_date", ""))
+        groups.setdefault(key, []).append(a)
+
+    # Per-symbol stats
+    sym_stats: dict[str, dict] = {}
+
+    for (symbol, session), group_alerts in groups.items():
+        outcomes = set()
+        for a in group_alerts:
+            at = a.get("alert_type", "")
+            if at in _WIN_TYPES:
+                outcomes.add("win")
+            elif at in _LOSS_TYPES:
+                outcomes.add("loss")
+
+        for a in group_alerts:
+            at = a.get("alert_type", "")
+            direction = a.get("direction", "")
+            action = a.get("user_action")
+            if at in _OUTCOME_TYPES or direction not in ("BUY", "SHORT"):
+                continue
+            if action not in ("took", "skipped"):
+                continue
+
+            if symbol not in sym_stats:
+                sym_stats[symbol] = {"took": 0, "skipped": 0, "wins": 0, "losses": 0}
+
+            s = sym_stats[symbol]
+            if action == "took":
+                s["took"] += 1
+                if "win" in outcomes:
+                    s["wins"] += 1
+                elif "loss" in outcomes:
+                    s["losses"] += 1
+            else:
+                s["skipped"] += 1
+
+    # Compute win rates
+    for s in sym_stats.values():
+        resolved = s["wins"] + s["losses"]
+        s["win_rate"] = round(s["wins"] / resolved * 100, 1) if resolved > 0 else 0.0
+
+    return sym_stats
+
+
 # ---------------------------------------------------------------------------
 # Multi-timeframe S/R levels
 # ---------------------------------------------------------------------------

@@ -313,6 +313,163 @@ with tab_analysis:
     except Exception as e:
         st.error(f"Failed to load win rates: {e}")
 
+    # ── Decision Quality ──────────────────────────────────────────────────
+    if _uid:
+        section_header("Decision Quality", "Are you taking the right trades?")
+        try:
+            from analytics.intel_hub import get_decision_quality
+
+            dq = get_decision_quality(_uid, days=lookback)
+            took = dq.get("took", {})
+            skipped = dq.get("skipped", {})
+
+            if took.get("total", 0) == 0 and skipped.get("total", 0) == 0:
+                empty_state(
+                    "No ACK data yet. Use the Took It / Skip buttons on "
+                    "Telegram alerts to start tracking your decisions."
+                )
+            else:
+                d1, d2, d3 = st.columns(3)
+                with d1:
+                    if took.get("total", 0) > 0:
+                        wr = took["win_rate"]
+                        wr_color = COLORS["green"] if wr >= 50 else COLORS["red"]
+                        colored_metric(
+                            "Took It Win Rate",
+                            f"{wr}% ({took['wins']}W/{took['losses']}L)",
+                            wr_color,
+                        )
+                    else:
+                        colored_metric("Took It", "No trades yet", COLORS["blue"])
+                with d2:
+                    if skipped.get("total", 0) > 0:
+                        wr = skipped["win_rate"]
+                        wr_color = COLORS["green"] if wr >= 50 else COLORS["red"]
+                        colored_metric(
+                            "Skipped Win Rate",
+                            f"{wr}% ({skipped['wins']}W/{skipped['losses']}L)",
+                            wr_color,
+                        )
+                    else:
+                        colored_metric("Skipped", "No skips yet", COLORS["blue"])
+                with d3:
+                    edge = dq.get("decision_edge")
+                    if edge is not None:
+                        edge_color = COLORS["green"] if edge > 0 else COLORS["red"] if edge < 0 else COLORS["blue"]
+                        sign = "+" if edge > 0 else ""
+                        colored_metric("Decision Edge", f"{sign}{edge}%", edge_color)
+                        if edge > 0:
+                            st.caption("You're filtering well — took trades outperform skipped ones.")
+                        elif edge < 0:
+                            st.caption("Skipped trades did better — consider being less selective.")
+                    else:
+                        colored_metric("Decision Edge", "Need both took + skipped data", COLORS["blue"])
+
+        except Exception as e:
+            st.caption(f"Decision quality unavailable: {e}")
+
+    # ── Trading Journal ───────────────────────────────────────────────────
+    if _uid:
+        section_header("Trading Journal", "Your recent trade decisions")
+        try:
+            from analytics.intel_hub import get_trading_journal
+
+            _journal_days = st.selectbox(
+                "Journal period", [7, 14, 30, 60, 90],
+                index=2, key="journal_lookback",
+                format_func=lambda d: f"Last {d} days",
+            )
+            journal = get_trading_journal(_uid, days=_journal_days)
+
+            if not journal:
+                empty_state(
+                    "No trade decisions yet. ACK alerts via Telegram to populate your journal."
+                )
+            else:
+                # Summary row
+                took_count = sum(1 for j in journal if j["user_action"] == "took")
+                skip_count = sum(1 for j in journal if j["user_action"] == "skipped")
+                wins = sum(1 for j in journal if j["user_action"] == "took" and j["outcome"] == "win")
+                losses = sum(1 for j in journal if j["user_action"] == "took" and j["outcome"] == "loss")
+                total_pnl = sum(j.get("pnl") or 0 for j in journal if j.get("pnl") is not None)
+
+                j1, j2, j3, j4 = st.columns(4)
+                with j1:
+                    colored_metric("Trades Taken", str(took_count), COLORS["green"])
+                with j2:
+                    colored_metric("Skipped", str(skip_count), COLORS["orange"])
+                with j3:
+                    wr = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0.0
+                    wr_color = COLORS["green"] if wr >= 50 else COLORS["red"]
+                    colored_metric("Win Rate", f"{wr}%", wr_color)
+                with j4:
+                    pnl_color = COLORS["green"] if total_pnl >= 0 else COLORS["red"]
+                    colored_metric("Total P&L", f"${total_pnl:+,.2f}", pnl_color)
+
+                # Journal table
+                rows = []
+                for j in journal:
+                    action_badge = "TOOK" if j["user_action"] == "took" else "SKIP"
+                    outcome_map = {"win": "W", "loss": "L", "open": "-"}
+                    pnl_str = f"${j['pnl']:+.2f}" if j.get("pnl") is not None else ""
+                    rows.append({
+                        "Date": j.get("session_date", ""),
+                        "Symbol": j["symbol"],
+                        "Setup": j["alert_type"].replace("_", " ").title(),
+                        "Score": j.get("score_label") or "",
+                        "Action": action_badge,
+                        "Entry": f"${j['entry']:.2f}" if j.get("entry") else "",
+                        "Stop": f"${j['stop']:.2f}" if j.get("stop") else "",
+                        "Outcome": outcome_map.get(j.get("outcome", ""), "-"),
+                        "P&L": pnl_str,
+                    })
+
+                st.dataframe(
+                    pd.DataFrame(rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                # AI Journal Analysis button
+                _can_ai_j, _ = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+                if not _can_ai_j:
+                    render_inline_upgrade("Unlimited AI analysis", "elite")
+                elif st.button("AI Journal Analysis", key="ai_journal"):
+                    if _is_free and user:
+                        from db import increment_daily_usage
+                        increment_daily_usage(user["id"], "ai_query")
+                    try:
+                        from analytics.intel_hub import ask_ai_insight
+
+                        context_lines = [f"Trading journal ({_journal_days} days):"]
+                        context_lines.append(f"Took: {took_count}, Skipped: {skip_count}")
+                        context_lines.append(f"Win rate: {wr}%, Total P&L: ${total_pnl:+.2f}")
+                        for j in journal[:20]:
+                            action = j["user_action"].upper()
+                            outcome = j.get("outcome", "open")
+                            pnl = f" P&L=${j['pnl']:+.2f}" if j.get("pnl") is not None else ""
+                            context_lines.append(
+                                f"{j['session_date']} {j['symbol']} "
+                                f"{j['alert_type'].replace('_', ' ')}: "
+                                f"{action} -> {outcome}{pnl}"
+                            )
+
+                        st.write_stream(ask_ai_insight(
+                            "Analyze my trading journal. Identify: "
+                            "1) Am I skipping the right signals? "
+                            "2) Which setups am I best at? "
+                            "3) Patterns in my wins vs losses. "
+                            "4) Specific actionable improvements.",
+                            "\n".join(context_lines),
+                        ))
+                    except ValueError as e:
+                        st.error(str(e))
+                    except Exception as e:
+                        st.error(f"AI analysis error: {e}")
+
+        except Exception as e:
+            st.caption(f"Journal unavailable: {e}")
+
 
 # ── Tab 2: Fundamentals ──────────────────────────────────────────────────────
 
@@ -793,6 +950,15 @@ with tab_scanner:
     if blobs:
         section_header("Ranked Setups")
 
+        # Load ACK stats for scanner badges
+        _ack_stats: dict[str, dict] = {}
+        if _uid:
+            try:
+                from analytics.intel_hub import get_symbol_ack_stats
+                _ack_stats = get_symbol_ack_stats(_uid, days=90)
+            except Exception:
+                pass
+
         for idx, blob in enumerate(blobs):
             sym = blob["symbol"]
             rank = blob.get("rank", {})
@@ -892,6 +1058,21 @@ with tab_scanner:
                     if sell_n:
                         badge_parts.append(f"🔴 {sell_n} SELL")
                     st.caption(f"Today's alerts: {' | '.join(badge_parts)}")
+
+                # ACK history badge
+                _sym_ack = _ack_stats.get(sym)
+                if _sym_ack:
+                    took_n = _sym_ack["took"]
+                    skip_n = _sym_ack["skipped"]
+                    wins_n = _sym_ack["wins"]
+                    losses_n = _sym_ack["losses"]
+                    wr = _sym_ack["win_rate"]
+                    parts = [f"Took {took_n}"]
+                    if wins_n or losses_n:
+                        parts.append(f"{wins_n}W/{losses_n}L ({wr}%)")
+                    if skip_n:
+                        parts.append(f"Skipped {skip_n}")
+                    st.caption(f"Your history: {' | '.join(parts)}")
 
                 # Mini candlestick chart
                 try:

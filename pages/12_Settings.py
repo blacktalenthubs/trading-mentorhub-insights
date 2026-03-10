@@ -142,6 +142,7 @@ if is_admin:
         if st.button("Send Test Alert", key="send_test_notif"):
             from analytics.intraday_rules import AlertSignal, AlertType
             from alerting.notifier import notify
+            from alerting.alert_store import record_alert, today_session
 
             test_signal = AlertSignal(
                 symbol="TEST",
@@ -157,7 +158,8 @@ if is_admin:
             )
 
             with st.spinner("Sending test alert..."):
-                email_ok, tg_ok = notify(test_signal)
+                alert_id = record_alert(test_signal, today_session(), user_id=user["id"])
+                email_ok, tg_ok = notify(test_signal, alert_id=alert_id)
 
             if tg_ok:
                 st.success("Test alert sent to Telegram group")
