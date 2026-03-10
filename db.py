@@ -893,8 +893,18 @@ def _migrate_alert_user_id():
                 (admin["id"],),
             ).fetchone()
             if not existing:
-                telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-                notification_email = os.environ.get("ALERT_EMAIL_TO", "")
+                # Use _get_secret pattern: env vars first, then Streamlit secrets
+                def _secret(key: str) -> str:
+                    val = os.environ.get(key, "")
+                    if val:
+                        return val
+                    try:
+                        import streamlit as st
+                        return st.secrets.get(key, "")
+                    except Exception:
+                        return ""
+                telegram_chat_id = _secret("TELEGRAM_CHAT_ID")
+                notification_email = _secret("ALERT_EMAIL_TO")
                 conn.execute(
                     """INSERT INTO user_notification_prefs
                        (user_id, telegram_chat_id, notification_email)

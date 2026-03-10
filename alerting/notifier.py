@@ -408,6 +408,9 @@ def notify_user(
     *alert_id* — if provided, BUY/SELL Telegram messages include inline
     buttons for trade acknowledgement (Took It / Skip / Exited).
 
+    Falls back to global TELEGRAM_CHAT_ID when per-user chat_id is empty,
+    ensuring notifications are never silently dropped.
+
     Returns (email_sent, telegram_sent).
     """
     email_sent = False
@@ -419,13 +422,13 @@ def notify_user(
             email_sent = send_email_to(signal, email_to)
 
     if prefs.get("telegram_enabled"):
-        chat_id = prefs.get("telegram_chat_id", "")
+        chat_id = prefs.get("telegram_chat_id", "") or TELEGRAM_CHAT_ID
         if chat_id:
             body = _format_sms_body(signal)
             buttons = _build_trade_buttons(signal, alert_id)
             telegram_sent = _send_telegram_to(body, chat_id, reply_markup=buttons)
         else:
-            logger.warning("notify_user: telegram_enabled but chat_id empty")
+            logger.warning("notify_user: telegram_enabled but no chat_id (per-user or global)")
     else:
         logger.debug("notify_user: telegram_enabled=False, skipping")
 

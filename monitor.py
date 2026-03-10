@@ -36,7 +36,7 @@ from alerting.alert_store import (
     was_alert_fired,
 )
 from alerting.narrator import generate_narrative
-from alerting.notifier import notify, send_email, send_sms
+from alerting.notifier import notify, notify_user, send_email, send_sms
 from alerting.paper_trader import (
     close_position as paper_close_position,
     is_enabled as paper_trading_enabled,
@@ -49,6 +49,7 @@ from db import (
     init_db,
     get_all_daily_plans,
     get_daily_plan,
+    get_notification_prefs,
     get_watchlist,
 )
 
@@ -216,8 +217,12 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
                     close_all_entries_for_symbol(symbol, session, user_id=uid)
 
-                # Single group notification
-                email_sent, sms_sent = notify(signal, alert_id=alert_id)
+                # Per-user notification (falls back to global TELEGRAM_CHAT_ID)
+                prefs = get_notification_prefs(uid)
+                if prefs:
+                    email_sent, sms_sent = notify_user(signal, prefs, alert_id=alert_id)
+                else:
+                    email_sent, sms_sent = notify(signal, alert_id=alert_id)
 
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
