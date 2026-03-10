@@ -264,6 +264,14 @@ def get_db():
     try:
         yield conn
         conn.commit()
+    except Exception:
+        # Rollback so the connection isn't returned to the pool in a failed state
+        if _USE_POSTGRES and isinstance(conn, PostgresConnectionWrapper):
+            try:
+                conn._conn.rollback()
+            except Exception:
+                pass
+        raise
     finally:
         if _USE_POSTGRES and isinstance(conn, PostgresConnectionWrapper):
             _get_pg_pool().putconn(conn._conn)
