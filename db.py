@@ -870,6 +870,19 @@ def _migrate_alert_user_id():
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_alerts_user_id ON alerts(user_id)"
         )
+
+        # Remove duplicate alerts before creating the unique index.
+        # Keeps the row with the lowest id per (symbol, alert_type, session_date, user_id).
+        try:
+            conn.execute(
+                """DELETE FROM alerts WHERE id NOT IN (
+                       SELECT MIN(id) FROM alerts
+                       GROUP BY symbol, alert_type, session_date, user_id
+                   )"""
+            )
+        except _DB_OPERATIONAL_ERRORS:
+            pass  # Table may not have user_id yet on first run
+
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup "
             "ON alerts(symbol, alert_type, session_date, user_id)"
