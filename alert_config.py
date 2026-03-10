@@ -271,7 +271,7 @@ OPENING_LOW_BASE_STOP_OFFSET_PCT = 0.003  # 0.3% below session low for stop
 # Session High Retracement: stock rallies then pulls back near session low
 RETRACEMENT_MIN_RALLY_PCT = 0.015       # 1.5% — minimum rally from open to session high
 RETRACEMENT_MIN_AGE_BARS = 6            # 30 min — high must be established this long ago
-RETRACEMENT_PROXIMITY_PCT = 0.004       # 0.4% — how close to session low for entry
+RETRACEMENT_PROXIMITY_PCT = 0.006       # 0.6% — how close to session low for entry
 RETRACEMENT_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 
 # Minimum target distance: T1 must be at least this % above entry
