@@ -139,6 +139,7 @@ class AlertType(str, Enum):
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     PRIOR_DAY_LOW_BOUNCE = "prior_day_low_bounce"
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
+    PDH_TEST = "pdh_test"
     PDH_RETEST_HOLD = "pdh_retest_hold"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
     INSIDE_DAY_BREAKDOWN = "inside_day_breakdown"
@@ -742,6 +743,59 @@ def check_prior_day_high_breakout(
         message=(
             f"Prior day high breakout — closed above ${prior_day_high:.2f} "
             f"(vol {vol_ratio:.1f}x avg)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# NOTICE: Prior Day High Test (wick above PDH, no close)
+# ---------------------------------------------------------------------------
+
+
+def check_pdh_test(
+    symbol: str,
+    bar: pd.Series,
+    prior_day_high: float,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Bar high wicks above prior day high but close stays below — testing resistance.
+
+    This is a heads-up that price is attacking PDH.  If the next bar closes
+    above PDH the full PRIOR_DAY_HIGH_BREAKOUT will fire.
+
+    Conditions:
+    - Bar high >= prior_day_high (touched or exceeded)
+    - Bar close < prior_day_high (not yet broken)
+    - Approaching from below: prior close < prior_day_high
+    """
+    if prior_day_high <= 0:
+        return None
+
+    # Must wick above (or touch) PDH
+    if bar["High"] < prior_day_high:
+        return None
+
+    # Must NOT have closed above — otherwise the breakout rule handles it
+    if bar["Close"] >= prior_day_high:
+        return None
+
+    # Directional guard: only relevant if approaching from below
+    if prior_close is not None and prior_close >= prior_day_high:
+        return None
+
+    pct_above = (bar["High"] - prior_day_high) / prior_day_high * 100
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PDH_TEST,
+        direction="NOTICE",
+        price=bar["High"],
+        entry=round(prior_day_high, 2),
+        confidence="medium",
+        message=(
+            f"TESTING prior day high ${prior_day_high:.2f} — "
+            f"wicked {pct_above:.2f}% above, closed ${bar['Close']:.2f} below. "
+            f"Watch for close above for breakout entry"
         ),
     )
 
@@ -4270,6 +4324,12 @@ def evaluate_rules(
     sig = check_resistance_prior_high(symbol, last_bar, prior_high, has_active)
     if sig:
         signals.append(sig)
+
+    if AlertType.PDH_TEST.value in ENABLED_RULES:
+        sig = check_pdh_test(symbol, last_bar, prior_high, prior_close)
+        if sig:
+            sig.session_phase = phase
+            signals.append(sig)
 
     sig = check_pdh_rejection(symbol, last_bar, prior_high, prior_close)
     if sig:

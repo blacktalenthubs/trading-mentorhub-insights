@@ -40,6 +40,7 @@ from analytics.intraday_rules import (
     check_opening_low_base,
     check_planned_level_touch,
     check_pdh_retest_hold,
+    check_pdh_test,
     check_prior_day_high_breakout,
     check_ema_resistance,
     check_prior_day_low_bounce,
@@ -1032,6 +1033,58 @@ class TestPDHRejection:
         bar = _bar(high=100.10, close=99.80)
         sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=0, prior_close=98.0)
         assert sig is None
+
+
+# ===== PDH Test (wick above PDH, no close) =====
+
+
+class TestPDHTest:
+    def test_fires_on_wick_above_pdh(self):
+        """High above PDH, close below → testing resistance."""
+        bar = _bar(high=100.50, close=99.80)
+        sig = check_pdh_test("NVDA", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PDH_TEST
+        assert sig.direction == "NOTICE"
+        assert "TESTING prior day high" in sig.message
+        assert sig.entry == 100.0
+
+    def test_no_fire_when_close_above_pdh(self):
+        """Close above PDH = breakout, not a test."""
+        bar = _bar(high=100.50, close=100.20)
+        sig = check_pdh_test("NVDA", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is None
+
+    def test_no_fire_when_high_below_pdh(self):
+        """High never reached PDH → no test."""
+        bar = _bar(high=99.50, close=99.20)
+        sig = check_pdh_test("NVDA", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_above_pdh(self):
+        """Prior close above PDH → price pulling back, not testing from below."""
+        bar = _bar(high=100.50, close=99.80)
+        sig = check_pdh_test("NVDA", bar, prior_day_high=100.0, prior_close=101.0)
+        assert sig is None
+
+    def test_no_fire_when_pdh_is_zero(self):
+        """PDH of zero → skip."""
+        bar = _bar(high=100.10, close=99.80)
+        sig = check_pdh_test("NVDA", bar, prior_day_high=0, prior_close=98.0)
+        assert sig is None
+
+    def test_fires_without_prior_close(self):
+        """No prior_close → skip directional guard, still fires."""
+        bar = _bar(high=100.50, close=99.80)
+        sig = check_pdh_test("NVDA", bar, prior_day_high=100.0, prior_close=None)
+        assert sig is not None
+        assert sig.direction == "NOTICE"
+
+    def test_exact_touch_fires(self):
+        """High exactly equals PDH → still a test."""
+        bar = _bar(high=100.0, close=99.50)
+        sig = check_pdh_test("NVDA", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is not None
 
 
 # ===== Rule 6: Target 1 Hit =====

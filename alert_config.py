@@ -399,6 +399,7 @@ ENABLED_RULES: set[str] = {
     "prior_day_low_reclaim",
     "prior_day_low_bounce",
     "prior_day_high_breakout",
+    "pdh_test",
     "pdh_retest_hold",
     # BUY — weekly high/low
     "weekly_level_touch",
