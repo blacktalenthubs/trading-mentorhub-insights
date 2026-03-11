@@ -980,6 +980,268 @@ def analyze_weekly_setup(weekly_df: pd.DataFrame, wmas: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Daily bars + daily setup detection
+# ---------------------------------------------------------------------------
+
+def get_daily_bars(symbol: str) -> tuple[pd.DataFrame, dict]:
+    """Fetch 1-year daily history and compute daily SMAs/EMAs.
+
+    Returns (daily_df, {"sma20": float, ..., "ema20": float, "ema50": float}).
+    On failure returns (empty DataFrame, empty dict).
+    """
+    import yfinance as yf
+
+    try:
+        hist = yf.Ticker(symbol).history(period="1y")
+        if hist.empty:
+            return pd.DataFrame(), {}
+        hist.index = hist.index.tz_localize(None)
+        daily = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
+
+        if daily.empty:
+            return pd.DataFrame(), {}
+
+        mas: dict[str, float] = {}
+        for period in (20, 50, 100, 200):
+            if len(daily) >= period:
+                ma_val = float(daily["Close"].rolling(period).mean().iloc[-1])
+                mas[f"sma{period}"] = round(ma_val, 2)
+        for period in (20, 50):
+            if len(daily) >= period:
+                ema_val = float(daily["Close"].ewm(span=period, adjust=False).mean().iloc[-1])
+                mas[f"ema{period}"] = round(ema_val, 2)
+
+        return daily, mas
+    except Exception:
+        logger.exception("intel_hub: daily bars failed for %s", symbol)
+        return pd.DataFrame(), {}
+
+
+def analyze_daily_setup(daily_df: pd.DataFrame, mas: dict) -> dict:
+    """Detect daily chart patterns and compute entry/stop/target levels.
+
+    Returns dict with setup_type, score, score_label, edge, levels, etc.
+    """
+    from analytics.market_data import classify_day
+
+    _NO_SETUP: dict = {
+        "setup_type": "NO_SETUP",
+        "score": 0,
+        "score_label": "C",
+        "edge": "No daily setup detected",
+        "entry": None,
+        "stop": None,
+        "target_1": None,
+        "target_2": None,
+        "risk_reward": 0.0,
+        "daily_candle": ("normal", "neutral"),
+        "ma_sequence": "mixed",
+        "consolidation_days": 0,
+        "range_pct": 0.0,
+    }
+
+    if daily_df.empty or len(daily_df) < 50:
+        return _NO_SETUP
+
+    current = daily_df.iloc[-1]
+    prev = daily_df.iloc[-2] if len(daily_df) >= 2 else None
+    close = float(current["Close"])
+    current_vol = float(current["Volume"]) if pd.notna(current.get("Volume")) else 0
+    daily_candle = classify_day(current, prev)
+
+    sma20 = mas.get("sma20")
+    sma50 = mas.get("sma50")
+    sma100 = mas.get("sma100")
+    sma200 = mas.get("sma200")
+    ema20 = mas.get("ema20")
+    ema50 = mas.get("ema50")
+
+    # --- MA sequence ---
+    ma_vals = [v for v in [sma20, sma50, sma100, sma200] if v is not None]
+    if len(ma_vals) >= 3 and all(ma_vals[i] > ma_vals[i + 1] for i in range(len(ma_vals) - 1)):
+        ma_sequence = "bull"
+    elif len(ma_vals) >= 3 and all(ma_vals[i] < ma_vals[i + 1] for i in range(len(ma_vals) - 1)):
+        ma_sequence = "bear"
+    else:
+        ma_sequence = "mixed"
+
+    # --- Consolidation detection (last 30 bars) ---
+    lookback = daily_df.iloc[-30:]
+    consol_high = float(lookback["High"].max())
+    consol_low = float(lookback["Low"].min())
+    avg_close = float(lookback["Close"].mean())
+    range_pct = (consol_high - consol_low) / avg_close if avg_close > 0 else 0
+
+    # Count days within a tight range (last N bars where range < 8%)
+    consol_days = 0
+    if range_pct < 0.15:
+        for i in range(len(lookback) - 1, -1, -1):
+            bar = lookback.iloc[i]
+            if consol_low <= float(bar["Low"]) and float(bar["High"]) <= consol_high:
+                consol_days += 1
+            else:
+                break
+
+    # --- Avg volume for ratio ---
+    avg_vol_20 = float(daily_df.iloc[-20:]["Volume"].mean()) if len(daily_df) >= 20 else 0
+
+    # --- Classify setup ---
+    setup_type = "NO_SETUP"
+    entry = stop = target_1 = target_2 = None
+
+    # 1. BREAKOUT: close above consolidation high with volume surge
+    if (
+        range_pct < 0.12
+        and close > consol_high * 0.998  # allow tiny tolerance
+        and avg_vol_20 > 0
+        and current_vol > 1.3 * avg_vol_20
+    ):
+        setup_type = "BREAKOUT"
+        base_range = consol_high - consol_low
+        entry = close
+        stop = consol_high - base_range * 0.3 if base_range > 0 else consol_low
+        target_1 = close + base_range
+        target_2 = close + 2 * base_range
+
+    # 2. PULLBACK_TO_MA: price near rising 20/50 SMA/EMA
+    if setup_type == "NO_SETUP" and ma_sequence == "bull":
+        for ma_key, ma_val in [("EMA20", ema20), ("SMA20", sma20), ("SMA50", sma50), ("EMA50", ema50)]:
+            if ma_val and close > 0 and abs(close - ma_val) / close <= 0.02:
+                # Confirm MA is rising (current > 10 bars ago)
+                if ma_key.startswith("SMA"):
+                    period = int(ma_key[3:])
+                    if len(daily_df) >= period + 10:
+                        ma_10_ago = float(daily_df["Close"].rolling(period).mean().iloc[-11])
+                        if ma_val > ma_10_ago:
+                            setup_type = "PULLBACK_TO_MA"
+                            entry = ma_val
+                            break
+                else:
+                    period = int(ma_key[3:])
+                    if len(daily_df) >= period + 10:
+                        ma_10_ago = float(daily_df["Close"].ewm(span=period, adjust=False).mean().iloc[-11])
+                        if ma_val > ma_10_ago:
+                            setup_type = "PULLBACK_TO_MA"
+                            entry = ma_val
+                            break
+        if setup_type == "PULLBACK_TO_MA" and entry:
+            stop = round(entry * 0.97, 2)  # 3% below MA
+            swing_high = float(daily_df.iloc[-20:]["High"].max())
+            target_1 = swing_high
+            target_2 = swing_high + (swing_high - entry) * 0.5 if entry else None
+
+    # 3. MA_COMPRESSION: multiple MAs within 2% of each other
+    if setup_type == "NO_SETUP" and len(ma_vals) >= 3:
+        ma_spread = (max(ma_vals) - min(ma_vals)) / min(ma_vals) if min(ma_vals) > 0 else 1
+        if ma_spread <= 0.02:
+            setup_type = "MA_COMPRESSION"
+            entry = close
+            stop = round(min(ma_vals) * 0.97, 2)
+            target_1 = round(close * 1.05, 2)
+            target_2 = round(close * 1.10, 2)
+
+    # 4. TREND_CONTINUATION: price above all rising MAs in bull sequence
+    if setup_type == "NO_SETUP" and ma_sequence == "bull" and sma20 and close > sma20:
+        setup_type = "TREND_CONTINUATION"
+        entry = close
+        stop = round(sma20 * 0.98, 2) if sma20 else None
+        swing_high = float(daily_df.iloc[-20:]["High"].max())
+        target_1 = round(swing_high * 1.02, 2)
+        target_2 = round(swing_high * 1.05, 2)
+
+    # 5. BREAKDOWN: close below key MA with volume
+    if setup_type == "NO_SETUP" and sma50 and close < sma50 and avg_vol_20 > 0 and current_vol > 1.3 * avg_vol_20:
+        setup_type = "BREAKDOWN"
+        entry = None  # no long entry
+        stop = None
+        target_1 = None
+        target_2 = None
+
+    # --- Risk:reward ---
+    risk_reward = 0.0
+    if entry and stop and target_1 and entry != stop:
+        risk = abs(entry - stop)
+        if risk > 0:
+            risk_reward = round((target_1 - entry) / risk, 1)
+
+    # --- Score (0-100) ---
+    score = 0
+
+    # MA alignment (0-30)
+    if ma_sequence == "bull":
+        score += 30
+    elif ma_sequence == "mixed" and sma20 and sma50 and sma20 > sma50:
+        score += 15
+
+    # Setup quality (0-25)
+    if setup_type == "BREAKOUT":
+        score += 25
+    elif setup_type == "PULLBACK_TO_MA":
+        score += 22
+    elif setup_type == "MA_COMPRESSION":
+        score += 18
+    elif setup_type == "TREND_CONTINUATION":
+        score += 20
+
+    # Candle (0-15)
+    pattern, direction = daily_candle
+    if direction == "bullish":
+        score += 15
+    elif direction == "neutral":
+        score += 7
+
+    # Volume (0-15)
+    if avg_vol_20 > 0 and current_vol > 1.3 * avg_vol_20:
+        score += 15
+    elif avg_vol_20 > 0 and current_vol > avg_vol_20:
+        score += 8
+
+    # R:R (0-15)
+    if risk_reward >= 3.0:
+        score += 15
+    elif risk_reward >= 2.0:
+        score += 10
+    elif risk_reward >= 1.5:
+        score += 5
+
+    # Score label
+    if score >= 80:
+        score_label = "A+"
+    elif score >= 70:
+        score_label = "A"
+    elif score >= 55:
+        score_label = "B"
+    else:
+        score_label = "C"
+
+    # --- Edge text ---
+    edge_map = {
+        "BREAKOUT": f"Breakout above {consol_days}-day consolidation ({consol_high:.2f}) on volume",
+        "PULLBACK_TO_MA": f"Pullback to MA support in daily uptrend",
+        "MA_COMPRESSION": f"MA compression (spread {range_pct * 100:.1f}%) — squeeze setup",
+        "TREND_CONTINUATION": f"Trending above rising MAs ({ma_sequence} sequence)",
+        "BREAKDOWN": f"Breakdown below SMA50 ({sma50:.2f}) on volume" if sma50 else "Breakdown below key MA",
+    }
+    edge = edge_map.get(setup_type, "No daily setup detected")
+
+    return {
+        "setup_type": setup_type,
+        "score": score,
+        "score_label": score_label,
+        "edge": edge,
+        "entry": round(entry, 2) if entry else None,
+        "stop": round(stop, 2) if stop else None,
+        "target_1": round(target_1, 2) if target_1 else None,
+        "target_2": round(target_2, 2) if target_2 else None,
+        "risk_reward": risk_reward,
+        "daily_candle": daily_candle,
+        "ma_sequence": ma_sequence,
+        "consolidation_days": consol_days,
+        "range_pct": round(range_pct, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
 # AI insight (one-shot, focused analysis)
 # ---------------------------------------------------------------------------
 

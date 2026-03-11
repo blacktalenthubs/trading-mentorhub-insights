@@ -154,8 +154,8 @@ if st.session_state.pop("_run_position_check", False):
         except Exception as e:
             st.error(f"Position check failed: {e}")
 
-tab_analysis, tab_fundamentals, tab_weekly, tab_coach, tab_scanner = st.tabs([
-    "Trade Analysis", "Fundamentals", "Weekly View", "AI Coach", "Scanner",
+tab_analysis, tab_fundamentals, tab_daily, tab_weekly, tab_coach, tab_scanner = st.tabs([
+    "Trade Analysis", "Fundamentals", "Daily View", "Weekly View", "AI Coach", "Scanner",
 ])
 
 
@@ -565,7 +565,227 @@ with tab_fundamentals:
         st.error(f"Failed to load fundamentals: {e}")
 
 
-# ── Tab 3: Weekly View ────────────────────────────────────────────────────────
+# ── Tab 3: Daily View ─────────────────────────────────────────────────────────
+
+with tab_daily:
+    section_header(f"Daily Chart — {hub_symbol}")
+
+    try:
+        from analytics.intel_hub import get_daily_bars
+
+        with st.spinner("Loading daily data..."):
+            daily_df, daily_mas = get_daily_bars(hub_symbol)
+
+        if daily_df.empty:
+            empty_state(f"No daily data available for {hub_symbol}")
+        else:
+            # Metrics row
+            _d_last = daily_df.iloc[-1]
+            _d_close = float(_d_last["Close"])
+            _d_open = float(_d_last["Open"])
+            _d_change = _d_close - _d_open
+            _d_change_pct = (_d_change / _d_open * 100) if _d_open > 0 else 0
+
+            dm1, dm2, dm3 = st.columns(3)
+            with dm1:
+                st.metric(f"{hub_symbol} Last Close", f"${_d_close:.2f}")
+            with dm2:
+                st.metric("Day Change", f"{_d_change:+.2f} ({_d_change_pct:+.1f}%)")
+            with dm3:
+                _d_vol = int(_d_last["Volume"]) if pd.notna(_d_last["Volume"]) else 0
+                st.metric("Volume", f"{_d_vol:,}")
+
+            # Daily setup detection
+            from analytics.intel_hub import analyze_daily_setup
+
+            d_setup = analyze_daily_setup(daily_df, daily_mas)
+
+            # Daily candlestick chart — last 6 months
+            import plotly.graph_objects as go
+
+            _six_mo = daily_df.iloc[-126:] if len(daily_df) > 126 else daily_df
+            n_d = len(_six_mo)
+            x_d = list(range(n_d))
+            tick_step_d = max(1, n_d // 12)
+            tick_vals_d = list(range(0, n_d, tick_step_d))
+            tick_text_d = [
+                _six_mo.index[i].strftime("%b %d") for i in tick_vals_d
+            ]
+
+            fig_d = build_candlestick_fig(
+                _six_mo, x_d, hub_symbol, height=CHART_HEIGHTS["hero"],
+            )
+            fig_d.update_xaxes(
+                tickvals=tick_vals_d, ticktext=tick_text_d,
+                row=1, col=1,
+            )
+
+            # SMA/EMA overlays
+            _ma_colors = {
+                "sma20": "#1abc9c", "sma50": "#f39c12",
+                "sma100": "#3498db", "sma200": "#e74c3c",
+                "ema20": "#2ecc71", "ema50": "#e67e22",
+            }
+            _ma_labels = {
+                "sma20": "SMA20", "sma50": "SMA50",
+                "sma100": "SMA100", "sma200": "SMA200",
+                "ema20": "EMA20", "ema50": "EMA50",
+            }
+            _ma_dashes = {
+                "ema20": "dot", "ema50": "dot",
+            }
+            for ma_key in ("sma20", "sma50", "sma100", "sma200", "ema20", "ema50"):
+                period = int(ma_key[3:])
+                if len(daily_df) >= period:
+                    if ma_key.startswith("sma"):
+                        ma_full = daily_df["Close"].rolling(period).mean()
+                    else:
+                        ma_full = daily_df["Close"].ewm(span=period, adjust=False).mean()
+                    # Slice to last 6 months
+                    ma_slice = ma_full.iloc[-n_d:]
+                    fig_d.add_trace(go.Scatter(
+                        x=x_d, y=ma_slice.values,
+                        mode="lines", name=_ma_labels[ma_key],
+                        line=dict(
+                            color=_ma_colors[ma_key], width=1.5,
+                            dash=_ma_dashes.get(ma_key),
+                        ),
+                    ), row=1, col=1)
+
+            # Setup level overlays
+            if d_setup["setup_type"] != "NO_SETUP":
+                if d_setup["entry"]:
+                    add_level_line(fig_d, d_setup["entry"], "Entry", COLORS["blue"], width=1)
+                if d_setup["stop"]:
+                    add_level_line(fig_d, d_setup["stop"], "Stop", COLORS["red"], width=1)
+                if d_setup["target_1"]:
+                    add_level_line(fig_d, d_setup["target_1"], "T1", COLORS["green"], width=1)
+                if d_setup["target_2"]:
+                    add_level_line(fig_d, d_setup["target_2"], "T2", COLORS["green"], dash="dot", width=1)
+
+            st.plotly_chart(fig_d, use_container_width=True, config=PLOTLY_CONFIG)
+
+            # MA values row
+            if daily_mas:
+                _ma_cols = st.columns(len(daily_mas))
+                for col, (key, val) in zip(_ma_cols, daily_mas.items()):
+                    with col:
+                        color = _ma_colors.get(key, COLORS["blue"])
+                        colored_metric(key.upper(), f"${val:.2f}", color)
+
+            # --- Daily Setup Card ---
+            section_header("Daily Setup")
+
+            if d_setup["setup_type"] == "NO_SETUP":
+                empty_state("No daily setup detected")
+            else:
+                _d_setup_colors = {
+                    "BREAKOUT": COLORS["green"],
+                    "PULLBACK_TO_MA": COLORS["orange"],
+                    "MA_COMPRESSION": COLORS["purple"],
+                    "TREND_CONTINUATION": COLORS["blue"],
+                    "BREAKDOWN": COLORS["red"],
+                }
+                _ds_color = _d_setup_colors.get(d_setup["setup_type"], COLORS["blue"])
+
+                ds1, ds2 = st.columns([1, 2])
+                with ds1:
+                    colored_metric("Setup", d_setup["setup_type"].replace("_", " "), _ds_color)
+                with ds2:
+                    _ds_score_color = COLORS["green"] if d_setup["score"] >= 70 else COLORS["orange"] if d_setup["score"] >= 55 else COLORS["red"]
+                    colored_metric("Score", f"{d_setup['score_label']} ({d_setup['score']})", _ds_score_color)
+
+                st.caption(d_setup["edge"])
+
+                # KPI row
+                dk1, dk2, dk3, dk4, dk5 = st.columns(5)
+                with dk1:
+                    colored_metric("Consol Days", str(d_setup["consolidation_days"]) if d_setup["consolidation_days"] else "—", COLORS["blue"])
+                with dk2:
+                    _dr_str = f"{d_setup['range_pct'] * 100:.1f}%" if d_setup["range_pct"] else "—"
+                    colored_metric("Range", _dr_str, COLORS["blue"])
+                with dk3:
+                    _ma_seq_color = COLORS["green"] if d_setup["ma_sequence"] == "bull" else COLORS["red"] if d_setup["ma_sequence"] == "bear" else COLORS["orange"]
+                    colored_metric("MA Sequence", d_setup["ma_sequence"].upper(), _ma_seq_color)
+                with dk4:
+                    _drr_str = f"{d_setup['risk_reward']:.1f}:1" if d_setup["risk_reward"] else "—"
+                    _drr_color = COLORS["green"] if d_setup["risk_reward"] >= 2.0 else COLORS["orange"]
+                    colored_metric("R:R", _drr_str, _drr_color)
+                with dk5:
+                    _dp, _dd = d_setup["daily_candle"]
+                    colored_metric("Candle", f"{_dp} / {_dd}", COLORS["purple"])
+
+                # Levels row
+                dl1, dl2, dl3, dl4 = st.columns(4)
+                with dl1:
+                    val = f"${d_setup['entry']:.2f}" if d_setup["entry"] else "—"
+                    colored_metric("Entry", val, COLORS["blue"])
+                with dl2:
+                    val = f"${d_setup['stop']:.2f}" if d_setup["stop"] else "—"
+                    colored_metric("Stop", val, COLORS["red"])
+                with dl3:
+                    val = f"${d_setup['target_1']:.2f}" if d_setup["target_1"] else "—"
+                    colored_metric("Target 1", val, COLORS["green"])
+                with dl4:
+                    val = f"${d_setup['target_2']:.2f}" if d_setup["target_2"] else "—"
+                    colored_metric("Target 2", val, COLORS["green"])
+
+            # AI Daily Trend button
+            section_header("AI Analysis")
+            _can_ai_d, _cnt_d = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+            if not _can_ai_d:
+                render_inline_upgrade("Unlimited AI analysis — no daily limits", "elite")
+            elif st.button("AI Daily Trend", key="ai_daily"):
+                if _is_free and user:
+                    from db import increment_daily_usage
+                    increment_daily_usage(user["id"], "ai_query")
+                try:
+                    from analytics.intel_hub import ask_ai_insight
+
+                    ctx = [f"Daily chart for {hub_symbol}:"]
+                    # Last 3 days OHLC
+                    for i in range(-3, 0):
+                        if abs(i) <= len(daily_df):
+                            bar = daily_df.iloc[i]
+                            dt_label = daily_df.index[i].strftime("%Y-%m-%d")
+                            ctx.append(
+                                f"{dt_label}: O=${float(bar['Open']):.2f} "
+                                f"H=${float(bar['High']):.2f} "
+                                f"L=${float(bar['Low']):.2f} "
+                                f"C=${float(bar['Close']):.2f}"
+                            )
+                    # All MA values
+                    for key, val in daily_mas.items():
+                        ctx.append(f"{key.upper()}: ${val:.2f}")
+                    # Setup context
+                    if d_setup["setup_type"] != "NO_SETUP":
+                        ctx.append(f"Daily setup: {d_setup['setup_type']}")
+                        ctx.append(f"Setup edge: {d_setup['edge']}")
+                        ctx.append(f"Score: {d_setup['score_label']} ({d_setup['score']})")
+                        ctx.append(f"MA sequence: {d_setup['ma_sequence']}")
+                        if d_setup["entry"]:
+                            ctx.append(f"Entry: {d_setup['entry']:.2f}")
+                        if d_setup["stop"]:
+                            ctx.append(f"Stop: {d_setup['stop']:.2f}")
+                        if d_setup["target_1"]:
+                            ctx.append(f"T1: {d_setup['target_1']:.2f}")
+
+                    st.write_stream(ask_ai_insight(
+                        f"Analyze {hub_symbol}'s daily chart structure. "
+                        "Assess trend direction, MA positioning, key daily levels, "
+                        "consolidation patterns, and what to watch tomorrow.",
+                        "\n".join(ctx),
+                    ))
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception as e:
+                    st.error(f"AI analysis error: {e}")
+
+    except Exception as e:
+        st.error(f"Failed to load daily data: {e}")
+
+
+# ── Tab 4: Weekly View ────────────────────────────────────────────────────────
 
 with tab_weekly:
     section_header(f"Weekly Chart \u2014 {hub_symbol}")
@@ -777,7 +997,7 @@ with tab_weekly:
         st.error(f"Failed to load weekly data: {e}")
 
 
-# ── Tab 4: AI Coach ──────────────────────────────────────────────────────────
+# ── Tab 5: AI Coach ──────────────────────────────────────────────────────────
 
 with tab_coach:
     section_header("AI Trade Coach")
@@ -885,7 +1105,7 @@ with tab_coach:
                 st.error(f"Coach error: {e}")
 
 
-# ── Tab 5: Scanner ────────────────────────────────────────────────────────
+# ── Tab 6: Scanner ────────────────────────────────────────────────────────
 
 with tab_scanner:
     section_header("Scanner", "Ranked setups across your watchlist")
