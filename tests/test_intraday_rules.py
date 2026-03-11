@@ -42,6 +42,7 @@ from analytics.intraday_rules import (
     check_pdh_retest_hold,
     check_pdh_test,
     check_prior_day_high_breakout,
+    check_weekly_high_test,
     check_ema_resistance,
     check_prior_day_low_bounce,
     check_prior_day_low_reclaim,
@@ -1084,6 +1085,56 @@ class TestPDHTest:
         """High exactly equals PDH → still a test."""
         bar = _bar(high=100.0, close=99.50)
         sig = check_pdh_test("NVDA", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is not None
+
+
+# ===== Weekly High Test (wick above prior week high, no close) =====
+
+
+class TestWeeklyHighTest:
+    def test_fires_on_wick_above_weekly_high(self):
+        """High above weekly high, close below → testing resistance."""
+        bar = _bar(high=188.0, close=187.41)
+        prior = {"prior_week_high": 187.62, "prior_week_low": 170.0}
+        sig = check_weekly_high_test("NVDA", bar, prior, prior_close=185.0)
+        assert sig is not None
+        assert sig.alert_type == AlertType.WEEKLY_HIGH_TEST
+        assert sig.direction == "NOTICE"
+        assert "TESTING prior week high" in sig.message
+        assert sig.entry == 187.62
+
+    def test_no_fire_when_close_above(self):
+        """Close above weekly high = breakout, not test."""
+        bar = _bar(high=189.0, close=188.50)
+        prior = {"prior_week_high": 187.62, "prior_week_low": 170.0}
+        sig = check_weekly_high_test("NVDA", bar, prior, prior_close=185.0)
+        assert sig is None
+
+    def test_no_fire_when_high_below(self):
+        """High never reached weekly high → no test."""
+        bar = _bar(high=186.0, close=185.50)
+        prior = {"prior_week_high": 187.62, "prior_week_low": 170.0}
+        sig = check_weekly_high_test("NVDA", bar, prior, prior_close=185.0)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_above(self):
+        """Prior close above weekly high → pullback, not test from below."""
+        bar = _bar(high=188.0, close=187.41)
+        prior = {"prior_week_high": 187.62, "prior_week_low": 170.0}
+        sig = check_weekly_high_test("NVDA", bar, prior, prior_close=189.0)
+        assert sig is None
+
+    def test_no_fire_when_no_weekly_high(self):
+        """Missing prior_week_high → skip."""
+        bar = _bar(high=188.0, close=187.41)
+        sig = check_weekly_high_test("NVDA", bar, {}, prior_close=185.0)
+        assert sig is None
+
+    def test_exact_touch_fires(self):
+        """High exactly equals weekly high → still a test."""
+        bar = _bar(high=187.62, close=187.00)
+        prior = {"prior_week_high": 187.62, "prior_week_low": 170.0}
+        sig = check_weekly_high_test("NVDA", bar, prior, prior_close=185.0)
         assert sig is not None
 
 

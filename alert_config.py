@@ -404,6 +404,7 @@ ENABLED_RULES: set[str] = {
     # BUY — weekly high/low
     "weekly_level_touch",
     "weekly_high_breakout",
+    "weekly_high_test",
     # SELL — MA/EMA resistance
     "ma_resistance",
     "ema_resistance",

@@ -167,6 +167,7 @@ class AlertType(str, Enum):
     VWAP_BOUNCE = "vwap_bounce"
     OPENING_LOW_BASE = "opening_low_base"
     WEEKLY_HIGH_BREAKOUT = "weekly_high_breakout"
+    WEEKLY_HIGH_TEST = "weekly_high_test"
     WEEKLY_HIGH_RESISTANCE = "weekly_high_resistance"
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
@@ -1377,6 +1378,60 @@ def check_weekly_high_breakout(
         target_2=round(entry + weekly_range, 2),
         confidence="high" if vol_ratio >= 1.5 else "medium",
         message=f"Weekly high breakout — closed above ${pw_high:.2f} (vol {vol_ratio:.1f}x avg)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# NOTICE: Weekly High Test (wick above prior week high, no close)
+# ---------------------------------------------------------------------------
+
+
+def check_weekly_high_test(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Bar high wicks above prior week high but close stays below — testing key resistance.
+
+    Heads-up that price is attacking the weekly level.  If the next bar
+    closes above, WEEKLY_HIGH_BREAKOUT fires.
+
+    Conditions:
+    - Bar high >= prior_week_high (touched or exceeded)
+    - Bar close < prior_week_high (not yet broken)
+    - Approaching from below: prior close < prior_week_high
+    """
+    pw_high = prior_day.get("prior_week_high")
+    if not pw_high or pw_high <= 0:
+        return None
+
+    # Must wick above (or touch) weekly high
+    if bar["High"] < pw_high:
+        return None
+
+    # Must NOT have closed above — breakout rule handles that
+    if bar["Close"] >= pw_high:
+        return None
+
+    # Directional guard: only if approaching from below
+    if prior_close is not None and prior_close >= pw_high:
+        return None
+
+    pct_above = (bar["High"] - pw_high) / pw_high * 100
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WEEKLY_HIGH_TEST,
+        direction="NOTICE",
+        price=bar["High"],
+        entry=round(pw_high, 2),
+        confidence="medium",
+        message=(
+            f"TESTING prior week high ${pw_high:.2f} — "
+            f"wicked {pct_above:.2f}% above, closed ${bar['Close']:.2f} below. "
+            f"Watch for close above for weekly breakout"
+        ),
     )
 
 
@@ -4346,6 +4401,13 @@ def evaluate_rules(
     sig = check_resistance_prior_low(symbol, last_bar, prior_low, prior_close, today_open)
     if sig:
         signals.append(sig)
+
+    # --- Weekly High Test (wick above, no close) ---
+    if AlertType.WEEKLY_HIGH_TEST.value in ENABLED_RULES:
+        sig = check_weekly_high_test(symbol, last_bar, prior_day, prior_close)
+        if sig:
+            sig.session_phase = phase
+            signals.append(sig)
 
     # --- Weekly High Resistance ---
     if AlertType.WEEKLY_HIGH_RESISTANCE.value in ENABLED_RULES:
