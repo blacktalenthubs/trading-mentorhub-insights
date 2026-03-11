@@ -154,8 +154,8 @@ if st.session_state.pop("_run_position_check", False):
         except Exception as e:
             st.error(f"Position check failed: {e}")
 
-tab_analysis, tab_fundamentals, tab_daily, tab_weekly, tab_coach, tab_scanner = st.tabs([
-    "Trade Analysis", "Fundamentals", "Daily View", "Weekly View", "AI Coach", "Scanner",
+tab_analysis, tab_fundamentals, tab_daily, tab_weekly, tab_mtf, tab_coach, tab_scanner = st.tabs([
+    "Trade Analysis", "Fundamentals", "Daily View", "Weekly View", "MTF Synthesis", "AI Coach", "Scanner",
 ])
 
 
@@ -997,7 +997,107 @@ with tab_weekly:
         st.error(f"Failed to load weekly data: {e}")
 
 
-# ── Tab 5: AI Coach ──────────────────────────────────────────────────────────
+# ── Tab 5: MTF Synthesis ─────────────────────────────────────────────────────
+
+with tab_mtf:
+    section_header(f"Multi-Timeframe Synthesis — {hub_symbol}")
+
+    try:
+        from analytics.intel_hub import get_daily_bars, get_weekly_bars
+        from analytics.intel_hub import analyze_daily_setup, analyze_weekly_setup
+        from analytics.intel_hub import build_mtf_context
+
+        with st.spinner("Loading daily + weekly data..."):
+            _mtf_daily, _mtf_dmas = get_daily_bars(hub_symbol)
+            _mtf_weekly, _mtf_wmas = get_weekly_bars(hub_symbol)
+
+        if _mtf_daily.empty and _mtf_weekly.empty:
+            empty_state(f"No data available for {hub_symbol}")
+        else:
+            _mtf_d_setup = analyze_daily_setup(_mtf_daily, _mtf_dmas) if not _mtf_daily.empty else {"setup_type": "NO_SETUP", "score": 0, "score_label": "C", "edge": "No data", "ma_sequence": "mixed", "daily_candle": ("normal", "neutral")}
+            _mtf_w_setup = analyze_weekly_setup(_mtf_weekly, _mtf_wmas) if not _mtf_weekly.empty else {"setup_type": "NO_SETUP", "score": 0, "score_label": "C", "edge": "No data", "weekly_candle": ("normal", "neutral")}
+
+            # Side-by-side setup comparison
+            col_d, col_w = st.columns(2)
+            with col_d:
+                section_header("Daily Setup")
+                _ds_type = _mtf_d_setup["setup_type"]
+                _ds_color = COLORS["green"] if _ds_type in ("BREAKOUT", "PULLBACK_TO_MA", "TREND_CONTINUATION") else COLORS["red"] if _ds_type == "BREAKDOWN" else COLORS["blue"]
+                colored_metric("Setup", _ds_type.replace("_", " "), _ds_color)
+                _ds_sc = COLORS["green"] if _mtf_d_setup["score"] >= 70 else COLORS["orange"] if _mtf_d_setup["score"] >= 55 else COLORS["red"]
+                colored_metric("Score", f"{_mtf_d_setup['score_label']} ({_mtf_d_setup['score']})", _ds_sc)
+                st.caption(_mtf_d_setup["edge"])
+                colored_metric("MA Sequence", _mtf_d_setup.get("ma_sequence", "mixed").upper(), COLORS["blue"])
+
+            with col_w:
+                section_header("Weekly Setup")
+                _ws_type = _mtf_w_setup["setup_type"]
+                _ws_color = COLORS["green"] if _ws_type in ("BREAKOUT", "PULLBACK") else COLORS["orange"] if _ws_type == "BASE_FORMING" else COLORS["blue"]
+                colored_metric("Setup", _ws_type.replace("_", " "), _ws_color)
+                _ws_sc = COLORS["green"] if _mtf_w_setup["score"] >= 70 else COLORS["orange"] if _mtf_w_setup["score"] >= 55 else COLORS["red"]
+                colored_metric("Score", f"{_mtf_w_setup['score_label']} ({_mtf_w_setup['score']})", _ws_sc)
+                st.caption(_mtf_w_setup["edge"])
+                wc_p, wc_d = _mtf_w_setup.get("weekly_candle", ("normal", "neutral"))
+                colored_metric("Weekly Candle", f"{wc_p} / {wc_d}", COLORS["purple"])
+
+            # Alignment badge
+            st.divider()
+            _w_bull = _mtf_w_setup["setup_type"] in ("BREAKOUT", "PULLBACK", "BASE_FORMING")
+            _d_bull = _mtf_d_setup["setup_type"] in ("BREAKOUT", "PULLBACK_TO_MA", "TREND_CONTINUATION", "MA_COMPRESSION")
+            _w_bear = _mtf_w_setup["setup_type"] == "NO_SETUP" and wc_d == "bearish"
+            _d_bear = _mtf_d_setup["setup_type"] == "BREAKDOWN" or _mtf_d_setup.get("ma_sequence") == "bear"
+
+            if _w_bull and _d_bull:
+                colored_metric("Alignment", "ALIGNED BULLISH", COLORS["green"])
+                st.caption("Both weekly and daily timeframes constructive — higher conviction long setups")
+            elif _w_bear and _d_bear:
+                colored_metric("Alignment", "ALIGNED BEARISH", COLORS["red"])
+                st.caption("Both timeframes weak — avoid longs, consider shorts or cash")
+            elif _w_bull and _d_bear:
+                colored_metric("Alignment", "CONFLICT", COLORS["orange"])
+                st.caption("Weekly bullish but daily breaking down — potential trap or pullback in progress")
+            elif _w_bear and _d_bull:
+                colored_metric("Alignment", "CONFLICT", COLORS["orange"])
+                st.caption("Daily bounce but weekly structure weak — counter-trend risk, tighten stops")
+            else:
+                colored_metric("Alignment", "MIXED", COLORS["blue"])
+                st.caption("No clear alignment between timeframes — wait for resolution or reduce size")
+
+            # AI MTF Synthesis button
+            section_header("AI Analysis")
+            _can_ai_mtf, _ = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+            if not _can_ai_mtf:
+                render_inline_upgrade("Unlimited AI analysis — no daily limits", "elite")
+            elif st.button("AI MTF Synthesis", key="ai_mtf"):
+                if _is_free and user:
+                    from db import increment_daily_usage
+                    increment_daily_usage(user["id"], "ai_query")
+                try:
+                    from analytics.intel_hub import ask_ai_insight
+
+                    mtf_ctx = build_mtf_context(
+                        hub_symbol,
+                        _mtf_daily, _mtf_dmas, _mtf_d_setup,
+                        _mtf_weekly, _mtf_wmas, _mtf_w_setup,
+                    )
+                    st.write_stream(ask_ai_insight(
+                        f"Synthesize {hub_symbol}'s multi-timeframe picture. "
+                        "Are the daily and weekly timeframes aligned or conflicting? "
+                        "What is the highest-probability trade setup given both views? "
+                        "Identify key levels where the timeframes converge. "
+                        "What should the trader watch for confirmation or invalidation?",
+                        mtf_ctx,
+                    ))
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception as e:
+                    st.error(f"AI analysis error: {e}")
+
+    except Exception as e:
+        st.error(f"Failed to load MTF data: {e}")
+
+
+# ── Tab 6: AI Coach ──────────────────────────────────────────────────────────
 
 with tab_coach:
     section_header("AI Trade Coach")
@@ -1105,7 +1205,7 @@ with tab_coach:
                 st.error(f"Coach error: {e}")
 
 
-# ── Tab 6: Scanner ────────────────────────────────────────────────────────
+# ── Tab 7: Scanner ────────────────────────────────────────────────────────
 
 with tab_scanner:
     section_header("Scanner", "Ranked setups across your watchlist")

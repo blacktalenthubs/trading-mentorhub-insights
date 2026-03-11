@@ -141,6 +141,16 @@ def _format_sms_body(signal: AlertSignal) -> str:
     parts = [f"<b>{_prefix} {_html.escape(signal.symbol)} ${signal.price:.2f}{_html.escape(score_tag)}</b>"]
     parts.append(_html.escape(label))
 
+    # Score factor breakdown (compact)
+    _factors = getattr(signal, "score_factors", None)
+    if _factors:
+        _fl = {"ma": "MA", "vol": "Vol", "conf": "Conf", "vwap": "VWAP",
+               "rr": "R:R", "confluence": "Cnfl", "mtf": "MTF",
+               "consolidation": "Multi"}
+        _fb = [f"{_fl.get(k, k)}={v}" for k, v in _factors.items() if v]
+        if _fb:
+            parts.append(_html.escape(" | ".join(_fb)))
+
     # Potential Entry | Stop
     if signal.entry is not None and signal.stop is not None:
         parts.append(f"Potential Entry ${signal.entry:.2f} | Stop ${signal.stop:.2f}")

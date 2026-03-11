@@ -223,6 +223,16 @@ def assemble_context(hub_symbol: str | None = None) -> dict:
     except Exception:
         logger.debug("trade_coach: ACK history failed")
 
+    # Win rates by alert type and by symbol (for rule-specific coaching)
+    try:
+        from analytics.intel_hub import get_alert_win_rates
+        wr = _safe_call(get_alert_win_rates, 90)
+        if wr:
+            ctx["win_rates_by_type"] = wr.get("by_alert_type", {})
+            ctx["win_rates_by_symbol"] = wr.get("by_symbol", {})
+    except Exception:
+        logger.debug("trade_coach: win rates failed")
+
     # Hub-specific context for focused symbol analysis
     if hub_symbol:
         try:
@@ -392,12 +402,20 @@ def format_system_prompt(context: dict) -> str:
             # Truncate message to keep prompt compact
             if len(msg) > 120:
                 msg = msg[:120] + "..."
+            # Score factor breakdown if available
+            _sf = a.get("score_factors") or {}
+            _sf_str = ""
+            if _sf:
+                _fl = {"ma": "MA", "vol": "Vol", "conf": "Conf", "vwap": "VWAP",
+                       "rr": "R:R", "confluence": "Cnfl", "mtf": "MTF"}
+                _sf_str = "  factors={" + ",".join(f"{_fl.get(k,k)}:{v}" for k, v in _sf.items() if v) + "}"
             lines.append(
                 f"- {a.get('symbol', '?')} {a.get('direction', '?')} "
                 f"{(a.get('alert_type') or '').replace('_', ' ')}  "
                 f"score={score} conf={conf}  price=${price:.2f}  "
                 f"entry=${entry:.2f}  stop=${stop:.2f}  "
                 f"T1=${t1:.2f}  T2=${t2:.2f}"
+                + _sf_str
                 + (f"  [{msg}]" if msg else "")
             )
         sections.append("\n".join(lines))
@@ -534,6 +552,36 @@ def format_system_prompt(context: dict) -> str:
                 lines.append(
                     f"Overall: {overall.get('win_rate', 0)}% "
                     f"({overall.get('total', 0)} signals)"
+                )
+            sections.append("\n".join(lines))
+
+    # Win rates by alert type (rule-specific coaching)
+    wr_by_type = context.get("win_rates_by_type", {})
+    if wr_by_type:
+        # Show top performers and worst performers
+        _typed = [(k, v) for k, v in wr_by_type.items() if v.get("total", 0) >= 3]
+        if _typed:
+            _typed.sort(key=lambda x: x[1].get("win_rate", 0), reverse=True)
+            lines = ["[WIN RATES BY ALERT TYPE — 90 DAYS (min 3 signals)]"]
+            for name, wr in _typed[:15]:
+                label = name.replace("_", " ")
+                lines.append(
+                    f"- {label}: {wr['win_rate']}% "
+                    f"({wr['wins']}W/{wr['losses']}L/{wr.get('unknown', 0)}U of {wr['total']})"
+                )
+            sections.append("\n".join(lines))
+
+    # Win rates by symbol
+    wr_by_sym = context.get("win_rates_by_symbol", {})
+    if wr_by_sym:
+        _symd = [(k, v) for k, v in wr_by_sym.items() if v.get("total", 0) >= 3]
+        if _symd:
+            _symd.sort(key=lambda x: x[1].get("win_rate", 0), reverse=True)
+            lines = ["[WIN RATES BY SYMBOL — 90 DAYS (min 3 signals)]"]
+            for sym, wr in _symd[:15]:
+                lines.append(
+                    f"- {sym}: {wr['win_rate']}% "
+                    f"({wr['wins']}W/{wr['losses']}L of {wr['total']})"
                 )
             sections.append("\n".join(lines))
 

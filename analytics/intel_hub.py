@@ -1242,6 +1242,79 @@ def analyze_daily_setup(daily_df: pd.DataFrame, mas: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Multi-timeframe synthesis context
+# ---------------------------------------------------------------------------
+
+def build_mtf_context(
+    symbol: str,
+    daily_df: pd.DataFrame,
+    daily_mas: dict,
+    daily_setup: dict,
+    weekly_df: pd.DataFrame,
+    wmas: dict,
+    weekly_setup: dict,
+) -> str:
+    """Assemble combined daily + weekly context for MTF synthesis AI call."""
+    parts = [f"Multi-timeframe analysis for {symbol}:"]
+
+    # Weekly summary
+    parts.append("\n[WEEKLY TIMEFRAME]")
+    if not weekly_df.empty:
+        wb = weekly_df.iloc[-1]
+        parts.append(
+            f"Last week: O=${float(wb['Open']):.2f} H=${float(wb['High']):.2f} "
+            f"L=${float(wb['Low']):.2f} C=${float(wb['Close']):.2f}"
+        )
+    for k, v in wmas.items():
+        parts.append(f"{k.upper()}: ${v:.2f}")
+    parts.append(f"Weekly setup: {weekly_setup['setup_type']}")
+    parts.append(f"Weekly score: {weekly_setup['score_label']} ({weekly_setup['score']})")
+    parts.append(f"Weekly edge: {weekly_setup['edge']}")
+    wc_pattern, wc_dir = weekly_setup.get("weekly_candle", ("normal", "neutral"))
+    parts.append(f"Weekly candle: {wc_pattern} / {wc_dir}")
+
+    # Daily summary
+    parts.append("\n[DAILY TIMEFRAME]")
+    if not daily_df.empty:
+        for i in range(-3, 0):
+            if abs(i) <= len(daily_df):
+                bar = daily_df.iloc[i]
+                dt = daily_df.index[i].strftime("%Y-%m-%d")
+                parts.append(
+                    f"{dt}: O=${float(bar['Open']):.2f} H=${float(bar['High']):.2f} "
+                    f"L=${float(bar['Low']):.2f} C=${float(bar['Close']):.2f}"
+                )
+    for k, v in daily_mas.items():
+        parts.append(f"{k.upper()}: ${v:.2f}")
+    parts.append(f"Daily setup: {daily_setup['setup_type']}")
+    parts.append(f"Daily score: {daily_setup['score_label']} ({daily_setup['score']})")
+    parts.append(f"Daily edge: {daily_setup['edge']}")
+    parts.append(f"MA sequence: {daily_setup['ma_sequence']}")
+    dc_pattern, dc_dir = daily_setup.get("daily_candle", ("normal", "neutral"))
+    parts.append(f"Daily candle: {dc_pattern} / {dc_dir}")
+
+    # Alignment summary
+    parts.append("\n[ALIGNMENT CHECK]")
+    w_bullish = weekly_setup["setup_type"] in ("BREAKOUT", "PULLBACK", "BASE_FORMING")
+    d_bullish = daily_setup["setup_type"] in ("BREAKOUT", "PULLBACK_TO_MA", "TREND_CONTINUATION", "MA_COMPRESSION")
+    w_bearish = weekly_setup["setup_type"] == "NO_SETUP" and wc_dir == "bearish"
+    d_bearish = daily_setup["setup_type"] in ("BREAKDOWN",) or daily_setup["ma_sequence"] == "bear"
+
+    if w_bullish and d_bullish:
+        parts.append("Timeframes ALIGNED BULLISH — both weekly and daily constructive")
+    elif w_bearish and d_bearish:
+        parts.append("Timeframes ALIGNED BEARISH — both weekly and daily weak")
+    elif w_bullish and d_bearish:
+        parts.append("CONFLICT — weekly bullish but daily breaking down (potential trap or pullback)")
+    elif w_bearish and d_bullish:
+        parts.append("CONFLICT — daily bounce but weekly structure weak (counter-trend risk)")
+    else:
+        parts.append("Timeframes MIXED — no clear alignment")
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # AI insight (one-shot, focused analysis)
 # ---------------------------------------------------------------------------
 
