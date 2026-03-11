@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TradeSignal / TradeCoPilot — Codebase Review</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --green: #2ecc71;
+    --red: #e74c3c;
+    --blue: #58a6ff;
+    --yellow: #f0ad4e;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { color: var(--green); font-size: 2rem; margin-bottom: 0.25rem; }
+  h2 { color: var(--blue); font-size: 1.4rem; margin-top: 2.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  h3 { color: var(--purple); font-size: 1.1rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+  .subtitle { color: var(--text-muted); font-size: 1rem; margin-bottom: 2rem; }
+  .date { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 2rem; }
+  p { margin-bottom: 0.75rem; }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+  }
+  code {
+    background: var(--surface);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.9em;
+    color: var(--yellow);
+  }
+  pre code { background: none; padding: 0; color: var(--text-muted); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+  }
+  th {
+    background: var(--surface);
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    color: var(--blue);
+    font-weight: 600;
+  }
+  td {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+  }
+  tr:nth-child(even) { background: rgba(22, 27, 34, 0.5); }
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge-green { background: rgba(46,204,113,0.15); color: var(--green); }
+  .badge-red { background: rgba(231,76,60,0.15); color: var(--red); }
+  .badge-blue { background: rgba(88,166,255,0.15); color: var(--blue); }
+  .badge-yellow { background: rgba(240,173,78,0.15); color: var(--yellow); }
+  .badge-purple { background: rgba(188,140,255,0.15); color: var(--purple); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .card h3 { margin-top: 0; }
+  .checklist { list-style: none; padding-left: 0; }
+  .checklist li { padding: 0.25rem 0; }
+  .checklist li::before { content: "✅ "; }
+  ul { margin-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  .section-divider { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  .highlight { color: var(--green); font-weight: 600; }
+  .warn { color: var(--yellow); font-weight: 600; }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    .summary-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>TradeSignal / TradeCoPilot</h1>
+<p class="subtitle">Comprehensive Codebase Review</p>
+<p class="date">Generated: March 11, 2026</p>
+
+<div class="card">
+  <p>A <span class="highlight">production-grade real-time stock &amp; crypto trading alert platform</span> with ~200K lines across ~80 core files. It watches your watchlist, scores technical signals, fires alerts via Telegram/email with AI-written narratives, and provides a full analytics dashboard.</p>
+  <p><span class="badge badge-green">Python 3.9+</span> <span class="badge badge-blue">Streamlit</span> <span class="badge badge-purple">Postgres + SQLite</span> <span class="badge badge-yellow">yfinance</span> <span class="badge badge-green">Claude AI</span> <span class="badge badge-blue">Telegram</span> <span class="badge badge-purple">Alpaca</span> <span class="badge badge-yellow">FastAPI</span></p>
+</div>
+
+<!-- ============================================ -->
+<h2>1. Architecture — Two Services, One Database</h2>
+
+<pre><code>┌──────────────────┐         ┌────────────────────┐
+│ Railway Worker   │         │ Streamlit Cloud     │
+│ worker.py        │         │ app.py + 11 pages   │
+│ APScheduler loop │         │ + monitor_thread    │
+└───────┬──────────┘         └─────────┬───────────┘
+        │       DATABASE_URL           │
+        └────────────┬─────────────────┘
+               ┌─────▼──────────┐
+               │ Railway Postgres│  (SQLite locally)
+               └────────────────┘</code></pre>
+
+<table>
+  <tr><th>Component</th><th>Role</th><th>Details</th></tr>
+  <tr><td><code>worker.py</code></td><td>Headless Railway worker</td><td>APScheduler runs <code>poll_cycle()</code> every 3 min. Also runs Telegram bot listener.</td></tr>
+  <tr><td><code>app.py</code></td><td>Streamlit dashboard</td><td>Multi-page app with auth gate, tier-based page locking (free/pro/elite), daemon monitor thread.</td></tr>
+  <tr><td><code>db.py</code> (69K lines)</td><td>Dual-mode database layer</td><td><code>PostgresConnectionWrapper</code> translates SQLite conventions (<code>?</code> params, <code>.lastrowid</code>, <code>INSERT OR IGNORE</code>) to psycopg2 so all 26+ consumers use <code>get_db()</code> unchanged.</td></tr>
+</table>
+
+<h3>Dual-Mode Database Strategy</h3>
+<table>
+  <tr><th>Environment</th><th>Mode</th><th>Connection</th></tr>
+  <tr><td>Local dev</td><td>SQLite</td><td><code>data/trades.db</code></td></tr>
+  <tr><td>Production</td><td>Postgres</td><td><code>DATABASE_URL</code> env var (Railway)</td></tr>
+</table>
+
+<!-- ============================================ -->
+<h2>2. The Alert Pipeline (Heart of the System)</h2>
+
+<pre><code>poll_cycle() [every 3 min, market hours]
+  → yfinance: fetch 5-min intraday bars + prior day OHLC
+  → get_spy_context(): SPY regime/trend/RSI for gating
+  → evaluate_rules(): 20+ mechanical rules across 4,863 lines
+      MA bounce (20/50/100/200), support bounce, gap fill,
+      opening range breakout, VWAP bounce, target/stop hits
+  → Dedup: unique constraint (symbol, alert_type, session_date)
+  → Cooldown: 60-min post-stop-out suppression
+  → AI conviction filter (optional, Claude scores 0-100)
+  → generate_narrative(): Claude writes 2-5 sentence thesis
+  → record_alert() to DB
+  → notify() → Telegram (with ACK buttons) + Email
+  → Paper trader auto-entry if enabled (Alpaca bracket orders)</code></pre>
+
+<h3>Alert Rules (intraday_rules.py — 4,863 lines, 283 tests)</h3>
+<div class="summary-grid">
+  <div class="card">
+    <h3 style="color:var(--green)">BUY Rules (Entry Signals)</h3>
+    <ul>
+      <li><strong>MA_BOUNCE_20</strong> — Price wicks within 0.3% of 20-bar MA</li>
+      <li><strong>MA_BOUNCE_50</strong> — Price wicks within 0.5% of 50-bar MA</li>
+      <li><strong>MA_BOUNCE_100/200</strong> — Wider bounce (0.5%-0.8%)</li>
+      <li><strong>PRIOR_DAY_LOW_BOUNCE</strong> — Reclaim of yesterday's low</li>
+      <li><strong>INSIDE_DAY_BREAKOUT</strong> — Break above inside day high + volume</li>
+      <li><strong>SUPPORT_BOUNCE</strong> — Hold at support + recovery</li>
+      <li><strong>OPENING_RANGE_BREAKOUT</strong> — Break first-hour high/low</li>
+      <li><strong>VWAP_BOUNCE</strong> — Wick to VWAP + recovery</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="color:var(--red)">SELL Rules (Exit Signals)</h3>
+    <ul>
+      <li><strong>TARGET_1_HIT / TARGET_2_HIT</strong> — Profit target reached</li>
+      <li><strong>STOP_LOSS_HIT / AUTO_STOP_OUT</strong> — Stop breach</li>
+      <li><strong>RESISTANCE_PRIOR_HIGH</strong> — Rejection at prior day high</li>
+      <li><strong>MA_RESISTANCE</strong> — Rejection at 20/50/100/200 MA</li>
+    </ul>
+    <h3 style="color:var(--yellow); margin-top:1rem;">Scoring (0-100)</h3>
+    <ul>
+      <li>Support proximity (0-25)</li>
+      <li>MA position (0-25)</li>
+      <li>Volume confirmation (0-25)</li>
+      <li>Confluence bands (0-25)</li>
+      <li>≥75 = <span class="badge badge-green">A+ BUY</span> &nbsp; 50-74 = <span class="badge badge-yellow">WAIT</span> &nbsp; &lt;50 = <span class="badge badge-red">AVOID</span></li>
+    </ul>
+  </div>
+</div>
+
+<h3>Dedup, Cooldowns &amp; ACK Flow</h3>
+<table>
+  <tr><th>Mechanism</th><th>How It Works</th></tr>
+  <tr><td>Dedup</td><td>Unique constraint on <code>(symbol, alert_type, session_date)</code></td></tr>
+  <tr><td>Cooldown</td><td>60-min post-stop-out suppression prevents revenge trading</td></tr>
+  <tr><td>ACK Gate</td><td>SELL signals suppressed unless user ACK'd the BUY first</td></tr>
+  <tr><td>Re-fire</td><td>BUY alerts unblocked once cooldown expires</td></tr>
+</table>
+
+<!-- ============================================ -->
+<h2>3. Key Modules</h2>
+
+<table>
+  <tr><th>Module</th><th>File</th><th>Purpose</th></tr>
+  <tr><td>Rule Engine</td><td><code>analytics/intraday_rules.py</code></td><td>Core 20+ alert types, 283 unit tests</td></tr>
+  <tr><td>Scanner</td><td><code>analytics/signal_engine.py</code></td><td>Scoring (0-100), daily plan generation, S/R levels</td></tr>
+  <tr><td>Alert Store</td><td><code>alerting/alert_store.py</code></td><td>Persistence, dedup, cooldowns, active entry tracking</td></tr>
+  <tr><td>Notifier</td><td><code>alerting/notifier.py</code></td><td>Telegram + Email + SMS delivery, per-user routing</td></tr>
+  <tr><td>Narrator</td><td><code>alerting/narrator.py</code></td><td>Claude-powered trade thesis for each signal</td></tr>
+  <tr><td>Paper Trader</td><td><code>alerting/paper_trader.py</code></td><td>Alpaca bracket order automation</td></tr>
+  <tr><td>Real Trades</td><td><code>alerting/real_trade_store.py</code></td><td>Real trade P&amp;L tracking</td></tr>
+  <tr><td>AI Conviction</td><td><code>analytics/ai_conviction.py</code></td><td>Claude conviction filter (suppress weak, boost strong)</td></tr>
+  <tr><td>Pre-market</td><td><code>analytics/premarket_brief.py</code></td><td>AI game plan 9:10-9:30 AM ET</td></tr>
+  <tr><td>EOD Review</td><td><code>analytics/eod_review.py</code></td><td>AI end-of-day session summary</td></tr>
+  <tr><td>Intel Hub</td><td><code>analytics/intel_hub.py</code></td><td>Win rate analytics, performance by rule type</td></tr>
+  <tr><td>Auth</td><td><code>auth.py</code></td><td>Email/password auth, bcrypt, 30-day sessions, tiers</td></tr>
+  <tr><td>UI Theme</td><td><code>ui_theme.py</code> (48K lines)</td><td>Full dark-mode Streamlit theming + components</td></tr>
+  <tr><td>Config</td><td><code>alert_config.py</code></td><td>All tuning parameters, feature flags, thresholds</td></tr>
+</table>
+
+<!-- ============================================ -->
+<h2>4. Dashboard Pages</h2>
+
+<table>
+  <tr><th>Page</th><th>Tier</th><th>Purpose</th></tr>
+  <tr><td>Dashboard (home)</td><td><span class="badge badge-green">free</span></td><td>Live signals, win rate, cooldowns, ACK buttons</td></tr>
+  <tr><td>Scanner</td><td><span class="badge badge-green">free</span></td><td>Daily plans with support analysis, entry/stop/target</td></tr>
+  <tr><td>Charts</td><td><span class="badge badge-green">free</span></td><td>Interactive OHLC with MA, VWAP, RSI (Plotly)</td></tr>
+  <tr><td>Settings</td><td><span class="badge badge-green">free</span></td><td>Notification prefs, watchlist, Telegram linking</td></tr>
+  <tr><td>Swing Trades</td><td><span class="badge badge-blue">pro</span></td><td>EOD swing setups (EMA crossover, RSI zones, MACD)</td></tr>
+  <tr><td>Real Trades</td><td><span class="badge badge-blue">pro</span></td><td>Manual trade entry/exit with P&amp;L</td></tr>
+  <tr><td>Alert History</td><td><span class="badge badge-blue">pro</span></td><td>Searchable alert log by symbol/date</td></tr>
+  <tr><td>Scorecard</td><td><span class="badge badge-blue">pro</span></td><td>Win/loss rate, P&amp;L breakdown by alert type</td></tr>
+  <tr><td>History</td><td><span class="badge badge-blue">pro</span></td><td>Full trade history browser</td></tr>
+  <tr><td>Import</td><td><span class="badge badge-blue">pro</span></td><td>PDF/CSV import (1099-B, broker statements)</td></tr>
+  <tr><td>Backtest</td><td><span class="badge badge-purple">elite</span></td><td>Historical rule backtesting</td></tr>
+  <tr><td>Paper Trading</td><td><span class="badge badge-purple">elite</span></td><td>Alpaca paper trading dashboard</td></tr>
+  <tr><td>AI Coach</td><td><span class="badge badge-purple">elite</span></td><td>Claude-powered trade journal &amp; session analysis</td></tr>
+</table>
+
+<!-- ============================================ -->
+<h2>5. AI Enhancements (Anthropic Claude)</h2>
+
+<table>
+  <tr><th>Feature</th><th>When</th><th>What</th></tr>
+  <tr><td>Trade Thesis</td><td>Every BUY signal</td><td>2-5 sentence conviction narrative</td></tr>
+  <tr><td>Conviction Filter</td><td>Every BUY signal</td><td>Score 0-100, suppress if too low</td></tr>
+  <tr><td>Pre-market Brief</td><td>9:10-9:30 AM ET</td><td>Top 3 setups, SPY outlook, risk warnings</td></tr>
+  <tr><td>EOD Review</td><td>After 4 PM ET</td><td>Win/loss summary, best/worst setups</td></tr>
+  <tr><td>Weekly Journal</td><td>Sunday afternoon</td><td>Full week trade analysis &amp; lessons</td></tr>
+  <tr><td>AI Coach</td><td>On-demand</td><td>Personalized feedback on past trades</td></tr>
+</table>
+
+<!-- ============================================ -->
+<h2>6. Notification Channels</h2>
+
+<div class="summary-grid">
+  <div class="card">
+    <h3 style="color:var(--blue)">Telegram (Primary)</h3>
+    <ul>
+      <li>Deep-link buttons: "Took It" (ACK entry), "Skip" (suppress)</li>
+      <li>Inline price levels, score, R:R ratio</li>
+      <li>Forwards to configured chat ID</li>
+      <li>Fast delivery for real-time decisions</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="color:var(--yellow)">Email (Secondary)</h3>
+    <ul>
+      <li>Plain-text body with entry/stop/target breakdown</li>
+      <li>Risk/reward calculation</li>
+      <li>Confidence label</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<h2>7. Protected Files (Business Logic)</h2>
+
+<div class="card" style="border-color: var(--red);">
+  <p><span class="warn">NEVER modify without explicit approval.</span> These files control real money decisions:</p>
+  <table>
+    <tr><th>File</th><th>What It Controls</th></tr>
+    <tr><td><code>analytics/intraday_rules.py</code></td><td>Alert rules: MA bounce, support bounce, gap fill, target/stop hits</td></tr>
+    <tr><td><code>analytics/signal_engine.py</code></td><td>Scanner: score calculation, daily plan generation, S/R levels</td></tr>
+    <tr><td><code>alerting/alert_store.py</code></td><td>Alert persistence, dedup, cooldowns</td></tr>
+    <tr><td><code>alerting/notifier.py</code></td><td>Telegram + email delivery</td></tr>
+    <tr><td><code>alerting/real_trade_store.py</code></td><td>Real trade P&amp;L tracking</td></tr>
+    <tr><td><code>alerting/options_trade_store.py</code></td><td>Options trade tracking</td></tr>
+    <tr><td><code>monitor.py</code></td><td>Live polling loop — fires alerts during market hours</td></tr>
+    <tr><td><code>worker.py</code></td><td>Railway background worker — same as monitor but headless</td></tr>
+  </table>
+</div>
+
+<!-- ============================================ -->
+<h2>8. Test Suite</h2>
+
+<table>
+  <tr><th>Test File</th><th>Coverage</th></tr>
+  <tr><td><code>test_intraday_rules.py</code> (6,565 lines)</td><td>283 tests — all 20+ alert rules, gap fills, MA bounces, support reclaims</td></tr>
+  <tr><td><code>test_alert_dedup.py</code> (439 lines)</td><td>Cooldown CRUD, fired_today dedup, SPY regime demotion</td></tr>
+  <tr><td><code>test_postgres_wrapper.py</code></td><td>Postgres wrapper translation, ON CONFLICT handling</td></tr>
+  <tr><td><code>test_turso_migration.py</code></td><td>Schema migration, CRUD, auth, pandas compat</td></tr>
+  <tr><td>+ 19 more test files</td><td>Swing rules, paper trading, scoring v2, narrator, premarket, intel hub, etc.</td></tr>
+</table>
+
+<pre><code># Run all tests
+python3 -m pytest tests/ -v
+
+# SQLite tests only (always safe)
+python3 -m pytest tests/test_intraday_rules.py tests/test_alert_dedup.py -v
+
+# Postgres tests (requires Docker)
+python3 -m pytest tests/test_postgres_wrapper.py -v</code></pre>
+
+<!-- ============================================ -->
+<h2>9. Environment Variables</h2>
+
+<table>
+  <tr><th>Variable</th><th>Where</th><th>Purpose</th></tr>
+  <tr><td><code>DATABASE_URL</code></td><td>Railway + Streamlit</td><td>Postgres connection string</td></tr>
+  <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td>Railway + Streamlit</td><td>Telegram notifications</td></tr>
+  <tr><td><code>TELEGRAM_CHAT_ID</code></td><td>Railway</td><td>Default chat ID</td></tr>
+  <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Railway + Streamlit</td><td>AI narratives &amp; conviction</td></tr>
+  <tr><td><code>ADMIN_EMAIL</code></td><td>Both</td><td>Default admin account</td></tr>
+  <tr><td><code>ADMIN_PASSWORD</code></td><td>Both</td><td>Default admin password</td></tr>
+  <tr><td><code>ALPACA_API_KEY</code></td><td>Railway + Streamlit</td><td>Paper trading API key</td></tr>
+  <tr><td><code>ALPACA_SECRET_KEY</code></td><td>Railway + Streamlit</td><td>Paper trading secret</td></tr>
+</table>
+
+<!-- ============================================ -->
+<h2>10. Deployment Architecture</h2>
+
+<pre><code>                    ┌─────────────────────────┐
+                    │  Streamlit Cloud        │
+                    │  (app.py, pages/)       │
+                    │                         │
+                    │  • Launches on auth     │
+                    │  • monitor_thread.py    │
+                    │  • Fetches from Postgres│
+                    └────────┬────────────────┘
+                             │
+                    DATABASE_URL
+                             │
+        ┌────────────────────┴──────────────────────┐
+        │                                           │
+        ▼                                           ▼
+   ┌─────────────────────┐               ┌──────────────────┐
+   │  Railway Postgres   │               │  Railway Worker  │
+   │  (Shared DB)        │ ◄────────────►│  (worker.py)     │
+   │                     │               │                  │
+   │ • All users' data   │               │ • APScheduler    │
+   │ • Alert history     │               │ • poll_cycle()   │
+   │ • Trades            │               │ • Telegram notif │
+   └─────────────────────┘               └──────────────────┘
+        ▲
+        │
+   ┌────┴──────────────────────────────────────────────────┐
+   │                   Shared Services                     │
+   ├───────────────────────────────────────────────────────┤
+   │ • yfinance (market data)                              │
+   │ • Telegram Bot API                                    │
+   │ • Anthropic Claude (AI narratives)                    │
+   │ • Alpaca (paper trading)                              │
+   └───────────────────────────────────────────────────────┘</code></pre>
+
+<!-- ============================================ -->
+<h2>11. Summary</h2>
+
+<table>
+  <tr><th>Component</th><th>Files</th><th>Lines</th><th>Purpose</th></tr>
+  <tr><td>Core Alert Engine</td><td>intraday_rules.py</td><td>4,863</td><td>20+ mechanical rules, 283 tests</td></tr>
+  <tr><td>Database</td><td>db.py</td><td>69,077</td><td>SQLite + Postgres wrapper</td></tr>
+  <tr><td>Auth &amp; UI</td><td>auth.py, ui_theme.py</td><td>66,516</td><td>Email/password, 48K lines of theming</td></tr>
+  <tr><td>Alerting</td><td>alert_store, notifier, narrator</td><td>1,171</td><td>Dedup, notifications, AI thesis</td></tr>
+  <tr><td>Analytics</td><td>signal_engine, swing_rules, market_data</td><td>1,411</td><td>Daily plans, swing detection</td></tr>
+  <tr><td>Streamlit Pages</td><td>11 pages + home</td><td>6,987</td><td>Dashboard, scanner, trades, AI coach</td></tr>
+  <tr><td>API (FastAPI)</td><td>routers, services, models</td><td>~1,500</td><td>REST endpoints, async DB, per-user scoping</td></tr>
+  <tr><td>Tests</td><td>23 test files</td><td>~20,000</td><td>Unit + integration coverage</td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>~80 core files</strong></td><td><strong>~200K</strong></td><td><strong>Production-grade trading platform</strong></td></tr>
+</table>
+
+<hr class="section-divider">
+
+<div class="card">
+  <h3 style="color:var(--green)">Platform Capabilities</h3>
+  <ul class="checklist">
+    <li>Real-time alert engine (2,384 lines in alerting/)</li>
+    <li>283 unit tests covering all rules</li>
+    <li>Dual-mode database (SQLite + Postgres)</li>
+    <li>Multi-user auth with tier-based features</li>
+    <li>AI-powered narratives &amp; conviction filtering</li>
+    <li>Paper trading automation (Alpaca)</li>
+    <li>Manual trade tracking &amp; P&amp;L analytics</li>
+    <li>Telegram + Email notifications with ACK buttons</li>
+    <li>Railway worker for 24/7 polling</li>
+    <li>Streamlit dashboard with 11 pages</li>
+    <li>FastAPI for future web client integration</li>
+  </ul>
+</div>
+
+</body>
+</html>
