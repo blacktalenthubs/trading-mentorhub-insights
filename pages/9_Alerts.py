@@ -17,6 +17,9 @@ from ui_theme import get_current_tier, render_inline_upgrade
 user = ui_theme.setup_page("alerts", tier_required="pro", tier_preview="free")
 
 _is_free = get_current_tier() == "free"
+_tier = get_current_tier()
+# Admin sees ALL alerts (worker may record under a different user_id)
+_uid = None if _tier == "admin" else (user["id"] if user else None)
 
 ui_theme.page_header(
     "Alert Reports",
@@ -25,7 +28,7 @@ ui_theme.page_header(
 
 # ── Available dates ───────────────────────────────────────────────────────
 
-session_dates = get_session_dates(user_id=user["id"] if user else None)  # newest first
+session_dates = get_session_dates(user_id=_uid)  # newest first
 
 if not session_dates:
     ui_theme.empty_state("No alerts recorded yet. The monitor will populate alerts during market hours.")
@@ -65,7 +68,7 @@ all_alerts: list[dict] = []
 summaries_by_date: dict[str, dict] = {}
 
 for d in dates_to_show:
-    s = get_session_summary(session_date=d, user_id=user["id"] if user else None)
+    s = get_session_summary(session_date=d, user_id=_uid)
     summaries_by_date[d] = s
     for a in s["alerts"]:
         a["_session_date"] = d
