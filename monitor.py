@@ -383,47 +383,53 @@ def run_monitor():
         except Exception:
             logger.exception("Pre-market brief failed")
 
-        if not is_market_hours():
-            _maybe_run_eod()
-            # Outside market hours: still poll crypto symbols if any exist
-            all_symbols = get_watchlist(_get_admin_uid())
-            crypto_symbols = [s for s in all_symbols if is_crypto_alert_symbol(s)]
-            if crypto_symbols:
-                logger.info("Market closed — polling crypto only: %s", ", ".join(crypto_symbols))
-                alerts = poll_cycle(symbols_override=crypto_symbols)
-                logger.info("Crypto poll complete: %d alerts fired", alerts)
-            else:
-                logger.info("Market closed — skipping poll")
-                update_monitor_status(0, 0, "market_closed")
-            return
-        alerts = poll_cycle()
-        logger.info("Poll complete: %d alerts fired", alerts)
-
-        # Position advisor: send updates hourly during market hours
         try:
-            import pytz as _pytz
-            now_et = datetime.now(_pytz.timezone("US/Eastern"))
-            if now_et.minute < POLL_INTERVAL_MINUTES + 1:  # ~top of hour
-                from analytics.position_advisor import send_position_updates
-                send_position_updates()
+            if not is_market_hours():
+                _maybe_run_eod()
+                # Outside market hours: still poll crypto symbols if any exist
+                all_symbols = get_watchlist(_get_admin_uid())
+                crypto_symbols = [s for s in all_symbols if is_crypto_alert_symbol(s)]
+                if crypto_symbols:
+                    logger.info("Market closed — polling crypto only: %s", ", ".join(crypto_symbols))
+                    alerts = poll_cycle(symbols_override=crypto_symbols)
+                    logger.info("Crypto poll complete: %d alerts fired", alerts)
+                else:
+                    logger.info("Market closed — skipping poll")
+                    update_monitor_status(0, 0, "market_closed")
+                return
+            alerts = poll_cycle()
+            logger.info("Poll complete: %d alerts fired", alerts)
+
+            # Position advisor: send updates hourly during market hours
+            try:
+                import pytz as _pytz
+                now_et = datetime.now(_pytz.timezone("US/Eastern"))
+                if now_et.minute < POLL_INTERVAL_MINUTES + 1:  # ~top of hour
+                    from analytics.position_advisor import send_position_updates
+                    send_position_updates()
+            except Exception:
+                logger.exception("Position advisor failed")
         except Exception:
-            logger.exception("Position advisor failed")
+            logger.exception("CRITICAL: scheduled_poll failed — scheduler will retry next interval")
 
     # Run immediately on start
     watchlist = get_watchlist(_get_admin_uid())
     logger.info("Starting monitor — watchlist: %s", ", ".join(watchlist))
     logger.info("Poll interval: %d minutes", POLL_INTERVAL_MINUTES)
 
-    if is_market_hours():
-        poll_cycle()
-    else:
-        crypto_symbols = [s for s in watchlist if is_crypto_alert_symbol(s)]
-        if crypto_symbols:
-            logger.info("Market closed — initial crypto poll: %s", ", ".join(crypto_symbols))
-            poll_cycle(symbols_override=crypto_symbols)
+    try:
+        if is_market_hours():
+            poll_cycle()
         else:
-            logger.info("Market closed — waiting for open")
-            update_monitor_status(0, 0, "waiting_for_open")
+            crypto_symbols = [s for s in watchlist if is_crypto_alert_symbol(s)]
+            if crypto_symbols:
+                logger.info("Market closed — initial crypto poll: %s", ", ".join(crypto_symbols))
+                poll_cycle(symbols_override=crypto_symbols)
+            else:
+                logger.info("Market closed — waiting for open")
+                update_monitor_status(0, 0, "waiting_for_open")
+    except Exception:
+        logger.exception("Initial poll failed — scheduler will handle retries")
 
     scheduler.add_job(scheduled_poll, "interval", minutes=POLL_INTERVAL_MINUTES)
 

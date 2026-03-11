@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 
 # Ensure project root is on sys.path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +28,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("worker")
+
+MAX_RESTARTS = 10
+RESTART_DELAY_SECONDS = 30
 
 
 def main():
@@ -55,8 +59,28 @@ def main():
         except Exception:
             logger.exception("Failed to start Telegram bot listener")
 
-        logger.info("Starting Railway alert monitor worker")
-        run_monitor()
+        # Restart loop: if run_monitor() crashes, wait and retry
+        restarts = 0
+        while restarts < MAX_RESTARTS:
+            try:
+                logger.info("Starting Railway alert monitor worker (attempt %d)", restarts + 1)
+                run_monitor()
+                break  # clean exit (KeyboardInterrupt/SystemExit)
+            except (KeyboardInterrupt, SystemExit):
+                logger.info("Worker stopped by signal")
+                break
+            except Exception:
+                restarts += 1
+                logger.exception(
+                    "Worker crashed (restart %d/%d) — restarting in %ds",
+                    restarts, MAX_RESTARTS, RESTART_DELAY_SECONDS,
+                )
+                if restarts < MAX_RESTARTS:
+                    time.sleep(RESTART_DELAY_SECONDS)
+
+        if restarts >= MAX_RESTARTS:
+            logger.critical("Worker exceeded %d restarts — exiting", MAX_RESTARTS)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
