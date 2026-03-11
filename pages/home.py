@@ -46,7 +46,7 @@ from alert_config import (
     OPTIONS_ELIGIBLE_SYMBOLS,
     OPTIONS_MIN_SCORE,
     POLL_INTERVAL_MINUTES,
-    REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_POSITION_SIZE,
+    REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_SHARES,
     SCORE_VERSION,
     TELEGRAM_TIER1_MIN_SCORE,
 )
@@ -487,10 +487,13 @@ else:
                             st.info("Tracking this trade (see Real Trades)")
                         else:
                             shares = calculate_shares(sig.symbol, sig.entry)
-                            cap = REAL_TRADE_SPY_POSITION_SIZE if sig.symbol == "SPY" else REAL_TRADE_POSITION_SIZE
+                            if sig.symbol == "SPY":
+                                size_label = f"{REAL_TRADE_SPY_SHARES} shares fixed"
+                            else:
+                                size_label = f"${REAL_TRADE_POSITION_SIZE / 1000:.0f}k cap"
                             st.caption(
                                 f"{shares} shares x ${sig.entry:,.2f} = "
-                                f"${shares * sig.entry:,.0f} (${cap / 1000:.0f}k cap) — "
+                                f"${shares * sig.entry:,.0f} ({size_label}) — "
                                 f"track on **Scanner**"
                             )
 

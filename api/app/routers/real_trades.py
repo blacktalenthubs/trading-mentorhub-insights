@@ -22,14 +22,15 @@ from app.schemas.paper_trade import (
 
 router = APIRouter()
 
-# Default position sizing caps (from existing config.py)
+# Default position sizing
 _DEFAULT_CAP = 50_000
-_SPY_CAP = 100_000
+_SPY_SHARES = 200
 
 
 def _calculate_shares(symbol: str, entry_price: float) -> int:
-    cap = _SPY_CAP if symbol.upper() in ("SPY", "QQQ") else _DEFAULT_CAP
-    return int(cap // entry_price) if entry_price > 0 else 0
+    if symbol.upper() == "SPY":
+        return _SPY_SHARES
+    return int(_DEFAULT_CAP // entry_price) if entry_price > 0 else 0
 
 
 @router.post("/open", response_model=RealTradeResponse, status_code=201)

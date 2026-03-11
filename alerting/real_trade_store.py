@@ -5,16 +5,17 @@ from __future__ import annotations
 import math
 from datetime import datetime
 
-from alert_config import REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_POSITION_SIZE
+from alert_config import REAL_TRADE_POSITION_SIZE, REAL_TRADE_SPY_SHARES
 from db import get_db
 
 
 def calculate_shares(symbol: str, entry_price: float) -> int:
-    """Calculate position size: floor(cap / entry). 100k cap for SPY, 50k otherwise."""
-    cap = REAL_TRADE_SPY_POSITION_SIZE if symbol.upper() == "SPY" else REAL_TRADE_POSITION_SIZE
+    """Calculate position size: fixed 200 shares for SPY, floor($50k / entry) otherwise."""
+    if symbol.upper() == "SPY":
+        return REAL_TRADE_SPY_SHARES
     if entry_price <= 0:
         return 0
-    return math.floor(cap / entry_price)
+    return math.floor(REAL_TRADE_POSITION_SIZE / entry_price)
 
 
 def open_real_trade(

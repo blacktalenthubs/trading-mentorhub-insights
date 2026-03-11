@@ -494,6 +494,6 @@ NARRATIVE_SONNET_MIN_SCORE = int(_get_secret("NARRATIVE_SONNET_MIN_SCORE", "65")
 # Free tier: max push notifications (DM/email) per day
 FREE_DAILY_ALERT_LIMIT = 3
 
-# Real trade position sizing (max dollar exposure per trade)
-REAL_TRADE_POSITION_SIZE = 50_000
-REAL_TRADE_SPY_POSITION_SIZE = 100_000
+# Real trade position sizing
+REAL_TRADE_POSITION_SIZE = 50_000        # $50k cap for regular stocks
+REAL_TRADE_SPY_SHARES = 200              # Fixed 200 shares for SPY
