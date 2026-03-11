@@ -16,12 +16,13 @@ def today_session() -> str:
 def get_session_dates(user_id: int | None = None) -> list[str]:
     """Return distinct session dates with alerts, newest first.
 
-    If *user_id* is provided, only returns dates where that user has alerts.
+    If *user_id* is provided, returns dates where that user has alerts
+    plus legacy alerts with NULL user_id (same scoping as get_alerts_today).
     """
     with get_db() as conn:
         if user_id is not None:
             rows = conn.execute(
-                "SELECT DISTINCT session_date FROM alerts WHERE user_id = ? ORDER BY session_date DESC",
+                "SELECT DISTINCT session_date FROM alerts WHERE (user_id = ? OR user_id IS NULL) ORDER BY session_date DESC",
                 (user_id,),
             ).fetchall()
         else:
