@@ -16,9 +16,19 @@ import sys
 from datetime import datetime
 
 from alert_config import (
+    AI_CONVICTION_BOOST_ABOVE,
+    AI_CONVICTION_BOOST_POINTS,
+    AI_CONVICTION_ENABLED,
+    AI_CONVICTION_SUPPRESS_BELOW,
     COOLDOWN_MINUTES,
     POLL_INTERVAL_MINUTES,
 )
+
+# Feature-flagged AI conviction filter
+_ai_conviction_enabled = AI_CONVICTION_ENABLED
+_ai_suppress_below = AI_CONVICTION_SUPPRESS_BELOW
+_ai_boost_above = AI_CONVICTION_BOOST_ABOVE
+_ai_boost_pts = AI_CONVICTION_BOOST_POINTS
 from analytics.market_hours import is_market_hours
 from config import is_crypto_alert_symbol
 from alerting.alert_store import (
@@ -180,6 +190,31 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                         logger.debug("%s: suppressing %s (not ACK'd)", symbol, signal.alert_type.value)
                         continue
                 signal.narrative = generate_narrative(signal)
+
+                # AI Conviction Filter (feature-flagged)
+                if _ai_conviction_enabled and signal.direction == "BUY":
+                    try:
+                        from analytics.ai_conviction import score_conviction
+                        _conv, _reason = score_conviction(signal, spy_context=spy_ctx)
+                        signal.ai_conviction = _conv
+                        signal.ai_reasoning = _reason
+                        if _conv < _ai_suppress_below:
+                            logger.info(
+                                "%s: AI conviction %d < %d — suppressing %s (%s)",
+                                symbol, _conv, _ai_suppress_below,
+                                signal.alert_type.value, _reason,
+                            )
+                            continue
+                        if _conv >= _ai_boost_above:
+                            signal.score = min(100, signal.score + _ai_boost_pts)
+                            signal.score_v2 = min(100, signal.score_v2 + _ai_boost_pts)
+                            signal.message += f" | AI conviction HIGH ({_conv})"
+                        logger.info(
+                            "%s: AI conviction=%d for %s: %s",
+                            symbol, _conv, signal.alert_type.value, _reason[:80],
+                        )
+                    except Exception:
+                        logger.debug("%s: AI conviction failed, proceeding", symbol)
 
                 if dry_run:
                     if was_alert_fired(symbol, signal.alert_type.value, session):

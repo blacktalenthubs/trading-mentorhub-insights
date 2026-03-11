@@ -781,6 +781,22 @@ with tab_daily:
                 except Exception as e:
                     st.error(f"AI analysis error: {e}")
 
+            # Pattern Classification button
+            _can_ai_pat, _ = check_usage_limit(user["id"], "ai_query", _ai_limit) if _is_free and user else (True, 0)
+            if not _can_ai_pat:
+                pass  # already showed upgrade prompt above
+            elif st.button("Classify Chart Pattern", key="ai_pattern"):
+                if _is_free and user:
+                    from db import increment_daily_usage
+                    increment_daily_usage(user["id"], "ai_query")
+                try:
+                    from analytics.intel_hub import classify_daily_pattern
+                    st.write_stream(classify_daily_pattern(hub_symbol, daily_df, daily_mas))
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception as e:
+                    st.error(f"Pattern classification error: {e}")
+
     except Exception as e:
         st.error(f"Failed to load daily data: {e}")
 

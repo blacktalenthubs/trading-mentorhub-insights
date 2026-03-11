@@ -168,6 +168,16 @@ def _format_sms_body(signal: AlertSignal) -> str:
     if signal.message:
         parts.append(_html.escape(signal.message))
 
+    # AI conviction (if available)
+    _ai_conv = getattr(signal, "ai_conviction", None)
+    _ai_reason = getattr(signal, "ai_reasoning", "")
+    if _ai_conv is not None:
+        _conv_label = "HIGH" if _ai_conv >= 80 else "MED" if _ai_conv >= 50 else "LOW"
+        _conv_line = f"AI Conviction: {_conv_label} ({_ai_conv})"
+        if _ai_reason:
+            _conv_line += f" — {_ai_reason}"
+        parts.append(_html.escape(_conv_line))
+
     # AI thesis — first sentence only (Telegram char limit)
     if getattr(signal, "narrative", ""):
         import re

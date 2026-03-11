@@ -685,6 +685,7 @@ def init_db():
     _migrate_ensure_default_watchlist()
     _migrate_add_score_v2()
     _migrate_add_ai_review()
+    _migrate_add_ai_conviction()
     _migrate_seed_subscriptions()
 
 
@@ -1045,6 +1046,13 @@ def _migrate_add_ai_review():
     """Add ai_review column to real_trades table if missing."""
     with get_db() as conn:
         _safe_add_column(conn, "ALTER TABLE real_trades ADD COLUMN ai_review TEXT")
+
+
+def _migrate_add_ai_conviction():
+    """Add ai_conviction and ai_reasoning columns to alerts table."""
+    with get_db() as conn:
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN ai_conviction INTEGER")
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN ai_reasoning TEXT")
 
 
 def _migrate_seed_subscriptions():

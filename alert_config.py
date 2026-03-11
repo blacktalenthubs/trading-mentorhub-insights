@@ -491,6 +491,12 @@ CLAUDE_MODEL = _get_secret("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 CLAUDE_MODEL_SONNET = _get_secret("CLAUDE_MODEL_SONNET", "claude-sonnet-4-20250514")
 NARRATIVE_SONNET_MIN_SCORE = int(_get_secret("NARRATIVE_SONNET_MIN_SCORE", "65"))
 
+# AI Conviction Filter (Phase 3)
+AI_CONVICTION_ENABLED = _get_secret("AI_CONVICTION_ENABLED", "false").lower() == "true"
+AI_CONVICTION_SUPPRESS_BELOW = int(_get_secret("AI_CONVICTION_SUPPRESS_BELOW", "30"))
+AI_CONVICTION_BOOST_ABOVE = int(_get_secret("AI_CONVICTION_BOOST_ABOVE", "80"))
+AI_CONVICTION_BOOST_POINTS = int(_get_secret("AI_CONVICTION_BOOST_POINTS", "10"))
+
 # Free tier: max push notifications (DM/email) per day
 FREE_DAILY_ALERT_LIMIT = 3
 

@@ -1315,6 +1315,53 @@ def build_mtf_context(
 
 
 # ---------------------------------------------------------------------------
+# Daily pattern classification (LLM-based)
+# ---------------------------------------------------------------------------
+
+def classify_daily_pattern(symbol: str, daily_df: pd.DataFrame, mas: dict) -> Generator[str, None, None]:
+    """Send last 20 daily candles + MAs to Claude for pattern classification.
+
+    Streams the response. Classifies patterns like bull flag, ascending triangle,
+    double bottom, distribution, consolidation, etc.
+    """
+    if daily_df.empty or len(daily_df) < 20:
+        yield "Insufficient data for pattern classification (need 20+ daily bars)."
+        return
+
+    # Build structured candle table
+    last_20 = daily_df.iloc[-20:]
+    lines = [f"Last 20 daily candles for {symbol}:"]
+    lines.append("Date       | Open    | High    | Low     | Close   | Volume")
+    lines.append("-" * 65)
+    for ts, row in last_20.iterrows():
+        dt = ts.strftime("%Y-%m-%d")
+        lines.append(
+            f"{dt} | {float(row['Open']):>7.2f} | {float(row['High']):>7.2f} | "
+            f"{float(row['Low']):>7.2f} | {float(row['Close']):>7.2f} | {int(row['Volume']):>10,}"
+        )
+
+    # Add MAs
+    lines.append("")
+    for k, v in mas.items():
+        lines.append(f"{k.upper()}: ${v:.2f}")
+
+    context = "\n".join(lines)
+
+    prompt = (
+        f"Classify the chart pattern for {symbol} from the last 20 daily candles.\n\n"
+        "1. PATTERN: Identify the primary pattern (bull flag, bear flag, ascending triangle, "
+        "descending triangle, double bottom, double top, head & shoulders, cup & handle, "
+        "consolidation/range, distribution, accumulation, or no clear pattern).\n"
+        "2. KEY LEVELS: Support and resistance levels visible in the data.\n"
+        "3. BIAS: Bullish, bearish, or neutral based on the pattern.\n"
+        "4. CONFIRMATION: What price action would confirm or invalidate the pattern.\n\n"
+        "Keep it concise (5-8 lines)."
+    )
+
+    yield from ask_ai_insight(prompt, context)
+
+
+# ---------------------------------------------------------------------------
 # AI insight (one-shot, focused analysis)
 # ---------------------------------------------------------------------------
 
