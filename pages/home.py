@@ -27,7 +27,7 @@ from alerting.alert_store import (
     user_has_used_ack,
     was_alert_fired,
 )
-from alerting.notifier import notify_user
+from alerting.notifier import notify, notify_user
 from db import get_notification_prefs
 from alerting.real_trade_store import (
     calculate_shares, has_open_trade,
@@ -202,13 +202,15 @@ else:
         st.session_state["_auto_stop_session"] = _current_session
 
     # Build fired_today from DB (authoritative, persistent across restarts)
-    db_alerts = get_alerts_today(user_id=user["id"])
+    # Admin sees ALL alerts (worker may record under different user_id)
+    _dedup_uid = None if _user_tier == "admin" else user["id"]
+    db_alerts = get_alerts_today(user_id=_dedup_uid)
     fired_today: set[tuple[str, str]] = {
         (a["symbol"], a["alert_type"]) for a in db_alerts
     }
 
     # Build active cooldown set from DB
-    cooled_symbols: set[str] = get_active_cooldowns(user_id=user["id"])
+    cooled_symbols: set[str] = get_active_cooldowns(user_id=_dedup_uid)
 
     # After a stop-out + cooldown expiry, allow BUY signals to re-fire.
     _stop_types = {"stop_loss_hit", "auto_stop_out"}
@@ -369,8 +371,8 @@ else:
                 if not has_acked_entry(sig.symbol, user["id"], session):
                     continue
 
-            # Final DB dedup check (another tab may have recorded it)
-            if was_alert_fired(sig.symbol, sig.alert_type.value, session, user_id=user["id"]):
+            # Final DB dedup check (another tab or worker may have recorded it)
+            if was_alert_fired(sig.symbol, sig.alert_type.value, session, user_id=_dedup_uid):
                 continue
 
             new_signals.append(sig)
@@ -381,10 +383,12 @@ else:
             if alert_id is None:
                 continue  # duplicate — already recorded by another tab or worker
 
-            # Per-user notification (matches worker.py pattern)
+            # Per-user notification; fall back to global notify if no prefs
             prefs = get_notification_prefs(user["id"])
             if prefs:
                 notify_user(sig, prefs, alert_id=alert_id)
+            else:
+                notify(sig, alert_id=alert_id)
 
             # Track active entries for actionable BUY signals
             if sig.direction == "BUY" and sig.alert_type not in _non_entry_types:
