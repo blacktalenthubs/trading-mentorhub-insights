@@ -625,6 +625,58 @@ def format_system_prompt(context: dict) -> str:
             lines.append(f"- {sym} {setup}: {action.upper()} → {outcome}{pnl_str}")
         sections.append("\n".join(lines))
 
+        # --- Behavioral pattern analysis (derived from journal) ---
+        took_by_type: dict[str, dict] = {}
+        skipped_by_type: dict[str, dict] = {}
+        for entry in ack_journal:
+            atype = entry["alert_type"].replace("_", " ")
+            outcome = entry.get("outcome", "open")
+            bucket = took_by_type if entry["user_action"] == "took" else skipped_by_type
+            if atype not in bucket:
+                bucket[atype] = {"total": 0, "wins": 0, "losses": 0}
+            bucket[atype]["total"] += 1
+            if outcome == "win":
+                bucket[atype]["wins"] += 1
+            elif outcome == "loss":
+                bucket[atype]["losses"] += 1
+
+        behavior_lines = ["[BEHAVIORAL PATTERNS — COACHING INSIGHTS]"]
+        has_insights = False
+
+        # Find rules user skips that actually win
+        for atype, stats in skipped_by_type.items():
+            if stats["total"] >= 2 and stats["wins"] > stats["losses"]:
+                wr = round(stats["wins"] / stats["total"] * 100)
+                behavior_lines.append(
+                    f"- MISSED EDGE: You skip '{atype}' alerts but they win {wr}% "
+                    f"({stats['wins']}W/{stats['losses']}L of {stats['total']}) — consider trusting this setup more"
+                )
+                has_insights = True
+
+        # Find rules user takes that consistently lose
+        for atype, stats in took_by_type.items():
+            if stats["total"] >= 2 and stats["losses"] > stats["wins"]:
+                wr = round(stats["wins"] / stats["total"] * 100)
+                behavior_lines.append(
+                    f"- LEAK: You take '{atype}' alerts but they win only {wr}% "
+                    f"({stats['wins']}W/{stats['losses']}L of {stats['total']}) — add filters or reduce size"
+                )
+                has_insights = True
+
+        # Find rules user takes that win well
+        for atype, stats in took_by_type.items():
+            if stats["total"] >= 3 and stats["wins"] > 0:
+                wr = round(stats["wins"] / stats["total"] * 100)
+                if wr >= 60:
+                    behavior_lines.append(
+                        f"- STRENGTH: '{atype}' is your best setup at {wr}% win rate "
+                        f"({stats['wins']}W/{stats['losses']}L) — lean into this"
+                    )
+                    has_insights = True
+
+        if has_insights:
+            sections.append("\n".join(behavior_lines))
+
     # Rules
     if hub:
         sections.append(

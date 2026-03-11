@@ -29,7 +29,7 @@ import ui_theme
 
 user = ui_theme.setup_page("real_trades", tier_required="pro")
 
-ui_theme.page_header("Real Trades", "Track real trades tied to alerts — $50k cap ($100k SPY)")
+ui_theme.page_header("Real Trades", "Track real trades tied to alerts — $50k cap (200 shares SPY)")
 
 # ── Trade Type Filter ─────────────────────────────────────────────────
 trade_filter = st.radio("Trade Type", ["All", "Intraday", "Swing", "Options"], horizontal=True)
@@ -447,6 +447,33 @@ else:
                     }),
                     use_container_width=True,
                 )
+
+                # AI Trade Review per trade
+                from analytics.trade_review import get_trade_review
+                for _, t_row in day_df.iterrows():
+                    tid = t_row["id"]
+                    sym = t_row["symbol"]
+                    existing_review = get_trade_review(tid)
+                    if existing_review:
+                        with st.expander(f"AI Review — {sym} (#{tid})"):
+                            st.markdown(existing_review)
+                    else:
+                        if st.button(f"AI Review {sym} (#{tid})", key=f"ai_review_{tid}"):
+                            from analytics.trade_review import generate_trade_review, save_trade_review
+                            trade_dict = dict(t_row)
+                            review_chunks = []
+                            try:
+                                placeholder = st.empty()
+                                for chunk in generate_trade_review(trade_dict):
+                                    review_chunks.append(chunk)
+                                    placeholder.markdown("".join(review_chunks))
+                                full_review = "".join(review_chunks)
+                                save_trade_review(tid, full_review)
+                                st.toast(f"AI review saved for {sym}")
+                            except ValueError as e:
+                                st.error(str(e))
+                            except Exception as e:
+                                st.error(f"AI review failed: {e}")
     else:
         ui_theme.empty_state("No closed trades yet.")
 

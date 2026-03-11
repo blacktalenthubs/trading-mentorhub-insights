@@ -684,6 +684,7 @@ def init_db():
     _migrate_per_user_entries_cooldowns()
     _migrate_ensure_default_watchlist()
     _migrate_add_score_v2()
+    _migrate_add_ai_review()
     _migrate_seed_subscriptions()
 
 
@@ -1038,6 +1039,12 @@ def _migrate_add_score_v2():
     """Add score_v2 column to alerts table if missing."""
     with get_db() as conn:
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN score_v2 INTEGER DEFAULT 0")
+
+
+def _migrate_add_ai_review():
+    """Add ai_review column to real_trades table if missing."""
+    with get_db() as conn:
+        _safe_add_column(conn, "ALTER TABLE real_trades ADD COLUMN ai_review TEXT")
 
 
 def _migrate_seed_subscriptions():
