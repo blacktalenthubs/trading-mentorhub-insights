@@ -65,8 +65,8 @@ def record_alert(
 ) -> int | None:
     """Insert a fired alert into the alerts table.
 
-    Returns the new row id, or None if the alert was a duplicate
-    (same symbol + alert_type + session_date + user_id already exists).
+    Returns the new row id, or None on failure.  Dedup is handled by the
+    caller via was_alert_fired() before calling this function.
     """
     session = session_date or today_session()
     with get_db() as conn:
@@ -75,8 +75,7 @@ def record_alert(
                (symbol, alert_type, direction, price, entry, stop, target_1, target_2,
                 confidence, message, narrative, score, score_v2, notified_email, notified_sms,
                 session_date, user_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(symbol, alert_type, session_date, user_id) DO NOTHING""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 signal.symbol,
                 signal.alert_type.value,
