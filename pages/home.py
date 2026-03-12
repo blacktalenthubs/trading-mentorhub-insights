@@ -24,6 +24,7 @@ from alerting.alert_store import (
     has_acked_entry,
     record_alert,
     today_session,
+    update_alert_notification,
     user_has_used_ack,
     was_alert_fired,
 )
@@ -386,9 +387,10 @@ else:
             # Per-user notification; fall back to global notify if no prefs
             prefs = get_notification_prefs(user["id"])
             if prefs:
-                notify_user(sig, prefs, alert_id=alert_id)
+                email_sent, tg_sent = notify_user(sig, prefs, alert_id=alert_id)
             else:
-                notify(sig, alert_id=alert_id)
+                email_sent, tg_sent = notify(sig, alert_id=alert_id)
+            update_alert_notification(alert_id, email_sent, tg_sent)
 
             # Track active entries for actionable BUY signals
             if sig.direction == "BUY" and sig.alert_type not in _non_entry_types:

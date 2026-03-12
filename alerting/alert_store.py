@@ -102,6 +102,19 @@ def record_alert(
         return cur.lastrowid or None
 
 
+def update_alert_notification(
+    alert_id: int,
+    notified_email: bool = False,
+    notified_sms: bool = False,
+) -> None:
+    """Update the notification status of an alert after delivery."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE alerts SET notified_email = ?, notified_sms = ? WHERE id = ?",
+            (int(notified_email), int(notified_sms), alert_id),
+        )
+
+
 def create_active_entry(
     signal: AlertSignal,
     session_date: str | None = None,

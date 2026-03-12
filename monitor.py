@@ -41,6 +41,7 @@ from alerting.alert_store import (
     record_alert,
     save_cooldown,
     today_session,
+    update_alert_notification,
     update_monitor_status,
     user_has_used_ack,
     was_alert_fired,
@@ -253,6 +254,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
 
                 # Single group notification
                 email_sent, sms_sent = notify(signal, alert_id=alert_id)
+                update_alert_notification(alert_id, email_sent, sms_sent)
 
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
