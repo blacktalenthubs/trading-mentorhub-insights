@@ -26,6 +26,7 @@ from analytics.intraday_rules import (
     check_hourly_resistance_approach,
     check_inside_day_breakout,
     check_inside_day_breakdown,
+    check_inside_day_forming,
     check_inside_day_reclaim,
     check_macd_histogram_flip,
     check_outside_day_breakout,
@@ -6563,3 +6564,89 @@ class TestSessionHighRetracement:
         # T1 = 95 + (95 - 95*0.995) = 95 + 0.475 = 95.475
         # close 96.5 > T1 → stale
         assert sig is None
+
+
+class TestInsideDayForming:
+    """Tests for check_inside_day_forming() — NOTICE alert when today's range is inside yesterday's."""
+
+    def _make_bars(self, ohlcv_list, n=15):
+        """Create n bars of intraday data. ohlcv_list = [(O, H, L, C), ...]"""
+        rows = []
+        for o, h, l, c in ohlcv_list:
+            rows.append({"Open": o, "High": h, "Low": l, "Close": c, "Volume": 1000})
+        # Pad to n bars if needed
+        while len(rows) < n:
+            rows.append(rows[-1].copy())
+        return pd.DataFrame(rows)
+
+    def test_fires_when_range_inside(self):
+        """Today's range fully inside yesterday's → fires NOTICE."""
+        # Prior day: low=95, high=105
+        # Today: session high=103, session low=97 → inside
+        bars = self._make_bars([
+            (100, 103, 97, 101),
+            (101, 102, 98, 100),
+        ], n=15)
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=95)
+        assert sig is not None
+        assert sig.alert_type == AlertType.INSIDE_DAY_FORMING
+        assert sig.direction == "NOTICE"
+        assert "INSIDE DAY FORMING" in sig.message
+
+    def test_no_fire_when_high_exceeds_prior(self):
+        """Session high above prior day high → not inside."""
+        bars = self._make_bars([
+            (100, 106, 97, 104),  # session high 106 > prior high 105
+        ], n=15)
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=95)
+        assert sig is None
+
+    def test_no_fire_when_low_below_prior(self):
+        """Session low below prior day low → not inside."""
+        bars = self._make_bars([
+            (100, 103, 94, 101),  # session low 94 < prior low 95
+        ], n=15)
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=95)
+        assert sig is None
+
+    def test_no_fire_before_min_bars(self):
+        """Not enough bars (< INSIDE_DAY_FORMING_MIN_BARS) → don't fire yet."""
+        bars = self._make_bars([
+            (100, 103, 97, 101),
+        ], n=10)  # only 10 bars, min is 13
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=95)
+        assert sig is None
+
+    def test_no_fire_when_prior_high_zero(self):
+        """Invalid prior high → skip."""
+        bars = self._make_bars([(100, 103, 97, 101)], n=15)
+        sig = check_inside_day_forming("SPY", bars, prior_high=0, prior_low=95)
+        assert sig is None
+
+    def test_no_fire_when_prior_low_zero(self):
+        """Invalid prior low → skip."""
+        bars = self._make_bars([(100, 103, 97, 101)], n=15)
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=0)
+        assert sig is None
+
+    def test_fires_at_exact_min_bars(self):
+        """Exactly INSIDE_DAY_FORMING_MIN_BARS bars → fires."""
+        bars = self._make_bars([(100, 103, 97, 101)], n=13)
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=95)
+        assert sig is not None
+
+    def test_range_pct_in_message(self):
+        """Message includes % of parent range used."""
+        bars = self._make_bars([(100, 103, 97, 101)], n=15)
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=95)
+        assert sig is not None
+        # range used = (103-97)/(105-95) = 60%
+        assert "60%" in sig.message
+
+    def test_boundary_levels_in_message(self):
+        """Message includes both boundary levels for trade guidance."""
+        bars = self._make_bars([(100, 103, 97, 101)], n=15)
+        sig = check_inside_day_forming("SPY", bars, prior_high=105, prior_low=95)
+        assert sig is not None
+        assert "$95.00" in sig.message  # prior low
+        assert "$105.00" in sig.message  # prior high

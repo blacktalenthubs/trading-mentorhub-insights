@@ -57,6 +57,8 @@ from alert_config import (
     PDH_RETEST_PROXIMITY_PCT,
     PDH_RETEST_STOP_OFFSET_PCT,
     INSIDE_DAY_DIP_MIN_PCT,
+    INSIDE_DAY_FORMING_MIN_BARS,
+    INSIDE_DAY_SCORE_BOOST,
     PDL_BOUNCE_HOLD_BARS,
     PDL_BOUNCE_MAX_DISTANCE_PCT,
     PDL_BOUNCE_PROXIMITY_PCT,
@@ -201,6 +203,8 @@ class AlertType(str, Enum):
     SWING_BULL_FLAG = "swing_bull_flag"
     SWING_CANDLE_PATTERN = "swing_candle_pattern"
     SWING_CONSECUTIVE_RED = "swing_consecutive_red"
+    # Informational — inside day forming (today's range within yesterday's)
+    INSIDE_DAY_FORMING = "inside_day_forming"
 
 
 @dataclass
@@ -881,6 +885,50 @@ def check_pdh_retest_hold(
 # ---------------------------------------------------------------------------
 # BUY Rule 4: Inside Day Breakout
 # ---------------------------------------------------------------------------
+
+def check_inside_day_forming(
+    symbol: str,
+    intraday_bars: pd.DataFrame,
+    prior_high: float,
+    prior_low: float,
+) -> AlertSignal | None:
+    """Detect when today's range is forming inside yesterday's range.
+
+    Fires once after the first hour (INSIDE_DAY_FORMING_MIN_BARS) if today's
+    session high is below prior day high AND session low is above prior day low.
+    This is a NOTICE alert — it tells the trader the day is range-bound and
+    only the boundaries (PDL/PDH) are tradeable.
+    """
+    if prior_high <= 0 or prior_low <= 0:
+        return None
+    if len(intraday_bars) < INSIDE_DAY_FORMING_MIN_BARS:
+        return None
+
+    session_high = intraday_bars["High"].max()
+    session_low = intraday_bars["Low"].min()
+
+    if session_high >= prior_high:
+        return None
+    if session_low <= prior_low:
+        return None
+
+    range_used_pct = (session_high - session_low) / (prior_high - prior_low) * 100
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.INSIDE_DAY_FORMING,
+        direction="NOTICE",
+        price=intraday_bars.iloc[-1]["Close"],
+        entry=None,
+        confidence="medium",
+        message=(
+            f"INSIDE DAY FORMING — today's range ${session_low:.2f}-${session_high:.2f} "
+            f"within yesterday's ${prior_low:.2f}-${prior_high:.2f} "
+            f"({range_used_pct:.0f}% of parent range). "
+            f"Trade the boundaries: buy near ${prior_low:.2f}, sell near ${prior_high:.2f}"
+        ),
+    )
+
 
 def check_inside_day_breakout(
     symbol: str,
@@ -4371,6 +4419,15 @@ def evaluate_rules(
             sig.session_phase = phase
             signals.append(sig)
 
+    # --- Inside Day Forming (NOTICE — fires once after first hour) ---
+    is_inside_day_forming = False
+    if AlertType.INSIDE_DAY_FORMING.value in ENABLED_RULES:
+        sig = check_inside_day_forming(symbol, intraday_bars, prior_high, prior_low)
+        if sig:
+            is_inside_day_forming = True
+            sig.session_phase = phase
+            signals.append(sig)
+
     # --- SELL rules (always fire regardless of SPY/session) ---
 
     entries = active_entries or []
@@ -4843,6 +4900,21 @@ def evaluate_rules(
             sig.score = min(100, sig.score + 10)
             sig.score_v2 = min(100, sig.score_v2 + 10)
             sig.score_factors["mtf"] = 10
+
+        # Inside day forming score boost: boundary alerts (PDL/PDH) are higher
+        # conviction when the day is range-bound — these are the only tradeable
+        # levels on an inside day.
+        _INSIDE_DAY_BOUNDARY_TYPES = {
+            AlertType.PRIOR_DAY_LOW_RECLAIM.value,
+            AlertType.PRIOR_DAY_LOW_BOUNCE.value,
+            AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
+            AlertType.PDH_TEST.value,
+        }
+        if is_inside_day_forming and sig.alert_type.value in _INSIDE_DAY_BOUNDARY_TYPES:
+            sig.score = min(100, sig.score + INSIDE_DAY_SCORE_BOOST)
+            sig.score_v2 = min(100, sig.score_v2 + INSIDE_DAY_SCORE_BOOST)
+            sig.score_factors["inside_day"] = INSIDE_DAY_SCORE_BOOST
+            sig.message += " | INSIDE DAY — boundary level (boosted)"
 
         sig.score_label = (
             "A+" if sig.score >= 90

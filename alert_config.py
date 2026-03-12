@@ -92,6 +92,10 @@ PDH_RETEST_STOP_OFFSET_PCT = 0.005   # 0.5% below PDH for stop
 # Inside Day Reclaim: minimum dip below inside low to qualify
 INSIDE_DAY_DIP_MIN_PCT = 0.0003  # 0.03% — same as PDL (any meaningful touch)
 
+# Inside Day Forming: detect when today's range is within yesterday's range
+INSIDE_DAY_FORMING_MIN_BARS = 13   # ~65 min — first hour must pass before declaring
+INSIDE_DAY_SCORE_BOOST = 10        # +10 score for PDL/PDH boundary alerts on inside days
+
 # Resistance at Prior High: proximity threshold
 RESISTANCE_PROXIMITY_PCT = 0.003  # 0.3% — symmetric with support bounce
 
@@ -438,6 +442,7 @@ ENABLED_RULES: set[str] = {
     # "support_breakdown",
     # NOTICE — informational
     "first_hour_summary",
+    "inside_day_forming",
     # Phase 2: Professional rules
     "macd_histogram_flip",
     "bb_squeeze_breakout",
