@@ -29,6 +29,11 @@ from alerting.alert_store import (
     was_alert_fired,
 )
 from alerting.notifier import notify, notify_user
+from alerting.paper_trader import (
+    close_position as paper_close_position,
+    is_enabled as paper_trading_enabled,
+    place_bracket_order,
+)
 from db import get_notification_prefs
 from alerting.real_trade_store import (
     calculate_shares, has_open_trade,
@@ -397,6 +402,16 @@ else:
                 if not _ack_active:
                     create_active_entry(sig, session, user_id=user["id"])  # legacy fallback
                 # else: created on ACK callback
+                if paper_trading_enabled():
+                    place_bracket_order(sig, alert_id=alert_id)
+
+            # Paper trade exits on stop/target hits
+            if sig.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
+                if paper_trading_enabled():
+                    paper_close_position(sig.symbol, exit_price=sig.price, reason=sig.alert_type.value)
+            if sig.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
+                if paper_trading_enabled():
+                    paper_close_position(sig.symbol, exit_price=sig.price, reason=sig.alert_type.value)
 
             st.session_state["alert_history"].append({
                 "symbol": sig.symbol,
