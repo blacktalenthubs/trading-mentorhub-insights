@@ -200,10 +200,11 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
             )
 
             for signal in signals:
-                # Gate: suppress ALL exit/sell signals for un-ACK'd symbols
-                if _ack_active and signal.direction != "BUY":
+                # Gate: suppress SELL signals for un-ACK'd symbols (no position to exit)
+                # NOTICE alerts are informational — always let them through
+                if _ack_active and signal.direction == "SELL":
                     if not has_acked_entry(symbol, uid, session):
-                        logger.debug("%s: suppressing %s (not ACK'd)", symbol, signal.alert_type.value)
+                        logger.debug("%s: suppressing SELL %s (not ACK'd)", symbol, signal.alert_type.value)
                         continue
                 signal.narrative = generate_narrative(signal)
 

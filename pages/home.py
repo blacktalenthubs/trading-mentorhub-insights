@@ -372,8 +372,9 @@ else:
     for sig in all_signals:
         key = (sig.symbol, sig.alert_type.value, sig.direction)
         if key not in existing_keys:
-            # Gate: suppress ALL exit/sell signals for un-ACK'd symbols
-            if _ack_active and sig.direction != "BUY":
+            # Gate: suppress SELL signals for un-ACK'd symbols (no position to exit)
+            # NOTICE alerts are informational — always let them through
+            if _ack_active and sig.direction == "SELL":
                 if not has_acked_entry(sig.symbol, user["id"], session):
                     continue
 
