@@ -171,6 +171,8 @@ class AlertType(str, Enum):
     WEEKLY_HIGH_BREAKOUT = "weekly_high_breakout"
     WEEKLY_HIGH_TEST = "weekly_high_test"
     WEEKLY_HIGH_RESISTANCE = "weekly_high_resistance"
+    WEEKLY_LOW_TEST = "weekly_low_test"
+    WEEKLY_LOW_BREAKDOWN = "weekly_low_breakdown"
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
     EMA_BOUNCE_100 = "ema_bounce_100"
@@ -1510,6 +1512,113 @@ def check_weekly_high_resistance(
         direction="SELL",
         price=bar["High"],
         message=f"Weekly high resistance — rejected near ${pw_high:.2f}, closed ${bar['Close']:.2f}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# NOTICE: Weekly Low Test (wick below prior week low, close stays above)
+# ---------------------------------------------------------------------------
+
+
+def check_weekly_low_test(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Bar low wicks below prior week low but close stays above — testing support.
+
+    Heads-up that price is probing the weekly support level. If it holds,
+    weekly_level_touch fires for the bounce entry. If it breaks,
+    weekly_low_breakdown fires.
+
+    Conditions:
+    - Bar low <= prior_week_low (touched or pierced)
+    - Bar close > prior_week_low (not broken)
+    - Approaching from above: prior close > prior_week_low
+    """
+    pw_low = prior_day.get("prior_week_low")
+    if not pw_low or pw_low <= 0:
+        return None
+
+    # Must wick below (or touch) weekly low
+    if bar["Low"] > pw_low:
+        return None
+
+    # Must NOT have closed below — breakdown rule handles that
+    if bar["Close"] <= pw_low:
+        return None
+
+    # Directional guard: only if approaching from above
+    if prior_close is not None and prior_close <= pw_low:
+        return None
+
+    pct_below = (pw_low - bar["Low"]) / pw_low * 100
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WEEKLY_LOW_TEST,
+        direction="NOTICE",
+        price=bar["Low"],
+        entry=round(pw_low, 2),
+        confidence="medium",
+        message=(
+            f"TESTING prior week low ${pw_low:.2f} — "
+            f"wicked {pct_below:.2f}% below, closed ${bar['Close']:.2f} above. "
+            f"Watch for hold (bounce entry) or close below (breakdown)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: Weekly Low Breakdown (close below prior week low)
+# ---------------------------------------------------------------------------
+
+
+def check_weekly_low_breakdown(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+    bar_volume: float,
+    avg_volume: float,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Price closes below prior week low — weekly support lost.
+
+    Conditions:
+    - Bar close < prior_week_low
+    - Approaching from above: prior close > prior_week_low (not already below)
+    """
+    pw_low = prior_day.get("prior_week_low")
+    pw_high = prior_day.get("prior_week_high")
+    if not pw_low or pw_low <= 0:
+        return None
+
+    if bar["Close"] >= pw_low:
+        return None
+
+    # Only fire when breaking down from above
+    if prior_close is not None and prior_close <= pw_low:
+        return None
+
+    pct_below = (pw_low - bar["Close"]) / pw_low * 100
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+
+    weekly_range = pw_high - pw_low if pw_high and pw_high > pw_low else 0
+    range_info = f", weekly range was ${weekly_range:.2f}" if weekly_range > 0 else ""
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WEEKLY_LOW_BREAKDOWN,
+        direction="SELL",
+        price=bar["Close"],
+        entry=round(pw_low, 2),
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=(
+            f"WEEKLY LOW BREAKDOWN — closed {pct_below:.2f}% below ${pw_low:.2f} "
+            f"(vol {vol_ratio:.1f}x avg{range_info}). "
+            f"Weekly support lost — watch for continuation lower"
+        ),
     )
 
 
@@ -4470,6 +4579,22 @@ def evaluate_rules(
     if AlertType.WEEKLY_HIGH_RESISTANCE.value in ENABLED_RULES:
         sig = check_weekly_high_resistance(symbol, last_bar, prior_day)
         if sig:
+            signals.append(sig)
+
+    # --- Weekly Low Test (wick below, no close) ---
+    if AlertType.WEEKLY_LOW_TEST.value in ENABLED_RULES:
+        sig = check_weekly_low_test(symbol, last_bar, prior_day, prior_close)
+        if sig:
+            sig.session_phase = phase
+            signals.append(sig)
+
+    # --- Weekly Low Breakdown (close below prior week low) ---
+    if AlertType.WEEKLY_LOW_BREAKDOWN.value in ENABLED_RULES:
+        sig = check_weekly_low_breakdown(
+            symbol, last_bar, prior_day, bar_vol, avg_vol, prior_close,
+        )
+        if sig:
+            sig.message += f" ({phase})"
             signals.append(sig)
 
     # --- EMA Resistance ---

@@ -44,6 +44,8 @@ from analytics.intraday_rules import (
     check_pdh_test,
     check_prior_day_high_breakout,
     check_weekly_high_test,
+    check_weekly_low_test,
+    check_weekly_low_breakdown,
     check_ema_resistance,
     check_prior_day_low_bounce,
     check_prior_day_low_reclaim,
@@ -6650,3 +6652,115 @@ class TestInsideDayForming:
         assert sig is not None
         assert "$95.00" in sig.message  # prior low
         assert "$105.00" in sig.message  # prior high
+
+
+class TestWeeklyLowTest:
+    """Tests for check_weekly_low_test() — NOTICE when price wicks below prior week low."""
+
+    def test_fires_on_wick_below(self):
+        """Bar low wicks below prior week low, close stays above → fires."""
+        bar = _bar(open_=100, high=101, low=94.5, close=100)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_test("SPY", bar, prior_day, prior_close=100)
+        assert sig is not None
+        assert sig.alert_type == AlertType.WEEKLY_LOW_TEST
+        assert sig.direction == "NOTICE"
+        assert "TESTING prior week low" in sig.message
+
+    def test_no_fire_when_close_below(self):
+        """Close below prior week low → breakdown, not test."""
+        bar = _bar(open_=96, high=97, low=93, close=94)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_test("SPY", bar, prior_day, prior_close=100)
+        assert sig is None
+
+    def test_no_fire_when_low_above(self):
+        """Bar low stays above prior week low → no test."""
+        bar = _bar(open_=100, high=101, low=96, close=100)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_test("SPY", bar, prior_day, prior_close=100)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_below(self):
+        """Already below weekly low → not approaching from above."""
+        bar = _bar(open_=94, high=95.5, low=93, close=95.2)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_test("SPY", bar, prior_day, prior_close=94)
+        assert sig is None
+
+    def test_no_fire_when_no_weekly_low(self):
+        """Missing prior week low → skip."""
+        bar = _bar(open_=100, high=101, low=94, close=100)
+        sig = check_weekly_low_test("SPY", bar, {}, prior_close=100)
+        assert sig is None
+
+    def test_exact_touch_fires(self):
+        """Bar low exactly at prior week low → fires (testing the level)."""
+        bar = _bar(open_=100, high=101, low=95, close=100)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_test("SPY", bar, prior_day, prior_close=100)
+        assert sig is not None
+
+    def test_fires_without_prior_close(self):
+        """No prior close → skips directional guard, still fires."""
+        bar = _bar(open_=100, high=101, low=94, close=100)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_test("SPY", bar, prior_day, prior_close=None)
+        assert sig is not None
+
+
+class TestWeeklyLowBreakdown:
+    """Tests for check_weekly_low_breakdown() — SELL when price closes below prior week low."""
+
+    def test_fires_on_close_below(self):
+        """Close below prior week low → fires SELL."""
+        bar = _bar(open_=96, high=97, low=93, close=94)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=100)
+        assert sig is not None
+        assert sig.alert_type == AlertType.WEEKLY_LOW_BREAKDOWN
+        assert sig.direction == "SELL"
+        assert "WEEKLY LOW BREAKDOWN" in sig.message
+
+    def test_no_fire_when_close_above(self):
+        """Close above prior week low → not a breakdown."""
+        bar = _bar(open_=96, high=97, low=94, close=96)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=100)
+        assert sig is None
+
+    def test_no_fire_when_already_below(self):
+        """Prior close already below weekly low → not a fresh breakdown."""
+        bar = _bar(open_=93, high=94, low=92, close=93)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=94)
+        assert sig is None
+
+    def test_no_fire_when_no_weekly_low(self):
+        """Missing prior week low → skip."""
+        bar = _bar(open_=96, high=97, low=93, close=94)
+        sig = check_weekly_low_breakdown("SPY", bar, {}, 2000, 1000, prior_close=100)
+        assert sig is None
+
+    def test_high_volume_gets_high_confidence(self):
+        """Volume >= 1.5x avg → high confidence."""
+        bar = _bar(open_=96, high=97, low=93, close=94)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=100)
+        assert sig is not None
+        assert sig.confidence == "high"  # 2000/1000 = 2.0x >= 1.5
+
+    def test_low_volume_gets_medium_confidence(self):
+        """Volume < 1.5x avg → medium confidence."""
+        bar = _bar(open_=96, high=97, low=93, close=94)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_breakdown("SPY", bar, prior_day, 1000, 1000, prior_close=100)
+        assert sig is not None
+        assert sig.confidence == "medium"  # 1.0x < 1.5
+
+    def test_fires_without_prior_close(self):
+        """No prior close → skips directional guard, still fires."""
+        bar = _bar(open_=96, high=97, low=93, close=94)
+        prior_day = {"prior_week_low": 95, "prior_week_high": 105}
+        sig = check_weekly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=None)
+        assert sig is not None
