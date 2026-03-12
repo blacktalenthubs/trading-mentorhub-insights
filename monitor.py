@@ -83,12 +83,26 @@ _ADMIN_UID: int | None = None
 
 
 def _get_admin_uid() -> int:
-    """Return the admin (first) user ID, resolved once and cached."""
+    """Return the admin user ID, resolved once and cached.
+
+    Uses ADMIN_EMAIL env var to find the correct user.  Falls back to
+    the first user in the DB if not set.
+    """
     global _ADMIN_UID
     if _ADMIN_UID is None:
+        import os
         from db import get_db
+        admin_email = os.environ.get("ADMIN_EMAIL", "")
         with get_db() as conn:
-            row = conn.execute("SELECT id FROM users LIMIT 1").fetchone()
+            if admin_email:
+                row = conn.execute(
+                    "SELECT id FROM users WHERE email = ? LIMIT 1",
+                    (admin_email,),
+                ).fetchone()
+            else:
+                row = None
+            if row is None:
+                row = conn.execute("SELECT id FROM users LIMIT 1").fetchone()
             _ADMIN_UID = row["id"] if row else 1
     return _ADMIN_UID
 
@@ -116,7 +130,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     if not dry_run and paper_trading_enabled():
         sync_open_trades()
 
-    symbols = symbols_override if symbols_override is not None else get_all_watchlist_symbols()
+    symbols = symbols_override if symbols_override is not None else get_watchlist(_get_admin_uid())
 
     # Seed daily plans if none exist for today's session (ensures plans exist
     # even if nobody opened the Scanner page before the monitor started).
@@ -390,7 +404,7 @@ def run_monitor():
             if not is_market_hours():
                 _maybe_run_eod()
                 # Outside market hours: still poll crypto symbols if any exist
-                all_symbols = get_all_watchlist_symbols()
+                all_symbols = get_watchlist(_get_admin_uid())
                 crypto_symbols = [s for s in all_symbols if is_crypto_alert_symbol(s)]
                 if crypto_symbols:
                     logger.info("Market closed — polling crypto only: %s", ", ".join(crypto_symbols))
@@ -416,7 +430,7 @@ def run_monitor():
             logger.exception("CRITICAL: scheduled_poll failed — scheduler will retry next interval")
 
     # Run immediately on start
-    watchlist = get_all_watchlist_symbols()
+    watchlist = get_watchlist(_get_admin_uid())
     logger.info("Starting monitor — watchlist: %s", ", ".join(watchlist))
     logger.info("Poll interval: %d minutes", POLL_INTERVAL_MINUTES)
 
