@@ -59,6 +59,7 @@ from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules
 from db import (
     init_db,
     get_all_daily_plans,
+    get_all_watchlist_symbols,
     get_daily_plan,
     get_watchlist,
 )
@@ -115,7 +116,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     if not dry_run and paper_trading_enabled():
         sync_open_trades()
 
-    symbols = symbols_override if symbols_override is not None else get_watchlist(_get_admin_uid())
+    symbols = symbols_override if symbols_override is not None else get_all_watchlist_symbols()
 
     # Seed daily plans if none exist for today's session (ensures plans exist
     # even if nobody opened the Scanner page before the monitor started).
@@ -389,7 +390,7 @@ def run_monitor():
             if not is_market_hours():
                 _maybe_run_eod()
                 # Outside market hours: still poll crypto symbols if any exist
-                all_symbols = get_watchlist(_get_admin_uid())
+                all_symbols = get_all_watchlist_symbols()
                 crypto_symbols = [s for s in all_symbols if is_crypto_alert_symbol(s)]
                 if crypto_symbols:
                     logger.info("Market closed — polling crypto only: %s", ", ".join(crypto_symbols))
@@ -415,7 +416,7 @@ def run_monitor():
             logger.exception("CRITICAL: scheduled_poll failed — scheduler will retry next interval")
 
     # Run immediately on start
-    watchlist = get_watchlist(_get_admin_uid())
+    watchlist = get_all_watchlist_symbols()
     logger.info("Starting monitor — watchlist: %s", ", ".join(watchlist))
     logger.info("Poll interval: %d minutes", POLL_INTERVAL_MINUTES)
 

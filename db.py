@@ -1699,6 +1699,19 @@ def get_watchlist(user_id: int | None = None) -> list[str]:
         return list(DEFAULT_WATCHLIST)
 
 
+def get_all_watchlist_symbols() -> list[str]:
+    """Return the union of all user watchlists — used by the worker to monitor all symbols."""
+    from config import DEFAULT_WATCHLIST
+
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT symbol FROM watchlist ORDER BY symbol",
+        ).fetchall()
+        if rows:
+            return [r["symbol"] for r in rows]
+        return list(DEFAULT_WATCHLIST)
+
+
 def add_to_watchlist(symbol: str, user_id: int | None = None):
     """Add a symbol to the user's watchlist (no-op if already present)."""
     uid = user_id if user_id is not None else _default_user_id()
