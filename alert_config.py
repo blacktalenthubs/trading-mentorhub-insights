@@ -527,6 +527,13 @@ CLAUDE_MODEL = _get_secret("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 CLAUDE_MODEL_SONNET = _get_secret("CLAUDE_MODEL_SONNET", "claude-sonnet-4-20250514")
 NARRATIVE_SONNET_MIN_SCORE = int(_get_secret("NARRATIVE_SONNET_MIN_SCORE", "65"))
 
+# Intraday Regime Narrator — AI push on SPY regime shifts
+REGIME_NARRATOR_ENABLED = _get_secret("REGIME_NARRATOR_ENABLED", "true").lower() == "true"
+REGIME_NARRATOR_MAX_PER_SESSION = int(_get_secret("REGIME_NARRATOR_MAX_PER_SESSION", "4"))
+
+# Alert Clustering Intelligence — AI synthesis for multi-signal confluence
+CLUSTER_NARRATOR_ENABLED = _get_secret("CLUSTER_NARRATOR_ENABLED", "true").lower() == "true"
+
 # AI Conviction Filter (Phase 3)
 AI_CONVICTION_ENABLED = _get_secret("AI_CONVICTION_ENABLED", "false").lower() == "true"
 AI_CONVICTION_SUPPRESS_BELOW = int(_get_secret("AI_CONVICTION_SUPPRESS_BELOW", "30"))

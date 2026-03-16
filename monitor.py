@@ -176,6 +176,15 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     uid = _get_admin_uid()
     _ack_active = user_has_used_ack(uid)
 
+    # Regime narrator: check for SPY regime shift (once per poll cycle)
+    if not dry_run:
+        try:
+            _regime_spy_ctx = get_spy_context()
+            from analytics.regime_narrator import check_regime_shift
+            check_regime_shift(_regime_spy_ctx)
+        except Exception:
+            logger.debug("Regime narrator check failed, proceeding")
+
     for symbol in symbols:
         try:
             _is_crypto = is_crypto_alert_symbol(symbol)
@@ -208,6 +217,21 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                         continue
                 signal.narrative = generate_narrative(signal)
 
+                # Cluster narrator: if signal has confirming signals, generate
+                # a richer AI synthesis instead of the default narrative
+                if "[+" in signal.message and "confirming:" in signal.message:
+                    try:
+                        import re
+                        _match = re.search(r"\[\+\d+ confirming: (.+?)\]", signal.message)
+                        if _match:
+                            _conf_types = [t.strip() for t in _match.group(1).split(",")]
+                            from analytics.cluster_narrator import narrate_cluster
+                            _cluster_narrative = narrate_cluster(signal, _conf_types)
+                            if _cluster_narrative:
+                                signal.narrative = _cluster_narrative
+                    except Exception:
+                        logger.debug("%s: cluster narrator failed, using default", symbol)
+
                 # AI Conviction Filter (feature-flagged)
                 if _ai_conviction_enabled and signal.direction == "BUY":
                     try:
@@ -217,12 +241,12 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                         signal.ai_reasoning = _reason
                         if _conv < _ai_suppress_below:
                             logger.info(
-                                "%s: AI conviction %d < %d — suppressing %s (%s)",
+                                "%s: AI conviction %d < %d — tagging LOW %s (%s)",
                                 symbol, _conv, _ai_suppress_below,
                                 signal.alert_type.value, _reason,
                             )
-                            continue
-                        if _conv >= _ai_boost_above:
+                            signal.message += f" | AI conviction LOW ({_conv})"
+                        elif _conv >= _ai_boost_above:
                             signal.score = min(100, signal.score + _ai_boost_pts)
                             signal.score_v2 = min(100, signal.score_v2 + _ai_boost_pts)
                             signal.message += f" | AI conviction HIGH ({_conv})"
