@@ -34,60 +34,57 @@ if not session_dates:
     ui_theme.empty_state("No alerts recorded yet. The monitor will populate alerts during market hours.")
     st.stop()
 
-# ── Sidebar controls ─────────────────────────────────────────────────────
+# ── Date picker (main page, not sidebar) ─────────────────────────────────
 
-with st.sidebar:
-    st.subheader("Date Range")
-    if _is_free:
-        # Free users: latest day only
-        dates_to_show = session_dates[:1]
-        st.caption(f"1 session (free tier) · {len(session_dates)} total")
-        render_inline_upgrade("Full alert history — browse all sessions", "pro")
-    else:
-        view_mode = st.radio(
-            "View",
-            ["Pick a date", "Latest day", "Last 3 days", "Last 7 days", "All dates"],
-            index=0,
-            label_visibility="collapsed",
-        )
+if _is_free:
+    dates_to_show = session_dates[:1]
+    st.caption(f"Showing latest session (free tier) · {len(session_dates)} total")
+    render_inline_upgrade("Full alert history — browse all sessions", "pro")
+else:
+    import datetime as _dt
 
-        if view_mode == "Pick a date":
-            # Convert session_date strings to date objects for the picker
-            import datetime as _dt
+    _date_objs = []
+    for ds in session_dates:
+        try:
+            _date_objs.append(_dt.date.fromisoformat(ds))
+        except Exception:
+            pass
 
-            _date_objs = []
-            for ds in session_dates:
-                try:
-                    _date_objs.append(_dt.date.fromisoformat(ds))
-                except Exception:
-                    pass
+    if _date_objs:
+        dp_col, mode_col = st.columns([1, 2])
+        with dp_col:
+            picked = st.date_input(
+                "Session date",
+                value=_date_objs[0],
+                min_value=_date_objs[-1],
+                max_value=_date_objs[0],
+            )
+        with mode_col:
+            view_mode = st.radio(
+                "Quick range",
+                ["Single day", "Last 3 days", "Last 7 days", "All dates"],
+                index=0,
+                horizontal=True,
+            )
 
-            if _date_objs:
-                picked = st.date_input(
-                    "Session date",
-                    value=_date_objs[0],
-                    min_value=_date_objs[-1],
-                    max_value=_date_objs[0],
-                )
-                picked_str = str(picked)
-                if picked_str in session_dates:
-                    dates_to_show = [picked_str]
-                else:
-                    # Show nearest available date
-                    st.warning(f"No alerts on {picked_str}")
-                    dates_to_show = session_dates[:1]
+        picked_str = str(picked)
+
+        if view_mode == "Single day":
+            if picked_str in session_dates:
+                dates_to_show = [picked_str]
             else:
+                st.warning(f"No alerts on {picked_str} — showing nearest session")
                 dates_to_show = session_dates[:1]
-        elif view_mode == "Latest day":
-            dates_to_show = session_dates[:1]
         elif view_mode == "Last 3 days":
             dates_to_show = session_dates[:3]
         elif view_mode == "Last 7 days":
             dates_to_show = session_dates[:7]
         else:
             dates_to_show = session_dates
+    else:
+        dates_to_show = session_dates[:1]
 
-        st.caption(f"{len(dates_to_show)} session(s) · {len(session_dates)} total")
+    st.caption(f"{len(dates_to_show)} session(s) · {len(session_dates)} total")
 
 # ── Collect all alerts across selected dates ─────────────────────────────
 
