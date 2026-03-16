@@ -14,6 +14,11 @@ import logging
 from analytics._cache import cache_data
 
 from alert_config import (
+    DAILY_DB_LOOKBACK_DAYS,
+    DAILY_DB_MIN_DAYS_BETWEEN,
+    DAILY_DB_MIN_RECOVERY_PCT,
+    DAILY_DB_MIN_TOUCHES,
+    DAILY_DB_SWING_LOW_CLUSTER_PCT,
     HOURLY_RESISTANCE_CLUSTER_PCT,
     SPY_MA_SUPPORT_PROXIMITY_PCT,
     SPY_SUPPORT_PROXIMITY_PCT,
@@ -309,6 +314,152 @@ def detect_hourly_support(
     return sorted(min(c) for c in clusters)
 
 
+def detect_daily_double_bottoms(
+    hist: pd.DataFrame,
+    lookback_days: int = DAILY_DB_LOOKBACK_DAYS,
+    cluster_pct: float = DAILY_DB_SWING_LOW_CLUSTER_PCT,
+    min_touches: int = DAILY_DB_MIN_TOUCHES,
+    min_days_between: int = DAILY_DB_MIN_DAYS_BETWEEN,
+    min_recovery_pct: float = DAILY_DB_MIN_RECOVERY_PCT,
+) -> list[dict]:
+    """Find multi-day double bottom zones from daily OHLCV bars.
+
+    Scans the last ``lookback_days`` completed daily bars for support zones
+    that have been tested multiple times.  The algorithm considers **all**
+    daily bar lows (not only strict swing lows) because the double-bottom
+    pattern on a daily chart often manifests as repeated tests of the same
+    zone without each individual bar qualifying as a classic swing low.
+
+    Only bars whose Low is in the lower half of the lookback range are
+    considered candidates — this filters out trivial dips in an uptrend.
+
+    A cluster qualifies as a double bottom when:
+
+    * it has ``min_touches`` or more,
+    * the first and last touches are at least ``min_days_between`` bars apart,
+    * there is a meaningful recovery (``min_recovery_pct``) between them, and
+    * lows are not descending (last touch is not significantly below first).
+
+    Args:
+        hist: Daily OHLCV DataFrame **already trimmed to completed bars**
+              (caller must exclude today's partial bar).
+        lookback_days: How many completed daily bars to scan.
+        cluster_pct: Max distance (%) to group nearby lows into one zone.
+        min_touches: Minimum touches for a valid double bottom.
+        min_days_between: Minimum bar gap between first and last touch.
+        min_recovery_pct: Minimum % bounce above zone low between touches.
+
+    Returns:
+        List of dicts sorted ascending by level::
+
+            [{"level": float,           # zone low (min of cluster)
+              "touch_count": int,        # number of bar-low touches
+              "first_touch_idx": int,    # bar index of first touch
+              "last_touch_idx": int,     # bar index of last touch
+              "zone_high": float}]       # zone high (max of cluster)
+    """
+    if hist.empty or len(hist) < 5:
+        return []
+
+    bars = hist.tail(lookback_days).reset_index(drop=True)
+    if len(bars) < 5:
+        return []
+
+    # Step 1: Collect candidate lows — bars in the lower 75% of the range.
+    # This filters out trivial dips near the highs (top quartile) while
+    # catching the repeated zone tests that define a double bottom.
+    # We use 75% because volatile assets (crypto) can have wide ranges
+    # from a single crash bar that makes the range enormous.
+    period_high = float(bars["High"].max())
+    period_low = float(bars["Low"].min())
+    period_range = period_high - period_low
+    if period_range <= 0:
+        return []
+    cutoff = period_low + period_range * 0.75
+
+    candidate_lows: list[tuple[int, float]] = []  # (bar_index, low)
+    for i in range(len(bars)):
+        bar_low = float(bars["Low"].iloc[i])
+        if bar_low <= cutoff:
+            candidate_lows.append((i, bar_low))
+
+    if len(candidate_lows) < min_touches:
+        return []
+
+    # Step 2: Sort by price and cluster within cluster_pct
+    candidate_lows.sort(key=lambda x: x[1])
+    clusters: list[list[tuple[int, float]]] = [[candidate_lows[0]]]
+    for idx, level in candidate_lows[1:]:
+        cluster_base = clusters[-1][0][1]  # first (lowest) in cluster
+        if (level - cluster_base) / cluster_base <= cluster_pct:
+            clusters[-1].append((idx, level))
+        else:
+            clusters.append([(idx, level)])
+
+    # Step 3: Filter clusters that qualify as double bottoms
+    results: list[dict] = []
+    for cluster in clusters:
+        if len(cluster) < min_touches:
+            continue
+
+        indices = [c[0] for c in cluster]
+        levels = [c[1] for c in cluster]
+        first_idx = min(indices)
+        last_idx = max(indices)
+
+        # Must be separate days
+        if last_idx - first_idx < min_days_between:
+            continue
+
+        zone_low = min(levels)
+        zone_high = max(levels)
+
+        # Reject descending lows — last touch significantly below first touch
+        first_touch_low = next(lv for ix, lv in cluster if ix == first_idx)
+        last_touch_low = next(lv for ix, lv in cluster if ix == last_idx)
+        if last_touch_low < first_touch_low * (1 - cluster_pct):
+            continue
+
+        # Check for recovery between touches: at least one bar between
+        # first and last touch must have its Close above zone_low * (1 + recovery).
+        # We use Close (not Low) because V-shaped recoveries have bars
+        # whose wicks dip below the zone even as the trend recovers.
+        # We measure from zone_low (not zone_high) because what matters is
+        # that price bounced away from support, not that it exceeded the
+        # highest touch.
+        recovery_threshold = zone_low * (1 + min_recovery_pct)
+        has_recovery = False
+        for i in range(first_idx + 1, last_idx):
+            if bars["Close"].iloc[i] > recovery_threshold:
+                has_recovery = True
+                break
+
+        if not has_recovery:
+            continue
+
+        results.append({
+            "level": round(zone_low, 2),
+            "touch_count": len(cluster),
+            "first_touch_idx": first_idx,
+            "last_touch_idx": last_idx,
+            "zone_high": round(zone_high, 2),
+        })
+
+    results.sort(key=lambda x: x["level"])
+    return results
+
+
+def _safe_daily_double_bottoms(
+    hist: pd.DataFrame, market_open: bool,
+) -> list[dict]:
+    """Wrapper that silences errors so fetch_prior_day never breaks."""
+    try:
+        completed = hist.iloc[:-1] if market_open else hist
+        return detect_daily_double_bottoms(completed)
+    except Exception:
+        return []
+
+
 def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
     """Fetch the PRIOR COMPLETED trading day's data.
 
@@ -451,6 +602,9 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "prior_week_low": prior_week_low,
             "rsi14": sym_rsi14,
             "rsi14_prev": rsi14_prev,
+            "daily_double_bottoms": _safe_daily_double_bottoms(
+                hist, last_bar_date >= today
+            ),
         }
     except Exception:
         return None

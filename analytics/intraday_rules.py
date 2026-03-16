@@ -30,6 +30,9 @@ from alert_config import (
     CONFLUENCE_BAND_PCT,
     CONSOLIDATION_MAX_BOOST,
     CONSOLIDATION_SCORE_BOOST,
+    DAILY_DB_INTRADAY_PROXIMITY_PCT,
+    DAILY_DB_MAX_DISTANCE_PCT,
+    DAILY_DB_STOP_OFFSET_PCT,
     DAY_TRADE_MAX_RISK_PCT,
     EMA_MIN_BARS,
     ENABLED_RULES,
@@ -158,6 +161,7 @@ class AlertType(str, Enum):
     OPENING_RANGE_BREAKDOWN = "opening_range_breakdown"
     INTRADAY_SUPPORT_BOUNCE = "intraday_support_bounce"
     SESSION_LOW_DOUBLE_BOTTOM = "session_low_double_bottom"
+    MULTI_DAY_DOUBLE_BOTTOM = "multi_day_double_bottom"
     GAP_FILL = "gap_fill"
     PLANNED_LEVEL_TOUCH = "planned_level_touch"
     WEEKLY_LEVEL_TOUCH = "weekly_level_touch"
@@ -2730,6 +2734,116 @@ def check_session_low_retest(
 
 
 # ---------------------------------------------------------------------------
+# Rule 13b: Multi-Day Double Bottom (daily swing lows tested 2+ times)
+# ---------------------------------------------------------------------------
+
+
+def check_multi_day_double_bottom(
+    symbol: str,
+    intraday_bars: pd.DataFrame,
+    daily_double_bottoms: list[dict],
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Multi-day double bottom: daily swing low zone tested 2+ times, now retesting intraday.
+
+    Conditions:
+    1. ``daily_double_bottoms`` is non-empty (pre-computed by detect_daily_double_bottoms)
+    2. Last intraday bar's low is within DAILY_DB_INTRADAY_PROXIMITY_PCT of a zone
+    3. Last bar closes above the zone level (bounce confirmed)
+    4. Price hasn't already run >DAILY_DB_MAX_DISTANCE_PCT above zone (stale guard)
+    5. Not making a significantly lower low than the zone (no descending lows)
+
+    Uses the nearest qualifying zone so the alert references the correct level.
+    """
+    if not daily_double_bottoms or intraday_bars.empty:
+        return None
+
+    if len(intraday_bars) < 3:
+        return None
+
+    last_bar = intraday_bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_low = float(last_bar["Low"])
+
+    # Find the nearest double-bottom zone to the current price
+    best_zone: dict | None = None
+    best_distance = float("inf")
+
+    for zone in daily_double_bottoms:
+        level = zone["level"]
+        if level <= 0:
+            continue
+
+        # How close is bar low to the zone?
+        proximity = abs(last_low - level) / level
+        if proximity > DAILY_DB_INTRADAY_PROXIMITY_PCT:
+            continue
+
+        # Must close above zone level (bounce confirmed)
+        if last_close <= level:
+            continue
+
+        # Stale guard: price can't have run too far above zone
+        distance_above = (last_close - level) / level
+        if distance_above > DAILY_DB_MAX_DISTANCE_PCT:
+            continue
+
+        # Not making a lower low — reject descending lows
+        if last_low < level * (1 - DAILY_DB_INTRADAY_PROXIMITY_PCT):
+            continue
+
+        if proximity < best_distance:
+            best_distance = proximity
+            best_zone = zone
+
+    if best_zone is None:
+        return None
+
+    level = best_zone["level"]
+    zone_high = best_zone["zone_high"]
+    touch_count = best_zone["touch_count"]
+
+    # Entry/Stop/Targets
+    entry = level
+    stop = round(level * (1 - DAILY_DB_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry + risk, 2)
+    target_2 = round(entry + 2 * risk, 2)
+
+    # Confidence: high for 3+ touches or volume exhaustion; medium for 2 touches
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if touch_count >= 3 or vol_ratio < 0.8:
+        confidence = "high"
+    else:
+        confidence = "medium"
+
+    zone_label = (
+        f"${level:.2f}" if level == zone_high
+        else f"${level:.2f}–${zone_high:.2f}"
+    )
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MULTI_DAY_DOUBLE_BOTTOM,
+        direction="BUY",
+        price=last_close,
+        entry=round(entry, 2),
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"Multi-day double bottom — zone {zone_label} tested "
+            f"{touch_count}x across daily bars, bounce at ${last_close:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule 14: Gap Fill (INFO)
 # ---------------------------------------------------------------------------
 
@@ -4404,6 +4518,21 @@ def evaluate_rules(
                 sig.message += f" | SPY double-bottom at ${spy_low:.2f}"
             sig.message += caution_suffix
             signals.append(sig)
+
+        # --- Multi-Day Double Bottom ---
+        if AlertType.MULTI_DAY_DOUBLE_BOTTOM.value in ENABLED_RULES:
+            daily_dbs = prior_day.get("daily_double_bottoms", [])
+            if daily_dbs:
+                sig = check_multi_day_double_bottom(
+                    symbol, intraday_bars, daily_dbs, bar_vol, avg_vol,
+                )
+                if sig:
+                    sig.message += f" ({phase})"
+                    if spy.get("spy_bouncing"):
+                        sig.confidence = "high"
+                        sig.message += " | SPY also bouncing"
+                    sig.message += caution_suffix
+                    signals.append(sig)
 
         # --- VWAP Reclaim (Morning Reversal) ---
         if AlertType.VWAP_RECLAIM.value in ENABLED_RULES:

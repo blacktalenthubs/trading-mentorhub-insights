@@ -147,6 +147,16 @@ SESSION_LOW_MIN_RECOVERY_BARS = 1       # ~5 min — consecutive bars above reco
 SESSION_LOW_MAX_RETEST_VOL_RATIO = 1.2  # retest must be exhaustion, not panic (< 1.2x avg)
 SESSION_LOW_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 
+# Multi-Day Double Bottom (daily swing lows tested 2+ times across days)
+DAILY_DB_LOOKBACK_DAYS = 20            # scan last 20 completed daily bars (~1 month)
+DAILY_DB_SWING_LOW_CLUSTER_PCT = 0.005  # 0.5% — cluster daily lows within this range
+DAILY_DB_MIN_TOUCHES = 2               # minimum touches to qualify as double bottom
+DAILY_DB_MIN_DAYS_BETWEEN = 1          # at least 1 day between first and last touch
+DAILY_DB_MIN_RECOVERY_PCT = 0.005      # 0.5% recovery above zone between touches
+DAILY_DB_INTRADAY_PROXIMITY_PCT = 0.005  # 0.5% — how close intraday bar must be to zone
+DAILY_DB_STOP_OFFSET_PCT = 0.005       # 0.5% below zone low for stop
+DAILY_DB_MAX_DISTANCE_PCT = 0.02       # 2% — skip if price already ran past zone
+
 # Planned Level Touch: bar low must be within this % of Scanner's planned entry
 PLANNED_LEVEL_PROXIMITY_PCT = 0.003  # 0.3%
 
@@ -226,6 +236,7 @@ BOUNCE_ALERT_TYPES: set[str] = {
     "prior_day_low_bounce",
     "inside_day_reclaim",
     "session_low_double_bottom",
+    "multi_day_double_bottom",
     "intraday_support_bounce",
     "vwap_reclaim",
     "opening_low_base",
@@ -432,6 +443,7 @@ ENABLED_RULES: set[str] = {
     # SELL — inside day
     "inside_day_breakdown",
     "session_low_double_bottom",
+    "multi_day_double_bottom",
     "planned_level_touch",
     "vwap_reclaim",
     "vwap_bounce",

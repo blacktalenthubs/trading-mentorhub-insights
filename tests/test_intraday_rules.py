@@ -59,6 +59,7 @@ from analytics.intraday_rules import (
     check_vwap_bounce,
     check_vwap_reclaim,
     check_session_high_retracement,
+    check_multi_day_double_bottom,
     check_session_low_retest,
     check_stop_loss_hit,
     check_support_breakdown,
@@ -72,6 +73,7 @@ from analytics.intraday_data import (
     check_mtf_alignment,
     classify_market_regime,
     compute_opening_range,
+    detect_daily_double_bottoms,
     detect_hourly_resistance,
     detect_intraday_supports,
     track_gap_fill,
@@ -6764,3 +6766,280 @@ class TestWeeklyLowBreakdown:
         prior_day = {"prior_week_low": 95, "prior_week_high": 105}
         sig = check_weekly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=None)
         assert sig is not None
+
+
+# ===== Multi-Day Double Bottom =====
+
+
+class TestDetectDailyDoubleBottoms:
+    """Tests for detect_daily_double_bottoms() in intraday_data.py."""
+
+    @staticmethod
+    def _make_daily_bars(lows, num_bars=20):
+        """Build daily OHLCV bars with controlled lows.
+
+        ``lows`` is a list of (bar_index, low_value) tuples for swing lows.
+        All other bars get a default low well above the zone (2% higher)
+        so recovery checks pass.
+        """
+        max_low = max(lv for _, lv in lows) if lows else 100.0
+        # Default low must be > zone_high * (1 + recovery_pct)
+        default_low = max_low * 1.02 if lows else 100.0
+        rows = []
+        for i in range(num_bars):
+            custom = next((lv for idx, lv in lows if idx == i), None)
+            low = custom if custom is not None else default_low
+            rows.append({
+                "Open": low + 5, "High": low + 10,
+                "Low": low, "Close": low + 7, "Volume": 1000,
+            })
+        return pd.DataFrame(rows)
+
+    def test_two_touches_detected(self):
+        """Two swing lows at same level, separated by days → detected."""
+        # Swing low at bar 3 and bar 10, both at $70,400
+        bars = self._make_daily_bars([(3, 70400), (10, 70420)], num_bars=15)
+        results = detect_daily_double_bottoms(bars)
+        assert len(results) == 1
+        assert results[0]["touch_count"] == 2
+        assert results[0]["level"] == 70400
+
+    def test_no_retest_not_detected(self):
+        """Only one swing low → not detected."""
+        bars = self._make_daily_bars([(5, 70400)], num_bars=15)
+        results = detect_daily_double_bottoms(bars)
+        assert len(results) == 0
+
+    def test_three_touches_detected(self):
+        """Three swing lows at same zone → touch_count=3."""
+        bars = self._make_daily_bars(
+            [(3, 70400), (7, 70420), (12, 70410)], num_bars=16
+        )
+        results = detect_daily_double_bottoms(bars)
+        assert len(results) == 1
+        assert results[0]["touch_count"] == 3
+
+    def test_descending_lows_rejected(self):
+        """Lows getting progressively lower → not a double bottom."""
+        # Second low is 1% below first — descending
+        bars = self._make_daily_bars([(3, 70400), (10, 69600)], num_bars=15)
+        results = detect_daily_double_bottoms(bars)
+        assert len(results) == 0
+
+    def test_same_day_not_counted(self):
+        """Both touches on adjacent bars (min_days_between=1) → not detected."""
+        bars = self._make_daily_bars([(5, 70400), (6, 70420)], num_bars=15)
+        results = detect_daily_double_bottoms(bars)
+        assert len(results) == 0
+
+    def test_no_recovery_between_touches(self):
+        """All bars stay near zone low → no recovery → not detected."""
+        # All bars have lows near 70400 — no bounce between touches
+        lows = [(i, 70400 + i) for i in range(3, 12)]
+        bars = self._make_daily_bars(lows, num_bars=15)
+        # Override the "normal" bars so they also stay low
+        for i in range(15):
+            bars.loc[i, "Low"] = 70400 + (i * 2)
+            bars.loc[i, "Close"] = 70410 + (i * 2)
+            bars.loc[i, "High"] = 70420 + (i * 2)
+        results = detect_daily_double_bottoms(bars)
+        assert len(results) == 0
+
+    def test_btc_level_prices(self):
+        """Works correctly with $70K BTC prices — % thresholds scale."""
+        bars = self._make_daily_bars(
+            [(3, 70413), (10, 70450)], num_bars=15
+        )
+        results = detect_daily_double_bottoms(bars)
+        assert len(results) == 1
+        zone = results[0]
+        assert zone["level"] == 70413
+        assert zone["zone_high"] == 70450
+
+    def test_stock_level_prices(self):
+        """Works correctly with $150 stock prices."""
+        bars = self._make_daily_bars(
+            [(3, 148.50), (10, 148.70)], num_bars=15
+        )
+        results = detect_daily_double_bottoms(bars)
+        assert any(z["level"] == 148.50 for z in results)
+
+    def test_upper_quartile_zone_filtered_out(self):
+        """Zone in the top 25% of range is filtered — only meaningful
+        support zones in the lower 75% are detected."""
+        # Build bars manually: lows at 69000 area and 78000 area,
+        # with highs pushed to 80000 so 78000 is in the top quartile.
+        rows = []
+        for i in range(15):
+            rows.append({
+                "Open": 79000, "High": 80000,
+                "Low": 79000, "Close": 79500, "Volume": 1000,
+            })
+        # Two touches at 69000 zone (lower 75%)
+        rows[2]["Low"] = 69000
+        rows[8]["Low"] = 69050
+        # Two touches at 78000 zone (top 25%: 69000 + 11000*0.75 = 77250)
+        rows[4]["Low"] = 78000
+        rows[11]["Low"] = 78050
+        bars = pd.DataFrame(rows)
+        results = detect_daily_double_bottoms(bars)
+        assert any(z["level"] == 69000 for z in results)
+        assert not any(z["level"] == 78000 for z in results)
+
+    def test_empty_dataframe(self):
+        """Empty DataFrame → empty list."""
+        results = detect_daily_double_bottoms(pd.DataFrame())
+        assert results == []
+
+
+class TestMultiDayDoubleBottom:
+    """Tests for check_multi_day_double_bottom() rule in intraday_rules.py."""
+
+    @staticmethod
+    def _make_intraday_bars(last_low, last_close, num_bars=10):
+        """Build intraday 5-min bars with a specific last bar."""
+        rows = []
+        for i in range(num_bars - 1):
+            rows.append({
+                "Open": last_close + 2, "High": last_close + 3,
+                "Low": last_close + 1, "Close": last_close + 2,
+                "Volume": 1000,
+            })
+        rows.append({
+            "Open": last_low + 1, "High": last_close + 0.5,
+            "Low": last_low, "Close": last_close, "Volume": 1000,
+        })
+        return pd.DataFrame(rows)
+
+    def test_fires_when_bouncing_at_zone(self):
+        """Intraday bar touches zone and closes above → BUY signal."""
+        zone = {
+            "level": 70400, "touch_count": 2,
+            "first_touch_idx": 3, "last_touch_idx": 10,
+            "zone_high": 70450,
+        }
+        # Last bar low = 70420 (within 0.5% of 70400), close = 70600
+        bars = self._make_intraday_bars(last_low=70420, last_close=70600)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [zone], 1000, 1000,
+        )
+        assert sig is not None
+        assert sig.alert_type == AlertType.MULTI_DAY_DOUBLE_BOTTOM
+        assert sig.direction == "BUY"
+        assert sig.entry == 70400
+        assert sig.confidence == "medium"
+        assert "Multi-day double bottom" in sig.message
+        assert "2x" in sig.message
+
+    def test_no_fire_when_too_far_above_zone(self):
+        """Price already 3% above zone → stale, skip."""
+        zone = {
+            "level": 70400, "touch_count": 2,
+            "first_touch_idx": 3, "last_touch_idx": 10,
+            "zone_high": 70450,
+        }
+        # Price at 72600 — 3.1% above zone
+        bars = self._make_intraday_bars(last_low=72580, last_close=72600)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [zone], 1000, 1000,
+        )
+        assert sig is None
+
+    def test_no_fire_when_close_below_zone(self):
+        """Close below zone level → no bounce confirmation."""
+        zone = {
+            "level": 70400, "touch_count": 2,
+            "first_touch_idx": 3, "last_touch_idx": 10,
+            "zone_high": 70450,
+        }
+        # Low touches zone but close is below it
+        bars = self._make_intraday_bars(last_low=70380, last_close=70350)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [zone], 1000, 1000,
+        )
+        assert sig is None
+
+    def test_confidence_high_on_three_touches(self):
+        """Zone tested 3+ times → high confidence."""
+        zone = {
+            "level": 70400, "touch_count": 3,
+            "first_touch_idx": 3, "last_touch_idx": 12,
+            "zone_high": 70450,
+        }
+        bars = self._make_intraday_bars(last_low=70420, last_close=70600)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [zone], 1000, 1000,
+        )
+        assert sig is not None
+        assert sig.confidence == "high"
+        assert "3x" in sig.message
+
+    def test_confidence_high_on_volume_exhaustion(self):
+        """Low volume retest (< 0.8x avg) → high confidence."""
+        zone = {
+            "level": 70400, "touch_count": 2,
+            "first_touch_idx": 3, "last_touch_idx": 10,
+            "zone_high": 70450,
+        }
+        bars = self._make_intraday_bars(last_low=70420, last_close=70600)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [zone], 700, 1000,  # vol 0.7x
+        )
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_works_for_stocks(self):
+        """Stock-level prices ($150) with same logic."""
+        zone = {
+            "level": 148.50, "touch_count": 2,
+            "first_touch_idx": 3, "last_touch_idx": 10,
+            "zone_high": 148.70,
+        }
+        bars = self._make_intraday_bars(last_low=148.60, last_close=149.20)
+        sig = check_multi_day_double_bottom(
+            "AAPL", bars, [zone], 1000, 1000,
+        )
+        assert sig is not None
+        assert sig.entry == 148.50
+        assert sig.direction == "BUY"
+
+    def test_no_fire_on_empty_zones(self):
+        """Empty daily_double_bottoms → None."""
+        bars = self._make_intraday_bars(last_low=70420, last_close=70600)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [], 1000, 1000,
+        )
+        assert sig is None
+
+    def test_picks_nearest_zone(self):
+        """Multiple zones — picks the one closest to current price."""
+        zone_far = {
+            "level": 68000, "touch_count": 2,
+            "first_touch_idx": 2, "last_touch_idx": 8,
+            "zone_high": 68100,
+        }
+        zone_near = {
+            "level": 70400, "touch_count": 2,
+            "first_touch_idx": 3, "last_touch_idx": 10,
+            "zone_high": 70450,
+        }
+        bars = self._make_intraday_bars(last_low=70420, last_close=70600)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [zone_far, zone_near], 1000, 1000,
+        )
+        assert sig is not None
+        assert sig.entry == 70400
+
+    def test_zone_range_in_message(self):
+        """When zone_high != level, message shows range."""
+        zone = {
+            "level": 70400, "touch_count": 2,
+            "first_touch_idx": 3, "last_touch_idx": 10,
+            "zone_high": 70450,
+        }
+        bars = self._make_intraday_bars(last_low=70420, last_close=70600)
+        sig = check_multi_day_double_bottom(
+            "BTC-USD", bars, [zone], 1000, 1000,
+        )
+        assert "$70400.00" in sig.message
+        assert "$70450.00" in sig.message
