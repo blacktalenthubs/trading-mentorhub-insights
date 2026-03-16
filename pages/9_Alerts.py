@@ -46,12 +46,39 @@ with st.sidebar:
     else:
         view_mode = st.radio(
             "View",
-            ["Latest day", "Last 3 days", "Last 7 days", "All dates"],
+            ["Pick a date", "Latest day", "Last 3 days", "Last 7 days", "All dates"],
             index=0,
             label_visibility="collapsed",
         )
 
-        if view_mode == "Latest day":
+        if view_mode == "Pick a date":
+            # Convert session_date strings to date objects for the picker
+            import datetime as _dt
+
+            _date_objs = []
+            for ds in session_dates:
+                try:
+                    _date_objs.append(_dt.date.fromisoformat(ds))
+                except Exception:
+                    pass
+
+            if _date_objs:
+                picked = st.date_input(
+                    "Session date",
+                    value=_date_objs[0],
+                    min_value=_date_objs[-1],
+                    max_value=_date_objs[0],
+                )
+                picked_str = str(picked)
+                if picked_str in session_dates:
+                    dates_to_show = [picked_str]
+                else:
+                    # Show nearest available date
+                    st.warning(f"No alerts on {picked_str}")
+                    dates_to_show = session_dates[:1]
+            else:
+                dates_to_show = session_dates[:1]
+        elif view_mode == "Latest day":
             dates_to_show = session_dates[:1]
         elif view_mode == "Last 3 days":
             dates_to_show = session_dates[:3]
