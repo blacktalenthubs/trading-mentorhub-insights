@@ -8,6 +8,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
+import { usePushNotifications } from "../hooks/usePushNotifications";
 import {
   LayoutDashboard,
   Crosshair,
@@ -20,6 +21,10 @@ import {
   RotateCcw,
   Menu,
   LogOut,
+  Settings,
+  Bell,
+  TrendingUp,
+  Bot,
   type LucideIcon,
 } from "lucide-react";
 import Badge from "./ui/Badge";
@@ -35,14 +40,26 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/scanner", label: "Scanner", icon: Crosshair },
   { to: "/charts", label: "Charts", icon: BarChart3 },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
+  { to: "/alerts", label: "Alerts", icon: Bell },
   { to: "/scorecard", label: "Scorecard", icon: Trophy },
   { to: "/history", label: "History", icon: History },
   { to: "/import", label: "Import", icon: Upload },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 const PRO_ITEMS: NavItem[] = [
   { to: "/paper-trading", label: "Paper Trading", icon: Gem },
   { to: "/backtest", label: "Backtest", icon: RotateCcw },
+  { to: "/swing", label: "Swing Trades", icon: TrendingUp },
+  { to: "/ai-coach", label: "AI Coach", icon: Bot },
+];
+
+const MOBILE_TABS: NavItem[] = [
+  { to: "/", label: "Home", icon: LayoutDashboard },
+  { to: "/alerts", label: "Alerts", icon: Bell },
+  { to: "/trades", label: "Trades", icon: ArrowLeftRight },
+  { to: "/ai-coach", label: "Coach", icon: Bot },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 function MarketBadge({ market }: { market: { is_open: boolean; is_premarket: boolean } }) {
@@ -65,6 +82,7 @@ export default function AppLayout() {
   const logout = useAuthStore((s) => s.logout);
   const { data: market } = useMarketStatus();
   const { isPro } = useFeatureGate();
+  usePushNotifications();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   function closeSidebar() {
@@ -132,15 +150,11 @@ export default function AppLayout() {
         <div className="flex-1 overflow-y-auto py-3">
           {NAV_ITEMS.map(renderNavItem)}
 
-          {isPro && (
-            <>
-              <div className="mx-4 my-3 border-t border-border-subtle" />
-              <p className="px-4 py-1 font-display text-[10px] font-semibold uppercase tracking-widest text-text-faint">
-                Pro
-              </p>
-              {PRO_ITEMS.map(renderNavItem)}
-            </>
-          )}
+          <div className="mx-4 my-3 border-t border-border-subtle" />
+          <p className="px-4 py-1 font-display text-[10px] font-semibold uppercase tracking-widest text-text-faint">
+            Pro
+          </p>
+          {PRO_ITEMS.map(renderNavItem)}
         </div>
 
         {/* User footer */}
@@ -186,9 +200,31 @@ export default function AppLayout() {
           {market && <MarketBadge market={market} />}
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-surface-1 p-4 md:p-6">
+        <main className="flex-1 overflow-y-auto bg-surface-1 p-4 pb-20 md:p-6 md:pb-6">
           <Outlet />
         </main>
+
+        {/* Mobile bottom tab bar */}
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-surface-2 pb-[env(safe-area-inset-bottom)] md:hidden">
+          {MOBILE_TABS.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <NavLink
+                key={tab.to}
+                to={tab.to}
+                end={tab.to === "/"}
+                className={({ isActive }) =>
+                  `flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] transition-colors ${
+                    isActive ? "text-accent" : "text-text-muted"
+                  }`
+                }
+              >
+                <Icon className="h-5 w-5" />
+                {tab.label}
+              </NavLink>
+            );
+          })}
+        </nav>
       </div>
     </div>
   );
