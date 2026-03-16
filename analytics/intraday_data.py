@@ -545,6 +545,24 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         except Exception:
             pass
 
+        # Monthly resampling: prior month high/low from existing hist
+        prior_month_high = None
+        prior_month_low = None
+        try:
+            monthly = hist[["High", "Low"]].resample("MS").agg({
+                "High": "max", "Low": "min",
+            }).dropna()
+            if len(monthly) >= 2:
+                last_monthly_date = monthly.index[-1].normalize()
+                if last_bar_date >= last_monthly_date:
+                    prior_month = monthly.iloc[-2]  # current month partial
+                else:
+                    prior_month = monthly.iloc[-1]
+                prior_month_high = prior_month["High"]
+                prior_month_low = prior_month["Low"]
+        except Exception:
+            pass
+
         ma20 = last["MA20"] if pd.notna(last["MA20"]) else None
         ma50 = last["MA50"] if pd.notna(last["MA50"]) else None
         ma100 = last["MA100"] if pd.notna(last["MA100"]) else None
@@ -600,6 +618,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "prev_close": prev["Close"],
             "prior_week_high": prior_week_high,
             "prior_week_low": prior_week_low,
+            "prior_month_high": prior_month_high,
+            "prior_month_low": prior_month_low,
             "rsi14": sym_rsi14,
             "rsi14_prev": rsi14_prev,
             "daily_double_bottoms": _safe_daily_double_bottoms(

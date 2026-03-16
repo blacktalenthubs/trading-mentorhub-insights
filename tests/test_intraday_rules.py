@@ -51,6 +51,12 @@ from analytics.intraday_rules import (
     check_prior_day_low_reclaim,
     check_trailing_stop_hit,
     check_weekly_level_touch,
+    check_monthly_level_touch,
+    check_monthly_high_breakout,
+    check_monthly_high_test,
+    check_monthly_high_resistance,
+    check_monthly_low_test,
+    check_monthly_low_breakdown,
     check_ema_bounce_100,
     check_ema_bounce_200,
     check_pdh_rejection,
@@ -6765,6 +6771,277 @@ class TestWeeklyLowBreakdown:
         bar = _bar(open_=96, high=97, low=93, close=94)
         prior_day = {"prior_week_low": 95, "prior_week_high": 105}
         sig = check_weekly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=None)
+        assert sig is not None
+
+
+# ===== Monthly Levels =====
+
+
+class TestMonthlyLevelTouch:
+    """Tests for check_monthly_level_touch() — BUY when price bounces at prior month low."""
+
+    def _prior(self, pm_high=200.0, pm_low=180.0, **overrides):
+        base = {
+            "pattern": "normal", "high": 195.0, "low": 185.0,
+            "close": 190.0, "is_inside": False,
+            "parent_high": 196.0, "parent_low": 184.0,
+            "prior_month_high": pm_high, "prior_month_low": pm_low,
+        }
+        base.update(overrides)
+        return base
+
+    def test_fires_on_bounce_at_prior_month_low(self):
+        prior = self._prior(pm_high=200.0, pm_low=180.0)
+        bars = pd.DataFrame([
+            {"Open": 181.0, "High": 182.0, "Low": 180.50, "Close": 181.5, "Volume": 1000},
+        ])
+        sig = check_monthly_level_touch("SPY", bars, prior)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MONTHLY_LEVEL_TOUCH
+        assert sig.direction == "BUY"
+        assert sig.entry == 180.0
+        assert sig.target_1 == 200.0
+        assert sig.confidence == "high"
+        assert "prior month low" in sig.message
+
+    def test_targets_use_monthly_range(self):
+        prior = self._prior(pm_high=200.0, pm_low=180.0)
+        bars = pd.DataFrame([
+            {"Open": 181.0, "High": 182.0, "Low": 180.50, "Close": 181.5, "Volume": 1000},
+        ])
+        sig = check_monthly_level_touch("SPY", bars, prior)
+        assert sig is not None
+        assert sig.target_1 == 200.0
+        assert sig.target_2 == 210.0  # 200 + 20*0.5
+
+    def test_no_fire_when_far_from_monthly_level(self):
+        prior = self._prior(pm_high=200.0, pm_low=180.0)
+        bars = pd.DataFrame([
+            {"Open": 177.0, "High": 178.0, "Low": 176.0, "Close": 177.5, "Volume": 1000},
+        ])
+        sig = check_monthly_level_touch("SPY", bars, prior)
+        assert sig is None
+
+    def test_no_fire_when_close_below_monthly_low(self):
+        prior = self._prior(pm_high=200.0, pm_low=180.0)
+        bars = pd.DataFrame([
+            {"Open": 180.5, "High": 181.0, "Low": 180.20, "Close": 179.8, "Volume": 1000},
+        ])
+        sig = check_monthly_level_touch("SPY", bars, prior)
+        assert sig is None
+
+    def test_no_fire_when_monthly_data_unavailable(self):
+        prior = self._prior()
+        prior["prior_month_high"] = None
+        prior["prior_month_low"] = None
+        bars = pd.DataFrame([
+            {"Open": 181.0, "High": 182.0, "Low": 180.50, "Close": 181.5, "Volume": 1000},
+        ])
+        sig = check_monthly_level_touch("SPY", bars, prior)
+        assert sig is None
+
+    def test_lookback_catches_earlier_touch(self):
+        prior = self._prior(pm_high=200.0, pm_low=180.0)
+        bars = pd.DataFrame([
+            {"Open": 181.0, "High": 182.0, "Low": 180.20, "Close": 180.8, "Volume": 1000},
+            {"Open": 180.8, "High": 181.5, "Low": 180.5, "Close": 181.0, "Volume": 1000},
+            {"Open": 181.0, "High": 182.0, "Low": 180.8, "Close": 181.5, "Volume": 1000},
+        ])
+        sig = check_monthly_level_touch("SPY", bars, prior)
+        assert sig is not None
+
+
+class TestMonthlyHighBreakout:
+    """Tests for check_monthly_high_breakout() — BUY when price breaks above prior month high."""
+
+    def _prior(self, pm_high=200.0, pm_low=180.0):
+        return {"prior_month_high": pm_high, "prior_month_low": pm_low}
+
+    def test_fires_on_close_above_with_volume(self):
+        prior = self._prior()
+        bars = pd.DataFrame([
+            {"Open": 199.0, "High": 202.0, "Low": 198.5, "Close": 201.0, "Volume": 2000},
+        ])
+        sig = check_monthly_high_breakout("SPY", bars, prior, 2000, 1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MONTHLY_HIGH_BREAKOUT
+        assert sig.direction == "BUY"
+        assert "Monthly high breakout" in sig.message
+
+    def test_no_fire_when_close_below(self):
+        prior = self._prior()
+        bars = pd.DataFrame([
+            {"Open": 199.0, "High": 200.5, "Low": 198.0, "Close": 199.5, "Volume": 2000},
+        ])
+        sig = check_monthly_high_breakout("SPY", bars, prior, 2000, 1000)
+        assert sig is None
+
+    def test_no_fire_low_volume(self):
+        prior = self._prior()
+        bars = pd.DataFrame([
+            {"Open": 199.0, "High": 202.0, "Low": 198.5, "Close": 201.0, "Volume": 500},
+        ])
+        sig = check_monthly_high_breakout("SPY", bars, prior, 500, 1000)
+        assert sig is None
+
+    def test_no_fire_when_no_monthly_high(self):
+        bars = pd.DataFrame([
+            {"Open": 199.0, "High": 202.0, "Low": 198.5, "Close": 201.0, "Volume": 2000},
+        ])
+        sig = check_monthly_high_breakout("SPY", bars, {}, 2000, 1000)
+        assert sig is None
+
+
+class TestMonthlyHighTest:
+    """Tests for check_monthly_high_test() — NOTICE when price wicks above prior month high."""
+
+    def test_fires_on_wick_above(self):
+        bar = _bar(open_=198, high=201, low=197, close=199)
+        prior_day = {"prior_month_high": 200, "prior_month_low": 180}
+        sig = check_monthly_high_test("SPY", bar, prior_day, prior_close=198)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MONTHLY_HIGH_TEST
+        assert sig.direction == "NOTICE"
+        assert "TESTING prior month high" in sig.message
+
+    def test_no_fire_when_close_above(self):
+        bar = _bar(open_=199, high=202, low=198, close=201)
+        prior_day = {"prior_month_high": 200, "prior_month_low": 180}
+        sig = check_monthly_high_test("SPY", bar, prior_day, prior_close=198)
+        assert sig is None
+
+    def test_no_fire_when_high_below(self):
+        bar = _bar(open_=197, high=199, low=196, close=198)
+        prior_day = {"prior_month_high": 200, "prior_month_low": 180}
+        sig = check_monthly_high_test("SPY", bar, prior_day, prior_close=197)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_above(self):
+        bar = _bar(open_=201, high=202, low=199, close=199.5)
+        prior_day = {"prior_month_high": 200, "prior_month_low": 180}
+        sig = check_monthly_high_test("SPY", bar, prior_day, prior_close=201)
+        assert sig is None
+
+    def test_no_fire_when_no_monthly_high(self):
+        bar = _bar(open_=198, high=201, low=197, close=199)
+        sig = check_monthly_high_test("SPY", bar, {}, prior_close=198)
+        assert sig is None
+
+
+class TestMonthlyHighResistance:
+    """Tests for check_monthly_high_resistance() — SELL when approaching prior month high."""
+
+    def test_fires_on_approach(self):
+        bar = _bar(open_=198, high=199.8, low=197, close=199)
+        prior_day = {"prior_month_high": 200, "prior_month_low": 180}
+        sig = check_monthly_high_resistance("SPY", bar, prior_day)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MONTHLY_HIGH_RESISTANCE
+        assert sig.direction == "SELL"
+        assert "Monthly high resistance" in sig.message
+
+    def test_no_fire_when_close_above(self):
+        bar = _bar(open_=199, high=201, low=198, close=201)
+        prior_day = {"prior_month_high": 200, "prior_month_low": 180}
+        sig = check_monthly_high_resistance("SPY", bar, prior_day)
+        assert sig is None
+
+    def test_no_fire_when_far_away(self):
+        bar = _bar(open_=190, high=192, low=189, close=191)
+        prior_day = {"prior_month_high": 200, "prior_month_low": 180}
+        sig = check_monthly_high_resistance("SPY", bar, prior_day)
+        assert sig is None
+
+
+class TestMonthlyLowTest:
+    """Tests for check_monthly_low_test() — NOTICE when price wicks below prior month low."""
+
+    def test_fires_on_wick_below(self):
+        bar = _bar(open_=182, high=183, low=179, close=182)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_test("SPY", bar, prior_day, prior_close=182)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MONTHLY_LOW_TEST
+        assert sig.direction == "NOTICE"
+        assert "TESTING prior month low" in sig.message
+
+    def test_no_fire_when_close_below(self):
+        bar = _bar(open_=181, high=182, low=178, close=179)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_test("SPY", bar, prior_day, prior_close=182)
+        assert sig is None
+
+    def test_no_fire_when_low_above(self):
+        bar = _bar(open_=182, high=183, low=181, close=182)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_test("SPY", bar, prior_day, prior_close=182)
+        assert sig is None
+
+    def test_no_fire_when_prior_close_below(self):
+        bar = _bar(open_=179, high=180.5, low=178, close=180.2)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_test("SPY", bar, prior_day, prior_close=179)
+        assert sig is None
+
+    def test_no_fire_when_no_monthly_low(self):
+        bar = _bar(open_=182, high=183, low=179, close=182)
+        sig = check_monthly_low_test("SPY", bar, {}, prior_close=182)
+        assert sig is None
+
+    def test_fires_without_prior_close(self):
+        bar = _bar(open_=182, high=183, low=179, close=182)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_test("SPY", bar, prior_day, prior_close=None)
+        assert sig is not None
+
+
+class TestMonthlyLowBreakdown:
+    """Tests for check_monthly_low_breakdown() — SELL when price closes below prior month low."""
+
+    def test_fires_on_close_below(self):
+        bar = _bar(open_=181, high=182, low=178, close=179)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=182)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MONTHLY_LOW_BREAKDOWN
+        assert sig.direction == "SELL"
+        assert "MONTHLY LOW BREAKDOWN" in sig.message
+
+    def test_no_fire_when_close_above(self):
+        bar = _bar(open_=181, high=182, low=179, close=181)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=182)
+        assert sig is None
+
+    def test_no_fire_when_already_below(self):
+        bar = _bar(open_=178, high=179, low=177, close=178)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=179)
+        assert sig is None
+
+    def test_no_fire_when_no_monthly_low(self):
+        bar = _bar(open_=181, high=182, low=178, close=179)
+        sig = check_monthly_low_breakdown("SPY", bar, {}, 2000, 1000, prior_close=182)
+        assert sig is None
+
+    def test_high_volume_gets_high_confidence(self):
+        bar = _bar(open_=181, high=182, low=178, close=179)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=182)
+        assert sig is not None
+        assert sig.confidence == "high"
+
+    def test_low_volume_gets_medium_confidence(self):
+        bar = _bar(open_=181, high=182, low=178, close=179)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_breakdown("SPY", bar, prior_day, 1000, 1000, prior_close=182)
+        assert sig is not None
+        assert sig.confidence == "medium"
+
+    def test_fires_without_prior_close(self):
+        bar = _bar(open_=181, high=182, low=178, close=179)
+        prior_day = {"prior_month_low": 180, "prior_month_high": 200}
+        sig = check_monthly_low_breakdown("SPY", bar, prior_day, 2000, 1000, prior_close=None)
         assert sig is not None
 
 

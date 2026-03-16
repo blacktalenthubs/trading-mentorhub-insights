@@ -73,6 +73,8 @@ from alert_config import (
     RESISTANCE_PROXIMITY_PCT,
     WEEKLY_LEVEL_PROXIMITY_PCT,
     WEEKLY_LEVEL_STOP_OFFSET_PCT,
+    MONTHLY_LEVEL_PROXIMITY_PCT,
+    MONTHLY_LEVEL_STOP_OFFSET_PCT,
     RS_UNDERPERFORM_FACTOR,
     SCORE_V2_RR_BONUS_POINTS,
     SCORE_V2_RR_BONUS_THRESHOLD,
@@ -177,6 +179,12 @@ class AlertType(str, Enum):
     WEEKLY_HIGH_RESISTANCE = "weekly_high_resistance"
     WEEKLY_LOW_TEST = "weekly_low_test"
     WEEKLY_LOW_BREAKDOWN = "weekly_low_breakdown"
+    MONTHLY_LEVEL_TOUCH = "monthly_level_touch"
+    MONTHLY_HIGH_BREAKOUT = "monthly_high_breakout"
+    MONTHLY_HIGH_TEST = "monthly_high_test"
+    MONTHLY_HIGH_RESISTANCE = "monthly_high_resistance"
+    MONTHLY_LOW_TEST = "monthly_low_test"
+    MONTHLY_LOW_BREAKDOWN = "monthly_low_breakdown"
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
     EMA_BOUNCE_100 = "ema_bounce_100"
@@ -1622,6 +1630,295 @@ def check_weekly_low_breakdown(
             f"WEEKLY LOW BREAKDOWN — closed {pct_below:.2f}% below ${pw_low:.2f} "
             f"(vol {vol_ratio:.1f}x avg{range_info}). "
             f"Weekly support lost — watch for continuation lower"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: Monthly Level Touch (bounce at prior month low)
+# ---------------------------------------------------------------------------
+
+
+def check_monthly_level_touch(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price touches prior month low and bounces — bullish entry at major structural level.
+
+    Mirrors check_weekly_level_touch() but uses monthly levels and wider proximity.
+    """
+    pm_high = prior_day.get("prior_month_high")
+    pm_low = prior_day.get("prior_month_low")
+    if pm_high is None or pm_low is None:
+        return None
+    if pm_high <= 0 or pm_low <= 0:
+        return None
+    if bars.empty:
+        return None
+
+    monthly_range = pm_high - pm_low
+    if monthly_range <= 0:
+        return None
+
+    # Scan lookback window for a touch near prior month low
+    lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+    touched = False
+    for _, row in lookback.iterrows():
+        prox = abs(row["Low"] - pm_low) / pm_low
+        if prox <= MONTHLY_LEVEL_PROXIMITY_PCT:
+            touched = True
+            break
+
+    if not touched:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= pm_low:
+        return None  # no bounce
+
+    entry = pm_low
+    stop = pm_low * (1 - MONTHLY_LEVEL_STOP_OFFSET_PCT)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target_1 = pm_high
+    target_2 = pm_high + monthly_range * 0.5
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MONTHLY_LEVEL_TOUCH,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=round(entry, 2),
+        stop=round(stop, 2),
+        target_1=round(target_1, 2),
+        target_2=round(target_2, 2),
+        confidence="high",
+        message=(
+            f"Monthly level touch — price at prior month low ${pm_low:.2f}, "
+            f"T1=${pm_high:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: Monthly High Breakout (close above prior month high with volume)
+# ---------------------------------------------------------------------------
+
+
+def check_monthly_high_breakout(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price breaks above prior month high with volume — bullish breakout."""
+    pm_high = prior_day.get("prior_month_high")
+    pm_low = prior_day.get("prior_month_low")
+    if not pm_high or pm_high <= 0:
+        return None
+
+    if bars.empty:
+        return None
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= pm_high:
+        return None
+
+    # Scan lookback bars above monthly high for best volume
+    lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+    above = lookback[lookback["Close"] > pm_high]
+    if above.empty:
+        best_vol = bar_volume
+    else:
+        best_vol = above["Volume"].max()
+
+    vol_ratio = best_vol / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < PDH_BREAKOUT_VOLUME_RATIO:
+        return None
+
+    entry = round(pm_high, 2)
+    stop = round(last_bar["Low"], 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    monthly_range = pm_high - pm_low if pm_low and pm_low > 0 else risk * 2
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MONTHLY_HIGH_BREAKOUT,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + monthly_range, 2),
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=f"Monthly high breakout — closed above ${pm_high:.2f} (vol {vol_ratio:.1f}x avg)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# NOTICE: Monthly High Test (wick above prior month high, no close)
+# ---------------------------------------------------------------------------
+
+
+def check_monthly_high_test(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Bar high wicks above prior month high but close stays below — testing key resistance."""
+    pm_high = prior_day.get("prior_month_high")
+    if not pm_high or pm_high <= 0:
+        return None
+
+    if bar["High"] < pm_high:
+        return None
+
+    if bar["Close"] >= pm_high:
+        return None
+
+    if prior_close is not None and prior_close >= pm_high:
+        return None
+
+    pct_above = (bar["High"] - pm_high) / pm_high * 100
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MONTHLY_HIGH_TEST,
+        direction="NOTICE",
+        price=bar["High"],
+        entry=round(pm_high, 2),
+        confidence="medium",
+        message=(
+            f"TESTING prior month high ${pm_high:.2f} — "
+            f"wicked {pct_above:.2f}% above, closed ${bar['Close']:.2f} below. "
+            f"Watch for close above for monthly breakout"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: Monthly High Resistance
+# ---------------------------------------------------------------------------
+
+
+def check_monthly_high_resistance(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+) -> AlertSignal | None:
+    """Price approaches prior month high from below — resistance warning."""
+    pm_high = prior_day.get("prior_month_high")
+    if not pm_high or pm_high <= 0:
+        return None
+    if bar["Close"] >= pm_high:
+        return None  # above = breakout, not resistance
+
+    proximity = abs(bar["High"] - pm_high) / pm_high
+    if proximity > MONTHLY_LEVEL_PROXIMITY_PCT:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MONTHLY_HIGH_RESISTANCE,
+        direction="SELL",
+        price=bar["High"],
+        message=f"Monthly high resistance — rejected near ${pm_high:.2f}, closed ${bar['Close']:.2f}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# NOTICE: Monthly Low Test (wick below prior month low, close stays above)
+# ---------------------------------------------------------------------------
+
+
+def check_monthly_low_test(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Bar low wicks below prior month low but close stays above — testing support."""
+    pm_low = prior_day.get("prior_month_low")
+    if not pm_low or pm_low <= 0:
+        return None
+
+    if bar["Low"] > pm_low:
+        return None
+
+    if bar["Close"] <= pm_low:
+        return None
+
+    if prior_close is not None and prior_close <= pm_low:
+        return None
+
+    pct_below = (pm_low - bar["Low"]) / pm_low * 100
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MONTHLY_LOW_TEST,
+        direction="NOTICE",
+        price=bar["Low"],
+        entry=round(pm_low, 2),
+        confidence="medium",
+        message=(
+            f"TESTING prior month low ${pm_low:.2f} — "
+            f"wicked {pct_below:.2f}% below, closed ${bar['Close']:.2f} above. "
+            f"Watch for hold (bounce entry) or close below (breakdown)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: Monthly Low Breakdown (close below prior month low)
+# ---------------------------------------------------------------------------
+
+
+def check_monthly_low_breakdown(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict,
+    bar_volume: float,
+    avg_volume: float,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Price closes below prior month low — monthly support lost."""
+    pm_low = prior_day.get("prior_month_low")
+    pm_high = prior_day.get("prior_month_high")
+    if not pm_low or pm_low <= 0:
+        return None
+
+    if bar["Close"] >= pm_low:
+        return None
+
+    if prior_close is not None and prior_close <= pm_low:
+        return None
+
+    pct_below = (pm_low - bar["Close"]) / pm_low * 100
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+
+    monthly_range = pm_high - pm_low if pm_high and pm_high > pm_low else 0
+    range_info = f", monthly range was ${monthly_range:.2f}" if monthly_range > 0 else ""
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MONTHLY_LOW_BREAKDOWN,
+        direction="SELL",
+        price=bar["Close"],
+        entry=round(pm_low, 2),
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=(
+            f"MONTHLY LOW BREAKDOWN — closed {pct_below:.2f}% below ${pm_low:.2f} "
+            f"(vol {vol_ratio:.1f}x avg{range_info}). "
+            f"Monthly support lost — watch for continuation lower"
         ),
     )
 
@@ -3361,6 +3658,7 @@ def _find_resistance_targets(
         "EMA50": prior_day.get("ema50"),
         "EMA100": prior_day.get("ema100"),
         "prior week high": prior_day.get("prior_week_high"),
+        "prior month high": prior_day.get("prior_month_high"),
     }
     for label, level in level_map.items():
         if level and level > entry:
@@ -4603,6 +4901,26 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
+        # --- Monthly Level Touch ---
+        if AlertType.MONTHLY_LEVEL_TOUCH.value in ENABLED_RULES:
+            sig = check_monthly_level_touch(symbol, intraday_bars, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Monthly High Breakout ---
+        if AlertType.MONTHLY_HIGH_BREAKOUT.value in ENABLED_RULES:
+            sig = check_monthly_high_breakout(
+                symbol, intraday_bars, prior_day, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
         # --- MACD Histogram Flip ---
         if AlertType.MACD_HISTOGRAM_FLIP.value in ENABLED_RULES:
             sig = check_macd_histogram_flip(symbol, intraday_bars, prior_day)
@@ -4720,6 +5038,35 @@ def evaluate_rules(
     # --- Weekly Low Breakdown (close below prior week low) ---
     if AlertType.WEEKLY_LOW_BREAKDOWN.value in ENABLED_RULES:
         sig = check_weekly_low_breakdown(
+            symbol, last_bar, prior_day, bar_vol, avg_vol, prior_close,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
+
+    # --- Monthly High Test (wick above, no close) ---
+    if AlertType.MONTHLY_HIGH_TEST.value in ENABLED_RULES:
+        sig = check_monthly_high_test(symbol, last_bar, prior_day, prior_close)
+        if sig:
+            sig.session_phase = phase
+            signals.append(sig)
+
+    # --- Monthly High Resistance ---
+    if AlertType.MONTHLY_HIGH_RESISTANCE.value in ENABLED_RULES:
+        sig = check_monthly_high_resistance(symbol, last_bar, prior_day)
+        if sig:
+            signals.append(sig)
+
+    # --- Monthly Low Test (wick below, no close) ---
+    if AlertType.MONTHLY_LOW_TEST.value in ENABLED_RULES:
+        sig = check_monthly_low_test(symbol, last_bar, prior_day, prior_close)
+        if sig:
+            sig.session_phase = phase
+            signals.append(sig)
+
+    # --- Monthly Low Breakdown (close below prior month low) ---
+    if AlertType.MONTHLY_LOW_BREAKDOWN.value in ENABLED_RULES:
+        sig = check_monthly_low_breakdown(
             symbol, last_bar, prior_day, bar_vol, avg_vol, prior_close,
         )
         if sig:

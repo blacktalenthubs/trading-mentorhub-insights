@@ -169,6 +169,12 @@ WEEKLY_LEVEL_PROXIMITY_PCT = 0.004  # 0.4% — wider than daily for broader week
 # Weekly Level Touch: stop offset below prior week low
 WEEKLY_LEVEL_STOP_OFFSET_PCT = 0.005  # 0.5%
 
+# Monthly Level Touch: bar low must be within this % of prior month level
+MONTHLY_LEVEL_PROXIMITY_PCT = 0.005  # 0.5% — wider than weekly for broader monthly zones
+
+# Monthly Level Touch: stop offset below prior month low
+MONTHLY_LEVEL_STOP_OFFSET_PCT = 0.007  # 0.7% — wider stop for monthly levels
+
 # Support Breakdown: proximity to session low for "SESSION LOW BREAK" tag
 SESSION_LOW_BREAK_PROXIMITY_PCT = 0.002  # 0.2%
 
@@ -241,6 +247,7 @@ BOUNCE_ALERT_TYPES: set[str] = {
     "vwap_reclaim",
     "opening_low_base",
     "weekly_level_touch",
+    "monthly_level_touch",
     "planned_level_touch",
 }
 
@@ -431,6 +438,14 @@ ENABLED_RULES: set[str] = {
     "resistance_prior_low",
     # SELL — weekly resistance
     "weekly_high_resistance",
+    # BUY — monthly high/low
+    "monthly_level_touch",
+    "monthly_high_breakout",
+    "monthly_high_test",
+    "monthly_low_test",
+    "monthly_low_breakdown",
+    # SELL — monthly resistance
+    "monthly_high_resistance",
     # Trade management — disabled Phase 1 (targets/stops from stored entries
     # can be inaccurate; rely on core S/R alerts for exits instead)
     # "target_1_hit",
