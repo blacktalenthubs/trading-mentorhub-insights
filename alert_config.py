@@ -127,7 +127,7 @@ COOLDOWN_MINUTES = 30
 # Burst cooldown: after a BUY notification is sent for a symbol, suppress
 # Telegram for additional BUY alerts on the same symbol for this many minutes.
 # Alerts still get recorded to DB for later review — just no push notification.
-BUY_BURST_COOLDOWN_MINUTES = 15
+BUY_BURST_COOLDOWN_MINUTES = 0  # disabled — send ALL alerts to Telegram
 
 # Intraday Support Bounce: bar low must be at or within this % ABOVE support
 # to count as a touch.  Using a directional check — bar low must actually
