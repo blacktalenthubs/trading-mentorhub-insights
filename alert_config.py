@@ -124,14 +124,28 @@ DAY_TRADE_MAX_RISK_PCT = 0.003  # 0.3%
 # Cooldown: minutes to suppress BUY signals after a stop-out
 COOLDOWN_MINUTES = 30
 
-# Intraday Support Bounce: bar low must be within this % of support
-SUPPORT_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3%
+# Burst cooldown: after a BUY notification is sent for a symbol, suppress
+# Telegram for additional BUY alerts on the same symbol for this many minutes.
+# Alerts still get recorded to DB for later review — just no push notification.
+BUY_BURST_COOLDOWN_MINUTES = 15
+
+# Intraday Support Bounce: bar low must be at or within this % ABOVE support
+# to count as a touch.  Using a directional check — bar low must actually
+# reach the support level (not just be "near" it from above).
+SUPPORT_BOUNCE_PROXIMITY_PCT = 0.0015  # 0.15% (tightened from 0.3%)
 
 # Support Bounce Lookback: scan last N bars for a touch (30 min at 5-min bars)
 SUPPORT_BOUNCE_LOOKBACK_BARS = 6
 
 # Support Bounce Max Distance: don't fire if price ran >1% above support
 SUPPORT_BOUNCE_MAX_DISTANCE_PCT = 0.010  # 1.0%
+
+# Minimum touch count to qualify as real support (1x swing low = noise)
+SUPPORT_BOUNCE_MIN_TOUCHES = 2
+
+# Consolidation filter: if >30% of recent bars closed below the support
+# level, the level is mid-range chop, not real support — suppress alert.
+SUPPORT_BOUNCE_MAX_CLOSE_BELOW_PCT = 0.30  # 30%
 
 # Opening Range Breakout: minimum OR range as % of price
 ORB_MIN_RANGE_PCT = 0.003  # 0.3%
@@ -267,6 +281,11 @@ OVERHEAD_MA_RESISTANCE_PCT = 0.005  # 0.5%
 
 # MA Confluence: MA within this % of entry = confluence with horizontal level
 CONFLUENCE_BAND_PCT = 0.005  # 0.5%
+
+# VWAP alerts: only fire for these symbols (SPY for market structure, NVDA for AI
+# sentiment, crypto for 24h VWAP relevance).  Other equities get noise from
+# bounce-then-fade behaviour around VWAP.
+VWAP_SYMBOLS: set[str] = {"SPY", "NVDA", "BTC-USD", "ETH-USD"}
 
 # VWAP Reclaim: morning reversal pattern — session low in first hour, reclaims VWAP
 VWAP_RECLAIM_MORNING_BARS = 12          # low must be in first 60 min (12 × 5-min bars)

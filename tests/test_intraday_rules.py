@@ -1902,13 +1902,13 @@ class TestIntradaySupportBounce:
 
     def test_fires_on_bounce_off_support(self):
         """Last bar low at support, closes above → BUY with entry=support."""
-        # Support at 648.00, bar low touches 648.10 (within 0.3%), closes at 649.50
+        # Support at 648.00, bar low touches 648.10 (within 0.15%), closes at 649.50
         bars = self._bounce_bars([
             {"Open": 648.50, "High": 650.00, "Low": 648.10, "Close": 649.50, "Volume": 1000},
         ])
         supports = [
-            {"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
-            {"level": 645.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
+            {"level": 648.00, "touch_count": 2, "hold_hours": 1, "strength": "weak"},
+            {"level": 645.00, "touch_count": 2, "hold_hours": 1, "strength": "weak"},
         ]
         sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
         assert sig is not None
@@ -1934,6 +1934,17 @@ class TestIntradaySupportBounce:
         supports = [{"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"}]
         sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
         assert sig is None
+
+    def test_no_fire_when_single_touch(self):
+        """Support tested only 1x is noise — require min 2 touches."""
+        bars = self._bounce_bars([
+            {"Open": 648.50, "High": 650.00, "Low": 648.10, "Close": 649.50, "Volume": 1000},
+        ])
+        supports = [
+            {"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
+        ]
+        sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
+        assert sig is None  # 1x touch rejected
 
     def test_fires_on_delayed_bounce_3_bars_ago(self):
         """Touch 3 bars back within lookback window, current above support → fires."""
@@ -1981,7 +1992,7 @@ class TestIntradaySupportBounce:
             {"Open": 649.00, "High": 649.50, "Low": 647.50, "Close": 649.00, "Volume": 1000},  # touch bar low 647.50
             {"Open": 649.20, "High": 650.50, "Low": 649.00, "Close": 650.00, "Volume": 1000},  # last bar
         ])
-        supports = [{"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"}]
+        supports = [{"level": 648.00, "touch_count": 2, "hold_hours": 1, "strength": "weak"}]
         sig = check_intraday_support_bounce("META", bars, supports, 1000, 1000)
         assert sig is not None
         assert sig.stop == 647.50  # touch bar's low
@@ -3412,7 +3423,7 @@ class TestSupportStrength:
         assert sig.confidence == "high"
 
         weak_support = [
-            {"level": 648.00, "touch_count": 1, "hold_hours": 1, "strength": "weak"},
+            {"level": 648.00, "touch_count": 2, "hold_hours": 1, "strength": "weak"},
         ]
         sig2 = check_intraday_support_bounce("META", bars, weak_support, 1000, 1000)
         assert sig2 is not None

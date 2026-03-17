@@ -92,7 +92,9 @@ from alert_config import (
     SESSION_LOW_RECOVERY_PCT,
     SESSION_LOW_STOP_OFFSET_PCT,
     SUPPORT_BOUNCE_LOOKBACK_BARS,
+    SUPPORT_BOUNCE_MAX_CLOSE_BELOW_PCT,
     SUPPORT_BOUNCE_MAX_DISTANCE_PCT,
+    SUPPORT_BOUNCE_MIN_TOUCHES,
     SUPPORT_BOUNCE_PROXIMITY_PCT,
     VWAP_BOUNCE_ABOVE_PCT,
     VWAP_BOUNCE_MAX_DISTANCE_PCT,
@@ -100,6 +102,7 @@ from alert_config import (
     VWAP_BOUNCE_STOP_OFFSET_PCT,
     VWAP_BOUNCE_TOUCH_PCT,
     VWAP_RECLAIM_MAX_DISTANCE_PCT,
+    VWAP_SYMBOLS,
     VWAP_RECLAIM_MIN_BARS_AFTER_LOW,
     VWAP_RECLAIM_MIN_RECOVERY_PCT,
     VWAP_RECLAIM_MORNING_BARS,
@@ -2516,14 +2519,20 @@ def check_intraday_support_bounce(
     lookback = bars.tail(SUPPORT_BOUNCE_LOOKBACK_BARS)
     last_bar = bars.iloc[-1]
 
-    # Scan lookback window for the best support touch (includes wick-through)
+    # Scan lookback window for the best support touch.
+    # Fix: directional check — bar low must actually REACH the support level
+    # (at or slightly above/below), not just be "near" it from far above.
     best = None
     touch_bar_low = None
     for sup in sorted(intraday_supports, key=lambda s: s["level"], reverse=True):
         lvl = sup["level"]
+        # Fix 2: require minimum touch count — "tested 1x" is noise
+        if sup.get("touch_count", 1) < SUPPORT_BOUNCE_MIN_TOUCHES:
+            continue
         for _, row in lookback.iterrows():
-            proximity = abs(row["Low"] - lvl) / lvl if lvl > 0 else float("inf")
-            if proximity <= SUPPORT_BOUNCE_PROXIMITY_PCT:
+            # Directional: low must be at or below level * (1 + proximity)
+            # This prevents counting bars whose low is far above support
+            if lvl > 0 and row["Low"] <= lvl * (1 + SUPPORT_BOUNCE_PROXIMITY_PCT):
                 best = sup
                 touch_bar_low = row["Low"]
                 break
@@ -2545,6 +2554,14 @@ def check_intraday_support_bounce(
     distance = (last_bar["Close"] - best_support) / best_support if best_support > 0 else 0
     if distance > SUPPORT_BOUNCE_MAX_DISTANCE_PCT:
         return None
+
+    # Fix 3: consolidation filter — if many bars closed below the level,
+    # it's a chop zone (price oscillating through it), not real support.
+    recent_bars = bars.tail(max(SUPPORT_BOUNCE_LOOKBACK_BARS * 3, 18))
+    if len(recent_bars) > 0 and best_support > 0:
+        closes_below = (recent_bars["Close"] < best_support).sum()
+        if closes_below / len(recent_bars) > SUPPORT_BOUNCE_MAX_CLOSE_BELOW_PCT:
+            return None
 
     entry = best_support
     stop = touch_bar_low if touch_bar_low < best_support else best_support * (1 - 0.005)
@@ -4833,7 +4850,7 @@ def evaluate_rules(
                     signals.append(sig)
 
         # --- VWAP Reclaim (Morning Reversal) ---
-        if AlertType.VWAP_RECLAIM.value in ENABLED_RULES:
+        if AlertType.VWAP_RECLAIM.value in ENABLED_RULES and symbol in VWAP_SYMBOLS:
             sig = check_vwap_reclaim(
                 symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
             )
@@ -4843,7 +4860,7 @@ def evaluate_rules(
                 signals.append(sig)
 
         # --- VWAP Bounce (Pullback to VWAP that holds) ---
-        if AlertType.VWAP_BOUNCE.value in ENABLED_RULES:
+        if AlertType.VWAP_BOUNCE.value in ENABLED_RULES and symbol in VWAP_SYMBOLS:
             sig = check_vwap_bounce(
                 symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
             )

@@ -20,6 +20,7 @@ from alert_config import (
     AI_CONVICTION_BOOST_POINTS,
     AI_CONVICTION_ENABLED,
     AI_CONVICTION_SUPPRESS_BELOW,
+    BUY_BURST_COOLDOWN_MINUTES,
     COOLDOWN_MINUTES,
     POLL_INTERVAL_MINUTES,
 )
@@ -75,6 +76,9 @@ logger = logging.getLogger("monitor")
 _auto_stop_entries: dict[str, dict] = {}  # {symbol: {entry_price, stop_price, alert_type}}
 _auto_stop_session: str = ""  # session date when entries were created
 
+# Burst cooldown: last BUY notification time per symbol (in-memory, resets on restart)
+_last_buy_notify: dict[str, datetime] = {}  # {symbol: datetime}
+
 # Tracks which date we last ran the EOD swing scan for
 _eod_ran_date: str | None = None
 
@@ -123,6 +127,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     # Clear stale auto-stop entries from previous sessions
     if _auto_stop_session != session:
         _auto_stop_entries.clear()
+        _last_buy_notify.clear()
         _auto_stop_session = session
         logger.info("New session %s — cleared stale auto-stop entries", session)
 
@@ -292,17 +297,38 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
                     close_all_entries_for_symbol(symbol, session, user_id=uid)
 
+                # Burst cooldown: skip Telegram for repeat BUY alerts on
+                # the same symbol within BUY_BURST_COOLDOWN_MINUTES.
+                # Alert is already saved to DB above — just suppress notification.
+                _burst_suppressed = False
+                if signal.direction == "BUY" and BUY_BURST_COOLDOWN_MINUTES > 0:
+                    _prev = _last_buy_notify.get(symbol)
+                    _now = datetime.utcnow()
+                    if _prev and (_now - _prev).total_seconds() < BUY_BURST_COOLDOWN_MINUTES * 60:
+                        _burst_suppressed = True
+                        logger.info(
+                            "BURST COOLDOWN: %s %s %s @ $%.2f — skipping notification (last BUY notify %ds ago)",
+                            signal.direction, symbol, signal.alert_type.value,
+                            signal.price, (_now - _prev).total_seconds(),
+                        )
+
                 # Single group notification
-                email_sent, sms_sent = notify(signal, alert_id=alert_id)
+                if _burst_suppressed:
+                    email_sent, sms_sent = False, False
+                else:
+                    email_sent, sms_sent = notify(signal, alert_id=alert_id)
+                    if signal.direction == "BUY":
+                        _last_buy_notify[symbol] = datetime.utcnow()
                 update_alert_notification(alert_id, email_sent, sms_sent)
 
                 fired_today.add((symbol, signal.alert_type.value))
                 total_alerts += 1
 
                 logger.info(
-                    "ALERT: %s %s %s @ $%.2f (email=%s, sms=%s)",
+                    "ALERT: %s %s %s @ $%.2f (email=%s, sms=%s%s)",
                     signal.direction, signal.symbol, signal.alert_type.value,
                     signal.price, email_sent, sms_sent,
+                    " [burst-suppressed]" if _burst_suppressed else "",
                 )
 
                 # Module-level auto-stop tracking (for evaluate_rules)
