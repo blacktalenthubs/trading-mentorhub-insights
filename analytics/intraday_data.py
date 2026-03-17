@@ -252,34 +252,51 @@ def detect_hourly_resistance(
 
     Algorithm:
     1. Find swing highs: bar whose High > both neighbors' High
-    2. Cluster nearby levels within cluster_pct — keep the max in each cluster
-    3. Return sorted ascending list of resistance levels
+    2. Filter out broken levels: if a later bar closed above the swing high,
+       that level has been breached and is no longer resistance
+    3. Cluster nearby levels within cluster_pct — keep the max in each cluster
+    4. Return sorted ascending list of resistance levels
 
     Mirrors detect_intraday_supports() pattern.
     """
     if bars_1h.empty or len(bars_1h) < 3:
         return []
 
-    # Step 1: swing high detection (neighbor comparison)
-    swing_highs: list[float] = []
+    # Step 1: swing high detection (neighbor comparison) — track index
+    swing_highs: list[tuple[int, float]] = []
     for i in range(1, len(bars_1h) - 1):
         if (bars_1h["High"].iloc[i] > bars_1h["High"].iloc[i - 1]
                 and bars_1h["High"].iloc[i] > bars_1h["High"].iloc[i + 1]):
-            swing_highs.append(float(bars_1h["High"].iloc[i]))
+            swing_highs.append((i, float(bars_1h["High"].iloc[i])))
 
     if not swing_highs:
         return []
 
-    # Step 2: cluster within cluster_pct, keep max per cluster
-    swing_highs.sort()
-    clusters: list[list[float]] = [[swing_highs[0]]]
-    for level in swing_highs[1:]:
+    # Step 2: filter out broken levels — if any later bar closed above
+    # the swing high, that level was breached and is no longer resistance
+    unbroken: list[float] = []
+    for idx, level in swing_highs:
+        broken = False
+        for j in range(idx + 1, len(bars_1h)):
+            if bars_1h["Close"].iloc[j] > level:
+                broken = True
+                break
+        if not broken:
+            unbroken.append(level)
+
+    if not unbroken:
+        return []
+
+    # Step 3: cluster within cluster_pct, keep max per cluster
+    unbroken.sort()
+    clusters: list[list[float]] = [[unbroken[0]]]
+    for level in unbroken[1:]:
         if (level - clusters[-1][0]) / clusters[-1][0] <= cluster_pct:
             clusters[-1].append(level)
         else:
             clusters.append([level])
 
-    # Step 3: return max of each cluster, sorted ascending
+    # Step 4: return max of each cluster, sorted ascending
     return sorted(max(c) for c in clusters)
 
 

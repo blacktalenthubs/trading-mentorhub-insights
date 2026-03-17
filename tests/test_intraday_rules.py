@@ -3124,8 +3124,10 @@ class TestDetectHourlyResistance:
 
     def test_finds_swing_highs(self):
         """Bar whose high > both neighbors → detected as resistance."""
-        # highs: 100, 105, 102, 108, 103 → swing highs at 105 and 108
-        bars = self._hourly_bars([100, 105, 102, 108, 103])
+        # highs: 100, 108, 102, 105, 103 → swing highs at 108 and 105
+        # 108 at idx 1: later closes 101.5, 104.5, 102.5 — all < 108 → unbroken
+        # 105 at idx 3: later close 102.5 — < 105 → unbroken
+        bars = self._hourly_bars([100, 108, 102, 105, 103])
         levels = detect_hourly_resistance(bars)
         assert 105.0 in levels
         assert 108.0 in levels
@@ -3133,8 +3135,11 @@ class TestDetectHourlyResistance:
     def test_clusters_nearby_swing_highs(self):
         """Two swing highs within 0.3% → clustered, keep max."""
         # 310.0 and 310.5 are within 0.3% of each other (0.16%)
-        # highs: 305, 310.0, 308, 310.5, 307, 320, 315
-        bars = self._hourly_bars([305, 310.0, 308, 310.5, 307, 320, 315])
+        # highs: 305, 320, 315, 310.0, 308, 310.5, 307
+        # 320 at idx 1: later closes all < 320 → unbroken
+        # 310.0 at idx 3: later closes 307.5, 310.0, 306.5 — none > 310.0 → unbroken
+        # 310.5 at idx 5: later close 306.5 < 310.5 → unbroken
+        bars = self._hourly_bars([305, 320, 315, 310.0, 308, 310.5, 307])
         levels = detect_hourly_resistance(bars)
         # 310.0 and 310.5 should cluster → keep 310.5
         assert 310.5 in levels
@@ -3159,11 +3164,48 @@ class TestDetectHourlyResistance:
 
     def test_multiple_levels_sorted_ascending(self):
         """Multiple distinct levels returned sorted ascending."""
-        # highs: 300, 320, 305, 310, 308, 330, 315
-        bars = self._hourly_bars([300, 320, 305, 310, 308, 330, 315])
+        # highs: 300, 330, 305, 320, 310, 315, 308
+        # 330 at idx 1: later closes all < 330 → unbroken
+        # 320 at idx 3: later closes 309.5, 314.5, 307.5 → all < 320 → unbroken
+        # 315 at idx 5: later close 307.5 < 315 → unbroken
+        bars = self._hourly_bars([300, 330, 305, 320, 310, 315, 308])
         levels = detect_hourly_resistance(bars)
         assert levels == sorted(levels)
         assert len(levels) >= 2
+
+    def test_filters_broken_resistance(self):
+        """Swing high broken by a later close above it → removed."""
+        # highs: 100, 105, 102, 110, 103
+        # 105 at idx 1: later bar at idx 3 closes at 109.5 > 105 → BROKEN
+        # 110 at idx 3: later close 102.5 < 110 → unbroken
+        bars = self._hourly_bars([100, 105, 102, 110, 103])
+        levels = detect_hourly_resistance(bars)
+        assert 105.0 not in levels  # broken — later bar closed above
+        assert 110.0 in levels      # unbroken — no later bar closed above
+
+    def test_all_levels_broken_returns_empty(self):
+        """When all swing highs are broken by later closes → empty list."""
+        # highs: 100, 105, 102, 110, 108, 115, 112
+        # 105 broken by close 109.5, 110 broken by close 114.5
+        # 115 at idx 5: later close 111.5 < 115 → unbroken
+        # Need all broken: 100, 105, 102, 108, 112, 106, 115
+        # 105 at idx 1: later closes 101.5, 107.5, 111.5, 105.5, 114.5 → 107.5 > 105 → BROKEN
+        # 108 at idx 3: later closes 111.5, 105.5, 114.5 → 111.5 > 108 → BROKEN
+        # 112 at idx 4: close is 111.5. Later closes 105.5, 114.5 → 114.5 > 112 → BROKEN
+        # Wait, 112 isn't a swing high because 112 > 108 but check neighbors...
+        # Let me use: 100, 105, 102, 108, 103, 115, 108
+        # 105 at idx 1: later close at idx 3 = 107.5 > 105 → BROKEN
+        # 108 at idx 3: later close at idx 5 = 114.5 > 108 → BROKEN
+        # 115 at idx 5: later close 107.5 < 115 → unbroken
+        # That leaves 115 unbroken. Let me build data where last swing is also broken.
+        # 100, 105, 102, 110, 103, 108, 120
+        # 105 at idx 1: close at idx 3 = 109.5 > 105 → BROKEN
+        # 110 at idx 3: close at idx 6 = 119.5 > 110 → BROKEN
+        # 108 at idx 5: close at idx 6 = 119.5 > 108 → BROKEN (but is 108 a swing high? high=108, neighbors 103, 120 → 108 < 120 → NOT a swing high)
+        # Only 105 and 110 are swing highs, both broken → empty
+        bars = self._hourly_bars([100, 105, 102, 110, 103, 108, 120])
+        levels = detect_hourly_resistance(bars)
+        assert levels == []
 
 
 # ===== Hourly Resistance Approach =====
