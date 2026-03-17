@@ -315,8 +315,14 @@ RETRACEMENT_MIN_AGE_BARS = 6            # 30 min — high must be established th
 RETRACEMENT_PROXIMITY_PCT = 0.006       # 0.6% — how close to session low for entry
 RETRACEMENT_STOP_OFFSET_PCT = 0.005     # 0.5% below session low for stop
 
-# Minimum target distance: T1 must be at least this % above entry
-MIN_TARGET_DISTANCE_PCT = 0.005  # 0.5%
+# Minimum target distance: T1 must be at least this % above entry.
+# Prevents "T1 hit" firing 5 min after BUY on a trivial move.
+MIN_TARGET_DISTANCE_PCT = 0.008  # 0.8% (raised from 0.5%)
+
+# Minimum stop distance: stop must be at least this % below entry.
+# Prevents noise stop-outs on $0.12 moves (e.g., touch_bar_low barely
+# below support).  ATR floor is applied separately on top of this.
+MIN_STOP_DISTANCE_PCT = 0.003  # 0.3%
 
 # Options play: minimum score to flag as options-worthy (requires high confidence)
 OPTIONS_MIN_SCORE = 80
