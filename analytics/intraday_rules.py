@@ -48,6 +48,7 @@ from alert_config import (
     MA100_STOP_OFFSET_PCT,
     MA200_BOUNCE_PROXIMITY_PCT,
     MA200_STOP_OFFSET_PCT,
+    MIN_STOP_DISTANCE_PCT,
     MIN_TARGET_DISTANCE_PCT,
     ORB_BREAKDOWN_VOLUME_RATIO,
     ORB_MIN_RANGE_PCT,
@@ -750,7 +751,17 @@ def check_prior_day_high_breakout(
     stop = _cap_risk(entry, stop, symbol=symbol)
     risk = entry - stop
     if risk <= 0:
-        return None
+        # Gap-up above breakout level (common for crypto) — use lookback low
+        lookback_low = round(bars.tail(MA_BOUNCE_LOOKBACK_BARS)["Low"].min(), 2)
+        if lookback_low < entry:
+            stop = lookback_low
+        else:
+            # Even lookback is above PDH — use 0.5% buffer below PDH
+            stop = round(entry * 0.995, 2)
+        stop = _cap_risk(entry, stop, symbol=symbol)
+        risk = entry - stop
+        if risk <= 0:
+            return None
 
     return AlertSignal(
         symbol=symbol,
@@ -1428,7 +1439,16 @@ def check_weekly_high_breakout(
     stop = _cap_risk(entry, stop, symbol=symbol)
     risk = entry - stop
     if risk <= 0:
-        return None
+        # Gap-up above breakout level (common for crypto) — use lookback low
+        lookback_low = round(bars.tail(MA_BOUNCE_LOOKBACK_BARS)["Low"].min(), 2)
+        if lookback_low < entry:
+            stop = lookback_low
+        else:
+            stop = round(entry * 0.995, 2)
+        stop = _cap_risk(entry, stop, symbol=symbol)
+        risk = entry - stop
+        if risk <= 0:
+            return None
 
     weekly_range = pw_high - pw_low if pw_low and pw_low > 0 else risk * 2
 

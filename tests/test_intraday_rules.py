@@ -689,12 +689,67 @@ class TestPriorDayHighBreakout:
 
     def test_no_fire_when_risk_is_zero(self):
         # Bar low == prior high → risk = 0, should return None
+        # With the gap-up fallback, this now uses 0.5% buffer stop
         bars = _bars([
             {"Open": 101, "High": 102, "Low": 101.0, "Close": 101.5, "Volume": 1500},
         ])
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
                                              bar_volume=1500, avg_volume=1000)
-        assert sig is None
+        # Gap-up fallback kicks in: stop = 101.0 * 0.995 = 100.50
+        assert sig is not None
+        assert sig.stop < sig.entry
+
+    def test_crypto_gap_up_above_pdh_fires(self):
+        """Crypto opens above PDH — all bars have Low > PDH.
+        Should fire using fallback stop (0.5% below PDH)."""
+        bars = _bars([
+            {"Open": 71400, "High": 71600, "Low": 71350, "Close": 71500, "Volume": 100000},
+            {"Open": 71500, "High": 71800, "Low": 71400, "Close": 71600, "Volume": 120000},
+            {"Open": 71600, "High": 72000, "Low": 71550, "Close": 71800, "Volume": 150000},
+            {"Open": 71800, "High": 72200, "Low": 71700, "Close": 72100, "Volume": 130000},
+            {"Open": 72100, "High": 72500, "Low": 72000, "Close": 72300, "Volume": 140000},
+            {"Open": 72300, "High": 72800, "Low": 72200, "Close": 72600, "Volume": 160000},
+        ])
+        # PDH = 71291 — all bar lows are above PDH
+        sig = check_prior_day_high_breakout("BTC-USD", bars, prior_day_high=71291.0,
+                                             bar_volume=160000, avg_volume=130000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PRIOR_DAY_HIGH_BREAKOUT
+        assert sig.entry == 71291.0
+        # Stop should be 0.5% below PDH since all lookback lows > PDH
+        assert sig.stop == round(71291.0 * 0.995, 2)
+        assert sig.stop < sig.entry
+
+    def test_crypto_gap_up_lookback_low_below_pdh(self):
+        """Some lookback bars have Low < PDH — uses lookback low as stop."""
+        bars = _bars([
+            {"Open": 71200, "High": 71400, "Low": 71100, "Close": 71300, "Volume": 100000},
+            {"Open": 71300, "High": 71500, "Low": 71250, "Close": 71400, "Volume": 110000},
+            {"Open": 71400, "High": 71800, "Low": 71350, "Close": 71700, "Volume": 130000},
+            {"Open": 71700, "High": 72000, "Low": 71600, "Close": 71900, "Volume": 120000},
+            {"Open": 71900, "High": 72200, "Low": 71800, "Close": 72100, "Volume": 150000},
+            {"Open": 72100, "High": 72500, "Low": 72000, "Close": 72400, "Volume": 160000},
+        ])
+        # PDH = 71291 — first two bars have Low < PDH (71100, 71250)
+        sig = check_prior_day_high_breakout("BTC-USD", bars, prior_day_high=71291.0,
+                                             bar_volume=160000, avg_volume=130000)
+        assert sig is not None
+        # Last bar low (72000) > PDH, so gap-up fallback triggers
+        # Lookback low = min of last 6 bars low = 71100 < PDH → uses lookback low
+        assert sig.stop == 71100.0
+        assert sig.stop < sig.entry
+
+    def test_equity_pdh_breakout_unchanged(self):
+        """Normal equity approach from below — existing behavior preserved."""
+        bars = _bars([
+            {"Open": 100, "High": 101, "Low": 99.5, "Close": 100, "Volume": 800},
+            {"Open": 100.5, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("NVDA", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is not None
+        assert sig.stop < sig.entry  # Stop below entry (normal approach from below)
+        assert sig.entry == 101.0
 
 
 # ===== Rule 3c: Prior Day High Retest & Hold =====
