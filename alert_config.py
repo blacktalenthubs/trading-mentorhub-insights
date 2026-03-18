@@ -323,6 +323,14 @@ MORNING_LOW_RETEST_STOP_OFFSET_PCT = 0.003  # 0.3% below first-hour low for stop
 FIRST_HOUR_HIGH_BREAKOUT_MIN_BARS = 12  # must be past first hour
 FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO = 0.8  # volume confirmation
 
+# Prior Day Low Breakdown: price breaks below PDL on volume — bearish exit signal
+PDL_BREAKDOWN_VOLUME_RATIO = 0.8  # volume must be >= 0.8x avg for conviction
+PDL_BREAKDOWN_MAX_DISTANCE_PCT = 0.015  # 1.5% — skip if price already far below
+
+# Prior Day Low Resistance: after PDL breaks, it becomes overhead resistance
+PDL_RESISTANCE_PROXIMITY_PCT = 0.004  # 0.4% — bar high must reach within this of PDL
+PDL_RESISTANCE_REJECTION_PCT = 0.003  # 0.3% — close must be this far below PDL
+
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
 WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level
@@ -520,6 +528,8 @@ ENABLED_RULES: set[str] = {
     # "ema_crossover_5_20",
     # "hourly_resistance_approach",
     "support_breakdown",
+    "prior_day_low_breakdown",
+    "prior_day_low_resistance",
     # NOTICE — informational
     "first_hour_summary",
     "inside_day_forming",

@@ -121,6 +121,10 @@ from alert_config import (
     FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO,
     MA_RECLAIM_STOP_OFFSET_PCT,
     MA_RECLAIM_MAX_DISTANCE_PCT,
+    PDL_BREAKDOWN_VOLUME_RATIO,
+    PDL_BREAKDOWN_MAX_DISTANCE_PCT,
+    PDL_RESISTANCE_PROXIMITY_PCT,
+    PDL_RESISTANCE_REJECTION_PCT,
     OPENING_LOW_BASE_STOP_OFFSET_PCT,
     RETRACEMENT_MIN_RALLY_PCT,
     RETRACEMENT_MIN_AGE_BARS,
@@ -229,6 +233,9 @@ class AlertType(str, Enum):
     SWING_BULL_FLAG = "swing_bull_flag"
     SWING_CANDLE_PATTERN = "swing_candle_pattern"
     SWING_CONSECUTIVE_RED = "swing_consecutive_red"
+    # Prior day low breakdown / resistance
+    PRIOR_DAY_LOW_BREAKDOWN = "prior_day_low_breakdown"
+    PRIOR_DAY_LOW_RESISTANCE = "prior_day_low_resistance"
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
@@ -723,6 +730,128 @@ def check_prior_day_low_bounce(
         message=(
             f"Prior day low bounce — held above ${prior_day_low:.2f}, "
             f"low ${bars['Low'].min():.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: Prior Day Low Breakdown
+# ---------------------------------------------------------------------------
+
+
+def check_prior_day_low_breakdown(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day_low: float,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price breaks below prior day low on volume — bearish exit signal.
+
+    Conditions:
+    - Last bar closes below prior day low
+    - Volume confirmation (>= PDL_BREAKDOWN_VOLUME_RATIO)
+    - Price hasn't already fallen too far (staleness guard)
+    """
+    if bars.empty or prior_day_low is None or prior_day_low <= 0:
+        return None
+    if isinstance(prior_day_low, float) and math.isnan(prior_day_low):
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] >= prior_day_low:
+        return None  # hasn't broken down
+
+    # Volume confirmation
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < PDL_BREAKDOWN_VOLUME_RATIO:
+        return None
+
+    # Staleness guard — skip if price already far below
+    distance_pct = (prior_day_low - last_bar["Close"]) / prior_day_low
+    if distance_pct > PDL_BREAKDOWN_MAX_DISTANCE_PCT:
+        return None
+
+    confidence = "high" if vol_ratio >= 1.5 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PRIOR_DAY_LOW_BREAKDOWN,
+        direction="SELL",
+        price=last_bar["Close"],
+        entry=round(prior_day_low, 2),
+        stop=None,
+        target_1=None,
+        target_2=None,
+        confidence=confidence,
+        message=(
+            f"Prior day low BREAKDOWN — closed below ${prior_day_low:.2f} "
+            f"at ${last_bar['Close']:.2f} (vol {vol_ratio:.1f}x). EXIT LONG."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SELL Rule: Prior Day Low as Resistance (after breakdown)
+# ---------------------------------------------------------------------------
+
+
+def check_prior_day_low_resistance(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day_low: float,
+) -> AlertSignal | None:
+    """After PDL breaks, price rallies back to PDL and gets rejected.
+
+    Conditions:
+    - Price is currently below PDL (breakdown already happened)
+    - Bar high reached within proximity of PDL (tested it)
+    - Bar closes below PDL (rejection confirmed)
+    - Must have been below PDL for some bars (not just a wick)
+    """
+    if bars.empty or prior_day_low is None or prior_day_low <= 0:
+        return None
+    if isinstance(prior_day_low, float) and math.isnan(prior_day_low):
+        return None
+    if len(bars) < 6:
+        return None
+
+    last_bar = bars.iloc[-1]
+
+    # Must be trading below PDL
+    if last_bar["Close"] >= prior_day_low:
+        return None
+
+    # Bar high must have reached near PDL (testing it as resistance)
+    proximity = (prior_day_low - last_bar["High"]) / prior_day_low
+    if proximity > PDL_RESISTANCE_PROXIMITY_PCT:
+        return None  # didn't reach PDL
+
+    # Close must be meaningfully below PDL (rejection confirmed)
+    rejection = (prior_day_low - last_bar["Close"]) / prior_day_low
+    if rejection < PDL_RESISTANCE_REJECTION_PCT:
+        return None  # close too near PDL, not a clear rejection
+
+    # Confirm price has been below PDL for multiple bars (not a one-bar wick)
+    recent = bars.tail(4)
+    bars_below = (recent["Close"] < prior_day_low).sum()
+    if bars_below < 2:
+        return None  # just crossed below, let breakdown handle it
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PRIOR_DAY_LOW_RESISTANCE,
+        direction="SELL",
+        price=last_bar["Close"],
+        entry=round(prior_day_low, 2),
+        stop=None,
+        target_1=None,
+        target_2=None,
+        confidence="high" if bars_below >= 3 else "medium",
+        message=(
+            f"Prior day low RESISTANCE — PDL ${prior_day_low:.2f} rejected, "
+            f"high ${last_bar['High']:.2f} but closed ${last_bar['Close']:.2f}. "
+            f"PDL now overhead resistance."
         ),
     )
 
@@ -5349,6 +5478,22 @@ def evaluate_rules(
     sig = check_resistance_prior_low(symbol, last_bar, prior_low, prior_close, today_open)
     if sig:
         signals.append(sig)
+
+    # --- Prior Day Low Breakdown ---
+    if AlertType.PRIOR_DAY_LOW_BREAKDOWN.value in ENABLED_RULES:
+        sig = check_prior_day_low_breakdown(
+            symbol, intraday_bars, prior_low, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
+
+    # --- Prior Day Low as Resistance (after breakdown) ---
+    if AlertType.PRIOR_DAY_LOW_RESISTANCE.value in ENABLED_RULES:
+        sig = check_prior_day_low_resistance(symbol, intraday_bars, prior_low)
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
 
     # --- Weekly High Test (wick above, no close) ---
     if AlertType.WEEKLY_HIGH_TEST.value in ENABLED_RULES:

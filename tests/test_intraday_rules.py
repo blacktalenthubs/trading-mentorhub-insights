@@ -67,6 +67,8 @@ from analytics.intraday_rules import (
     check_morning_low_retest,
     check_first_hour_high_breakout,
     check_ma_ema_reclaim,
+    check_prior_day_low_breakdown,
+    check_prior_day_low_resistance,
     check_session_high_retracement,
     check_multi_day_double_bottom,
     check_session_low_retest,
@@ -6533,6 +6535,103 @@ class TestFibRetracementBounceExtended:
         assert sig is not None
         # Entry should be near 106.18 (38.2% level), not 105.0
         assert abs(sig.entry - 106.18) < 0.05
+
+
+# ---------------------------------------------------------------------------
+# Prior Day Low Breakdown
+# ---------------------------------------------------------------------------
+
+
+class TestPriorDayLowBreakdown:
+    """Tests for check_prior_day_low_breakdown — SELL when PDL breaks."""
+
+    def test_fires_on_close_below_pdl_with_volume(self):
+        bars = _bars([
+            {"Open": 670, "High": 671, "Low": 669, "Close": 670, "Volume": 800},
+            {"Open": 669, "High": 670, "Low": 667, "Close": 667.5, "Volume": 1200},
+        ])
+        sig = check_prior_day_low_breakdown("SPY", bars, prior_day_low=669.0,
+                                             bar_volume=1200, avg_volume=1000)
+        assert sig is not None
+        assert sig.direction == "SELL"
+        assert sig.alert_type == AlertType.PRIOR_DAY_LOW_BREAKDOWN
+        assert "BREAKDOWN" in sig.message
+        assert "EXIT LONG" in sig.message
+
+    def test_no_fire_when_close_above_pdl(self):
+        bars = _bars([
+            {"Open": 670, "High": 671, "Low": 668, "Close": 669.5, "Volume": 1200},
+        ])
+        sig = check_prior_day_low_breakdown("SPY", bars, prior_day_low=669.0,
+                                             bar_volume=1200, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_low_volume(self):
+        bars = _bars([
+            {"Open": 669, "High": 670, "Low": 667, "Close": 667.5, "Volume": 500},
+        ])
+        sig = check_prior_day_low_breakdown("SPY", bars, prior_day_low=669.0,
+                                             bar_volume=500, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_too_far_below(self):
+        bars = _bars([
+            {"Open": 660, "High": 661, "Low": 658, "Close": 658, "Volume": 1200},
+        ])
+        sig = check_prior_day_low_breakdown("SPY", bars, prior_day_low=669.0,
+                                             bar_volume=1200, avg_volume=1000)
+        # 1.64% below — above 1.5% threshold
+        assert sig is None
+
+
+# ---------------------------------------------------------------------------
+# Prior Day Low Resistance
+# ---------------------------------------------------------------------------
+
+
+class TestPriorDayLowResistance:
+    """Tests for check_prior_day_low_resistance — PDL becomes overhead resistance."""
+
+    def test_fires_when_pdl_rejected(self):
+        """Price below PDL, rallies to PDL, gets rejected."""
+        bars = _bars([
+            {"Open": 668, "High": 669, "Low": 667, "Close": 667.5, "Volume": 1000},
+            {"Open": 667.5, "High": 668, "Low": 666, "Close": 666.5, "Volume": 900},
+            {"Open": 666.5, "High": 667, "Low": 665, "Close": 665.5, "Volume": 800},
+            {"Open": 665.5, "High": 666, "Low": 665, "Close": 665.5, "Volume": 800},
+            {"Open": 666, "High": 668.8, "Low": 665.5, "Close": 666, "Volume": 1100},
+            {"Open": 666, "High": 668.9, "Low": 665, "Close": 666.5, "Volume": 1000},
+        ])
+        # PDL = 669.0 — price below, bar high reached 668.9 (within 0.4%), close at 666.5
+        sig = check_prior_day_low_resistance("META", bars, prior_day_low=669.0)
+        assert sig is not None
+        assert sig.direction == "SELL"
+        assert "RESISTANCE" in sig.message
+
+    def test_no_fire_when_close_above_pdl(self):
+        bars = _bars([
+            {"Open": 668, "High": 670, "Low": 667, "Close": 669.5, "Volume": 1000},
+            {"Open": 669, "High": 670, "Low": 668, "Close": 669.5, "Volume": 900},
+            {"Open": 669, "High": 670, "Low": 668, "Close": 669.5, "Volume": 800},
+            {"Open": 669, "High": 670, "Low": 668, "Close": 669.5, "Volume": 800},
+            {"Open": 669, "High": 670, "Low": 668, "Close": 669.5, "Volume": 800},
+            {"Open": 669, "High": 670, "Low": 668, "Close": 669.5, "Volume": 800},
+        ])
+        sig = check_prior_day_low_resistance("META", bars, prior_day_low=669.0)
+        assert sig is None
+
+    def test_no_fire_when_high_too_far_from_pdl(self):
+        """Bar high didn't reach PDL — not testing it."""
+        bars = _bars([
+            {"Open": 665, "High": 666, "Low": 664, "Close": 664.5, "Volume": 1000},
+            {"Open": 665, "High": 666, "Low": 664, "Close": 664.5, "Volume": 900},
+            {"Open": 665, "High": 666, "Low": 664, "Close": 664.5, "Volume": 800},
+            {"Open": 665, "High": 666, "Low": 664, "Close": 664.5, "Volume": 800},
+            {"Open": 665, "High": 666, "Low": 664, "Close": 664.5, "Volume": 800},
+            {"Open": 665, "High": 666, "Low": 664, "Close": 664.5, "Volume": 800},
+        ])
+        sig = check_prior_day_low_resistance("META", bars, prior_day_low=669.0)
+        assert sig is None
 
 
 # ---------------------------------------------------------------------------
