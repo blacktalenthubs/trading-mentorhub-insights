@@ -46,7 +46,7 @@ MA_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3% (used by 20MA and 50MA)
 MA100_BOUNCE_PROXIMITY_PCT = 0.005  # 0.5%
 
 # MA200 Bounce: widest proximity — major level, deep wicks common
-MA200_BOUNCE_PROXIMITY_PCT = 0.008  # 0.8%
+MA200_BOUNCE_PROXIMITY_PCT = 0.010  # 1.0% — widened for mega-cap watchlist
 
 # MA Bounce: stop offset below the MA
 MA_STOP_OFFSET_PCT = 0.005  # 0.5%
