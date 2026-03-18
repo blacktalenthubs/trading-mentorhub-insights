@@ -26,7 +26,7 @@ from alerting.options_trade_store import (
 from alert_config import OPTIONS_ELIGIBLE_SYMBOLS, OPTIONS_MIN_SCORE
 from analytics.intraday_data import fetch_intraday, get_spy_context
 from analytics.swing_rules import check_spy_regime
-from db import get_db
+from db import get_db, get_watchlist
 import ui_theme
 
 from ui_theme import get_current_tier, render_inline_upgrade
@@ -203,6 +203,7 @@ with get_db() as conn:
            ORDER BY created_at DESC""",
         (session,),
     ).fetchall()
+    today_signals = [s for s in today_signals if s["symbol"] in _user_watchlist]
 
 if not today_signals:
     ui_theme.empty_state("No swing signals today. Signals fire after market close (4 PM ET).")
@@ -393,7 +394,9 @@ if _is_free:
 
 ui_theme.section_header("RSI Heatmap")
 
-categories = get_swing_categories(session)
+_all_categories = get_swing_categories(session)
+_user_watchlist = set(get_watchlist(user["id"] if user else None))
+categories = [c for c in _all_categories if c["symbol"] in _user_watchlist]
 
 if not categories:
     ui_theme.empty_state("No RSI data yet. Run an EOD scan to populate.")
