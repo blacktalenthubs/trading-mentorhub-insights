@@ -113,6 +113,12 @@ from alert_config import (
     OPENING_LOW_BASE_HOLD_BARS,
     OPENING_LOW_BASE_HOLD_PCT,
     OPENING_LOW_BASE_MIN_DIP_PCT,
+    MORNING_LOW_RETEST_MIN_BARS,
+    MORNING_LOW_RETEST_RALLY_PCT,
+    MORNING_LOW_RETEST_PROXIMITY_PCT,
+    MORNING_LOW_RETEST_STOP_OFFSET_PCT,
+    FIRST_HOUR_HIGH_BREAKOUT_MIN_BARS,
+    FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO,
     OPENING_LOW_BASE_STOP_OFFSET_PCT,
     RETRACEMENT_MIN_RALLY_PCT,
     RETRACEMENT_MIN_AGE_BARS,
@@ -221,6 +227,9 @@ class AlertType(str, Enum):
     SWING_BULL_FLAG = "swing_bull_flag"
     SWING_CANDLE_PATTERN = "swing_candle_pattern"
     SWING_CONSECUTIVE_RED = "swing_consecutive_red"
+    # Morning range retests
+    MORNING_LOW_RETEST = "morning_low_retest"
+    FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
     # Informational — inside day forming (today's range within yesterday's)
     INSIDE_DAY_FORMING = "inside_day_forming"
 
@@ -2867,6 +2876,160 @@ def check_opening_low_base(
 
 
 # ---------------------------------------------------------------------------
+# Rule: Morning Low Retest (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_morning_low_retest(
+    symbol: str,
+    bars: pd.DataFrame,
+    opening_range: dict | None,
+) -> AlertSignal | None:
+    """Price retests the first-hour low after rallying away.
+
+    Classic day trade pattern: morning establishes a low, price rallies,
+    then pulls back to test that morning low — bounce entry.
+
+    Conditions:
+    1. Must be past first hour (>= MORNING_LOW_RETEST_MIN_BARS)
+    2. First-hour low established via opening_range
+    3. Price must have rallied >= RALLY_PCT above first-hour low at some point
+    4. Last bar low within PROXIMITY_PCT of first-hour low
+    5. Last bar closes above first-hour low (bounce confirmed)
+    """
+    if not opening_range or not opening_range.get("or_complete"):
+        return None
+    if bars.empty or len(bars) < MORNING_LOW_RETEST_MIN_BARS:
+        return None
+
+    first_hour_low = opening_range["or_low"]
+    first_hour_high = opening_range["or_high"]
+    if first_hour_low <= 0:
+        return None
+
+    last_bar = bars.iloc[-1]
+
+    # Must have rallied above first-hour low at some point (the move away)
+    post_or_bars = bars.iloc[6:]  # bars after opening range
+    if post_or_bars.empty:
+        return None
+    max_high = post_or_bars["High"].max()
+    rally_pct = (max_high - first_hour_low) / first_hour_low
+    if rally_pct < MORNING_LOW_RETEST_RALLY_PCT:
+        return None
+
+    # Last bar low must be near first-hour low (the retest)
+    proximity = (last_bar["Low"] - first_hour_low) / first_hour_low
+    if proximity < -MORNING_LOW_RETEST_PROXIMITY_PCT:
+        return None  # broke too far below
+    if proximity > MORNING_LOW_RETEST_PROXIMITY_PCT:
+        return None  # not close enough
+
+    # Must close above first-hour low (bounce confirmed)
+    if last_bar["Close"] <= first_hour_low:
+        return None
+
+    # Skip if price is still near the opening range (not a retest, still forming)
+    # Require at least one bar after the OR that rallied significantly
+    rally_bar_count = len(post_or_bars[post_or_bars["Close"] > first_hour_low * (1 + MORNING_LOW_RETEST_RALLY_PCT)])
+    if rally_bar_count < 2:
+        return None
+
+    entry = round(first_hour_low, 2)
+    stop = round(first_hour_low * (1 - MORNING_LOW_RETEST_STOP_OFFSET_PCT), 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    # T1 = VWAP area or first-hour high, T2 = further
+    target_1 = round(entry + risk, 2)
+    target_2 = round(first_hour_high, 2) if first_hour_high > target_1 else round(entry + 2 * risk, 2)
+
+    confidence = "high" if rally_pct >= 0.01 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MORNING_LOW_RETEST,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"Morning low retest — first-hour low ${first_hour_low:.2f} "
+            f"retested after {rally_pct:.1%} rally to ${max_high:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rule: First Hour High Breakout (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_first_hour_high_breakout(
+    symbol: str,
+    bars: pd.DataFrame,
+    opening_range: dict | None,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Price breaks above first-hour high later in the session.
+
+    Conditions:
+    1. Must be past first hour
+    2. Last bar closes above first-hour high
+    3. Volume confirmation
+    4. Entry = first-hour high, Stop = first-hour low or VWAP
+    """
+    if not opening_range or not opening_range.get("or_complete"):
+        return None
+    if bars.empty or len(bars) < FIRST_HOUR_HIGH_BREAKOUT_MIN_BARS:
+        return None
+
+    first_hour_high = opening_range["or_high"]
+    first_hour_low = opening_range["or_low"]
+    or_range = opening_range["or_range"]
+    if first_hour_high <= 0 or or_range <= 0:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= first_hour_high:
+        return None
+
+    # Volume check
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO:
+        return None
+
+    entry = round(first_hour_high, 2)
+    stop = round(first_hour_low, 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.FIRST_HOUR_HIGH_BREAKOUT,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + or_range, 2),
+        target_2=round(entry + 2 * or_range, 2),
+        confidence="high" if vol_ratio >= 1.5 else "medium",
+        message=(
+            f"First hour high breakout — closed above ${first_hour_high:.2f} "
+            f"(range ${or_range:.2f}, vol {vol_ratio:.1f}x)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule: Session High Retracement (BUY)
 # ---------------------------------------------------------------------------
 
@@ -4899,6 +5062,28 @@ def evaluate_rules(
                 if spy.get("spy_bouncing"):
                     sig.confidence = "high"
                     sig.message += " | SPY also basing"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Morning Low Retest ---
+        if AlertType.MORNING_LOW_RETEST.value in ENABLED_RULES:
+            sig = check_morning_low_retest(symbol, intraday_bars, opening_range)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- First Hour High Breakout ---
+        if AlertType.FIRST_HOUR_HIGH_BREAKOUT.value in ENABLED_RULES:
+            sig = check_first_hour_high_breakout(
+                symbol, intraday_bars, opening_range, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
                 if vwap_pos:
                     sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix

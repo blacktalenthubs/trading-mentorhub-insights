@@ -260,6 +260,8 @@ BOUNCE_ALERT_TYPES: set[str] = {
     "intraday_support_bounce",
     "vwap_reclaim",
     "opening_low_base",
+    "morning_low_retest",
+    "first_hour_high_breakout",
     "weekly_level_touch",
     "monthly_level_touch",
     "planned_level_touch",
@@ -308,6 +310,16 @@ OPENING_LOW_BASE_HOLD_BARS = 2         # 10 min of holding above low to confirm 
 OPENING_LOW_BASE_HOLD_PCT = 0.003      # 0.3% — bars must stay above low * (1 + this)
 OPENING_LOW_BASE_MIN_DIP_PCT = 0.003   # 0.3% — low must be meaningful dip from open
 OPENING_LOW_BASE_STOP_OFFSET_PCT = 0.003  # 0.3% below session low for stop
+
+# Morning Low Retest: price retests first-hour low after rallying away
+MORNING_LOW_RETEST_MIN_BARS = 12       # 60 min — must be past first hour (12 × 5-min)
+MORNING_LOW_RETEST_RALLY_PCT = 0.005   # 0.5% — price must have rallied this far above first-hour low
+MORNING_LOW_RETEST_PROXIMITY_PCT = 0.004  # 0.4% — bar low must be within this of first-hour low
+MORNING_LOW_RETEST_STOP_OFFSET_PCT = 0.003  # 0.3% below first-hour low for stop
+
+# First Hour High Breakout: price breaks above first-hour high later in session
+FIRST_HOUR_HIGH_BREAKOUT_MIN_BARS = 12  # must be past first hour
+FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO = 0.8  # volume confirmation
 
 # Session High Retracement: stock rallies then pulls back near session low
 RETRACEMENT_MIN_RALLY_PCT = 0.015       # 1.5% — minimum rally from open to session high
@@ -488,6 +500,8 @@ ENABLED_RULES: set[str] = {
     "vwap_reclaim",
     "vwap_bounce",
     "opening_low_base",
+    "morning_low_retest",
+    "first_hour_high_breakout",
     "session_high_retracement",
     "intraday_support_bounce",
     # "outside_day_breakout",

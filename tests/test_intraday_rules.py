@@ -64,6 +64,8 @@ from analytics.intraday_rules import (
     check_resistance_prior_low,
     check_vwap_bounce,
     check_vwap_reclaim,
+    check_morning_low_retest,
+    check_first_hour_high_breakout,
     check_session_high_retracement,
     check_multi_day_double_bottom,
     check_session_low_retest,
@@ -6530,6 +6532,137 @@ class TestFibRetracementBounceExtended:
         assert sig is not None
         # Entry should be near 106.18 (38.2% level), not 105.0
         assert abs(sig.entry - 106.18) < 0.05
+
+
+# ---------------------------------------------------------------------------
+# Morning Low Retest
+# ---------------------------------------------------------------------------
+
+
+class TestMorningLowRetest:
+    """Tests for check_morning_low_retest — price retests first-hour low after rally."""
+
+    def _make_opening_range(self, or_low=100.0, or_high=102.0):
+        return {
+            "or_low": or_low,
+            "or_high": or_high,
+            "or_range": or_high - or_low,
+            "or_range_pct": (or_high - or_low) / or_low,
+            "or_complete": True,
+        }
+
+    def test_fires_on_retest_after_rally(self):
+        """Classic pattern: morning low, rally, pullback to retest, bounce."""
+        # 6 opening range bars, then rally, then pullback to morning low
+        prices = (
+            # Opening range bars (first 30 min)
+            [{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 6
+            # Rally bars
+            + [{"Open": 101, "High": 103, "Low": 101, "Close": 102.5, "Volume": 1200}] * 4
+            # Pullback to morning low, bounce
+            + [{"Open": 101, "High": 101.5, "Low": 100.2, "Close": 100.8, "Volume": 1100}]
+            + [{"Open": 100.8, "High": 101.2, "Low": 100.1, "Close": 100.5, "Volume": 1000}]
+        )
+        bars = _bars(prices)
+        opening_range = self._make_opening_range(or_low=100.0, or_high=102.0)
+        sig = check_morning_low_retest("GOOGL", bars, opening_range)
+        assert sig is not None
+        assert sig.alert_type == AlertType.MORNING_LOW_RETEST
+        assert sig.entry == 100.0
+        assert sig.stop < sig.entry
+
+    def test_no_fire_before_first_hour(self):
+        """Must have enough bars (past first hour)."""
+        prices = [{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 8
+        bars = _bars(prices)
+        opening_range = self._make_opening_range()
+        sig = check_morning_low_retest("AAPL", bars, opening_range)
+        assert sig is None
+
+    def test_no_fire_without_rally(self):
+        """Price must have rallied above morning low before retest."""
+        prices = (
+            [{"Open": 100.2, "High": 100.5, "Low": 100, "Close": 100.3, "Volume": 1000}] * 6
+            + [{"Open": 100.3, "High": 100.4, "Low": 100.1, "Close": 100.2, "Volume": 900}] * 7
+        )
+        bars = _bars(prices)
+        opening_range = self._make_opening_range(or_low=100.0, or_high=100.5)
+        sig = check_morning_low_retest("AAPL", bars, opening_range)
+        assert sig is None
+
+    def test_no_fire_when_close_below_morning_low(self):
+        """Bounce not confirmed if close is below morning low."""
+        prices = (
+            [{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 6
+            + [{"Open": 101, "High": 103, "Low": 101, "Close": 102.5, "Volume": 1200}] * 4
+            + [{"Open": 100.5, "High": 100.8, "Low": 99.5, "Close": 99.8, "Volume": 1100}]
+            + [{"Open": 99.8, "High": 100.2, "Low": 99.6, "Close": 99.7, "Volume": 1000}]
+        )
+        bars = _bars(prices)
+        opening_range = self._make_opening_range(or_low=100.0, or_high=102.0)
+        sig = check_morning_low_retest("AAPL", bars, opening_range)
+        assert sig is None
+
+    def test_no_fire_when_no_opening_range(self):
+        prices = [{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 13
+        bars = _bars(prices)
+        sig = check_morning_low_retest("AAPL", bars, None)
+        assert sig is None
+
+
+# ---------------------------------------------------------------------------
+# First Hour High Breakout
+# ---------------------------------------------------------------------------
+
+
+class TestFirstHourHighBreakout:
+    """Tests for check_first_hour_high_breakout."""
+
+    def _make_opening_range(self, or_low=100.0, or_high=102.0):
+        return {
+            "or_low": or_low,
+            "or_high": or_high,
+            "or_range": or_high - or_low,
+            "or_range_pct": (or_high - or_low) / or_low,
+            "or_complete": True,
+        }
+
+    def test_fires_on_breakout_with_volume(self):
+        """Price breaks above first-hour high with volume."""
+        prices = (
+            [{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 6
+            + [{"Open": 101, "High": 101.5, "Low": 100.5, "Close": 101, "Volume": 900}] * 5
+            + [{"Open": 102, "High": 103, "Low": 101.8, "Close": 102.5, "Volume": 1200}]
+        )
+        bars = _bars(prices)
+        opening_range = self._make_opening_range(or_low=100.0, or_high=102.0)
+        sig = check_first_hour_high_breakout("SPY", bars, opening_range, 1200, 1000)
+        assert sig is not None
+        assert sig.alert_type == AlertType.FIRST_HOUR_HIGH_BREAKOUT
+        assert sig.entry == 102.0
+
+    def test_no_fire_below_first_hour_high(self):
+        """No fire if close is below first-hour high."""
+        prices = (
+            [{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 6
+            + [{"Open": 101, "High": 101.5, "Low": 100.5, "Close": 101.5, "Volume": 900}] * 6
+        )
+        bars = _bars(prices)
+        opening_range = self._make_opening_range(or_low=100.0, or_high=102.0)
+        sig = check_first_hour_high_breakout("SPY", bars, opening_range, 900, 1000)
+        assert sig is None
+
+    def test_no_fire_low_volume(self):
+        """No fire if volume is below threshold."""
+        prices = (
+            [{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 6
+            + [{"Open": 101, "High": 101.5, "Low": 100.5, "Close": 101, "Volume": 900}] * 5
+            + [{"Open": 102, "High": 103, "Low": 101.8, "Close": 102.5, "Volume": 500}]
+        )
+        bars = _bars(prices)
+        opening_range = self._make_opening_range(or_low=100.0, or_high=102.0)
+        sig = check_first_hour_high_breakout("SPY", bars, opening_range, 500, 1000)
+        assert sig is None
 
 
 # ---------------------------------------------------------------------------
