@@ -106,8 +106,15 @@ def _get_admin_uid() -> int:
             else:
                 row = None
             if row is None:
-                row = conn.execute("SELECT id FROM users LIMIT 1").fetchone()
+                # Fallback: find admin user by role, then first user
+                row = conn.execute(
+                    "SELECT id, email FROM users WHERE role = 'admin' LIMIT 1",
+                ).fetchone()
+            if row is None:
+                row = conn.execute("SELECT id, email FROM users LIMIT 1").fetchone()
             _ADMIN_UID = row["id"] if row else 1
+            _email = row["email"] if row else "unknown"
+            logger.info("Admin UID resolved: %d (email=%s, ADMIN_EMAIL=%s)", _ADMIN_UID, _email, admin_email or "<not set>")
     return _ADMIN_UID
 
 
@@ -136,6 +143,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
         sync_open_trades()
 
     symbols = symbols_override if symbols_override is not None else get_watchlist(_get_admin_uid())
+    logger.info("Poll cycle symbols (uid=%d): %s", _get_admin_uid(), ", ".join(symbols))
 
     # Seed daily plans if none exist for today's session (ensures plans exist
     # even if nobody opened the Scanner page before the monitor started).
