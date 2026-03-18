@@ -96,15 +96,12 @@ def _get_admin_uid() -> int:
     if _ADMIN_UID is None:
         import os
         from db import get_db
-        admin_email = os.environ.get("ADMIN_EMAIL", "")
+        admin_email = os.environ.get("ADMIN_EMAIL", "vbolofinde@gmail.com")
         with get_db() as conn:
-            if admin_email:
-                row = conn.execute(
-                    "SELECT id FROM users WHERE email = ? LIMIT 1",
-                    (admin_email,),
-                ).fetchone()
-            else:
-                row = None
+            row = conn.execute(
+                "SELECT id, email FROM users WHERE email = ? LIMIT 1",
+                (admin_email,),
+            ).fetchone()
             if row is None:
                 row = conn.execute("SELECT id, email FROM users ORDER BY id LIMIT 1").fetchone()
             _ADMIN_UID = row["id"] if row else 1
