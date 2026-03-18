@@ -34,6 +34,7 @@ from ui_theme import get_current_tier, render_inline_upgrade
 user = ui_theme.setup_page("swing_trades", tier_required="pro", tier_preview="free")
 
 _is_free = get_current_tier() == "free"
+_user_watchlist = set(get_watchlist(user["id"] if user else None))
 
 ui_theme.page_header(
     "Swing Trades",
@@ -395,7 +396,6 @@ if _is_free:
 ui_theme.section_header("RSI Heatmap")
 
 _all_categories = get_swing_categories(session)
-_user_watchlist = set(get_watchlist(user["id"] if user else None))
 categories = [c for c in _all_categories if c["symbol"] in _user_watchlist]
 
 if not categories:
