@@ -262,6 +262,8 @@ BOUNCE_ALERT_TYPES: set[str] = {
     "opening_low_base",
     "morning_low_retest",
     "first_hour_high_breakout",
+    "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
+    "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
     "weekly_level_touch",
     "monthly_level_touch",
     "planned_level_touch",
@@ -320,6 +322,10 @@ MORNING_LOW_RETEST_STOP_OFFSET_PCT = 0.003  # 0.3% below first-hour low for stop
 # First Hour High Breakout: price breaks above first-hour high later in session
 FIRST_HOUR_HIGH_BREAKOUT_MIN_BARS = 12  # must be past first hour
 FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO = 0.8  # volume confirmation
+
+# MA/EMA Reclaim: price crosses above a key daily MA/EMA from below
+MA_RECLAIM_STOP_OFFSET_PCT = 0.005  # 0.5% below the MA for stop
+MA_RECLAIM_MAX_DISTANCE_PCT = 0.015  # 1.5% — skip if price ran too far above MA
 
 # Session High Retracement: stock rallies then pulls back near session low
 RETRACEMENT_MIN_RALLY_PCT = 0.015       # 1.5% — minimum rally from open to session high
@@ -502,6 +508,8 @@ ENABLED_RULES: set[str] = {
     "opening_low_base",
     "morning_low_retest",
     "first_hour_high_breakout",
+    "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
+    "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
     "session_high_retracement",
     "intraday_support_bounce",
     # "outside_day_breakout",

@@ -66,6 +66,7 @@ from analytics.intraday_rules import (
     check_vwap_reclaim,
     check_morning_low_retest,
     check_first_hour_high_breakout,
+    check_ma_ema_reclaim,
     check_session_high_retracement,
     check_multi_day_double_bottom,
     check_session_low_retest,
@@ -6662,6 +6663,91 @@ class TestFirstHourHighBreakout:
         bars = _bars(prices)
         opening_range = self._make_opening_range(or_low=100.0, or_high=102.0)
         sig = check_first_hour_high_breakout("SPY", bars, opening_range, 500, 1000)
+        assert sig is None
+
+
+# ---------------------------------------------------------------------------
+# MA/EMA Reclaim
+# ---------------------------------------------------------------------------
+
+
+class TestMAEMAReclaim:
+    """Tests for check_ma_ema_reclaim — price crosses above daily MA/EMA."""
+
+    def test_fires_when_prior_below_now_above(self):
+        """Prior close below EMA50, current bar closes above → reclaim."""
+        bars = _bars([
+            {"Open": 2220, "High": 2245, "Low": 2215, "Close": 2240, "Volume": 1000},
+        ])
+        sig = check_ma_ema_reclaim(
+            "ETH-USD", bars, ma_level=2221.0, prior_close=2200.0,
+            alert_type=AlertType.EMA_RECLAIM_50, ma_label="EMA50",
+        )
+        assert sig is not None
+        assert sig.alert_type == AlertType.EMA_RECLAIM_50
+        assert sig.entry == 2221.0
+        assert sig.stop < sig.entry
+        assert "EMA50 reclaim" in sig.message
+
+    def test_no_fire_when_prior_already_above(self):
+        """Prior close already above MA — not a reclaim."""
+        bars = _bars([
+            {"Open": 2300, "High": 2340, "Low": 2290, "Close": 2330, "Volume": 1000},
+        ])
+        sig = check_ma_ema_reclaim(
+            "ETH-USD", bars, ma_level=2221.0, prior_close=2250.0,
+            alert_type=AlertType.EMA_RECLAIM_50, ma_label="EMA50",
+        )
+        assert sig is None
+
+    def test_no_fire_when_close_below_ma(self):
+        """Current bar closes below MA — reclaim not confirmed."""
+        bars = _bars([
+            {"Open": 2200, "High": 2220, "Low": 2190, "Close": 2210, "Volume": 1000},
+        ])
+        sig = check_ma_ema_reclaim(
+            "ETH-USD", bars, ma_level=2221.0, prior_close=2200.0,
+            alert_type=AlertType.EMA_RECLAIM_50, ma_label="EMA50",
+        )
+        assert sig is None
+
+    def test_no_fire_when_too_far_above(self):
+        """Skip if price already ran 2%+ above MA — stale signal."""
+        bars = _bars([
+            {"Open": 2300, "High": 2340, "Low": 2290, "Close": 2260, "Volume": 1000},
+        ])
+        sig = check_ma_ema_reclaim(
+            "ETH-USD", bars, ma_level=2221.0, prior_close=2200.0,
+            alert_type=AlertType.EMA_RECLAIM_50, ma_label="EMA50",
+        )
+        # 2260 is ~1.76% above 2221 — above 1.5% threshold
+        assert sig is None
+
+    def test_works_for_all_ma_types(self):
+        """Verify it works with different AlertType enums."""
+        bars = _bars([
+            {"Open": 101, "High": 102, "Low": 100.5, "Close": 101.5, "Volume": 1000},
+        ])
+        for at, label in [
+            (AlertType.MA_RECLAIM_20, "20MA"),
+            (AlertType.MA_RECLAIM_200, "200MA"),
+            (AlertType.EMA_RECLAIM_100, "EMA100"),
+        ]:
+            sig = check_ma_ema_reclaim(
+                "AAPL", bars, ma_level=101.0, prior_close=100.0,
+                alert_type=at, ma_label=label,
+            )
+            assert sig is not None
+            assert sig.alert_type == at
+
+    def test_no_fire_when_ma_none(self):
+        bars = _bars([
+            {"Open": 101, "High": 102, "Low": 100.5, "Close": 101.5, "Volume": 1000},
+        ])
+        sig = check_ma_ema_reclaim(
+            "AAPL", bars, ma_level=None, prior_close=100.0,
+            alert_type=AlertType.MA_RECLAIM_50, ma_label="50MA",
+        )
         assert sig is None
 
 

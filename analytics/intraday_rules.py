@@ -119,6 +119,8 @@ from alert_config import (
     MORNING_LOW_RETEST_STOP_OFFSET_PCT,
     FIRST_HOUR_HIGH_BREAKOUT_MIN_BARS,
     FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO,
+    MA_RECLAIM_STOP_OFFSET_PCT,
+    MA_RECLAIM_MAX_DISTANCE_PCT,
     OPENING_LOW_BASE_STOP_OFFSET_PCT,
     RETRACEMENT_MIN_RALLY_PCT,
     RETRACEMENT_MIN_AGE_BARS,
@@ -230,6 +232,15 @@ class AlertType(str, Enum):
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
+    # MA/EMA reclaim — price crosses above key daily MA/EMA
+    MA_RECLAIM_20 = "ma_reclaim_20"
+    MA_RECLAIM_50 = "ma_reclaim_50"
+    MA_RECLAIM_100 = "ma_reclaim_100"
+    MA_RECLAIM_200 = "ma_reclaim_200"
+    EMA_RECLAIM_20 = "ema_reclaim_20"
+    EMA_RECLAIM_50 = "ema_reclaim_50"
+    EMA_RECLAIM_100 = "ema_reclaim_100"
+    EMA_RECLAIM_200 = "ema_reclaim_200"
     # Informational — inside day forming (today's range within yesterday's)
     INSIDE_DAY_FORMING = "inside_day_forming"
 
@@ -3030,6 +3041,75 @@ def check_first_hour_high_breakout(
 
 
 # ---------------------------------------------------------------------------
+# Rule: MA/EMA Reclaim (BUY) — price crosses above key daily MA/EMA
+# ---------------------------------------------------------------------------
+
+
+def check_ma_ema_reclaim(
+    symbol: str,
+    bars: pd.DataFrame,
+    ma_level: float | None,
+    prior_close: float | None,
+    alert_type: "AlertType",
+    ma_label: str,
+) -> AlertSignal | None:
+    """Price crosses above a key daily MA/EMA from below.
+
+    Conditions:
+    - Prior close was below the MA (approaching from below)
+    - Last bar closes above the MA (reclaim confirmed)
+    - Price hasn't run too far above (staleness guard)
+    - Entry = MA level, Stop = MA - offset
+    """
+    if ma_level is None or ma_level <= 0:
+        return None
+    if prior_close is None or prior_close <= 0:
+        return None
+    if bars.empty:
+        return None
+
+    # Prior close must be below the MA (was trading under it)
+    if prior_close >= ma_level:
+        return None
+
+    last_bar = bars.iloc[-1]
+
+    # Must close above the MA now
+    if last_bar["Close"] <= ma_level:
+        return None
+
+    # Skip if price already ran too far above (stale)
+    distance = (last_bar["Close"] - ma_level) / ma_level
+    if distance > MA_RECLAIM_MAX_DISTANCE_PCT:
+        return None
+
+    entry = round(ma_level, 2)
+    stop = round(ma_level * (1 - MA_RECLAIM_STOP_OFFSET_PCT), 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    confidence = "high" if distance <= 0.005 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=alert_type,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=confidence,
+        message=(
+            f"{ma_label} reclaim — prior close ${prior_close:.2f} was below "
+            f"${ma_level:.2f}, now closed above at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule: Session High Retracement (BUY)
 # ---------------------------------------------------------------------------
 
@@ -5088,6 +5168,29 @@ def evaluate_rules(
                     sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix
                 signals.append(sig)
+
+        # --- MA/EMA Reclaim ---
+        _reclaim_pairs = [
+            (AlertType.MA_RECLAIM_20, ma20, "20MA"),
+            (AlertType.MA_RECLAIM_50, ma50, "50MA"),
+            (AlertType.MA_RECLAIM_100, ma100, "100MA"),
+            (AlertType.MA_RECLAIM_200, ma200, "200MA"),
+            (AlertType.EMA_RECLAIM_20, ema20, "EMA20"),
+            (AlertType.EMA_RECLAIM_50, ema50, "EMA50"),
+            (AlertType.EMA_RECLAIM_100, ema100, "EMA100"),
+            (AlertType.EMA_RECLAIM_200, ema200, "EMA200"),
+        ]
+        for _at, _ma, _label in _reclaim_pairs:
+            if _at.value in ENABLED_RULES and _ma:
+                sig = check_ma_ema_reclaim(
+                    symbol, intraday_bars, _ma, prior_close, _at, _label,
+                )
+                if sig:
+                    sig.message += f" ({phase})"
+                    if vwap_pos:
+                        sig.message += f" — price {vwap_pos}"
+                    sig.message += caution_suffix
+                    signals.append(sig)
 
         # --- Session High Retracement ---
         if AlertType.SESSION_HIGH_RETRACEMENT.value in ENABLED_RULES:
