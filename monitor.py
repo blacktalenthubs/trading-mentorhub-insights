@@ -106,12 +106,7 @@ def _get_admin_uid() -> int:
             else:
                 row = None
             if row is None:
-                # Fallback: find admin user by role, then first user
-                row = conn.execute(
-                    "SELECT id, email FROM users WHERE role = 'admin' LIMIT 1",
-                ).fetchone()
-            if row is None:
-                row = conn.execute("SELECT id, email FROM users LIMIT 1").fetchone()
+                row = conn.execute("SELECT id, email FROM users ORDER BY id LIMIT 1").fetchone()
             _ADMIN_UID = row["id"] if row else 1
             _email = row["email"] if row else "unknown"
             logger.info("Admin UID resolved: %d (email=%s, ADMIN_EMAIL=%s)", _ADMIN_UID, _email, admin_email or "<not set>")

@@ -489,12 +489,11 @@ ENABLED_RULES: set[str] = {
     "monthly_low_breakdown",
     # SELL — monthly resistance
     "monthly_high_resistance",
-    # Trade management — disabled Phase 1 (targets/stops from stored entries
-    # can be inaccurate; rely on core S/R alerts for exits instead)
-    # "target_1_hit",
-    # "target_2_hit",
-    # "stop_loss_hit",
-    # "auto_stop_out",
+    # Trade management — exit alerts (critical for risk management)
+    "target_1_hit",
+    "target_2_hit",
+    "stop_loss_hit",
+    "auto_stop_out",
     # BUY — inside day
     "inside_day_breakout",
     "inside_day_reclaim",
@@ -515,7 +514,7 @@ ENABLED_RULES: set[str] = {
     # "outside_day_breakout",
     # "ema_crossover_5_20",
     # "hourly_resistance_approach",
-    # "support_breakdown",
+    "support_breakdown",
     # NOTICE — informational
     "first_hour_summary",
     "inside_day_forming",
