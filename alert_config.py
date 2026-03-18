@@ -40,10 +40,10 @@ MARKET_CLOSE_MINUTE = 0
 # ---------------------------------------------------------------------------
 
 # MA Bounce: bar low must be within this % of the MA to qualify
-MA_BOUNCE_PROXIMITY_PCT = 0.003  # 0.3% (used by 20MA and 50MA)
+MA_BOUNCE_PROXIMITY_PCT = 0.005  # 0.5% (used by 20MA and 50MA) — widened for mega-cap watchlist
 
 # MA100 Bounce: wider proximity — institutional levels wick through more
-MA100_BOUNCE_PROXIMITY_PCT = 0.005  # 0.5%
+MA100_BOUNCE_PROXIMITY_PCT = 0.007  # 0.7% — widened for mega-cap watchlist
 
 # MA200 Bounce: widest proximity — major level, deep wicks common
 MA200_BOUNCE_PROXIMITY_PCT = 0.010  # 1.0% — widened for mega-cap watchlist
