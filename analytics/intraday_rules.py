@@ -3962,14 +3962,24 @@ def _find_resistance_targets(
     risk = entry - stop
     min_target = entry + risk
 
-    # T1 = first level >= min_target
+    # When buying from below VWAP, VWAP is the natural T1 regardless of R:R.
+    # It's the first resistance to clear and where sellers often step in.
+    vwap_t1 = None
+    if current_vwap and current_vwap > entry and current_vwap < min_target:
+        vwap_t1 = current_vwap
+
+    # T1 = VWAP (if below it) or first level >= min_target
     t1 = None
     t1_label = ""
-    for level, label in candidates:
-        if level >= min_target:
-            t1 = level
-            t1_label = label
-            break
+    if vwap_t1:
+        t1 = vwap_t1
+        t1_label = "VWAP"
+    else:
+        for level, label in candidates:
+            if level >= min_target:
+                t1 = level
+                t1_label = label
+                break
 
     if t1 is None:
         return None
