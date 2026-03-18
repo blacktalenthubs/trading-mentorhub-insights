@@ -5649,6 +5649,7 @@ def evaluate_rules(
                     sig.target_2 = round(sig.entry + 2 * risk, 2)
 
         # Smart resistance-based targets for all BUY signals
+        smart = None
         if (sig.direction == "BUY" and sig.entry and sig.stop):
             smart = _find_resistance_targets(
                 sig.entry, sig.stop, prior_day, current_vwap,
@@ -5658,8 +5659,11 @@ def evaluate_rules(
                 sig.target_1, sig.target_2, t1_label, t2_label = smart
                 sig.message += f" | T1: {t1_label} ${sig.target_1:.2f}, T2: {t2_label} ${sig.target_2:.2f}"
 
-        # Minimum target distance: prevent tiny T1/T2 on chased entries
-        if (sig.direction == "BUY" and sig.entry and sig.target_1 is not None):
+        # Minimum target distance: prevent tiny T1/T2 on chased entries.
+        # Skip if T1 is VWAP (natural resistance even if close to entry).
+        _t1_is_vwap = (smart and smart[2] == "VWAP") if smart else False
+        if (sig.direction == "BUY" and sig.entry and sig.target_1 is not None
+                and not _t1_is_vwap):
             min_dist = sig.entry * MIN_TARGET_DISTANCE_PCT
             if sig.target_1 < sig.entry + min_dist:
                 sig.target_1 = round(sig.entry + min_dist, 2)
