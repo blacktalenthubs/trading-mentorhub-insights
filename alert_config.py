@@ -323,6 +323,11 @@ MORNING_LOW_RETEST_STOP_OFFSET_PCT = 0.003  # 0.3% below first-hour low for stop
 FIRST_HOUR_HIGH_BREAKOUT_MIN_BARS = 12  # must be past first hour
 FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO = 0.8  # volume confirmation
 
+# Wick rejection: demote confidence when touch was wick-only (no body involvement)
+# In choppy markets, wicks create false touches at support levels
+WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level
+WICK_REJECTION_RATIO = 0.6  # lower wick > 60% of bar range = wick touch
+
 # MA/EMA Reclaim: price crosses above a key daily MA/EMA from below
 MA_RECLAIM_STOP_OFFSET_PCT = 0.005  # 0.5% below the MA for stop
 MA_RECLAIM_MAX_DISTANCE_PCT = 0.015  # 1.5% — skip if price ran too far above MA

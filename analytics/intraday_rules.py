@@ -5607,6 +5607,36 @@ def evaluate_rules(
         filtered_signals.append(s)
     signals = filtered_signals
 
+    # --- Wick rejection filter: demote confidence for wick-only touches ---
+    # In choppy markets, wicks create false touches — price wicks to a level
+    # but the body (close) is far away. Demote confidence when the touch was
+    # only a wick and the close is far from the support level.
+    _WICK_FILTER_TYPES = {
+        AlertType.MA_BOUNCE_20, AlertType.MA_BOUNCE_50,
+        AlertType.MA_BOUNCE_100, AlertType.MA_BOUNCE_200,
+        AlertType.EMA_BOUNCE_20, AlertType.EMA_BOUNCE_50,
+        AlertType.EMA_BOUNCE_100, AlertType.EMA_BOUNCE_200,
+        AlertType.PRIOR_DAY_LOW_BOUNCE, AlertType.PRIOR_DAY_LOW_RECLAIM,
+        AlertType.INTRADAY_SUPPORT_BOUNCE, AlertType.SESSION_LOW_DOUBLE_BOTTOM,
+        AlertType.MORNING_LOW_RETEST, AlertType.WEEKLY_LEVEL_TOUCH,
+    }
+    from alert_config import WICK_REJECTION_CLOSE_PCT, WICK_REJECTION_RATIO
+    for sig in signals:
+        if (sig.direction == "BUY" and sig.alert_type in _WICK_FILTER_TYPES
+                and sig.entry and last_bar is not None):
+            close_distance = (last_bar["Close"] - sig.entry) / sig.entry if sig.entry > 0 else 0
+            bar_range = last_bar["High"] - last_bar["Low"] if last_bar["High"] > last_bar["Low"] else 0.01
+            wick_ratio = (last_bar["Close"] - last_bar["Low"]) / bar_range if bar_range > 0 else 0
+
+            # Long lower wick (wick > 60% of range) + close far from entry = wick rejection
+            if wick_ratio > WICK_REJECTION_RATIO and close_distance > WICK_REJECTION_CLOSE_PCT:
+                sig.confidence = "medium" if sig.confidence == "high" else sig.confidence
+                sig.message += " | wick touch only (close far from level)"
+                logger.debug(
+                    "%s: wick filter demoted %s (close_dist=%.2f%%, wick_ratio=%.2f)",
+                    symbol, sig.alert_type.value, close_distance * 100, wick_ratio,
+                )
+
     # --- Relative Strength filter ---
     spy_intraday_change = spy.get("intraday_change_pct", 0.0)
 
