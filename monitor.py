@@ -377,6 +377,36 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     if not dry_run:
         update_monitor_status(len(symbols), total_alerts, "running")
 
+    # Exit Coach: check active positions for exit signals every poll cycle
+    if not dry_run:
+        try:
+            from analytics.exit_coach import check_positions as exit_coach_check
+            from analytics.intraday_data import compute_vwap
+
+            # Build current prices and VWAPs from latest poll data
+            _exit_prices = {}
+            _exit_vwaps = {}
+            for sym in symbols:
+                try:
+                    _bars = fetch_intraday_crypto(sym) if is_crypto_alert_symbol(sym) else fetch_intraday(sym)
+                    if not _bars.empty:
+                        _exit_prices[sym] = float(_bars.iloc[-1]["Close"])
+                        _vwap_s = compute_vwap(_bars)
+                        if not _vwap_s.empty:
+                            _exit_vwaps[sym] = float(_vwap_s.iloc[-1])
+                except Exception:
+                    pass
+
+            coach_msgs = exit_coach_check(
+                symbols, session, user_id=uid,
+                current_prices=_exit_prices,
+                current_vwaps=_exit_vwaps,
+            )
+            if coach_msgs:
+                logger.info("Exit coach: sent %d coaching messages", coach_msgs)
+        except Exception:
+            logger.debug("Exit coach check failed", exc_info=True)
+
     return total_alerts
 
 
