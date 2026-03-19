@@ -450,10 +450,18 @@ def _maybe_run_eod() -> None:
     except Exception:
         logger.exception("EOD review failed")
 
-    # Weekly AI Journal — send on Sundays after market close
+    # Weekly Alert Tuning Report — send on Fridays after close
     try:
         import pytz as _pytz
         now_et = datetime.now(_pytz.timezone("US/Eastern"))
+        if now_et.weekday() == 4:  # Friday
+            from analytics.alert_tuner import send_weekly_tuning_report
+            send_weekly_tuning_report()
+    except Exception:
+        logger.exception("Weekly tuning report failed")
+
+    # Weekly AI Journal — send on Sundays after market close
+    try:
         if now_et.weekday() == 6:  # Sunday
             from analytics.journal_insights import send_weekly_journals
             send_weekly_journals()
