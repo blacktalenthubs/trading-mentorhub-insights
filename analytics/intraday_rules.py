@@ -5782,6 +5782,29 @@ def evaluate_rules(
                     symbol, sig.alert_type.value, close_distance * 100, wick_ratio,
                 )
 
+    # --- Heikin Ashi confirmation: demote BUY signals when HA candle is bearish ---
+    # HA candles filter wick noise and show the real trend direction.
+    # If the HA candle is bearish (HA close < HA open) on the signal bar,
+    # there's no real buying pressure — demote confidence.
+    if len(intraday_bars) >= 2:
+        _ha_close = (
+            last_bar["Open"] + last_bar["High"] + last_bar["Low"] + last_bar["Close"]
+        ) / 4
+        _prev = intraday_bars.iloc[-2]
+        _ha_open = (_prev["Open"] + _prev["Close"]) / 2
+        _ha_bullish = _ha_close > _ha_open
+
+        if not _ha_bullish:
+            for sig in signals:
+                if (sig.direction == "BUY" and sig.alert_type in _WICK_FILTER_TYPES
+                        and sig.confidence == "high"):
+                    sig.confidence = "medium"
+                    sig.message += " | HA bearish (no buying pressure)"
+                    logger.debug(
+                        "%s: HA filter demoted %s (HA close=%.2f < HA open=%.2f)",
+                        symbol, sig.alert_type.value, _ha_close, _ha_open,
+                    )
+
     # --- Relative Strength filter ---
     spy_intraday_change = spy.get("intraday_change_pct", 0.0)
 
