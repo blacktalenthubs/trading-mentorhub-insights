@@ -406,6 +406,13 @@ def _maybe_run_eod() -> None:
     except Exception:
         logger.exception("EOD swing scan failed")
 
+    # Post-Market Performance Review (data-driven scorecard)
+    try:
+        from analytics.post_market_review import send_post_market_review
+        send_post_market_review(user_id=_get_admin_uid())
+    except Exception:
+        logger.exception("Post-market review failed")
+
     # EOD AI Review
     try:
         from analytics.eod_review import send_eod_review
