@@ -35,34 +35,37 @@ _ai_brief_sent_date: str | None = None
 _AI_PREMARKET_MODEL = "claude-sonnet-4-20250514"
 
 _AI_PREMARKET_SYSTEM = """\
-You are a sharp day-trading coach delivering a pre-market game plan. Given \
-today's pre-market data, overnight futures, daily plans, and SPY regime, \
-produce a concise actionable briefing.
+You are a sharp day-trading coach delivering specific if/then trade plans. \
+Given today's pre-market data, overnight futures, key levels, and SPY regime, \
+produce actionable trade plans for each stock.
 
 Structure your response EXACTLY like this:
-TOP 3 SETUPS:
-1. [SYMBOL] — [one-line thesis with key level]
-2. [SYMBOL] — [one-line thesis with key level]
-3. [SYMBOL] — [one-line thesis with key level]
 
-SPY OUTLOOK: [1-2 sentences on regime, trend, key levels to watch]
+SPY OUTLOOK: [regime + key levels + overnight bias in 1-2 sentences]
+TODAY'S BIAS: [Bullish/Bearish/Neutral] — [reason]
 
-TODAY'S BIAS: [Bullish/Bearish/Neutral] — [one-line reason]
+TRADE PLANS:
 
-RISK WARNINGS: [any caution flags: earnings, high gaps, weak regime, etc.]
+[SYMBOL] [price] — [pattern: INSIDE DAY / GAP UP / etc.]
+  BUY: If [condition with specific price], entry [price], stop [price], T1 VWAP [price]
+  SELL: If rejected at [resistance level + price], exit
+  KEY: PDL [price] | PDH [price] | EMA20 [price] | VWAP ~[price]
 
-ACTION PLAN: [1 sentence — what to do in the first 30 minutes]
+[repeat for each symbol, ranked by conviction]
+
+AVOID: [symbols or conditions to stay away from today]
 
 Rules:
-- Lead with the highest-conviction setup
-- Reference actual price levels from the data
-- If overnight futures data is provided, use it to assess gap direction and \
-magnitude, adjust setup conviction when overnight trend confirms or conflicts \
-with daily bias, and flag overnight high/low as potential intraday S/R levels
-- Keep the entire brief under 150 words
-- Use probability language, never guarantee outcomes
+- Write a specific if/then trade plan for EVERY symbol in the data
+- Always include exact price levels from the data — never say "near support"
+- BUY scenarios: reference PDL reclaim, morning low hold, MA bounce, VWAP reclaim
+- SELL scenarios: reference PDH rejection, MA resistance, VWAP rejection, PDL breakdown
+- T1 should be VWAP when buying from below VWAP
+- If overnight futures are bearish, flag caution on BUY setups
+- Rank by conviction — best setup first
 - No markdown formatting — plain text only
-- Write dollar amounts WITHOUT the $ symbol to avoid rendering issues"""
+- Write dollar amounts WITHOUT the $ symbol to avoid rendering issues
+- Be concise — one BUY line and one SELL line per symbol"""
 
 
 def _format_spy_header(spy_ctx: dict) -> str:
@@ -188,15 +191,22 @@ def build_premarket_message() -> str | None:
 
 
 def _build_ai_premarket_prompt(data_brief: str) -> str:
-    """Build the user prompt for AI pre-market analysis."""
+    """Build the user prompt for AI pre-market analysis.
+
+    Enriches the data brief with daily plans AND key technical levels
+    (MAs, EMAs, prior day high/low) for each symbol so the AI can
+    produce specific if/then trade plans with exact prices.
+    """
     session = today_session()
-    plans_text = ""
+    parts = [data_brief]
+
+    # Add daily plans
     try:
         from db import get_all_daily_plans
         plans = get_all_daily_plans(session)
         if plans:
             sorted_plans = sorted(plans, key=lambda p: p.get("score", 0), reverse=True)[:10]
-            lines = ["DAILY PLANS (top 10 by score):"]
+            lines = ["", "DAILY PLANS (by score):"]
             for p in sorted_plans:
                 lines.append(
                     f"  {p['symbol']} score={p.get('score', '?')}({p.get('score_label', '')}) "
@@ -204,14 +214,48 @@ def _build_ai_premarket_prompt(data_brief: str) -> str:
                     f"entry={p.get('entry', 'N/A')} stop={p.get('stop', 'N/A')} "
                     f"T1={p.get('target_1', 'N/A')}"
                 )
-            plans_text = "\n".join(lines)
+            parts.append("\n".join(lines))
     except Exception:
         logger.debug("AI premarket: daily plans not available")
 
-    parts = [data_brief]
-    if plans_text:
-        parts.append("")
-        parts.append(plans_text)
+    # Add key technical levels for each symbol
+    try:
+        from analytics.intraday_data import fetch_prior_day
+        from config import is_crypto_alert_symbol
+
+        # Get watchlist symbols from the data brief (parse symbol names)
+        import re
+        symbols = re.findall(r"^\s+(\S+)\s+—\s+GAP", data_brief, re.MULTILINE)
+        if not symbols:
+            symbols = re.findall(r"^\s+(\S+)\s+—", data_brief, re.MULTILINE)
+
+        if symbols:
+            lines = ["", "KEY LEVELS PER SYMBOL:"]
+            for sym in symbols[:12]:
+                try:
+                    prior = fetch_prior_day(sym, is_crypto=is_crypto_alert_symbol(sym))
+                    if not prior:
+                        continue
+                    pdh = prior.get("high", 0)
+                    pdl = prior.get("low", 0)
+                    pc = prior.get("close", 0)
+                    ema20 = prior.get("ema20", 0)
+                    ema50 = prior.get("ema50", 0)
+                    ema100 = prior.get("ema100", 0)
+                    ema200 = prior.get("ema200", 0)
+                    rsi = prior.get("rsi14", 0)
+                    pattern = prior.get("pattern", "normal")
+
+                    lines.append(
+                        f"  {sym}: PDH={pdh:.2f} PDL={pdl:.2f} Close={pc:.2f} "
+                        f"EMA20={ema20:.2f} EMA50={ema50:.2f} EMA100={ema100:.2f} "
+                        f"EMA200={ema200:.2f} RSI={rsi:.1f} Pattern={pattern}"
+                    )
+                except Exception:
+                    pass
+            parts.append("\n".join(lines))
+    except Exception:
+        logger.debug("AI premarket: key levels not available")
 
     return "\n".join(parts)
 
@@ -249,7 +293,7 @@ def build_ai_premarket_analysis(data_brief: str) -> str | None:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=_AI_PREMARKET_MODEL,
-            max_tokens=512,
+            max_tokens=1024,
             system=_AI_PREMARKET_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
             timeout=30.0,
