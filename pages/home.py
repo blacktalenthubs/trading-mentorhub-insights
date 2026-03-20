@@ -620,12 +620,15 @@ else:
             # Levels grid
             levels_html = ""
             if sig.entry:
+                _stop_s = f"${sig.stop:,.2f}" if sig.stop else "—"
+                _t1_s = f"${sig.target_1:,.2f}" if sig.target_1 else "—"
+                _t2_s = f"${sig.target_2:,.2f}" if sig.target_2 else "—"
                 levels_html = f"""
                 <div class="tc-levels">
                     <div><div class="tc-lv-label">Entry</div><div class="tc-lv-val entry">${sig.entry:,.2f}</div></div>
-                    <div><div class="tc-lv-label">Stop</div><div class="tc-lv-val stop">${sig.stop:,.2f if sig.stop else 0}</div></div>
-                    <div><div class="tc-lv-label">T1</div><div class="tc-lv-val t1">${sig.target_1:,.2f if sig.target_1 else 0}</div></div>
-                    <div><div class="tc-lv-label">T2</div><div class="tc-lv-val t2">${sig.target_2:,.2f if sig.target_2 else 0}</div></div>
+                    <div><div class="tc-lv-label">Stop</div><div class="tc-lv-val stop">{_stop_s}</div></div>
+                    <div><div class="tc-lv-label">T1</div><div class="tc-lv-val t1">{_t1_s}</div></div>
+                    <div><div class="tc-lv-label">T2</div><div class="tc-lv-val t2">{_t2_s}</div></div>
                 </div>"""
 
             # Clean message (remove duplicated info)
