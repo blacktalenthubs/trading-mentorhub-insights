@@ -39,14 +39,15 @@ MARKET_CLOSE_MINUTE = 0
 # Rule thresholds
 # ---------------------------------------------------------------------------
 
-# MA Bounce: bar low must be within this % of the MA to qualify
-MA_BOUNCE_PROXIMITY_PCT = 0.005  # 0.5% (used by 20MA and 50MA) — widened for mega-cap watchlist
+# MA Bounce BUY trigger: bar low must actually TOUCH the MA (tight proximity)
+MA_BOUNCE_PROXIMITY_PCT = 0.004  # 0.4% — BUY only on real touch (20/50 MA)
+MA100_BOUNCE_PROXIMITY_PCT = 0.004  # 0.4% — BUY only on real touch (100 MA)
+MA200_BOUNCE_PROXIMITY_PCT = 0.004  # 0.4% — BUY only on real touch (200 MA)
 
-# MA100 Bounce: wider proximity — institutional levels wick through more
-MA100_BOUNCE_PROXIMITY_PCT = 0.007  # 0.7% — widened for mega-cap watchlist
-
-# MA200 Bounce: widest proximity — major level, deep wicks common
-MA200_BOUNCE_PROXIMITY_PCT = 0.010  # 1.0% — widened for mega-cap watchlist
+# MA Approach NOTICE: wider proximity for heads-up alerts
+MA_APPROACH_PROXIMITY_PCT = 0.005  # 0.5% — NOTICE for 20/50 MA approach
+MA100_APPROACH_PROXIMITY_PCT = 0.007  # 0.7% — NOTICE for 100 MA approach
+MA200_APPROACH_PROXIMITY_PCT = 0.010  # 1.0% — NOTICE for 200 MA approach
 
 # MA Bounce: stop offset below the MA
 MA_STOP_OFFSET_PCT = 0.005  # 0.5%
@@ -528,6 +529,7 @@ ENABLED_RULES: set[str] = {
     # "ema_crossover_5_20",
     # "hourly_resistance_approach",
     "support_breakdown",
+    "ma_approach",
     "prior_day_low_breakdown",
     "prior_day_low_resistance",
     # NOTICE — informational

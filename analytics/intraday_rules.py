@@ -125,6 +125,9 @@ from alert_config import (
     PDL_BREAKDOWN_MAX_DISTANCE_PCT,
     PDL_RESISTANCE_PROXIMITY_PCT,
     PDL_RESISTANCE_REJECTION_PCT,
+    MA_APPROACH_PROXIMITY_PCT,
+    MA100_APPROACH_PROXIMITY_PCT,
+    MA200_APPROACH_PROXIMITY_PCT,
     OPENING_LOW_BASE_STOP_OFFSET_PCT,
     RETRACEMENT_MIN_RALLY_PCT,
     RETRACEMENT_MIN_AGE_BARS,
@@ -233,6 +236,8 @@ class AlertType(str, Enum):
     SWING_BULL_FLAG = "swing_bull_flag"
     SWING_CANDLE_PATTERN = "swing_candle_pattern"
     SWING_CONSECUTIVE_RED = "swing_consecutive_red"
+    # MA/EMA approach notice (heads-up, not a BUY)
+    MA_APPROACH = "ma_approach"
     # Prior day low breakdown / resistance
     PRIOR_DAY_LOW_BREAKDOWN = "prior_day_low_breakdown"
     PRIOR_DAY_LOW_RESISTANCE = "prior_day_low_resistance"
@@ -576,6 +581,64 @@ def check_ma_bounce_200(
         message=(
             f"MA bounce 200MA — price pulled back to ${ma200:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# NOTICE: MA/EMA Approach — heads-up when price nears a key MA/EMA
+# ---------------------------------------------------------------------------
+
+
+def check_ma_approach(
+    symbol: str,
+    bars: pd.DataFrame,
+    ma_level: float | None,
+    approach_pct: float,
+    bounce_pct: float,
+    ma_label: str,
+) -> AlertSignal | None:
+    """Price is approaching a key MA/EMA but hasn't touched yet.
+
+    Fires a NOTICE when price is within approach_pct but outside bounce_pct.
+    This gives a heads-up to watch the chart for an actual touch/bounce.
+    """
+    if ma_level is None or ma_level <= 0:
+        return None
+    if bars.empty:
+        return None
+
+    last_bar = bars.iloc[-1]
+    bar_low = last_bar["Low"]
+    bar_close = last_bar["Close"]
+
+    # Must be above the MA (approaching from above)
+    if bar_close <= ma_level:
+        return None
+
+    # Distance from bar low to MA
+    distance = (bar_low - ma_level) / ma_level
+
+    # Must be within approach zone but NOT within touch zone
+    if distance > approach_pct:
+        return None  # too far
+    if distance <= bounce_pct:
+        return None  # already touching — let bounce rule handle it
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MA_APPROACH,
+        direction="NOTICE",
+        price=bar_close,
+        entry=round(ma_level, 2),
+        stop=None,
+        target_1=None,
+        target_2=None,
+        confidence="info",
+        message=(
+            f"APPROACHING {ma_label} at ${ma_level:.2f} — "
+            f"low ${bar_low:.2f} ({distance:.1%} away). "
+            f"Watch for touch and bounce entry."
         ),
     )
 
@@ -5115,6 +5178,26 @@ def evaluate_rules(
                     sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix
                 signals.append(sig)
+
+        # --- MA/EMA Approach Notices (heads-up before bounce triggers) ---
+        if AlertType.MA_APPROACH.value in ENABLED_RULES:
+            _approach_levels = [
+                (ma20, MA_APPROACH_PROXIMITY_PCT, MA_BOUNCE_PROXIMITY_PCT, "20MA"),
+                (ma50, MA_APPROACH_PROXIMITY_PCT, MA_BOUNCE_PROXIMITY_PCT, "50MA"),
+                (ma100, MA100_APPROACH_PROXIMITY_PCT, MA100_BOUNCE_PROXIMITY_PCT, "100MA"),
+                (ma200, MA200_APPROACH_PROXIMITY_PCT, MA200_BOUNCE_PROXIMITY_PCT, "200MA"),
+                (ema20, MA_APPROACH_PROXIMITY_PCT, MA_BOUNCE_PROXIMITY_PCT, "EMA20"),
+                (ema50, MA_APPROACH_PROXIMITY_PCT, MA_BOUNCE_PROXIMITY_PCT, "EMA50"),
+                (ema100, MA100_APPROACH_PROXIMITY_PCT, MA100_BOUNCE_PROXIMITY_PCT, "EMA100"),
+                (ema200, MA200_APPROACH_PROXIMITY_PCT, MA200_BOUNCE_PROXIMITY_PCT, "EMA200"),
+            ]
+            for _ma, _approach, _bounce, _label in _approach_levels:
+                if _ma:
+                    sig = check_ma_approach(symbol, intraday_bars, _ma, _approach, _bounce, _label)
+                    if sig:
+                        sig.message += f" ({phase})"
+                        signals.append(sig)
+                        break  # only one approach notice per poll
 
         if AlertType.PRIOR_DAY_LOW_RECLAIM.value in ENABLED_RULES:
             sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
