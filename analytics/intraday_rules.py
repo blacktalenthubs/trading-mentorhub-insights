@@ -241,6 +241,8 @@ class AlertType(str, Enum):
     # Prior day low breakdown / resistance
     PRIOR_DAY_LOW_BREAKDOWN = "prior_day_low_breakdown"
     PRIOR_DAY_LOW_RESISTANCE = "prior_day_low_resistance"
+    # SPY Short entry
+    SPY_SHORT_ENTRY = "spy_short_entry"
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
@@ -3079,6 +3081,121 @@ def check_opening_low_base(
 
 
 # ---------------------------------------------------------------------------
+# Rule: SPY Short Entry (SHORT) — gate-confirmed breakdown shorts
+# ---------------------------------------------------------------------------
+
+
+def check_spy_short_entry(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict | None,
+    bar_volume: float,
+    avg_volume: float,
+    gate: dict | None,
+) -> AlertSignal | None:
+    """SHORT entry when gate is RED and price breaks a key level.
+
+    Fires when:
+    - Gate is RED (VWAP + EMA both bearish)
+    - Price closes below a key support level (PDL, weekly low, or session low)
+    - Volume confirms the breakdown
+    - Price hasn't reclaimed the level (still below)
+    """
+    from alert_config import SPY_SHORT_STOP_OFFSET_PCT, SPY_SHORT_SYMBOLS
+
+    if symbol not in SPY_SHORT_SYMBOLS:
+        return None
+    if not gate or gate.get("gate") != "red":
+        return None
+    if bars.empty or prior_day is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+
+    # Volume confirmation
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < 0.8:
+        return None
+
+    # Check breakdown levels (best to worst)
+    breakdown_levels = []
+    pdl = prior_day.get("low", 0)
+    if pdl > 0 and last_bar["Close"] < pdl:
+        breakdown_levels.append(("Prior Day Low", pdl))
+
+    pw_low = prior_day.get("prior_week_low", 0)
+    if pw_low and pw_low > 0 and last_bar["Close"] < pw_low:
+        breakdown_levels.append(("Weekly Low", pw_low))
+
+    # Session low (if price is making new session low)
+    session_low = bars["Low"].min()
+    if last_bar["Low"] <= session_low * 1.001:  # at or near session low
+        # Use prior bar's low as the broken level
+        if len(bars) >= 3:
+            recent_support = bars.iloc[-3:-1]["Low"].min()
+            if last_bar["Close"] < recent_support:
+                breakdown_levels.append(("Session Support", round(recent_support, 2)))
+
+    if not breakdown_levels:
+        return None
+
+    # Use the highest (most significant) broken level
+    level_label, level_price = breakdown_levels[0]
+
+    # Verify no immediate reclaim (last 2 bars should be below level)
+    if len(bars) >= 2:
+        prev_close = bars.iloc[-2]["Close"]
+        if prev_close > level_price and last_bar["Close"] > level_price:
+            return None  # reclaimed
+
+    entry = round(level_price, 2)
+    stop = round(level_price * (1 + SPY_SHORT_STOP_OFFSET_PCT), 2)
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    # Find next support below for targets
+    next_supports = []
+    ma200 = prior_day.get("ma200", 0)
+    if ma200 and ma200 > 0 and ma200 < entry:
+        next_supports.append(ma200)
+    pm_low = prior_day.get("prior_month_low", 0)
+    if pm_low and pm_low > 0 and pm_low < entry:
+        next_supports.append(pm_low)
+    if pw_low and pw_low > 0 and pw_low < entry:
+        next_supports.append(pw_low)
+
+    next_supports.sort(reverse=True)  # nearest first
+    t1 = round(entry - risk, 2)  # default 1R
+    t2 = round(entry - 2 * risk, 2)  # default 2R
+    if next_supports:
+        t1 = round(next_supports[0], 2)
+        if len(next_supports) > 1:
+            t2 = round(next_supports[1], 2)
+
+    vwap_dom = gate.get("vwap_dominance", 0)
+    confidence = "high" if vol_ratio >= 1.5 and vwap_dom < 0.2 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SPY_SHORT_ENTRY,
+        direction="SHORT",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=t1,
+        target_2=t2,
+        confidence=confidence,
+        message=(
+            f"SHORT — {level_label} ${level_price:.2f} broken, "
+            f"gate RED (VWAP {vwap_dom:.0%}, below EMA). "
+            f"Vol {vol_ratio:.1f}x. "
+            f"Stop above ${stop:.2f}, T1 ${t1:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule: Morning Low Retest (BUY)
 # ---------------------------------------------------------------------------
 
@@ -5635,6 +5752,18 @@ def evaluate_rules(
         if sig:
             sig.message += f" ({phase})"
             signals.append(sig)
+
+    # --- SPY Short Entry (gate-confirmed breakdown) ---
+    if AlertType.SPY_SHORT_ENTRY.value in ENABLED_RULES:
+        from alert_config import SPY_SHORT_ENABLED
+        if SPY_SHORT_ENABLED:
+            sig = check_spy_short_entry(
+                symbol, intraday_bars, prior_day, bar_vol, avg_vol,
+                gate=spy_gate,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                signals.append(sig)
 
     # --- Weekly High Test (wick above, no close) ---
     if AlertType.WEEKLY_HIGH_TEST.value in ENABLED_RULES:

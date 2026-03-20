@@ -340,6 +340,11 @@ SPY_GATE_RED_PCT = 0.40        # <40% bars above VWAP = red light (suppress BUY)
 SPY_GATE_EMA_PERIOD = 60       # 60-bar EMA on 5-min = ~20 EMA on 15-min equivalent
 SPY_GATE_ENABLED = True        # feature flag
 
+# SPY Short Entry: fire SHORT signals when gate is RED + key level breaks
+SPY_SHORT_ENABLED = True       # feature flag
+SPY_SHORT_STOP_OFFSET_PCT = 0.003  # 0.3% above broken level for stop
+SPY_SHORT_SYMBOLS = {"SPY"}    # only SPY for now
+
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
 WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level
@@ -540,6 +545,7 @@ ENABLED_RULES: set[str] = {
     "ma_approach",
     "prior_day_low_breakdown",
     "prior_day_low_resistance",
+    "spy_short_entry",
     # NOTICE — informational
     "first_hour_summary",
     "inside_day_forming",
