@@ -4925,6 +4925,63 @@ def _compute_crypto_opening_range(bars: pd.DataFrame) -> dict | None:
     }
 
 
+def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict:
+    """Compute SPY gate status for BUY alert suppression.
+
+    Returns dict with:
+      gate: "green" | "yellow" | "red"
+      vwap_dominance: float (0-1, % of recent bars above VWAP)
+      above_ema: bool (price above 60-period EMA on 5-min ≈ 20 EMA on 15-min)
+      reason: str (human-readable explanation)
+    """
+    from alert_config import (
+        SPY_GATE_LOOKBACK_BARS, SPY_GATE_GREEN_PCT, SPY_GATE_RED_PCT,
+        SPY_GATE_EMA_PERIOD,
+    )
+
+    result = {"gate": "green", "vwap_dominance": 1.0, "above_ema": True, "reason": ""}
+
+    if spy_bars.empty:
+        return result
+
+    # 1. VWAP dominance: % of recent bars closing above VWAP
+    if spy_vwap is not None and not spy_vwap.empty:
+        lookback = min(SPY_GATE_LOOKBACK_BARS, len(spy_bars))
+        recent_closes = spy_bars["Close"].iloc[-lookback:]
+        recent_vwap = spy_vwap.iloc[-lookback:]
+        if len(recent_closes) == len(recent_vwap) and lookback > 0:
+            above = (recent_closes.values > recent_vwap.values).sum()
+            result["vwap_dominance"] = above / lookback
+        else:
+            result["vwap_dominance"] = 0.5  # can't compute, assume neutral
+
+    # 2. Intraday EMA trend (60-bar EMA on 5-min ≈ 20 EMA on 15-min)
+    if len(spy_bars) >= SPY_GATE_EMA_PERIOD:
+        ema = spy_bars["Close"].ewm(span=SPY_GATE_EMA_PERIOD, adjust=False).mean()
+        result["above_ema"] = float(spy_bars["Close"].iloc[-1]) > float(ema.iloc[-1])
+    else:
+        result["above_ema"] = True  # not enough data, assume neutral
+
+    # 3. Determine gate level
+    vd = result["vwap_dominance"]
+    ae = result["above_ema"]
+
+    if vd >= SPY_GATE_GREEN_PCT and ae:
+        result["gate"] = "green"
+        result["reason"] = f"SPY above VWAP ({vd:.0%}) + above 15m EMA"
+    elif vd < SPY_GATE_RED_PCT and not ae:
+        result["gate"] = "red"
+        result["reason"] = f"SPY below VWAP ({vd:.0%}) + below 15m EMA — NO LONGS"
+    elif vd < SPY_GATE_RED_PCT or not ae:
+        result["gate"] = "yellow"
+        result["reason"] = f"SPY mixed — VWAP {vd:.0%}, EMA {'above' if ae else 'below'}"
+    else:
+        result["gate"] = "yellow"
+        result["reason"] = f"SPY neutral — VWAP {vd:.0%}"
+
+    return result
+
+
 def evaluate_rules(
     symbol: str,
     intraday_bars: pd.DataFrame,
@@ -4936,6 +4993,7 @@ def evaluate_rules(
     fired_today: set[tuple[str, str]] | None = None,
     daily_plan: dict | None = None,
     is_crypto: bool = False,
+    spy_gate: dict | None = None,
 ) -> list[AlertSignal]:
     """Evaluate all rules for a symbol and return fired signals.
 
@@ -5763,6 +5821,32 @@ def evaluate_rules(
         for s in pre_dedup:
             if (symbol, s.alert_type.value) in fired_today:
                 logger.debug("%s: dedup filter dropped %s (already fired today)", symbol, s.alert_type.value)
+
+    # --- SPY Gate: suppress/demote BUY signals when SPY is bearish intraday ---
+    from alert_config import SPY_GATE_ENABLED
+    if SPY_GATE_ENABLED and spy_gate and not is_crypto:
+        _gate = spy_gate.get("gate", "green")
+        _gate_reason = spy_gate.get("reason", "")
+        if _gate == "red":
+            # Full suppress: drop ALL BUY signals for equities
+            pre_gate = signals[:]
+            signals = [s for s in signals if s.direction != "BUY"]
+            for s in pre_gate:
+                if s.direction == "BUY":
+                    logger.info(
+                        "%s: SPY GATE RED suppressed %s (%s)",
+                        symbol, s.alert_type.value, _gate_reason,
+                    )
+        elif _gate == "yellow":
+            # Demote: reduce BUY confidence and add caution
+            for s in signals:
+                if s.direction == "BUY":
+                    if s.confidence == "high":
+                        s.confidence = "medium"
+                    s.message += f" | SPY GATE YELLOW: {_gate_reason}"
+                    # Cap score at C level
+                    s.score = min(s.score, 40)
+                    s.score_label = "C"
 
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0

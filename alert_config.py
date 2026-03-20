@@ -332,6 +332,14 @@ PDL_BREAKDOWN_MAX_DISTANCE_PCT = 0.015  # 1.5% — skip if price already far bel
 PDL_RESISTANCE_PROXIMITY_PCT = 0.004  # 0.4% — bar high must reach within this of PDL
 PDL_RESISTANCE_REJECTION_PCT = 0.003  # 0.3% — close must be this far below PDL
 
+# SPY Gate: suppress BUY alerts when SPY is bearish intraday
+# Uses VWAP dominance (% of recent bars above VWAP) + intraday EMA trend
+SPY_GATE_LOOKBACK_BARS = 6     # 30 min window (6 × 5-min bars) for VWAP dominance
+SPY_GATE_GREEN_PCT = 0.70      # 70%+ bars above VWAP = green light (longs OK)
+SPY_GATE_RED_PCT = 0.40        # <40% bars above VWAP = red light (suppress BUY)
+SPY_GATE_EMA_PERIOD = 60       # 60-bar EMA on 5-min = ~20 EMA on 15-min equivalent
+SPY_GATE_ENABLED = True        # feature flag
+
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
 WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level

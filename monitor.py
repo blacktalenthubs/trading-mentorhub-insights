@@ -190,6 +190,25 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
         except Exception:
             logger.debug("Regime narrator check failed, proceeding")
 
+    # SPY Gate: compute once per poll cycle, pass to all evaluate_rules calls
+    _spy_gate = None
+    try:
+        from analytics.intraday_rules import compute_spy_gate
+        from analytics.intraday_data import compute_vwap
+        _spy_bars = fetch_intraday("SPY")
+        if not _spy_bars.empty:
+            _spy_vwap = compute_vwap(_spy_bars)
+            _spy_gate = compute_spy_gate(_spy_bars, _spy_vwap)
+            logger.info(
+                "SPY Gate: %s (VWAP dom %.0f%%, EMA %s) — %s",
+                _spy_gate["gate"].upper(),
+                _spy_gate["vwap_dominance"] * 100,
+                "above" if _spy_gate["above_ema"] else "below",
+                _spy_gate["reason"],
+            )
+    except Exception:
+        logger.debug("SPY Gate computation failed, proceeding without gate")
+
     for symbol in symbols:
         try:
             _is_crypto = is_crypto_alert_symbol(symbol)
@@ -211,6 +230,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 fired_today=fired_today,
                 daily_plan=plan,
                 is_crypto=_is_crypto,
+                spy_gate=_spy_gate,
             )
 
             for signal in signals:
