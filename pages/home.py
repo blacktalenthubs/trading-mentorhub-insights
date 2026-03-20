@@ -623,33 +623,33 @@ else:
                 _stop_s = f"${sig.stop:,.2f}" if sig.stop else "—"
                 _t1_s = f"${sig.target_1:,.2f}" if sig.target_1 else "—"
                 _t2_s = f"${sig.target_2:,.2f}" if sig.target_2 else "—"
-                levels_html = f"""
-                <div class="tc-levels">
-                    <div><div class="tc-lv-label">Entry</div><div class="tc-lv-val entry">${sig.entry:,.2f}</div></div>
-                    <div><div class="tc-lv-label">Stop</div><div class="tc-lv-val stop">{_stop_s}</div></div>
-                    <div><div class="tc-lv-label">T1</div><div class="tc-lv-val t1">{_t1_s}</div></div>
-                    <div><div class="tc-lv-label">T2</div><div class="tc-lv-val t2">{_t2_s}</div></div>
-                </div>"""
+                levels_html = (
+                    '<div class="tc-levels">'
+                    f'<div><div class="tc-lv-label">Entry</div><div class="tc-lv-val entry">${sig.entry:,.2f}</div></div>'
+                    f'<div><div class="tc-lv-label">Stop</div><div class="tc-lv-val stop">{_stop_s}</div></div>'
+                    f'<div><div class="tc-lv-label">T1</div><div class="tc-lv-val t1">{_t1_s}</div></div>'
+                    f'<div><div class="tc-lv-label">T2</div><div class="tc-lv-val t2">{_t2_s}</div></div>'
+                    '</div>'
+                )
 
-            # Clean message (remove duplicated info)
             _msg_clean = sig.message.split(" | ")[0] if " | " in sig.message else sig.message
-
             _alert_type_label = sig.alert_type.value.replace("_", " ").title()
 
-            st.markdown(f"""
-            <div class="tc-alert {dir_class}">
-                <div class="tc-alert-top">
-                    <span class="tc-dir {dir_class}">{sig.direction}</span>
-                    <span class="tc-symbol">{sig.symbol}</span>
-                    <span class="tc-alert-type">{_alert_type_label}</span>
-                    {score_html}
-                    <span class="tc-time">${sig.price:,.2f}</span>
-                </div>
-                {levels_html}
-                <div class="tc-msg">{_msg_clean}</div>
-                <div class="tc-tags">{tags_html}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="tc-alert {dir_class}">'
+                f'<div class="tc-alert-top">'
+                f'<span class="tc-dir {dir_class}">{sig.direction}</span>'
+                f'<span class="tc-symbol">{sig.symbol}</span>'
+                f'<span class="tc-alert-type">{_alert_type_label}</span>'
+                f'{score_html}'
+                f'<span class="tc-time">${sig.price:,.2f}</span>'
+                f'</div>'
+                f'{levels_html}'
+                f'<div class="tc-msg">{_msg_clean}</div>'
+                f'<div class="tc-tags">{tags_html}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
             # ACK buttons + chart (Streamlit native)
             if sig.entry and sig.direction in ("BUY", "SHORT"):
