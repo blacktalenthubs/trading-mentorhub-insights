@@ -5822,11 +5822,25 @@ def evaluate_rules(
             if (symbol, s.alert_type.value) in fired_today:
                 logger.debug("%s: dedup filter dropped %s (already fired today)", symbol, s.alert_type.value)
 
-    # --- SPY Gate: suppress/demote BUY signals when SPY is bearish intraday ---
+    # --- SPY/Crypto Gate: suppress/demote BUY signals when trend is bearish ---
+    # For equities: uses SPY gate (computed once per poll cycle)
+    # For crypto: uses the symbol's own VWAP + EMA as self-gate
     from alert_config import SPY_GATE_ENABLED
-    if SPY_GATE_ENABLED and spy_gate and not is_crypto:
-        _gate = spy_gate.get("gate", "green")
-        _gate_reason = spy_gate.get("reason", "")
+    _active_gate = spy_gate
+    if is_crypto and SPY_GATE_ENABLED and len(intraday_bars) >= 6:
+        # Compute self-gate for crypto using its own VWAP + EMA
+        from analytics.intraday_data import compute_vwap as _cv
+        _crypto_vwap = _cv(intraday_bars)
+        _active_gate = compute_spy_gate(intraday_bars, _crypto_vwap)
+        if _active_gate["gate"] != "green":
+            logger.debug(
+                "%s: crypto self-gate %s (%s)",
+                symbol, _active_gate["gate"], _active_gate["reason"],
+            )
+
+    if SPY_GATE_ENABLED and _active_gate:
+        _gate = _active_gate.get("gate", "green")
+        _gate_reason = _active_gate.get("reason", "")
         if _gate == "red":
             # Full suppress: drop ALL BUY signals for equities
             pre_gate = signals[:]
