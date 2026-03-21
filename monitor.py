@@ -306,9 +306,18 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     continue
 
                 if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
-                    if not _ack_active:
-                        create_active_entry(signal, session, user_id=uid)  # legacy fallback
-                    # else: created on ACK callback
+                    # Only create entry if no active entry exists for this symbol
+                    # Prevents multiple entries from consolidated signals
+                    _existing_entries = get_active_entries(symbol, session, user_id=uid)
+                    if not _existing_entries:
+                        if not _ack_active:
+                            create_active_entry(signal, session, user_id=uid)
+                        # else: created on ACK callback
+                    else:
+                        logger.debug(
+                            "%s: skip entry creation — already have %d active entries",
+                            symbol, len(_existing_entries),
+                        )
 
                 if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
                     close_all_entries_for_symbol(symbol, session, user_id=uid)
