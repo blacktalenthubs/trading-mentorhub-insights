@@ -178,12 +178,9 @@ def _format_sms_body(signal: AlertSignal) -> str:
             _conv_line += f" — {_ai_reason}"
         parts.append(_html.escape(_conv_line))
 
-    # AI thesis — first sentence only (Telegram char limit)
+    # AI thesis — full narrative for decision context
     if getattr(signal, "narrative", ""):
-        import re
-        sentences = re.split(r"\.(?:\s|$)", signal.narrative, maxsplit=1)
-        if sentences and sentences[0].strip():
-            parts.append(_html.escape(sentences[0].strip()) + ".")
+        parts.append(_html.escape(signal.narrative.strip()))
 
     # Telegram message limit is 4096 chars; truncate safely
     return "\n".join(parts)[:4000]
