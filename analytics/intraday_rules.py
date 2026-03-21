@@ -6410,15 +6410,26 @@ def evaluate_rules(
         AlertType.SESSION_LOW_BOUNCE_VWAP.value,
     }
 
+    # Types exempt from RED suppression (only for crypto + SPY —
+    # bounce at hourly support is valid even when self-gate is red)
+    _red_exempt_types = {AlertType.SESSION_LOW_BOUNCE_VWAP.value}
+    _is_red_exempt_symbol = is_crypto or symbol == "SPY"
+
     if SPY_GATE_ENABLED and _active_gate:
         _gate = _active_gate.get("gate", "green")
         _gate_reason = _active_gate.get("reason", "")
         if _gate == "red":
-            # Full suppress: drop ALL BUY signals (including consolidation breakout)
+            # Full suppress: drop ALL BUY signals
+            # Exception: session_low_bounce_vwap on crypto/SPY (hourly support bounces)
             pre_gate = signals[:]
-            signals = [s for s in signals if s.direction != "BUY"]
+            signals = [
+                s for s in signals
+                if s.direction != "BUY"
+                or (_is_red_exempt_symbol
+                    and s.alert_type.value in _red_exempt_types)
+            ]
             for s in pre_gate:
-                if s.direction == "BUY":
+                if s.direction == "BUY" and s not in signals:
                     logger.info(
                         "%s: SPY GATE RED suppressed %s (%s)",
                         symbol, s.alert_type.value, _gate_reason,
