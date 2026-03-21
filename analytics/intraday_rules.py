@@ -243,6 +243,9 @@ class AlertType(str, Enum):
     PRIOR_DAY_LOW_RESISTANCE = "prior_day_low_resistance"
     # Consolidation notice
     HOURLY_CONSOLIDATION = "hourly_consolidation"
+    # Per-symbol consolidation breakout
+    CONSOL_BREAKOUT_LONG = "consol_breakout_long"
+    CONSOL_BREAKOUT_SHORT = "consol_breakout_short"
     # SPY Short entry
     SPY_SHORT_ENTRY = "spy_short_entry"
     # Morning range retests
@@ -3198,6 +3201,106 @@ def check_spy_short_entry(
 
 
 # ---------------------------------------------------------------------------
+# Rule: Consolidation Breakout (BUY / SHORT) — per-symbol hourly range break
+# ---------------------------------------------------------------------------
+
+
+def check_consolidation_breakout(
+    symbol: str,
+    bars_5m: pd.DataFrame,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Per-symbol hourly consolidation breakout signal.
+
+    Detects when a symbol breaks out of its own hourly consolidation range.
+    Uses ATR-based threshold to adapt to each symbol's volatility.
+
+    - Break UP   → BUY  (entry at range_high, stop at range_low)
+    - Break DOWN → SHORT (entry at range_low, stop at range_high)
+
+    Gate interaction is handled by evaluate_rules():
+    - BUY overrides YELLOW gate (blocked by RED)
+    - SHORT fires on RED + YELLOW (blocked on GREEN)
+    """
+    from alert_config import (
+        CONSOL_BREAKOUT_ENABLED, CONSOL_BREAKOUT_STOP_OFFSET_PCT,
+        CONSOL_BREAKOUT_MIN_VOL_RATIO, HOURLY_CONSOL_MIN_BARS,
+    )
+
+    if not CONSOL_BREAKOUT_ENABLED:
+        return None
+
+    hbreak = detect_hourly_consolidation_break(bars_5m)
+    if not hbreak or hbreak.get("status") != "breakout":
+        return None
+
+    # Volume confirmation
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < CONSOL_BREAKOUT_MIN_VOL_RATIO:
+        return None
+
+    direction = hbreak["direction"]
+    range_high = hbreak["range_high"]
+    range_low = hbreak["range_low"]
+    break_price = hbreak["break_price"]
+    range_pct = hbreak["range_pct"]
+    hourly_atr = hbreak.get("hourly_atr", 0)
+
+    if direction == "UP":
+        entry = round(range_high, 2)
+        stop = round(range_low * (1 - CONSOL_BREAKOUT_STOP_OFFSET_PCT), 2)
+        risk = entry - stop
+        if risk <= 0:
+            return None
+        t1 = round(entry + risk, 2)
+        t2 = round(entry + 2 * risk, 2)
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.CONSOL_BREAKOUT_LONG,
+            direction="BUY",
+            price=break_price,
+            entry=entry,
+            stop=stop,
+            target_1=t1,
+            target_2=t2,
+            confidence="high",
+            message=(
+                f"CONSOLIDATION BREAKOUT UP — {HOURLY_CONSOL_MIN_BARS}h range "
+                f"${range_low:.2f}-${range_high:.2f} ({range_pct:.1f}%) broken. "
+                f"ATR ${hourly_atr:.2f}. Vol {vol_ratio:.1f}x. "
+                f"Entry ${entry:.2f}, stop ${stop:.2f}"
+            ),
+        )
+    elif direction == "DOWN":
+        entry = round(range_low, 2)
+        stop = round(range_high * (1 + CONSOL_BREAKOUT_STOP_OFFSET_PCT), 2)
+        risk = stop - entry
+        if risk <= 0:
+            return None
+        t1 = round(entry - risk, 2)
+        t2 = round(entry - 2 * risk, 2)
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.CONSOL_BREAKOUT_SHORT,
+            direction="SHORT",
+            price=break_price,
+            entry=entry,
+            stop=stop,
+            target_1=t1,
+            target_2=t2,
+            confidence="high",
+            message=(
+                f"CONSOLIDATION BREAKDOWN — {HOURLY_CONSOL_MIN_BARS}h range "
+                f"${range_low:.2f}-${range_high:.2f} ({range_pct:.1f}%) broken down. "
+                f"ATR ${hourly_atr:.2f}. Vol {vol_ratio:.1f}x. "
+                f"Entry ${entry:.2f}, stop ${stop:.2f}"
+            ),
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Rule: Morning Low Retest (BUY)
 # ---------------------------------------------------------------------------
 
@@ -5066,18 +5169,27 @@ def detect_hourly_consolidation_break(
 ) -> dict | None:
     """Detect hourly consolidation range breakout from 5-min bars.
 
-    Resamples 5-min bars to 1-hour, checks if the last 3 hourly bars
-    formed a tight range (<0.5%), and if the current bar breaks out.
+    Resamples 5-min bars to 1-hour, checks if recent hourly bars
+    formed a tight range (< 1.2x hourly ATR), and if the current bar
+    breaks out.
+
+    Uses ATR-based threshold instead of fixed % — adapts to each
+    symbol's volatility and current market regime.
 
     Returns dict with:
-      direction: "UP" or "DOWN"
+      direction: "UP", "DOWN", or "RANGE"
+      status: "breakout" or "consolidating"
       range_high: float
       range_low: float
-      range_pct: float
+      range_pct: float (% width)
       break_price: float
-    Or None if no breakout detected.
+      hourly_atr: float (for logging)
+    Or None if no consolidation detected.
     """
-    from alert_config import HOURLY_CONSOL_RANGE_PCT, HOURLY_CONSOL_MIN_BARS
+    from alert_config import (
+        HOURLY_CONSOL_ATR_LOOKBACK, HOURLY_CONSOL_ATR_MULT,
+        HOURLY_CONSOL_MAX_RANGE_PCT, HOURLY_CONSOL_MIN_BARS,
+    )
 
     if bars_5m.empty or len(bars_5m) < 12 * (HOURLY_CONSOL_MIN_BARS + 1):
         return None
@@ -5091,47 +5203,51 @@ def detect_hourly_consolidation_break(
     if len(hourly) < HOURLY_CONSOL_MIN_BARS + 1:
         return None
 
+    # Compute hourly ATR (true range = High - Low for intraday)
+    hourly_tr = hourly["High"] - hourly["Low"]
+    atr_bars = min(len(hourly) - 1, HOURLY_CONSOL_ATR_LOOKBACK)
+    if atr_bars < 2:
+        return None
+    hourly_atr = hourly_tr.iloc[-(atr_bars + 1):-1].mean()
+    if hourly_atr <= 0:
+        return None
+
     # Check if the prior N hourly bars form a tight range
     consol_window = hourly.iloc[-(HOURLY_CONSOL_MIN_BARS + 1):-1]
     range_high = consol_window["High"].max()
     range_low = consol_window["Low"].min()
     if range_low <= 0:
         return None
-    range_pct = (range_high - range_low) / range_low
 
-    if range_pct > HOURLY_CONSOL_RANGE_PCT:
-        return None  # range too wide
+    range_width = range_high - range_low
+    range_pct = range_width / range_low
+    atr_threshold = hourly_atr * HOURLY_CONSOL_ATR_MULT
+
+    # ATR-based check: range must be tighter than 1.2x ATR
+    if range_width > atr_threshold:
+        return None  # range too wide relative to recent volatility
+
+    # Absolute cap: safety net for extreme cases
+    if range_pct > HOURLY_CONSOL_MAX_RANGE_PCT:
+        return None  # range too wide in absolute terms
 
     # Check current hourly bar for breakout
     current = hourly.iloc[-1]
-    if current["Close"] > range_high:
-        return {
-            "direction": "UP",
-            "status": "breakout",
-            "range_high": round(range_high, 2),
-            "range_low": round(range_low, 2),
-            "range_pct": round(range_pct * 100, 2),
-            "break_price": round(current["Close"], 2),
-        }
-    elif current["Close"] < range_low:
-        return {
-            "direction": "DOWN",
-            "status": "breakout",
-            "range_high": round(range_high, 2),
-            "range_low": round(range_low, 2),
-            "range_pct": round(range_pct * 100, 2),
-            "break_price": round(current["Close"], 2),
-        }
-
-    # Still in range — consolidation forming
-    return {
-        "direction": "RANGE",
-        "status": "consolidating",
+    base = {
         "range_high": round(range_high, 2),
         "range_low": round(range_low, 2),
         "range_pct": round(range_pct * 100, 2),
-        "break_price": round(current["Close"], 2),
+        "break_price": round(float(current["Close"]), 2),
+        "hourly_atr": round(float(hourly_atr), 2),
     }
+
+    if current["Close"] > range_high:
+        return {"direction": "UP", "status": "breakout", **base}
+    elif current["Close"] < range_low:
+        return {"direction": "DOWN", "status": "breakout", **base}
+
+    # Still in range — consolidation forming
+    return {"direction": "RANGE", "status": "consolidating", **base}
 
 
 def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict:
@@ -5888,6 +6004,16 @@ def evaluate_rules(
                 sig.message += f" ({phase})"
                 signals.append(sig)
 
+    # --- Per-Symbol Consolidation Breakout (BUY / SHORT) ---
+    if (AlertType.CONSOL_BREAKOUT_LONG.value in ENABLED_RULES
+            or AlertType.CONSOL_BREAKOUT_SHORT.value in ENABLED_RULES):
+        sig = check_consolidation_breakout(
+            symbol, intraday_bars, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
+
     # --- Weekly High Test (wick above, no close) ---
     if AlertType.WEEKLY_HIGH_TEST.value in ENABLED_RULES:
         sig = check_weekly_high_test(symbol, last_bar, prior_day, prior_close)
@@ -6119,11 +6245,16 @@ def evaluate_rules(
                 symbol, _active_gate["gate"], _active_gate["reason"],
             )
 
+    # Types exempt from YELLOW demotion (high-conviction breakouts)
+    _yellow_exempt = {
+        AlertType.CONSOL_BREAKOUT_LONG.value,
+    }
+
     if SPY_GATE_ENABLED and _active_gate:
         _gate = _active_gate.get("gate", "green")
         _gate_reason = _active_gate.get("reason", "")
         if _gate == "red":
-            # Full suppress: drop ALL BUY signals for equities
+            # Full suppress: drop ALL BUY signals (including consolidation breakout)
             pre_gate = signals[:]
             signals = [s for s in signals if s.direction != "BUY"]
             for s in pre_gate:
@@ -6134,14 +6265,31 @@ def evaluate_rules(
                     )
         elif _gate == "yellow":
             # Demote: reduce BUY confidence and add caution
+            # Consolidation breakout BUY is exempt (has its own momentum)
             for s in signals:
-                if s.direction == "BUY":
+                if s.direction == "BUY" and s.alert_type.value not in _yellow_exempt:
                     if s.confidence == "high":
                         s.confidence = "medium"
                     s.message += f" | SPY GATE YELLOW: {_gate_reason}"
                     # Cap score at C level
                     s.score = min(s.score, 40)
                     s.score_label = "C"
+
+        # Block SHORT consolidation breakout on GREEN (don't short bull tape)
+        if _gate == "green":
+            pre_short = signals[:]
+            signals = [
+                s for s in signals
+                if not (s.alert_type == AlertType.CONSOL_BREAKOUT_SHORT
+                        and s.direction == "SHORT")
+            ]
+            for s in pre_short:
+                if (s.alert_type == AlertType.CONSOL_BREAKOUT_SHORT
+                        and s.direction == "SHORT"):
+                    logger.info(
+                        "%s: SPY GATE GREEN blocked SHORT %s (%s)",
+                        symbol, s.alert_type.value, _gate_reason,
+                    )
 
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0

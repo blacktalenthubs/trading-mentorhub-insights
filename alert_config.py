@@ -341,9 +341,17 @@ SPY_GATE_EMA_PERIOD = 60       # 60-bar EMA on 5-min = ~20 EMA on 15-min equival
 SPY_GATE_ENABLED = True        # feature flag
 
 # Hourly Consolidation Breakout: detect tight ranges then trade the break
-HOURLY_CONSOL_RANGE_PCT = 0.005   # 0.5% — range must be tighter than this
-HOURLY_CONSOL_MIN_BARS = 3        # 3 hourly bars of consolidation required
-HOURLY_CONSOL_ENABLED = True      # feature flag
+# Uses ATR-based threshold instead of fixed % — adapts to each symbol's volatility
+HOURLY_CONSOL_ATR_LOOKBACK = 10       # 10 hourly bars for ATR calculation
+HOURLY_CONSOL_ATR_MULT = 1.2          # range must be < 1.2x hourly ATR
+HOURLY_CONSOL_MAX_RANGE_PCT = 0.015   # 1.5% absolute cap (safety net)
+HOURLY_CONSOL_MIN_BARS = 2            # 2 hourly bars minimum (catch fast staircases)
+HOURLY_CONSOL_ENABLED = True          # feature flag
+
+# Per-symbol consolidation breakout signals
+CONSOL_BREAKOUT_ENABLED = True
+CONSOL_BREAKOUT_STOP_OFFSET_PCT = 0.001  # 0.1% buffer beyond range for stop
+CONSOL_BREAKOUT_MIN_VOL_RATIO = 0.8      # minimum volume ratio for confirmation
 
 # SPY Short Entry: fire SHORT signals when gate is RED + key level breaks
 SPY_SHORT_ENABLED = True       # feature flag
@@ -552,6 +560,8 @@ ENABLED_RULES: set[str] = {
     "prior_day_low_resistance",
     "spy_short_entry",
     "hourly_consolidation",
+    "consol_breakout_long",
+    "consol_breakout_short",
     # NOTICE — informational
     "first_hour_summary",
     "inside_day_forming",
