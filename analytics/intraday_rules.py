@@ -3117,6 +3117,11 @@ def check_session_low_bounce_to_vwap(
     if len(bars) < 6:  # need some bars to establish the low
         return None
 
+    # Skip if currently in hourly consolidation — let breakout signal handle it
+    hbreak = detect_hourly_consolidation_break(bars)
+    if hbreak and hbreak.get("status") == "consolidating":
+        return None  # ranging below VWAP is not a bounce, it's chop
+
     last_bar = bars.iloc[-1]
     current_vwap = vwap_series.iloc[-1] if not vwap_series.empty else 0
     if current_vwap <= 0:
@@ -3175,7 +3180,19 @@ def check_session_low_bounce_to_vwap(
 
     vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
     touch_count = nearest_support.get("touch_count", 1)
-    confidence = "high" if touch_count >= 2 or vol_ratio >= 1.2 else "medium"
+
+    # Support fatigue: too many tests weakens the level
+    fatigue_warning = ""
+    if touch_count >= 4:
+        confidence = "medium"
+        fatigue_warning = (
+            f" | CAUTION: support fatigue — tested {touch_count}x, "
+            f"weakening (breakdown risk elevated)"
+        )
+    elif touch_count >= 2 or vol_ratio >= 1.2:
+        confidence = "high"
+    else:
+        confidence = "medium"
 
     return AlertSignal(
         symbol=symbol,
@@ -3192,6 +3209,7 @@ def check_session_low_bounce_to_vwap(
             f"hourly support ${support_level:.2f} (tested {touch_count}x). "
             f"Bouncing toward VWAP ${current_vwap:.2f} "
             f"({vwap_distance_pct:.1%} away). Vol {vol_ratio:.1f}x"
+            f"{fatigue_warning}"
         ),
     )
 
