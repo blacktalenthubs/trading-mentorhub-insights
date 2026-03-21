@@ -551,6 +551,7 @@ ENABLED_RULES: set[str] = {
     "prior_day_low_breakdown",
     "prior_day_low_resistance",
     "spy_short_entry",
+    "hourly_consolidation",
     # NOTICE — informational
     "first_hour_summary",
     "inside_day_forming",

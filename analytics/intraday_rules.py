@@ -241,6 +241,8 @@ class AlertType(str, Enum):
     # Prior day low breakdown / resistance
     PRIOR_DAY_LOW_BREAKDOWN = "prior_day_low_breakdown"
     PRIOR_DAY_LOW_RESISTANCE = "prior_day_low_resistance"
+    # Consolidation notice
+    HOURLY_CONSOLIDATION = "hourly_consolidation"
     # SPY Short entry
     SPY_SHORT_ENTRY = "spy_short_entry"
     # Morning range retests
@@ -5105,6 +5107,7 @@ def detect_hourly_consolidation_break(
     if current["Close"] > range_high:
         return {
             "direction": "UP",
+            "status": "breakout",
             "range_high": round(range_high, 2),
             "range_low": round(range_low, 2),
             "range_pct": round(range_pct * 100, 2),
@@ -5113,13 +5116,22 @@ def detect_hourly_consolidation_break(
     elif current["Close"] < range_low:
         return {
             "direction": "DOWN",
+            "status": "breakout",
             "range_high": round(range_high, 2),
             "range_low": round(range_low, 2),
             "range_pct": round(range_pct * 100, 2),
             "break_price": round(current["Close"], 2),
         }
 
-    return None
+    # Still in range — consolidation forming
+    return {
+        "direction": "RANGE",
+        "status": "consolidating",
+        "range_high": round(range_high, 2),
+        "range_low": round(range_low, 2),
+        "range_pct": round(range_pct * 100, 2),
+        "break_price": round(current["Close"], 2),
+    }
 
 
 def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict:
@@ -5176,8 +5188,8 @@ def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict
     ae = result["above_ema"]
     hb = result.get("hourly_break")
 
-    # Hourly breakout overrides — highest conviction signal
-    if hb:
+    # Hourly breakout overrides — highest conviction signal (only on actual breakouts)
+    if hb and hb.get("status") == "breakout":
         if hb["direction"] == "UP" and ae:
             result["gate"] = "green"
             result["reason"] = (
@@ -6061,6 +6073,35 @@ def evaluate_rules(
         for s in pre_dedup:
             if (symbol, s.alert_type.value) in fired_today:
                 logger.debug("%s: dedup filter dropped %s (already fired today)", symbol, s.alert_type.value)
+
+    # --- Hourly Consolidation Notice ---
+    # When price is in a tight hourly range, send a NOTICE so user knows
+    # the system is watching and waiting for direction, not broken.
+    _consol_gate = spy_gate if not is_crypto else None
+    if is_crypto and len(intraday_bars) >= 36:
+        from analytics.intraday_data import compute_vwap as _cv2
+        _crypto_vwap2 = _cv2(intraday_bars)
+        _consol_gate = compute_spy_gate(intraday_bars, _crypto_vwap2)
+    if (_consol_gate and _consol_gate.get("hourly_break")
+            and _consol_gate["hourly_break"].get("status") == "consolidating"
+            and AlertType.HOURLY_CONSOLIDATION.value in ENABLED_RULES):
+        _hb = _consol_gate["hourly_break"]
+        _consol_key = (symbol, AlertType.HOURLY_CONSOLIDATION.value)
+        if _consol_key not in (fired_today or set()):
+            signals.append(AlertSignal(
+                symbol=symbol,
+                alert_type=AlertType.HOURLY_CONSOLIDATION,
+                direction="NOTICE",
+                price=last_bar["Close"],
+                entry=round(_hb["range_high"], 2),
+                stop=round(_hb["range_low"], 2),
+                confidence="info",
+                message=(
+                    f"HOURLY CONSOLIDATION — range ${_hb['range_low']:.2f}-${_hb['range_high']:.2f} "
+                    f"({_hb['range_pct']:.1f}%). Waiting for breakout direction. "
+                    f"BUY above ${_hb['range_high']:.2f}, SHORT below ${_hb['range_low']:.2f}"
+                ),
+            ))
 
     # --- SPY/Crypto Gate: suppress/demote BUY signals when trend is bearish ---
     # For equities: uses SPY gate (computed once per poll cycle)
