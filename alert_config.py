@@ -262,6 +262,7 @@ BOUNCE_ALERT_TYPES: set[str] = {
     "vwap_reclaim",
     "opening_low_base",
     "morning_low_retest",
+    "session_low_bounce_vwap",
     "first_hour_high_breakout",
     "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
     "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
@@ -562,6 +563,7 @@ ENABLED_RULES: set[str] = {
     "hourly_consolidation",
     "consol_breakout_long",
     "consol_breakout_short",
+    "session_low_bounce_vwap",
     # NOTICE — informational
     "first_hour_summary",
     "inside_day_forming",

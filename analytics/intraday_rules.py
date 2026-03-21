@@ -246,6 +246,8 @@ class AlertType(str, Enum):
     # Per-symbol consolidation breakout
     CONSOL_BREAKOUT_LONG = "consol_breakout_long"
     CONSOL_BREAKOUT_SHORT = "consol_breakout_short"
+    # Session low bounce at hourly support → VWAP
+    SESSION_LOW_BOUNCE_VWAP = "session_low_bounce_vwap"
     # SPY Short entry
     SPY_SHORT_ENTRY = "spy_short_entry"
     # Morning range retests
@@ -3086,6 +3088,115 @@ def check_opening_low_base(
 
 
 # ---------------------------------------------------------------------------
+# Rule: Session Low at Hourly Support → Bounce to VWAP (BUY)
+# ---------------------------------------------------------------------------
+
+
+def check_session_low_bounce_to_vwap(
+    symbol: str,
+    bars: pd.DataFrame,
+    vwap_series: pd.Series,
+    intraday_supports: list[dict],
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Session low at hourly support, price bouncing back toward VWAP.
+
+    High-conviction mean-reversion setup:
+    1. Session low is near a known hourly support level (within 0.3%)
+    2. Price is below VWAP (room for the bounce trade)
+    3. Low has held for at least 2 bars (not actively breaking)
+    4. Last bar closes above the low (bounce starting)
+    5. T1 = VWAP (institutional mean), T2 = VWAP + 1R
+
+    Gate interaction: exempt from YELLOW demotion (being below VWAP
+    is the thesis, not a warning).
+    """
+    if bars.empty or vwap_series.empty or not intraday_supports:
+        return None
+    if len(bars) < 6:  # need some bars to establish the low
+        return None
+
+    last_bar = bars.iloc[-1]
+    current_vwap = vwap_series.iloc[-1] if not vwap_series.empty else 0
+    if current_vwap <= 0:
+        return None
+
+    # Price must be below VWAP (room to bounce)
+    if last_bar["Close"] >= current_vwap:
+        return None
+
+    session_low = bars["Low"].min()
+    if session_low <= 0:
+        return None
+
+    # Session low must be near a known hourly support level
+    nearest_support = None
+    nearest_dist = float("inf")
+    for sup in intraday_supports:
+        level = sup.get("level", 0)
+        if level <= 0:
+            continue
+        dist_pct = abs(session_low - level) / level
+        if dist_pct < nearest_dist and dist_pct <= 0.003:  # within 0.3%
+            nearest_dist = dist_pct
+            nearest_support = sup
+
+    if nearest_support is None:
+        return None  # session low not at any known support
+
+    support_level = nearest_support["level"]
+
+    # Low must have held — last 2 bars' lows above session_low (not breaking)
+    hold_threshold = session_low * 1.001  # tiny buffer
+    recent_lows = bars.iloc[-2:]
+    if (recent_lows["Low"] < hold_threshold).any():
+        return None  # still actively testing / breaking the low
+
+    # Last bar must close above session low (bounce confirmed)
+    if last_bar["Close"] <= session_low:
+        return None
+
+    # Must have meaningful distance to VWAP (at least 0.15%)
+    vwap_distance_pct = (current_vwap - last_bar["Close"]) / last_bar["Close"]
+    if vwap_distance_pct < 0.0015:
+        return None  # too close to VWAP, not worth the trade
+
+    # Entry = current close (bounce in progress), stop below session low
+    entry = round(last_bar["Close"], 2)
+    stop = round(session_low * 0.999, 2)  # just below session low
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    # T1 = VWAP, T2 = VWAP + 1R
+    t1 = round(current_vwap, 2)
+    t2 = round(current_vwap + risk, 2)
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    touch_count = nearest_support.get("touch_count", 1)
+    confidence = "high" if touch_count >= 2 or vol_ratio >= 1.2 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SESSION_LOW_BOUNCE_VWAP,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=t1,
+        target_2=t2,
+        confidence=confidence,
+        message=(
+            f"SESSION LOW BOUNCE — low ${session_low:.2f} held at "
+            f"hourly support ${support_level:.2f} (tested {touch_count}x). "
+            f"Bouncing toward VWAP ${current_vwap:.2f} "
+            f"({vwap_distance_pct:.1%} away). Vol {vol_ratio:.1f}x"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule: SPY Short Entry (SHORT) — gate-confirmed breakdown shorts
 # ---------------------------------------------------------------------------
 
@@ -5806,6 +5917,16 @@ def evaluate_rules(
                 sig.message += caution_suffix
                 signals.append(sig)
 
+        # --- Session Low Bounce at Hourly Support → VWAP ---
+        if AlertType.SESSION_LOW_BOUNCE_VWAP.value in ENABLED_RULES:
+            sig = check_session_low_bounce_to_vwap(
+                symbol, intraday_bars, vwap_series,
+                intraday_supports, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                signals.append(sig)
+
         # --- Opening Low Base ---
         if AlertType.OPENING_LOW_BASE.value in ENABLED_RULES:
             sig = check_opening_low_base(symbol, intraday_bars)
@@ -6282,9 +6403,11 @@ def evaluate_rules(
                 symbol, _active_gate["gate"], _active_gate["reason"],
             )
 
-    # Types exempt from YELLOW demotion (high-conviction breakouts)
+    # Types exempt from YELLOW demotion (high-conviction setups where
+    # being below VWAP or in mixed conditions is part of the thesis)
     _yellow_exempt = {
         AlertType.CONSOL_BREAKOUT_LONG.value,
+        AlertType.SESSION_LOW_BOUNCE_VWAP.value,
     }
 
     if SPY_GATE_ENABLED and _active_gate:
