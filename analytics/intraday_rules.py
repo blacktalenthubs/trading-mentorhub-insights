@@ -5059,6 +5059,69 @@ def _compute_crypto_opening_range(bars: pd.DataFrame) -> dict | None:
     }
 
 
+def detect_hourly_consolidation_break(
+    bars_5m: pd.DataFrame,
+) -> dict | None:
+    """Detect hourly consolidation range breakout from 5-min bars.
+
+    Resamples 5-min bars to 1-hour, checks if the last 3 hourly bars
+    formed a tight range (<0.5%), and if the current bar breaks out.
+
+    Returns dict with:
+      direction: "UP" or "DOWN"
+      range_high: float
+      range_low: float
+      range_pct: float
+      break_price: float
+    Or None if no breakout detected.
+    """
+    from alert_config import HOURLY_CONSOL_RANGE_PCT, HOURLY_CONSOL_MIN_BARS
+
+    if bars_5m.empty or len(bars_5m) < 12 * (HOURLY_CONSOL_MIN_BARS + 1):
+        return None
+
+    # Resample 5-min bars to 1-hour
+    hourly = bars_5m.resample("1h").agg({
+        "Open": "first", "High": "max", "Low": "min",
+        "Close": "last", "Volume": "sum",
+    }).dropna()
+
+    if len(hourly) < HOURLY_CONSOL_MIN_BARS + 1:
+        return None
+
+    # Check if the prior N hourly bars form a tight range
+    consol_window = hourly.iloc[-(HOURLY_CONSOL_MIN_BARS + 1):-1]
+    range_high = consol_window["High"].max()
+    range_low = consol_window["Low"].min()
+    if range_low <= 0:
+        return None
+    range_pct = (range_high - range_low) / range_low
+
+    if range_pct > HOURLY_CONSOL_RANGE_PCT:
+        return None  # range too wide
+
+    # Check current hourly bar for breakout
+    current = hourly.iloc[-1]
+    if current["Close"] > range_high:
+        return {
+            "direction": "UP",
+            "range_high": round(range_high, 2),
+            "range_low": round(range_low, 2),
+            "range_pct": round(range_pct * 100, 2),
+            "break_price": round(current["Close"], 2),
+        }
+    elif current["Close"] < range_low:
+        return {
+            "direction": "DOWN",
+            "range_high": round(range_high, 2),
+            "range_low": round(range_low, 2),
+            "range_pct": round(range_pct * 100, 2),
+            "break_price": round(current["Close"], 2),
+        }
+
+    return None
+
+
 def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict:
     """Compute SPY gate status for BUY alert suppression.
 
@@ -5073,7 +5136,7 @@ def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict
         SPY_GATE_EMA_PERIOD,
     )
 
-    result = {"gate": "green", "vwap_dominance": 1.0, "above_ema": True, "reason": ""}
+    result = {"gate": "green", "vwap_dominance": 1.0, "above_ema": True, "hourly_break": None, "reason": ""}
 
     if spy_bars.empty:
         return result
@@ -5096,10 +5159,41 @@ def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict
     else:
         result["above_ema"] = True  # not enough data, assume neutral
 
-    # 3. Determine gate level
+    # 3. Hourly consolidation breakout detection
+    from alert_config import HOURLY_CONSOL_ENABLED
+    if HOURLY_CONSOL_ENABLED:
+        hbreak = detect_hourly_consolidation_break(spy_bars)
+        if hbreak:
+            result["hourly_break"] = hbreak
+            logger.info(
+                "Hourly consolidation break: %s (range %.2f%%, high $%.2f, low $%.2f)",
+                hbreak["direction"], hbreak["range_pct"],
+                hbreak["range_high"], hbreak["range_low"],
+            )
+
+    # 4. Determine gate level
     vd = result["vwap_dominance"]
     ae = result["above_ema"]
+    hb = result.get("hourly_break")
 
+    # Hourly breakout overrides — highest conviction signal
+    if hb:
+        if hb["direction"] == "UP" and ae:
+            result["gate"] = "green"
+            result["reason"] = (
+                f"HOURLY BREAKOUT UP ${hb['break_price']} "
+                f"(range {hb['range_pct']:.1f}%) + above EMA"
+            )
+            return result
+        elif hb["direction"] == "DOWN" and not ae:
+            result["gate"] = "red"
+            result["reason"] = (
+                f"HOURLY BREAKDOWN ${hb['break_price']} "
+                f"(range {hb['range_pct']:.1f}%) + below EMA — NO LONGS"
+            )
+            return result
+
+    # Standard VWAP + EMA gate
     if vd >= SPY_GATE_GREEN_PCT and ae:
         result["gate"] = "green"
         result["reason"] = f"SPY above VWAP ({vd:.0%}) + above 15m EMA"

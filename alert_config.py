@@ -340,6 +340,11 @@ SPY_GATE_RED_PCT = 0.40        # <40% bars above VWAP = red light (suppress BUY)
 SPY_GATE_EMA_PERIOD = 60       # 60-bar EMA on 5-min = ~20 EMA on 15-min equivalent
 SPY_GATE_ENABLED = True        # feature flag
 
+# Hourly Consolidation Breakout: detect tight ranges then trade the break
+HOURLY_CONSOL_RANGE_PCT = 0.005   # 0.5% — range must be tighter than this
+HOURLY_CONSOL_MIN_BARS = 3        # 3 hourly bars of consolidation required
+HOURLY_CONSOL_ENABLED = True      # feature flag
+
 # SPY Short Entry: fire SHORT signals when gate is RED + key level breaks
 SPY_SHORT_ENABLED = True       # feature flag
 SPY_SHORT_STOP_OFFSET_PCT = 0.003  # 0.3% above broken level for stop
