@@ -40,6 +40,8 @@ Rules:
 - If price is near target, suggest taking partial profits
 - If support has broken below the stop, recommend EXIT
 - If trade is working, suggest tightening stop to breakeven or nearest support
+- If a position's symbol is CONSOLIDATING, note the range and advise holding for breakout direction
+- If a BREAKOUT just occurred, advise whether the position benefits or is at risk
 - Keep the total response under 200 words
 - Use probability language, never guarantee outcomes
 - No markdown formatting — plain text only
@@ -63,8 +65,34 @@ def _resolve_api_key() -> str:
         return ""
 
 
+def _get_consolidation_states(symbols: list[str]) -> dict[str, dict]:
+    """Fetch hourly consolidation state for each symbol."""
+    states: dict[str, dict] = {}
+    try:
+        import yfinance as yf
+        from analytics.intraday_rules import detect_hourly_consolidation_break
+
+        for sym in symbols:
+            try:
+                is_crypto = sym.endswith("-USD")
+                period = "5d" if is_crypto else "1d"
+                ticker = yf.Ticker(sym)
+                bars = ticker.history(period=period, interval="5m")
+                if bars.empty:
+                    continue
+                hbreak = detect_hourly_consolidation_break(bars)
+                if hbreak:
+                    states[sym] = hbreak
+            except Exception:
+                continue
+    except Exception:
+        logger.debug("Consolidation state fetch failed")
+    return states
+
+
 def _build_position_prompt(trades: list[dict], spy_ctx: dict | None,
-                           technicals: dict | None) -> str:
+                           technicals: dict | None,
+                           consol_states: dict[str, dict] | None = None) -> str:
     """Build the user prompt with open positions and market context."""
     lines: list[str] = []
 
@@ -120,6 +148,27 @@ def _build_position_prompt(trades: list[dict], spy_ctx: dict | None,
             if tech_parts:
                 lines.append(f"    Technicals: {' '.join(tech_parts)}")
 
+        # Add consolidation state
+        if consol_states and symbol in consol_states:
+            cs = consol_states[symbol]
+            status = cs.get("status", "unknown")
+            direction = cs.get("direction", "?")
+            rh = cs.get("range_high", 0)
+            rl = cs.get("range_low", 0)
+            rp = cs.get("range_pct", 0)
+            atr = cs.get("hourly_atr", 0)
+            if status == "consolidating":
+                lines.append(
+                    f"    CONSOLIDATING: range {rl:.2f}-{rh:.2f} "
+                    f"({rp:.1f}%), ATR {atr:.2f}. "
+                    f"Breakout above {rh:.2f} or breakdown below {rl:.2f}"
+                )
+            elif status == "breakout":
+                lines.append(
+                    f"    BREAKOUT {direction}: broke {'above' if direction == 'UP' else 'below'} "
+                    f"range {rl:.2f}-{rh:.2f} ({rp:.1f}%)"
+                )
+
     return "\n".join(lines)
 
 
@@ -174,7 +223,9 @@ def check_positions(trades: list[dict] | None = None) -> str | None:
     except Exception:
         logger.debug("Position advisor: technicals unavailable")
 
-    prompt = _build_position_prompt(trades, spy_ctx, technicals)
+    # Add consolidation state for open position symbols
+    consol_states = _get_consolidation_states(symbols)
+    prompt = _build_position_prompt(trades, spy_ctx, technicals, consol_states)
 
     try:
         import anthropic
@@ -245,7 +296,8 @@ def check_positions_stream(trades: list[dict] | None = None) -> Generator[str, N
     except Exception:
         pass
 
-    prompt = _build_position_prompt(trades, spy_ctx, technicals)
+    consol_states = _get_consolidation_states(symbols)
+    prompt = _build_position_prompt(trades, spy_ctx, technicals, consol_states)
 
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
