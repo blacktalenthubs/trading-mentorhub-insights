@@ -477,6 +477,103 @@ def _safe_daily_double_bottoms(
         return []
 
 
+def _compute_daily_trend(hist: pd.DataFrame, market_open: bool) -> dict:
+    """Compute daily trend structure from swing highs/lows.
+
+    Looks at last 10 completed daily bars to identify:
+    - Higher highs / lower highs
+    - Higher lows / lower lows
+    - Overall trend bias: bullish / bearish / neutral
+    - Key structure: ascending triangle, descending triangle, channel
+
+    Returns dict with trend, structure, and recent swing points.
+    """
+    result = {
+        "bias": "neutral",
+        "structure": "none",
+        "higher_highs": False,
+        "lower_highs": False,
+        "higher_lows": False,
+        "lower_lows": False,
+        "recent_swing_high": 0.0,
+        "recent_swing_low": 0.0,
+    }
+    try:
+        completed = hist.iloc[:-1] if market_open else hist
+        if len(completed) < 10:
+            return result
+
+        # Use last 10 daily bars
+        recent = completed.iloc[-10:]
+
+        # Find swing highs (bar higher than both neighbors)
+        swing_highs = []
+        swing_lows = []
+        for i in range(1, len(recent) - 1):
+            if (recent["High"].iloc[i] > recent["High"].iloc[i - 1]
+                    and recent["High"].iloc[i] > recent["High"].iloc[i + 1]):
+                swing_highs.append(float(recent["High"].iloc[i]))
+            if (recent["Low"].iloc[i] < recent["Low"].iloc[i - 1]
+                    and recent["Low"].iloc[i] < recent["Low"].iloc[i + 1]):
+                swing_lows.append(float(recent["Low"].iloc[i]))
+
+        # Need at least 2 swings to determine trend
+        if len(swing_highs) >= 2:
+            result["higher_highs"] = swing_highs[-1] > swing_highs[-2]
+            result["lower_highs"] = swing_highs[-1] < swing_highs[-2]
+            result["recent_swing_high"] = round(swing_highs[-1], 2)
+
+        if len(swing_lows) >= 2:
+            result["higher_lows"] = swing_lows[-1] > swing_lows[-2]
+            result["lower_lows"] = swing_lows[-1] < swing_lows[-2]
+            result["recent_swing_low"] = round(swing_lows[-1], 2)
+
+        # Determine bias
+        if result["higher_highs"] and result["higher_lows"]:
+            result["bias"] = "bullish"
+        elif result["lower_highs"] and result["lower_lows"]:
+            result["bias"] = "bearish"
+        elif result["lower_highs"] and result["higher_lows"]:
+            result["bias"] = "neutral"
+            result["structure"] = "contracting"  # triangle / wedge
+        elif result["higher_highs"] and result["lower_lows"]:
+            result["bias"] = "neutral"
+            result["structure"] = "expanding"  # broadening
+
+        # Detect descending triangle: lower highs + flat lows
+        if result["lower_highs"] and not result["lower_lows"] and len(swing_lows) >= 2:
+            low_range = abs(swing_lows[-1] - swing_lows[-2])
+            avg_low = (swing_lows[-1] + swing_lows[-2]) / 2
+            if avg_low > 0 and low_range / avg_low < 0.01:  # lows within 1%
+                result["structure"] = "descending_triangle"
+                result["bias"] = "bearish"
+
+        # Detect ascending triangle: higher lows + flat highs
+        if result["higher_lows"] and not result["higher_highs"] and len(swing_highs) >= 2:
+            high_range = abs(swing_highs[-1] - swing_highs[-2])
+            avg_high = (swing_highs[-1] + swing_highs[-2]) / 2
+            if avg_high > 0 and high_range / avg_high < 0.01:  # highs within 1%
+                result["structure"] = "ascending_triangle"
+                result["bias"] = "bullish"
+
+        # EMA trend confirmation (20 EMA slope)
+        if "EMA20" in completed.columns and len(completed) >= 5:
+            ema20_now = completed["EMA20"].iloc[-1]
+            ema20_5ago = completed["EMA20"].iloc[-5]
+            if pd.notna(ema20_now) and pd.notna(ema20_5ago) and ema20_5ago > 0:
+                ema_slope = (ema20_now - ema20_5ago) / ema20_5ago
+                if ema_slope < -0.01:  # EMA falling > 1%
+                    if result["bias"] == "neutral":
+                        result["bias"] = "bearish"
+                elif ema_slope > 0.01:  # EMA rising > 1%
+                    if result["bias"] == "neutral":
+                        result["bias"] = "bullish"
+
+    except Exception:
+        pass
+    return result
+
+
 def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
     """Fetch the PRIOR COMPLETED trading day's data.
 
@@ -642,6 +739,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "daily_double_bottoms": _safe_daily_double_bottoms(
                 hist, last_bar_date >= today
             ),
+            "daily_trend": _compute_daily_trend(hist, last_bar_date >= today),
         }
     except Exception:
         return None

@@ -3210,11 +3210,13 @@ def check_consolidation_breakout(
     bars_5m: pd.DataFrame,
     bar_volume: float,
     avg_volume: float,
+    daily_trend: dict | None = None,
 ) -> AlertSignal | None:
     """Per-symbol hourly consolidation breakout signal.
 
     Detects when a symbol breaks out of its own hourly consolidation range.
     Uses ATR-based threshold to adapt to each symbol's volatility.
+    Uses daily trend context to adjust confidence (institutions use daily).
 
     - Break UP   → BUY  (entry at range_high, stop at range_low)
     - Break DOWN → SHORT (entry at range_low, stop at range_high)
@@ -3247,7 +3249,27 @@ def check_consolidation_breakout(
     range_pct = hbreak["range_pct"]
     hourly_atr = hbreak.get("hourly_atr", 0)
 
+    # Daily trend context — institutions use daily structure
+    dt = daily_trend or {}
+    daily_bias = dt.get("bias", "neutral")
+    daily_structure = dt.get("structure", "none")
+    daily_tag = ""
+
     if direction == "UP":
+        if daily_bias == "bearish":
+            # BUY breakout against daily trend — demote confidence
+            confidence = "medium"
+            daily_tag = f" | CAUTION: daily trend bearish"
+            if daily_structure == "descending_triangle":
+                daily_tag += " (descending triangle — lower highs)"
+        elif daily_bias == "bullish":
+            confidence = "high"
+            daily_tag = " | daily trend aligned (bullish)"
+        else:
+            confidence = "high"
+            if daily_structure == "contracting":
+                daily_tag = " | daily range contracting — breakout pending"
+
         entry = round(range_high, 2)
         stop = round(range_low * (1 - CONSOL_BREAKOUT_STOP_OFFSET_PCT), 2)
         risk = entry - stop
@@ -3264,15 +3286,29 @@ def check_consolidation_breakout(
             stop=stop,
             target_1=t1,
             target_2=t2,
-            confidence="high",
+            confidence=confidence,
             message=(
                 f"CONSOLIDATION BREAKOUT UP — {HOURLY_CONSOL_MIN_BARS}h range "
                 f"${range_low:.2f}-${range_high:.2f} ({range_pct:.1f}%) broken. "
                 f"ATR ${hourly_atr:.2f}. Vol {vol_ratio:.1f}x. "
-                f"Entry ${entry:.2f}, stop ${stop:.2f}"
+                f"Entry ${entry:.2f}, stop ${stop:.2f}{daily_tag}"
             ),
         )
     elif direction == "DOWN":
+        if daily_bias == "bullish":
+            # SHORT breakout against daily trend — demote confidence
+            confidence = "medium"
+            daily_tag = f" | CAUTION: daily trend bullish"
+            if daily_structure == "ascending_triangle":
+                daily_tag += " (ascending triangle — higher lows)"
+        elif daily_bias == "bearish":
+            confidence = "high"
+            daily_tag = " | daily trend aligned (bearish)"
+        else:
+            confidence = "high"
+            if daily_structure == "contracting":
+                daily_tag = " | daily range contracting — breakdown pending"
+
         entry = round(range_low, 2)
         stop = round(range_high * (1 + CONSOL_BREAKOUT_STOP_OFFSET_PCT), 2)
         risk = stop - entry
@@ -3289,12 +3325,12 @@ def check_consolidation_breakout(
             stop=stop,
             target_1=t1,
             target_2=t2,
-            confidence="high",
+            confidence=confidence,
             message=(
                 f"CONSOLIDATION BREAKDOWN — {HOURLY_CONSOL_MIN_BARS}h range "
                 f"${range_low:.2f}-${range_high:.2f} ({range_pct:.1f}%) broken down. "
                 f"ATR ${hourly_atr:.2f}. Vol {vol_ratio:.1f}x. "
-                f"Entry ${entry:.2f}, stop ${stop:.2f}"
+                f"Entry ${entry:.2f}, stop ${stop:.2f}{daily_tag}"
             ),
         )
     return None
@@ -6009,6 +6045,7 @@ def evaluate_rules(
             or AlertType.CONSOL_BREAKOUT_SHORT.value in ENABLED_RULES):
         sig = check_consolidation_breakout(
             symbol, intraday_bars, bar_vol, avg_vol,
+            daily_trend=prior_day.get("daily_trend") if prior_day else None,
         )
         if sig:
             sig.message += f" ({phase})"
