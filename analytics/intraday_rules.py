@@ -3088,6 +3088,84 @@ def check_opening_low_base(
 
 
 # ---------------------------------------------------------------------------
+# Bounce Quality Classifier — tags bounce signals with quality assessment
+# ---------------------------------------------------------------------------
+
+
+def classify_bounce_quality(
+    bars: pd.DataFrame,
+    vwap_series: pd.Series | None,
+    bar_volume: float,
+    avg_volume: float,
+    bounce_level: float,
+) -> dict:
+    """Score bounce quality on 3 factors to differentiate liquidity grabs
+    from weak relief rallies.
+
+    Returns dict with:
+      quality: "strong" | "moderate" | "weak"
+      factors: list of strings describing what was found
+      tag: formatted string to append to signal message
+
+    Three checks (1 point each, max 3):
+    1. Wick test: did price wick below the level and close above?
+       (liquidity grab pattern — swept stops then reclaimed)
+    2. Volume test: is bounce volume >= 1.2x average?
+       (real buyers stepping in, not just short covering)
+    3. VWAP test: is price above VWAP or reclaiming it?
+       (buyers in control of the session)
+    """
+    score = 0
+    factors: list[str] = []
+
+    if bars.empty or bounce_level <= 0:
+        return {"quality": "weak", "factors": [], "tag": ""}
+
+    last_bar = bars.iloc[-1]
+
+    # 1. Wick test: bar wicked below level but closed above
+    # Check last 3 bars for wick pattern (the bounce might be 1-2 bars old)
+    lookback = min(3, len(bars))
+    wick_found = False
+    for i in range(-lookback, 0):
+        bar = bars.iloc[i]
+        if bar["Low"] < bounce_level and bar["Close"] > bounce_level:
+            wick_found = True
+            break
+    if wick_found:
+        score += 1
+        factors.append("wick reclaim")
+
+    # 2. Volume test: bounce volume vs average
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio >= 1.2:
+        score += 1
+        factors.append(f"vol {vol_ratio:.1f}x")
+
+    # 3. VWAP test: price above VWAP or within 0.1% (reclaiming)
+    if vwap_series is not None and not vwap_series.empty:
+        current_vwap = vwap_series.iloc[-1]
+        if current_vwap > 0:
+            vwap_dist = (last_bar["Close"] - current_vwap) / current_vwap
+            if vwap_dist >= -0.001:  # above or within 0.1% of VWAP
+                score += 1
+                factors.append("above VWAP")
+
+    # Classify
+    if score >= 3:
+        quality = "strong"
+    elif score >= 2:
+        quality = "moderate"
+    else:
+        quality = "weak"
+
+    factors_str = " + ".join(factors) if factors else "no confirming factors"
+    tag = f" | BOUNCE QUALITY: {quality.upper()} ({factors_str})"
+
+    return {"quality": quality, "factors": factors, "tag": tag}
+
+
+# ---------------------------------------------------------------------------
 # Rule: Session Low at Hourly Support → Bounce to VWAP (BUY)
 # ---------------------------------------------------------------------------
 
@@ -6364,6 +6442,16 @@ def evaluate_rules(
         for s in dropped:
             logger.debug("%s: breakdown day filter dropped BUY %s", symbol, s.alert_type.value)
         signals = [s for s in signals if s.direction != "BUY"]
+
+    # --- Bounce Quality Tagging ---
+    # Tag all bounce-type BUY signals with quality assessment
+    for s in signals:
+        if s.direction == "BUY" and s.alert_type.value in BOUNCE_ALERT_TYPES:
+            bounce_level = s.entry or s.stop or 0
+            bq = classify_bounce_quality(
+                intraday_bars, vwap_series, bar_vol, avg_vol, bounce_level,
+            )
+            s.message += bq["tag"]
 
     # --- Dedup: remove signals already fired today ---
     if fired_today:
