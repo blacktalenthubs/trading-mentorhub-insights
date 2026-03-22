@@ -3122,6 +3122,17 @@ def check_session_low_bounce_to_vwap(
     if hbreak and hbreak.get("status") == "consolidating":
         return None  # ranging below VWAP is not a bounce, it's chop
 
+    # Falling knife filter: skip if price dropped > 2% in last 4 hours
+    # (48 five-min bars). Catching a knife in a freefall is not a bounce.
+    knife_lookback = min(48, len(bars) - 1)
+    if knife_lookback >= 12:
+        lookback_high = bars["High"].iloc[-knife_lookback:].max()
+        current_close = bars["Close"].iloc[-1]
+        if lookback_high > 0:
+            drop_pct = (lookback_high - current_close) / lookback_high
+            if drop_pct > 0.02:  # dropped > 2% in ~4 hours
+                return None
+
     last_bar = bars.iloc[-1]
     current_vwap = vwap_series.iloc[-1] if not vwap_series.empty else 0
     if current_vwap <= 0:
