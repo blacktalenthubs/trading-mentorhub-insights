@@ -128,7 +128,7 @@ COOLDOWN_MINUTES = 30
 # Burst cooldown: after a BUY notification is sent for a symbol, suppress
 # Telegram for additional BUY alerts on the same symbol for this many minutes.
 # Alerts still get recorded to DB for later review — just no push notification.
-BUY_BURST_COOLDOWN_MINUTES = 0  # disabled — send ALL alerts to Telegram
+BUY_BURST_COOLDOWN_MINUTES = 10  # after a BUY notification, suppress next BUY for same symbol for 10 min
 
 # Intraday Support Bounce: bar low must be at or within this % ABOVE support
 # to count as a touch.  Using a directional check — bar low must actually
@@ -543,8 +543,9 @@ ENABLED_RULES: set[str] = {
     "macd_histogram_flip",
     "gap_and_go",
     "fib_retracement_bounce",
-    # BUY/SHORT — morning session patterns
+    # SHORT — session patterns
     "morning_low_breakdown",
+    "pdh_failed_breakout",
     # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
     "resistance_prior_high",
     "pdh_rejection",
@@ -564,7 +565,7 @@ ENABLED_RULES: set[str] = {
     "stop_loss_hit",
     "auto_stop_out",
     # ── NOTICE — informational only ─────────────────────────────────────────
-    "first_hour_summary",
+    # "first_hour_summary",            # DISABLED: noise, 5 alerts/day with no value
     "inside_day_forming",
     # ── DISABLED — noise alerts removed ─────────────────────────────────────
     # "ma_approach",                  # NOISE: price always near some MA

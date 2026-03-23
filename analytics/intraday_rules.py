@@ -253,6 +253,7 @@ class AlertType(str, Enum):
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
     MORNING_LOW_BREAKDOWN = "morning_low_breakdown"
+    PDH_FAILED_BREAKOUT = "pdh_failed_breakout"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
     # MA/EMA reclaim — price crosses above key daily MA/EMA
     MA_RECLAIM_20 = "ma_reclaim_20"
@@ -1510,6 +1511,84 @@ def check_pdh_rejection(
         direction="SELL",
         price=bar["High"],
         message=msg,
+    )
+
+
+# ---------------------------------------------------------------------------
+# SHORT Rule: PDH Failed Breakout
+# ---------------------------------------------------------------------------
+
+
+def check_pdh_failed_breakout(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day_high: float,
+) -> AlertSignal | None:
+    """Price broke above PDH earlier in the session, then failed back below.
+
+    A failed breakout above a key level is one of the strongest short signals —
+    it traps buyers above resistance and the reversal accelerates as stops trigger.
+
+    Conditions:
+    1. At some point in the session, price closed above PDH (breakout occurred)
+    2. Current bar closes below PDH (failure confirmed)
+    3. At least 3 bars between breakout and failure (not same-bar wick)
+    4. Must be past first 30 min (need context)
+    """
+    if prior_day_high <= 0 or bars.empty or len(bars) < 8:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+
+    # Current bar must close below PDH
+    if last_close >= prior_day_high:
+        return None
+
+    # Find if there was a prior close above PDH (the breakout)
+    closes_above = bars[bars["Close"] > prior_day_high]
+    if closes_above.empty:
+        return None
+
+    # Breakout must have happened at least 3 bars ago (not a same-bar wick)
+    last_breakout_idx = closes_above.index[-1]
+    bars_since_breakout = len(bars.loc[last_breakout_idx:]) - 1
+    if bars_since_breakout < 3:
+        return None
+
+    # Must have had at least 2 bars closing above PDH (confirmed breakout, not just a wick)
+    if len(closes_above) < 2:
+        return None
+
+    breakout_high = bars.loc[last_breakout_idx:, "High"].max()
+
+    entry = round(last_close, 2)
+    stop = round(prior_day_high * 1.003, 2)  # stop above PDH
+    stop = _cap_risk(stop, entry, symbol=symbol)
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry - risk, 2)
+    target_2 = round(entry - 2 * risk, 2)
+
+    confidence = "high" if bars_since_breakout >= 6 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.PDH_FAILED_BREAKOUT,
+        direction="SHORT",
+        price=last_close,
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"PDH FAILED BREAKOUT — broke above ${prior_day_high:.2f}, "
+            f"rallied to ${breakout_high:.2f}, now failed back below at "
+            f"${last_close:.2f}. Trapped longs above resistance."
+        ),
     )
 
 
@@ -6355,6 +6434,16 @@ def evaluate_rules(
     sig = check_pdh_rejection(symbol, last_bar, prior_high, prior_close)
     if sig:
         signals.append(sig)
+
+    # --- PDH Failed Breakout (SHORT) ---
+    if AlertType.PDH_FAILED_BREAKOUT.value in ENABLED_RULES:
+        sig = check_pdh_failed_breakout(symbol, intraday_bars, prior_high)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
+            signals.append(sig)
 
     sig = check_hourly_resistance_approach(symbol, last_bar, hourly_resistance, has_active, prior_close)
     if sig:
