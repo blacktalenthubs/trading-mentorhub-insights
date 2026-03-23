@@ -6655,10 +6655,10 @@ def evaluate_rules(
         AlertType.SESSION_LOW_BOUNCE_VWAP.value,
     }
 
-    # Types exempt from RED suppression (only for crypto + SPY —
-    # bounce at hourly support is valid even when self-gate is red)
-    _red_exempt_types = {AlertType.SESSION_LOW_BOUNCE_VWAP.value}
-    _is_red_exempt_symbol = is_crypto or symbol == "SPY"
+    # SPY itself is NEVER suppressed by the SPY gate — the gate protects
+    # other equities from SPY weakness, not SPY from itself.
+    # Crypto uses its own self-gate independently.
+    _is_spy = symbol == "SPY"
 
     if SPY_GATE_ENABLED and _active_gate:
         _gate = _active_gate.get("gate", "green")
@@ -6666,27 +6666,43 @@ def evaluate_rules(
 
         # ── Immediate VWAP check (stricter than 6-bar average) ──────────
         # If SPY's last close is below VWAP right now, treat as RED for
-        # non-SPY equities.  SPY itself and crypto keep their own gate.
+        # non-SPY equities.  SPY itself keeps all alerts.  Crypto uses
+        # its own self-gate.
         _spy_below_vwap_now = False
         if (
             not is_crypto
-            and symbol != "SPY"
+            and not _is_spy
             and spy_gate
             and spy_gate.get("vwap_dominance", 1.0) < 0.5
         ):
-            # SPY is spending more time below VWAP than above — bearish
             _spy_below_vwap_now = True
 
-        if _gate == "red" or (_spy_below_vwap_now and _gate != "green"):
-            # Full suppress: drop ALL BUY signals for non-SPY equities
-            # SPY + crypto: only allow session_low_bounce_vwap (hourly support)
+        if _is_spy:
+            # SPY keeps ALL its alerts — never suppressed by its own gate
+            pass
+        elif is_crypto and _gate == "red":
+            # Crypto with own red gate: only allow session_low_bounce_vwap
+            _red_exempt_types = {AlertType.SESSION_LOW_BOUNCE_VWAP.value}
+            _effective_reason = _gate_reason or "Crypto self-gate RED"
+            pre_gate = signals[:]
+            signals = [
+                s for s in signals
+                if s.direction != "BUY"
+                or s.alert_type.value in _red_exempt_types
+            ]
+            for s in pre_gate:
+                if s.direction == "BUY" and s not in signals:
+                    logger.info(
+                        "%s: CRYPTO GATE suppressed %s (%s)",
+                        symbol, s.alert_type.value, _effective_reason,
+                    )
+        elif _gate == "red" or (_spy_below_vwap_now and _gate != "green"):
+            # Non-SPY equities: full BUY suppression when SPY bearish
             _effective_reason = _gate_reason or "SPY below VWAP — equity BUY suppressed"
             pre_gate = signals[:]
             signals = [
                 s for s in signals
                 if s.direction != "BUY"
-                or (_is_red_exempt_symbol
-                    and s.alert_type.value in _red_exempt_types)
             ]
             for s in pre_gate:
                 if s.direction == "BUY" and s not in signals:
