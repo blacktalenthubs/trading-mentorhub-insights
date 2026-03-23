@@ -491,8 +491,8 @@ DIVERGENCE_MIN_SWING_SIZE = 0.02   # 2% minimum swing size
 #           informational noise (gap fill), choppy-day noise (intraday bounce).
 # ---------------------------------------------------------------------------
 ENABLED_RULES: set[str] = {
-    # ── Phase 1: Core S/R levels only — validate accuracy before expanding ──
-    # BUY — MA/EMA support bounce
+    # ── Tier 1: Highest-probability setups ──────────────────────────────────
+    # BUY — MA/EMA support bounce (candle filter applied in rules)
     "ma_bounce_20",
     "ma_bounce_50",
     "ma_bounce_100",
@@ -501,77 +501,75 @@ ENABLED_RULES: set[str] = {
     "ema_bounce_50",
     "ema_bounce_100",
     "ema_bounce_200",
-    # BUY — daily high/low
+    # BUY — daily high/low (institutional levels)
     "prior_day_low_reclaim",
     "prior_day_low_bounce",
     "prior_day_high_breakout",
-    "pdh_test",
+    # "pdh_test",                     # NOISE: downgraded — test is not a setup, break is
     "pdh_retest_hold",
     # BUY — weekly high/low
     "weekly_level_touch",
     "weekly_high_breakout",
-    "weekly_high_test",
+    # "weekly_high_test",             # NOISE: downgraded — test without break
     "weekly_low_test",
     "weekly_low_breakdown",
-    # SELL — MA/EMA resistance
-    "ma_resistance",
-    "ema_resistance",
-    # SELL — daily high/low resistance
-    "resistance_prior_high",
-    "pdh_rejection",
-    "resistance_prior_low",
-    # SELL — weekly resistance
-    "weekly_high_resistance",
     # BUY — monthly high/low
     "monthly_level_touch",
     "monthly_high_breakout",
-    "monthly_high_test",
+    # "monthly_high_test",            # NOISE: downgraded — test without break
     "monthly_low_test",
     "monthly_low_breakdown",
-    # SELL — monthly resistance
+    # BUY — VWAP (highest institutional signal)
+    "vwap_reclaim",
+    "vwap_bounce",
+    # BUY — opening range (Crabel methodology)
+    "opening_low_base",
+    "morning_low_retest",
+    "first_hour_high_breakout",
+    # BUY — inside day (volatility compression → expansion)
+    "inside_day_breakout",
+    "inside_day_reclaim",
+    # BUY — support structure
+    "session_low_double_bottom",
+    "multi_day_double_bottom",
+    "planned_level_touch",
+    "intraday_support_bounce",
+    "session_low_bounce_vwap",
+    # BUY — EMA reclaims only (consolidated from 8 → 4, EMA preferred)
+    "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
+    # "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",  # CONSOLIDATED: use EMA only
+    # ── Tier 1: Professional rules ──────────────────────────────────────────
+    "bb_squeeze_breakout",
+    "macd_histogram_flip",
+    "gap_and_go",
+    "fib_retracement_bounce",
+    # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
+    "resistance_prior_high",
+    "pdh_rejection",
+    "resistance_prior_low",
+    "weekly_high_resistance",
     "monthly_high_resistance",
-    # Trade management — exit alerts (critical for risk management)
+    "inside_day_breakdown",
+    "support_breakdown",
+    "prior_day_low_breakdown",
+    "prior_day_low_resistance",
+    "spy_short_entry",
+    "consol_breakout_long",
+    "consol_breakout_short",
+    # ── Trade management — exit alerts (critical) ───────────────────────────
     "target_1_hit",
     "target_2_hit",
     "stop_loss_hit",
     "auto_stop_out",
-    # BUY — inside day
-    "inside_day_breakout",
-    "inside_day_reclaim",
-    # SELL — inside day
-    "inside_day_breakdown",
-    "session_low_double_bottom",
-    "multi_day_double_bottom",
-    "planned_level_touch",
-    "vwap_reclaim",
-    "vwap_bounce",
-    "opening_low_base",
-    "morning_low_retest",
-    "first_hour_high_breakout",
-    "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
-    "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
-    "session_high_retracement",
-    "intraday_support_bounce",
-    # "outside_day_breakout",
-    # "ema_crossover_5_20",
-    # "hourly_resistance_approach",
-    "support_breakdown",
-    "ma_approach",
-    "prior_day_low_breakdown",
-    "prior_day_low_resistance",
-    "spy_short_entry",
-    "hourly_consolidation",
-    "consol_breakout_long",
-    "consol_breakout_short",
-    "session_low_bounce_vwap",
-    # NOTICE — informational
+    # ── NOTICE — informational only ─────────────────────────────────────────
     "first_hour_summary",
     "inside_day_forming",
-    # Phase 2: Professional rules
-    "macd_histogram_flip",
-    "bb_squeeze_breakout",
-    "gap_and_go",
-    "fib_retracement_bounce",
+    # ── DISABLED — noise alerts removed ─────────────────────────────────────
+    # "ma_approach",                  # NOISE: price always near some MA
+    # "ma_resistance",               # NOISE: use as filter, not alert
+    # "ema_resistance",              # NOISE: use as filter, not alert
+    # "hourly_consolidation",        # NOISE: 40% of hours are tight range
+    # "session_high_retracement",    # NOISE: describes normal intraday action
 }
 
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)

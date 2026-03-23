@@ -108,7 +108,7 @@ def _format_sms_body(signal: AlertSignal) -> str:
 
     if signal.direction == "SELL":
         # SELL signals: compact 2-3 line format
-        parts = [f"<b>EXIT ZONE {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
+        parts = [f"<b>LEVEL ALERT {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
         parts.append(_html.escape(label))
         if signal.message:
             hint = signal.message.split("|")[0].strip()
@@ -129,7 +129,7 @@ def _format_sms_body(signal: AlertSignal) -> str:
         return "\n".join(parts)[:400]
 
     # BUY / SHORT signals: entry, targets, score on first line
-    _prefix = "POTENTIAL SHORT" if signal.direction == "SHORT" else "POTENTIAL ENTRY"
+    _prefix = "BEARISH SETUP" if signal.direction == "SHORT" else "SETUP DETECTED"
     score_tag = ""
     if signal.score > 0:
         v2 = getattr(signal, "score_v2", 0)
@@ -153,7 +153,7 @@ def _format_sms_body(signal: AlertSignal) -> str:
 
     # Potential Entry | Stop
     if signal.entry is not None and signal.stop is not None:
-        parts.append(f"Potential Entry ${signal.entry:.2f} | Stop ${signal.stop:.2f}")
+        parts.append(f"Key Level ${signal.entry:.2f} | Stop ${signal.stop:.2f}")
 
     # T1 | T2
     t_bits = []
@@ -185,6 +185,9 @@ def _format_sms_body(signal: AlertSignal) -> str:
         short = " ".join(sentences[:2]).strip()
         if short:
             parts.append(_html.escape(short))
+
+    # Educational disclaimer
+    parts.append("\n<i>Educational only — not financial advice.</i>")
 
     # Telegram message limit is 4096 chars; truncate safely
     return "\n".join(parts)[:4000]
@@ -222,7 +225,7 @@ def send_email_to(signal: AlertSignal, email_to: str) -> bool:
     from ui_theme import display_direction
     dir_label, _ = display_direction(signal.direction)
     subject = (
-        f"[TRADE ALERT] {dir_label} {signal.symbol} "
+        f"[PATTERN ALERT] {dir_label} {signal.symbol} "
         f"- {signal.alert_type.value.replace('_', ' ').title()} @ ${signal.price:.2f}"
     )
     body = _format_email_body(signal)

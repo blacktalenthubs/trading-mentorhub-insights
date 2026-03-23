@@ -334,6 +334,41 @@ def _cap_risk(
 # BUY Rule 1: MA Bounce 20MA
 # ---------------------------------------------------------------------------
 
+def _is_reversal_candle(bars: pd.DataFrame, idx: int) -> bool:
+    """Check if bar at idx shows bullish reversal characteristics.
+
+    Returns True if the bar is a hammer, has a long lower wick (>= 60% of
+    range), or is a bullish engulfing pattern.  Used to quality-filter
+    MA/EMA bounce signals — non-reversal touches get demoted rather than
+    suppressed so the educational platform still surfaces them.
+    """
+    if idx < 1 or idx >= len(bars):
+        return False
+    bar = bars.iloc[idx]
+    o, h, l, c = float(bar["Open"]), float(bar["High"]), float(bar["Low"]), float(bar["Close"])
+    bar_range = h - l
+    if bar_range <= 0:
+        return False
+    body = abs(c - o)
+    lower_wick = min(o, c) - l
+
+    # Hammer: lower wick >= 1.5x body, close in upper 40%
+    if lower_wick >= 1.5 * body and (c - l) / bar_range >= 0.6:
+        return True
+
+    # Long lower wick: >= 60% of range
+    if lower_wick / bar_range >= 0.6:
+        return True
+
+    # Bullish engulfing: closes green, range > prior range
+    prev = bars.iloc[idx - 1]
+    prev_range = float(prev["High"]) - float(prev["Low"])
+    if c > o and bar_range > prev_range and c > float(prev["Open"]):
+        return True
+
+    return False
+
+
 def _find_ma_bounce_touch(
     bars: pd.DataFrame,
     ma_level: float,
@@ -6568,6 +6603,25 @@ def evaluate_rules(
                         symbol, s.alert_type.value, _gate_reason,
                     )
 
+    # --- ADX trend filter: demote BUY signals in choppy (low-ADX) markets ---
+    _adx = prior_day.get("adx14") if prior_day else None
+    if _adx is not None and _adx < 20:
+        for s in signals:
+            if s.direction == "BUY":
+                s.score = max(0, s.score - 10)
+                s.score_label = (
+                    "A+" if s.score >= 90
+                    else "A" if s.score >= 75
+                    else "B" if s.score >= 50
+                    else "C"
+                )
+                s.message = (s.message or "") + f" | ADX={_adx:.0f} (low trend)"
+                s.confidence = "low" if s.confidence == "medium" else s.confidence
+                logger.debug(
+                    "%s: ADX filter demoted %s (ADX=%.1f < 20)",
+                    symbol, s.alert_type.value, _adx,
+                )
+
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
     pre_noise = signals[:]
@@ -6668,6 +6722,41 @@ def evaluate_rules(
                     "%s: wick filter demoted %s (close_dist=%.2f%%, wick_ratio=%.2f)",
                     symbol, sig.alert_type.value, close_distance * 100, wick_ratio,
                 )
+
+    # --- Candle pattern filter: demote MA/EMA bounce signals without reversal candle ---
+    # If the touch bar doesn't show bullish reversal characteristics (hammer,
+    # long lower wick, bullish engulfing), demote confidence to "low" rather
+    # than suppress — educational platform should still show these signals.
+    _CANDLE_FILTER_TYPES = {
+        AlertType.MA_BOUNCE_20, AlertType.MA_BOUNCE_50,
+        AlertType.MA_BOUNCE_100, AlertType.MA_BOUNCE_200,
+        AlertType.EMA_BOUNCE_20, AlertType.EMA_BOUNCE_50,
+        AlertType.EMA_BOUNCE_100, AlertType.EMA_BOUNCE_200,
+    }
+    if len(intraday_bars) >= 2:
+        # Find the best touch bar in lookback window for each signal
+        for sig in signals:
+            if sig.direction == "BUY" and sig.alert_type in _CANDLE_FILTER_TYPES and sig.entry:
+                _lookback = intraday_bars.tail(MA_BOUNCE_LOOKBACK_BARS)
+                _touch_idx = None
+                _best_prox = float("inf")
+                for _li in range(len(_lookback)):
+                    _row = _lookback.iloc[_li]
+                    _lp = abs(_row["Low"] - sig.entry) / sig.entry if sig.entry > 0 else float("inf")
+                    _cp = abs(_row["Close"] - sig.entry) / sig.entry if sig.entry > 0 else float("inf")
+                    _p = min(_lp, _cp)
+                    if _p < _best_prox:
+                        _best_prox = _p
+                        # Convert lookback-relative index to full bars index
+                        _touch_idx = len(intraday_bars) - len(_lookback) + _li
+                if _touch_idx is not None and not _is_reversal_candle(intraday_bars, _touch_idx):
+                    if sig.confidence != "low":
+                        sig.confidence = "low"
+                        sig.message += " | no reversal candle at touch"
+                        logger.debug(
+                            "%s: candle filter demoted %s (no reversal at bar %d)",
+                            symbol, sig.alert_type.value, _touch_idx,
+                        )
 
     # --- Heikin Ashi confirmation: demote BUY signals when HA candle is bearish ---
     # HA candles filter wick noise and show the real trend direction.

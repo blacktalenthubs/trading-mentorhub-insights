@@ -65,18 +65,9 @@ def check_rsi_zones(
     if rsi_prev is None:
         return None
 
-    # Approaching oversold: crossed below 35
-    if rsi_today < SWING_RSI_APPROACHING_OVERSOLD <= rsi_prev:
-        return AlertSignal(
-            symbol=symbol,
-            alert_type=AlertType.SWING_RSI_APPROACHING_OVERSOLD,
-            direction="NOTICE",
-            price=price,
-            message=(
-                f"[SWING] RSI approaching oversold zone "
-                f"({rsi_prev:.1f} → {rsi_today:.1f})"
-            ),
-        )
+    # Approaching oversold: DISABLED — noise, fires on every pullback
+    # if rsi_today < SWING_RSI_APPROACHING_OVERSOLD <= rsi_prev:
+    #     ...
 
     # Oversold: crossed below 30
     if rsi_today < SWING_RSI_OVERSOLD <= rsi_prev:
@@ -91,18 +82,9 @@ def check_rsi_zones(
             ),
         )
 
-    # Approaching overbought: crossed above 65
-    if rsi_today > SWING_RSI_APPROACHING_OVERBOUGHT >= rsi_prev:
-        return AlertSignal(
-            symbol=symbol,
-            alert_type=AlertType.SWING_RSI_APPROACHING_OVERBOUGHT,
-            direction="NOTICE",
-            price=price,
-            message=(
-                f"[SWING] RSI approaching overbought zone "
-                f"({rsi_prev:.1f} → {rsi_today:.1f})"
-            ),
-        )
+    # Approaching overbought: DISABLED — noise, fires in every uptrend
+    # if rsi_today > SWING_RSI_APPROACHING_OVERBOUGHT >= rsi_prev:
+    #     ...
 
     # Overbought: crossed above 70
     if rsi_today > SWING_RSI_OVERBOUGHT >= rsi_prev:
@@ -537,10 +519,10 @@ def check_swing_consecutive_days(
 ) -> AlertSignal | None:
     """3+ consecutive red days near support → mean-reversion BUY signal.
 
-    Args:
-        daily_bars: List of dicts with open/close/ema20, oldest first.
+    DISABLED: fires on every normal pullback, no candle/volume confluence.
     """
-    if len(daily_bars) < CONSECUTIVE_DAYS_THRESHOLD:
+    return None
+    if len(daily_bars) < CONSECUTIVE_DAYS_THRESHOLD:  # noqa: E501 — unreachable, kept for reference
         return None
 
     # Count consecutive red days from the end

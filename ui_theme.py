@@ -27,9 +27,9 @@ COLORS = {
 }
 
 DIRECTION_DISPLAY = {
-    "BUY": ("Potential Entry", "#2ecc71"),
-    "SELL": ("Exit Zone", "#e74c3c"),
-    "SHORT": ("Potential Short", "#9b59b6"),
+    "BUY": ("Setup Detected", "#2ecc71"),
+    "SELL": ("Level Alert", "#e74c3c"),
+    "SHORT": ("Bearish Setup", "#9b59b6"),
     "NOTICE": ("Market Update", "#3498db"),
 }
 
@@ -292,6 +292,28 @@ def empty_state(message: str, icon: str = "info"):
     """, unsafe_allow_html=True)
 
 
+EDUCATIONAL_DISCLAIMER = (
+    "TradeCoPilot is an educational platform. Nothing here constitutes "
+    "financial advice. All patterns and AI analysis are for learning purposes only."
+)
+
+
+def render_sidebar_disclaimer():
+    """Render a compact educational disclaimer in the sidebar."""
+    st.markdown(f"""
+    <div style='
+        font-size: 0.68rem;
+        color: #666;
+        padding: 8px 10px;
+        margin-top: 8px;
+        border-top: 1px solid #1e3a5f;
+        line-height: 1.4;
+    '>
+        {EDUCATIONAL_DISCLAIMER}
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def sidebar_branding():
     """Render the TradeCoPilot logo block in the sidebar."""
     st.markdown("""
@@ -450,9 +472,9 @@ def welcome_banner():
         return
     with st.expander("Getting Started", expanded=True):
         actions = [
-            ("&#128200;", "Scanner", "Scored trade plans with entry, stop, and targets for your watchlist.", "/Scanner"),
-            ("&#128276;", "Alerts", "Real-time signals delivered to Telegram and email during market hours.", "/Alerts"),
-            ("&#127919;", "Scorecard", "Track win rate, R:R ratio, and equity curve across all your trades.", "/Scorecard"),
+            ("&#128200;", "Scanner", "Daily pattern study plans with key levels for your watchlist.", "/Scanner"),
+            ("&#128276;", "Alerts", "Real-time pattern alerts delivered to Telegram and email during market hours.", "/Alerts"),
+            ("&#127919;", "Performance", "Track your learning progress, win rate, and equity curve.", "/Performance"),
         ]
         cols = st.columns(3)
         for col, (icon, title, desc, href) in zip(cols, actions):
@@ -714,10 +736,303 @@ def build_candlestick_fig(
 
 
 # ---------------------------------------------------------------------------
+# Shared page components (used across consolidated pages)
+# ---------------------------------------------------------------------------
+
+
+def render_kpi_row(stats: dict, layout: str = "7") -> None:
+    """Render a standardized KPI row from a stats dict.
+
+    Expects keys: total_pnl, win_rate, total_trades, expectancy,
+    avg_win, avg_loss.  Optional: risk_reward.
+
+    layout='7' → 4+3 columns (default).  layout='6' → 6 equal columns.
+    """
+    if layout == "6":
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        c1.metric("Total P&L", f"${stats.get('total_pnl', 0):,.2f}")
+        c2.metric("Win Rate", f"{stats.get('win_rate', 0):.1f}%")
+        c3.metric("Total Trades", f"{stats.get('total_trades', 0)}")
+        c4.metric("Expectancy/Trade", f"${stats.get('expectancy', 0):,.2f}")
+        c5.metric("Avg Winner", f"${stats.get('avg_win', 0):,.2f}")
+        c6.metric("Avg Loser", f"${stats.get('avg_loss', 0):,.2f}")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total P&L", f"${stats.get('total_pnl', 0):,.2f}")
+        c2.metric("Win Rate", f"{stats.get('win_rate', 0):.1f}%")
+        c3.metric("Total Trades", f"{stats.get('total_trades', 0)}")
+        c4.metric("Expectancy/Trade", f"${stats.get('expectancy', 0):,.2f}")
+        c5, c6, c7 = st.columns(3)
+        c5.metric("Avg Winner", f"${stats.get('avg_win', 0):,.2f}")
+        c6.metric("Avg Loser", f"${stats.get('avg_loss', 0):,.2f}")
+        rr = stats.get("risk_reward", 0)
+        if rr == 0:
+            avg_w = stats.get("avg_win", 0)
+            avg_l = stats.get("avg_loss", 0)
+            rr = abs(avg_w / avg_l) if avg_l != 0 else 0
+        c7.metric("Risk/Reward", f"{rr:.2f}")
+
+
+def compute_trade_stats(df: pd.DataFrame, pnl_col: str = "realized_pnl") -> dict:
+    """Compute standard KPI dict from a DataFrame with a P&L column.
+
+    Works for imported trades (Scorecard) where stats are computed inline
+    rather than via a store function.
+    """
+    if df.empty:
+        return {
+            "total_pnl": 0, "total_trades": 0, "win_rate": 0,
+            "avg_win": 0, "avg_loss": 0, "expectancy": 0, "risk_reward": 0,
+        }
+    total_pnl = df[pnl_col].sum()
+    total_trades = len(df)
+    winners = df[df[pnl_col] > 0]
+    losers = df[df[pnl_col] < 0]
+    win_rate = len(winners) / total_trades * 100 if total_trades > 0 else 0
+    avg_win = winners[pnl_col].mean() if len(winners) > 0 else 0
+    avg_loss = losers[pnl_col].mean() if len(losers) > 0 else 0
+    risk_reward = abs(avg_win / avg_loss) if avg_loss != 0 else 0
+    expectancy = (win_rate / 100 * avg_win) + ((1 - win_rate / 100) * avg_loss)
+    return {
+        "total_pnl": total_pnl,
+        "total_trades": total_trades,
+        "win_rate": win_rate,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "risk_reward": risk_reward,
+        "expectancy": expectancy,
+    }
+
+
+def render_equity_curve(
+    df: pd.DataFrame,
+    *,
+    pnl_col: str = "pnl",
+    sort_col: str = "closed_at",
+    symbol_col: str = "symbol",
+    color: str = "#3498db",
+    show_drawdown: bool = False,
+    height: int = 400,
+) -> None:
+    """Render an equity curve (cumulative P&L) from a trades DataFrame.
+
+    When *show_drawdown* is True, adds peak line + drawdown fill area and
+    returns drawdown metrics.
+    """
+    df_sorted = df.sort_values(sort_col).copy()
+    df_sorted["cumulative_pnl"] = df_sorted[pnl_col].cumsum()
+    df_sorted["trade_num"] = range(1, len(df_sorted) + 1)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df_sorted["trade_num"], y=df_sorted["cumulative_pnl"],
+        mode="lines+markers" if len(df_sorted) < 100 else "lines",
+        name="Cumulative P&L",
+        line=dict(color=color, width=2),
+        hovertemplate=(
+            "Trade #%{x}<br>"
+            "%{customdata[0]}<br>"
+            "P&L: $%{customdata[1]:,.2f}<br>"
+            "Cumulative: $%{y:,.2f}<extra></extra>"
+        ),
+        customdata=list(zip(df_sorted[symbol_col], df_sorted[pnl_col])),
+    ))
+
+    if show_drawdown:
+        df_sorted["peak"] = df_sorted["cumulative_pnl"].cummax()
+        df_sorted["drawdown"] = df_sorted["cumulative_pnl"] - df_sorted["peak"]
+        fig.add_trace(go.Scatter(
+            x=df_sorted["trade_num"], y=df_sorted["peak"],
+            mode="lines", name="Peak",
+            line=dict(color="#95a5a6", width=1, dash="dot"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=df_sorted["trade_num"], y=df_sorted["drawdown"],
+            mode="lines", name="Drawdown",
+            fill="tozeroy", fillcolor="rgba(231, 76, 60, 0.2)",
+            line=dict(color="#e74c3c", width=1),
+            yaxis="y2",
+        ))
+        fig.update_layout(
+            yaxis2=dict(title="Drawdown ($)", overlaying="y", side="right"),
+        )
+
+    fig.add_hline(y=0, line_dash="dash", line_color="gray")
+    fig.update_layout(
+        height=height,
+        xaxis_title="Trade #",
+        yaxis_title="Cumulative P&L ($)",
+        legend=dict(orientation="h", y=1.1),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Show drawdown metrics below chart
+    if show_drawdown and "drawdown" in df_sorted.columns:
+        max_dd = df_sorted["drawdown"].min()
+        max_dd_idx = df_sorted["drawdown"].idxmin()
+        max_dd_trade = df_sorted.loc[max_dd_idx, "trade_num"]
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Max Drawdown", f"${max_dd:,.2f}")
+        mc2.metric("Max Drawdown Trade #", f"{max_dd_trade}")
+        after_dd = df_sorted[df_sorted["trade_num"] >= max_dd_trade]
+        recovered = after_dd[after_dd["cumulative_pnl"] >= df_sorted.loc[max_dd_idx, "peak"]]
+        if not recovered.empty:
+            recovery_trades = recovered.iloc[0]["trade_num"] - max_dd_trade
+            mc3.metric("Recovery (trades)", f"{int(recovery_trades)}")
+        else:
+            mc3.metric("Recovery", "Not yet")
+
+
+def render_trade_history_by_day(
+    trades: list[dict],
+    *,
+    pnl_key: str = "pnl",
+    symbol_key: str = "symbol",
+    date_key: str = "session_date",
+    columns: list[str] | None = None,
+    money_columns: list[str] | None = None,
+) -> None:
+    """Render trade history grouped by day in expandable sections.
+
+    Used by Paper Trading and Real Trades pages.
+    """
+    if not trades:
+        empty_state("No closed trades yet.")
+        return
+
+    df = pd.DataFrame(trades)
+    if date_key not in df.columns:
+        st.dataframe(df, use_container_width=True)
+        return
+
+    for session_date, group in df.groupby(date_key, sort=False):
+        wins = len(group[group[pnl_key] > 0])
+        losses = len(group[group[pnl_key] <= 0])
+        day_pnl = group[pnl_key].sum()
+        symbols = ", ".join(group[symbol_key].unique())
+        pnl_color = "green" if day_pnl >= 0 else "red"
+
+        with st.expander(
+            f"**{session_date}** — {len(group)} trades | "
+            f"{wins}W/{losses}L | "
+            f"P&L: :{'green' if day_pnl >= 0 else 'red'}[${day_pnl:,.2f}] | "
+            f"{symbols}"
+        ):
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("Trades", len(group))
+            mc2.metric("Win Rate", f"{wins / len(group) * 100:.0f}%")
+            mc3.metric("Day P&L", f"${day_pnl:,.2f}")
+            mc4.metric("Symbols", symbols)
+
+            display_cols = columns or [
+                c for c in group.columns if c != date_key
+            ]
+            show_df = group[display_cols].copy()
+
+            # Format money columns
+            fmt = {}
+            for mc in (money_columns or [pnl_key]):
+                if mc in show_df.columns:
+                    fmt[mc] = "${:,.2f}"
+
+            if fmt:
+                st.dataframe(
+                    show_df.style.format(fmt, na_rep="—"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+
+def render_alert_card(alert: dict) -> None:
+    """Render a styled alert card. Used by Dashboard and Alert History."""
+    direction = alert.get("direction", "NOTICE")
+    label, color = display_direction(direction)
+
+    # Score badge
+    score = alert.get("score", 0)
+    score_label = alert.get("score_label", "")
+    if score >= 90:
+        score_color = COLORS["green"]
+    elif score >= 75:
+        score_color = COLORS["green"]
+    elif score >= 50:
+        score_color = COLORS["orange"]
+    else:
+        score_color = COLORS["red"]
+
+    alert_type = alert.get("alert_type", "").replace("_", " ").title()
+    message = alert.get("message", "")
+    narrative = alert.get("narrative", "")
+    symbol = alert.get("symbol", "")
+    created = alert.get("created_at", "")
+    if isinstance(created, str) and len(created) > 16:
+        created = created[11:16]
+
+    # Price levels
+    entry = alert.get("entry")
+    stop = alert.get("stop")
+    t1 = alert.get("target_1")
+    t2 = alert.get("target_2")
+    levels_parts = []
+    if entry:
+        levels_parts.append(f"Entry ${entry:,.2f}")
+    if stop:
+        levels_parts.append(f"Stop ${stop:,.2f}")
+    if t1:
+        levels_parts.append(f"T1 ${t1:,.2f}")
+    if t2:
+        levels_parts.append(f"T2 ${t2:,.2f}")
+    levels_html = " &middot; ".join(levels_parts)
+
+    narrative_html = (
+        f"<div style='color:#8b949e;font-size:0.8rem;font-style:italic;margin-top:4px'>"
+        f"{narrative}</div>"
+        if narrative else ""
+    )
+    levels_line = (
+        f"<div style='color:#8b949e;font-size:0.78rem;margin-top:4px'>{levels_html}</div>"
+        if levels_html else ""
+    )
+
+    st.markdown(
+        f"<div style='background:#161b22;border:1px solid #30363d;"
+        f"border-left:3px solid {color};border-radius:6px;"
+        f"padding:0.75rem 1rem;margin-bottom:0.5rem'>"
+        # Row 1: symbol + direction + type + score ... time
+        f"<div style='display:flex;justify-content:space-between;align-items:center'>"
+        f"<div>"
+        f"<span style='font-weight:700;font-size:1.05rem'>{symbol}</span>"
+        f"&nbsp;"
+        f"<span style='background:{color}20;color:{color};padding:1px 8px;"
+        f"border-radius:10px;font-size:0.75rem;font-weight:600'>{label}</span>"
+        f"&nbsp;"
+        f"<span style='color:#8b949e;font-size:0.82rem'>{alert_type}</span>"
+        f"</div>"
+        f"<div style='display:flex;align-items:center;gap:8px'>"
+        f"<span style='color:{score_color};font-weight:700;font-size:0.85rem'>"
+        f"{score_label}</span>"
+        f"<span style='color:#8b949e;font-size:0.78rem'>{created}</span>"
+        f"</div>"
+        f"</div>"
+        # Row 2: message
+        f"<div style='color:#c9d1d9;font-size:0.85rem;margin-top:4px'>{message}</div>"
+        # Row 3: levels
+        f"{levels_line}"
+        # Row 4: narrative
+        f"{narrative_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Page titles
 # ---------------------------------------------------------------------------
 
 _PAGE_TITLES = {
+    # Legacy keys (old pages still reference these)
     "home": "TradeCoPilot",
     "scanner": "Scanner | TradeCoPilot",
     "scorecard": "Scorecard | TradeCoPilot",
@@ -731,6 +1046,10 @@ _PAGE_TITLES = {
     "settings": "Settings | TradeCoPilot",
     "swing_trades": "Swing Trades | TradeCoPilot",
     "ai_coach": "AI Hub | TradeCoPilot",
+    # V2 consolidated page keys
+    "dashboard": "TradeCoPilot",
+    "performance": "Performance | TradeCoPilot",
+    "analysis": "Analysis | TradeCoPilot",
 }
 
 
@@ -749,31 +1068,31 @@ TIER_COLORS = {
 
 TIER_FEATURES = {
     "free": [
-        "Live signal scanner & daily plans",
+        "Live pattern scanner & daily study plans",
         "Interactive candlestick charts",
-        "Today's alerts feed",
+        "Today's pattern alerts feed",
         "AI Coach preview (3 queries/day)",
-        "Swing trade setups (view only)",
+        "Swing setups (view only)",
     ],
     "pro": [
         "Everything in Free",
-        "AI pre-market game plan via Telegram",
+        "AI pre-market study brief via Telegram",
         "Sonnet-powered AI Coach (unlimited)",
-        "Enhanced AI narratives for A+ signals",
-        "Daily AI EOD review via Telegram",
-        "Position advisor (on-demand)",
-        "Score breakdown on every alert",
+        "Enhanced AI pattern explanations",
+        "Daily AI end-of-day review via Telegram",
+        "Position review advisor (on-demand)",
+        "Pattern quality breakdown on every alert",
         "Full alert history (all sessions)",
-        "Scorecard & performance analytics",
-        "Trade journal with stop discipline lab",
-        "Real trade P&L tracking",
-        "Swing trade tracking & options",
+        "Performance analytics & scorecard",
+        "Learning journal with stop discipline lab",
+        "Practice trade P&L tracking",
+        "Swing setup tracking & options",
         "Telegram DM alerts",
     ],
     "elite": [
         "Everything in Pro",
         "Auto position updates via Telegram (hourly)",
-        "Weekly AI trading journal",
+        "Weekly AI learning journal",
         "Backtesting engine",
         "Paper trading simulator",
         "Priority support",
@@ -940,6 +1259,8 @@ def _render_sidebar_user(user: dict, tier: str):
             logout_user()
             st.rerun()
 
+        render_sidebar_disclaimer()
+
 
 # ---------------------------------------------------------------------------
 # Landing page (public, unauthenticated)
@@ -989,14 +1310,14 @@ def render_landing_page():
             -webkit-text-fill-color: transparent;
             margin: 0 0 0.5rem 0;
             line-height: 1.2;
-        '>Your AI Co-Pilot for Smarter Trading</h1>
+        '>Your AI-Powered Stock Market Classroom</h1>
         <p style='color:#aaa;font-size:1.15rem;max-width:650px;margin:0 auto 0.5rem auto'>
-            AI monitors the market for you and delivers scored trade signals
-            with exact entry, stop, and target levels &mdash; straight to your phone.
+            AI scans the market in real-time and teaches you to spot patterns
+            with key levels &mdash; explained by AI, delivered to your phone.
         </p>
         <p style='color:#888;font-size:0.95rem;max-width:550px;margin:0 auto 1.5rem auto'>
-            Built for busy professionals who trade but don't have time
-            to sit in front of charts. Less stress, better decisions.
+            Built for beginners and developing traders who want to learn
+            how the market works &mdash; without the overwhelm.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -1055,18 +1376,18 @@ def render_landing_page():
     st.markdown("")
     st.markdown("""
     <div style='text-align:center;margin:2rem 0 1rem 0'>
-        <h2 style='color:#fafafa;margin:0'>Everything You Need to Trade With AI</h2>
-        <p style='color:#888'>Professional-grade tools, powered by AI</p>
+        <h2 style='color:#fafafa;margin:0'>Everything You Need to Learn the Market</h2>
+        <p style='color:#888'>Professional-grade educational tools, powered by AI</p>
     </div>
     """, unsafe_allow_html=True)
 
     features = [
-        ("&#128200;", "Real-Time Signals", "MA bounce, support bounce, breakout, gap fill — scored and ranked automatically."),
-        ("&#129302;", "AI Trade Coach", "Get personalized coaching on your setups, entries, and risk management."),
-        ("&#128276;", "Smart Alerts", "Telegram DM + email alerts with AI-generated narratives for every signal."),
-        ("&#127919;", "Score Engine", "Every signal scored 0-100 with A+/A/B/C grades. Focus on the best setups."),
-        ("&#128737;", "Risk Management", "Auto stop-loss tracking, position sizing, and cooldown logic built in."),
-        ("&#128221;", "Trade Journal", "Full history, P&L tracking, scorecard, and equity curve analytics."),
+        ("&#128200;", "Real-Time Pattern Scanner", "MA bounce, support bounce, breakout, gap fill — detected and explained automatically."),
+        ("&#129302;", "AI Learning Coach", "Get personalized explanations on chart patterns, key levels, and risk concepts."),
+        ("&#128276;", "Pattern Alerts", "Telegram DM + email alerts with AI-generated explanations for every pattern."),
+        ("&#127919;", "Pattern Quality Scores", "Every pattern scored 0-100 with quality grades. Study the highest-quality setups."),
+        ("&#128737;", "Risk Education", "Learn stop-loss placement, position sizing, and risk management fundamentals."),
+        ("&#128221;", "Learning Journal", "Full history, P&L tracking, performance analytics, and progress tracking."),
     ]
     cols = st.columns(3)
     for i, (icon, title, desc) in enumerate(features):
@@ -1094,9 +1415,9 @@ def render_landing_page():
     """, unsafe_allow_html=True)
     hw_cols = st.columns(3)
     steps = [
-        ("1", "Set Your Watchlist", "Add the symbols you trade. We scan them in real-time during market hours."),
-        ("2", "Get Scored Alerts", "Signals fire with entry, stop, and targets. Each scored A+ through C."),
-        ("3", "Trade With Confidence", "Execute the best setups. Track results. Improve with AI coaching."),
+        ("1", "Set Your Watchlist", "Add the symbols you want to learn. We scan them in real-time during market hours."),
+        ("2", "Get Pattern Alerts", "Patterns detected with key levels and quality scores. AI explains each one."),
+        ("3", "Learn by Tracking", "Study the best setups. Track outcomes. Improve with AI coaching."),
     ]
     for col, (num, title, desc) in zip(hw_cols, steps):
         with col:
@@ -1122,16 +1443,16 @@ def render_landing_page():
 
     tiers = [
         ("Free", "$0", "forever", "#888", [
-            "Signal scanner (15-min delay)", "5-symbol watchlist",
+            "Pattern scanner (15-min delay)", "5-symbol watchlist",
             "Basic candlestick charts", "Community Telegram group",
         ]),
         ("Pro", "$29", "/month", "#3498db", [
-            "Real-time signals", "Unlimited watchlist",
-            "Telegram DM alerts", "AI Trade Narrator",
-            "Full trade history", "Scorecard & analytics",
+            "Real-time pattern alerts", "Unlimited watchlist",
+            "Telegram DM alerts", "AI Pattern Explanations",
+            "Full alert history", "Performance analytics",
         ]),
         ("Elite", "$79", "/month", "#f39c12", [
-            "Everything in Pro", "AI Trade Coach",
+            "Everything in Pro", "AI Learning Coach",
             "Backtesting engine", "Paper trading simulator",
             "Priority support",
         ]),
@@ -1150,7 +1471,7 @@ def render_landing_page():
     # ── Stats ──
     st.markdown("")
     stat_cols = st.columns(3)
-    stats = [("12,000+", "Alerts Generated"), ("85%", "A+ Signal Hit Rate"), ("50+", "Symbols Tracked")]
+    stats = [("12,000+", "Patterns Analyzed"), ("1,200+", "AI Explanations Generated"), ("50+", "Symbols Tracked")]
     for col, (val, label) in zip(stat_cols, stats):
         with col:
             st.markdown(f"""
@@ -1175,9 +1496,10 @@ def render_landing_page():
         font-size: 0.75rem;
     '>
         <p style='margin:0 0 0.5rem 0'>
-            <strong>Disclaimer:</strong> TradeCoPilot is for informational purposes only.
-            Not financial advice. Past performance does not guarantee future results.
-            Trade at your own risk.
+            <strong>Disclaimer:</strong> TradeCoPilot is an educational platform for learning stock market patterns.
+            Nothing on this platform constitutes financial advice. All setups, patterns, and AI analysis
+            are for educational purposes only. Always do your own research and consult a licensed
+            financial advisor before making investment decisions.
         </p>
         <p style='margin:0'>
             &copy; 2026 TradeCoPilot &mdash;

@@ -511,19 +511,15 @@ class TestSwingCandlePatterns:
 class TestSwingConsecutiveDays:
     """Tests for check_swing_consecutive_days — 3+ red days near EMA20."""
 
-    def test_three_red_days_near_ema20_fires_buy(self):
-        """3 consecutive red days near EMA20 -> BUY signal."""
+    def test_three_red_days_disabled(self):
+        """Consecutive red days rule is DISABLED — always returns None."""
         ema = 100.0
         bars = [
-            {"open": 101.0, "close": 100.5, "ema20": ema},  # red
-            {"open": 100.5, "close": 100.0, "ema20": ema},  # red
-            {"open": 100.0, "close": 99.5, "ema20": ema},   # red, within 2%
+            {"open": 101.0, "close": 100.5, "ema20": ema},
+            {"open": 100.5, "close": 100.0, "ema20": ema},
+            {"open": 100.0, "close": 99.5, "ema20": ema},
         ]
-        sig = check_swing_consecutive_days("GOOG", bars)
-        assert sig is not None
-        assert sig.direction == "BUY"
-        assert sig.alert_type == AlertType.SWING_CONSECUTIVE_RED
-        assert "3 consecutive red days" in sig.message
+        assert check_swing_consecutive_days("GOOG", bars) is None
 
     def test_only_two_red_days_no_fire(self):
         """Only 2 red days -> None."""
@@ -563,18 +559,16 @@ class TestSwingConsecutiveDays:
         ]
         assert check_swing_consecutive_days("GOOG", bars) is None
 
-    def test_four_red_days_fires(self):
-        """4 consecutive red days near EMA20 -> fires."""
+    def test_four_red_days_disabled(self):
+        """Consecutive red days rule is DISABLED — always returns None."""
         ema = 100.0
         bars = [
             {"open": 102.0, "close": 101.5, "ema20": ema},
             {"open": 101.5, "close": 101.0, "ema20": ema},
             {"open": 101.0, "close": 100.5, "ema20": ema},
-            {"open": 100.5, "close": 100.0, "ema20": ema},  # within 2%
+            {"open": 100.5, "close": 100.0, "ema20": ema},
         ]
-        sig = check_swing_consecutive_days("GOOG", bars)
-        assert sig is not None
-        assert "4 consecutive red days" in sig.message
+        assert check_swing_consecutive_days("GOOG", bars) is None
 
     def test_empty_bars(self):
         """Empty list -> None."""
@@ -667,8 +661,8 @@ class TestEvaluateSwingRules:
         div_signals = [s for s in signals if s.alert_type == AlertType.SWING_RSI_DIVERGENCE]
         assert len(div_signals) == 1
 
-    def test_consecutive_red_fires_through_orchestrator(self):
-        """Consecutive red days detected via evaluate_swing_rules."""
+    def test_consecutive_red_disabled_through_orchestrator(self):
+        """Consecutive red days rule is DISABLED — no signals through orchestrator."""
         prior_day = self._base_prior_day()
         ema = 100.0
         prior_day["daily_bars"] = [
@@ -679,7 +673,7 @@ class TestEvaluateSwingRules:
 
         signals = evaluate_swing_rules("TEST", prior_day, self._spy_context(), set())
         red_signals = [s for s in signals if s.alert_type == AlertType.SWING_CONSECUTIVE_RED]
-        assert len(red_signals) == 1
+        assert len(red_signals) == 0
 
     def test_fired_today_dedup_prevents_repeat(self):
         """Signal already in fired_today set -> should not appear again."""

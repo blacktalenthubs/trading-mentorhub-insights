@@ -50,52 +50,77 @@ tier = get_user_tier(user["id"])
 _user_level = ui_theme.TIER_LEVELS.get(tier, 0)
 
 
-# Pages that allow free-tier preview (no lock badge for free users)
-_PREVIEW_PAGES = {
-    "pages/11_AI_Coach.py", "pages/9_Alerts.py",
-    "pages/2_Scorecard.py", "pages/10_Swing_Trades.py",
-}
+# Feature flag: USE_NEW_NAV=true to use the 6-page consolidated navigation
+_use_new_nav = os.environ.get("USE_NEW_NAV", "").lower() == "true"
 
 
 def _page(file: str, title: str, icon: str, tier_req: str = "free", **kw) -> st.Page:
     """Build st.Page, appending lock icon if user's tier is insufficient."""
-    if ui_theme.TIER_LEVELS.get(tier_req, 0) > _user_level and file not in _PREVIEW_PAGES:
+    if _use_new_nav:
+        _preview = {"pages/performance.py", "pages/analysis.py", "pages/scanner.py"}
+    else:
+        _preview = {
+            "pages/11_AI_Coach.py", "pages/9_Alerts.py",
+            "pages/2_Scorecard.py", "pages/10_Swing_Trades.py",
+        }
+    if ui_theme.TIER_LEVELS.get(tier_req, 0) > _user_level and file not in _preview:
         title = f"{title} \U0001F512"
     return st.Page(file, title=title, icon=icon, **kw)
 
 
 # Build grouped navigation
-pg = st.navigation(
-    {
-        "": [
-            _page("pages/home.py", "Dashboard", ":material/dashboard:", "free", default=True),
-        ],
-        "Signals": [
-            _page("pages/1_Scanner.py", "Scanner", ":material/radar:", "free"),
-            _page("pages/10_Swing_Trades.py", "Swing Trades", ":material/trending_up:", "pro"),
-        ],
-        "Analysis": [
-            _page("pages/7_Charts.py", "Charts", ":material/show_chart:", "free"),
-            _page("pages/5_Backtest.py", "Backtest", ":material/replay:", "elite"),
-        ],
-        "Trading": [
-            _page("pages/8_Real_Trades.py", "Real Trades", ":material/attach_money:", "pro"),
-            _page("pages/6_Paper_Trading.py", "Paper Trading", ":material/edit_note:", "elite"),
-        ],
-        "Journal": [
-            _page("pages/9_Alerts.py", "Alert History", ":material/notifications:", "pro"),
-            _page("pages/2_Scorecard.py", "Scorecard", ":material/assessment:", "pro"),
-            _page("pages/3_History.py", "History", ":material/history:", "pro"),
-            _page("pages/4_Import.py", "Import", ":material/upload_file:", "pro"),
-        ],
-        "AI": [
-            _page("pages/11_AI_Coach.py", "AI Coach", ":material/psychology:", "elite"),
-        ],
-        "Account": [
-            _page("pages/12_Settings.py", "Settings", ":material/settings:", "free"),
-        ],
-    }
-)
+if _use_new_nav:
+    # ── V2: Consolidated 6-page navigation ──────────────────────────────
+    pg = st.navigation(
+        {
+            "Trading": [
+                _page("pages/dashboard.py", "Dashboard", ":material/dashboard:", "free", default=True),
+                _page("pages/scanner.py", "Scanner", ":material/radar:", "free"),
+            ],
+            "Analysis": [
+                _page("pages/performance.py", "Performance", ":material/assessment:", "pro"),
+                _page("pages/analysis.py", "Analysis", ":material/psychology:", "pro"),
+                _page("pages/backtest.py", "Backtest", ":material/replay:", "elite"),
+            ],
+            "Account": [
+                _page("pages/settings.py", "Settings", ":material/settings:", "free"),
+            ],
+        }
+    )
+else:
+    # ── V1: Original 13-page navigation ─────────────────────────────────
+    pg = st.navigation(
+        {
+            "": [
+                _page("pages/home.py", "Dashboard", ":material/dashboard:", "free", default=True),
+            ],
+            "Signals": [
+                _page("pages/1_Scanner.py", "Scanner", ":material/radar:", "free"),
+                _page("pages/10_Swing_Trades.py", "Swing Trades", ":material/trending_up:", "pro"),
+            ],
+            "Analysis": [
+                _page("pages/7_Charts.py", "Charts", ":material/show_chart:", "free"),
+                _page("pages/5_Backtest.py", "Backtest", ":material/replay:", "elite"),
+            ],
+            "Trading": [
+                _page("pages/8_Real_Trades.py", "Real Trades", ":material/attach_money:", "pro"),
+                _page("pages/6_Paper_Trading.py", "Paper Trading", ":material/edit_note:", "elite"),
+            ],
+            "Journal": [
+                _page("pages/9_Alerts.py", "Alert History", ":material/notifications:", "pro"),
+                _page("pages/2_Scorecard.py", "Scorecard", ":material/assessment:", "pro"),
+                _page("pages/3_History.py", "History", ":material/history:", "pro"),
+                _page("pages/4_Import.py", "Import", ":material/upload_file:", "pro"),
+            ],
+            "AI": [
+                _page("pages/11_AI_Coach.py", "AI Coach", ":material/psychology:", "elite"),
+            ],
+            "Account": [
+                _page("pages/12_Settings.py", "Settings", ":material/settings:", "free"),
+            ],
+        }
+    )
+
 ui_theme._render_sidebar_user(user, tier)
 
 pg.run()
