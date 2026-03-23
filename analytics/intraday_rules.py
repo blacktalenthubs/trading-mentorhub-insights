@@ -6373,13 +6373,18 @@ def evaluate_rules(
 
         # --- Gap-and-Go ---
         if AlertType.GAP_AND_GO.value in ENABLED_RULES:
-            sig = check_gap_and_go(
-                symbol, intraday_bars, prior_close, bar_vol, avg_vol,
-            )
-            if sig:
-                sig.message += f" ({phase})"
-                sig.message += caution_suffix
-                signals.append(sig)
+            # Suppress gap_and_go in bearish SPY regime — gap-ups get sold
+            _gap_regime_ok = True
+            if not is_crypto and spy_regime == "TRENDING_DOWN":
+                _gap_regime_ok = False
+            if _gap_regime_ok:
+                sig = check_gap_and_go(
+                    symbol, intraday_bars, prior_close, bar_vol, avg_vol,
+                )
+                if sig:
+                    sig.message += f" ({phase})"
+                    sig.message += caution_suffix
+                    signals.append(sig)
 
         # --- Fibonacci Retracement Bounce ---
         if AlertType.FIB_RETRACEMENT_BOUNCE.value in ENABLED_RULES:
