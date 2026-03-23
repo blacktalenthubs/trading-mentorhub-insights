@@ -9,7 +9,9 @@ import pandas as pd
 import yfinance as yf
 
 
-def fetch_ohlc(symbol: str, period: str = "3mo") -> pd.DataFrame:
+def fetch_ohlc(
+    symbol: str, period: str = "3mo", interval: str = "1d",
+) -> pd.DataFrame:
     """Fetch OHLC data via yfinance.
 
     Returns DataFrame with Open, High, Low, Close, Volume columns.
@@ -18,10 +20,11 @@ def fetch_ohlc(symbol: str, period: str = "3mo") -> pd.DataFrame:
     """
     try:
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period)
+        hist = ticker.history(period=period, interval=interval)
         if hist.empty:
             return pd.DataFrame()
-        hist.index = hist.index.tz_localize(None)
+        if hist.index.tz is not None:
+            hist.index = hist.index.tz_convert(None)
         return hist[["Open", "High", "Low", "Close", "Volume"]].copy()
     except Exception:
         return pd.DataFrame()
