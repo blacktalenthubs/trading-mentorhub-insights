@@ -23,24 +23,27 @@ ET = pytz.timezone("US/Eastern")
 _last_regime: str | None = None
 _last_regime_session: str = ""
 _narrations_today: int = 0
+_last_narration_time: datetime | None = None
+_REGIME_COOLDOWN_MINUTES = 15  # min time between regime shift notifications
 
 _MODEL = "claude-haiku-4-5-20251001"
 
 _SYSTEM_PROMPT = """\
-You are a concise day-trading coach. Given a mid-session SPY regime change, \
-write a 2-3 sentence interpretation for an active day trader.
+You are a stock market educator. Given a mid-session SPY regime change, \
+write a 2-3 sentence educational explanation for a learning trader.
 
 Cover:
-1. What changed and why it matters (regime shift direction)
-2. How it affects open BUY setups (tailwind or headwind)
-3. One actionable adjustment (e.g., tighten stops, favor bounces, pause entries)
+1. What changed in the intraday trend and why it matters
+2. How this regime affects pattern quality (tailwind or headwind for setups)
+3. What to watch for next (key level to confirm or invalidate the shift)
 
 Rules:
-- Be direct and specific — reference actual price levels
+- Be direct and specific — reference the INTRADAY price action, not daily MAs
 - Use probability language, never guarantee outcomes
 - No markdown formatting — plain text only
 - Write dollar amounts WITHOUT the $ symbol to avoid rendering issues
-- Keep the entire response under 60 words"""
+- Keep the entire response under 60 words
+- This is educational, not financial advice"""
 
 
 def _resolve_api_key() -> str:
@@ -82,14 +85,15 @@ def _build_prompt(
     ma_support = spy_ctx.get("spy_at_ma_support")
 
     lines = [
-        f"REGIME SHIFT: {prev_regime} → {new_regime}",
-        f"SPY: {close:.2f} | Trend: {trend}",
-        f"MAs: 20MA={ma20:.2f}, 50MA={ma50:.2f}",
-        f"Intraday change: {intraday_chg:+.2f}%",
+        f"INTRADAY REGIME SHIFT: {prev_regime} → {new_regime}",
+        f"SPY current price: {close:.2f} | Intraday trend: {trend}",
+        f"Daily MAs (for reference, NOT intraday): 20MA={ma20:.2f}, 50MA={ma50:.2f}",
+        f"SPY has been {'above' if close > ma20 else 'BELOW'} daily 20MA for multiple days",
+        f"Intraday change today: {intraday_chg:+.2f}%",
         f"EMA20/50 spread: {ema_spread:.3f}%",
     ]
     if ma200:
-        lines.append(f"200MA: {ma200:.2f}")
+        lines.append(f"Daily 200MA: {ma200:.2f} ({'above' if close > ma200 else 'BELOW'})")
     if rsi is not None:
         lines.append(f"RSI14: {rsi:.1f}")
     if at_support:
@@ -139,6 +143,17 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
     prev_regime = _last_regime
     _last_regime = new_regime
 
+    # Cooldown: skip if we just sent a narration recently
+    global _last_narration_time
+    if _last_narration_time is not None:
+        elapsed = (datetime.now(ET) - _last_narration_time).total_seconds()
+        if elapsed < _REGIME_COOLDOWN_MINUTES * 60:
+            logger.info(
+                "Regime shift %s → %s (cooldown — %ds since last narration)",
+                prev_regime, new_regime, int(elapsed),
+            )
+            return False
+
     # Rate limit
     if _narrations_today >= REGIME_NARRATOR_MAX_PER_SESSION:
         logger.info(
@@ -163,6 +178,7 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
         )
         _send_telegram(msg)
         _narrations_today += 1
+        _last_narration_time = datetime.now(ET)
         return True
 
     prompt = _build_prompt(prev_regime, new_regime, spy_ctx)
@@ -190,6 +206,7 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
         sent = _send_telegram(msg)
         if sent:
             _narrations_today += 1
+            _last_narration_time = datetime.now(ET)
             logger.info("Regime narration sent (%d today)", _narrations_today)
         return sent
 
@@ -205,4 +222,5 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
         )
         _send_telegram(msg)
         _narrations_today += 1
+        _last_narration_time = datetime.now(ET)
         return True
