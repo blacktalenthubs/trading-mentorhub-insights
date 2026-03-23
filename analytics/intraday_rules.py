@@ -252,6 +252,7 @@ class AlertType(str, Enum):
     SPY_SHORT_ENTRY = "spy_short_entry"
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
+    MORNING_LOW_BREAKDOWN = "morning_low_breakdown"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
     # MA/EMA reclaim — price crosses above key daily MA/EMA
     MA_RECLAIM_20 = "ma_reclaim_20"
@@ -3669,6 +3670,99 @@ def check_morning_low_retest(
 
 
 # ---------------------------------------------------------------------------
+# Rule: Morning Low Breakdown (SELL/SHORT)
+# ---------------------------------------------------------------------------
+
+
+def check_morning_low_breakdown(
+    symbol: str,
+    bars: pd.DataFrame,
+    opening_range: dict | None,
+) -> AlertSignal | None:
+    """First-hour low broken on volume → SELL/SHORT signal.
+
+    When the established morning low breaks on above-average volume,
+    it signals institutional selling and is one of the strongest
+    intraday short setups.
+
+    Conditions:
+    1. Past first hour (>= 12 bars on 5-min = 60 min)
+    2. First-hour low established via opening_range
+    3. Last bar closes below first-hour low (breakdown confirmed)
+    4. Volume on breakdown bar >= 1.2x session average
+    5. Price must have held the low for at least a few bars before breaking
+       (not an immediate gap-down opening)
+    """
+    if not opening_range or not opening_range.get("or_complete"):
+        return None
+    if bars.empty or len(bars) < 12:
+        return None
+
+    first_hour_low = opening_range["or_low"]
+    first_hour_high = opening_range["or_high"]
+    if first_hour_low <= 0:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_low = float(last_bar["Low"])
+    last_vol = float(last_bar["Volume"]) if pd.notna(last_bar["Volume"]) else 0
+
+    # Must close below first-hour low (breakdown confirmed)
+    if last_close >= first_hour_low:
+        return None
+
+    # Breakdown must be decisive — close at least 0.05% below
+    break_pct = (first_hour_low - last_close) / first_hour_low
+    if break_pct < 0.0005:
+        return None
+
+    # Volume check: breakdown bar must have above-average volume
+    avg_vol = bars["Volume"].mean()
+    vol_ratio = last_vol / avg_vol if avg_vol > 0 else 0
+    if vol_ratio < 1.2:
+        return None
+
+    # The low must have been tested/held earlier (not just a gap-down open)
+    # At least 3 bars between OR formation and breakdown where low held
+    post_or_bars = bars.iloc[6:-1]  # bars after OR, before current
+    if len(post_or_bars) < 3:
+        return None
+    bars_holding_low = (post_or_bars["Low"] >= first_hour_low * 0.998).sum()
+    if bars_holding_low < 3:
+        return None  # low wasn't established/tested — skip
+
+    entry = round(last_close, 2)
+    stop = round(first_hour_low * 1.003, 2)  # stop above the broken low
+    stop = _cap_risk(stop, entry, symbol=symbol)  # reversed for short
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry - risk, 2)
+    target_2 = round(entry - 2 * risk, 2)
+
+    confidence = "high" if vol_ratio >= 1.5 and break_pct >= 0.002 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MORNING_LOW_BREAKDOWN,
+        direction="SHORT",
+        price=last_close,
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"Morning low BREAKDOWN — first-hour low ${first_hour_low:.2f} "
+            f"broken on {vol_ratio:.1f}x volume, closed ${last_close:.2f} "
+            f"({break_pct:.2%} below)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rule: First Hour High Breakout (BUY)
 # ---------------------------------------------------------------------------
 
@@ -6074,6 +6168,16 @@ def evaluate_rules(
         # --- Morning Low Retest ---
         if AlertType.MORNING_LOW_RETEST.value in ENABLED_RULES:
             sig = check_morning_low_retest(symbol, intraday_bars, opening_range)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Morning Low Breakdown (SHORT) ---
+        if AlertType.MORNING_LOW_BREAKDOWN.value in ENABLED_RULES:
+            sig = check_morning_low_breakdown(symbol, intraday_bars, opening_range)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:

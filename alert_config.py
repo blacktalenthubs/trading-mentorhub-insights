@@ -543,6 +543,8 @@ ENABLED_RULES: set[str] = {
     "macd_histogram_flip",
     "gap_and_go",
     "fib_retracement_bounce",
+    # BUY/SHORT — morning session patterns
+    "morning_low_breakdown",
     # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
     "resistance_prior_high",
     "pdh_rejection",
