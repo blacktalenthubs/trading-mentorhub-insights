@@ -6559,9 +6559,24 @@ def evaluate_rules(
     if SPY_GATE_ENABLED and _active_gate:
         _gate = _active_gate.get("gate", "green")
         _gate_reason = _active_gate.get("reason", "")
-        if _gate == "red":
-            # Full suppress: drop ALL BUY signals
-            # Exception: session_low_bounce_vwap on crypto/SPY (hourly support bounces)
+
+        # ── Immediate VWAP check (stricter than 6-bar average) ──────────
+        # If SPY's last close is below VWAP right now, treat as RED for
+        # non-SPY equities.  SPY itself and crypto keep their own gate.
+        _spy_below_vwap_now = False
+        if (
+            not is_crypto
+            and symbol != "SPY"
+            and spy_gate
+            and spy_gate.get("vwap_dominance", 1.0) < 0.5
+        ):
+            # SPY is spending more time below VWAP than above — bearish
+            _spy_below_vwap_now = True
+
+        if _gate == "red" or (_spy_below_vwap_now and _gate != "green"):
+            # Full suppress: drop ALL BUY signals for non-SPY equities
+            # SPY + crypto: only allow session_low_bounce_vwap (hourly support)
+            _effective_reason = _gate_reason or "SPY below VWAP — equity BUY suppressed"
             pre_gate = signals[:]
             signals = [
                 s for s in signals
@@ -6572,8 +6587,8 @@ def evaluate_rules(
             for s in pre_gate:
                 if s.direction == "BUY" and s not in signals:
                     logger.info(
-                        "%s: SPY GATE RED suppressed %s (%s)",
-                        symbol, s.alert_type.value, _gate_reason,
+                        "%s: SPY GATE suppressed %s (gate=%s, %s)",
+                        symbol, s.alert_type.value, _gate, _effective_reason,
                     )
         elif _gate == "yellow":
             # Demote: reduce BUY confidence and add caution
