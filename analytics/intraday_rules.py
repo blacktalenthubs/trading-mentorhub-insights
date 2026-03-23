@@ -6697,13 +6697,41 @@ def evaluate_rules(
                         symbol, s.alert_type.value, _effective_reason,
                     )
         elif _gate == "red" or (_spy_below_vwap_now and _gate != "green"):
-            # Non-SPY equities: full BUY suppression when SPY bearish
+            # Non-SPY equities: suppress weak BUY signals when SPY bearish
+            # BUT allow through signals where the stock is holding key support
+            # (relative strength — institutional buyers defending the name)
+            _key_support_types = {
+                AlertType.VWAP_RECLAIM.value,
+                AlertType.VWAP_BOUNCE.value,
+                AlertType.PRIOR_DAY_LOW_RECLAIM.value,
+                AlertType.PRIOR_DAY_LOW_BOUNCE.value,
+                AlertType.SESSION_LOW_DOUBLE_BOTTOM.value,
+                AlertType.MULTI_DAY_DOUBLE_BOTTOM.value,
+                AlertType.SESSION_LOW_BOUNCE_VWAP.value,
+                AlertType.INTRADAY_SUPPORT_BOUNCE.value,
+                AlertType.MA_BOUNCE_200.value,
+                AlertType.EMA_BOUNCE_200.value,
+                AlertType.MA_RECLAIM_200.value,
+                AlertType.EMA_RECLAIM_200.value,
+                AlertType.INSIDE_DAY_BREAKOUT.value,
+                AlertType.BB_SQUEEZE_BREAKOUT.value,
+                AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
+            }
             _effective_reason = _gate_reason or "SPY below VWAP — equity BUY suppressed"
             pre_gate = signals[:]
             signals = [
                 s for s in signals
                 if s.direction != "BUY"
+                or s.alert_type.value in _key_support_types
             ]
+            # Demote allowed-through signals: add caution, cap score
+            for s in signals:
+                if s.direction == "BUY" and s.alert_type.value in _key_support_types:
+                    s.message += f" | RELATIVE STRENGTH: holding support despite SPY weakness"
+                    if s.confidence == "high":
+                        s.confidence = "medium"
+                    s.score = min(s.score, 65)
+                    s.score_label = _score_label(s.score)
             for s in pre_gate:
                 if s.direction == "BUY" and s not in signals:
                     logger.info(
