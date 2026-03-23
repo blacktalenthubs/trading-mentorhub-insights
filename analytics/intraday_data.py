@@ -695,6 +695,43 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             last = hist.iloc[-1]
             prev = hist.iloc[-2]
 
+        # ── Crypto weekend gap fix ──────────────────────────────────────
+        # yfinance sometimes skips crypto daily bars on weekends.
+        # If the "prior day" is >1 calendar day before today, fill from
+        # hourly bars to get the actual prior day OHLC.
+        if is_crypto:
+            _prior_date = last.name.normalize() if hasattr(last.name, 'normalize') else pd.Timestamp(last.name).normalize()
+            _gap_days = (today - _prior_date).days
+            if _gap_days > 1:
+                try:
+                    _h_ticker = yf.Ticker(symbol)
+                    _h_bars = _h_ticker.history(period="5d", interval="1h")
+                    if not _h_bars.empty:
+                        if _h_bars.index.tz is not None:
+                            _h_bars.index = _h_bars.index.tz_convert("UTC").tz_localize(None)
+                        # Group by UTC date, find yesterday
+                        _yesterday = today - pd.Timedelta(days=1)
+                        _yday_bars = _h_bars[_h_bars.index.normalize() == _yesterday]
+                        if len(_yday_bars) >= 6:
+                            # Override prior day OHLCV from hourly aggregation
+                            last = pd.Series({
+                                "Open": _yday_bars["Open"].iloc[0],
+                                "High": _yday_bars["High"].max(),
+                                "Low": _yday_bars["Low"].min(),
+                                "Close": _yday_bars["Close"].iloc[-1],
+                                "Volume": _yday_bars["Volume"].sum(),
+                                # Carry forward MA values (computed on daily)
+                                **{col: last[col] for col in last.index if col not in ("Open", "High", "Low", "Close", "Volume")},
+                            }, name=_yesterday)
+                            logger.info(
+                                "Crypto weekend fix: %s prior day filled from hourly "
+                                "(date=%s, H=%.2f, L=%.2f)",
+                                symbol, _yesterday.strftime("%Y-%m-%d"),
+                                last["High"], last["Low"],
+                            )
+                except Exception as _e:
+                    logger.warning("Crypto weekend fix failed for %s: %s", symbol, _e)
+
         # Weekly resampling: prior week high/low from existing hist
         prior_week_high = None
         prior_week_low = None
