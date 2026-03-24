@@ -523,9 +523,9 @@ ENABLED_RULES: set[str] = {
     "vwap_reclaim",
     "vwap_bounce",
     # BUY — opening range (Crabel methodology)
-    "opening_low_base",
+    # "opening_low_base",              # DISABLED: redundant with morning_low_retest, 0% win rate
     "morning_low_retest",
-    "first_hour_high_breakout",
+    # "first_hour_high_breakout",      # DISABLED: 0% win rate in bearish regime, chases momentum
     # BUY — inside day (volatility compression → expansion)
     "inside_day_breakout",
     "inside_day_reclaim",
@@ -533,7 +533,7 @@ ENABLED_RULES: set[str] = {
     "session_low_double_bottom",
     "multi_day_double_bottom",
     "planned_level_touch",
-    "intraday_support_bounce",
+    # "intraday_support_bounce",       # DISABLED: redundant with double bottom + PDL, 0% win rate
     "session_low_bounce_vwap",
     # BUY — EMA reclaims only (consolidated from 8 → 4, EMA preferred)
     "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
