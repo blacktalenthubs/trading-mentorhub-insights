@@ -7382,4 +7382,20 @@ def evaluate_rules(
     # --- Consolidate same-symbol BUY signals ---
     signals = _consolidate_signals(signals)
 
+    # --- Minimum score cutoff: drop BUY alerts below 40 (Caution level) ---
+    # These have too many headwinds to be educational — just noise.
+    # SELL/SHORT/NOTICE always pass through (exits and warnings are critical).
+    MIN_BUY_SCORE = 40
+    pre_cutoff = signals[:]
+    signals = [
+        s for s in signals
+        if s.direction != "BUY" or s.score >= MIN_BUY_SCORE
+    ]
+    for s in pre_cutoff:
+        if s.direction == "BUY" and s.score < MIN_BUY_SCORE:
+            logger.info(
+                "%s: MIN SCORE cutoff dropped BUY %s (score=%d < %d)",
+                symbol, s.alert_type.value, s.score, MIN_BUY_SCORE,
+            )
+
     return signals
