@@ -128,47 +128,28 @@ def _format_sms_body(signal: AlertSignal) -> str:
                 parts.append(_html.escape(hint))
         return "\n".join(parts)[:400]
 
-    # BUY / SHORT signals: clean display with quality label
+    # BUY / SHORT signals: clean display with quality label + AI narrative
     _prefix = "BEARISH SETUP" if signal.direction == "SHORT" else "SETUP DETECTED"
     _quality = signal.score_label if signal.score_label else "Moderate"
     parts = [f"<b>{_prefix} {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
-    parts.append(_html.escape(label))
-    parts.append(f"{_quality} Setup")
+    parts.append(f"{_html.escape(label)} — {_quality} Setup")
 
-    # Potential Entry | Stop
-    if signal.entry is not None and signal.stop is not None:
-        parts.append(f"Key Level ${signal.entry:.2f} | Stop ${signal.stop:.2f}")
-
-    # T1 | T2
-    t_bits = []
+    # Key levels (entry, stop, targets) — clean single line
+    _levels = []
+    if signal.entry is not None:
+        _levels.append(f"Entry ${signal.entry:.2f}")
+    if signal.stop is not None:
+        _levels.append(f"Stop ${signal.stop:.2f}")
     if signal.target_1 is not None:
-        t_bits.append(f"T1 ${signal.target_1:.2f}")
+        _levels.append(f"T1 ${signal.target_1:.2f}")
     if signal.target_2 is not None:
-        t_bits.append(f"T2 ${signal.target_2:.2f}")
-    if t_bits:
-        parts.append(" | ".join(t_bits))
+        _levels.append(f"T2 ${signal.target_2:.2f}")
+    if _levels:
+        parts.append(" · ".join(_levels))
 
-    # Signal context — the message has phase, VWAP, confluence, hourly targets
-    if signal.message:
-        parts.append(_html.escape(signal.message))
-
-    # AI conviction (if available)
-    _ai_conv = getattr(signal, "ai_conviction", None)
-    _ai_reason = getattr(signal, "ai_reasoning", "")
-    if _ai_conv is not None:
-        _conv_label = "HIGH" if _ai_conv >= 80 else "MED" if _ai_conv >= 50 else "LOW"
-        _conv_line = f"AI Conviction: {_conv_label} ({_ai_conv})"
-        if _ai_reason:
-            _conv_line += f" — {_ai_reason}"
-        parts.append(_html.escape(_conv_line))
-
-    # AI thesis — first 2 sentences (setup + conviction), skip the wall of text
+    # AI narrative (full — this is the educational value)
     if getattr(signal, "narrative", ""):
-        import re
-        sentences = re.split(r"(?<=[.!])\s+", signal.narrative.strip())
-        short = " ".join(sentences[:2]).strip()
-        if short:
-            parts.append(_html.escape(short))
+        parts.append(_html.escape(signal.narrative.strip()))
 
     # Educational disclaimer
     parts.append("\n<i>Educational only — not financial advice.</i>")
