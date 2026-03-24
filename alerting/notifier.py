@@ -128,28 +128,12 @@ def _format_sms_body(signal: AlertSignal) -> str:
                 parts.append(_html.escape(hint))
         return "\n".join(parts)[:400]
 
-    # BUY / SHORT signals: entry, targets, score on first line
+    # BUY / SHORT signals: clean display with quality label
     _prefix = "BEARISH SETUP" if signal.direction == "SHORT" else "SETUP DETECTED"
-    score_tag = ""
-    if signal.score > 0:
-        v2 = getattr(signal, "score_v2", 0)
-        v2_label = getattr(signal, "score_v2_label", "")
-        if v2 and v2 != signal.score:
-            score_tag = f" — {signal.score_label} ({signal.score}) v2:{v2_label} ({v2})"
-        else:
-            score_tag = f" — {signal.score_label} ({signal.score})"
-    parts = [f"<b>{_prefix} {_html.escape(signal.symbol)} ${signal.price:.2f}{_html.escape(score_tag)}</b>"]
+    _quality = signal.score_label if signal.score_label else "Moderate"
+    parts = [f"<b>{_prefix} {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
     parts.append(_html.escape(label))
-
-    # Score factor breakdown (compact)
-    _factors = getattr(signal, "score_factors", None)
-    if _factors:
-        _fl = {"ma": "MA", "vol": "Vol", "conf": "Conf", "vwap": "VWAP",
-               "rr": "R:R", "confluence": "Cnfl", "mtf": "MTF",
-               "consolidation": "Multi"}
-        _fb = [f"{_fl.get(k, k)}={v}" for k, v in _factors.items() if v]
-        if _fb:
-            parts.append(_html.escape(" | ".join(_fb)))
+    parts.append(f"{_quality} Setup")
 
     # Potential Entry | Stop
     if signal.entry is not None and signal.stop is not None:

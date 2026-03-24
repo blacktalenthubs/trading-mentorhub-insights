@@ -5567,16 +5567,16 @@ def _consolidate_signals(signals: list[AlertSignal]) -> list[AlertSignal]:
 
         # Recalculate score labels
         primary.score_label = (
-            "A+" if primary.score >= 90
-            else "A" if primary.score >= 75
-            else "B" if primary.score >= 50
-            else "C"
+            "Strong" if primary.score >= 80
+            else "Moderate" if primary.score >= 60
+            else "Weak" if primary.score >= 40
+            else "Caution"
         )
         primary.score_v2_label = (
-            "A+" if primary.score_v2 >= 90
-            else "A" if primary.score_v2 >= 75
-            else "B" if primary.score_v2 >= 50
-            else "C"
+            "Strong" if primary.score_v2 >= 80
+            else "Moderate" if primary.score_v2 >= 60
+            else "Weak" if primary.score_v2 >= 40
+            else "Caution"
         )
 
         # Append confirming signal types to message
@@ -6873,7 +6873,12 @@ def evaluate_rules(
                     if s.confidence == "high":
                         s.confidence = "medium"
                     s.score = min(s.score, 65)
-                    s.score_label = _score_label(s.score)
+                    s.score_label = (
+                        "Strong" if s.score >= 80
+                        else "Moderate" if s.score >= 60
+                        else "Weak" if s.score >= 40
+                        else "Caution"
+                    )
             for s in pre_gate:
                 if s.direction == "BUY" and s not in signals:
                     logger.info(
@@ -6890,7 +6895,7 @@ def evaluate_rules(
                     s.message += f" | SPY GATE YELLOW: {_gate_reason}"
                     # Cap score at C level
                     s.score = min(s.score, 40)
-                    s.score_label = "C"
+                    s.score_label = "Caution"
 
         # Block SHORT consolidation breakout on GREEN (don't short bull tape)
         if _gate == "green":
@@ -6915,10 +6920,10 @@ def evaluate_rules(
             if s.direction == "BUY":
                 s.score = max(0, s.score - 10)
                 s.score_label = (
-                    "A+" if s.score >= 90
-                    else "A" if s.score >= 75
-                    else "B" if s.score >= 50
-                    else "C"
+                    "Strong" if s.score >= 80
+                    else "Moderate" if s.score >= 60
+                    else "Weak" if s.score >= 40
+                    else "Caution"
                 )
                 s.message = (s.message or "") + f" | ADX={_adx:.0f} (low trend)"
                 s.confidence = "low" if s.confidence == "medium" else s.confidence
@@ -7336,10 +7341,10 @@ def evaluate_rules(
             sig.message += " | INSIDE DAY — boundary level (boosted)"
 
         sig.score_label = (
-            "A+" if sig.score >= 90
-            else "A" if sig.score >= 75
-            else "B" if sig.score >= 50
-            else "C"
+            "Strong" if sig.score >= 80
+            else "Moderate" if sig.score >= 60
+            else "Weak" if sig.score >= 40
+            else "Caution"
         )
         sig.score_v2_label = (
             "A+" if sig.score_v2 >= 90

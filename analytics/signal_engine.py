@@ -56,9 +56,13 @@ class SignalResult:
     last_volume: float = 0.0
     volume_ratio: float = 0.0
 
+    # Reference day H/L (the most recent completed day — for chart display)
+    ref_day_high: float | None = None
+    ref_day_low: float | None = None
+
     # Signal score (0-100)
     score: int = 0
-    score_label: str = ""  # "A+" (90+), "A" (75+), "B" (50+), "C" (<50)
+    score_label: str = ""  # "Strong" (80+), "Moderate" (60+), "Weak" (40+), "Caution" (<40)
 
 
 # ---------------------------------------------------------------------------
@@ -214,14 +218,14 @@ def _build_trade_plan(
 # ---------------------------------------------------------------------------
 
 def _score_label(score: int) -> str:
-    """Map numeric score to letter grade."""
-    if score >= 90:
-        return "A+"
-    if score >= 75:
-        return "A"
-    if score >= 50:
-        return "B"
-    return "C"
+    """Map numeric score to quality label."""
+    if score >= 80:
+        return "Strong"
+    if score >= 60:
+        return "Moderate"
+    if score >= 40:
+        return "Weak"
+    return "Caution"
 
 
 def compute_signal_score(result: SignalResult) -> int:
@@ -354,6 +358,8 @@ def analyze_symbol(hist: pd.DataFrame, symbol: str = "") -> SignalResult | None:
         avg_volume=avg_vol,
         last_volume=last_vol,
         volume_ratio=vol_ratio,
+        ref_day_high=high,
+        ref_day_low=low,
     )
 
     # Compute signal score

@@ -3649,14 +3649,14 @@ class TestSignalConsolidation:
         """Score label updates to match new boosted score."""
         sig1 = self._make_signal(score=72, alert_type=AlertType.MA_BOUNCE_20,
                                   message="MA bounce")
-        sig1.score_label = "B"
+        sig1.score_label = "Moderate"
         sig2 = self._make_signal(score=60, alert_type=AlertType.INTRADAY_SUPPORT_BOUNCE,
                                   message="Support bounce")
         result = _consolidate_signals([sig1, sig2])
         assert len(result) == 1
-        # 72 + 5 = 77 → should be "A"
+        # 72 + 5 = 77 → "Moderate" (60-79 range)
         assert result[0].score == 77
-        assert result[0].score_label == "A"
+        assert result[0].score_label == "Moderate"
 
     def test_message_includes_confirming_signal_types(self):
         """Merged message lists the confirming signal types."""

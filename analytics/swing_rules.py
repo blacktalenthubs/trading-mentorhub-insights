@@ -733,11 +733,11 @@ def _score_signal(prior_day: dict, spy_context: dict | None = None) -> int:
 
 
 def _score_label(score: int) -> str:
-    """Convert numeric score to letter grade."""
+    """Convert numeric score to quality label."""
     if score >= 80:
-        return "A+"
-    if score >= 70:
-        return "A"
-    if score >= 55:
-        return "B"
-    return "C"
+        return "Strong"
+    if score >= 60:
+        return "Moderate"
+    if score >= 40:
+        return "Weak"
+    return "Caution"

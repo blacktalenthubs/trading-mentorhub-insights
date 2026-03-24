@@ -519,14 +519,14 @@ def render_signal_card(
     colored border, pill badges.
     """
     # Score badge color
-    if score >= 90:
+    if score >= 80:
         score_color = "#2ecc71"
-    elif score >= 75:
-        score_color = "#2ecc71"
-    elif score >= 50:
+    elif score >= 60:
         score_color = "#f39c12"
-    else:
+    elif score >= 40:
         score_color = "#e74c3c"
+    else:
+        score_color = "#888"
 
     # MA trend indicator
     ma_parts = []
@@ -583,7 +583,7 @@ def render_signal_card(
         f"<div style='display:flex;justify-content:space-between;align-items:center;"
         f"margin-top:4px;font-size:0.82rem'>"
         f"<div>"
-        f"<span style='color:{score_color};font-weight:700'>{score_label} ({score})</span>"
+        f"<span style='color:{score_color};font-weight:700'>{score_label} Setup</span>"
         f"&nbsp;&nbsp;"
         f"<span style='background:{status_color}20;color:{status_color};padding:1px 8px;"
         f"border-radius:10px;font-size:0.75rem;font-weight:600'>{status_label}</span>"
@@ -953,14 +953,14 @@ def render_alert_card(alert: dict) -> None:
     # Score badge
     score = alert.get("score", 0)
     score_label = alert.get("score_label", "")
-    if score >= 90:
+    if score >= 80:
         score_color = COLORS["green"]
-    elif score >= 75:
-        score_color = COLORS["green"]
-    elif score >= 50:
+    elif score >= 60:
         score_color = COLORS["orange"]
-    else:
+    elif score >= 40:
         score_color = COLORS["red"]
+    else:
+        score_color = COLORS["text_muted"]
 
     alert_type = alert.get("alert_type", "").replace("_", " ").title()
     message = alert.get("message", "")
@@ -1012,7 +1012,7 @@ def render_alert_card(alert: dict) -> None:
         f"</div>"
         f"<div style='display:flex;align-items:center;gap:8px'>"
         f"<span style='color:{score_color};font-weight:700;font-size:0.85rem'>"
-        f"{score_label}</span>"
+        f"{score_label} Setup</span>" if score_label else ""
         f"<span style='color:#8b949e;font-size:0.78rem'>{created}</span>"
         f"</div>"
         f"</div>"
