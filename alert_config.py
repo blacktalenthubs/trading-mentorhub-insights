@@ -519,9 +519,9 @@ ENABLED_RULES: set[str] = {
     # "monthly_high_test",            # NOISE: downgraded — test without break
     "monthly_low_test",
     "monthly_low_breakdown",
-    # BUY — VWAP (highest institutional signal)
-    "vwap_reclaim",
-    "vwap_bounce",
+    # BUY — VWAP
+    # "vwap_reclaim",                  # DISABLED: fades consistently, session_low_bounce_vwap is the better version
+    # "vwap_bounce",                   # DISABLED: 0% win rate in bearish, VWAP becomes resistance in downtrends
     # BUY — opening range (Crabel methodology)
     # "opening_low_base",              # DISABLED: redundant with morning_low_retest, 0% win rate
     "morning_low_retest",
