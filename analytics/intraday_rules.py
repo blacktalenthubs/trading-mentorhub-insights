@@ -6689,6 +6689,32 @@ def evaluate_rules(
                     symbol, s.alert_type.value,
                 )
 
+    # --- 15-min range filter: suppress BUY when symbol is in a tight range ---
+    # If the hourly bars show consolidation (no breakout), BUY signals are
+    # just catching knives inside a range — suppress them.
+    # Exception: inside_day_breakout and bb_squeeze_breakout are specifically
+    # designed for range-breaking and should not be suppressed.
+    _range_exempt_types = {
+        AlertType.INSIDE_DAY_BREAKOUT.value,
+        AlertType.BB_SQUEEZE_BREAKOUT.value,
+        AlertType.CONSOL_BREAKOUT_LONG.value,
+    }
+    _consol_check = detect_hourly_consolidation_break(intraday_bars)
+    if _consol_check and _consol_check.get("status") == "consolidating":
+        _range_pct = _consol_check.get("range_pct", 0)
+        pre_range = signals[:]
+        signals = [
+            s for s in signals
+            if s.direction != "BUY"
+            or s.alert_type.value in _range_exempt_types
+        ]
+        for s in pre_range:
+            if s.direction == "BUY" and s not in signals:
+                logger.info(
+                    "%s: RANGE FILTER suppressed BUY %s (consolidating, range %.1f%%)",
+                    symbol, s.alert_type.value, _range_pct * 100,
+                )
+
     # --- Contradictory signal filter: active SHORT in same cycle suppresses BUY ---
     # If the system fires a SHORT with entry/stop/targets at the same time as
     # a BUY, the SHORT wins — the market is showing weakness at the same level.
