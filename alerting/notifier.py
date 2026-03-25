@@ -97,8 +97,8 @@ def _get_app_url() -> str:
     return url.rstrip("/")
 
 
-def _format_sms_body(signal: AlertSignal) -> str:
-    """Build a concise SMS/Telegram message optimised for at-a-glance action.
+def _format_sms_body(signal: AlertSignal) -> str | None:
+    """Build a concise SMS/Telegram message. Returns None to skip Telegram.
 
     Output uses HTML formatting for Telegram (clickable links, bold headers).
     """
@@ -106,32 +106,13 @@ def _format_sms_body(signal: AlertSignal) -> str:
 
     label = signal.alert_type.value.replace("_", " ").title()
 
-    if signal.direction == "SELL":
-        # SELL signals: compact 2-3 line format
-        parts = [f"<b>LEVEL ALERT {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
-        parts.append(_html.escape(label))
-        if signal.message:
-            hint = signal.message.split("|")[0].strip()
-            if hint:
-                parts.append(_html.escape(hint))
-        return "\n".join(parts)[:400]
+    # SELL / SHORT / NOTICE — skip Telegram, only show in dashboard
+    if signal.direction in ("SELL", "SHORT", "NOTICE"):
+        return None  # caller checks for None and skips Telegram send
 
-    if signal.direction == "NOTICE":
-        # Informational alerts (key level touches) — not actionable
-        parts = [f"<b>MARKET UPDATE {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
-        parts.append(_html.escape(label))
-        if signal.entry is not None:
-            parts.append(f"Key Level ${signal.entry:.2f}")
-        if signal.message:
-            hint = signal.message.split("|")[0].strip()
-            if hint:
-                parts.append(_html.escape(hint))
-        return "\n".join(parts)[:400]
-
-    # BUY / SHORT signals: clean display with quality label + AI narrative
-    _prefix = "BEARISH SETUP" if signal.direction == "SHORT" else "SETUP DETECTED"
+    # BUY signals only — clean, focused format for entry evaluation
     _quality = signal.score_label if signal.score_label else "Moderate"
-    parts = [f"<b>{_prefix} {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
+    parts = [f"<b>SETUP DETECTED {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
     parts.append(f"{_html.escape(label)} — {_quality} Setup")
 
     # Key levels (entry, stop, targets) — clean single line
@@ -147,9 +128,7 @@ def _format_sms_body(signal: AlertSignal) -> str:
     if _levels:
         parts.append(" · ".join(_levels))
 
-    # AI narrative (full — this is the educational value)
-    if getattr(signal, "narrative", ""):
-        parts.append(_html.escape(signal.narrative.strip()))
+    # No AI narrative in Telegram — stays in dashboard only
 
     # Educational disclaimer
     parts.append("\n<i>Educational only — not financial advice.</i>")
@@ -314,6 +293,9 @@ def _send_sms_via_email_gateway(body: str) -> bool:
 def send_sms(signal: AlertSignal) -> bool:
     """Send SMS alert. Tries: Telegram → email gateway → Twilio."""
     body = _format_sms_body(signal)
+    if body is None:
+        # Signal type suppressed from Telegram (SELL/SHORT/NOTICE)
+        return False
 
     # Prefer Telegram (free, instant, reliable)
     if TELEGRAM_BOT_TOKEN:
@@ -411,8 +393,9 @@ def notify_user(
         chat_id = prefs.get("telegram_chat_id", "")
         if chat_id:
             body = _format_sms_body(signal)
-            buttons = _build_trade_buttons(signal, alert_id)
-            telegram_sent = _send_telegram_to(body, chat_id, reply_markup=buttons)
+            if body is not None:
+                buttons = _build_trade_buttons(signal, alert_id)
+                telegram_sent = _send_telegram_to(body, chat_id, reply_markup=buttons)
         else:
             logger.warning("notify_user: telegram_enabled but chat_id empty")
     else:
@@ -433,8 +416,11 @@ def notify(signal: AlertSignal, alert_id: int | None = None) -> tuple[bool, bool
     email_sent = send_email(signal)
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         body = _format_sms_body(signal)
-        buttons = _build_trade_buttons(signal, alert_id)
-        sms_sent = _send_telegram_to(body, TELEGRAM_CHAT_ID, reply_markup=buttons)
+        if body is not None:
+            buttons = _build_trade_buttons(signal, alert_id)
+            sms_sent = _send_telegram_to(body, TELEGRAM_CHAT_ID, reply_markup=buttons)
+        else:
+            sms_sent = False  # SELL/SHORT/NOTICE suppressed from Telegram
     else:
         sms_sent = send_sms(signal)
 
