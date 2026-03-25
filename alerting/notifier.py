@@ -106,16 +106,17 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
     label = signal.alert_type.value.replace("_", " ").title()
 
-    # SELL / SHORT / NOTICE — skip Telegram, only show in dashboard
-    if signal.direction in ("SELL", "SHORT", "NOTICE"):
-        return None  # caller checks for None and skips Telegram send
+    # SELL / NOTICE — skip Telegram, only show in dashboard
+    if signal.direction in ("SELL", "NOTICE"):
+        return None
 
-    # BUY signals only — clean, focused format for entry evaluation
-    _quality = signal.score_label if signal.score_label else "Moderate"
-    parts = [f"<b>SETUP DETECTED {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
-    parts.append(f"{_html.escape(label)} — {_quality} Setup")
+    # LONG (BUY) and SHORT only — minimal format for entry evaluation
+    _dir = "SHORT" if signal.direction == "SHORT" else "LONG"
+    _reason = label
 
-    # Key levels (entry, stop, targets) — clean single line
+    parts = [f"<b>{_dir} {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
+
+    # Levels
     _levels = []
     if signal.entry is not None:
         _levels.append(f"Entry ${signal.entry:.2f}")
@@ -128,9 +129,10 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
     if _levels:
         parts.append(" · ".join(_levels))
 
-    # No AI narrative in Telegram — stays in dashboard only
+    # Reason
+    parts.append(f"Reason: {_reason}")
 
-    # Educational disclaimer
+    # Disclaimer
     parts.append("\n<i>Educational only — not financial advice.</i>")
 
     # Telegram message limit is 4096 chars; truncate safely
