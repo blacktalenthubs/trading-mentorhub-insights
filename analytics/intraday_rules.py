@@ -252,6 +252,7 @@ class AlertType(str, Enum):
     SPY_SHORT_ENTRY = "spy_short_entry"
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
+    SESSION_LOW_REVERSAL = "session_low_reversal"
     MORNING_LOW_BREAKDOWN = "morning_low_breakdown"
     PDH_FAILED_BREAKOUT = "pdh_failed_breakout"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
@@ -3285,6 +3286,95 @@ def classify_bounce_quality(
 # ---------------------------------------------------------------------------
 
 
+def check_session_low_reversal(
+    symbol: str,
+    bars: pd.DataFrame,
+) -> AlertSignal | None:
+    """Session low established with reversal candle + volume spike.
+
+    Fires at the low itself, not after VWAP reclaim. The entry is near
+    the low with tight risk.
+
+    Conditions:
+    1. Must have at least 6 bars (30 min into session)
+    2. Current or prior bar made the session low
+    3. The low bar shows a reversal candle (hammer or long lower wick)
+    4. Volume on the low bar >= 1.5x session average (capitulation)
+    5. Current bar closes above the low bar's close (confirmation)
+    """
+    if bars.empty or len(bars) < 6:
+        return None
+
+    session_low = bars["Low"].min()
+    session_low_idx = bars["Low"].idxmin()
+    last_bar = bars.iloc[-1]
+
+    # Session low must be recent (last 3 bars)
+    bars_since_low = len(bars.loc[session_low_idx:]) - 1
+    if bars_since_low > 3 or bars_since_low < 1:
+        return None  # too old or current bar IS the low (no confirmation yet)
+
+    low_bar = bars.loc[session_low_idx]
+    low_o = float(low_bar["Open"])
+    low_h = float(low_bar["High"])
+    low_l = float(low_bar["Low"])
+    low_c = float(low_bar["Close"])
+    low_vol = float(low_bar["Volume"]) if pd.notna(low_bar["Volume"]) else 0
+    low_range = low_h - low_l
+    low_body = abs(low_c - low_o)
+
+    if low_range <= 0:
+        return None
+
+    # Reversal candle check: hammer or long lower wick
+    lower_wick = min(low_o, low_c) - low_l
+    is_hammer = lower_wick >= 1.5 * low_body and (low_c - low_l) / low_range >= 0.6
+    is_long_wick = lower_wick / low_range >= 0.6
+
+    if not is_hammer and not is_long_wick:
+        return None
+
+    # Volume spike: low bar must have >= 1.5x average volume
+    avg_vol = bars["Volume"].mean()
+    vol_ratio = low_vol / avg_vol if avg_vol > 0 else 0
+    if vol_ratio < 1.5:
+        return None
+
+    # Confirmation: current bar closes above the low bar's close
+    if float(last_bar["Close"]) <= low_c:
+        return None
+
+    candle_type = "hammer" if is_hammer else "long wick"
+    entry = round(float(last_bar["Close"]), 2)
+    stop = round(session_low * 0.997, 2)  # stop just below session low
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry + risk, 2)
+    target_2 = round(entry + 2 * risk, 2)
+
+    confidence = "high" if vol_ratio >= 2.0 and is_hammer else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SESSION_LOW_REVERSAL,
+        direction="BUY",
+        price=float(last_bar["Close"]),
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"SESSION LOW REVERSAL — low ${session_low:.2f} with "
+            f"{candle_type} candle on {vol_ratio:.1f}x volume. "
+            f"Buyers stepping in at the low."
+        ),
+    )
+
+
 def check_session_low_bounce_to_vwap(
     symbol: str,
     bars: pd.DataFrame,
@@ -6259,6 +6349,16 @@ def evaluate_rules(
                 sig.message += f" ({phase})"
                 signals.append(sig)
 
+        # --- Session Low Reversal (reversal candle + volume at the low) ---
+        if AlertType.SESSION_LOW_REVERSAL.value in ENABLED_RULES:
+            sig = check_session_low_reversal(symbol, intraday_bars)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
         # --- Opening Low Base ---
         if AlertType.OPENING_LOW_BASE.value in ENABLED_RULES:
             sig = check_opening_low_base(symbol, intraday_bars)
@@ -6737,6 +6837,7 @@ def evaluate_rules(
             AlertType.SESSION_LOW_DOUBLE_BOTTOM.value,
             AlertType.MULTI_DAY_DOUBLE_BOTTOM.value,
             AlertType.SESSION_LOW_BOUNCE_VWAP.value,
+            AlertType.SESSION_LOW_REVERSAL.value,
             AlertType.MA_BOUNCE_50.value,
             AlertType.MA_BOUNCE_200.value,
             AlertType.EMA_BOUNCE_50.value,

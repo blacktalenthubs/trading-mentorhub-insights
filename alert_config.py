@@ -543,6 +543,8 @@ ENABLED_RULES: set[str] = {
     "macd_histogram_flip",
     "gap_and_go",
     "fib_retracement_bounce",
+    # BUY — session low reversal (candle + volume at the low itself)
+    "session_low_reversal",
     # SHORT — session patterns
     "morning_low_breakdown",
     "pdh_failed_breakout",
