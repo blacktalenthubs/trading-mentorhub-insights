@@ -132,9 +132,6 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
     # Reason
     parts.append(f"Reason: {_reason}")
 
-    # Disclaimer
-    parts.append("\n<i>Educational only — not financial advice.</i>")
-
     # Telegram message limit is 4096 chars; truncate safely
     return "\n".join(parts)[:4000]
 
