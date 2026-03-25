@@ -342,8 +342,14 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                         )
 
                 # Single group notification
-                if _burst_suppressed:
+                _telegram_muted = getattr(signal, "_suppress_telegram", False)
+                if _burst_suppressed or _telegram_muted:
                     email_sent, sms_sent = False, False
+                    if _telegram_muted:
+                        logger.info(
+                            "%s: %s recorded to DB (Telegram muted — dashboard only)",
+                            symbol, signal.alert_type.value,
+                        )
                 else:
                     email_sent, sms_sent = notify(signal, alert_id=alert_id)
                     if signal.direction == "BUY":

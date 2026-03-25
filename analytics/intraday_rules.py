@@ -301,6 +301,7 @@ class AlertSignal:
     ma_defending: str = ""     # e.g. "100MA" — nearest MA below price acting as support
     ma_rejected_by: str = ""   # e.g. "50EMA" — nearest MA above price acting as resistance
     score_factors: dict | None = None  # Breakdown: {"ma": 25, "vol": 15, "conf": 25, ...}
+    _suppress_telegram: bool = False   # If True, record to DB but skip Telegram notification
 
 
 def _volume_label(bar_volume: float, avg_volume: float) -> str:
@@ -6848,15 +6849,13 @@ def evaluate_rules(
             AlertType.BB_SQUEEZE_BREAKOUT.value,
             AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
         }
-        pre_vwap = signals[:]
-        signals = [
-            s for s in signals
-            if s.direction != "BUY"
-            or s.alert_type.value in _vwap_gate_exempt
-        ]
-        # Demote exempt signals that pass through
+        # Tag non-SPY BUY signals: key support types get demoted,
+        # all others get tagged to skip Telegram (still recorded to DB/dashboard)
         for s in signals:
-            if s.direction == "BUY" and s.alert_type.value in _vwap_gate_exempt:
+            if s.direction != "BUY":
+                continue
+            if s.alert_type.value in _vwap_gate_exempt:
+                # Key support — keep in Telegram but demote
                 s.message += " | SPY below VWAP — relative strength"
                 if s.confidence == "high":
                     s.confidence = "medium"
@@ -6867,10 +6866,12 @@ def evaluate_rules(
                     else "Weak" if s.score >= 40
                     else "Caution"
                 )
-        for s in pre_vwap:
-            if s.direction == "BUY" and s not in signals:
+            else:
+                # Non-key-support BUY — record to DB but skip Telegram
+                s._suppress_telegram = True
+                s.message += " | SPY below VWAP — dashboard only"
                 logger.info(
-                    "%s: SPY VWAP GATE suppressed BUY %s (SPY below VWAP)",
+                    "%s: SPY VWAP GATE muted BUY %s (dashboard only, SPY below VWAP)",
                     symbol, s.alert_type.value,
                 )
 
