@@ -5970,6 +5970,34 @@ def evaluate_rules(
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
+    # ── Gate 1: Wait 15 min after open before any BUY alerts ──────────────
+    # First 15 min (3 bars on 5-min) is opening auction noise — no real
+    # price discovery.  SELL/SHORT/NOTICE always pass through.
+    # Crypto is exempt (24h market, no opening auction).
+    _OPENING_WAIT_BARS = 3  # 3 × 5-min = 15 min
+    _in_opening_wait = (
+        not is_crypto
+        and phase == "opening_range"
+        and len(intraday_bars) < _OPENING_WAIT_BARS
+    )
+
+    # ── Gate 2: SPY below VWAP = suppress non-SPY equity longs ───────────
+    # Simple real-time check: is SPY's current price below its VWAP?
+    # If yes, no equity BUY alerts except SPY itself.
+    # This replaces the rolling-average vwap_dominance check with an
+    # immediate price-vs-VWAP comparison.
+    _spy_currently_below_vwap = False
+    if (
+        not is_crypto
+        and symbol != "SPY"
+        and spy_gate
+    ):
+        _spy_vwap_dom = spy_gate.get("vwap_dominance", 1.0)
+        _spy_above_ema = spy_gate.get("above_ema", True)
+        # SPY below VWAP: dominance < 50% OR gate explicitly red/yellow
+        if _spy_vwap_dom < 0.5 or spy_gate.get("gate") == "red":
+            _spy_currently_below_vwap = True
+
     if not is_cooled_down:
         sig = check_ma_bounce_20(symbol, intraday_bars, ma20, ma50)
         if sig:
@@ -6686,6 +6714,62 @@ def evaluate_rules(
             if s.direction == "BUY" and s.alert_type.value in _weak_in_downtrend and s not in signals:
                 logger.info(
                     "%s: TRENDING_DOWN filter dropped %s (0%% win rate in bearish regime)",
+                    symbol, s.alert_type.value,
+                )
+
+    # --- Opening wait: suppress ALL BUY in first 15 min ---
+    if _in_opening_wait:
+        pre_open = signals[:]
+        signals = [s for s in signals if s.direction != "BUY"]
+        for s in pre_open:
+            if s.direction == "BUY" and s not in signals:
+                logger.info(
+                    "%s: OPENING WAIT suppressed BUY %s (only %d bars, need %d)",
+                    symbol, s.alert_type.value, len(intraday_bars), _OPENING_WAIT_BARS,
+                )
+
+    # --- SPY below VWAP: suppress non-SPY equity BUY ---
+    if _spy_currently_below_vwap:
+        # Key support types pass through (relative strength)
+        _vwap_gate_exempt = {
+            AlertType.PRIOR_DAY_LOW_RECLAIM.value,
+            AlertType.PRIOR_DAY_LOW_BOUNCE.value,
+            AlertType.SESSION_LOW_DOUBLE_BOTTOM.value,
+            AlertType.MULTI_DAY_DOUBLE_BOTTOM.value,
+            AlertType.SESSION_LOW_BOUNCE_VWAP.value,
+            AlertType.MA_BOUNCE_50.value,
+            AlertType.MA_BOUNCE_200.value,
+            AlertType.EMA_BOUNCE_50.value,
+            AlertType.EMA_BOUNCE_200.value,
+            AlertType.EMA_RECLAIM_50.value,
+            AlertType.EMA_RECLAIM_200.value,
+            AlertType.INSIDE_DAY_BREAKOUT.value,
+            AlertType.BB_SQUEEZE_BREAKOUT.value,
+            AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
+        }
+        pre_vwap = signals[:]
+        signals = [
+            s for s in signals
+            if s.direction != "BUY"
+            or s.alert_type.value in _vwap_gate_exempt
+        ]
+        # Demote exempt signals that pass through
+        for s in signals:
+            if s.direction == "BUY" and s.alert_type.value in _vwap_gate_exempt:
+                s.message += " | SPY below VWAP — relative strength"
+                if s.confidence == "high":
+                    s.confidence = "medium"
+                s.score = min(s.score, 65)
+                s.score_label = (
+                    "Strong" if s.score >= 80
+                    else "Moderate" if s.score >= 60
+                    else "Weak" if s.score >= 40
+                    else "Caution"
+                )
+        for s in pre_vwap:
+            if s.direction == "BUY" and s not in signals:
+                logger.info(
+                    "%s: SPY VWAP GATE suppressed BUY %s (SPY below VWAP)",
                     symbol, s.alert_type.value,
                 )
 
