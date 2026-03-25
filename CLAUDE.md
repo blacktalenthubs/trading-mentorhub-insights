@@ -1,5 +1,40 @@
 # TradeSignal — Project Instructions
 
+## Deployment Rule: Local First, Then Production
+
+**ALWAYS test changes locally before pushing to production.**
+
+### Deployment Workflow
+1. **Make changes** locally
+2. **Run tests**: `python3 -m pytest tests/ -v`
+3. **Test locally**: `USE_NEW_NAV=true python3 -m streamlit run app.py --server.port 8501`
+4. **Verify on localhost:8501** — check the feature works
+5. **Push to main** — Railway auto-deploys worker + Streamlit
+6. **Restart Railway worker** — worker caches state in memory, needs restart after deploy
+7. **Verify production** — check alerts/dashboard on tradesignalwithai.com
+
+### Critical: Kill Local Processes Before Testing Production
+Local uvicorn/worker processes send to the SAME Telegram bot as production.
+**Always kill local processes before evaluating production alerts:**
+```bash
+# Kill any local API/worker processes
+lsof -ti:8000 | xargs kill -9 2>/dev/null
+lsof -ti:5173 | xargs kill -9 2>/dev/null
+pkill -f "worker.py" 2>/dev/null
+pkill -f "monitor.py" 2>/dev/null
+```
+
+### Railway Worker Restart
+The worker caches watchlist + active entries in memory. After ANY change to:
+- alert_config.py (enabled rules)
+- intraday_rules.py (rule logic)
+- notifier.py (message format)
+- monitor.py (polling logic)
+
+**You MUST restart the worker on Railway** (Deployments → three dots → Redeploy).
+
+---
+
 ## Critical Rule: Protect Business Logic
 
 **NEVER modify alert/signal business logic without explicit approval.** These files control real money decisions:
