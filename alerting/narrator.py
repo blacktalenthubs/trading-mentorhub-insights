@@ -162,13 +162,12 @@ def generate_narrative(signal: AlertSignal) -> str:
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": _build_user_prompt(signal)}],
-            timeout=15.0 if use_sonnet else 10.0,
+            timeout=10.0,
         )
         narrative = response.content[0].text.strip()
         _narrative_cache[cache_key] = narrative
         logger.info(
-            "Narrative [%s] for %s %s: %s",
-            "sonnet" if use_sonnet else "haiku",
+            "Narrative [haiku] for %s %s: %s",
             signal.symbol, signal.alert_type.value, narrative[:80],
         )
         return narrative
