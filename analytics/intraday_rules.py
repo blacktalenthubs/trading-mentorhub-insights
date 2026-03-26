@@ -4277,6 +4277,7 @@ def check_multi_day_double_bottom(
     daily_double_bottoms: list[dict],
     bar_volume: float,
     avg_volume: float,
+    prior_day: dict | None = None,
 ) -> AlertSignal | None:
     """Multi-day double bottom: daily swing low zone tested 2+ times, now retesting intraday.
 
@@ -4286,6 +4287,9 @@ def check_multi_day_double_bottom(
     3. Last bar closes above the zone level (bounce confirmed)
     4. Price hasn't already run >DAILY_DB_MAX_DISTANCE_PCT above zone (stale guard)
     5. Not making a significantly lower low than the zone (no descending lows)
+    6. **NEW**: Zone must be near a structural support level (PDL, MA50/100/200,
+       weekly low) — prevents firing on mid-range daily bar clusters that aren't
+       real support.
 
     Uses the nearest qualifying zone so the alert references the correct level.
     """
@@ -4337,6 +4341,47 @@ def check_multi_day_double_bottom(
     zone_high = best_zone["zone_high"]
     touch_count = best_zone["touch_count"]
 
+    # ── Structural support proximity check ──────────────────────────────
+    # The double bottom zone must be within 1.5% of a key structural level.
+    # This prevents firing on mid-range daily bar clusters ($180 on NVDA
+    # when real support is $171-175, or $253 on AAPL when support is $249).
+    _STRUCT_PROXIMITY_PCT = 0.015  # 1.5%
+    _near_structural_support = False
+    _structural_level_name = ""
+
+    if prior_day:
+        _struct_levels = [
+            ("PDL", prior_day.get("low", 0)),
+            ("MA50", prior_day.get("ma50", 0)),
+            ("MA100", prior_day.get("ma100", 0)),
+            ("MA200", prior_day.get("ma200", 0)),
+            ("EMA50", prior_day.get("ema50", 0)),
+            ("EMA100", prior_day.get("ema100", 0)),
+            ("EMA200", prior_day.get("ema200", 0)),
+            ("Week Low", prior_day.get("prior_week_low", 0)),
+        ]
+        for name, val in _struct_levels:
+            if val and val > 0:
+                dist = abs(level - val) / val
+                if dist <= _STRUCT_PROXIMITY_PCT:
+                    _near_structural_support = True
+                    _structural_level_name = name
+                    break
+
+    # Also check: is the zone near today's session low?
+    session_low = float(intraday_bars["Low"].min())
+    if session_low > 0 and abs(level - session_low) / session_low <= _STRUCT_PROXIMITY_PCT:
+        _near_structural_support = True
+        _structural_level_name = _structural_level_name or "Session Low"
+
+    if not _near_structural_support:
+        logger.info(
+            "%s: multi_day_double_bottom at $%.2f REJECTED — not near any "
+            "structural support (PDL, MA, weekly low, session low)",
+            symbol, level,
+        )
+        return None
+
     # Entry/Stop/Targets
     entry = level
     stop = round(level * (1 - DAILY_DB_STOP_OFFSET_PCT), 2)
@@ -4372,6 +4417,7 @@ def check_multi_day_double_bottom(
         message=(
             f"Multi-day double bottom — zone {zone_label} tested "
             f"{touch_count}x across daily bars, bounce at ${last_close:.2f}"
+            f" | Confirmed by {_structural_level_name} support"
         ),
     )
 
@@ -6309,6 +6355,7 @@ def evaluate_rules(
             if daily_dbs:
                 sig = check_multi_day_double_bottom(
                     symbol, intraday_bars, daily_dbs, bar_vol, avg_vol,
+                    prior_day=prior_day,
                 )
                 if sig:
                     sig.message += f" ({phase})"
