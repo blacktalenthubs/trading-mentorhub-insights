@@ -133,7 +133,8 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
     # LONG (BUY) and SHORT only — minimal format for entry evaluation
     _dir = "SHORT" if signal.direction == "SHORT" else "LONG"
-    _reason = label
+    # Use message prefix (e.g. "EMA50 REJECTION") when available for specificity
+    _reason = signal.message.split(" — ")[0] if signal.message and " — " in signal.message else label
 
     parts = [f"<b>{_dir} {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
 
