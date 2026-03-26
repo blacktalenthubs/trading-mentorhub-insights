@@ -253,6 +253,7 @@ class AlertType(str, Enum):
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
     SESSION_LOW_REVERSAL = "session_low_reversal"
+    VWAP_LOSS = "vwap_loss"
     SESSION_LOW_BREAKDOWN = "session_low_breakdown"
     MORNING_LOW_BREAKDOWN = "morning_low_breakdown"
     PDH_FAILED_BREAKOUT = "pdh_failed_breakout"
@@ -3392,6 +3393,86 @@ def check_session_low_reversal(
     )
 
 
+def check_vwap_loss(
+    symbol: str,
+    bars: pd.DataFrame,
+    vwap_series: pd.Series,
+) -> AlertSignal | None:
+    """Price was above VWAP, now confirms close below — bearish shift.
+
+    Conditions:
+    1. At least 12 bars (60 min into session)
+    2. At least 3 of the prior 6 bars closed above VWAP (was holding above)
+    3. Current bar closes below VWAP
+    4. Current bar closes in the lower 40% of its range (selling into close)
+    """
+    if bars.empty or len(bars) < 12:
+        return None
+    if vwap_series is None or vwap_series.empty:
+        return None
+
+    current_vwap = float(vwap_series.iloc[-1])
+    if current_vwap <= 0:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_high = float(last_bar["High"])
+    last_low = float(last_bar["Low"])
+    bar_range = last_high - last_low
+
+    # Must close below VWAP
+    if last_close >= current_vwap:
+        return None
+
+    # Close must be in lower 40% of bar range (selling pressure)
+    if bar_range > 0 and (last_close - last_low) / bar_range > 0.4:
+        return None
+
+    # Prior bars must have been above VWAP (establishing it as support)
+    lookback = min(6, len(bars) - 1)
+    prior_bars = bars.iloc[-(lookback + 1):-1]
+    prior_vwaps = vwap_series.iloc[-(lookback + 1):-1]
+
+    if len(prior_bars) < 3 or len(prior_vwaps) < 3:
+        return None
+
+    bars_above_vwap = sum(
+        float(prior_bars.iloc[i]["Close"]) > float(prior_vwaps.iloc[i])
+        for i in range(len(prior_bars))
+    )
+
+    # At least half the prior bars were above VWAP
+    if bars_above_vwap < len(prior_bars) * 0.5:
+        return None
+
+    entry = round(last_close, 2)
+    stop = round(current_vwap * 1.002, 2)  # stop just above VWAP
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry - risk, 2)
+    target_2 = round(entry - 2 * risk, 2)
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.VWAP_LOSS,
+        direction="SHORT",
+        price=last_close,
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence="medium",
+        message=(
+            f"VWAP LOSS — was above VWAP ${current_vwap:.2f} for "
+            f"{bars_above_vwap}/{lookback} bars, now closed below at "
+            f"${last_close:.2f}. Bearish shift."
+        ),
+    )
+
+
 def check_session_low_breakdown(
     symbol: str,
     bars: pd.DataFrame,
@@ -6521,6 +6602,14 @@ def evaluate_rules(
                 sig.message += f" ({phase})"
                 if vwap_pos:
                     sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- VWAP Loss (SHORT) — was above VWAP, confirmed close below ---
+        if AlertType.VWAP_LOSS.value in ENABLED_RULES:
+            sig = check_vwap_loss(symbol, intraday_bars, vwap_series)
+            if sig:
+                sig.message += f" ({phase})"
                 sig.message += caution_suffix
                 signals.append(sig)
 
