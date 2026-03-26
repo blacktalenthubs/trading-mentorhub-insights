@@ -311,25 +311,9 @@ def _send_sms_via_email_gateway(body: str) -> bool:
         return False
 
 
-def send_sms(signal: AlertSignal) -> bool:
-    """Send SMS alert. Tries: Telegram → email gateway → Twilio."""
-    body = _format_sms_body(signal)
-    if body is None:
-        # Signal type suppressed from Telegram (SELL/SHORT/NOTICE)
-        return False
-
-    # Prefer Telegram (free, instant, reliable)
-    if TELEGRAM_BOT_TOKEN:
-        logger.info("Notification channel: Telegram (chat_id=%s)", TELEGRAM_CHAT_ID or "<missing>")
-        return _send_telegram(body)
-
-    # Fallback: email-to-SMS gateway
-    if SMS_GATEWAY_TO:
-        return _send_sms_via_email_gateway(body)
-
-    # Fallback: Twilio
+def _send_twilio(body: str) -> bool:
+    """Send via Twilio SMS or WhatsApp. Returns True on success."""
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not ALERT_SMS_TO:
-        logger.warning("SMS not configured — skipping (set SMS_GATEWAY_TO or Twilio vars)")
         return False
 
     try:
@@ -346,12 +330,48 @@ def send_sms(signal: AlertSignal) -> bool:
             to_num = ALERT_SMS_TO
             channel = "SMS"
 
-        client.messages.create(body=body, from_=from_num, to=to_num)
-        logger.info("%s sent to %s: %s", channel, to_num, body[:50])
+        # Strip HTML tags for SMS/WhatsApp (Twilio doesn't support HTML)
+        import re
+        plain_body = re.sub(r"<[^>]+>", "", body)
+
+        client.messages.create(body=plain_body, from_=from_num, to=to_num)
+        logger.info("%s sent to %s: %s", channel, to_num, plain_body[:50])
         return True
     except Exception:
         logger.exception("Failed to send %s", "WhatsApp" if TWILIO_USE_WHATSAPP else "SMS")
         return False
+
+
+def send_sms(signal: AlertSignal) -> bool:
+    """Send alert via all configured channels (Telegram + Twilio)."""
+    body = _format_sms_body(signal)
+    if body is None:
+        # Signal type suppressed (SELL/SHORT/NOTICE)
+        return False
+
+    sent_any = False
+
+    # Telegram (primary)
+    if TELEGRAM_BOT_TOKEN:
+        logger.info("Notification channel: Telegram (chat_id=%s)", TELEGRAM_CHAT_ID or "<missing>")
+        if _send_telegram(body):
+            sent_any = True
+
+    # Twilio SMS/WhatsApp (secondary)
+    if TWILIO_ACCOUNT_SID:
+        logger.info("Notification channel: Twilio (%s)", "WhatsApp" if TWILIO_USE_WHATSAPP else "SMS")
+        if _send_twilio(body):
+            sent_any = True
+
+    # Email-to-SMS gateway (fallback if neither above is configured)
+    if not sent_any and SMS_GATEWAY_TO:
+        if _send_sms_via_email_gateway(body):
+            sent_any = True
+
+    if not sent_any:
+        logger.warning("No notification channel delivered — check Telegram/Twilio/SMS config")
+
+    return sent_any
 
 
 # Exit signals always Tier 1 (time-critical)
@@ -444,14 +464,19 @@ def notify(signal: AlertSignal, alert_id: int | None = None) -> tuple[bool, bool
     Returns (email_sent, sms_sent).
     """
     email_sent = send_email(signal)
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-        body = _format_sms_body(signal)
-        if body is not None:
+    sms_sent = False
+
+    body = _format_sms_body(signal)
+    if body is not None:
+        # Telegram (with buttons if alert_id provided)
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
             buttons = _build_trade_buttons(signal, alert_id)
-            sms_sent = _send_telegram_to(body, TELEGRAM_CHAT_ID, reply_markup=buttons)
-        else:
-            sms_sent = False  # SELL/SHORT/NOTICE suppressed from Telegram
-    else:
-        sms_sent = send_sms(signal)
+            if _send_telegram_to(body, TELEGRAM_CHAT_ID, reply_markup=buttons):
+                sms_sent = True
+
+        # Twilio SMS/WhatsApp (always send alongside Telegram)
+        if TWILIO_ACCOUNT_SID:
+            if _send_twilio(body):
+                sms_sent = True
 
     return email_sent, sms_sent
