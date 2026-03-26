@@ -150,8 +150,20 @@ def check_positions(
                 )
                 if _send_coach_message(msg):
                     messages_sent += 1
+                # Remove active entry — trade complete
+                try:
+                    from db import get_db
+                    with get_db() as conn:
+                        conn.execute(
+                            "DELETE FROM active_entries WHERE symbol = %s AND entry_price = %s",
+                            (symbol, entry_price),
+                        )
+                        conn.commit()
+                    logger.info("%s: active entry removed after T2 hit", symbol)
+                except Exception:
+                    logger.debug("%s: failed to remove active entry after T2", symbol)
 
-            # --- Stop Hit: Exit immediately ---
+            # --- Stop Hit: Exit immediately + remove active entry ---
             if stop_price and price <= stop_price and not _already_coached(symbol, alert_type, "stop_exit"):
                 _mark_coached(symbol, alert_type, "stop_exit")
                 msg = (
@@ -162,6 +174,18 @@ def check_positions(
                 )
                 if _send_coach_message(msg):
                     messages_sent += 1
+                # Remove active entry to stop further position updates
+                try:
+                    from db import get_db
+                    with get_db() as conn:
+                        conn.execute(
+                            "DELETE FROM active_entries WHERE symbol = %s AND entry_price = %s",
+                            (symbol, entry_price),
+                        )
+                        conn.commit()
+                    logger.info("%s: active entry removed after stop hit", symbol)
+                except Exception:
+                    logger.debug("%s: failed to remove active entry after stop", symbol)
 
             # --- VWAP Rejection: price reached VWAP but getting rejected ---
             if (vwap and entry_price < vwap and price < vwap

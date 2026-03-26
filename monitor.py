@@ -565,14 +565,16 @@ def run_monitor():
             logger.info("Poll complete: %d alerts fired", alerts)
 
             # Position advisor: send updates hourly during market hours
-            try:
-                import pytz as _pytz
-                now_et = datetime.now(_pytz.timezone("US/Eastern"))
-                if now_et.minute < POLL_INTERVAL_MINUTES + 1:  # ~top of hour
-                    from analytics.position_advisor import send_position_updates
-                    send_position_updates()
-            except Exception:
-                logger.exception("Position advisor failed")
+            # Position updates DISABLED — focusing on entry quality testing
+            # try:
+            #     import pytz as _pytz
+            #     now_et = datetime.now(_pytz.timezone("US/Eastern"))
+            #     if now_et.minute < POLL_INTERVAL_MINUTES + 1:
+            #         from analytics.position_advisor import send_position_updates
+            #         send_position_updates()
+            # except Exception:
+            #     logger.exception("Position advisor failed")
+            pass
         except Exception:
             logger.exception("CRITICAL: scheduled_poll failed — scheduler will retry next interval")
 
