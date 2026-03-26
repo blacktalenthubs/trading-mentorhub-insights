@@ -3310,10 +3310,11 @@ def check_session_low_reversal(
     session_low_idx = bars["Low"].idxmin()
     last_bar = bars.iloc[-1]
 
-    # Session low must be recent (last 3 bars)
+    # Session low must be recent (last 5 bars = 25 min on 5-min bars)
+    # If the low bar itself is a strong bullish close, it can self-confirm
     bars_since_low = len(bars.loc[session_low_idx:]) - 1
-    if bars_since_low > 3 or bars_since_low < 1:
-        return None  # too old or current bar IS the low (no confirmation yet)
+    if bars_since_low > 5:
+        return None  # too old — missed the entry window
 
     low_bar = bars.loc[session_low_idx]
     low_o = float(low_bar["Open"])
@@ -3327,25 +3328,39 @@ def check_session_low_reversal(
     if low_range <= 0:
         return None
 
-    # Reversal candle check: hammer or long lower wick
+    # Reversal candle check: hammer, long lower wick, OR strong bullish close
     lower_wick = min(low_o, low_c) - low_l
     is_hammer = lower_wick >= 1.5 * low_body and (low_c - low_l) / low_range >= 0.6
     is_long_wick = lower_wick / low_range >= 0.6
+    # Strong bullish close: green candle where close is in upper 25% of range
+    # and body fills > 60% of range (strong buying at the low)
+    is_bullish_close = (
+        low_c > low_o
+        and low_body / low_range >= 0.6
+        and (low_c - low_l) / low_range >= 0.75
+    )
 
-    if not is_hammer and not is_long_wick:
+    if not is_hammer and not is_long_wick and not is_bullish_close:
         return None
 
-    # Volume spike: low bar must have >= 1.5x average volume
+    # Volume check: 1.2x for strong bullish close (needs less volume
+    # confirmation), 1.5x for hammer/wick patterns
     avg_vol = bars["Volume"].mean()
     vol_ratio = low_vol / avg_vol if avg_vol > 0 else 0
-    if vol_ratio < 1.5:
+    _vol_threshold = 1.2 if is_bullish_close else 1.5
+    if vol_ratio < _vol_threshold:
         return None
 
     # Confirmation: current bar closes above the low bar's close
-    if float(last_bar["Close"]) <= low_c:
-        return None
+    # OR the low bar itself is a strong bullish close (self-confirming)
+    if bars_since_low == 0 and is_bullish_close:
+        pass  # low bar is self-confirming — strong green candle at the low
+    elif bars_since_low == 0:
+        return None  # current bar IS the low, need next bar to confirm
+    elif float(last_bar["Close"]) <= low_c:
+        return None  # next bar didn't confirm
 
-    candle_type = "hammer" if is_hammer else "long wick"
+    candle_type = "hammer" if is_hammer else "strong bullish close" if is_bullish_close else "long wick"
     entry = round(float(last_bar["Close"]), 2)
     stop = round(session_low * 0.997, 2)  # stop just below session low
     stop = _cap_risk(entry, stop, symbol=symbol)
