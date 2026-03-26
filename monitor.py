@@ -485,6 +485,22 @@ def _maybe_run_eod() -> None:
     except Exception:
         logger.exception("EOD review failed")
 
+    # EOD Cleanup: close all equity active entries for clean start tomorrow
+    # Crypto entries persist (24h market). This ensures no stale positions
+    # carry over and trigger ghost alerts the next morning.
+    try:
+        from db import get_db
+        with get_db() as conn:
+            cur = conn.execute(
+                "DELETE FROM active_entries WHERE symbol NOT LIKE '%%-USD'"
+            )
+            equity_closed = cur.rowcount
+            conn.commit()
+        if equity_closed:
+            logger.info("EOD cleanup: closed %d equity active entries", equity_closed)
+    except Exception:
+        logger.exception("EOD active entries cleanup failed")
+
     # Weekly Alert Tuning Report — send on Fridays after close
     try:
         import pytz as _pytz
