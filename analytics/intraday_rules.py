@@ -3424,12 +3424,13 @@ def check_session_low_breakdown(
     if prior_session_low <= 0:
         return None
 
-    # Current bar must close below the prior session low
-    if last_close >= prior_session_low:
+    # Current bar's low must break below the prior session low
+    # Use low (not close) to catch the break in real-time, not after the candle closes
+    if last_low >= prior_session_low:
         return None
 
     # Break must be meaningful (at least 0.05% below)
-    break_pct = (prior_session_low - last_close) / prior_session_low
+    break_pct = (prior_session_low - last_low) / prior_session_low
     if break_pct < 0.0005:
         return None
 
@@ -3447,7 +3448,8 @@ def check_session_low_breakdown(
     if vol_ratio < 1.0:
         return None
 
-    entry = round(last_close, 2)
+    # Entry near the break level, not at the close
+    entry = round(prior_session_low * 0.999, 2)
     stop = round(prior_session_low * 1.003, 2)
     stop = _cap_risk(stop, entry, symbol=symbol)
     risk = stop - entry
@@ -3979,12 +3981,15 @@ def check_morning_low_breakdown(
     last_low = float(last_bar["Low"])
     last_vol = float(last_bar["Volume"]) if pd.notna(last_bar["Volume"]) else 0
 
-    # Must close below first-hour low (breakdown confirmed)
-    if last_close >= first_hour_low:
+    # Bar low must break below first-hour low (real-time detection)
+    # Use low instead of close — in fast selloffs, waiting for close
+    # means missing the break by $3-4 (today SPY broke $650 but alert
+    # didn't fire until $647 close)
+    if last_low >= first_hour_low:
         return None
 
-    # Breakdown must be decisive — close at least 0.05% below
-    break_pct = (first_hour_low - last_close) / first_hour_low
+    # Break must be meaningful
+    break_pct = (first_hour_low - last_low) / first_hour_low
     if break_pct < 0.0005:
         return None
 
@@ -4003,9 +4008,10 @@ def check_morning_low_breakdown(
     if bars_holding_low < 3:
         return None  # low wasn't established/tested — skip
 
-    entry = round(last_close, 2)
-    stop = round(first_hour_low * 1.003, 2)  # stop above the broken low
-    stop = _cap_risk(stop, entry, symbol=symbol)  # reversed for short
+    # Entry near the break level, not at the close (which may be far below)
+    entry = round(first_hour_low * 0.999, 2)  # just below the broken level
+    stop = round(first_hour_low * 1.003, 2)   # stop above the broken low
+    stop = _cap_risk(stop, entry, symbol=symbol)
     risk = stop - entry
     if risk <= 0:
         return None
