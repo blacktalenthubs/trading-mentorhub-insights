@@ -431,9 +431,19 @@ def _build_app(bot_token: str):
         }.get(action, "")
 
         try:
+            # After "Took It": keep Exit button. After "Exit"/"Skip": remove all.
+            if action == "ack":
+                _exit_markup = {
+                    "inline_keyboard": [[
+                        {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{alert_id}"},
+                    ]]
+                }
+            else:
+                _exit_markup = None
+
             await query.edit_message_text(
                 text=original_text + badge,
-                reply_markup=None,  # Remove buttons after action
+                reply_markup=_exit_markup,
             )
         except Exception:
             logger.debug("Could not edit original message (may be too old)")
