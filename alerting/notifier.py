@@ -382,6 +382,14 @@ def _build_trade_buttons(signal: AlertSignal, alert_id: int | None) -> dict | No
         }
 
     if signal.direction == "SELL":
+        # T1/stop alerts get a single Exit button
+        _exit_types = {"target_1_hit", "target_2_hit", "stop_loss_hit", "auto_stop_out"}
+        if signal.alert_type.value in _exit_types:
+            return {
+                "inline_keyboard": [[
+                    {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{alert_id}"},
+                ]]
+            }
         return {
             "inline_keyboard": [[
                 {"text": "\U0001f4b0 Exited", "callback_data": f"exit:{alert_id}"},
