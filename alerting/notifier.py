@@ -106,9 +106,30 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
     label = signal.alert_type.value.replace("_", " ").title()
 
-    # SELL / NOTICE — skip Telegram, only show in dashboard
-    if signal.direction in ("SELL", "NOTICE"):
+    # NOTICE — skip Telegram
+    if signal.direction == "NOTICE":
         return None
+
+    # SELL — only allow T1 hit and stop loss through to Telegram
+    if signal.direction == "SELL":
+        _exit_types = {"target_1_hit", "target_2_hit", "stop_loss_hit", "auto_stop_out"}
+        if signal.alert_type.value not in _exit_types:
+            return None
+        # Format exit alerts cleanly
+        import html as _html2
+        _label = signal.alert_type.value.replace("_", " ").title()
+        if "target" in signal.alert_type.value:
+            return (
+                f"<b>TARGET HIT — {_html2.escape(signal.symbol)}</b>\n"
+                f"{_label} at ${signal.price:.2f}\n"
+                f"Take profits / trail stop"
+            )
+        else:
+            return (
+                f"<b>STOPPED OUT — {_html2.escape(signal.symbol)}</b>\n"
+                f"Stop ${signal.price:.2f} hit\n"
+                f"Trade invalidated — exit"
+            )
 
     # LONG (BUY) and SHORT only — minimal format for entry evaluation
     _dir = "SHORT" if signal.direction == "SHORT" else "LONG"
