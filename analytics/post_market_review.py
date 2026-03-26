@@ -237,6 +237,44 @@ def build_review(session_date: str | None = None, user_id: int | None = None) ->
             )
         lines.append("")
 
+    # ── YOUR TRADES (only acked/took) ──────────────────────────────────
+    took_results = [r for r in results if r.get("user_action") == "took"]
+    if took_results:
+        took_wins = [r for r in took_results if r["outcome"] == "won"]
+        took_losses = [r for r in took_results if r["outcome"] == "stopped"]
+        took_open = [r for r in took_results if r["outcome"] == "open"]
+        took_decided = len(took_wins) + len(took_losses)
+        took_wr = (len(took_wins) / took_decided * 100) if took_decided > 0 else 0
+        took_avg_r = (
+            sum(r["r_achieved"] for r in took_wins + took_losses) / took_decided
+            if took_decided > 0 else 0
+        )
+
+        lines.append("<b>YOUR TRADES (acked)</b>")
+        lines.append(
+            f"Took: {len(took_results)} | "
+            f"W: {len(took_wins)} L: {len(took_losses)} O: {len(took_open)}"
+        )
+        if took_decided > 0:
+            lines.append(f"<b>Your Win Rate: {took_wr:.0f}% | Avg R: {took_avg_r:.1f}R</b>")
+        for r in took_results:
+            label = r["alert_type"].replace("_", " ").title()
+            if r["outcome"] == "won":
+                lines.append(
+                    f"  \u2705 {r['symbol']} {label} ${r['entry']:.2f} → "
+                    f"${r['exit_price']:.2f} ({r['r_achieved']:.1f}R)"
+                )
+            elif r["outcome"] == "stopped":
+                lines.append(
+                    f"  \u274c {r['symbol']} {label} ${r['entry']:.2f} → "
+                    f"Stop ${r['exit_price']:.2f} (-1R)"
+                )
+            else:
+                lines.append(
+                    f"  \u23f3 {r['symbol']} {label} ${r['entry']:.2f} — open"
+                )
+        lines.append("")
+
     # Best/worst rule types
     if type_stats:
         best = max(type_stats.items(), key=lambda x: x[1]["wins"] / max(x[1]["total"], 1))
