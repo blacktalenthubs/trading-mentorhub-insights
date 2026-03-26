@@ -7637,7 +7637,7 @@ def evaluate_rules(
     # --- Minimum score cutoff: drop BUY alerts below 40 (Caution level) ---
     # These have too many headwinds to be educational — just noise.
     # SELL/SHORT/NOTICE always pass through (exits and warnings are critical).
-    MIN_BUY_SCORE = 40
+    MIN_BUY_SCORE = 0  # DISABLED — send all BUY alerts for evaluation
     pre_cutoff = signals[:]
     signals = [
         s for s in signals
