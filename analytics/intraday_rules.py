@@ -253,6 +253,7 @@ class AlertType(str, Enum):
     # Morning range retests
     MORNING_LOW_RETEST = "morning_low_retest"
     SESSION_LOW_REVERSAL = "session_low_reversal"
+    SESSION_LOW_BREAKDOWN = "session_low_breakdown"
     MORNING_LOW_BREAKDOWN = "morning_low_breakdown"
     PDH_FAILED_BREAKOUT = "pdh_failed_breakout"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
@@ -3391,6 +3392,91 @@ def check_session_low_reversal(
     )
 
 
+def check_session_low_breakdown(
+    symbol: str,
+    bars: pd.DataFrame,
+) -> AlertSignal | None:
+    """Established session low breaks on volume — SHORT signal.
+
+    The mirror of session_low_reversal. When a session low that held for
+    multiple bars finally breaks, it signals sellers overwhelming buyers.
+
+    Conditions:
+    1. At least 12 bars (60 min) — need an established low
+    2. Session low was tested/held for 3+ bars before breaking
+    3. Current bar closes below the prior session low
+    4. Volume >= 1.2x average on the breakdown bar
+    """
+    if bars.empty or len(bars) < 12:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_low = float(last_bar["Low"])
+    last_vol = float(last_bar["Volume"]) if pd.notna(last_bar["Volume"]) else 0
+
+    # Find the prior session low (excluding current bar)
+    prior_bars = bars.iloc[:-1]
+    if prior_bars.empty:
+        return None
+    prior_session_low = float(prior_bars["Low"].min())
+
+    if prior_session_low <= 0:
+        return None
+
+    # Current bar must close below the prior session low
+    if last_close >= prior_session_low:
+        return None
+
+    # Break must be meaningful (at least 0.05% below)
+    break_pct = (prior_session_low - last_close) / prior_session_low
+    if break_pct < 0.0005:
+        return None
+
+    # Prior low must have been held for 3+ bars (established support)
+    # Count bars where low was within 0.3% of the session low
+    near_low_bars = prior_bars[
+        (prior_bars["Low"] - prior_session_low).abs() / prior_session_low < 0.003
+    ]
+    if len(near_low_bars) < 2:
+        return None  # low wasn't tested enough
+
+    # Volume check
+    avg_vol = bars["Volume"].mean()
+    vol_ratio = last_vol / avg_vol if avg_vol > 0 else 0
+    if vol_ratio < 1.0:
+        return None
+
+    entry = round(last_close, 2)
+    stop = round(prior_session_low * 1.003, 2)
+    stop = _cap_risk(stop, entry, symbol=symbol)
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry - risk, 2)
+    target_2 = round(entry - 2 * risk, 2)
+
+    confidence = "high" if vol_ratio >= 1.5 and break_pct >= 0.002 else "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SESSION_LOW_BREAKDOWN,
+        direction="SHORT",
+        price=last_close,
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"SESSION LOW BREAKDOWN — prior low ${prior_session_low:.2f} "
+            f"broken on {vol_ratio:.1f}x volume, closed ${last_close:.2f} "
+            f"({break_pct:.2%} below)"
+        ),
+    )
+
+
 def check_session_low_bounce_to_vwap(
     symbol: str,
     bars: pd.DataFrame,
@@ -6415,6 +6501,16 @@ def evaluate_rules(
         # --- Session Low Reversal (reversal candle + volume at the low) ---
         if AlertType.SESSION_LOW_REVERSAL.value in ENABLED_RULES:
             sig = check_session_low_reversal(symbol, intraday_bars)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- Session Low Breakdown (SHORT) ---
+        if AlertType.SESSION_LOW_BREAKDOWN.value in ENABLED_RULES:
+            sig = check_session_low_breakdown(symbol, intraday_bars)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:

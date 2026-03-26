@@ -546,6 +546,7 @@ ENABLED_RULES: set[str] = {
     # BUY — session low reversal (candle + volume at the low itself)
     "session_low_reversal",
     # SHORT — session patterns
+    "session_low_breakdown",
     "morning_low_breakdown",
     "pdh_failed_breakout",
     # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
