@@ -412,8 +412,9 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     if not dry_run:
         update_monitor_status(len(symbols), total_alerts, "running")
 
-    # Exit Coach: check active positions for exit signals every poll cycle
-    if not dry_run:
+    # Exit Coach: DISABLED — focusing on entry quality. User exits via Telegram button.
+    # Position updates also disabled. Will re-enable once entries are perfected.
+    if False and not dry_run:
         try:
             from analytics.exit_coach import check_positions as exit_coach_check
             from analytics.intraday_data import compute_vwap

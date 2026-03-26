@@ -356,6 +356,7 @@ def _build_trade_buttons(signal: AlertSignal, alert_id: int | None) -> dict | No
             "inline_keyboard": [[
                 {"text": "\u2705 Took It", "callback_data": f"ack:{alert_id}"},
                 {"text": "\u274c Skip", "callback_data": f"skip:{alert_id}"},
+                {"text": "\U0001f6d1 Exit", "callback_data": f"exit:{alert_id}"},
             ]]
         }
 

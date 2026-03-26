@@ -224,12 +224,12 @@ def _handle_skip(alert_id: int) -> str:
 
 
 def _handle_exit(alert_id: int, chat_id: int) -> str:
-    """User tapped 'Exited' on a SELL alert — close the real trade.
+    """User tapped 'Exit' — close the active entry and optionally the real trade.
 
-    Uses the SELL alert's price as exit price (auto-fill from exit alert).
+    Removes the active entry (stops position updates and exit coaching)
+    and closes any open real trade for this symbol.
     """
     from db import get_db
-    from alerting.real_trade_store import close_real_trade
 
     alert = _find_alert(alert_id)
     if not alert:
@@ -237,20 +237,34 @@ def _handle_exit(alert_id: int, chat_id: int) -> str:
 
     symbol = alert["symbol"]
     exit_price = alert["price"]
+    entry_price = alert.get("entry", 0)
 
-    # Find the open real trade for this symbol
+    # Remove active entry for this symbol (stops position updates)
+    active_deleted = 0
     with get_db() as conn:
-        trade = conn.execute(
-            "SELECT id, entry_price FROM real_trades WHERE symbol=? AND status='open' ORDER BY opened_at DESC LIMIT 1",
+        cur = conn.execute(
+            "DELETE FROM active_entries WHERE symbol = %s",
             (symbol,),
-        ).fetchone()
+        )
+        active_deleted = cur.rowcount
+        conn.commit()
 
-    if not trade:
-        return f"No open trade found for {symbol}."
+    # Also close any open real trade
+    try:
+        from alerting.real_trade_store import close_real_trade
+        with get_db() as conn:
+            trade = conn.execute(
+                "SELECT id, entry_price FROM real_trades WHERE symbol=%s AND status='open' ORDER BY opened_at DESC LIMIT 1",
+                (symbol,),
+            ).fetchone()
+        if trade:
+            pnl = close_real_trade(trade["id"], exit_price, notes=f"Exited via Telegram")
+            sign = "+" if pnl >= 0 else ""
+            return f"\U0001f6d1 Exited {symbol} @ ${exit_price:.2f} | P&L: {sign}${pnl:.2f} | {active_deleted} entries cleared"
+    except Exception:
+        pass
 
-    pnl = close_real_trade(trade["id"], exit_price, notes=f"Exited via Telegram ({alert['alert_type']})")
-    sign = "+" if pnl >= 0 else ""
-    return f"\U0001f4b0 Exited {symbol} @ ${exit_price:.2f} | P&L: {sign}${pnl:.2f}"
+    return f"\U0001f6d1 Exited {symbol} | {active_deleted} active entries cleared"
 
 
 def _handle_exit_manual(symbol: str, chat_id: int) -> str:
