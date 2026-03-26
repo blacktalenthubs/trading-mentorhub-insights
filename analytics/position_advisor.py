@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 ET = pytz.timezone("US/Eastern")
 
-_POSITION_ADVISOR_MODEL = "claude-sonnet-4-20250514"
+_POSITION_ADVISOR_MODEL = "claude-haiku-4-5-20251001"
 
 _SYSTEM_PROMPT = """\
 You are a sharp position management advisor for an active day/swing trader. \

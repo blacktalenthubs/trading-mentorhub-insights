@@ -147,11 +147,10 @@ def generate_narrative(signal: AlertSignal) -> str:
         logger.debug("Narrative cache hit: %s", cache_key)
         return _narrative_cache[cache_key]
 
-    # Select model + prompt based on signal quality
-    use_sonnet = signal.score >= NARRATIVE_SONNET_MIN_SCORE
-    model = CLAUDE_MODEL_SONNET if use_sonnet else CLAUDE_MODEL
-    system_prompt = _SYSTEM_PROMPT_ENHANCED if use_sonnet else _SYSTEM_PROMPT
-    max_tokens = 384 if use_sonnet else 256
+    # Use Haiku for all narratives (cost savings during evaluation phase)
+    model = CLAUDE_MODEL
+    system_prompt = _SYSTEM_PROMPT
+    max_tokens = 256
 
     # Call Claude API
     try:

@@ -125,14 +125,10 @@ def narrate_cluster(
 
     prompt = _build_prompt(signal, confirming_types)
 
-    # Model selection: Sonnet for high-score signals, Haiku otherwise
+    # Use Haiku for all narratives (cost savings during evaluation phase)
     model = CLAUDE_MODEL
     max_tokens = 192
     timeout = 10.0
-    if signal.score >= NARRATIVE_SONNET_MIN_SCORE:
-        model = CLAUDE_MODEL_SONNET
-        max_tokens = 256
-        timeout = 15.0
 
     try:
         import anthropic
