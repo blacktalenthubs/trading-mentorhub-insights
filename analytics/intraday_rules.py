@@ -6929,12 +6929,16 @@ def evaluate_rules(
                     else "Caution"
                 )
             else:
-                # Non-key-support BUY — record to DB but skip Telegram
-                s._suppress_telegram = True
-                s.message += " | SPY below VWAP — dashboard only"
-                logger.info(
-                    "%s: SPY VWAP GATE muted BUY %s (dashboard only, SPY below VWAP)",
-                    symbol, s.alert_type.value,
+                # Non-key-support BUY — demote but still send to Telegram
+                s.message += " | SPY below VWAP — reduced confidence"
+                if s.confidence == "high":
+                    s.confidence = "medium"
+                s.score = min(s.score, 55)
+                s.score_label = (
+                    "Strong" if s.score >= 80
+                    else "Moderate" if s.score >= 60
+                    else "Weak" if s.score >= 40
+                    else "Caution"
                 )
 
     # --- 15-min range filter: suppress BUY when symbol is in a tight range ---
