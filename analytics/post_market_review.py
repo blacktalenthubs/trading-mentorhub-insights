@@ -275,6 +275,39 @@ def build_review(session_date: str | None = None, user_id: int | None = None) ->
                 )
         lines.append("")
 
+    # ── SKIPPED TRADES (what you missed) ─────────────────────────────────
+    skip_results = [r for r in results if r.get("user_action") == "skip"]
+    # Also include unacked (no action taken)
+    unacked_results = [r for r in results if not r.get("user_action")]
+    missed = skip_results + unacked_results
+
+    if missed:
+        missed_wins = [r for r in missed if r["outcome"] == "won"]
+        missed_losses = [r for r in missed if r["outcome"] == "stopped"]
+        missed_decided = len(missed_wins) + len(missed_losses)
+        missed_wr = (len(missed_wins) / missed_decided * 100) if missed_decided > 0 else 0
+        missed_avg_r = (
+            sum(r["r_achieved"] for r in missed_wins + missed_losses) / missed_decided
+            if missed_decided > 0 else 0
+        )
+
+        lines.append("<b>SKIPPED / MISSED TRADES</b>")
+        lines.append(
+            f"Skipped: {len(missed)} | "
+            f"W: {len(missed_wins)} L: {len(missed_losses)}"
+        )
+        if missed_decided > 0:
+            lines.append(f"Skip Win Rate: {missed_wr:.0f}% | Avg R: {missed_avg_r:.1f}R")
+        for r in missed_wins[:5]:  # top 5 missed winners
+            label = r["alert_type"].replace("_", " ").title()
+            lines.append(
+                f"  \U0001f62e {r['symbol']} {label} ${r['entry']:.2f} → "
+                f"${r['exit_price']:.2f} ({r['r_achieved']:.1f}R)"
+            )
+        if len(missed_wins) > 5:
+            lines.append(f"  ... +{len(missed_wins) - 5} more winners")
+        lines.append("")
+
     # Best/worst rule types
     if type_stats:
         best = max(type_stats.items(), key=lambda x: x[1]["wins"] / max(x[1]["total"], 1))
