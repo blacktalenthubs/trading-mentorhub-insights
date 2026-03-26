@@ -254,6 +254,8 @@ class AlertType(str, Enum):
     MORNING_LOW_RETEST = "morning_low_retest"
     SESSION_LOW_REVERSAL = "session_low_reversal"
     VWAP_LOSS = "vwap_loss"
+    EMA_REJECTION_SHORT = "ema_rejection_short"
+    EMA_LOSS_SHORT = "ema_loss_short"
     SESSION_LOW_BREAKDOWN = "session_low_breakdown"
     MORNING_LOW_BREAKDOWN = "morning_low_breakdown"
     PDH_FAILED_BREAKOUT = "pdh_failed_breakout"
@@ -3473,6 +3475,171 @@ def check_vwap_loss(
     )
 
 
+def check_ema_rejection_short(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict | None,
+) -> AlertSignal | None:
+    """Price rallies into a key EMA/MA from below and gets rejected — SHORT.
+
+    Conditions:
+    1. At least 12 bars (60 min into session)
+    2. Bar high reaches within 0.3% of a key daily EMA/MA (20/50/100/200)
+    3. Bar closes in the lower 40% of its range (rejection confirmed)
+    4. Price must be BELOW the MA (approaching from below = resistance)
+    """
+    if bars.empty or len(bars) < 12 or not prior_day:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_high = float(last_bar["High"])
+    last_low = float(last_bar["Low"])
+    bar_range = last_high - last_low
+
+    if bar_range <= 0:
+        return None
+
+    # Close must be in lower 40% of range (selling pressure = rejection)
+    if (last_close - last_low) / bar_range > 0.4:
+        return None
+
+    # Check each key MA for rejection
+    _ma_levels = [
+        ("EMA20", prior_day.get("ema20", 0)),
+        ("EMA50", prior_day.get("ema50", 0)),
+        ("MA50", prior_day.get("ma50", 0)),
+        ("EMA100", prior_day.get("ema100", 0)),
+        ("EMA200", prior_day.get("ema200", 0)),
+        ("MA200", prior_day.get("ma200", 0)),
+    ]
+
+    for ma_name, ma_val in _ma_levels:
+        if not ma_val or ma_val <= 0:
+            continue
+        # Price must be below the MA (approaching from below)
+        if last_close >= ma_val:
+            continue
+        # Bar high must have reached near the MA (within 0.3%)
+        proximity = abs(last_high - ma_val) / ma_val
+        if proximity > 0.003:
+            continue
+
+        # Rejection confirmed
+        entry = round(last_close, 2)
+        stop = round(ma_val * 1.003, 2)
+        risk = stop - entry
+        if risk <= 0:
+            continue
+
+        target_1 = round(entry - risk, 2)
+        target_2 = round(entry - 2 * risk, 2)
+
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.EMA_REJECTION_SHORT,
+            direction="SHORT",
+            price=last_close,
+            entry=entry,
+            stop=stop,
+            target_1=target_1,
+            target_2=target_2,
+            confidence="medium",
+            message=(
+                f"{ma_name} REJECTION — rallied to ${last_high:.2f} near "
+                f"{ma_name} ${ma_val:.2f}, rejected and closed ${last_close:.2f}. "
+                f"MA acting as resistance."
+            ),
+        )
+
+    return None
+
+
+def check_ema_loss_short(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict | None,
+) -> AlertSignal | None:
+    """Price was above a key EMA/MA, now confirms close below — SHORT.
+
+    Like vwap_loss but for moving averages. When a stock loses a key MA
+    that was supporting it, institutions adjust positioning.
+
+    Conditions:
+    1. At least 12 bars (60 min into session)
+    2. Prior 3+ bars had closes above the MA (it was support)
+    3. Current bar closes below the MA (support lost)
+    4. Close in lower 50% of bar range (not a wick below)
+    """
+    if bars.empty or len(bars) < 12 or not prior_day:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_high = float(last_bar["High"])
+    last_low = float(last_bar["Low"])
+    bar_range = last_high - last_low
+
+    if bar_range <= 0:
+        return None
+
+    # Close in lower 50% (not a wick)
+    if (last_close - last_low) / bar_range > 0.5:
+        return None
+
+    # Check key MAs — only the ones price was recently above
+    _ma_levels = [
+        ("EMA50", prior_day.get("ema50", 0)),
+        ("MA50", prior_day.get("ma50", 0)),
+        ("EMA100", prior_day.get("ema100", 0)),
+        ("EMA200", prior_day.get("ema200", 0)),
+        ("MA200", prior_day.get("ma200", 0)),
+    ]
+
+    for ma_name, ma_val in _ma_levels:
+        if not ma_val or ma_val <= 0:
+            continue
+        # Must close below the MA now
+        if last_close >= ma_val:
+            continue
+
+        # Check prior bars were above this MA (it was support)
+        lookback = min(6, len(bars) - 1)
+        prior_bars = bars.iloc[-(lookback + 1):-1]
+        bars_above = sum(float(b["Close"]) > ma_val for _, b in prior_bars.iterrows())
+
+        if bars_above < 3:
+            continue  # MA wasn't established support
+
+        entry = round(last_close, 2)
+        stop = round(ma_val * 1.003, 2)
+        risk = stop - entry
+        if risk <= 0:
+            continue
+
+        target_1 = round(entry - risk, 2)
+        target_2 = round(entry - 2 * risk, 2)
+
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.EMA_LOSS_SHORT,
+            direction="SHORT",
+            price=last_close,
+            entry=entry,
+            stop=stop,
+            target_1=target_1,
+            target_2=target_2,
+            confidence="medium",
+            message=(
+                f"{ma_name} LOST — was above {ma_name} ${ma_val:.2f} for "
+                f"{bars_above}/{lookback} bars, now closed below at "
+                f"${last_close:.2f}. Support broken."
+            ),
+        )
+
+    return None
+
+
 def check_session_low_breakdown(
     symbol: str,
     bars: pd.DataFrame,
@@ -6608,6 +6775,22 @@ def evaluate_rules(
         # --- VWAP Loss (SHORT) — was above VWAP, confirmed close below ---
         if AlertType.VWAP_LOSS.value in ENABLED_RULES:
             sig = check_vwap_loss(symbol, intraday_bars, vwap_series)
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- EMA Rejection SHORT (rallied into MA, got rejected) ---
+        if AlertType.EMA_REJECTION_SHORT.value in ENABLED_RULES:
+            sig = check_ema_rejection_short(symbol, intraday_bars, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- EMA Loss SHORT (was above MA, closed below) ---
+        if AlertType.EMA_LOSS_SHORT.value in ENABLED_RULES:
+            sig = check_ema_loss_short(symbol, intraday_bars, prior_day)
             if sig:
                 sig.message += f" ({phase})"
                 sig.message += caution_suffix

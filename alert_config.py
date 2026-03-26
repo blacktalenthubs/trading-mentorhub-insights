@@ -563,6 +563,9 @@ ENABLED_RULES: set[str] = {
     "spy_short_entry",
     "consol_breakout_long",
     "consol_breakout_short",
+    # SHORT — MA/EMA rejection and loss
+    "ema_rejection_short",
+    "ema_loss_short",
     # ── Trade management — exit alerts (critical) ───────────────────────────
     "target_1_hit",
     "target_2_hit",
