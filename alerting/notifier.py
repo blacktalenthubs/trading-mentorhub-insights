@@ -55,10 +55,18 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
     # SELL — only allow T1 hit and stop loss through to Telegram
     if signal.direction == "SELL":
         _exit_types = {"target_1_hit", "stop_loss_hit", "auto_stop_out"}
-        if signal.alert_type.value not in _exit_types:
+        _warn_types = {"hourly_resistance_approach"}
+        if signal.alert_type.value not in _exit_types and signal.alert_type.value not in _warn_types:
             return None
-        # Format exit alerts cleanly
         import html as _html2
+        # Resistance approach — near-exit warning
+        if signal.alert_type.value in _warn_types:
+            return (
+                f"<b>NEAR EXIT — {_html2.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+                f"{signal.message or 'Approaching resistance'}\n"
+                f"Tighten stop or take profits"
+            )
+        # Format exit alerts cleanly
         _label = signal.alert_type.value.replace("_", " ").title()
         if "target" in signal.alert_type.value:
             return (
