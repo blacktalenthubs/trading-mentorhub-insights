@@ -291,8 +291,12 @@ def _send_sms_via_email_gateway(body: str) -> bool:
     if not SMS_GATEWAY_TO or not SMTP_USER or not SMTP_PASSWORD:
         return False
 
+    # Strip HTML tags (body may contain Telegram HTML formatting)
+    import re
+    plain = re.sub(r"<[^>]+>", "", body)
+
     # SMS limit is 160 chars; MMS can do more but not all gateways support it
-    truncated = body[:160]
+    truncated = plain[:160]
 
     msg = MIMEText(truncated)
     msg["From"] = ALERT_EMAIL_FROM
@@ -311,37 +315,6 @@ def _send_sms_via_email_gateway(body: str) -> bool:
         return False
 
 
-def _send_twilio(body: str) -> bool:
-    """Send via Twilio SMS or WhatsApp. Returns True on success."""
-    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN or not ALERT_SMS_TO:
-        return False
-
-    try:
-        from twilio.rest import Client
-
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-
-        if TWILIO_USE_WHATSAPP:
-            from_num = f"whatsapp:{TWILIO_FROM_NUMBER}"
-            to_num = f"whatsapp:{ALERT_SMS_TO}"
-            channel = "WhatsApp"
-        else:
-            from_num = TWILIO_FROM_NUMBER
-            to_num = ALERT_SMS_TO
-            channel = "SMS"
-
-        # Strip HTML tags for SMS/WhatsApp (Twilio doesn't support HTML)
-        import re
-        plain_body = re.sub(r"<[^>]+>", "", body)
-
-        client.messages.create(body=plain_body, from_=from_num, to=to_num)
-        logger.info("%s sent to %s: %s", channel, to_num, plain_body[:50])
-        return True
-    except Exception:
-        logger.exception("Failed to send %s", "WhatsApp" if TWILIO_USE_WHATSAPP else "SMS")
-        return False
-
-
 def send_sms(signal: AlertSignal) -> bool:
     """Send alert via all configured channels (Telegram + Twilio)."""
     body = _format_sms_body(signal)
@@ -357,19 +330,13 @@ def send_sms(signal: AlertSignal) -> bool:
         if _send_telegram(body):
             sent_any = True
 
-    # Twilio SMS/WhatsApp (secondary)
-    if TWILIO_ACCOUNT_SID:
-        logger.info("Notification channel: Twilio (%s)", "WhatsApp" if TWILIO_USE_WHATSAPP else "SMS")
-        if _send_twilio(body):
-            sent_any = True
-
-    # Email-to-SMS gateway (fallback if neither above is configured)
-    if not sent_any and SMS_GATEWAY_TO:
+    # Email-to-SMS gateway (always send alongside Telegram)
+    if SMS_GATEWAY_TO:
         if _send_sms_via_email_gateway(body):
             sent_any = True
 
     if not sent_any:
-        logger.warning("No notification channel delivered — check Telegram/Twilio/SMS config")
+        logger.warning("No notification channel delivered — check Telegram/SMS config")
 
     return sent_any
 
@@ -474,9 +441,9 @@ def notify(signal: AlertSignal, alert_id: int | None = None) -> tuple[bool, bool
             if _send_telegram_to(body, TELEGRAM_CHAT_ID, reply_markup=buttons):
                 sms_sent = True
 
-        # Twilio SMS/WhatsApp (always send alongside Telegram)
-        if TWILIO_ACCOUNT_SID:
-            if _send_twilio(body):
+        # Email-to-SMS gateway (always send alongside Telegram)
+        if SMS_GATEWAY_TO:
+            if _send_sms_via_email_gateway(body):
                 sms_sent = True
 
     return email_sent, sms_sent
