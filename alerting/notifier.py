@@ -61,10 +61,11 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         import html as _html2
         # Resistance approach — near-exit warning
         if signal.alert_type.value in _warn_types:
+            # Extract resistance level from message (e.g. "APPROACHING HOURLY RESISTANCE at $2076.16 — ...")
+            _res_msg = signal.message.split(" — ")[0] if signal.message else "Approaching resistance"
             return (
                 f"<b>NEAR EXIT — {_html2.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
-                f"{signal.message or 'Approaching resistance'}\n"
-                f"Tighten stop or take profits"
+                f"{_res_msg}"
             )
         # Format exit alerts cleanly
         _label = signal.alert_type.value.replace("_", " ").title()
