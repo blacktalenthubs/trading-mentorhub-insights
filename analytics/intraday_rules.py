@@ -31,6 +31,7 @@ from alert_config import (
     CONSOLIDATION_MAX_BOOST,
     CONSOLIDATION_SCORE_BOOST,
     DAILY_DB_INTRADAY_PROXIMITY_PCT,
+    DAILY_DB_MAX_DISTANCE_CRYPTO_PCT,
     DAILY_DB_MAX_DISTANCE_PCT,
     DAILY_DB_STOP_OFFSET_PCT,
     DAY_TRADE_MAX_RISK_PCT,
@@ -64,6 +65,7 @@ from alert_config import (
     INSIDE_DAY_FORMING_MIN_BARS,
     INSIDE_DAY_SCORE_BOOST,
     PDL_BOUNCE_HOLD_BARS,
+    PDL_BOUNCE_MAX_DISTANCE_CRYPTO_PCT,
     PDL_BOUNCE_MAX_DISTANCE_PCT,
     PDL_BOUNCE_PROXIMITY_PCT,
     PDL_BOUNCE_STOP_OFFSET_PCT,
@@ -821,9 +823,11 @@ def check_prior_day_low_bounce(
 
     last_bar = bars.iloc[-1]
 
-    # Skip if price already ran too far
+    # Skip if price already ran too far (tighter limit for crypto)
+    _is_crypto = symbol.endswith("-USD")
+    _max_dist = PDL_BOUNCE_MAX_DISTANCE_CRYPTO_PCT if _is_crypto else PDL_BOUNCE_MAX_DISTANCE_PCT
     distance_pct = (last_bar["Close"] - prior_day_low) / prior_day_low
-    if distance_pct > PDL_BOUNCE_MAX_DISTANCE_PCT:
+    if distance_pct > _max_dist:
         return None
 
     entry = last_bar["Close"]
@@ -4676,9 +4680,11 @@ def check_multi_day_double_bottom(
         if last_close <= level:
             continue
 
-        # Stale guard: price can't have run too far above zone
+        # Stale guard: price can't have run too far above zone (tighter for crypto)
+        _is_crypto = symbol.endswith("-USD")
+        _max_dist = DAILY_DB_MAX_DISTANCE_CRYPTO_PCT if _is_crypto else DAILY_DB_MAX_DISTANCE_PCT
         distance_above = (last_close - level) / level
-        if distance_above > DAILY_DB_MAX_DISTANCE_PCT:
+        if distance_above > _max_dist:
             continue
 
         # Not making a lower low — reject descending lows

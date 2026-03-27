@@ -518,10 +518,11 @@ class TestPriorDayLowBounce:
     def test_fires_when_bar_low_near_pdl_and_holds(self):
         """Bar low within 0.5% of PDL, last 2 bars close above PDL → fires."""
         # PDL = 100.0, proximity = 0.5% → anything with low <= 100.5 qualifies
+        # Crypto has tighter max distance (0.8%) so keep close within that
         bars = _bars([
-            {"Open": 101, "High": 102, "Low": 100.3, "Close": 101.0, "Volume": 1000},
-            {"Open": 101, "High": 101.5, "Low": 100.2, "Close": 100.8, "Volume": 1200},
-            {"Open": 100.8, "High": 101.2, "Low": 100.4, "Close": 101.0, "Volume": 1100},
+            {"Open": 100.5, "High": 101, "Low": 100.3, "Close": 100.6, "Volume": 1000},
+            {"Open": 100.5, "High": 100.8, "Low": 100.2, "Close": 100.5, "Volume": 1200},
+            {"Open": 100.4, "High": 100.7, "Low": 100.3, "Close": 100.5, "Volume": 1100},
         ])
         sig = check_prior_day_low_bounce("BTC-USD", bars, prior_day_low=100.0)
         assert sig is not None

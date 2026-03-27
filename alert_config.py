@@ -82,6 +82,7 @@ PDL_STOP_OFFSET_PCT = 0.005   # 0.5% below PDL for both reclaim and bounce stops
 PDL_BOUNCE_PROXIMITY_PCT = 0.005     # 0.5% — bar low must be within this of PDL
 PDL_BOUNCE_HOLD_BARS = 1             # 1 bar (5 min) closing above PDL after touch
 PDL_BOUNCE_MAX_DISTANCE_PCT = 0.015  # 1.5% — skip if price ran too far above PDL (widened for volatile names)
+PDL_BOUNCE_MAX_DISTANCE_CRYPTO_PCT = 0.008  # 0.8% — tighter for crypto (24/7 polling lag)
 PDL_BOUNCE_STOP_OFFSET_PCT = 0.003   # 0.3% below PDL for stop (legacy, superseded by PDL_STOP_OFFSET_PCT)
 
 # Prior Day High Retest & Hold: after breakout, price pulls back to PDH and holds
@@ -171,6 +172,7 @@ DAILY_DB_MIN_RECOVERY_PCT = 0.005      # 0.5% recovery above zone between touche
 DAILY_DB_INTRADAY_PROXIMITY_PCT = 0.005  # 0.5% — how close intraday bar must be to zone
 DAILY_DB_STOP_OFFSET_PCT = 0.005       # 0.5% below zone low for stop
 DAILY_DB_MAX_DISTANCE_PCT = 0.02       # 2% — skip if price already ran past zone
+DAILY_DB_MAX_DISTANCE_CRYPTO_PCT = 0.01  # 1% — tighter for crypto (24/7 polling lag)
 
 # Planned Level Touch: bar low must be within this % of Scanner's planned entry
 PLANNED_LEVEL_PROXIMITY_PCT = 0.003  # 0.3%
