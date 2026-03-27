@@ -30,64 +30,6 @@ from alert_config import (
 logger = logging.getLogger(__name__)
 
 
-def _format_email_body(signal: AlertSignal) -> str:
-    """Build the plain-text email body for an alert."""
-    now = datetime.now().strftime("%I:%M %p ET")
-    label = signal.alert_type.value.replace("_", " ").title()
-    lines = [
-        f"Symbol:  {signal.symbol}",
-        f"Signal:  {signal.direction} - {label}",
-        f"Price:   ${signal.price:.2f}",
-    ]
-
-    if signal.score > 0:
-        score_line = f"Score:   {signal.score_label} ({signal.score}/100)"
-        v2 = getattr(signal, "score_v2", 0)
-        if v2 and v2 != signal.score:
-            v2_label = getattr(signal, "score_v2_label", "")
-            score_line += f" | v2: {v2_label} ({v2}/100)"
-        lines.append(score_line)
-        _factors = getattr(signal, "score_factors", None)
-        if _factors:
-            _fl = {"ma": "MA", "vol": "Vol", "conf": "Conf", "vwap": "VWAP",
-                   "rr": "R:R", "confluence": "Cnfl", "mtf": "MTF",
-                   "consolidation": "Multi"}
-            _fb = [f"{_fl.get(k, k)}+{v}" for k, v in _factors.items() if v]
-            if _fb:
-                lines.append(f"         {' '.join(_fb)}")
-
-    if signal.entry is not None:
-        lines.append(f"Entry:   ${signal.entry:.2f}")
-    if signal.stop is not None:
-        lines.append(f"Stop:    ${signal.stop:.2f}")
-        if signal.entry is not None:
-            risk = signal.entry - signal.stop
-            risk_pct = risk / signal.entry * 100 if signal.entry > 0 else 0
-            lines[-1] += f" (-${risk:.2f}, {risk_pct:.1f}%)"
-    if signal.target_1 is not None:
-        base = signal.entry or signal.price
-        risk = base - signal.stop if signal.stop else 0
-        reward1 = signal.target_1 - base
-        r1_mult = f"{reward1 / risk:.1f}R" if risk > 0 else "+${reward1:.2f}"
-        lines.append(f"T1:      ${signal.target_1:.2f} (+${reward1:.2f}, {r1_mult})")
-    if signal.target_2 is not None:
-        base = signal.entry or signal.price
-        risk = base - signal.stop if signal.stop else 0
-        reward2 = signal.target_2 - base
-        r2_mult = f"{reward2 / risk:.1f}R" if risk > 0 else "+${reward2:.2f}"
-        lines.append(f"T2:      ${signal.target_2:.2f} (+${reward2:.2f}, {r2_mult})")
-
-    lines.append(f"Time:    {now}")
-
-    if signal.message:
-        lines.append(f"\n{signal.message}")
-
-    if getattr(signal, "narrative", ""):
-        lines.append(f"\nTHESIS:\n{signal.narrative}")
-
-    return "\n".join(lines)
-
-
 def _get_app_url() -> str:
     """Return the public-facing app URL, ignoring localhost values."""
     _default = "https://tradecopilot.streamlit.app"
@@ -156,6 +98,20 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
     # Telegram message limit is 4096 chars; truncate safely
     return "\n".join(parts)[:4000]
+
+
+def _format_email_body(signal: AlertSignal) -> str:
+    """Build a concise plain-text email body — same format as Telegram."""
+    import re
+
+    # Reuse the Telegram formatter and strip HTML tags
+    body = _format_sms_body(signal)
+    if body is None:
+        # Fallback for suppressed types (SELL/NOTICE)
+        label = signal.alert_type.value.replace("_", " ").title()
+        return f"{signal.direction} {signal.symbol} ${signal.price:.2f}\n{label}"
+
+    return re.sub(r"<[^>]+>", "", body)
 
 
 def send_plain_email(email_to: str, subject: str, body: str) -> bool:
