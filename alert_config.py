@@ -565,7 +565,7 @@ ENABLED_RULES: set[str] = {
     "consol_breakout_short",
     # SHORT — MA/EMA rejection and loss
     "ema_rejection_short",
-    "ema_loss_short",
+    # "ema_loss_short",  # disabled — too noisy during evaluation
     # ── Trade management — exit alerts (critical) ───────────────────────────
     "target_1_hit",
     "target_2_hit",
