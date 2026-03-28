@@ -3926,7 +3926,7 @@ def check_spy_short_entry(
         if prev_close > level_price and last_bar["Close"] > level_price:
             return None  # reclaimed
 
-    entry = round(level_price, 2)
+    entry = round(float(last_bar["Close"]), 2)
     stop = round(level_price * (1 + SPY_SHORT_STOP_OFFSET_PCT), 2)
     risk = stop - entry
     if risk <= 0:
@@ -5646,48 +5646,29 @@ def _detect_ma_context(
 # ---------------------------------------------------------------------------
 
 
+def _score_label(score: int) -> str:
+    """Unified score label: A+ >= 90, A >= 75, B >= 55, C < 55."""
+    if score >= 90:
+        return "A+"
+    if score >= 75:
+        return "A"
+    if score >= 55:
+        return "B"
+    return "C"
+
+
 def _score_alert(
     sig: AlertSignal,
     ma20: float | None,
     ma50: float | None,
     close: float,
     vol_ratio: float,
-) -> int:
-    """Lightweight score (0-100) for an intraday AlertSignal."""
-    score = 0
-    # MA position (25): above both = 25, one = 15, none = 0
-    above_20 = ma20 is not None and close > ma20
-    above_50 = ma50 is not None and close > ma50
-    score += 25 if (above_20 and above_50) else (15 if (above_20 or above_50) else 0)
-    # Volume (25): high = 25, normal = 15, low = 5
-    score += 25 if vol_ratio >= 1.2 else (15 if vol_ratio >= 0.8 else 5)
-    # Confidence (25): high = 25, medium = 15
-    score += 25 if sig.confidence == "high" else 15
-    # Direction alignment (25): BUY above VWAP or SHORT below = 25
-    vwap_aligned = (
-        (sig.direction == "BUY" and sig.vwap_position == "above VWAP")
-        or (sig.direction == "SHORT" and sig.vwap_position == "below VWAP")
-    )
-    score += 25 if vwap_aligned else 10
-    return score
-
-
-def _score_alert_v2(
-    sig: AlertSignal,
-    ma20: float | None,
-    ma50: float | None,
-    close: float,
-    vol_ratio: float,
 ) -> tuple[int, dict]:
-    """Signal-type-aware score (0-100) with factor breakdown.
+    """Unified score (0-100) with factor breakdown.
 
-    For bounce/dip-buy signals, adjusts MA position and VWAP factors to
-    reflect that being below MAs and VWAP is *expected* (mean-reversion).
-    Adds R:R bonus when T1 reward/risk >= threshold.
-    For breakout signals, identical to v1 (plus R:R bonus).
-
-    Returns (score, factors_dict) where factors_dict maps component names
-    to their point contributions.
+    Direction-aware: SHORT signals get full MA credit when below MAs.
+    Bounce-type-aware: bounce signals get partial credit for being below MAs/VWAP.
+    R:R bonus applies to both BUY and SHORT.
     """
     alert_type_str = sig.alert_type.value
     is_bounce = alert_type_str in BOUNCE_ALERT_TYPES
@@ -5696,24 +5677,31 @@ def _score_alert_v2(
     factors: dict[str, int] = {}
     score = 0
 
-    # --- MA position (25) ---
+    # --- MA position (25) — direction-aware ---
     above_20 = ma20 is not None and close > ma20
     above_50 = ma50 is not None and close > ma50
+    below_20 = ma20 is not None and close < ma20
+    below_50 = ma50 is not None and close < ma50
+
     if is_ma_bounce:
-        ma_pts = 25
+        ma_pts = 25  # being at/below MAs is the entire point
     elif is_bounce:
         ma_pts = 25 if (above_20 and above_50) else (15 if (above_20 or above_50) else 10)
+    elif sig.direction == "SHORT":
+        # SHORT below both MAs = trend-aligned = full credit
+        ma_pts = 25 if (below_20 and below_50) else (15 if (below_20 or below_50) else 0)
     else:
+        # BUY above both MAs = trend-aligned = full credit
         ma_pts = 25 if (above_20 and above_50) else (15 if (above_20 or above_50) else 0)
     factors["ma"] = ma_pts
     score += ma_pts
 
-    # --- Volume (25): same as v1 ---
+    # --- Volume (25) ---
     vol_pts = 25 if vol_ratio >= 1.2 else (15 if vol_ratio >= 0.8 else 5)
     factors["vol"] = vol_pts
     score += vol_pts
 
-    # --- Confidence (25): same as v1 ---
+    # --- Confidence (25) ---
     conf_pts = 25 if sig.confidence == "high" else 15
     factors["conf"] = conf_pts
     score += conf_pts
@@ -5732,19 +5720,19 @@ def _score_alert_v2(
     factors["vwap"] = vwap_pts
     score += vwap_pts
 
-    # --- R:R bonus (BUY entries only) ---
+    # --- R:R bonus (BUY and SHORT) ---
     rr_pts = 0
-    if (
-        sig.direction == "BUY"
-        and sig.entry is not None
-        and sig.stop is not None
-        and sig.target_1 is not None
-    ):
-        risk = sig.entry - sig.stop
-        if risk > 0:
-            reward = sig.target_1 - sig.entry
-            if reward / risk >= SCORE_V2_RR_BONUS_THRESHOLD:
-                rr_pts = SCORE_V2_RR_BONUS_POINTS
+    if sig.entry is not None and sig.stop is not None and sig.target_1 is not None:
+        if sig.direction == "BUY":
+            risk = sig.entry - sig.stop
+            reward = sig.target_1 - sig.entry if risk > 0 else 0
+        elif sig.direction == "SHORT":
+            risk = sig.stop - sig.entry
+            reward = sig.entry - sig.target_1 if risk > 0 else 0
+        else:
+            risk, reward = 0, 0
+        if risk > 0 and reward / risk >= SCORE_V2_RR_BONUS_THRESHOLD:
+            rr_pts = SCORE_V2_RR_BONUS_POINTS
     if rr_pts:
         factors["rr"] = rr_pts
         score += rr_pts
@@ -6152,18 +6140,9 @@ def _consolidate_signals(signals: list[AlertSignal]) -> list[AlertSignal]:
             primary.score_factors["consolidation"] = boost
 
         # Recalculate score labels
-        primary.score_label = (
-            "Strong" if primary.score >= 80
-            else "Moderate" if primary.score >= 60
-            else "Weak" if primary.score >= 40
-            else "Caution"
-        )
-        primary.score_v2_label = (
-            "Strong" if primary.score_v2 >= 80
-            else "Moderate" if primary.score_v2 >= 60
-            else "Weak" if primary.score_v2 >= 40
-            else "Caution"
-        )
+        primary.score_v2 = primary.score
+        primary.score_label = _score_label(primary.score)
+        primary.score_v2_label = primary.score_label
 
         # Append confirming signal types to message
         types = [s.alert_type.value.replace("_", " ").title() for s in others]
@@ -7399,24 +7378,14 @@ def evaluate_rules(
                 if s.confidence == "high":
                     s.confidence = "medium"
                 s.score = min(s.score, 65)
-                s.score_label = (
-                    "Strong" if s.score >= 80
-                    else "Moderate" if s.score >= 60
-                    else "Weak" if s.score >= 40
-                    else "Caution"
-                )
+                s.score_label = _score_label(s.score)
             else:
                 # Non-key-support BUY — demote but still send to Telegram
                 s.message += " | SPY below VWAP — reduced confidence"
                 if s.confidence == "high":
                     s.confidence = "medium"
                 s.score = min(s.score, 55)
-                s.score_label = (
-                    "Strong" if s.score >= 80
-                    else "Moderate" if s.score >= 60
-                    else "Weak" if s.score >= 40
-                    else "Caution"
-                )
+                s.score_label = _score_label(s.score)
 
     # --- 15-min range filter: suppress BUY when symbol is in a tight range ---
     # If the hourly bars show consolidation (no breakout), BUY signals are
@@ -7628,12 +7597,7 @@ def evaluate_rules(
                     if s.confidence == "high":
                         s.confidence = "medium"
                     s.score = min(s.score, 65)
-                    s.score_label = (
-                        "Strong" if s.score >= 80
-                        else "Moderate" if s.score >= 60
-                        else "Weak" if s.score >= 40
-                        else "Caution"
-                    )
+                    s.score_label = _score_label(s.score)
             for s in pre_gate:
                 if s.direction == "BUY" and s not in signals:
                     logger.info(
@@ -7650,7 +7614,7 @@ def evaluate_rules(
                     s.message += f" | SPY GATE YELLOW: {_gate_reason}"
                     # Cap score at C level
                     s.score = min(s.score, 40)
-                    s.score_label = "Caution"
+                    s.score_label = _score_label(s.score)
 
         # Block SHORT consolidation breakout on GREEN (don't short bull tape)
         if _gate == "green":
@@ -7674,12 +7638,7 @@ def evaluate_rules(
         for s in signals:
             if s.direction == "BUY":
                 s.score = max(0, s.score - 10)
-                s.score_label = (
-                    "Strong" if s.score >= 80
-                    else "Moderate" if s.score >= 60
-                    else "Weak" if s.score >= 40
-                    else "Caution"
-                )
+                s.score_label = _score_label(s.score)
                 s.message = (s.message or "") + f" | ADX={_adx:.0f} (low trend)"
                 s.confidence = "low" if s.confidence == "medium" else s.confidence
                 logger.debug(
@@ -8064,25 +8023,21 @@ def evaluate_rules(
             else:
                 sig.message += " | 15m trend NOT aligned (caution)"
 
-        sig.score = _score_alert(sig, ma20, ma50, last_bar["Close"], vol_ratio)
-        sig.score_v2, factors = _score_alert_v2(sig, ma20, ma50, last_bar["Close"], vol_ratio)
-        sig.score_factors = dict(factors)  # copy before boosts
+        sig.score, sig.score_factors = _score_alert(sig, ma20, ma50, last_bar["Close"], vol_ratio)
+        sig.score_factors = dict(sig.score_factors)  # copy before boosts
 
-        # Confluence score boost (v1 + v2)
+        # Confluence score boost
         if sig.confluence:
             sig.score = min(100, sig.score + 10)
-            sig.score_v2 = min(100, sig.score_v2 + 10)
             sig.score_factors["confluence"] = 10
 
-        # MTF alignment score boost (v1 + v2)
+        # MTF alignment score boost
         if sig.direction == "BUY" and mtf["mtf_aligned"]:
             sig.score = min(100, sig.score + 10)
-            sig.score_v2 = min(100, sig.score_v2 + 10)
             sig.score_factors["mtf"] = 10
 
         # Inside day forming score boost: boundary alerts (PDL/PDH) are higher
-        # conviction when the day is range-bound — these are the only tradeable
-        # levels on an inside day.
+        # conviction when the day is range-bound
         _INSIDE_DAY_BOUNDARY_TYPES = {
             AlertType.PRIOR_DAY_LOW_RECLAIM.value,
             AlertType.PRIOR_DAY_LOW_BOUNCE.value,
@@ -8091,22 +8046,13 @@ def evaluate_rules(
         }
         if is_inside_day_forming and sig.alert_type.value in _INSIDE_DAY_BOUNDARY_TYPES:
             sig.score = min(100, sig.score + INSIDE_DAY_SCORE_BOOST)
-            sig.score_v2 = min(100, sig.score_v2 + INSIDE_DAY_SCORE_BOOST)
             sig.score_factors["inside_day"] = INSIDE_DAY_SCORE_BOOST
             sig.message += " | INSIDE DAY — boundary level (boosted)"
 
-        sig.score_label = (
-            "Strong" if sig.score >= 80
-            else "Moderate" if sig.score >= 60
-            else "Weak" if sig.score >= 40
-            else "Caution"
-        )
-        sig.score_v2_label = (
-            "A+" if sig.score_v2 >= 90
-            else "A" if sig.score_v2 >= 75
-            else "B" if sig.score_v2 >= 50
-            else "C"
-        )
+        # Unified labels — mirror into v2 for backward compat
+        sig.score_label = _score_label(sig.score)
+        sig.score_v2 = sig.score
+        sig.score_v2_label = sig.score_label
 
     # --- Consolidate same-symbol BUY signals ---
     signals = _consolidate_signals(signals)
