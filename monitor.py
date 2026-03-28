@@ -194,16 +194,32 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     _spy_gate = None
     try:
         from analytics.intraday_rules import compute_spy_gate
-        from analytics.intraday_data import compute_vwap
+        from analytics.intraday_data import compute_vwap, compute_opening_range
         _spy_bars = fetch_intraday("SPY")
         if not _spy_bars.empty:
             _spy_vwap = compute_vwap(_spy_bars)
             _spy_gate = compute_spy_gate(_spy_bars, _spy_vwap)
+
+            # Morning low check: is SPY currently below its first-hour low?
+            _spy_or = compute_opening_range(_spy_bars)
+            if _spy_or and _spy_or.get("or_complete"):
+                _spy_morning_low = _spy_or["or_low"]
+                _spy_last_close = float(_spy_bars.iloc[-1]["Close"])
+                _spy_below_morning_low = _spy_last_close < _spy_morning_low
+                _spy_gate["morning_low"] = _spy_morning_low
+                _spy_gate["below_morning_low"] = _spy_below_morning_low
+            else:
+                _spy_gate["below_morning_low"] = False
+                _spy_gate["morning_low"] = 0
+
+            _ml_status = "BELOW" if _spy_gate["below_morning_low"] else "ABOVE"
             logger.info(
-                "SPY Gate: %s (VWAP dom %.0f%%, EMA %s) — %s",
+                "SPY Gate: %s (VWAP dom %.0f%%, EMA %s) | Morning Low: %s $%.2f — %s",
                 _spy_gate["gate"].upper(),
                 _spy_gate["vwap_dominance"] * 100,
                 "above" if _spy_gate["above_ema"] else "below",
+                _ml_status,
+                _spy_gate.get("morning_low", 0),
                 _spy_gate["reason"],
             )
     except Exception:

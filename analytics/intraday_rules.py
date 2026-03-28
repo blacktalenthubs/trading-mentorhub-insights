@@ -7347,45 +7347,7 @@ def evaluate_rules(
                     symbol, s.alert_type.value, len(intraday_bars), _OPENING_WAIT_BARS,
                 )
 
-    # --- SPY below VWAP: suppress non-SPY equity BUY ---
-    if _spy_currently_below_vwap:
-        # Key support types pass through (relative strength)
-        _vwap_gate_exempt = {
-            AlertType.PRIOR_DAY_LOW_RECLAIM.value,
-            AlertType.PRIOR_DAY_LOW_BOUNCE.value,
-            AlertType.SESSION_LOW_DOUBLE_BOTTOM.value,
-            AlertType.MULTI_DAY_DOUBLE_BOTTOM.value,
-            AlertType.SESSION_LOW_BOUNCE_VWAP.value,
-            AlertType.SESSION_LOW_REVERSAL.value,
-            AlertType.MA_BOUNCE_50.value,
-            AlertType.MA_BOUNCE_200.value,
-            AlertType.EMA_BOUNCE_50.value,
-            AlertType.EMA_BOUNCE_200.value,
-            AlertType.EMA_RECLAIM_50.value,
-            AlertType.EMA_RECLAIM_200.value,
-            AlertType.INSIDE_DAY_BREAKOUT.value,
-            AlertType.BB_SQUEEZE_BREAKOUT.value,
-            AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
-        }
-        # Tag non-SPY BUY signals: key support types get demoted,
-        # all others get tagged to skip Telegram (still recorded to DB/dashboard)
-        for s in signals:
-            if s.direction != "BUY":
-                continue
-            if s.alert_type.value in _vwap_gate_exempt:
-                # Key support — keep in Telegram but demote
-                s.message += " | SPY below VWAP — relative strength"
-                if s.confidence == "high":
-                    s.confidence = "medium"
-                s.score = min(s.score, 65)
-                s.score_label = _score_label(s.score)
-            else:
-                # Non-key-support BUY — demote but still send to Telegram
-                s.message += " | SPY below VWAP — reduced confidence"
-                if s.confidence == "high":
-                    s.confidence = "medium"
-                s.score = min(s.score, 55)
-                s.score_label = _score_label(s.score)
+    # (SPY VWAP gate removed — morning low gate handles equity BUY suppression)
 
     # --- 15-min range filter: suppress BUY when symbol is in a tight range ---
     # If the hourly bars show consolidation (no breakout), BUY signals are
@@ -7497,12 +7459,22 @@ def evaluate_rules(
             ))
 
     # --- SPY/Crypto Gate: suppress/demote BUY signals when trend is bearish ---
-    # For equities: uses SPY gate (computed once per poll cycle)
-    # For crypto: uses the symbol's own VWAP + EMA as self-gate
+    # ── SPY Morning Low Gate ──────────────────────────────────────────────
+    # Simple binary regime: SPY above or below its first-hour low.
+    # - SPY above morning low → normal mode, longs allowed
+    # - SPY below morning low → bear mode, suppress equity BUY (except SPY)
+    # - Dynamic: if SPY reclaims morning low, longs resume
+    # - Crypto: uses its own self-gate (VWAP + EMA)
+    # - SPY itself: keeps all alerts (never suppressed)
     from alert_config import SPY_GATE_ENABLED
+    _is_spy = symbol == "SPY"
+    _spy_below_morning_low = (
+        spy_gate.get("below_morning_low", False) if spy_gate else False
+    )
+
+    # Crypto self-gate (unchanged — uses own VWAP + EMA)
     _active_gate = spy_gate
     if is_crypto and SPY_GATE_ENABLED and len(intraday_bars) >= 6:
-        # Compute self-gate for crypto using its own VWAP + EMA
         from analytics.intraday_data import compute_vwap as _cv
         _crypto_vwap = _cv(intraday_bars)
         _active_gate = compute_spy_gate(intraday_bars, _crypto_vwap)
@@ -7512,42 +7484,13 @@ def evaluate_rules(
                 symbol, _active_gate["gate"], _active_gate["reason"],
             )
 
-    # Types exempt from YELLOW demotion (high-conviction setups where
-    # being below VWAP or in mixed conditions is part of the thesis)
-    _yellow_exempt = {
-        AlertType.CONSOL_BREAKOUT_LONG.value,
-        AlertType.SESSION_LOW_BOUNCE_VWAP.value,
-    }
-
-    # SPY itself is NEVER suppressed by the SPY gate — the gate protects
-    # other equities from SPY weakness, not SPY from itself.
-    # Crypto uses its own self-gate independently.
-    _is_spy = symbol == "SPY"
-
-    if SPY_GATE_ENABLED and _active_gate:
-        _gate = _active_gate.get("gate", "green")
-        _gate_reason = _active_gate.get("reason", "")
-
-        # ── Immediate VWAP check (stricter than 6-bar average) ──────────
-        # If SPY's last close is below VWAP right now, treat as RED for
-        # non-SPY equities.  SPY itself keeps all alerts.  Crypto uses
-        # its own self-gate.
-        _spy_below_vwap_now = False
-        if (
-            not is_crypto
-            and not _is_spy
-            and spy_gate
-            and spy_gate.get("vwap_dominance", 1.0) < 0.5
-        ):
-            _spy_below_vwap_now = True
-
+    if SPY_GATE_ENABLED:
         if _is_spy:
-            # SPY keeps ALL its alerts — never suppressed by its own gate
+            # SPY keeps ALL its alerts — never suppressed
             pass
-        elif is_crypto and _gate == "red":
+        elif is_crypto and _active_gate and _active_gate.get("gate") == "red":
             # Crypto with own red gate: only allow session_low_bounce_vwap
             _red_exempt_types = {AlertType.SESSION_LOW_BOUNCE_VWAP.value}
-            _effective_reason = _gate_reason or "Crypto self-gate RED"
             pre_gate = signals[:]
             signals = [
                 s for s in signals
@@ -7558,79 +7501,24 @@ def evaluate_rules(
                 if s.direction == "BUY" and s not in signals:
                     logger.info(
                         "%s: CRYPTO GATE suppressed %s (%s)",
-                        symbol, s.alert_type.value, _effective_reason,
+                        symbol, s.alert_type.value,
+                        _active_gate.get("reason", "crypto self-gate RED"),
                     )
-        elif _gate == "red" or (_spy_below_vwap_now and _gate != "green"):
-            # Non-SPY equities: suppress weak BUY signals when SPY bearish
-            # BUT allow through signals where the stock is holding key support
-            # (relative strength — institutional buyers defending the name)
-            _key_support_types = {
-                AlertType.VWAP_RECLAIM.value,
-                AlertType.VWAP_BOUNCE.value,
-                AlertType.PRIOR_DAY_LOW_RECLAIM.value,
-                AlertType.PRIOR_DAY_LOW_BOUNCE.value,
-                AlertType.SESSION_LOW_DOUBLE_BOTTOM.value,
-                AlertType.MULTI_DAY_DOUBLE_BOTTOM.value,
-                AlertType.SESSION_LOW_BOUNCE_VWAP.value,
-                AlertType.INTRADAY_SUPPORT_BOUNCE.value,
-                AlertType.MA_BOUNCE_50.value,
-                AlertType.MA_BOUNCE_200.value,
-                AlertType.EMA_BOUNCE_50.value,
-                AlertType.EMA_BOUNCE_200.value,
-                AlertType.EMA_RECLAIM_50.value,
-                AlertType.EMA_RECLAIM_200.value,
-                AlertType.INSIDE_DAY_BREAKOUT.value,
-                AlertType.BB_SQUEEZE_BREAKOUT.value,
-                AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
-            }
-            _effective_reason = _gate_reason or "SPY below VWAP — equity BUY suppressed"
+        elif not is_crypto and _spy_below_morning_low:
+            # ── SPY below morning low → suppress equity BUY alerts ──
+            _ml = spy_gate.get("morning_low", 0)
             pre_gate = signals[:]
-            signals = [
-                s for s in signals
-                if s.direction != "BUY"
-                or s.alert_type.value in _key_support_types
-            ]
-            # Demote allowed-through signals: add caution, cap score
-            for s in signals:
-                if s.direction == "BUY" and s.alert_type.value in _key_support_types:
-                    s.message += f" | RELATIVE STRENGTH: holding support despite SPY weakness"
-                    if s.confidence == "high":
-                        s.confidence = "medium"
-                    s.score = min(s.score, 65)
-                    s.score_label = _score_label(s.score)
+            signals = [s for s in signals if s.direction != "BUY"]
             for s in pre_gate:
                 if s.direction == "BUY" and s not in signals:
                     logger.info(
-                        "%s: SPY GATE suppressed %s (gate=%s, %s)",
-                        symbol, s.alert_type.value, _gate, _effective_reason,
+                        "%s: SPY MORNING LOW GATE suppressed BUY %s "
+                        "(SPY below morning low $%.2f)",
+                        symbol, s.alert_type.value, _ml,
                     )
-        elif _gate == "yellow":
-            # Demote: reduce BUY confidence and add caution
-            # Consolidation breakout BUY is exempt (has its own momentum)
-            for s in signals:
-                if s.direction == "BUY" and s.alert_type.value not in _yellow_exempt:
-                    if s.confidence == "high":
-                        s.confidence = "medium"
-                    s.message += f" | SPY GATE YELLOW: {_gate_reason}"
-                    # Cap score at C level
-                    s.score = min(s.score, 40)
-                    s.score_label = _score_label(s.score)
 
-        # Block SHORT consolidation breakout on GREEN (don't short bull tape)
-        if _gate == "green":
-            pre_short = signals[:]
-            signals = [
-                s for s in signals
-                if not (s.alert_type == AlertType.CONSOL_BREAKOUT_SHORT
-                        and s.direction == "SHORT")
-            ]
-            for s in pre_short:
-                if (s.alert_type == AlertType.CONSOL_BREAKOUT_SHORT
-                        and s.direction == "SHORT"):
-                    logger.info(
-                        "%s: SPY GATE GREEN blocked SHORT %s (%s)",
-                        symbol, s.alert_type.value, _gate_reason,
-                    )
+        # (SHORT consol breakout block removed — shorts always flow,
+        # morning low gate only suppresses equity LONGS)
 
     # --- ADX trend filter: demote BUY signals in choppy (low-ADX) markets ---
     _adx = prior_day.get("adx14") if prior_day else None
