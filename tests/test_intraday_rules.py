@@ -24,6 +24,7 @@ from analytics.intraday_rules import (
     check_gap_and_go,
     check_gap_fill,
     check_hourly_resistance_approach,
+    check_hourly_resistance_rejection_short,
     check_inside_day_breakout,
     check_inside_day_breakdown,
     check_inside_day_forming,
@@ -7747,3 +7748,96 @@ class TestMultiDayDoubleBottom:
         )
         assert "$70400.00" in sig.message
         assert "$70450.00" in sig.message
+
+
+# ---------------------------------------------------------------------------
+# Hourly Resistance Rejection SHORT
+# ---------------------------------------------------------------------------
+
+
+class TestHourlyResistanceRejectionShort:
+    """Tests for check_hourly_resistance_rejection_short."""
+
+    def test_fires_on_valid_rejection(self):
+        """Bar high near resistance, close in lower 40% of range → SHORT."""
+        # Resistance at 100.0, bar high reaches 99.8 (0.2% away), closes at 99.2
+        bars = _bars([
+            *[{"Open": 98, "High": 99, "Low": 97, "Close": 98.5, "Volume": 1000}] * 12,
+            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.2, "Volume": 1500},
+        ])
+        sig = check_hourly_resistance_rejection_short(
+            "ETH-USD", bars, hourly_resistance=[100.0], prior_close=98.0,
+        )
+        assert sig is not None
+        assert sig.alert_type == AlertType.HOURLY_RESISTANCE_REJECTION_SHORT
+        assert sig.direction == "SHORT"
+        assert sig.entry == 99.2
+        # Stop should be above resistance (100.0 * 1.003 = 100.30)
+        assert sig.stop == 100.30
+        assert "HOURLY RESISTANCE REJECTION" in sig.message
+
+    def test_no_fire_close_too_high(self):
+        """Bar touches resistance but closes in upper 60% → no rejection."""
+        bars = _bars([
+            *[{"Open": 98, "High": 99, "Low": 97, "Close": 98.5, "Volume": 1000}] * 12,
+            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.7, "Volume": 1500},
+        ])
+        sig = check_hourly_resistance_rejection_short(
+            "ETH-USD", bars, hourly_resistance=[100.0], prior_close=98.0,
+        )
+        assert sig is None
+
+    def test_no_fire_price_above_level(self):
+        """Prior close above resistance → it's support, not resistance."""
+        bars = _bars([
+            *[{"Open": 101, "High": 102, "Low": 100, "Close": 101, "Volume": 1000}] * 12,
+            {"Open": 100.5, "High": 100.8, "Low": 99.5, "Close": 99.6, "Volume": 1500},
+        ])
+        sig = check_hourly_resistance_rejection_short(
+            "ETH-USD", bars, hourly_resistance=[100.0], prior_close=101.0,
+        )
+        assert sig is None
+
+    def test_no_fire_too_few_bars(self):
+        """Less than 12 bars → no fire."""
+        bars = _bars([
+            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.2, "Volume": 1500},
+        ] * 5)
+        sig = check_hourly_resistance_rejection_short(
+            "ETH-USD", bars, hourly_resistance=[100.0], prior_close=98.0,
+        )
+        assert sig is None
+
+    def test_no_fire_empty_resistance(self):
+        """No hourly resistance levels → no fire."""
+        bars = _bars([
+            *[{"Open": 98, "High": 99, "Low": 97, "Close": 98.5, "Volume": 1000}] * 13,
+        ])
+        sig = check_hourly_resistance_rejection_short(
+            "ETH-USD", bars, hourly_resistance=[], prior_close=98.0,
+        )
+        assert sig is None
+
+    def test_picks_nearest_resistance(self):
+        """Multiple levels — fires on nearest resistance above price."""
+        bars = _bars([
+            *[{"Open": 98, "High": 99, "Low": 97, "Close": 98.5, "Volume": 1000}] * 12,
+            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.2, "Volume": 1500},
+        ])
+        sig = check_hourly_resistance_rejection_short(
+            "ETH-USD", bars, hourly_resistance=[100.0, 105.0, 110.0], prior_close=98.0,
+        )
+        assert sig is not None
+        assert "$100.00" in sig.message
+
+    def test_no_fire_bar_high_too_far(self):
+        """Bar high too far from resistance → no fire."""
+        bars = _bars([
+            *[{"Open": 95, "High": 96, "Low": 94, "Close": 95.5, "Volume": 1000}] * 12,
+            {"Open": 96, "High": 97, "Low": 95.5, "Close": 95.8, "Volume": 1500},
+        ])
+        # 97 is 3% away from 100 — well beyond 0.3% proximity
+        sig = check_hourly_resistance_rejection_short(
+            "ETH-USD", bars, hourly_resistance=[100.0], prior_close=95.0,
+        )
+        assert sig is None

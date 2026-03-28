@@ -38,6 +38,10 @@ from alert_config import (
     EMA_MIN_BARS,
     ENABLED_RULES,
     HOURLY_RESISTANCE_APPROACH_PCT,
+    HOURLY_RES_REJECTION_CLOSE_PCT,
+    HOURLY_RES_REJECTION_MIN_BARS,
+    HOURLY_RES_REJECTION_PROXIMITY_PCT,
+    HOURLY_RES_REJECTION_STOP_OFFSET_PCT,
     LOW_VOLUME_SKIP_RATIO,
     MA_BOUNCE_ALERT_TYPES,
     MA_BOUNCE_LOOKBACK_BARS,
@@ -258,6 +262,7 @@ class AlertType(str, Enum):
     VWAP_LOSS = "vwap_loss"
     EMA_REJECTION_SHORT = "ema_rejection_short"
     EMA_LOSS_SHORT = "ema_loss_short"
+    HOURLY_RESISTANCE_REJECTION_SHORT = "hourly_resistance_rejection_short"
     SESSION_LOW_BREAKDOWN = "session_low_breakdown"
     MORNING_LOW_BREAKDOWN = "morning_low_breakdown"
     PDH_FAILED_BREAKOUT = "pdh_failed_breakout"
@@ -5164,6 +5169,89 @@ def check_hourly_resistance_approach(
 
 
 # ---------------------------------------------------------------------------
+# SHORT Rule: Hourly Resistance Rejection
+# ---------------------------------------------------------------------------
+
+
+def check_hourly_resistance_rejection_short(
+    symbol: str,
+    bars: pd.DataFrame,
+    hourly_resistance: list[float],
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Price rallies into hourly horizontal resistance and gets rejected — SHORT.
+
+    Unlike EMA rejection (diagonal levels), this detects rejection off horizontal
+    supply zones where sellers repeatedly step in.
+
+    Conditions:
+    1. At least 12 bars (60 min into session)
+    2. Bar high reaches within HOURLY_RES_REJECTION_PROXIMITY_PCT of an hourly resistance level
+    3. Bar closes in lower 40% of its range (rejection candle confirmed)
+    4. Price must be BELOW the resistance (approaching from below)
+    5. Prior close was below the level (not falling into it from above)
+    """
+    if bars.empty or len(bars) < HOURLY_RES_REJECTION_MIN_BARS or not hourly_resistance:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_high = float(last_bar["High"])
+    last_low = float(last_bar["Low"])
+    bar_range = last_high - last_low
+
+    if bar_range <= 0:
+        return None
+
+    # Close must be in lower 40% of range (selling pressure = rejection)
+    if (last_close - last_low) / bar_range > HOURLY_RES_REJECTION_CLOSE_PCT:
+        return None
+
+    # Find nearest hourly resistance at or above current price
+    for level in sorted(hourly_resistance):
+        if level <= 0 or level < last_close:
+            continue
+
+        # Direction guard: if prior close was above this level, price is
+        # falling into it — the level is support, not resistance. Skip.
+        if prior_close is not None and prior_close > level:
+            continue
+
+        # Bar high must have reached near the resistance (within proximity)
+        proximity = abs(last_high - level) / level
+        if proximity > HOURLY_RES_REJECTION_PROXIMITY_PCT:
+            continue
+
+        # Rejection confirmed
+        entry = round(last_close, 2)
+        stop = round(level * (1 + HOURLY_RES_REJECTION_STOP_OFFSET_PCT), 2)
+        risk = stop - entry
+        if risk <= 0:
+            continue
+
+        target_1 = round(entry - risk, 2)
+        target_2 = round(entry - 2 * risk, 2)
+
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.HOURLY_RESISTANCE_REJECTION_SHORT,
+            direction="SHORT",
+            price=last_close,
+            entry=entry,
+            stop=stop,
+            target_1=target_1,
+            target_2=target_2,
+            confidence="medium",
+            message=(
+                f"HOURLY RESISTANCE REJECTION at ${level:.2f}"
+                f" — rallied to ${last_high:.2f}, rejected and closed ${last_close:.2f}"
+            ),
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # SELL Rule 19: MA Resistance (overhead rejection)
 # ---------------------------------------------------------------------------
 
@@ -7024,6 +7112,15 @@ def evaluate_rules(
     sig = check_hourly_resistance_approach(symbol, last_bar, hourly_resistance, has_active, prior_close)
     if sig:
         signals.append(sig)
+
+    # --- Hourly Resistance Rejection SHORT ---
+    if AlertType.HOURLY_RESISTANCE_REJECTION_SHORT.value in ENABLED_RULES:
+        sig = check_hourly_resistance_rejection_short(
+            symbol, intraday_bars, hourly_resistance, prior_close,
+        )
+        if sig:
+            sig.message += caution_suffix
+            signals.append(sig)
 
     sig = check_ma_resistance(symbol, last_bar, ma20, ma50, ma100, ma200, prior_close)
     if sig:

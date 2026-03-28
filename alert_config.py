@@ -108,6 +108,12 @@ PDH_REJECTION_PROXIMITY_PCT = 0.003  # 0.3% — same as resistance proximity
 HOURLY_RESISTANCE_CLUSTER_PCT = 0.003   # 0.3% — merge swing highs within this distance
 HOURLY_RESISTANCE_APPROACH_PCT = 0.003  # 0.3% — symmetric with RESISTANCE_PROXIMITY_PCT
 
+# Hourly Resistance Rejection SHORT: price rallies into horizontal resistance and gets rejected
+HOURLY_RES_REJECTION_PROXIMITY_PCT = 0.003  # 0.3% — bar high must reach within this of level
+HOURLY_RES_REJECTION_CLOSE_PCT = 0.40       # close must be in lower 40% of bar range (rejection)
+HOURLY_RES_REJECTION_MIN_BARS = 12          # 60 min into session minimum
+HOURLY_RES_REJECTION_STOP_OFFSET_PCT = 0.003  # 0.3% above resistance for stop
+
 # Support Breakdown: volume must be >= this multiple of average
 BREAKDOWN_VOLUME_RATIO = 1.5
 
@@ -565,8 +571,9 @@ ENABLED_RULES: set[str] = {
     "spy_short_entry",
     "consol_breakout_long",
     "consol_breakout_short",
-    # SHORT — MA/EMA rejection and loss
+    # SHORT — MA/EMA rejection, hourly resistance rejection, loss
     "ema_rejection_short",
+    "hourly_resistance_rejection_short",
     # "ema_loss_short",  # disabled — too noisy during evaluation
     # ── Trade management — exit alerts (critical) ───────────────────────────
     "target_1_hit",
