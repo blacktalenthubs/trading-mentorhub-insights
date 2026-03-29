@@ -1618,11 +1618,17 @@ def check_target_1_hit(
     entry_price: float,
     target_1: float,
 ) -> AlertSignal | None:
-    """Price reaches Target 1 (1R)."""
+    """Price reaches Target 1 (works for both LONG and SHORT)."""
     if entry_price <= 0 or target_1 <= 0:
         return None
-    if bar["High"] < target_1:
-        return None
+
+    is_short = target_1 < entry_price  # SHORT: target below entry
+    if is_short:
+        if bar["Low"] > target_1:
+            return None
+    else:
+        if bar["High"] < target_1:
+            return None
 
     return AlertSignal(
         symbol=symbol,
@@ -1646,11 +1652,17 @@ def check_target_2_hit(
     entry_price: float,
     target_2: float,
 ) -> AlertSignal | None:
-    """Price reaches Target 2 (2R)."""
+    """Price reaches Target 2 (works for both LONG and SHORT)."""
     if entry_price <= 0 or target_2 <= 0:
         return None
-    if bar["High"] < target_2:
-        return None
+
+    is_short = target_2 < entry_price  # SHORT: target below entry
+    if is_short:
+        if bar["Low"] > target_2:
+            return None
+    else:
+        if bar["High"] < target_2:
+            return None
 
     return AlertSignal(
         symbol=symbol,
@@ -1671,13 +1683,22 @@ def check_stop_loss_hit(
     entry_price: float,
     stop_price: float,
 ) -> AlertSignal | None:
-    """Price hits stop loss level."""
+    """Price hits stop loss level (works for both LONG and SHORT entries)."""
     if entry_price <= 0 or stop_price <= 0:
         return None
-    if bar["Low"] > stop_price:
-        return None
 
-    loss = entry_price - stop_price
+    is_short = stop_price > entry_price  # SHORT: stop above entry
+    if is_short:
+        # SHORT stop: bar high must reach the stop
+        if bar["High"] < stop_price:
+            return None
+        loss = stop_price - entry_price
+    else:
+        # LONG stop: bar low must reach the stop
+        if bar["Low"] > stop_price:
+            return None
+        loss = entry_price - stop_price
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.STOP_LOSS_HIT,
@@ -2797,21 +2818,27 @@ def check_auto_stop_out(
     bar: pd.Series,
     auto_stop_entry: dict,
 ) -> AlertSignal | None:
-    """Prior BUY entry's stop level breached — exit immediately.
+    """Prior entry's stop level breached — exit immediately.
 
-    Conditions:
-    - auto_stop_entry has valid entry_price and stop_price
-    - Bar low <= stop_price
+    Works for both LONG (stop below entry) and SHORT (stop above entry).
+    Infers direction from entry vs stop price relationship.
     """
     entry_price = auto_stop_entry.get("entry_price", 0)
     stop_price = auto_stop_entry.get("stop_price", 0)
     alert_type_str = auto_stop_entry.get("alert_type", "")
     if entry_price <= 0 or stop_price <= 0:
         return None
-    if bar["Low"] > stop_price:
-        return None  # stop not hit
 
-    loss = entry_price - stop_price
+    is_short = stop_price > entry_price  # SHORT: stop above entry
+    if is_short:
+        if bar["High"] < stop_price:
+            return None  # stop not hit
+        loss = stop_price - entry_price
+    else:
+        if bar["Low"] > stop_price:
+            return None  # stop not hit
+        loss = entry_price - stop_price
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.AUTO_STOP_OUT,
