@@ -72,12 +72,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("monitor")
 
-# Module-level state for auto stop-out tracking (cooldowns are DB-persisted)
-_auto_stop_entries: dict[str, dict] = {}  # {symbol: {entry_price, stop_price, alert_type}}
-_auto_stop_session: str = ""  # session date when entries were created
-
 # Burst cooldown: last BUY notification time per symbol (in-memory, resets on restart)
 _last_buy_notify: dict[str, datetime] = {}  # {symbol: datetime}
+_last_buy_session: str = ""  # session date for clearing stale state
 
 # Tracks which date we last ran the EOD swing scan for
 _eod_ran_date: str | None = None
@@ -119,16 +116,14 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
 
     Returns the number of alerts fired.
     """
-    global _auto_stop_session
+    global _last_buy_session
     session = today_session()
     total_alerts = 0
 
-    # Clear stale auto-stop entries from previous sessions
-    if _auto_stop_session != session:
-        _auto_stop_entries.clear()
+    # Clear stale buy notify tracking from previous sessions
+    if _last_buy_session != session:
         _last_buy_notify.clear()
-        _auto_stop_session = session
-        logger.info("New session %s — cleared stale auto-stop entries", session)
+        _last_buy_session = session
 
     # Sync paper trades with Alpaca (bracket legs may have filled between polls)
     if not dry_run and paper_trading_enabled():
@@ -158,7 +153,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
 
     # After a stop-out + cooldown expiry, allow BUY signals to re-fire.
     # Identify symbols that were stopped out and whose cooldown has expired.
-    _stop_types = {"stop_loss_hit", "auto_stop_out"}
+    _stop_types = {"stop_loss_hit"}
     stopped_symbols = {
         a["symbol"] for a in db_alerts if a["alert_type"] in _stop_types
     }
@@ -241,7 +236,6 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
             signals = evaluate_rules(
                 symbol, intraday, prior_day, active,
                 spy_context=spy_ctx,
-                auto_stop_entries=_auto_stop_entries.get(symbol),
                 is_cooled_down=symbol in cooled_symbols,
                 fired_today=fired_today,
                 daily_plan=plan,
@@ -335,7 +329,7 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                             symbol, len(_existing_entries),
                         )
 
-                if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
+                if signal.alert_type == AlertType.STOP_LOSS_HIT:
                     close_all_entries_for_symbol(symbol, session, user_id=uid)
                     save_cooldown(symbol, COOLDOWN_MINUTES, reason=signal.alert_type.value, session_date=session, user_id=uid)
 
@@ -382,20 +376,13 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     " [burst-suppressed]" if _burst_suppressed else "",
                 )
 
-                # Module-level auto-stop tracking (for evaluate_rules)
-                if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
-                    if signal.entry and signal.stop:
-                        _auto_stop_entries[symbol] = {
-                            "entry_price": signal.entry,
-                            "stop_price": signal.stop,
-                            "alert_type": signal.alert_type.value,
-                        }
+                # Paper trading: place bracket order on BUY/SHORT entries
+                if signal.direction in ("BUY", "SHORT") and signal.alert_type not in _non_entry_types:
                     if paper_trading_enabled():
                         place_bracket_order(signal, alert_id=alert_id)
 
-                # Stop loss / auto stop-out: clear auto-stop tracking + paper
-                if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
-                    _auto_stop_entries.pop(symbol, None)
+                # Stop loss hit: close paper position
+                if signal.alert_type == AlertType.STOP_LOSS_HIT:
                     if paper_trading_enabled():
                         paper_close_position(symbol, exit_price=signal.price, reason=signal.alert_type.value)
 

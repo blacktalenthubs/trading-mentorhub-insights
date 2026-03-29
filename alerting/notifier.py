@@ -54,7 +54,7 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
     # SELL — only allow T1 hit and stop loss through to Telegram
     if signal.direction == "SELL":
-        _exit_types = {"target_1_hit", "stop_loss_hit", "auto_stop_out"}
+        _exit_types = {"target_1_hit", "stop_loss_hit"}
         _warn_types = {"hourly_resistance_approach"}
         if signal.alert_type.value not in _exit_types and signal.alert_type.value not in _warn_types:
             return None
@@ -309,7 +309,6 @@ def send_sms(signal: AlertSignal) -> bool:
 # Exit signals always Tier 1 (time-critical)
 _TIER1_ALERT_TYPES = {
     AlertType.STOP_LOSS_HIT,
-    AlertType.AUTO_STOP_OUT,
     AlertType.TARGET_1_HIT,
     AlertType.TARGET_2_HIT,
 }

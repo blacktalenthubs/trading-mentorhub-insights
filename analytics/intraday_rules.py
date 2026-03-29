@@ -7372,11 +7372,7 @@ def evaluate_rules(
             _entry_signal_types_seen.add(sig.alert_type.value)
             signals.append(sig)
 
-    # --- Auto Stop-Out (SELL — tracked BUY entries) ---
-    if auto_stop_entries:
-        sig = check_auto_stop_out(symbol, last_bar, auto_stop_entries)
-        if sig:
-            signals.append(sig)
+    # (auto_stop_out removed — stop_loss_hit handles ACK'd entries from DB)
 
     # --- Support Breakdown (SHORT) ---
     from analytics.signal_engine import _find_nearest_support
