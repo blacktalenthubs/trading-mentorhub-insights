@@ -750,12 +750,14 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         except Exception:
             pass
 
-        # Monthly resampling: prior month high/low from existing hist
+        # Monthly resampling: prior month high/low + monthly EMAs from existing hist
         prior_month_high = None
         prior_month_low = None
+        monthly_ema8 = None
+        monthly_ema20 = None
         try:
-            monthly = hist[["High", "Low"]].resample("MS").agg({
-                "High": "max", "Low": "min",
+            monthly = hist[["High", "Low", "Close"]].resample("MS").agg({
+                "High": "max", "Low": "min", "Close": "last",
             }).dropna()
             if len(monthly) >= 2:
                 last_monthly_date = monthly.index[-1].normalize()
@@ -765,6 +767,16 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     prior_month = monthly.iloc[-1]
                 prior_month_high = prior_month["High"]
                 prior_month_low = prior_month["Low"]
+
+                # Monthly EMAs — use last completed month's values
+                # (exclude current partial month)
+                completed_monthly = monthly.iloc[:-1] if last_bar_date >= last_monthly_date else monthly
+                if len(completed_monthly) >= 8:
+                    m_ema8 = completed_monthly["Close"].ewm(span=8, adjust=False).mean()
+                    monthly_ema8 = float(m_ema8.iloc[-1])
+                if len(completed_monthly) >= 20:
+                    m_ema20 = completed_monthly["Close"].ewm(span=20, adjust=False).mean()
+                    monthly_ema20 = float(m_ema20.iloc[-1])
         except Exception:
             pass
 
@@ -830,6 +842,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "prior_week_low": prior_week_low,
             "prior_month_high": prior_month_high,
             "prior_month_low": prior_month_low,
+            "monthly_ema8": monthly_ema8,
+            "monthly_ema20": monthly_ema20,
             "rsi14": sym_rsi14,
             "rsi14_prev": rsi14_prev,
             "adx14": _adx14,

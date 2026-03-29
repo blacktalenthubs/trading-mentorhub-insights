@@ -276,6 +276,7 @@ BOUNCE_ALERT_TYPES: set[str] = {
     "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
     "weekly_level_touch",
     "monthly_level_touch",
+    "monthly_ema_touch",
     "planned_level_touch",
 }
 
@@ -521,12 +522,13 @@ ENABLED_RULES: set[str] = {
     # "weekly_high_test",             # NOISE: downgraded — test without break
     "weekly_low_test",
     "weekly_low_breakdown",
-    # BUY — monthly high/low
+    # BUY — monthly high/low + monthly EMA
     "monthly_level_touch",
     "monthly_high_breakout",
     # "monthly_high_test",            # NOISE: downgraded — test without break
     "monthly_low_test",
     "monthly_low_breakdown",
+    "monthly_ema_touch",
     # BUY — VWAP
     # "vwap_reclaim",                  # DISABLED: fades consistently, session_low_bounce_vwap is the better version
     # "vwap_bounce",                   # DISABLED: 0% win rate in bearish, VWAP becomes resistance in downtrends

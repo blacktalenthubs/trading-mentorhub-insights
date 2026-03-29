@@ -210,6 +210,7 @@ class AlertType(str, Enum):
     MONTHLY_HIGH_RESISTANCE = "monthly_high_resistance"
     MONTHLY_LOW_TEST = "monthly_low_test"
     MONTHLY_LOW_BREAKDOWN = "monthly_low_breakdown"
+    MONTHLY_EMA_TOUCH = "monthly_ema_touch"
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
     EMA_BOUNCE_100 = "ema_bounce_100"
@@ -2295,6 +2296,91 @@ def check_monthly_low_breakdown(
             f"Monthly support lost — watch for continuation lower"
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# BUY/SELL Rule: Monthly EMA Touch (EMA8 / EMA20)
+# ---------------------------------------------------------------------------
+
+
+def check_monthly_ema_touch(
+    symbol: str,
+    bar: pd.Series,
+    prior_day: dict | None,
+) -> AlertSignal | None:
+    """Price touches a monthly EMA level (EMA8 or EMA20) — high-conviction support/resistance.
+
+    Monthly EMAs are institutional reference levels. EMA20 on the monthly is where
+    major corrections find support (e.g., SPY $614).
+
+    Conditions:
+    1. Monthly EMA8 or EMA20 exists in prior_day
+    2. Bar low or high is within 0.5% of the level
+    3. Direction: BUY if price approaching from above (support), notice if from below
+    """
+    if not prior_day:
+        return None
+
+    _levels = []
+    m_ema8 = prior_day.get("monthly_ema8")
+    m_ema20 = prior_day.get("monthly_ema20")
+    if m_ema8 and m_ema8 > 0:
+        _levels.append(("Monthly EMA8", m_ema8))
+    if m_ema20 and m_ema20 > 0:
+        _levels.append(("Monthly EMA20", m_ema20))
+
+    if not _levels:
+        return None
+
+    bar_close = float(bar["Close"])
+    bar_low = float(bar["Low"])
+    bar_high = float(bar["High"])
+
+    for ema_name, ema_val in _levels:
+        # Check proximity: bar low near EMA (support touch)
+        if bar_low > 0 and ema_val > 0:
+            proximity = abs(bar_low - ema_val) / ema_val
+            if proximity <= 0.005:  # 0.5%
+                # Price approaching from above = support
+                if bar_close >= ema_val:
+                    entry = round(bar_close, 2)
+                    stop = round(ema_val * 0.993, 2)  # 0.7% below EMA
+                    risk = entry - stop
+                    if risk <= 0:
+                        continue
+                    return AlertSignal(
+                        symbol=symbol,
+                        alert_type=AlertType.MONTHLY_EMA_TOUCH,
+                        direction="BUY",
+                        price=bar_close,
+                        entry=entry,
+                        stop=stop,
+                        target_1=round(entry + risk * 2, 2),
+                        target_2=round(entry + risk * 4, 2),
+                        confidence="high",
+                        message=(
+                            f"{ema_name} SUPPORT at ${ema_val:.2f}"
+                            f" — bar low ${bar_low:.2f} tested and held"
+                        ),
+                    )
+
+        # Check proximity: bar high near EMA (resistance touch from below)
+        if bar_high > 0 and ema_val > 0:
+            proximity = abs(bar_high - ema_val) / ema_val
+            if proximity <= 0.005 and bar_close < ema_val:
+                return AlertSignal(
+                    symbol=symbol,
+                    alert_type=AlertType.MONTHLY_EMA_TOUCH,
+                    direction="NOTICE",
+                    price=bar_close,
+                    confidence="medium",
+                    message=(
+                        f"{ema_name} RESISTANCE at ${ema_val:.2f}"
+                        f" — approaching from below, watch for rejection"
+                    ),
+                )
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -7202,6 +7288,13 @@ def evaluate_rules(
         sig = check_monthly_low_breakdown(
             symbol, last_bar, prior_day, bar_vol, avg_vol, prior_close,
         )
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
+
+    # --- Monthly EMA Touch ---
+    if AlertType.MONTHLY_EMA_TOUCH.value in ENABLED_RULES:
+        sig = check_monthly_ema_touch(symbol, last_bar, prior_day)
         if sig:
             sig.message += f" ({phase})"
             signals.append(sig)
