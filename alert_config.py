@@ -79,7 +79,7 @@ PDL_RECLAIM_MAX_DISTANCE_PCT = 0.020  # 2.0% — skip if price already ran past 
 PDL_STOP_OFFSET_PCT = 0.005   # 0.5% below PDL for both reclaim and bounce stops
 
 # Prior Day Low Bounce: price approaches PDL and holds above it (no break below)
-PDL_BOUNCE_PROXIMITY_PCT = 0.005     # 0.5% — bar low must be within this of PDL
+PDL_BOUNCE_PROXIMITY_PCT = 0.002     # 0.2% — bar low must be within this of PDL (tightened from 0.5%)
 PDL_BOUNCE_HOLD_BARS = 1             # 1 bar (5 min) closing above PDL after touch
 PDL_BOUNCE_MAX_DISTANCE_PCT = 0.015  # 1.5% — skip if price ran too far above PDL (widened for volatile names)
 PDL_BOUNCE_MAX_DISTANCE_CRYPTO_PCT = 0.008  # 0.8% — tighter for crypto (24/7 polling lag)
