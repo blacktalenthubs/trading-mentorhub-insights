@@ -48,7 +48,7 @@ def _build_spy_context(spy_bars: pd.DataFrame) -> dict:
         "spy_intraday_low": round(spy_low, 2),
     }
 
-user = ui_theme.setup_page("backtest", tier_required="elite")
+user = ui_theme.setup_page("backtest")
 
 ui_theme.page_header("Backtest Replay", "Replay historical intraday data through the rule engine to validate signal quality.")
 
@@ -96,9 +96,24 @@ st.markdown(f"### Results for {date_str}")
 progress = st.progress(0)
 all_results: list[dict] = []
 
-# Fetch SPY context for the backtest date (used for bounce correlation)
+# Fetch SPY context + gate for the backtest date
 spy_intra = fetch_historical_intraday("SPY", date_str)
 spy_ctx = _build_spy_context(spy_intra)
+
+# Build SPY gate with morning low for backtest
+_spy_gate = None
+if not spy_intra.empty:
+    from analytics.intraday_rules import compute_spy_gate
+    from analytics.intraday_data import compute_opening_range
+    _spy_vwap = compute_vwap(spy_intra)
+    _spy_gate = compute_spy_gate(spy_intra, _spy_vwap)
+    _spy_or = compute_opening_range(spy_intra)
+    if _spy_or and _spy_or.get("or_complete"):
+        _spy_gate["morning_low"] = _spy_or["or_low"]
+        _spy_gate["below_morning_low"] = float(spy_intra.iloc[-1]["Close"]) < _spy_or["or_low"]
+    else:
+        _spy_gate["morning_low"] = 0
+        _spy_gate["below_morning_low"] = False
 
 for idx, symbol in enumerate(symbols):
     progress.progress((idx + 1) / len(symbols), text=f"Processing {symbol}...")
@@ -115,8 +130,44 @@ for idx, symbol in enumerate(symbols):
 
     if mode == "End-of-day":
         # Feed full day's bars at once
-        signals = evaluate_rules(symbol, intra, prior, spy_context=spy_ctx)
+        signals = evaluate_rules(symbol, intra, prior, spy_context=spy_ctx, spy_gate=_spy_gate)
         for sig in signals:
+            # Check outcome: did subsequent bars hit T1, T2, or Stop?
+            outcome = ""
+            if sig.entry and sig.direction in ("BUY", "SHORT"):
+                is_short = sig.direction == "SHORT"
+                # Find the bar where the signal fired (closest price match)
+                for bar_idx in range(len(intra)):
+                    bar_close = float(intra.iloc[bar_idx]["Close"])
+                    if abs(bar_close - sig.price) / sig.price < 0.002:
+                        # Scan subsequent bars for outcome
+                        for j in range(bar_idx + 1, len(intra)):
+                            future = intra.iloc[j]
+                            if sig.stop:
+                                if is_short and float(future["High"]) >= sig.stop:
+                                    outcome = "STOPPED"
+                                    break
+                                elif not is_short and float(future["Low"]) <= sig.stop:
+                                    outcome = "STOPPED"
+                                    break
+                            if sig.target_2:
+                                if is_short and float(future["Low"]) <= sig.target_2:
+                                    outcome = "T2 HIT"
+                                    break
+                                elif not is_short and float(future["High"]) >= sig.target_2:
+                                    outcome = "T2 HIT"
+                                    break
+                            if sig.target_1:
+                                if is_short and float(future["Low"]) <= sig.target_1:
+                                    outcome = "T1 HIT"
+                                    break
+                                elif not is_short and float(future["High"]) >= sig.target_1:
+                                    outcome = "T1 HIT"
+                                    break
+                        break
+                if not outcome and sig.entry:
+                    outcome = "OPEN"
+
             all_results.append({
                 "Symbol": sig.symbol,
                 "Type": sig.alert_type.value.replace("_", " ").title(),
@@ -128,7 +179,7 @@ for idx, symbol in enumerate(symbols):
                 "T2": sig.target_2,
                 "Score": sig.score,
                 "Grade": sig.score_label,
-                "Confidence": sig.confidence,
+                "Outcome": outcome,
                 "Message": sig.message[:80],
             })
 
@@ -189,7 +240,7 @@ for idx, symbol in enumerate(symbols):
             # Build progressive SPY context for bar-by-bar mode
             spy_partial = spy_intra.iloc[: i + 1] if not spy_intra.empty and i < len(spy_intra) else spy_intra
             spy_ctx_partial = _build_spy_context(spy_partial)
-            sigs = evaluate_rules(symbol, partial, prior, spy_context=spy_ctx_partial)
+            sigs = evaluate_rules(symbol, partial, prior, spy_context=spy_ctx_partial, spy_gate=_spy_gate)
             for sig in sigs:
                 key = (sig.symbol, sig.alert_type.value)
                 if key in seen:
@@ -245,6 +296,13 @@ if all_results:
     buy_count = sum(1 for r in all_results if r.get("Direction") == "BUY")
     sell_count = sum(1 for r in all_results if r.get("Direction") == "SELL")
     short_count = sum(1 for r in all_results if r.get("Direction") == "SHORT")
-    st.caption(f"Total: {len(all_results)} | BUY: {buy_count} | SELL: {sell_count} | SHORT: {short_count}")
+
+    # Win rate (entries only)
+    entries = [r for r in all_results if r.get("Outcome") in ("T1 HIT", "T2 HIT", "STOPPED", "OPEN")]
+    winners = sum(1 for r in entries if r.get("Outcome") in ("T1 HIT", "T2 HIT"))
+    losers = sum(1 for r in entries if r.get("Outcome") == "STOPPED")
+    win_rate = f" | Win Rate: {winners}/{winners + losers} ({winners / (winners + losers) * 100:.0f}%)" if (winners + losers) > 0 else ""
+
+    st.caption(f"Total: {len(all_results)} | BUY: {buy_count} | SHORT: {short_count} | SELL: {sell_count}{win_rate}")
 else:
     ui_theme.empty_state("No signals fired for any symbol on this date.")
