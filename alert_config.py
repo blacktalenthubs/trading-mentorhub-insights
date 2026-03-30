@@ -550,7 +550,7 @@ ENABLED_RULES: set[str] = {
     # "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",  # CONSOLIDATED: use EMA only
     # ── Tier 1: Professional rules ──────────────────────────────────────────
     "bb_squeeze_breakout",
-    "macd_histogram_flip",
+    # "macd_histogram_flip",  # PAUSED — low trust, needs more evaluation data
     "gap_and_go",
     "fib_retracement_bounce",
     # BUY — session low reversal (candle + volume at the low itself)
