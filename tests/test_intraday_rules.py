@@ -7631,7 +7631,7 @@ class TestMultiDayDoubleBottom:
         assert sig is not None
         assert sig.alert_type == AlertType.MULTI_DAY_DOUBLE_BOTTOM
         assert sig.direction == "BUY"
-        assert sig.entry == 70400
+        assert sig.entry == 70600.0  # entry at current price, not zone level
         assert sig.confidence == "medium"
         assert "Multi-day double bottom" in sig.message
         assert "2x" in sig.message
@@ -7705,7 +7705,7 @@ class TestMultiDayDoubleBottom:
             "AAPL", bars, [zone], 1000, 1000,
         )
         assert sig is not None
-        assert sig.entry == 148.50
+        assert sig.entry == 149.20  # entry at current price
         assert sig.direction == "BUY"
 
     def test_no_fire_on_empty_zones(self):
@@ -7733,7 +7733,7 @@ class TestMultiDayDoubleBottom:
             "BTC-USD", bars, [zone_far, zone_near], 1000, 1000,
         )
         assert sig is not None
-        assert sig.entry == 70400
+        assert sig.entry == 70600.0  # entry at current price
 
     def test_zone_range_in_message(self):
         """When zone_high != level, message shows range."""

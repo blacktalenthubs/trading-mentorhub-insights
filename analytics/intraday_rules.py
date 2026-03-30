@@ -4861,8 +4861,8 @@ def check_multi_day_double_bottom(
         )
         return None
 
-    # Entry/Stop/Targets
-    entry = level
+    # Entry/Stop/Targets — entry at current price, stop below zone
+    entry = last_close
     stop = round(level * (1 - DAILY_DB_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
