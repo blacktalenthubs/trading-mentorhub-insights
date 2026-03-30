@@ -7621,20 +7621,24 @@ def evaluate_rules(
                         _active_gate.get("reason", "crypto self-gate RED"),
                     )
         elif not is_crypto and _spy_below_morning_low:
-            # ── SPY below morning low → suppress equity BUY alerts ──
+            # ── SPY below morning low → suppress equity BUY + non-SPY SHORT ──
+            # In a downtrending market, focus shorts on SPY only (liquid, easy
+            # to trade). Individual stock shorts are noise.
             _ml = spy_gate.get("morning_low", 0)
             pre_gate = signals[:]
-            signals = [s for s in signals if s.direction != "BUY"]
+            if _is_spy:
+                # SPY: suppress BUY only, keep SHORT
+                signals = [s for s in signals if s.direction != "BUY"]
+            else:
+                # Other equities: suppress BUY and SHORT (only exits/notices pass)
+                signals = [s for s in signals if s.direction not in ("BUY", "SHORT")]
             for s in pre_gate:
-                if s.direction == "BUY" and s not in signals:
+                if s not in signals and s.direction in ("BUY", "SHORT"):
                     logger.info(
-                        "%s: SPY MORNING LOW GATE suppressed BUY %s "
+                        "%s: SPY MORNING LOW GATE suppressed %s %s "
                         "(SPY below morning low $%.2f)",
-                        symbol, s.alert_type.value, _ml,
+                        symbol, s.direction, s.alert_type.value, _ml,
                     )
-
-        # (SHORT consol breakout block removed — shorts always flow,
-        # morning low gate only suppresses equity LONGS)
 
     # --- ADX trend filter: demote BUY signals in choppy (low-ADX) markets ---
     _adx = prior_day.get("adx14") if prior_day else None
