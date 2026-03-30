@@ -207,14 +207,32 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 _spy_gate["below_morning_low"] = False
                 _spy_gate["morning_low"] = 0
 
+            # SPY inside day check: today's range within yesterday's range
+            # Inside days chop — suppress other equity alerts
+            _spy_inside_day = False
+            try:
+                _spy_prior = fetch_prior_day("SPY")
+                if _spy_prior:
+                    _spy_pdh = _spy_prior.get("high", 0)
+                    _spy_pdl = _spy_prior.get("low", 0)
+                    _spy_session_high = float(_spy_bars["High"].max())
+                    _spy_session_low = float(_spy_bars["Low"].min())
+                    if _spy_pdh > 0 and _spy_pdl > 0:
+                        _spy_inside_day = _spy_session_high < _spy_pdh and _spy_session_low > _spy_pdl
+            except Exception:
+                pass
+            _spy_gate["inside_day"] = _spy_inside_day
+
             _ml_status = "BELOW" if _spy_gate["below_morning_low"] else "ABOVE"
+            _id_status = " | INSIDE DAY" if _spy_inside_day else ""
             logger.info(
-                "SPY Gate: %s (VWAP dom %.0f%%, EMA %s) | Morning Low: %s $%.2f — %s",
+                "SPY Gate: %s (VWAP dom %.0f%%, EMA %s) | Morning Low: %s $%.2f%s — %s",
                 _spy_gate["gate"].upper(),
                 _spy_gate["vwap_dominance"] * 100,
                 "above" if _spy_gate["above_ema"] else "below",
                 _ml_status,
                 _spy_gate.get("morning_low", 0),
+                _id_status,
                 _spy_gate["reason"],
             )
     except Exception:

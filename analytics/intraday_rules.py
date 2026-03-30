@@ -7587,6 +7587,9 @@ def evaluate_rules(
     _spy_below_morning_low = (
         spy_gate.get("below_morning_low", False) if spy_gate else False
     )
+    _spy_inside_day = (
+        spy_gate.get("inside_day", False) if spy_gate else False
+    )
 
     # Crypto self-gate (unchanged — uses own VWAP + EMA)
     _active_gate = spy_gate
@@ -7620,14 +7623,18 @@ def evaluate_rules(
                         symbol, s.alert_type.value,
                         _active_gate.get("reason", "crypto self-gate RED"),
                     )
-        elif not is_crypto and _spy_below_morning_low:
-            # ── SPY below morning low → suppress equity BUY + non-SPY SHORT ──
-            # In a downtrending market, focus shorts on SPY only (liquid, easy
-            # to trade). Individual stock shorts are noise.
+        elif not is_crypto and (_spy_below_morning_low or _spy_inside_day):
+            # ── SPY below morning low OR inside day → suppress other equities ──
+            # Below morning low: downtrending, focus shorts on SPY only
+            # Inside day: choppy, alerts on individual stocks go nowhere
             _ml = spy_gate.get("morning_low", 0)
+            _gate_reason_str = (
+                f"SPY inside day" if _spy_inside_day and not _spy_below_morning_low
+                else f"SPY below morning low ${_ml:.2f}"
+            )
             pre_gate = signals[:]
             if _is_spy:
-                # SPY: suppress BUY only, keep SHORT
+                # SPY: suppress BUY only, keep SHORT + exits
                 signals = [s for s in signals if s.direction != "BUY"]
             else:
                 # Other equities: suppress BUY and SHORT (only exits/notices pass)
@@ -7635,9 +7642,8 @@ def evaluate_rules(
             for s in pre_gate:
                 if s not in signals and s.direction in ("BUY", "SHORT"):
                     logger.info(
-                        "%s: SPY MORNING LOW GATE suppressed %s %s "
-                        "(SPY below morning low $%.2f)",
-                        symbol, s.direction, s.alert_type.value, _ml,
+                        "%s: SPY GATE suppressed %s %s (%s)",
+                        symbol, s.direction, s.alert_type.value, _gate_reason_str,
                     )
 
     # --- ADX trend filter: demote BUY signals in choppy (low-ADX) markets ---
