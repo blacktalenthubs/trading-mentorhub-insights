@@ -366,7 +366,7 @@ CONSOL_BREAKOUT_MIN_VOL_RATIO = 0.8      # minimum volume ratio for confirmation
 # SPY Short Entry: fire SHORT signals when gate is RED + key level breaks
 SPY_SHORT_ENABLED = True       # feature flag
 SPY_SHORT_STOP_OFFSET_PCT = 0.003  # 0.3% above broken level for stop
-SPY_SHORT_SYMBOLS = {"SPY"}    # only SPY for now
+SPY_SHORT_SYMBOLS = {"SPY", "QQQ"}    # index ETFs for short entries
 
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels

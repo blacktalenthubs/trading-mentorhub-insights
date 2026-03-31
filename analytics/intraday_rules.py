@@ -6652,7 +6652,7 @@ def evaluate_rules(
     # Crypto is exempt (24h market, no opening auction).
     # SPY is exempt — we want alerts if SPY hits key levels at open.
     _OPENING_WAIT_BARS = 3  # 3 × 5-min = 15 min
-    _is_spy = symbol == "SPY"
+    _is_spy = symbol in ("SPY", "QQQ")
     _in_opening_wait = (
         not is_crypto
         and not _is_spy
@@ -7584,7 +7584,7 @@ def evaluate_rules(
     # - Crypto: uses its own self-gate (VWAP + EMA)
     # - SPY itself: keeps all alerts (never suppressed)
     from alert_config import SPY_GATE_ENABLED
-    _is_spy = symbol == "SPY"
+    _is_spy = symbol in ("SPY", "QQQ")
     _spy_below_morning_low = (
         spy_gate.get("below_morning_low", False) if spy_gate else False
     )
