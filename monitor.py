@@ -207,12 +207,14 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                 _spy_gate["below_morning_low"] = False
                 _spy_gate["morning_low"] = 0
 
-            # SPY inside day check: today's range within yesterday's range
-            # Inside days chop — suppress other equity alerts
+            # SPY inside day check: after morning range forms (6+ bars = 30 min),
+            # if SPY is still within yesterday's range, it's an inside day.
+            # Every day starts "inside" until price breaks out, so we wait for
+            # the opening range to confirm.
             _spy_inside_day = False
             try:
                 _spy_prior = fetch_prior_day("SPY")
-                if _spy_prior:
+                if _spy_prior and len(_spy_bars) >= 6:  # wait for opening range
                     _spy_pdh = _spy_prior.get("high", 0)
                     _spy_pdl = _spy_prior.get("low", 0)
                     _spy_session_high = float(_spy_bars["High"].max())
