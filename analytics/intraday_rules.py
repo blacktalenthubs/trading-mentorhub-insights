@@ -4078,10 +4078,8 @@ def check_spy_short_entry(
         target_2=t2,
         confidence=confidence,
         message=(
-            f"SHORT — {level_label} ${level_price:.2f} broken, "
-            f"gate RED (VWAP {vwap_dom:.0%}, below EMA). "
-            f"Vol {vol_ratio:.1f}x. "
-            f"Stop above ${stop:.2f}, T1 ${t1:.2f}"
+            f"{level_label} BREAKDOWN at ${level_price:.2f}"
+            f" — gate RED, Vol {vol_ratio:.1f}x"
         ),
     )
 
