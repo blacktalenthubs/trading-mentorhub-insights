@@ -75,6 +75,7 @@ logger = logging.getLogger("monitor")
 # Burst cooldown: last BUY notification time per symbol (in-memory, resets on restart)
 _last_buy_notify: dict[str, datetime] = {}  # {symbol: datetime}
 _last_buy_session: str = ""  # session date for clearing stale state
+_spy_inside_day_notified: bool = False  # track if we sent inside day notice this session
 
 # Tracks which date we last ran the EOD swing scan for
 _eod_ran_date: str | None = None
@@ -120,9 +121,11 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
     session = today_session()
     total_alerts = 0
 
-    # Clear stale buy notify tracking from previous sessions
+    global _spy_inside_day_notified
+    # Clear stale tracking from previous sessions
     if _last_buy_session != session:
         _last_buy_notify.clear()
+        _spy_inside_day_notified = False
         _last_buy_session = session
 
     # Sync paper trades with Alpaca (bracket legs may have filled between polls)
@@ -224,6 +227,21 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
             except Exception:
                 pass
             _spy_gate["inside_day"] = _spy_inside_day
+
+            # Send one-time Telegram notice when SPY inside day is first detected
+            if _spy_inside_day and not _spy_inside_day_notified:
+                _spy_inside_day_notified = True
+                try:
+                    from alerting.notifier import _send_telegram
+                    _id_range = f"${_spy_pdl:.2f} – ${_spy_pdh:.2f}"
+                    _send_telegram(
+                        f"<b>NOTICE — SPY INSIDE DAY</b>\n"
+                        f"Trading within yesterday's range {_id_range}\n"
+                        f"Other equity alerts suppressed until breakout"
+                    )
+                    logger.info("SPY inside day notice sent")
+                except Exception:
+                    logger.debug("Failed to send SPY inside day notice")
 
             _ml_status = "BELOW" if _spy_gate["below_morning_low"] else "ABOVE"
             _id_status = " | INSIDE DAY" if _spy_inside_day else ""

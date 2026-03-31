@@ -48,9 +48,14 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
     label = signal.alert_type.value.replace("_", " ").title()
 
-    # NOTICE — skip Telegram
+    # NOTICE — send to Telegram (useful context: inside day, weekly tests, resistance zones)
     if signal.direction == "NOTICE":
-        return None
+        import html as _html_n
+        _notice_msg = signal.message.split(" — ")[0] if signal.message else label
+        return (
+            f"<b>NOTICE — {_html_n.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+            f"{_notice_msg}"
+        )
 
     # SELL — only allow T1 hit and stop loss through to Telegram
     if signal.direction == "SELL":
