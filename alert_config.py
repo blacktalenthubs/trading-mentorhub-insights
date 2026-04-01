@@ -358,6 +358,12 @@ HOURLY_CONSOL_MAX_RANGE_PCT = 0.015   # 1.5% absolute cap (safety net)
 HOURLY_CONSOL_MIN_BARS = 2            # 2 hourly bars minimum (catch fast staircases)
 HOURLY_CONSOL_ENABLED = True          # feature flag
 
+# 15-min consolidation breakout (tighter, faster breakouts)
+CONSOL_15M_ATR_LOOKBACK = 10          # 10 fifteen-min bars for ATR
+CONSOL_15M_ATR_MULT = 1.2             # range must be < 1.2x 15m ATR
+CONSOL_15M_MAX_RANGE_PCT = 0.010      # 1.0% absolute cap (tighter than hourly)
+CONSOL_15M_MIN_BARS = 4               # 4 x 15-min = 1 hour of consolidation minimum
+
 # Per-symbol consolidation breakout signals
 CONSOL_BREAKOUT_ENABLED = True
 CONSOL_BREAKOUT_STOP_OFFSET_PCT = 0.001  # 0.1% buffer beyond range for stop
@@ -573,6 +579,8 @@ ENABLED_RULES: set[str] = {
     "spy_short_entry",
     "consol_breakout_long",
     "consol_breakout_short",
+    "consol_15m_breakout_long",
+    "consol_15m_breakout_short",
     # SHORT — MA/EMA rejection, hourly resistance rejection, loss
     "ema_rejection_short",
     "hourly_resistance_rejection_short",

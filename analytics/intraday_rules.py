@@ -250,9 +250,11 @@ class AlertType(str, Enum):
     PRIOR_DAY_LOW_RESISTANCE = "prior_day_low_resistance"
     # Consolidation notice
     HOURLY_CONSOLIDATION = "hourly_consolidation"
-    # Per-symbol consolidation breakout
+    # Per-symbol consolidation breakout (hourly + 15-min)
     CONSOL_BREAKOUT_LONG = "consol_breakout_long"
     CONSOL_BREAKOUT_SHORT = "consol_breakout_short"
+    CONSOL_15M_BREAKOUT_LONG = "consol_15m_breakout_long"
+    CONSOL_15M_BREAKOUT_SHORT = "consol_15m_breakout_short"
     # Session low bounce at hourly support → VWAP
     SESSION_LOW_BOUNCE_VWAP = "session_low_bounce_vwap"
     # SPY Short entry
@@ -6377,6 +6379,151 @@ def detect_hourly_consolidation_break(
     return {"direction": "RANGE", "status": "consolidating", **base}
 
 
+def detect_15m_consolidation_break(
+    bars_5m: pd.DataFrame,
+) -> dict | None:
+    """Detect 15-min consolidation range breakout from 5-min bars.
+
+    Same logic as hourly version but on 15-min timeframe — catches tighter,
+    faster consolidations that break out before the hourly range forms.
+    """
+    from alert_config import (
+        CONSOL_15M_ATR_LOOKBACK, CONSOL_15M_ATR_MULT,
+        CONSOL_15M_MAX_RANGE_PCT, CONSOL_15M_MIN_BARS,
+    )
+
+    if bars_5m.empty or len(bars_5m) < 3 * (CONSOL_15M_MIN_BARS + 1):
+        return None
+
+    # Resample 5-min bars to 15-min
+    bars_15m = bars_5m.resample("15min").agg({
+        "Open": "first", "High": "max", "Low": "min",
+        "Close": "last", "Volume": "sum",
+    }).dropna()
+
+    if len(bars_15m) < CONSOL_15M_MIN_BARS + 1:
+        return None
+
+    # Compute 15-min ATR
+    tr_15m = bars_15m["High"] - bars_15m["Low"]
+    atr_bars = min(len(bars_15m) - 1, CONSOL_15M_ATR_LOOKBACK)
+    if atr_bars < 2:
+        return None
+    atr_15m = tr_15m.iloc[-(atr_bars + 1):-1].mean()
+    if atr_15m <= 0:
+        return None
+
+    # Check if prior N 15-min bars form a tight range
+    consol_window = bars_15m.iloc[-(CONSOL_15M_MIN_BARS + 1):-1]
+    range_high = consol_window["High"].max()
+    range_low = consol_window["Low"].min()
+    if range_low <= 0:
+        return None
+
+    range_width = range_high - range_low
+    range_pct = range_width / range_low
+    atr_threshold = atr_15m * CONSOL_15M_ATR_MULT
+
+    if range_width > atr_threshold:
+        return None
+    if range_pct > CONSOL_15M_MAX_RANGE_PCT:
+        return None
+
+    # Check current 15-min bar for breakout
+    current = bars_15m.iloc[-1]
+    base = {
+        "range_high": round(range_high, 2),
+        "range_low": round(range_low, 2),
+        "range_pct": round(range_pct * 100, 2),
+        "break_price": round(float(current["Close"]), 2),
+        "atr_15m": round(float(atr_15m), 2),
+    }
+
+    if current["Close"] > range_high:
+        return {"direction": "UP", "status": "breakout", **base}
+    elif current["Close"] < range_low:
+        return {"direction": "DOWN", "status": "breakout", **base}
+
+    return None
+
+
+def check_15m_consolidation_breakout(
+    symbol: str,
+    bars_5m: pd.DataFrame,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """15-min consolidation breakout — catches tighter, faster breakouts.
+
+    Same logic as hourly consolidation breakout but on 15-min timeframe.
+    """
+    from alert_config import CONSOL_BREAKOUT_MIN_VOL_RATIO, CONSOL_15M_MIN_BARS
+
+    break_data = detect_15m_consolidation_break(bars_5m)
+    if not break_data or break_data.get("status") != "breakout":
+        return None
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    if vol_ratio < CONSOL_BREAKOUT_MIN_VOL_RATIO:
+        return None
+
+    direction = break_data["direction"]
+    range_high = break_data["range_high"]
+    range_low = break_data["range_low"]
+    break_price = break_data["break_price"]
+    range_pct = break_data["range_pct"]
+    atr_15m = break_data.get("atr_15m", 0)
+
+    consol_duration = f"{CONSOL_15M_MIN_BARS * 15}min"
+
+    if direction == "UP":
+        entry = round(range_high, 2)
+        stop = round(range_low * 0.998, 2)
+        risk = entry - stop
+        if risk <= 0:
+            return None
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.CONSOL_15M_BREAKOUT_LONG,
+            direction="BUY",
+            price=break_price,
+            entry=entry,
+            stop=stop,
+            target_1=round(entry + risk, 2),
+            target_2=round(entry + 2 * risk, 2),
+            confidence="high",
+            message=(
+                f"15M CONSOLIDATION BREAKOUT UP — {consol_duration} range "
+                f"${range_low:.2f}-${range_high:.2f} ({range_pct:.1f}%) broken. "
+                f"Vol {vol_ratio:.1f}x"
+            ),
+        )
+    elif direction == "DOWN":
+        entry = round(range_low, 2)
+        stop = round(range_high * 1.002, 2)
+        risk = stop - entry
+        if risk <= 0:
+            return None
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.CONSOL_15M_BREAKOUT_SHORT,
+            direction="SHORT",
+            price=break_price,
+            entry=entry,
+            stop=stop,
+            target_1=round(entry - risk, 2),
+            target_2=round(entry - 2 * risk, 2),
+            confidence="high",
+            message=(
+                f"15M CONSOLIDATION BREAKDOWN — {consol_duration} range "
+                f"${range_low:.2f}-${range_high:.2f} ({range_pct:.1f}%) broken down. "
+                f"Vol {vol_ratio:.1f}x"
+            ),
+        )
+
+    return None
+
+
 def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict:
     """Compute SPY gate status for BUY alert suppression.
 
@@ -7262,6 +7409,16 @@ def evaluate_rules(
             sig.message += f" ({phase})"
             signals.append(sig)
 
+    # --- 15-min Consolidation Breakout (BUY / SHORT) ---
+    if (AlertType.CONSOL_15M_BREAKOUT_LONG.value in ENABLED_RULES
+            or AlertType.CONSOL_15M_BREAKOUT_SHORT.value in ENABLED_RULES):
+        sig = check_15m_consolidation_breakout(
+            symbol, intraday_bars, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
+
     # --- Weekly High Test (wick above, no close) ---
     if AlertType.WEEKLY_HIGH_TEST.value in ENABLED_RULES:
         sig = check_weekly_high_test(symbol, last_bar, prior_day, prior_close)
@@ -7627,19 +7784,50 @@ def evaluate_rules(
         elif not is_crypto and (_spy_below_morning_low or _spy_inside_day):
             # ── SPY below morning low OR inside day → suppress other equities ──
             # Below morning low: downtrending, focus shorts on SPY only
-            # Inside day: choppy, alerts on individual stocks go nowhere
+            # Inside day: choppy, EXCEPT at critical institutional levels
             _ml = spy_gate.get("morning_low", 0)
             _gate_reason_str = (
                 f"SPY inside day" if _spy_inside_day and not _spy_below_morning_low
                 else f"SPY below morning low ${_ml:.2f}"
             )
+
+            # Critical levels that pass through even during inside day / morning low break
+            # These are institutional levels where stocks can move independently of SPY
+            _critical_level_types = {
+                AlertType.PRIOR_DAY_LOW_RECLAIM.value,
+                AlertType.PRIOR_DAY_LOW_BOUNCE.value,
+                AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
+                AlertType.MULTI_DAY_DOUBLE_BOTTOM.value,
+                AlertType.EMA_BOUNCE_50.value,
+                AlertType.EMA_BOUNCE_100.value,
+                AlertType.EMA_BOUNCE_200.value,
+                AlertType.MA_BOUNCE_50.value,
+                AlertType.MA_BOUNCE_100.value,
+                AlertType.MA_BOUNCE_200.value,
+                AlertType.WEEKLY_LEVEL_TOUCH.value,
+                AlertType.MONTHLY_LEVEL_TOUCH.value,
+                AlertType.MONTHLY_EMA_TOUCH.value,
+                AlertType.CONSOL_BREAKOUT_LONG.value,
+                AlertType.CONSOL_BREAKOUT_SHORT.value,
+                AlertType.CONSOL_15M_BREAKOUT_LONG.value,
+                AlertType.CONSOL_15M_BREAKOUT_SHORT.value,
+            }
+
             pre_gate = signals[:]
             if _is_spy:
-                # SPY: suppress BUY only, keep SHORT + exits
+                # SPY/QQQ: suppress BUY only, keep SHORT + exits
                 signals = [s for s in signals if s.direction != "BUY"]
-            else:
-                # Other equities: suppress BUY and SHORT (only exits/notices pass)
+            elif _spy_below_morning_low:
+                # Morning low broken: suppress all BUY and SHORT on other equities
+                # (even critical levels — market is actively selling)
                 signals = [s for s in signals if s.direction not in ("BUY", "SHORT")]
+            else:
+                # Inside day only: suppress non-critical BUY/SHORT, allow critical levels
+                signals = [
+                    s for s in signals
+                    if s.direction not in ("BUY", "SHORT")
+                    or s.alert_type.value in _critical_level_types
+                ]
             for s in pre_gate:
                 if s not in signals and s.direction in ("BUY", "SHORT"):
                     logger.info(
