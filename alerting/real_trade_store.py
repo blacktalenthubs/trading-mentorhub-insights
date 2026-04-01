@@ -10,12 +10,8 @@ from db import get_db
 
 
 def calculate_shares(symbol: str, entry_price: float) -> int:
-    """Calculate position size: fixed 200 shares for SPY, floor($50k / entry) otherwise."""
-    if symbol.upper() == "SPY":
-        return REAL_TRADE_SPY_SHARES
-    if entry_price <= 0:
-        return 0
-    return math.floor(REAL_TRADE_POSITION_SIZE / entry_price)
+    """Always 1 share — we track per-share P&L to evaluate pattern quality."""
+    return 1
 
 
 def open_real_trade(

@@ -110,9 +110,9 @@ def format_monthly_report(year: int, month: int, user_id: int | None = None) -> 
         f"Winners:             {s['winners']}",
         f"Losers:              {s['losers']}",
         f"Win Rate:            {s['win_rate']:.1f}%",
-        f"Total P&L:           ${s['total_pnl']:+,.2f}",
-        f"Avg Win:             ${s['avg_win']:+,.2f}",
-        f"Avg Loss:            ${s['avg_loss']:+,.2f}",
+        f"Total P&L (per share): ${s['total_pnl']:+,.2f}",
+        f"Avg Win (per share):   ${s['avg_win']:+,.2f}",
+        f"Avg Loss (per share):  ${s['avg_loss']:+,.2f}",
         f"Alerts Skipped:      {s['total_skipped']}",
         "",
     ]
