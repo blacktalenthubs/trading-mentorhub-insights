@@ -129,6 +129,13 @@ LOW_VOLUME_SKIP_RATIO = 0.4
 # Day-trade risk cap: max allowed risk per trade as % of entry price
 DAY_TRADE_MAX_RISK_PCT = 0.003  # 0.3%
 
+# Session High Double Top (SHORT) — mirror of session low double bottom
+SESSION_HIGH_PROXIMITY_PCT = 0.003       # 0.3% — how close bar high must be to session high
+SESSION_HIGH_WEAKNESS_PCT = 0.003        # 0.3% — minimum pullback below session high between touches
+SESSION_HIGH_MIN_AGE_BARS = 3            # ~15 min — session high must be established this long ago
+SESSION_HIGH_MIN_WEAKNESS_BARS = 1       # ~5 min — consecutive bars below weakness threshold
+SESSION_HIGH_STOP_OFFSET_PCT = 0.005     # 0.5% above session high for stop
+
 # Cooldown: minutes to suppress BUY signals after a stop-out
 COOLDOWN_MINUTES = 30
 
@@ -581,9 +588,11 @@ ENABLED_RULES: set[str] = {
     "consol_breakout_short",
     "consol_15m_breakout_long",
     "consol_15m_breakout_short",
-    # SHORT — MA/EMA rejection, hourly resistance rejection, loss
+    # SHORT — MA/EMA rejection, hourly resistance rejection, double top, intraday EMA
     "ema_rejection_short",
     "hourly_resistance_rejection_short",
+    "session_high_double_top",
+    "intraday_ema_rejection_short",
     # "ema_loss_short",  # disabled — too noisy during evaluation
     # ── Trade management — exit alerts (critical) ───────────────────────────
     "target_1_hit",

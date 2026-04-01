@@ -257,6 +257,8 @@ class AlertType(str, Enum):
     CONSOL_15M_BREAKOUT_SHORT = "consol_15m_breakout_short"
     # Session low bounce at hourly support → VWAP
     SESSION_LOW_BOUNCE_VWAP = "session_low_bounce_vwap"
+    SESSION_HIGH_DOUBLE_TOP = "session_high_double_top"
+    INTRADAY_EMA_REJECTION_SHORT = "intraday_ema_rejection_short"
     # SPY Short entry
     SPY_SHORT_ENTRY = "spy_short_entry"
     # Morning range retests
@@ -4744,6 +4746,210 @@ def check_session_low_retest(
 
 
 # ---------------------------------------------------------------------------
+# SHORT Rule: Session High Double Top
+# ---------------------------------------------------------------------------
+
+
+def check_session_high_double_top(
+    symbol: str,
+    bars: pd.DataFrame,
+    last_bar: pd.Series,
+    bar_volume: float,
+    avg_volume: float,
+) -> AlertSignal | None:
+    """Session high tested twice (double top) with pullback between — SHORT entry.
+
+    Mirror of check_session_low_retest (double bottom).
+
+    Conditions:
+    1. Minimum bars
+    2. Session high = bars["High"].max()
+    3. Last bar high within proximity of session high (allows slight overshoot)
+    4. Last bar closes below session high (rejection confirmed)
+    5. First touch: earliest bar with high near session high
+    6. First touch >= MIN_AGE_BARS ago
+    7. Pullback: consecutive bars with high < session_high * (1 - WEAKNESS_PCT)
+    """
+    from alert_config import (
+        SESSION_HIGH_PROXIMITY_PCT, SESSION_HIGH_WEAKNESS_PCT,
+        SESSION_HIGH_MIN_AGE_BARS, SESSION_HIGH_MIN_WEAKNESS_BARS,
+        SESSION_HIGH_STOP_OFFSET_PCT,
+    )
+
+    min_bars = SESSION_HIGH_MIN_AGE_BARS + SESSION_HIGH_MIN_WEAKNESS_BARS + 1
+    if len(bars) < min_bars:
+        return None
+
+    session_high = float(bars["High"].max())
+    if session_high <= 0:
+        return None
+
+    # Last bar high must be near session high
+    proximity = abs(float(last_bar["High"]) - session_high) / session_high
+    if proximity > SESSION_HIGH_PROXIMITY_PCT:
+        return None
+
+    # Last bar must close below session high (rejection confirmed)
+    if float(last_bar["Close"]) >= session_high:
+        return None
+
+    # Close in lower 50% of bar range (selling pressure)
+    bar_range = float(last_bar["High"]) - float(last_bar["Low"])
+    if bar_range > 0 and (float(last_bar["Close"]) - float(last_bar["Low"])) / bar_range > 0.5:
+        return None
+
+    # Find first touch
+    first_touch_idx = None
+    for i in range(len(bars) - SESSION_HIGH_MIN_AGE_BARS):
+        bar_high = float(bars["High"].iloc[i])
+        touch_proximity = abs(bar_high - session_high) / session_high
+        if touch_proximity <= SESSION_HIGH_PROXIMITY_PCT:
+            first_touch_idx = i
+            break
+
+    if first_touch_idx is None:
+        return None
+
+    bars_ago = len(bars) - 1 - first_touch_idx
+    if bars_ago < SESSION_HIGH_MIN_AGE_BARS:
+        return None
+
+    # Pullback between touches: consecutive bars with high below threshold
+    weakness_threshold = session_high * (1 - SESSION_HIGH_WEAKNESS_PCT)
+    max_consecutive = 0
+    consecutive = 0
+    for i in range(first_touch_idx + 1, len(bars) - 1):
+        if float(bars["High"].iloc[i]) < weakness_threshold:
+            consecutive += 1
+            max_consecutive = max(max_consecutive, consecutive)
+        else:
+            consecutive = 0
+
+    if max_consecutive < SESSION_HIGH_MIN_WEAKNESS_BARS:
+        return None
+
+    # Entry/Stop/Targets
+    entry = round(float(last_bar["Close"]), 2)
+    stop = round(session_high * (1 + SESSION_HIGH_STOP_OFFSET_PCT), 2)
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    target_1 = round(entry - risk, 2)
+    target_2 = round(entry - 2 * risk, 2)
+
+    vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
+    confidence = "high" if vol_ratio < 0.8 else "medium"  # low volume retest = exhaustion
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SESSION_HIGH_DOUBLE_TOP,
+        direction="SHORT",
+        price=float(last_bar["Close"]),
+        entry=entry,
+        stop=stop,
+        target_1=target_1,
+        target_2=target_2,
+        confidence=confidence,
+        message=(
+            f"SESSION HIGH DOUBLE TOP — ${session_high:.2f} tested twice, "
+            f"rejected and closed ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SHORT Rule: Intraday EMA Rejection (hourly EMA as resistance)
+# ---------------------------------------------------------------------------
+
+
+def check_intraday_ema_rejection_short(
+    symbol: str,
+    bars_5m: pd.DataFrame,
+) -> AlertSignal | None:
+    """Price rallies into hourly EMA (20 or 50) and gets rejected — SHORT.
+
+    Unlike check_ema_rejection_short which uses DAILY EMAs, this uses
+    INTRADAY hourly EMAs computed from 5-min bars resampled to 1h.
+
+    Conditions:
+    1. At least 60 bars (5h of 5-min data for reliable hourly EMA20)
+    2. Compute hourly EMA20 and EMA50 from resampled bars
+    3. Bar high reaches within 0.3% of hourly EMA
+    4. Bar closes in lower 40% of range (rejection confirmed)
+    5. Price must be BELOW the EMA (approaching from below)
+    """
+    if bars_5m.empty or len(bars_5m) < 60:
+        return None
+
+    # Resample to hourly and compute EMAs
+    hourly = bars_5m.resample("1h").agg({
+        "Open": "first", "High": "max", "Low": "min",
+        "Close": "last", "Volume": "sum",
+    }).dropna()
+
+    if len(hourly) < 20:
+        return None
+
+    hourly_ema20 = float(hourly["Close"].ewm(span=20, adjust=False).mean().iloc[-1])
+    hourly_ema50 = float(hourly["Close"].ewm(span=50, adjust=False).mean().iloc[-1]) if len(hourly) >= 50 else 0
+
+    last_bar = bars_5m.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_high = float(last_bar["High"])
+    last_low = float(last_bar["Low"])
+    bar_range = last_high - last_low
+
+    if bar_range <= 0:
+        return None
+
+    # Close must be in lower 40% of range
+    if (last_close - last_low) / bar_range > 0.4:
+        return None
+
+    _ema_levels = [
+        ("Hourly EMA20", hourly_ema20),
+    ]
+    if hourly_ema50 > 0:
+        _ema_levels.append(("Hourly EMA50", hourly_ema50))
+
+    for ema_name, ema_val in _ema_levels:
+        if ema_val <= 0:
+            continue
+        # Price must be below the EMA
+        if last_close >= ema_val:
+            continue
+        # Bar high must have reached near the EMA
+        proximity = abs(last_high - ema_val) / ema_val
+        if proximity > 0.003:
+            continue
+
+        entry = round(last_close, 2)
+        stop = round(ema_val * 1.003, 2)
+        risk = stop - entry
+        if risk <= 0:
+            continue
+
+        return AlertSignal(
+            symbol=symbol,
+            alert_type=AlertType.INTRADAY_EMA_REJECTION_SHORT,
+            direction="SHORT",
+            price=last_close,
+            entry=entry,
+            stop=stop,
+            target_1=round(entry - risk, 2),
+            target_2=round(entry - 2 * risk, 2),
+            confidence="medium",
+            message=(
+                f"{ema_name} REJECTION — rallied to ${last_high:.2f} near "
+                f"{ema_name} ${ema_val:.2f}, rejected and closed ${last_close:.2f}"
+            ),
+        )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Rule 13b: Multi-Day Double Bottom (daily swing lows tested 2+ times)
 # ---------------------------------------------------------------------------
 
@@ -7038,71 +7244,89 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        # --- Multi-Day Double Bottom ---
-        if AlertType.MULTI_DAY_DOUBLE_BOTTOM.value in ENABLED_RULES:
-            daily_dbs = prior_day.get("daily_double_bottoms", [])
-            if daily_dbs:
-                sig = check_multi_day_double_bottom(
-                    symbol, intraday_bars, daily_dbs, bar_vol, avg_vol,
-                    prior_day=prior_day,
-                )
-                if sig:
-                    sig.message += f" ({phase})"
-                    if spy.get("spy_bouncing"):
-                        sig.confidence = "high"
-                        sig.message += " | SPY also bouncing"
-                    sig.message += caution_suffix
-                    signals.append(sig)
+    # --- Session High Double Top (SHORT) ---
+    if AlertType.SESSION_HIGH_DOUBLE_TOP.value in ENABLED_RULES:
+        sig = check_session_high_double_top(
+            symbol, intraday_bars, last_bar, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            sig.message += caution_suffix
+            signals.append(sig)
 
-        # --- VWAP Reclaim (Morning Reversal) ---
-        if AlertType.VWAP_RECLAIM.value in ENABLED_RULES and symbol in VWAP_SYMBOLS:
-            sig = check_vwap_reclaim(
-                symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
+    # --- Intraday EMA Rejection SHORT ---
+    if AlertType.INTRADAY_EMA_REJECTION_SHORT.value in ENABLED_RULES:
+        sig = check_intraday_ema_rejection_short(symbol, intraday_bars)
+        if sig:
+            sig.message += f" ({phase})"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+    # --- Multi-Day Double Bottom ---
+    if AlertType.MULTI_DAY_DOUBLE_BOTTOM.value in ENABLED_RULES:
+        daily_dbs = prior_day.get("daily_double_bottoms", [])
+        if daily_dbs:
+            sig = check_multi_day_double_bottom(
+                symbol, intraday_bars, daily_dbs, bar_vol, avg_vol,
+                prior_day=prior_day,
             )
             if sig:
                 sig.message += f" ({phase})"
+                if spy.get("spy_bouncing"):
+                    sig.confidence = "high"
+                    sig.message += " | SPY also bouncing"
                 sig.message += caution_suffix
                 signals.append(sig)
 
-        # --- VWAP Bounce (Pullback to VWAP that holds) ---
-        if AlertType.VWAP_BOUNCE.value in ENABLED_RULES and symbol in VWAP_SYMBOLS:
-            sig = check_vwap_bounce(
-                symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
-            )
-            if sig:
-                sig.message += f" ({phase})"
-                if vwap_pos:
-                    sig.message += f" — price {vwap_pos}"
-                sig.message += caution_suffix
-                signals.append(sig)
+    # --- VWAP Reclaim (Morning Reversal) ---
+    if AlertType.VWAP_RECLAIM.value in ENABLED_RULES and symbol in VWAP_SYMBOLS:
+        sig = check_vwap_reclaim(
+            symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            sig.message += caution_suffix
+            signals.append(sig)
 
-        # --- Session Low Bounce at Hourly Support → VWAP ---
-        if AlertType.SESSION_LOW_BOUNCE_VWAP.value in ENABLED_RULES:
-            sig = check_session_low_bounce_to_vwap(
-                symbol, intraday_bars, vwap_series,
-                intraday_supports, bar_vol, avg_vol,
-            )
-            if sig:
-                sig.message += f" ({phase})"
-                signals.append(sig)
+    # --- VWAP Bounce (Pullback to VWAP that holds) ---
+    if AlertType.VWAP_BOUNCE.value in ENABLED_RULES and symbol in VWAP_SYMBOLS:
+        sig = check_vwap_bounce(
+            symbol, intraday_bars, vwap_series, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
+            signals.append(sig)
 
-        # --- Session Low Reversal (reversal candle + volume at the low) ---
-        if AlertType.SESSION_LOW_REVERSAL.value in ENABLED_RULES:
-            sig = check_session_low_reversal(symbol, intraday_bars)
-            if sig:
-                sig.message += f" ({phase})"
-                if vwap_pos:
-                    sig.message += f" — price {vwap_pos}"
-                sig.message += caution_suffix
-                signals.append(sig)
+    # --- Session Low Bounce at Hourly Support → VWAP ---
+    if AlertType.SESSION_LOW_BOUNCE_VWAP.value in ENABLED_RULES:
+        sig = check_session_low_bounce_to_vwap(
+            symbol, intraday_bars, vwap_series,
+            intraday_supports, bar_vol, avg_vol,
+        )
+        if sig:
+            sig.message += f" ({phase})"
+            signals.append(sig)
 
-        # --- Session Low Breakdown (SHORT) ---
-        if AlertType.SESSION_LOW_BREAKDOWN.value in ENABLED_RULES:
-            sig = check_session_low_breakdown(symbol, intraday_bars)
-            if sig:
-                sig.message += f" ({phase})"
-                if vwap_pos:
-                    sig.message += f" — price {vwap_pos}"
+    # --- Session Low Reversal (reversal candle + volume at the low) ---
+    if AlertType.SESSION_LOW_REVERSAL.value in ENABLED_RULES:
+        sig = check_session_low_reversal(symbol, intraday_bars)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+    # --- Session Low Breakdown (SHORT) ---
+    if AlertType.SESSION_LOW_BREAKDOWN.value in ENABLED_RULES:
+        sig = check_session_low_breakdown(symbol, intraday_bars)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
                 sig.message += caution_suffix
                 signals.append(sig)
 
