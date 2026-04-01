@@ -7845,7 +7845,21 @@ def evaluate_rules(
                     symbol, s.alert_type.value, len(intraday_bars), _OPENING_WAIT_BARS,
                 )
 
-    # (SPY VWAP gate removed — morning low gate handles equity BUY suppression)
+    # --- SPY above VWAP: suppress non-index SHORT alerts ---
+    # When SPY is above VWAP, bulls are in control. Only allow SHORT on SPY/QQQ.
+    # Other equity shorts (NVDA, PLTR etc.) fight the trend.
+    _spy_above_vwap = (
+        spy_gate.get("vwap_dominance", 0) >= 0.5 if spy_gate else False
+    )
+    if not is_crypto and not _is_spy and _spy_above_vwap:
+        pre_vwap = signals[:]
+        signals = [s for s in signals if s.direction != "SHORT"]
+        for s in pre_vwap:
+            if s.direction == "SHORT" and s not in signals:
+                logger.info(
+                    "%s: SPY ABOVE VWAP suppressed SHORT %s",
+                    symbol, s.alert_type.value,
+                )
 
     # --- 15-min range filter: suppress BUY when symbol is in a tight range ---
     # If the hourly bars show consolidation (no breakout), BUY signals are
