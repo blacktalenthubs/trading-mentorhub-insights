@@ -417,7 +417,7 @@ class TestPDLReclaimWidenedDistance:
         sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
-        assert sig.entry == pdl
+        assert sig.entry == round(pdl * 1.015, 2)
 
     def test_fires_at_1_9pct_above_pdl(self):
         """Price 1.9% above PDL — still within 2% threshold."""
@@ -452,7 +452,7 @@ class TestPDLReclaimWidenedDistance:
         ])
         sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl)
         assert sig is not None
-        assert sig.entry == pdl
+        assert sig.entry == 179.5
         assert sig.stop == round(pdl * (1 - 0.005), 2)
 
 
@@ -468,7 +468,7 @@ class TestPriorDayLowReclaim:
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
         assert sig.direction == "BUY"
-        assert sig.entry == 99.0
+        assert sig.entry == 99.5
         # Stop = PDL * (1 - 0.005) = 99.0 * 0.995 = 98.505
         assert sig.stop == round(99.0 * 0.995, 2)
 
@@ -722,9 +722,9 @@ class TestPriorDayHighBreakout:
                                              bar_volume=160000, avg_volume=130000)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_HIGH_BREAKOUT
-        assert sig.entry == 71291.0
-        # Stop should be 0.5% below PDH since all lookback lows > PDH
-        assert sig.stop == round(71291.0 * 0.995, 2)
+        assert sig.entry == 72600.0
+        # Stop at last bar low (within _cap_risk for BTC-USD)
+        assert sig.stop == 72200.0
         assert sig.stop < sig.entry
 
     def test_crypto_gap_up_lookback_low_below_pdh(self):
@@ -741,9 +741,9 @@ class TestPriorDayHighBreakout:
         sig = check_prior_day_high_breakout("BTC-USD", bars, prior_day_high=71291.0,
                                              bar_volume=160000, avg_volume=130000)
         assert sig is not None
-        # Last bar low (72000) > PDH, so gap-up fallback triggers
-        # Lookback low = min of last 6 bars low = 71100 < PDH → uses lookback low
-        assert sig.stop == 71100.0
+        # entry = last bar Close = 72400, stop = last bar Low = 72000
+        assert sig.entry == 72400.0
+        assert sig.stop == 72000.0
         assert sig.stop < sig.entry
 
     def test_equity_pdh_breakout_unchanged(self):
@@ -756,7 +756,7 @@ class TestPriorDayHighBreakout:
                                              bar_volume=1500, avg_volume=1000)
         assert sig is not None
         assert sig.stop < sig.entry  # Stop below entry (normal approach from below)
-        assert sig.entry == 101.0
+        assert sig.entry == 101.5
 
 
 # ===== Rule 3c: Prior Day High Retest & Hold =====
@@ -4331,6 +4331,11 @@ class TestSessionLowStop:
             "analytics.intraday_data.fetch_hourly_bars",
             lambda *a, **kw: pd.DataFrame(),
         )
+        # Disable consolidation so the MA20 signal isn't merged with other BUY signals
+        monkeypatch.setattr(
+            "analytics.intraday_rules._consolidate_signals",
+            lambda signals: signals,
+        )
         session_low = 99.0
         ma20 = 100.0
         bars = self._make_bars(session_low=session_low, bounce_close=100.3, ma_level=ma20)
@@ -6505,7 +6510,7 @@ class TestFibRetracementBounceExtended:
         bar = _bar(open_=105.5, high=106.0, low=105.0, close=105.8)
         sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
         assert sig is not None
-        assert sig.entry == round(fib_50, 2)
+        assert sig.entry == 105.8
 
     def test_message_contains_fibonacci(self):
         """Signal message should mention Fibonacci."""
@@ -6535,8 +6540,8 @@ class TestFibRetracementBounceExtended:
         bar = _bar(open_=106.5, high=107.0, low=106.18, close=106.8)
         sig = check_fib_retracement_bounce("AAPL", bar, prior_high, prior_low)
         assert sig is not None
-        # Entry should be near 106.18 (38.2% level), not 105.0
-        assert abs(sig.entry - 106.18) < 0.05
+        # Entry should be last bar Close (now uses close, not fib level)
+        assert sig.entry == 106.8
 
 
 # ---------------------------------------------------------------------------
@@ -6670,7 +6675,7 @@ class TestMorningLowRetest:
         sig = check_morning_low_retest("GOOGL", bars, opening_range)
         assert sig is not None
         assert sig.alert_type == AlertType.MORNING_LOW_RETEST
-        assert sig.entry == 100.0
+        assert sig.entry == 100.5
         assert sig.stop < sig.entry
 
     def test_no_fire_before_first_hour(self):
@@ -6741,7 +6746,7 @@ class TestFirstHourHighBreakout:
         sig = check_first_hour_high_breakout("SPY", bars, opening_range, 1200, 1000)
         assert sig is not None
         assert sig.alert_type == AlertType.FIRST_HOUR_HIGH_BREAKOUT
-        assert sig.entry == 102.0
+        assert sig.entry == 102.5
 
     def test_no_fire_below_first_hour_high(self):
         """No fire if close is below first-hour high."""
@@ -6786,7 +6791,7 @@ class TestMAEMAReclaim:
         )
         assert sig is not None
         assert sig.alert_type == AlertType.EMA_RECLAIM_50
-        assert sig.entry == 2221.0
+        assert sig.entry == 2240.0
         assert sig.stop < sig.entry
         assert "EMA50 reclaim" in sig.message
 

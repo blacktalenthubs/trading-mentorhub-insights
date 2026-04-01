@@ -760,7 +760,7 @@ def check_prior_day_low_reclaim(
         )
         return None
 
-    entry = prior_day_low
+    entry = round(float(bars.iloc[-1]["Close"]), 2)
     intraday_low = bars["Low"].min()
     # Level-based stop: PDL is the thesis — if it breaks, trade is wrong.
     # Data-driven: 0.5% below PDL gives 78% survival for SPY, 3-5x R:R.
@@ -1022,7 +1022,7 @@ def check_prior_day_high_breakout(
     if vol_ratio < PDH_BREAKOUT_VOLUME_RATIO:
         return None
 
-    entry = round(prior_day_high, 2)
+    entry = round(float(last_bar["Close"]), 2)
     stop = round(last_bar["Low"], 2)
     stop = _cap_risk(entry, stop, symbol=symbol)
     risk = entry - stop
@@ -4282,7 +4282,7 @@ def check_morning_low_retest(
     if rally_bar_count < 2:
         return None
 
-    entry = round(first_hour_low, 2)
+    entry = round(float(last_bar["Close"]), 2)
     stop = round(first_hour_low * (1 - MORNING_LOW_RETEST_STOP_OFFSET_PCT), 2)
     stop = _cap_risk(entry, stop, symbol=symbol)
     risk = entry - stop
@@ -4449,7 +4449,7 @@ def check_first_hour_high_breakout(
     if vol_ratio < FIRST_HOUR_HIGH_BREAKOUT_VOLUME_RATIO:
         return None
 
-    entry = round(first_hour_high, 2)
+    entry = round(float(last_bar["Close"]), 2)
     stop = round(first_hour_low, 2)
     stop = _cap_risk(entry, stop, symbol=symbol)
     risk = entry - stop
@@ -4516,7 +4516,7 @@ def check_ma_ema_reclaim(
     if distance > MA_RECLAIM_MAX_DISTANCE_PCT:
         return None
 
-    entry = round(ma_level, 2)
+    entry = round(float(last_bar["Close"]), 2)
     stop = round(ma_level * (1 - MA_RECLAIM_STOP_OFFSET_PCT), 2)
     stop = _cap_risk(entry, stop, symbol=symbol)
     risk = entry - stop
@@ -5125,7 +5125,7 @@ def check_planned_level_touch(
     # When the touch is on the support level (not the plan entry), override
     # entry/stop — the plan entry may be a breakout level far above price.
     if touched_label != "entry":
-        entry = round(touched_level, 2)
+        entry = round(float(last_bar["Close"]), 2)
         stop = round(touched_level * (1 - BUY_ZONE_PROXIMITY_PCT), 2)
 
     if entry <= 0 or stop <= 0:
@@ -6164,7 +6164,7 @@ def check_fib_retracement_bounce(
         if bar["Close"] <= fib_level:
             continue
 
-        entry = round(fib_level, 2)
+        entry = round(float(bar["Close"]), 2)
         # Stop below next fib level or prior low
         next_fibs = [prior_high - swing_range * f for f in FIB_LEVELS if f > fib_pct]
         stop_level = next_fibs[0] if next_fibs else prior_low
