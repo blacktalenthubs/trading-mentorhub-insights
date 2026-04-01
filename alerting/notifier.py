@@ -107,8 +107,10 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
     if _levels:
         parts.append(" · ".join(_levels))
 
-    # Reason
+    # Reason + Conviction
+    _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
     parts.append(f"Reason: {_reason}")
+    parts.append(f"Conviction: {_conviction}")
 
     # Telegram message limit is 4096 chars; truncate safely
     return "\n".join(parts)[:4000]
