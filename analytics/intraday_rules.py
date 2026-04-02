@@ -7732,6 +7732,37 @@ def evaluate_rules(
     # Previously used a session_bar spanning all intraday highs/lows, but
     # that caused false T1/T2 hits when entries were created mid-session
     # (session high from BEFORE the entry would trigger "target hit").
+    # Build nearby levels map for annotating T1/T2/Stop messages
+    _nearby_levels: list[tuple[str, float]] = []
+    for _lbl, _val in [
+        ("MA20", ma20), ("MA50", ma50), ("MA100", ma100), ("MA200", ma200),
+        ("EMA20", ema20), ("EMA50", ema50), ("EMA100", ema100), ("EMA200", ema200),
+        ("PDH", prior_high), ("PDL", prior_low),
+    ]:
+        if _val and _val > 0:
+            _nearby_levels.append((_lbl, _val))
+    for _rlvl in hourly_resistance:
+        if _rlvl and _rlvl > 0:
+            _nearby_levels.append(("hourly R", _rlvl))
+    for _sup in intraday_supports:
+        _slvl = _sup.get("level", 0)
+        if _slvl and _slvl > 0:
+            _nearby_levels.append(("hourly S", _slvl))
+
+    def _annotate_nearby(sig: AlertSignal, target_price: float) -> None:
+        """Append nearest resistance/support label to exit signal message."""
+        if target_price <= 0:
+            return
+        best_label, best_dist = None, float("inf")
+        for lbl, lvl in _nearby_levels:
+            if lvl <= 0:
+                continue
+            dist = abs(target_price - lvl) / lvl
+            if dist < 0.005 and dist < best_dist:  # within 0.5%
+                best_label, best_dist = f"{lbl} ${lvl:.2f}", dist
+        if best_label:
+            sig.message += f" | near {best_label}"
+
     _entry_signal_types_seen: set[str] = set()
     for entry in entries:
         ep = entry.get("entry_price") or 0
@@ -7741,16 +7772,19 @@ def evaluate_rules(
 
         sig = check_target_1_hit(symbol, last_bar, ep, t1)
         if sig and sig.alert_type.value not in _entry_signal_types_seen:
+            _annotate_nearby(sig, t1)
             _entry_signal_types_seen.add(sig.alert_type.value)
             signals.append(sig)
 
         sig = check_target_2_hit(symbol, last_bar, ep, t2)
         if sig and sig.alert_type.value not in _entry_signal_types_seen:
+            _annotate_nearby(sig, t2)
             _entry_signal_types_seen.add(sig.alert_type.value)
             signals.append(sig)
 
         sig = check_stop_loss_hit(symbol, last_bar, ep, sp)
         if sig and sig.alert_type.value not in _entry_signal_types_seen:
+            _annotate_nearby(sig, sp)
             _entry_signal_types_seen.add(sig.alert_type.value)
             signals.append(sig)
 
