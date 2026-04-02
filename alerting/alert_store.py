@@ -344,6 +344,28 @@ def has_acked_entry(symbol: str, user_id: int, session_date: str | None = None) 
         return False
 
 
+def has_open_acked_direction(symbol: str, direction: str, user_id: int, session_date: str | None = None) -> bool:
+    """Check if user has an ACK'd alert in the same direction with an open trade.
+
+    Returns True if: alert exists with user_action='took' for this symbol+direction today
+    AND there's an open real_trade for this symbol.
+    """
+    session = session_date or today_session()
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT 1 FROM alerts a
+                   JOIN real_trades rt ON rt.symbol = a.symbol AND rt.status = 'open'
+                   WHERE a.symbol=? AND a.direction=? AND a.user_id=?
+                     AND a.session_date=? AND a.user_action='took'
+                   LIMIT 1""",
+                (symbol, direction, user_id, session),
+            ).fetchone()
+            return row is not None
+    except Exception:
+        return False
+
+
 def user_has_used_ack(user_id: int) -> bool:
     """Check if user has ever ACK'd or skipped any alert (used the button system).
 

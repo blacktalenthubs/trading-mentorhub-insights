@@ -39,6 +39,7 @@ from alerting.alert_store import (
     get_active_entries,
     get_alerts_today,
     has_acked_entry,
+    has_open_acked_direction,
     record_alert,
     save_cooldown,
     today_session,
@@ -288,6 +289,18 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                     if not has_acked_entry(symbol, uid, session):
                         logger.debug("%s: suppressing SELL %s (not ACK'd)", symbol, signal.alert_type.value)
                         continue
+
+                # Gate: suppress same-direction alerts when user already "Took It"
+                # and trade is still open.  Alert still recorded to DB (dashboard),
+                # just skip Telegram notification.
+                if _ack_active and signal.direction in ("BUY", "SHORT"):
+                    if has_open_acked_direction(symbol, signal.direction, uid, session):
+                        signal._suppress_telegram = True
+                        logger.info(
+                            "%s: muting %s %s (user has open ACK'd %s trade)",
+                            symbol, signal.direction, signal.alert_type.value, signal.direction,
+                        )
+
                 signal.narrative = generate_narrative(signal)
 
                 # Cluster narrator: if signal has confirming signals, generate
@@ -542,6 +555,24 @@ def _maybe_run_eod() -> None:
             logger.info("EOD cleanup: closed %d equity active entries", equity_closed)
     except Exception:
         logger.exception("EOD active entries cleanup failed")
+
+    # EOD Cleanup: close stale open real trades for equities
+    # Ensures trades page starts clean each morning.
+    try:
+        from db import get_db as _get_db2
+        with _get_db2() as conn:
+            cur = conn.execute(
+                """UPDATE real_trades SET status = 'closed',
+                   closed_at = CURRENT_TIMESTAMP,
+                   notes = COALESCE(notes, '') || ' [auto-closed at EOD]'
+                   WHERE status = 'open' AND symbol NOT LIKE '%%-USD'"""
+            )
+            trades_closed = cur.rowcount
+            conn.commit()
+        if trades_closed:
+            logger.info("EOD cleanup: closed %d equity open trades", trades_closed)
+    except Exception:
+        logger.exception("EOD real trades cleanup failed")
 
     # Weekly Alert Tuning Report — send on Fridays after close
     try:
