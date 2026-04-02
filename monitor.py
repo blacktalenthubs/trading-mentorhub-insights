@@ -40,6 +40,7 @@ from alerting.alert_store import (
     get_alerts_today,
     has_acked_entry,
     has_open_acked_direction,
+    has_recent_notified_sell,
     record_alert,
     save_cooldown,
     today_session,
@@ -299,6 +300,18 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                         logger.info(
                             "%s: muting %s %s (user has open ACK'd %s trade)",
                             symbol, signal.direction, signal.alert_type.value, signal.direction,
+                        )
+
+                # Gate: suppress warning-type SELL alerts if a SELL was already
+                # notified for this symbol in the last 60 min.  Exit signals
+                # (T1/T2/Stop) always go through.
+                _exit_types = {AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT, AlertType.STOP_LOSS_HIT}
+                if signal.direction == "SELL" and signal.alert_type not in _exit_types:
+                    if has_recent_notified_sell(symbol, uid, session):
+                        signal._suppress_telegram = True
+                        logger.info(
+                            "%s: muting SELL warning %s (recent SELL already notified)",
+                            symbol, signal.alert_type.value,
                         )
 
                 signal.narrative = generate_narrative(signal)

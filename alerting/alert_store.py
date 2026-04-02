@@ -366,6 +366,29 @@ def has_open_acked_direction(symbol: str, direction: str, user_id: int, session_
         return False
 
 
+def has_recent_notified_sell(symbol: str, user_id: int, session_date: str | None = None, lookback_minutes: int = 60) -> bool:
+    """Check if a SELL alert was already notified for this symbol recently.
+
+    Used to suppress warning-type SELL alerts (MA Resistance, Hourly Approach)
+    when the user already received a SELL notification within the lookback window.
+    """
+    session = session_date or today_session()
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT 1 FROM alerts
+                   WHERE symbol=? AND direction='SELL' AND session_date=?
+                     AND (user_id=? OR user_id IS NULL)
+                     AND (notified_email=1 OR notified_sms=1)
+                     AND created_at >= datetime('now', ?)
+                   LIMIT 1""",
+                (symbol, session, user_id, f"-{lookback_minutes} minutes"),
+            ).fetchone()
+            return row is not None
+    except Exception:
+        return False
+
+
 def user_has_used_ack(user_id: int) -> bool:
     """Check if user has ever ACK'd or skipped any alert (used the button system).
 
