@@ -1011,6 +1011,14 @@ def check_prior_day_high_breakout(
     if last_bar["Close"] <= prior_day_high:
         return None
 
+    # Skip if equity gapped above PDH — no intraday breakout to trade.
+    # PDH retest rule handles the case where price pulls back to retest.
+    # Crypto trades 24/7 so gap-ups are continuous moves, not true gaps.
+    if "-USD" not in symbol:
+        today_open = bars.iloc[0]["Open"]
+        if today_open > prior_day_high:
+            return None
+
     # Scan lookback bars above PDH for best volume (breakout bar may not be current)
     lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
     above = lookback[lookback["Close"] > prior_day_high]
