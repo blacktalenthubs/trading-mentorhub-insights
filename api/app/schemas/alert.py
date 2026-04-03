@@ -21,8 +21,28 @@ class AlertResponse(BaseModel):
     message: Optional[str] = None
     created_at: str
     session_date: str
+    user_action: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm_alert(cls, alert) -> "AlertResponse":
+        return cls(
+            id=alert.id,
+            symbol=alert.symbol,
+            alert_type=alert.alert_type,
+            direction=alert.direction,
+            price=alert.price,
+            entry=alert.entry,
+            stop=alert.stop,
+            target_1=alert.target_1,
+            target_2=alert.target_2,
+            confidence=alert.confidence,
+            message=alert.message,
+            created_at=str(alert.created_at) if alert.created_at else "",
+            session_date=alert.session_date or "",
+            user_action=alert.user_action,
+        )
 
 
 class SessionSummaryResponse(BaseModel):

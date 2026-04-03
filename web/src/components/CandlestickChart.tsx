@@ -1,9 +1,15 @@
-/** Candlestick chart using lightweight-charts v5. */
+/** Candlestick chart using lightweight-charts v5, with MA/VWAP overlays. */
 
 import { useEffect, useRef } from "react";
-import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import type { OHLCBar, ChartLevel } from "../api/hooks";
+import { computeSMA, computeEMA, computeVWAP } from "../lib/indicators";
+
+interface IndicatorConfig {
+  key: string; // "sma20" | "sma50" | "ema9" | "vwap"
+  color: string;
+}
 
 interface Props {
   data: OHLCBar[];
@@ -12,6 +18,7 @@ interface Props {
   stop?: number;
   target?: number;
   height?: number;
+  indicators?: IndicatorConfig[];
 }
 
 export default function CandlestickChart({
@@ -21,10 +28,12 @@ export default function CandlestickChart({
   stop,
   target,
   height = 400,
+  indicators = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const lineSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -68,19 +77,83 @@ export default function CandlestickChart({
     };
   }, [height]);
 
-  // Update data
+  // Update data + indicators
   useEffect(() => {
-    if (!seriesRef.current || !data.length) return;
+    if (!seriesRef.current || !chartRef.current || !data.length) return;
 
-    const formatted = data.map((bar) => ({
-      time: bar.timestamp.split(" ")[0] as string,
-      open: bar.open,
-      high: bar.high,
-      low: bar.low,
+    const chart = chartRef.current;
+
+    // Remove previous line series
+    for (const ls of lineSeriesRefs.current) {
+      try {
+        chart.removeSeries(ls);
+      } catch {
+        // Series may already be removed if chart was re-created
+      }
+    }
+    lineSeriesRefs.current = [];
+
+    // Detect intraday: if multiple bars share the same date, use Unix timestamps
+    const dateSet = new Set(data.map((b) => b.timestamp.split(" ")[0]));
+    const isIntraday = dateSet.size < data.length;
+
+    function toTime(ts: string): string | number {
+      if (isIntraday) {
+        // Convert "YYYY-MM-DD HH:MM:SS" to Unix epoch (seconds)
+        return Math.floor(new Date(ts.replace(" ", "T") + "Z").getTime() / 1000);
+      }
+      return ts.split(" ")[0];
+    }
+
+    // Deduplicate: keep last bar per timestamp (handles duplicate dates)
+    const seen = new Map<string | number, number>();
+    const deduped: Array<{ time: string | number; open: number; high: number; low: number; close: number }> = [];
+    for (const bar of data) {
+      const t = toTime(bar.timestamp);
+      if (seen.has(t)) {
+        deduped[seen.get(t)!] = { time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
+      } else {
+        seen.set(t, deduped.length);
+        deduped.push({ time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+      }
+    }
+
+    seriesRef.current.setData(deduped as any);
+
+    // Compute and add indicator lines
+    const closes = data.map((bar) => ({
+      time: toTime(bar.timestamp) as string,
       close: bar.close,
     }));
 
-    seriesRef.current.setData(formatted as any);
+    const barsForVWAP = data.map((bar) => ({
+      time: toTime(bar.timestamp) as string,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      volume: bar.volume,
+    }));
+
+    for (const ind of indicators) {
+      let lineData: { time: string | number; value: number }[] = [];
+
+      if (ind.key === "sma20") lineData = computeSMA(closes, 20);
+      else if (ind.key === "sma50") lineData = computeSMA(closes, 50);
+      else if (ind.key === "ema9") lineData = computeEMA(closes, 9);
+      else if (ind.key === "vwap") lineData = computeVWAP(barsForVWAP);
+
+      if (lineData.length > 0) {
+        const lineSeries = chart.addSeries(LineSeries, {
+          color: ind.color,
+          lineWidth: 1,
+          crosshairMarkerVisible: false,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        lineSeries.setData(lineData as any);
+        lineSeriesRefs.current.push(lineSeries);
+      }
+    }
 
     // Price lines
     const plines: Array<{ price: number; color: string; title: string }> = [];
@@ -104,8 +177,8 @@ export default function CandlestickChart({
       });
     }
 
-    chartRef.current?.timeScale().fitContent();
-  }, [data, levels, entry, stop, target]);
+    chart.timeScale().fitContent();
+  }, [data, levels, entry, stop, target, indicators]);
 
   return <div ref={containerRef} className="w-full rounded-lg" />;
 }

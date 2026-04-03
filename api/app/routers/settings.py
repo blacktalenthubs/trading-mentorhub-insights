@@ -1,17 +1,21 @@
-"""Settings endpoints: profile, password, notification preferences."""
+"""Settings endpoints: profile, password, notification preferences, alert preferences."""
 
 from __future__ import annotations
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.settings import (
+    AlertCategoryItem,
+    AlertPrefsResponse,
     ChangePasswordRequest,
     NotificationPrefsResponse,
+    UpdateAlertPrefsRequest,
     UpdateNotificationPrefsRequest,
     UpdateProfileRequest,
 )
@@ -87,3 +91,76 @@ async def update_notification_prefs(
         quiet_hours_start=user.quiet_hours_start,
         quiet_hours_end=user.quiet_hours_end,
     )
+
+
+# --- Alert Category Preferences ---
+
+
+@router.get("/alert-preferences", response_model=AlertPrefsResponse)
+async def get_alert_preferences(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get alert category toggles and min score filter."""
+    from alert_config import ALERT_CATEGORIES
+    from app.models.alert_prefs import UserAlertCategoryPref
+
+    rows = (await db.execute(
+        select(UserAlertCategoryPref).where(UserAlertCategoryPref.user_id == user.id)
+    )).scalars().all()
+    saved = {r.category_id: bool(r.enabled) for r in rows}
+
+    categories = []
+    for cat_id, cat in ALERT_CATEGORIES.items():
+        categories.append(AlertCategoryItem(
+            category_id=cat_id,
+            name=cat["name"],
+            description=cat["description"],
+            enabled=saved.get(cat_id, True),
+        ))
+
+    return AlertPrefsResponse(categories=categories, min_score=user.min_alert_score)
+
+
+@router.put("/alert-preferences", response_model=AlertPrefsResponse)
+async def update_alert_preferences(
+    body: UpdateAlertPrefsRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update alert category toggles and min score filter."""
+    from alert_config import ALERT_CATEGORIES
+    from app.models.alert_prefs import UserAlertCategoryPref
+
+    user.min_alert_score = max(0, min(100, body.min_score))
+
+    for cat_id, enabled in body.categories.items():
+        if cat_id not in ALERT_CATEGORIES:
+            continue
+        existing = (await db.execute(
+            select(UserAlertCategoryPref).where(
+                UserAlertCategoryPref.user_id == user.id,
+                UserAlertCategoryPref.category_id == cat_id,
+            )
+        )).scalar_one_or_none()
+        if existing:
+            existing.enabled = int(enabled)
+        else:
+            db.add(UserAlertCategoryPref(
+                user_id=user.id,
+                category_id=cat_id,
+                enabled=int(enabled),
+            ))
+
+    await db.flush()
+
+    categories = []
+    for cat_id, cat in ALERT_CATEGORIES.items():
+        categories.append(AlertCategoryItem(
+            category_id=cat_id,
+            name=cat["name"],
+            description=cat["description"],
+            enabled=body.categories.get(cat_id, True),
+        ))
+
+    return AlertPrefsResponse(categories=categories, min_score=user.min_alert_score)

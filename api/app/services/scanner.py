@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import List
@@ -11,7 +12,20 @@ _project_root = str(Path(__file__).resolve().parents[3])
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+# The parent project's db.py reads DATABASE_URL to decide sqlite vs postgres.
+# The API's .env sets DATABASE_URL to an async SQLAlchemy URL which is not a
+# valid psycopg2 DSN.  Hide it so the parent db.py falls back to SQLite mode.
+_saved_db_url = os.environ.pop("DATABASE_URL", None)
+
 from analytics.signal_engine import SignalResult, action_label, scan_watchlist  # noqa: E402
+
+# Force parent db.py into SQLite mode regardless of env
+import db as _parent_db  # noqa: E402
+_parent_db._USE_POSTGRES = False
+
+# Restore so SQLAlchemy async engine keeps working
+if _saved_db_url is not None:
+    os.environ["DATABASE_URL"] = _saved_db_url
 
 
 def run_scan(symbols: List[str]) -> List[dict]:
@@ -20,34 +34,46 @@ def run_scan(symbols: List[str]) -> List[dict]:
     return [_serialize(r) for r in results]
 
 
+def _safe_round(v, decimals=2):
+    """Round a value, returning None if the value is None."""
+    if v is None:
+        return None
+    try:
+        return round(float(v), decimals)
+    except (TypeError, ValueError):
+        return None
+
+
 def _serialize(r: SignalResult) -> dict:
     return {
         "symbol": r.symbol,
         "score": r.score,
-        "grade": r.score_label,
+        "grade": getattr(r, "score_label", ""),
         "action_label": action_label(r.support_status, r.score),
-        "entry": round(r.entry, 2),
-        "stop": round(r.stop, 2),
-        "target_1": round(r.target_1, 2),
-        "target_2": round(r.target_2, 2),
-        "rr_ratio": round(r.rr_ratio, 2),
-        "support_status": r.support_status,
-        "pattern": r.pattern,
-        "direction": r.direction,
+        "entry": _safe_round(r.entry),
+        "stop": _safe_round(r.stop),
+        "target_1": _safe_round(r.target_1),
+        "target_2": _safe_round(r.target_2),
+        "rr_ratio": _safe_round(r.rr_ratio),
+        "support_status": r.support_status or "",
+        "pattern": getattr(r, "pattern", ""),
+        "direction": getattr(r, "direction", ""),
         "near_support": r.support_status == "AT SUPPORT",
-        "close": round(r.last_close, 2),
-        "prior_day_low": round(r.prior_low, 2),
-        "ma20": round(r.ma20, 2) if r.ma20 else None,
-        "ma50": round(r.ma50, 2) if r.ma50 else None,
-        "prior_high": round(r.prior_high, 2),
-        "prior_low": round(r.prior_low, 2),
-        "nearest_support": round(r.nearest_support, 2),
-        "support_label": r.support_label,
-        "distance_to_support": round(r.distance_to_support, 2),
-        "distance_pct": round(r.distance_pct, 2),
-        "reentry_stop": round(r.reentry_stop, 2),
-        "risk_per_share": round(r.risk_per_share, 2),
-        "bias": r.bias,
-        "day_range": round(r.day_range, 2),
-        "volume_ratio": round(r.volume_ratio, 2),
+        "close": _safe_round(getattr(r, "last_close", None)),
+        "prior_day_low": _safe_round(getattr(r, "prior_low", None)),
+        "ma20": _safe_round(getattr(r, "ma20", None)),
+        "ma50": _safe_round(getattr(r, "ma50", None)),
+        "prior_high": _safe_round(getattr(r, "prior_high", None)),
+        "prior_low": _safe_round(getattr(r, "prior_low", None)),
+        "nearest_support": _safe_round(getattr(r, "nearest_support", None)),
+        "support_label": getattr(r, "support_label", ""),
+        "distance_to_support": _safe_round(getattr(r, "distance_to_support", None)),
+        "distance_pct": _safe_round(getattr(r, "distance_pct", None)),
+        "reentry_stop": _safe_round(getattr(r, "reentry_stop", None)),
+        "risk_per_share": _safe_round(getattr(r, "risk_per_share", None)),
+        "bias": getattr(r, "bias", ""),
+        "day_range": _safe_round(getattr(r, "day_range", None)),
+        "volume_ratio": _safe_round(getattr(r, "volume_ratio", None)),
+        "ref_day_high": _safe_round(getattr(r, "ref_day_high", None)),
+        "ref_day_low": _safe_round(getattr(r, "ref_day_low", None)),
     }

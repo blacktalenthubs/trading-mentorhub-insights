@@ -1,5 +1,5 @@
 /** Main app shell — sidebar nav + header + content area.
- *  Mobile: sidebar collapsed behind hamburger menu.
+ *  Mobile: bottom tab bar + hamburger for full nav.
  *  Desktop: sidebar always visible.
  */
 
@@ -14,17 +14,11 @@ import {
   Crosshair,
   BarChart3,
   ArrowLeftRight,
-  Trophy,
-  History,
-  Upload,
-  Gem,
-  RotateCcw,
+  Bell,
+  Star,
   Menu,
   LogOut,
   Settings,
-  Bell,
-  TrendingUp,
-  Bot,
   type LucideIcon,
 } from "lucide-react";
 import Badge from "./ui/Badge";
@@ -39,27 +33,18 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/scanner", label: "Scanner", icon: Crosshair },
   { to: "/charts", label: "Charts", icon: BarChart3 },
-  { to: "/trades", label: "Trades", icon: ArrowLeftRight },
   { to: "/alerts", label: "Alerts", icon: Bell },
-  { to: "/scorecard", label: "Scorecard", icon: Trophy },
-  { to: "/history", label: "History", icon: History },
-  { to: "/import", label: "Import", icon: Upload },
+  { to: "/trades", label: "Trades", icon: ArrowLeftRight },
+  { to: "/watchlist", label: "Watchlist", icon: Star },
   { to: "/settings", label: "Settings", icon: Settings },
-];
-
-const PRO_ITEMS: NavItem[] = [
-  { to: "/paper-trading", label: "Paper Trading", icon: Gem },
-  { to: "/backtest", label: "Backtest", icon: RotateCcw },
-  { to: "/swing", label: "Swing Trades", icon: TrendingUp },
-  { to: "/ai-coach", label: "AI Coach", icon: Bot },
 ];
 
 const MOBILE_TABS: NavItem[] = [
   { to: "/", label: "Home", icon: LayoutDashboard },
+  { to: "/scanner", label: "Scanner", icon: Crosshair },
   { to: "/alerts", label: "Alerts", icon: Bell },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
-  { to: "/ai-coach", label: "Coach", icon: Bot },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/charts", label: "Charts", icon: BarChart3 },
 ];
 
 function MarketBadge({ market }: { market: { is_open: boolean; is_premarket: boolean } }) {
@@ -149,12 +134,6 @@ export default function AppLayout() {
         {/* Nav items */}
         <div className="flex-1 overflow-y-auto py-3">
           {NAV_ITEMS.map(renderNavItem)}
-
-          <div className="mx-4 my-3 border-t border-border-subtle" />
-          <p className="px-4 py-1 font-display text-[10px] font-semibold uppercase tracking-widest text-text-faint">
-            Pro
-          </p>
-          {PRO_ITEMS.map(renderNavItem)}
         </div>
 
         {/* User footer */}

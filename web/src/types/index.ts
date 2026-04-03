@@ -4,7 +4,7 @@ export interface User {
   id: number;
   email: string;
   display_name: string;
-  tier: "free" | "pro";
+  tier: "free" | "pro" | "elite";
 }
 
 export interface AuthTokens {
@@ -42,6 +42,8 @@ export interface SignalResult {
   bias: string;
   day_range: number | null;
   volume_ratio: number | null;
+  ref_day_high: number | null;
+  ref_day_low: number | null;
 }
 
 export interface Alert {
@@ -58,4 +60,114 @@ export interface Alert {
   message: string;
   created_at: string;
   session_date: string;
+  user_action?: string | null;
+}
+
+// --- Options Trade ---
+
+export interface OptionsTrade {
+  id: number;
+  symbol: string;
+  option_type: string;
+  strike: number;
+  expiration: string;
+  contracts: number;
+  premium_per_contract: number;
+  exit_premium: number | null;
+  pnl: number | null;
+  status: string;
+  notes: string;
+  session_date: string;
+}
+
+export interface OptionsTradeStats {
+  total_pnl: number;
+  win_rate: number;
+  total_trades: number;
+  expectancy: number;
+  avg_win: number;
+  avg_loss: number;
+}
+
+// --- Equity Curve ---
+
+export interface EquityPoint {
+  date: string;
+  pnl: number;
+}
+
+// --- Swing Trades ---
+
+export interface SpyRegime {
+  regime_bullish: boolean;
+  spy_close: number | null;
+  spy_ema20: number | null;
+  spy_rsi: number | null;
+}
+
+export interface SwingCategory {
+  symbol: string;
+  category: string;
+  rsi: number | null;
+  session_date: string;
+}
+
+export interface SwingTrade {
+  id: number;
+  symbol: string;
+  direction: string;
+  entry_price: number;
+  stop_price: number | null;
+  target_price: number | null;
+  current_price: number | null;
+  current_rsi: number | null;
+  status: string;
+  opened_date: string;
+  closed_date: string | null;
+  exit_price: number | null;
+  pnl: number | null;
+}
+
+// --- Intel / AI ---
+
+export interface WinRateData {
+  overall: Record<string, unknown>;
+  by_symbol: Record<string, unknown>;
+  by_type: Record<string, unknown>;
+  by_hour: Record<string, unknown>;
+}
+
+export interface SetupAnalysis {
+  symbol: string;
+  timeframe: string;
+  analysis: Record<string, unknown>;
+}
+
+export interface MTFContext {
+  symbol: string;
+  daily: Record<string, unknown>;
+  weekly: Record<string, unknown>;
+  intraday: Record<string, unknown>;
+}
+
+// --- Settings ---
+
+export interface NotificationPrefs {
+  telegram_enabled: boolean;
+  email_enabled: boolean;
+  push_enabled: boolean;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+}
+
+export interface AlertCategoryItem {
+  category_id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface AlertPrefs {
+  categories: AlertCategoryItem[];
+  min_score: number;
 }

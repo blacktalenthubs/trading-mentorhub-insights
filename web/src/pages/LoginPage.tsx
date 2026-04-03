@@ -28,19 +28,21 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
+    <div className="flex min-h-screen items-center justify-center bg-surface-1 px-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-lg bg-gray-900 p-8"
+        className="w-full max-w-sm space-y-4 rounded-lg border border-border-subtle bg-surface-2 p-8 shadow-card"
       >
-        <h1 className="text-2xl font-bold">TradeSignal</h1>
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        <h1 className="font-display text-2xl font-bold text-text-primary">
+          <span className="text-accent">Trade</span>Signal
+        </h1>
+        {error && <p className="text-sm text-bearish-text">{error}</p>}
         <input
           type="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="w-full rounded border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
           required
         />
         <input
@@ -48,19 +50,19 @@ export default function LoginPage() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          className="w-full rounded border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
           required
         />
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded bg-blue-600 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          className="w-full rounded bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
         >
           {loading ? "Signing in..." : "Sign in"}
         </button>
-        <p className="text-center text-sm text-gray-500">
+        <p className="text-center text-sm text-text-muted">
           Don't have an account?{" "}
-          <Link to="/register" className="text-blue-400 hover:text-blue-300">
+          <Link to="/register" className="text-accent hover:text-accent-hover">
             Create one
           </Link>
         </p>

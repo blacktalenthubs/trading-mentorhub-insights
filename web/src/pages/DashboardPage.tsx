@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAlertsToday, useSessionSummary, useAckAlert, useOpenTrades, useIntraday } from "../api/hooks";
 import { SkeletonGrid } from "../components/LoadingSkeleton";
 import { useAlertStream } from "../hooks/useAlertStream";
 import { useFeatureGate } from "../hooks/useFeatureGate";
-import { Crosshair, BarChart3, ArrowLeftRight, type LucideIcon } from "lucide-react";
+import { Crosshair, BarChart3, ArrowLeftRight, ChevronDown, ChevronUp, type LucideIcon } from "lucide-react";
 import Badge from "../components/ui/Badge";
 import Card from "../components/ui/Card";
 import WatchlistBar from "../components/WatchlistBar";
@@ -36,6 +37,106 @@ function livePnl(trade: { direction: string; entry_price: number; shares: number
   return (trade.entry_price - currentPrice) * trade.shares;
 }
 
+/** Expandable alert row with detail panel. */
+function AlertRow({ a, onAck }: { a: any; onAck: (id: number, action: "took" | "skipped") => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2 shadow-card">
+      {/* Collapsed row */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex flex-1 items-center gap-3 text-left"
+        >
+          <Badge variant={a.direction === "BUY" ? "bullish" : a.direction === "SELL" ? "bearish" : "warning"}>
+            {a.direction}
+          </Badge>
+          <span className="font-medium text-text-primary">{a.symbol}</span>
+          <span className="hidden text-sm text-text-muted sm:inline">{a.alert_type.replace(/_/g, " ")}</span>
+          {expanded ? (
+            <ChevronUp className="h-3.5 w-3.5 text-text-faint" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-text-faint" />
+          )}
+        </button>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <p className="font-mono text-sm font-medium text-text-primary">${a.price.toFixed(2)}</p>
+            {a.entry && (
+              <p className="font-mono text-xs text-text-muted">
+                E: ${a.entry.toFixed(2)} S: ${a.stop?.toFixed(2)} T: ${a.target_1?.toFixed(2)}
+              </p>
+            )}
+          </div>
+          {/* ACK buttons */}
+          {!a.user_action && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => onAck(a.id, "took")}
+                className="rounded-lg bg-bullish-muted px-3 py-2 text-sm font-medium text-bullish-text hover:bg-bullish/20 active:scale-95"
+              >
+                Took
+              </button>
+              <button
+                onClick={() => onAck(a.id, "skipped")}
+                className="rounded-lg bg-surface-4 px-3 py-2 text-sm font-medium text-text-muted hover:bg-surface-3 active:scale-95"
+              >
+                Skip
+              </button>
+            </div>
+          )}
+          {a.user_action && (
+            <Badge variant={a.user_action === "took" ? "bullish" : "neutral"}>
+              {a.user_action}
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-border-subtle bg-surface-3/30 px-4 py-3 space-y-2">
+          <p className="text-sm text-text-muted sm:hidden">{a.alert_type.replace(/_/g, " ")}</p>
+          {a.message && (
+            <p className="text-sm text-text-secondary leading-relaxed">{a.message}</p>
+          )}
+          {a.entry != null && (
+            <div className="flex flex-wrap gap-4 text-xs">
+              <span className="text-text-muted">
+                Entry: <span className="font-mono font-medium text-bullish-text">${a.entry.toFixed(2)}</span>
+              </span>
+              {a.stop != null && (
+                <span className="text-text-muted">
+                  Stop: <span className="font-mono font-medium text-bearish-text">${a.stop.toFixed(2)}</span>
+                </span>
+              )}
+              {a.target_1 != null && (
+                <span className="text-text-muted">
+                  T1: <span className="font-mono font-medium text-info-text">${a.target_1.toFixed(2)}</span>
+                </span>
+              )}
+              {a.target_2 != null && (
+                <span className="text-text-muted">
+                  T2: <span className="font-mono font-medium text-info-text">${a.target_2.toFixed(2)}</span>
+                </span>
+              )}
+              {a.entry > 0 && a.stop > 0 && a.target_1 > 0 && (
+                <span className="text-text-muted">
+                  R:R: <span className="font-mono font-medium text-text-primary">
+                    {((a.target_1 - a.entry) / (a.entry - a.stop)).toFixed(1)}:1
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-text-faint">{a.confidence} confidence · {a.created_at}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { data: summary } = useSessionSummary();
   const { data: alerts } = useAlertsToday();
@@ -55,6 +156,10 @@ export default function DashboardPage() {
         .filter((t) => t.symbol === firstSymbol)
         .reduce((sum, t) => sum + livePnl(t, lastPrice), 0)
     : null;
+
+  function handleAck(id: number, action: "took" | "skipped") {
+    ackAlert.mutate({ id, action });
+  }
 
   return (
     <div className="space-y-6">
@@ -79,11 +184,16 @@ export default function DashboardPage() {
       <Card padding="sm">
         <div className="mb-2 flex items-center justify-between">
           <p className="font-display text-xs font-semibold text-text-muted">WATCHLIST</p>
-          <Link to="/scanner" className="text-xs text-accent hover:text-accent-hover">
-            Scan all
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link to="/watchlist" className="text-xs text-text-muted hover:text-text-secondary">
+              Manage
+            </Link>
+            <Link to="/scanner" className="text-xs text-accent hover:text-accent-hover">
+              Scan all
+            </Link>
+          </div>
         </div>
-        <WatchlistBar compact editable />
+        <WatchlistBar compact />
       </Card>
 
       {/* Quick Links */}
@@ -128,7 +238,7 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* EOD Summary */}
+      {/* Session Summary */}
       {summary && summary.total_alerts > 0 && (
         <Card title="Session Summary" padding="md">
           <div className="flex gap-4 text-sm">
@@ -167,7 +277,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Alert Feed with ACK buttons */}
+      {/* Alert Feed with expandable details */}
       <div>
         <h2 className="mb-3 font-display text-sm font-semibold text-text-secondary">Today's Alerts</h2>
         {!alerts || alerts.length === 0 ? (
@@ -175,50 +285,7 @@ export default function DashboardPage() {
         ) : (
           <div className="space-y-2">
             {alerts.map((a) => (
-              <div
-                key={a.id}
-                className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3 shadow-card sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex items-center gap-3">
-                  <Badge variant={a.direction === "BUY" ? "bullish" : "bearish"}>
-                    {a.direction}
-                  </Badge>
-                  <span className="font-medium text-text-primary">{a.symbol}</span>
-                  <span className="text-sm text-text-muted">{a.alert_type}</span>
-                </div>
-                <div className="flex items-center gap-3 sm:text-right">
-                  <div>
-                    <p className="font-mono text-sm font-medium text-text-primary">${a.price.toFixed(2)}</p>
-                    {a.entry && (
-                      <p className="font-mono text-xs text-text-muted">
-                        E: ${a.entry.toFixed(2)} S: ${a.stop?.toFixed(2)} T: ${a.target_1?.toFixed(2)}
-                      </p>
-                    )}
-                  </div>
-                  {/* ACK buttons */}
-                  {!a.user_action && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => ackAlert.mutate({ id: a.id, action: "took" })}
-                        className="rounded-lg bg-bullish-muted px-3 py-2 text-sm font-medium text-bullish-text hover:bg-bullish/20 active:scale-95"
-                      >
-                        Took
-                      </button>
-                      <button
-                        onClick={() => ackAlert.mutate({ id: a.id, action: "skipped" })}
-                        className="rounded-lg bg-surface-4 px-3 py-2 text-sm font-medium text-text-muted hover:bg-surface-3 active:scale-95"
-                      >
-                        Skip
-                      </button>
-                    </div>
-                  )}
-                  {a.user_action && (
-                    <Badge variant={a.user_action === "took" ? "bullish" : "neutral"}>
-                      {a.user_action}
-                    </Badge>
-                  )}
-                </div>
-              </div>
+              <AlertRow key={a.id} a={a} onAck={handleAck} />
             ))}
           </div>
         )}

@@ -1,8 +1,13 @@
 /** SSE hook for real-time alert stream (Pro only). */
 
+import { Capacitor } from "@capacitor/core";
 import { useEffect, useRef, useState } from "react";
 import { useAuthStore } from "../stores/auth";
 import { useFeatureGate } from "./useFeatureGate";
+
+const API_HOST = Capacitor.isNativePlatform()
+  ? String(import.meta.env.VITE_API_URL || "https://api.aicopilottrader.com")
+  : "";
 
 export interface AlertEvent {
   symbol: string;
@@ -22,7 +27,7 @@ export function useAlertStream(onAlert?: (alert: AlertEvent) => void) {
   useEffect(() => {
     if (!isPro || !token) return;
 
-    const es = new EventSource(`/api/v1/alerts/stream`);
+    const es = new EventSource(`${API_HOST}/api/v1/alerts/stream`);
     esRef.current = es;
 
     es.addEventListener("alert", (e) => {

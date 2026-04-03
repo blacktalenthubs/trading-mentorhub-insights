@@ -1,30 +1,41 @@
-/** Expandable signal card — collapsed shows key info, expanded shows full trade plan + chart. */
+/** Expandable signal card — clean collapsed row, expanded shows trade plan + full chart. */
 
 import { useState } from "react";
 import type { SignalResult } from "../types";
 import { useOHLCV } from "../api/hooks";
 import CandlestickChart from "./CandlestickChart";
+import Badge from "./ui/Badge";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 const GRADE_COLORS: Record<string, string> = {
-  "A+": "text-green-400",
-  A: "text-green-400",
-  B: "text-yellow-400",
-  C: "text-gray-500",
+  "A+": "text-bullish-text",
+  A: "text-bullish-text",
+  B: "text-warning-text",
+  C: "text-text-faint",
 };
 
-const ACTION_COLORS: Record<string, string> = {
-  "Potential Entry": "bg-green-900 text-green-300",
-  "Watch": "bg-yellow-900 text-yellow-300",
-  "No Setup": "bg-red-900 text-red-300",
-};
-
-const PATTERN_COLORS: Record<string, string> = {
-  inside: "bg-purple-900 text-purple-300",
-  outside: "bg-orange-900 text-orange-300",
-  normal: "bg-gray-800 text-gray-400",
+const ACTION_VARIANT: Record<string, "bullish" | "warning" | "bearish" | "neutral"> = {
+  "Potential Entry": "bullish",
+  Watch: "warning",
+  "No Setup": "neutral",
 };
 
 const DEFAULT_PORTFOLIO = 150_000;
+
+const TIMEFRAMES = [
+  { label: "1m",  period: "1d",  interval: "1m" },
+  { label: "5m",  period: "5d",  interval: "5m" },
+  { label: "10m", period: "5d",  interval: "5m" },
+  { label: "15m", period: "5d",  interval: "15m" },
+  { label: "30m", period: "5d",  interval: "30m" },
+  { label: "1H",  period: "5d",  interval: "60m" },
+  { label: "4H",  period: "1mo", interval: "60m" },
+  { label: "D",   period: "3mo", interval: "1d" },
+  { label: "W",   period: "1y",  interval: "1wk" },
+  { label: "M",   period: "5y",  interval: "1mo" },
+] as const;
+
+const DEFAULT_TF = 7; // Daily
 
 interface Props {
   signal: SignalResult;
@@ -37,7 +48,9 @@ function fmt(v: number | null | undefined, decimals = 2): string {
 
 export default function SignalCard({ signal: s }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const { data: ohlcv } = useOHLCV(expanded ? s.symbol : "", "1mo");
+  const [tfIdx, setTfIdx] = useState(DEFAULT_TF);
+  const tf = TIMEFRAMES[tfIdx];
+  const { data: ohlcv } = useOHLCV(expanded ? s.symbol : "", tf.period, tf.interval);
 
   const risk = s.risk_per_share ?? (s.entry && s.stop ? s.entry - s.stop : null);
   const shares = risk && risk > 0 ? Math.floor(DEFAULT_PORTFOLIO * 0.01 / risk) : null;
@@ -46,190 +59,151 @@ export default function SignalCard({ signal: s }: Props) {
     ? shares * (s.target_1 - s.entry)
     : null;
 
-  const maAboveBelow = (label: string, ma: number | null) => {
-    if (ma == null || s.close == null) return null;
-    return `${label}: $${fmt(ma)} (${s.close >= ma ? "above" : "below"})`;
-  };
+  // Build chart levels — deduplicate against entry/stop/target
+  const chartLevels = (() => {
+    const tradePrices = new Set(
+      [s.entry, s.stop, s.target_1].filter((v): v is number => v != null).map((v) => Math.round(v * 100))
+    );
+    const isDup = (p: number) => tradePrices.has(Math.round(p * 100));
+    const lvls: Array<{ id: number; symbol: string; price: number; label: string; color: string }> = [];
+    if (s.ref_day_high != null && !isDup(s.ref_day_high))
+      lvls.push({ id: -1, symbol: s.symbol, price: s.ref_day_high, label: "Prior High", color: "#22c55e" });
+    if (s.ref_day_low != null && !isDup(s.ref_day_low))
+      lvls.push({ id: -2, symbol: s.symbol, price: s.ref_day_low, label: "Prior Low", color: "#ef4444" });
+    if (s.nearest_support != null && !isDup(s.nearest_support)
+      && (s.ref_day_low == null || Math.round(s.nearest_support * 100) !== Math.round(s.ref_day_low * 100)))
+      lvls.push({ id: -3, symbol: s.symbol, price: s.nearest_support, label: "Support", color: "#f59e0b" });
+    return lvls;
+  })();
 
   return (
-    <div className="rounded-lg bg-gray-900 overflow-hidden">
+    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface-2 shadow-card">
       {/* Collapsed row */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-3 text-left hover:bg-gray-800/50 transition-colors"
+        className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-surface-3/50 active:scale-[0.995]"
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-lg font-bold">{s.symbol}</span>
-            <span
-              className={`rounded px-2 py-0.5 text-xs font-bold ${
-                ACTION_COLORS[s.action_label] || "bg-gray-800 text-gray-400"
-              }`}
-            >
-              {s.action_label}
-            </span>
-            <span className={`text-sm font-bold ${GRADE_COLORS[s.grade] || "text-gray-400"}`}>
-              {s.grade} ({s.score})
-            </span>
-            <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                PATTERN_COLORS[s.pattern] || "bg-gray-800 text-gray-400"
-              }`}
-            >
-              {s.pattern}
-            </span>
+        <div className="flex items-center gap-3">
+          <span className="text-base font-bold text-text-primary">{s.symbol}</span>
+          <Badge variant={ACTION_VARIANT[s.action_label] || "neutral"}>
+            {s.action_label}
+          </Badge>
+          <span className={`font-mono text-sm font-bold ${GRADE_COLORS[s.grade] || "text-text-faint"}`}>
+            {s.grade} ({s.score})
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <p className="font-mono text-base font-semibold text-text-primary">${fmt(s.close)}</p>
+            {s.entry != null && (
+              <p className="font-mono text-xs text-text-muted">
+                R:R {fmt(s.rr_ratio, 1)}:1
+              </p>
+            )}
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-lg font-medium">${fmt(s.close)}</p>
-              {s.entry != null && (
-                <p className="text-xs text-gray-500">
-                  E: ${fmt(s.entry)} / S: ${fmt(s.stop)} / T1: ${fmt(s.target_1)} / R:R {fmt(s.rr_ratio, 1)}:1
-                </p>
-              )}
-            </div>
-            <span className="text-gray-500 text-sm">{expanded ? "▲" : "▼"}</span>
-          </div>
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 text-text-muted" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-text-muted" />
+          )}
         </div>
       </button>
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="border-t border-gray-800 px-4 py-4 space-y-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {/* Left column: Trade Plan + Support + Position Sizing + MA */}
-            <div className="space-y-4">
-              {/* Trade Plan */}
-              <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Trade Plan</h3>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-                  <div>
-                    <span className="text-gray-500">Entry </span>
-                    <span className="font-medium text-green-400">${fmt(s.entry)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Stop </span>
-                    <span className="font-medium text-red-400">${fmt(s.stop)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">T1 </span>
-                    <span className="font-medium text-blue-400">${fmt(s.target_1)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">T2 </span>
-                    <span className="font-medium text-blue-300">${fmt(s.target_2)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Re-entry Stop </span>
-                    <span className="font-medium text-red-300">${fmt(s.reentry_stop)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">R:R </span>
-                    <span className="font-medium">{fmt(s.rr_ratio, 1)}:1</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Risk/Share </span>
-                    <span className="font-medium text-red-400">${fmt(risk)}</span>
-                  </div>
-                </div>
+        <div className="border-t border-border-subtle px-4 py-4 space-y-4">
+          {/* Trade Plan — compact row above chart */}
+          {s.entry != null && (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              <div className="rounded-md bg-surface-3 p-2 text-center">
+                <p className="text-[10px] text-text-faint">Entry</p>
+                <p className="font-mono text-sm font-semibold text-bullish-text">${fmt(s.entry)}</p>
               </div>
-
-              {/* Support & Context */}
-              <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Support & Context</h3>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-                  <div>
-                    <span className="text-gray-500">Nearest Support </span>
-                    <span className="font-medium">${fmt(s.nearest_support)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Label </span>
-                    <span className="font-medium">{s.support_label || "—"}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Distance </span>
-                    <span className="font-medium">{fmt(s.distance_pct, 1)}%</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Status </span>
-                    <span className="font-medium">{s.support_status}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Pattern </span>
-                    <span className="font-medium">{s.pattern}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Direction </span>
-                    <span className="font-medium">{s.direction}</span>
-                  </div>
-                </div>
-                {s.bias && (
-                  <p className="mt-2 text-sm text-gray-400 italic">{s.bias}</p>
-                )}
+              <div className="rounded-md bg-surface-3 p-2 text-center">
+                <p className="text-[10px] text-text-faint">Stop</p>
+                <p className="font-mono text-sm font-semibold text-bearish-text">${fmt(s.stop)}</p>
               </div>
-
-              {/* Position Sizing */}
-              <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                  Position Sizing <span className="text-gray-600 normal-case">(${(DEFAULT_PORTFOLIO / 1000).toFixed(0)}k portfolio)</span>
-                </h3>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-                  <div>
-                    <span className="text-gray-500">Shares </span>
-                    <span className="font-medium">{shares ?? "—"}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">$ Risk </span>
-                    <span className="font-medium text-red-400">{dollarRisk != null ? `$${fmt(dollarRisk, 0)}` : "—"}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">$ Reward </span>
-                    <span className="font-medium text-green-400">{dollarReward != null ? `$${fmt(dollarReward, 0)}` : "—"}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Day Range </span>
-                    <span className="font-medium">${fmt(s.day_range)}</span>
-                  </div>
-                </div>
+              <div className="rounded-md bg-surface-3 p-2 text-center">
+                <p className="text-[10px] text-text-faint">T1</p>
+                <p className="font-mono text-sm font-semibold text-info-text">${fmt(s.target_1)}</p>
               </div>
-
-              {/* MA Context */}
-              <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">MA Context</h3>
-                <p className="text-sm text-gray-300">
-                  Close: ${fmt(s.close)}
-                  {" | "}
-                  {maAboveBelow("MA20", s.ma20) ?? "MA20: —"}
-                  {" | "}
-                  {maAboveBelow("MA50", s.ma50) ?? "MA50: —"}
-                  {" | "}
-                  Vol: {fmt(s.volume_ratio, 1)}x avg
-                </p>
+              <div className="rounded-md bg-surface-3 p-2 text-center">
+                <p className="text-[10px] text-text-faint">T2</p>
+                <p className="font-mono text-sm font-semibold text-info-text">${fmt(s.target_2)}</p>
+              </div>
+              <div className="rounded-md bg-surface-3 p-2 text-center">
+                <p className="text-[10px] text-text-faint">R:R</p>
+                <p className="font-mono text-sm font-semibold text-text-primary">{fmt(s.rr_ratio, 1)}:1</p>
+              </div>
+              <div className="rounded-md bg-surface-3 p-2 text-center">
+                <p className="text-[10px] text-text-faint">Risk</p>
+                <p className="font-mono text-sm font-semibold text-bearish-text">${fmt(risk)}</p>
               </div>
             </div>
+          )}
 
-            {/* Right column: Mini Chart */}
-            <div>
-              <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">30-Day Chart</h3>
-              {ohlcv && ohlcv.length > 0 ? (
-                <CandlestickChart
-                  data={ohlcv}
-                  entry={s.entry ?? undefined}
-                  stop={s.stop ?? undefined}
-                  target={s.target_1 ?? undefined}
-                  levels={
-                    s.nearest_support != null
-                      ? [{ id: 0, symbol: s.symbol, price: s.nearest_support, label: s.support_label || "Support", color: "#f59e0b" }]
-                      : []
-                  }
-                  height={280}
-                />
-              ) : (
-                <div className="flex h-[280px] items-center justify-center rounded-lg bg-gray-950 text-sm text-gray-600">
-                  Loading chart...
-                </div>
-              )}
+          {/* Chart — full width, tall */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">{s.symbol}</h3>
+              <div className="flex flex-wrap gap-1">
+                {TIMEFRAMES.map((t, i) => (
+                  <button
+                    key={t.label}
+                    onClick={() => setTfIdx(i)}
+                    className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
+                      i === tfIdx
+                        ? "bg-accent text-white"
+                        : "bg-surface-4 text-text-muted hover:text-text-secondary"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             </div>
+            {ohlcv && ohlcv.length > 0 ? (
+              <CandlestickChart
+                data={ohlcv}
+                entry={s.entry ?? undefined}
+                stop={s.stop ?? undefined}
+                target={s.target_1 ?? undefined}
+                levels={chartLevels}
+                height={500}
+              />
+            ) : (
+              <div className="flex h-[500px] items-center justify-center rounded-lg bg-surface-3 text-sm text-text-faint">
+                Loading chart...
+              </div>
+            )}
+          </div>
+
+          {/* Context + Position sizing — single compact row */}
+          <div className="flex flex-wrap items-start gap-x-6 gap-y-2 text-sm">
+            {s.nearest_support != null && (
+              <span className="text-text-secondary">
+                Support: <span className="font-mono font-medium text-text-primary">${fmt(s.nearest_support)}</span>
+                {s.support_label && <span className="text-text-muted"> ({s.support_label})</span>}
+                {s.distance_pct != null && <span className="text-text-muted"> {fmt(s.distance_pct, 1)}%</span>}
+              </span>
+            )}
+            <span className="text-text-secondary">
+              <span className="font-medium text-text-primary">{s.support_status}</span>
+              {" · "}
+              <span className="font-medium text-text-primary">{s.direction}</span>
+              {" · "}
+              <span className="font-medium text-text-primary">{s.pattern}</span>
+            </span>
+            {shares != null && (
+              <span className="text-text-secondary">
+                <span className="font-mono font-semibold text-text-primary">{shares}</span> shares
+                {" · "}
+                Risk <span className="font-mono font-semibold text-bearish-text">{dollarRisk != null ? `$${fmt(dollarRisk, 0)}` : "—"}</span>
+                {" · "}
+                Reward <span className="font-mono font-semibold text-bullish-text">{dollarReward != null ? `$${fmt(dollarReward, 0)}` : "—"}</span>
+              </span>
+            )}
+            {s.bias && <span className="text-text-muted italic">{s.bias}</span>}
           </div>
         </div>
       )}

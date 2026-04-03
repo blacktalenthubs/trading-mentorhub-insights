@@ -215,3 +215,70 @@ async def classify_pattern_stream(
         yield {"event": "done", "data": ""}
 
     return EventSourceResponse(event_generator())
+
+
+# --- Intelligence Briefings ---
+
+
+@router.get("/premarket")
+async def premarket_brief(
+    user: User = Depends(require_pro),
+):
+    """Generate pre-market brief for user's watchlist."""
+    from db import get_watchlist
+
+    symbols = await _run_sync(get_watchlist, user.id)
+    if not symbols:
+        return {"brief": "No symbols on watchlist. Add symbols to get a pre-market brief."}
+
+    try:
+        from analytics.premarket_brief import generate_premarket_brief
+        brief = await _run_sync(generate_premarket_brief, symbols, user.id)
+        return {"brief": brief or "Pre-market analysis not available yet."}
+    except Exception as exc:
+        return {"brief": f"Brief generation failed: {exc}"}
+
+
+@router.get("/eod-recap")
+async def eod_recap(
+    user: User = Depends(require_pro),
+):
+    """Generate end-of-day recap for user's alerts today."""
+    try:
+        from analytics.post_market_review import generate_post_market_review
+        recap = await _run_sync(generate_post_market_review, user.id)
+        return {"recap": recap or "No alerts to recap today."}
+    except Exception as exc:
+        return {"recap": f"Recap generation failed: {exc}"}
+
+
+# --- Public Track Record (no auth required) ---
+
+
+@router.get("/public-track-record")
+async def public_track_record(days: int = Query(default=30, le=90)):
+    """Public 30-day rolling alert performance — no authentication required.
+
+    Returns overall and per-category win rates for marketing/landing page.
+    """
+    from analytics.intel_hub import get_alert_win_rates
+
+    data = await _run_sync(get_alert_win_rates, days)
+    if not isinstance(data, dict):
+        return {
+            "period_days": days,
+            "total_alerts": 0,
+            "win_rate": 0,
+            "categories": [],
+        }
+
+    return {
+        "period_days": days,
+        "total_alerts": data.get("total", 0),
+        "wins": data.get("wins", 0),
+        "losses": data.get("losses", 0),
+        "win_rate": data.get("win_rate", 0),
+        "avg_rr": data.get("avg_rr", 0),
+        "by_type": data.get("by_type", {}),
+        "by_direction": data.get("by_direction", {}),
+    }

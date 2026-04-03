@@ -1,17 +1,53 @@
 /** Thin fetch wrapper with auth token injection. */
 
+import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "../stores/auth";
 
-const BASE_URL = "/api/v1";
+/**
+ * On native iOS/Android the app runs from a local file:// origin so relative
+ * URLs don't work — we need the full backend URL.  On web (dev / production)
+ * we keep the relative path so the Vite proxy / reverse-proxy still works.
+ */
+const API_HOST = Capacitor.isNativePlatform()
+  ? String(import.meta.env.VITE_API_URL || "https://api.aicopilottrader.com")
+  : "";
+
+const BASE_URL = `${API_HOST}/api/v1`;
 
 class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
+  status: number;
+  constructor(status: number, message: string) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
   }
+}
+
+let _refreshing: Promise<boolean> | null = null;
+
+async function attemptRefresh(): Promise<boolean> {
+  // Deduplicate concurrent refresh attempts
+  if (_refreshing) return _refreshing;
+  _refreshing = (async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: "POST",
+        credentials: "include", // send refresh_token cookie
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data.access_token) {
+        useAuthStore.getState().setAccessToken(data.access_token);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      _refreshing = null;
+    }
+  })();
+  return _refreshing;
 }
 
 async function request<T>(
@@ -30,7 +66,20 @@ async function request<T>(
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    // TODO: attempt token refresh
+    // Attempt silent token refresh before logging out
+    const refreshed = await attemptRefresh();
+    if (refreshed) {
+      // Retry the original request with the new token
+      const newToken = useAuthStore.getState().accessToken;
+      if (newToken) {
+        headers["Authorization"] = `Bearer ${newToken}`;
+      }
+      const retryRes = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+      if (retryRes.ok) {
+        if (retryRes.status === 204) return undefined as T;
+        return retryRes.json();
+      }
+    }
     useAuthStore.getState().logout();
     throw new ApiError(401, "Session expired");
   }

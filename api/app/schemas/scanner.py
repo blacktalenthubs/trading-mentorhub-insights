@@ -37,6 +37,9 @@ class SignalResultResponse(BaseModel):
     bias: str = ""
     day_range: Optional[float] = None
     volume_ratio: Optional[float] = None
+    # Reference day H/L (most recent completed day — for chart display)
+    ref_day_high: Optional[float] = None
+    ref_day_low: Optional[float] = None
 
 
 class ActiveEntryResponse(BaseModel):

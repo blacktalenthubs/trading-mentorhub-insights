@@ -81,10 +81,13 @@ async def delete_level(
 
 # --- OHLCV ---
 
-def _fetch_and_serialize_ohlcv(symbol: str, period: str) -> List[dict]:
-    df = fetch_ohlc(symbol, period)
+def _fetch_and_serialize_ohlcv(symbol: str, period: str, interval: str = "1d") -> List[dict]:
+    df = fetch_ohlc(symbol, period, interval=interval)
     if df.empty:
         return []
+    # Drop duplicate timestamps (yfinance can return dupes on intraday intervals)
+    df = df[~df.index.duplicated(keep="last")]
+    df = df.sort_index()
     return [
         {
             "timestamp": str(ts),
@@ -104,17 +107,18 @@ async def ohlcv(
     request: Request,
     symbol: str,
     period: str = "3mo",
+    interval: str = "1d",
     user: User = Depends(get_current_user),
 ):
-    """Get daily OHLCV bars for charting (cached)."""
-    key = f"ohlcv:{symbol.upper()}:{period}"
+    """Get OHLCV bars for charting (cached). Supports any yfinance period/interval."""
+    key = f"ohlcv:{symbol.upper()}:{period}:{interval}"
     cached = cache_get(key)
     if cached is not None:
         return cached
 
     loop = asyncio.get_event_loop()
     bars = await loop.run_in_executor(
-        None, partial(_fetch_and_serialize_ohlcv, symbol.upper(), period)
+        None, partial(_fetch_and_serialize_ohlcv, symbol.upper(), period, interval)
     )
     if bars:
         cache_set(key, bars, _OHLCV_TTL)

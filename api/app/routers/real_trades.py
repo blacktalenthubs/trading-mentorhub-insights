@@ -1,11 +1,14 @@
-"""Real trade tracking endpoints."""
+"""Real trade tracking endpoints (stocks + options)."""
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timezone
-from typing import List
+from functools import partial
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -159,3 +162,144 @@ async def trade_stats(
         avg_loss=round(avg_loss, 2),
         expectancy=round(expectancy, 2),
     )
+
+
+# --- Notes ---
+
+class UpdateNotesRequest(BaseModel):
+    notes: str
+
+
+@router.put("/{trade_id}/notes")
+async def update_notes(
+    trade_id: int,
+    body: UpdateNotesRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(RealTrade).where(RealTrade.id == trade_id, RealTrade.user_id == user.id)
+    )
+    trade = result.scalar_one_or_none()
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    trade.notes = body.notes
+    await db.flush()
+    return {"id": trade_id, "notes": trade.notes}
+
+
+# --- Equity Curve ---
+
+@router.get("/equity-curve")
+async def equity_curve(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cumulative P&L series from closed trades, sorted by close date."""
+    result = await db.execute(
+        select(RealTrade)
+        .where(RealTrade.user_id == user.id, RealTrade.status == "closed")
+        .order_by(RealTrade.closed_at.asc())
+    )
+    trades = result.scalars().all()
+    cumulative = 0.0
+    curve = []
+    for t in trades:
+        cumulative += t.pnl or 0
+        curve.append({
+            "date": t.session_date,
+            "pnl": round(cumulative, 2),
+        })
+    return curve
+
+
+# --- Options Trades (wraps alerting/options_trade_store.py) ---
+
+def _run_sync(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    return loop.run_in_executor(None, partial(fn, *args, **kwargs))
+
+
+class OpenOptionsRequest(BaseModel):
+    symbol: str
+    option_type: str  # "call" or "put"
+    strike: float
+    expiration: str
+    contracts: int = 1
+    premium_per_contract: float
+    alert_type: Optional[str] = None
+    alert_id: Optional[int] = None
+
+
+class CloseOptionsRequest(BaseModel):
+    exit_premium: float
+    notes: str = ""
+
+
+@router.post("/options/open", status_code=201)
+async def open_options_trade(
+    body: OpenOptionsRequest,
+    user: User = Depends(get_current_user),
+):
+    from alerting.options_trade_store import open_options_trade as _open
+
+    trade_id = await _run_sync(
+        _open,
+        body.symbol.upper(),
+        body.option_type,
+        body.strike,
+        body.expiration,
+        body.contracts,
+        body.premium_per_contract,
+        body.alert_type,
+        body.alert_id,
+        date.today().isoformat(),
+    )
+    return {"id": trade_id}
+
+
+@router.post("/options/{trade_id}/close")
+async def close_options_trade(
+    trade_id: int,
+    body: CloseOptionsRequest,
+    user: User = Depends(get_current_user),
+):
+    from alerting.options_trade_store import close_options_trade as _close
+
+    pnl = await _run_sync(_close, trade_id, body.exit_premium, body.notes)
+    return {"id": trade_id, "pnl": pnl}
+
+
+@router.post("/options/{trade_id}/expire")
+async def expire_options_trade(
+    trade_id: int,
+    user: User = Depends(get_current_user),
+):
+    from alerting.options_trade_store import expire_options_trade as _expire
+
+    pnl = await _run_sync(_expire, trade_id)
+    return {"id": trade_id, "pnl": pnl}
+
+
+@router.get("/options/open")
+async def get_open_options(user: User = Depends(get_current_user)):
+    from alerting.options_trade_store import get_open_options_trades
+
+    return await _run_sync(get_open_options_trades)
+
+
+@router.get("/options/closed")
+async def get_closed_options(
+    limit: int = Query(default=200, le=500),
+    user: User = Depends(get_current_user),
+):
+    from alerting.options_trade_store import get_closed_options_trades
+
+    return await _run_sync(get_closed_options_trades, limit)
+
+
+@router.get("/options/stats")
+async def get_options_stats(user: User = Depends(get_current_user)):
+    from alerting.options_trade_store import get_options_trade_stats
+
+    return await _run_sync(get_options_trade_stats)

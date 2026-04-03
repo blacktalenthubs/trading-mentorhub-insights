@@ -123,6 +123,25 @@ def poll_all_users(sync_session_factory) -> int:
             ).scalars().all()
             cooled_symbols = set(cooldown_rows)
 
+            # Load alert category preferences for this user
+            try:
+                from app.models.alert_prefs import UserAlertCategoryPref
+                from alert_config import ALERT_TYPE_TO_CATEGORY, EXIT_ALERT_TYPES
+                pref_rows = db.execute(
+                    select(UserAlertCategoryPref.category_id, UserAlertCategoryPref.enabled).where(
+                        UserAlertCategoryPref.user_id == user_id
+                    )
+                ).all()
+                _cat_prefs = {r[0]: bool(r[1]) for r in pref_rows}
+                # Get min_score from user
+                _user_row = db.execute(
+                    select(User.min_alert_score).where(User.id == user_id)
+                ).scalar_one_or_none()
+                _min_score = _user_row or 0
+            except Exception:
+                _cat_prefs = {}
+                _min_score = 0
+
             for symbol in symbols:
                 intraday = intraday_cache.get(symbol)
                 prior_day = prior_day_cache.get(symbol)
@@ -166,6 +185,14 @@ def poll_all_users(sync_session_factory) -> int:
                     if key in fired_today:
                         continue
 
+                    # Generate AI narrative for education context
+                    _narrative = ""
+                    try:
+                        from analytics.ai_narrator import generate_narrative
+                        _narrative = generate_narrative(signal) or ""
+                    except Exception:
+                        pass
+
                     # Record alert
                     alert = Alert(
                         user_id=user_id,
@@ -179,6 +206,8 @@ def poll_all_users(sync_session_factory) -> int:
                         target_2=signal.target_2,
                         confidence=signal.confidence,
                         message=signal.message,
+                        narrative=_narrative,
+                        score=signal.score,
                         session_date=session_date,
                     )
                     db.add(alert)
@@ -220,18 +249,67 @@ def poll_all_users(sync_session_factory) -> int:
                         for ae in active_rows:
                             ae.status = "closed"
 
-                    # Push to SSE
-                    try:
-                        from app.background.alert_bus import publish
-                        publish(user_id, {
-                            "symbol": signal.symbol,
-                            "alert_type": signal.alert_type.value,
-                            "direction": signal.direction,
-                            "price": signal.price,
-                            "message": signal.message,
-                        })
-                    except Exception:
-                        pass
+                    # Preference gate: check if user wants this alert category + score
+                    _at_val = signal.alert_type.value
+                    _send_notification = True
+                    if _at_val not in EXIT_ALERT_TYPES:
+                        _cat = ALERT_TYPE_TO_CATEGORY.get(_at_val)
+                        if _cat and not _cat_prefs.get(_cat, True):
+                            _send_notification = False
+                        elif _min_score > 0 and signal.score < _min_score:
+                            _send_notification = False
+
+                    if not _send_notification:
+                        logger.info(
+                            "PREF FILTERED: user=%d %s %s (dashboard only)",
+                            user_id, signal.symbol, _at_val,
+                        )
+
+                    # Push to SSE (only if preference allows)
+                    alert_data = {
+                        "symbol": signal.symbol,
+                        "alert_type": signal.alert_type.value,
+                        "direction": signal.direction,
+                        "price": signal.price,
+                        "message": signal.message,
+                    }
+                    if _send_notification:
+                        try:
+                            from app.background.alert_bus import publish
+                            publish(user_id, alert_data)
+                        except Exception:
+                            pass
+
+                    # Push notification (APNs) — only if preference allows
+                    if _send_notification:
+                        try:
+                            from app.models.device_token import DeviceToken
+                            from app.services.push_service import send_push_sync
+
+                            tokens = db.execute(
+                                select(DeviceToken.token).where(
+                                    DeviceToken.user_id == user_id,
+                                    DeviceToken.platform == "ios",
+                                )
+                            ).scalars().all()
+                            if tokens:
+                                label = signal.alert_type.value.replace("_", " ").title()
+                                push_title = (
+                                    f"{signal.direction} {signal.symbol} "
+                                    f"${signal.price:.2f}"
+                                )
+                                send_push_sync(
+                                    list(tokens),
+                                    title=push_title,
+                                    body=label,
+                                    data=alert_data,
+                                    thread_id=signal.symbol,
+                                )
+                        except Exception:
+                            logger.debug(
+                                "Push notification skipped for user=%d", user_id,
+                                exc_info=True,
+                            )
 
                     total_alerts += 1
                     logger.info(

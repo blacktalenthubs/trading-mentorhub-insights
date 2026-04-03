@@ -5,13 +5,17 @@ import { useAuthStore } from "../stores/auth";
 export function useFeatureGate() {
   const user = useAuthStore((s) => s.user);
   const tier = user?.tier ?? "free";
+  const isPro = tier === "pro" || tier === "elite";
 
   return {
     tier,
-    isPro: tier === "pro",
-    canAccessAlerts: tier === "pro",
-    canAccessBacktest: tier === "pro",
-    canAccessPaperTrading: tier === "pro",
-    maxWatchlistSize: tier === "pro" ? Infinity : 5,
+    isPro,
+    isElite: tier === "elite",
+    canAccessAlerts: isPro,
+    canAccessBacktest: isPro,
+    canAccessPaperTrading: isPro,
+    canAccessSwing: isPro,
+    canAccessAICoach: isPro,
+    maxWatchlistSize: isPro ? Infinity : 5,
   };
 }

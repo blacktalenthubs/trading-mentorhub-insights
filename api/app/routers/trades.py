@@ -320,6 +320,26 @@ async def import_confirm(
     )
 
 
+@router.get("/equity-curve")
+async def equity_curve(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cumulative P&L from imported trade history, sorted by trade date."""
+    history = await trade_history(user=user, db=db)
+    # Sort ascending by date for cumulative calculation
+    sorted_trades = sorted(history, key=lambda t: t.trade_date or "")
+    cumulative = 0.0
+    curve = []
+    for t in sorted_trades:
+        cumulative += t.realized_pnl
+        curve.append({
+            "date": t.trade_date,
+            "pnl": round(cumulative, 2),
+        })
+    return curve
+
+
 @router.get("/imports", response_model=List[ImportRecordResponse])
 async def list_imports(
     user: User = Depends(get_current_user),

@@ -100,6 +100,7 @@ def create_app() -> FastAPI:
     from app.routers import (
         auth, watchlist, scanner, market, alerts,
         trades, charts, real_trades, paper_trading, backtest,
+        push, settings, swing, intel,
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -111,6 +112,10 @@ def create_app() -> FastAPI:
     app.include_router(real_trades.router, prefix="/api/v1/real-trades", tags=["real-trades"])
     app.include_router(paper_trading.router, prefix="/api/v1/paper-trading", tags=["paper-trading"])
     app.include_router(backtest.router, prefix="/api/v1/backtest", tags=["backtest"])
+    app.include_router(push.router, prefix="/api/v1/push", tags=["push"])
+    app.include_router(settings.router, prefix="/api/v1/settings", tags=["settings"])
+    app.include_router(swing.router, prefix="/api/v1/swing", tags=["swing"])
+    app.include_router(intel.router, prefix="/api/v1/intel", tags=["intel"])
 
     return app
 

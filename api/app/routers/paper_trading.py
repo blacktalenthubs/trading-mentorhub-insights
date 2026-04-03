@@ -80,3 +80,26 @@ async def get_account_summary(
         "total_pnl": round(total_pnl, 2),
         "win_rate": win_rate,
     }
+
+
+@router.get("/equity-curve")
+async def equity_curve(
+    user: User = Depends(require_pro),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cumulative P&L from closed paper trades."""
+    result = await db.execute(
+        select(PaperTrade)
+        .where(PaperTrade.user_id == user.id, PaperTrade.status == "closed")
+        .order_by(PaperTrade.closed_at.asc())
+    )
+    trades = result.scalars().all()
+    cumulative = 0.0
+    curve = []
+    for t in trades:
+        cumulative += t.pnl or 0
+        curve.append({
+            "date": t.session_date,
+            "pnl": round(cumulative, 2),
+        })
+    return curve

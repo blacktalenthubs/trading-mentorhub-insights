@@ -35,10 +35,14 @@ class Alert(Base):
     target_2: Mapped[Optional[float]] = mapped_column(Float)
     confidence: Mapped[Optional[str]] = mapped_column(String(10))
     message: Mapped[Optional[str]] = mapped_column(Text)
+    narrative: Mapped[Optional[str]] = mapped_column(Text)
+    score: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    score_v2: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
     notified_email: Mapped[int] = mapped_column(Integer, server_default="0")
     notified_sms: Mapped[int] = mapped_column(Integer, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     session_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    user_action: Mapped[Optional[str]] = mapped_column(String(20))
 
 
 class ActiveEntry(Base):

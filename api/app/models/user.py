@@ -26,6 +26,7 @@ class User(Base):
     push_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
     quiet_hours_start: Mapped[Optional[str]] = mapped_column(String(10))
     quiet_hours_end: Mapped[Optional[str]] = mapped_column(String(10))
+    min_alert_score: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
 
     subscription: Mapped[Optional[Subscription]] = relationship(back_populates="user")
 
