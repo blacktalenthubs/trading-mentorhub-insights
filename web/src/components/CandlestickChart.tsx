@@ -127,13 +127,15 @@ export default function CandlestickChart({
 
     seriesRef.current.setData(deduped as any);
 
-    // Compute and add indicator lines
-    const closes = data.map((bar) => ({
-      time: toTime(bar.timestamp) as string,
+    // Compute indicators from sorted deduped data (not raw unsorted data)
+    const closes = deduped.map((bar) => ({
+      time: String(bar.time),
       close: bar.close,
     }));
 
-    const barsForVWAP = data.map((bar) => ({
+    // For VWAP we need high/low/volume — rebuild from sorted raw data
+    const sortedRaw = [...data].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const barsForVWAP = sortedRaw.map((bar) => ({
       time: toTime(bar.timestamp) as string,
       high: bar.high,
       low: bar.low,

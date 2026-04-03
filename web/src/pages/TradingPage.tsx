@@ -39,7 +39,7 @@ const TIMEFRAMES = [
   { label: "30m", period: "5d", interval: "30m" },
   { label: "1H", period: "5d", interval: "60m" },
   { label: "4H", period: "1mo", interval: "60m" },
-  { label: "D", period: "3mo", interval: "1d" },
+  { label: "D", period: "1y", interval: "1d" },
   { label: "W", period: "1y", interval: "1wk" },
   { label: "M", period: "5y", interval: "1mo" },
 ] as const;
