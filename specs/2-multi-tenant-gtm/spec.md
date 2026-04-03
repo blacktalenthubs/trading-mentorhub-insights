@@ -194,6 +194,33 @@ Annual discount: 20% off (2 months free)
 - Push notifications via Firebase Cloud Messaging (supplements Telegram)
 - Acceptance: User installs app from App Store, receives push alerts on phone.
 
+### FR-14: TradingView Charting Integration
+TradingView provides free charting libraries that we embed in the React frontend — giving users professional-grade charts with our data and annotations overlaid. No TradingView API exists for market data (we keep yfinance), and our alert engine is superior to TV webhooks for our use case.
+
+**Lightweight Charts (all tiers)**
+- Open source (Apache 2.0) — free for commercial use, self-hosted
+- Fast candlestick/line charts embedded in dashboard, alert detail views, and mobile
+- Overlay our alert levels: entry, stop, T1/T2 targets, S/R zones, daily plan levels
+- Mark alert fire points on the chart with icons/annotations
+- Acceptance: User clicks an alert and sees a chart with entry/stop/targets drawn on it.
+
+**Advanced Charts Library (Elite tier)**
+- Full TradingView-quality charting: drawing tools, 100+ indicators, multi-timeframe
+- Self-hosted, connected to our yfinance data feed
+- Users can draw on charts, save layouts, add custom indicators
+- Acceptance: Elite user gets a TradingView-like charting experience inside TradeCoPilot.
+
+**Embeddable Widgets (landing page & marketing)**
+- Ticker tape widget across top of landing page (live prices, social proof)
+- Mini chart widgets in marketing emails and alert screenshots
+- Zero hosting cost (iframe from TradingView)
+- Acceptance: Landing page shows live market data via TradingView widget.
+
+**What we do NOT use from TradingView:**
+- No webhooks — our alert engine (8,500+ lines, 60+ rules) is purpose-built and superior
+- No data API — doesn't exist; we use yfinance
+- No Pine Script — we have Python-native rule evaluation
+
 ---
 
 ## Success Criteria
@@ -289,7 +316,9 @@ trade-analytics/
 └── web/                     ← V2 React frontend
     ├── src/
     │   ├── pages/            ← Dashboard, Settings, etc.
-    │   ├── components/       ← UI components
+    │   ├── components/
+    │   │   ├── charts/       ← TradingView Lightweight Charts integration
+    │   │   └── ...           ← Other UI components
     │   └── api/              ← API client hooks
     ├── capacitor.config.ts   ← Mobile wrapper config
     └── package.json
@@ -331,6 +360,7 @@ trade-analytics/
 | JWT auth | Proper token-based auth for API | V1 uses cookie/session hack |
 | WebSocket alerts | Real-time alert stream to frontend | V1 uses st.rerun polling |
 | React frontend | All user-facing pages | V1 is Streamlit (can't scale) |
+| TradingView charts | Lightweight Charts (all tiers) + Advanced Charts (Elite) | V1 uses basic Streamlit charts |
 | Stripe billing | Subscription management + webhooks | V1 has stub fields only |
 | Onboarding flow | Guided setup wizard | V1 has no onboarding |
 | Push notifications | FCM for mobile alerts | V1 has no mobile support |
@@ -341,11 +371,11 @@ trade-analytics/
 |-------|----------|-------------|-----------|
 | **Phase 1: Data Isolation** | 2 weeks | Add user_id to trading tables, backfill to admin | None — additive columns |
 | **Phase 2: API Completion** | 3 weeks | All FastAPI endpoints, JWT auth, multi-user worker | None — separate process |
-| **Phase 3: React MVP** | 4 weeks | Dashboard, watchlist, settings, alert stream | None — separate frontend |
+| **Phase 3: React MVP + Charts** | 4 weeks | Dashboard, watchlist, settings, alert stream + TradingView Lightweight Charts with alert level overlays | None — separate frontend |
 | **Phase 4: Billing** | 2 weeks | Stripe integration, tier enforcement | None — API-only |
 | **Phase 5: Onboarding** | 1 week | Setup wizard, Telegram linking | None — new pages |
-| **Phase 6: Mobile** | 2 weeks | PWA, push notifications, Capacitor build | None — web/ only |
-| **Phase 7: Cutover** | 2 weeks | DNS swap, worker swap, beta migration | **V1 sunset begins** |
+| **Phase 6: Mobile + Advanced Charts** | 2 weeks | PWA, push notifications, Capacitor + Advanced Charts for Elite tier | None — web/ only |
+| **Phase 7: Cutover** | 2 weeks | DNS swap, worker swap, beta migration, landing page with TV widgets | **V1 sunset begins** |
 
 **V1 stays live and untouched through Phases 1-6.** Phase 7 is the only phase that affects production.
 
