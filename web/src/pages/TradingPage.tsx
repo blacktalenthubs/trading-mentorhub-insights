@@ -185,7 +185,7 @@ function AlertRow({ alert: a }: { alert: Alert }) {
 
 function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResult | null }) {
   const { data: analysis } = useDailyAnalysis(symbol ?? "");
-  const { messages, streaming, sendMessage, stop, clear } = useCoachStream();
+  const { messages, streaming, sendMessage, stopStreaming, clearMessages } = useCoachStream();
   const [input, setInput] = useState("");
   const [lastAutoSymbol, setLastAutoSymbol] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -194,7 +194,7 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
   useEffect(() => {
     if (!symbol || symbol === lastAutoSymbol || streaming) return;
     setLastAutoSymbol(symbol);
-    clear();
+    clearMessages();
 
     // Build a rich context prompt from the signal data
     const parts = [`Analyze ${symbol} for me.`];
@@ -234,7 +234,7 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
           <span className="text-sm font-semibold text-text-primary">AI Coach</span>
         </div>
         {messages.length > 0 && (
-          <button onClick={() => { clear(); setLastAutoSymbol(null); }} className="text-[10px] text-text-faint hover:text-text-muted">
+          <button onClick={() => { clearMessages(); setLastAutoSymbol(null); }} className="text-[10px] text-text-faint hover:text-text-muted">
             Clear
           </button>
         )}
@@ -275,7 +275,7 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
         {streaming && (
           <div className="flex items-center gap-1 text-xs text-text-faint">
             <span className="animate-pulse">Thinking...</span>
-            <button onClick={stop} className="text-bearish-text hover:text-bearish text-[10px]">Stop</button>
+            <button onClick={stopStreaming} className="text-bearish-text hover:text-bearish text-[10px]">Stop</button>
           </div>
         )}
       </div>
