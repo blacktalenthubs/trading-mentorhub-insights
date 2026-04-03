@@ -600,8 +600,8 @@ export default function TradingPage() {
                 ))}
               </div>
 
-              {/* Chart */}
-              <div className="min-h-0 flex-1">
+              {/* Chart — fills remaining vertical space */}
+              <div className="min-h-0 flex-1" id="chart-container">
                 {ohlcv && ohlcv.length > 0 ? (
                   <CandlestickChart
                     data={ohlcv}
@@ -610,7 +610,7 @@ export default function TradingPage() {
                     target={showLevels ? (selected.target_1 ?? undefined) : undefined}
                     levels={showLevels ? chartLevels : []}
                     indicators={chartIndicators}
-                    height={400}
+                    height={0}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center rounded-lg bg-surface-3 text-sm text-text-faint">

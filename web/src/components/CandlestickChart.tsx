@@ -39,6 +39,9 @@ export default function CandlestickChart({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // If height is 0, auto-fill parent container height
+    const chartHeight = height > 0 ? height : (containerRef.current.parentElement?.clientHeight || 400);
+
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "#0a0a0a" },
@@ -49,7 +52,7 @@ export default function CandlestickChart({
         horzLines: { color: "#1f2937" },
       },
       width: containerRef.current.clientWidth,
-      height,
+      height: chartHeight,
       crosshair: { mode: 0 },
     });
 
@@ -67,7 +70,11 @@ export default function CandlestickChart({
 
     const handleResize = () => {
       if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
+        const newHeight = height > 0 ? height : (containerRef.current.parentElement?.clientHeight || 400);
+        chart.applyOptions({
+          width: containerRef.current.clientWidth,
+          height: newHeight,
+        });
       }
     };
     window.addEventListener("resize", handleResize);
