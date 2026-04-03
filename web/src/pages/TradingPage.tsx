@@ -224,19 +224,15 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
   }
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-border-subtle bg-surface-2">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
-        <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-accent" />
-          <span className="text-sm font-semibold text-text-primary">AI Coach</span>
-        </div>
-        {messages.length > 0 && (
+    <div className="flex h-full flex-col">
+      {/* Clear button */}
+      {messages.length > 0 && (
+        <div className="flex justify-end px-3 py-0.5 shrink-0">
           <button onClick={() => { clearMessages(); setLastAutoSymbol(null); }} className="text-[10px] text-text-faint hover:text-text-muted">
             Clear
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Quick prompts */}
       {messages.length === 0 && symbol && (
@@ -347,6 +343,7 @@ export default function TradingPage() {
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
   const [showLevels, setShowLevels] = useState(true);
   const [showAI, setShowAI] = useState(false);
+  const [aiExpanded, setAiExpanded] = useState(false); // tall AI panel
   const [showSidebar, setShowSidebar] = useState(true);
 
   function toggleIndicator(key: string) {
@@ -439,10 +436,11 @@ export default function TradingPage() {
           <button
             onClick={() => refetch()}
             disabled={isFetching}
+            title="Refresh market data and re-scan all watchlist symbols for setups"
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Scan
+            {isFetching ? "Scanning..." : "Scan"}
           </button>
         </div>
       </div>
@@ -639,8 +637,35 @@ export default function TradingPage() {
 
       {/* Bottom panel: AI Coach OR Alerts (not both) */}
       {showAI ? (
-        <div className="shrink-0 h-52 rounded-lg border border-border-subtle bg-surface-2">
-          <AIPanel symbol={selected?.symbol ?? null} signal={selected} />
+        <div className={`shrink-0 rounded-lg border border-border-subtle bg-surface-2 transition-all ${aiExpanded ? "h-80" : "h-44"}`}>
+          <div className="flex h-full flex-col">
+            {/* Expand/collapse bar */}
+            <div className="flex items-center justify-between border-b border-border-subtle px-3 py-1 shrink-0">
+              <div className="flex items-center gap-2">
+                <Brain className="h-3.5 w-3.5 text-accent" />
+                <span className="text-xs font-semibold text-text-primary">AI Coach</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setAiExpanded(!aiExpanded)}
+                  className="rounded p-0.5 text-text-faint hover:text-text-muted"
+                  title={aiExpanded ? "Shrink" : "Expand"}
+                >
+                  {aiExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  onClick={() => setShowAI(false)}
+                  className="rounded p-0.5 text-text-faint hover:text-text-muted"
+                  title="Close AI Coach"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              <AIPanel symbol={selected?.symbol ?? null} signal={selected} />
+            </div>
+          </div>
         </div>
       ) : (
         <div className="shrink-0 rounded-lg border border-border-subtle bg-surface-2">
