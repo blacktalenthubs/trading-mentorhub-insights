@@ -191,7 +191,10 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-analyze when symbol changes — send context-aware prompt automatically
+  const mountedRef = useRef(false);
   useEffect(() => {
+    // Skip first mount to avoid duplicate with React strict mode
+    if (!mountedRef.current) { mountedRef.current = true; }
     if (!symbol || symbol === lastAutoSymbol || streaming) return;
     setLastAutoSymbol(symbol);
     clearMessages();
@@ -257,17 +260,24 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
         </div>
       )}
 
-      {/* Chat messages — hide first auto-generated user prompt, only show AI response + follow-ups */}
+      {/* Chat messages — hide auto-generated prompts, render markdown bold */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
         {messages.map((m, i) => {
-          // Hide the auto-generated prompt (first user message)
+          // Hide auto-generated prompts (first user message per symbol)
           if (i === 0 && m.role === "user") return null;
           return (
             <div key={i} className={`text-xs leading-relaxed ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
               {m.role === "user" ? (
                 <p className="font-medium">{m.content}</p>
               ) : (
-                <p className="whitespace-pre-wrap">{m.content}</p>
+                <p
+                  className="whitespace-pre-wrap"
+                  dangerouslySetInnerHTML={{
+                    __html: m.content
+                      .replace(/\*\*(.+?)\*\*/g, "<strong class='text-text-primary'>$1</strong>")
+                      .replace(/^• /gm, "&#8226; "),
+                  }}
+                />
               )}
             </div>
           );
