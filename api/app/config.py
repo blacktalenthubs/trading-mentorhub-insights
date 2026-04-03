@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Feature limits
     FREE_WATCHLIST_MAX: int = 5
 
+    # AI
+    ANTHROPIC_API_KEY: str = ""
+
     # App
     APP_NAME: str = "TradeCoPilot API"
     DEBUG: bool = False
