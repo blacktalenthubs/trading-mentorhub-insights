@@ -84,6 +84,34 @@ def _is_crypto_telegram_hours() -> bool:
         return True  # fail-open: send if timezone check fails
 
 
+def _should_notify(signal, category_prefs: dict[str, bool], min_score: int) -> bool:
+    """Return True if signal should be sent to Telegram based on admin preferences.
+
+    - Exit alerts (T1/T2/Stop) always send regardless of prefs or score.
+    - If signal's category is disabled, return False.
+    - If signal's score < min_score, return False.
+    - Missing category prefs default to True (fail-open / opt-out model).
+    """
+    from alert_config import ALERT_TYPE_TO_CATEGORY, EXIT_ALERT_TYPES
+
+    alert_type_val = signal.alert_type.value if hasattr(signal.alert_type, "value") else str(signal.alert_type)
+
+    # Exit alerts always send
+    if alert_type_val in EXIT_ALERT_TYPES:
+        return True
+
+    # Check category preference
+    category = ALERT_TYPE_TO_CATEGORY.get(alert_type_val)
+    if category and not category_prefs.get(category, True):
+        return False
+
+    # Check score filter
+    if min_score > 0 and signal.score < min_score:
+        return False
+
+    return True
+
+
 # Burst cooldown: last BUY notification time per symbol (in-memory, resets on restart)
 _last_buy_notify: dict[str, datetime] = {}  # {symbol: datetime}
 _last_buy_session: str = ""  # session date for clearing stale state
@@ -146,6 +174,16 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
 
     symbols = symbols_override if symbols_override is not None else get_watchlist(_get_admin_uid())
     logger.info("Poll cycle symbols (uid=%d): %s", _get_admin_uid(), ", ".join(symbols))
+
+    # Load admin alert preferences once per cycle (fail-open: empty prefs = send all)
+    try:
+        from db import get_alert_category_prefs, get_min_alert_score
+        _admin_cat_prefs = get_alert_category_prefs(_get_admin_uid())
+        _admin_min_score = get_min_alert_score(_get_admin_uid())
+    except Exception:
+        logger.debug("Failed to load alert category prefs, using defaults (all enabled)")
+        _admin_cat_prefs = {}
+        _admin_min_score = 0
 
     # Seed daily plans if none exist for today's session (ensures plans exist
     # even if nobody opened the Scanner page before the monitor started).
@@ -410,8 +448,16 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                         symbol, signal.alert_type.value,
                     )
 
+                # Admin alert preference gate
+                _pref_filtered = not _should_notify(signal, _admin_cat_prefs, _admin_min_score)
+                if _pref_filtered:
+                    logger.info(
+                        "%s: preference filtered — %s score=%d (dashboard only)",
+                        symbol, signal.alert_type.value, signal.score,
+                    )
+
                 # Single group notification
-                _telegram_muted = getattr(signal, "_suppress_telegram", False) or _crypto_quiet
+                _telegram_muted = getattr(signal, "_suppress_telegram", False) or _crypto_quiet or _pref_filtered
                 if _burst_suppressed or _telegram_muted:
                     email_sent, sms_sent = False, False
                     if _telegram_muted:

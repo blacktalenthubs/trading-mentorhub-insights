@@ -596,6 +596,16 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS user_alert_category_prefs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                category_id TEXT NOT NULL,
+                enabled INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, category_id)
+            );
+
             CREATE TABLE IF NOT EXISTS swing_trades (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol        TEXT NOT NULL,
@@ -891,7 +901,7 @@ def _migrate_alert_user_id():
                 "ON alerts(symbol, alert_type, session_date, user_id)"
             )
         except (*_DB_OPERATIONAL_ERRORS, *_DB_INTEGRITY_ERRORS):
-            pass  # Duplicates may still exist; index will be retried next startup
+            pass
 
         # Add trade ACK columns to alerts
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN user_action TEXT DEFAULT NULL")
@@ -935,6 +945,11 @@ def _migrate_alert_user_id():
                        VALUES (?, ?, ?)""",
                     (admin["id"], telegram_chat_id, notification_email),
                 )
+
+        # Add min_alert_score column to user_notification_prefs
+        _safe_add_column(
+            conn, "ALTER TABLE user_notification_prefs ADD COLUMN min_alert_score INTEGER DEFAULT 0"
+        )
 
 
 def _migrate_per_user_entries_cooldowns():
@@ -1217,6 +1232,61 @@ def upsert_notification_prefs(
                 int(email_enabled),
                 anthropic_api_key,
             ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Alert category preferences
+# ---------------------------------------------------------------------------
+
+
+def get_alert_category_prefs(user_id: int) -> dict[str, bool]:
+    """Get alert category toggles for a user.
+
+    Returns {category_id: enabled} for categories that have been explicitly set.
+    Missing categories default to enabled (opt-out model) — handled by caller.
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT category_id, enabled FROM user_alert_category_prefs WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        return {r["category_id"]: bool(r["enabled"]) for r in rows}
+
+
+def upsert_alert_category_prefs(user_id: int, category_id: str, enabled: bool) -> None:
+    """Insert or update a single category preference for a user."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO user_alert_category_prefs
+               (user_id, category_id, enabled, updated_at)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_id, category_id) DO UPDATE SET
+                   enabled = excluded.enabled,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (user_id, category_id, int(enabled)),
+        )
+
+
+def get_min_alert_score(user_id: int) -> int:
+    """Get minimum alert score filter for a user. Returns 0 if not set."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT min_alert_score FROM user_notification_prefs WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row is None:
+            return 0
+        return row["min_alert_score"] or 0
+
+
+def set_min_alert_score(user_id: int, score: int) -> None:
+    """Set minimum alert score filter for a user."""
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE user_notification_prefs SET min_alert_score = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = ?""",
+            (score, user_id),
         )
 
 

@@ -616,6 +616,134 @@ ENABLED_RULES: set[str] = {
     # "session_high_retracement",    # NOISE: describes normal intraday action
 }
 
+# ---------------------------------------------------------------------------
+# Alert Categories — user-facing groupings for preference toggles
+# ---------------------------------------------------------------------------
+
+ALERT_CATEGORIES: dict[str, dict] = {
+    "entry_signals": {
+        "name": "Entry Signals",
+        "description": "BUY alerts at support levels (MA/EMA bounces, PDL reclaim, double bottoms, fib bounce)",
+        "alert_types": {
+            "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+            "ema_bounce_20", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
+            "prior_day_low_reclaim", "prior_day_low_bounce",
+            "inside_day_reclaim",
+            "session_low_double_bottom", "multi_day_double_bottom",
+            "fib_retracement_bounce",
+            "vwap_reclaim", "vwap_bounce",
+            "opening_low_base", "morning_low_retest",
+            "session_low_bounce_vwap", "session_low_reversal",
+            "planned_level_touch", "weekly_level_touch", "monthly_level_touch",
+            "intraday_support_bounce",
+            "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
+            "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
+            "pdh_retest_hold",
+        },
+    },
+    "breakout_signals": {
+        "name": "Breakout Signals",
+        "description": "Price breaking above key levels (PDH, inside day, consolidation, ORB)",
+        "alert_types": {
+            "prior_day_high_breakout", "pdh_test",
+            "inside_day_breakout", "outside_day_breakout",
+            "opening_range_breakout",
+            "weekly_high_breakout", "monthly_high_breakout",
+            "consol_breakout_long", "consol_15m_breakout_long",
+            "first_hour_high_breakout",
+            "gap_and_go", "bb_squeeze_breakout",
+        },
+    },
+    "short_signals": {
+        "name": "Short Signals",
+        "description": "SHORT entry and rejection alerts (EMA rejection, double top, breakdown)",
+        "alert_types": {
+            "ema_rejection_short", "ema_loss_short",
+            "hourly_resistance_rejection_short",
+            "intraday_ema_rejection_short",
+            "session_high_double_top",
+            "consol_breakout_short", "consol_15m_breakout_short",
+            "spy_short_entry",
+            "pdh_failed_breakout",
+            "vwap_loss",
+            "session_low_breakdown", "morning_low_breakdown",
+            "opening_range_breakdown",
+            "inside_day_breakdown",
+        },
+    },
+    "exit_alerts": {
+        "name": "Exit Alerts",
+        "description": "Target hits, stop losses, and trade management (always recommended ON)",
+        "alert_types": {
+            "target_1_hit", "target_2_hit",
+            "stop_loss_hit", "auto_stop_out",
+            "trailing_stop_hit",
+            "swing_target_hit", "swing_stopped_out",
+        },
+    },
+    "resistance_warnings": {
+        "name": "Resistance Warnings",
+        "description": "Approaching or rejected at resistance levels (PDH, MA, weekly/monthly highs)",
+        "alert_types": {
+            "resistance_prior_high", "pdh_rejection",
+            "hourly_resistance_approach",
+            "ma_resistance", "ema_resistance",
+            "weekly_high_resistance", "weekly_high_test",
+            "monthly_high_resistance", "monthly_high_test",
+            "resistance_prior_low",
+        },
+    },
+    "support_warnings": {
+        "name": "Support Warnings",
+        "description": "Breakdown and support loss alerts (PDL breakdown, weekly/monthly low breaks)",
+        "alert_types": {
+            "support_breakdown",
+            "prior_day_low_breakdown", "prior_day_low_resistance",
+            "weekly_low_test", "weekly_low_breakdown",
+            "monthly_low_test", "monthly_low_breakdown",
+        },
+    },
+    "swing_trade": {
+        "name": "Swing Trade",
+        "description": "Multi-day swing setups (RSI, MACD, EMA crossovers, bull flags)",
+        "alert_types": {
+            "swing_rsi_approaching_oversold", "swing_rsi_oversold",
+            "swing_rsi_approaching_overbought", "swing_rsi_overbought",
+            "swing_ema_crossover_5_20", "swing_200ma_reclaim", "swing_pullback_20ema",
+            "swing_macd_crossover", "swing_rsi_divergence",
+            "swing_bull_flag", "swing_candle_pattern", "swing_consecutive_red",
+            "ema_crossover_5_20",
+        },
+    },
+    "informational": {
+        "name": "Informational",
+        "description": "Context and market structure (summaries, consolidation notices, MA approach)",
+        "alert_types": {
+            "first_hour_summary",
+            "monthly_ema_touch",
+            "ma_approach",
+            "hourly_consolidation",
+            "session_high_retracement",
+            "gap_fill",
+            "inside_day_forming",
+        },
+    },
+}
+
+# Reverse lookup: alert_type_value → category_id
+ALERT_TYPE_TO_CATEGORY: dict[str, str] = {}
+for _cat_id, _cat in ALERT_CATEGORIES.items():
+    for _at in _cat["alert_types"]:
+        ALERT_TYPE_TO_CATEGORY[_at] = _cat_id
+
+# Exit alert types — bypass score filter, always deliver
+EXIT_ALERT_TYPES: set[str] = {
+    "target_1_hit", "target_2_hit",
+    "stop_loss_hit", "auto_stop_out",
+    "trailing_stop_hit",
+    "swing_target_hit", "swing_stopped_out",
+}
+
 # Per-symbol risk overrides (defaults to DAY_TRADE_MAX_RISK_PCT if not listed)
 PER_SYMBOL_RISK: dict[str, float] = {
     "SPY": 0.002, "QQQ": 0.002,           # tight for ETFs

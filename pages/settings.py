@@ -375,6 +375,99 @@ if is_admin:
             if email_ok:
                 st.success("Test email also sent")
 
+        st.divider()
+        ui_theme.section_header("Trading Style & Alert Preferences")
+        st.caption(
+            "Choose which trading patterns you want alerts for. "
+            "Disabled patterns are still recorded to the dashboard — just no Telegram push."
+        )
+
+        from alert_config import ALERT_CATEGORIES
+        from db import get_alert_category_prefs, upsert_alert_category_prefs, get_min_alert_score, set_min_alert_score
+
+        cat_prefs = get_alert_category_prefs(user["id"])
+        current_min_score = get_min_alert_score(user["id"])
+
+        # Trading pattern toggles — organized by trading style
+        _new_prefs: dict[str, bool] = {}
+
+        st.markdown("**Entry Patterns**")
+        col1, col2 = st.columns(2)
+        with col1:
+            _new_prefs["entry_signals"] = st.toggle(
+                "Support Bounces & Reclaims",
+                value=cat_prefs.get("entry_signals", True),
+                help="MA/EMA bounces, PDL reclaim, double bottoms, fib bounce, VWAP reclaim",
+                key="cat_entry_signals",
+            )
+            _new_prefs["breakout_signals"] = st.toggle(
+                "Breakouts",
+                value=cat_prefs.get("breakout_signals", True),
+                help="PDH breakout, consolidation breakout, inside day breakout, gap and go",
+                key="cat_breakout_signals",
+            )
+        with col2:
+            _new_prefs["short_signals"] = st.toggle(
+                "Short / Rejection Setups",
+                value=cat_prefs.get("short_signals", True),
+                help="EMA rejection, double top, breakdown, VWAP loss",
+                key="cat_short_signals",
+            )
+            _new_prefs["swing_trade"] = st.toggle(
+                "Swing Trade Setups",
+                value=cat_prefs.get("swing_trade", True),
+                help="RSI zones, MACD crossover, EMA crossover, bull flags, multi-day patterns",
+                key="cat_swing_trade",
+            )
+
+        st.markdown("**Trade Management**")
+        col3, col4 = st.columns(2)
+        with col3:
+            _new_prefs["exit_alerts"] = st.toggle(
+                "Exit Alerts (T1/T2/Stop)",
+                value=cat_prefs.get("exit_alerts", True),
+                help="Target hits, stop losses — always recommended ON",
+                key="cat_exit_alerts",
+            )
+            _new_prefs["resistance_warnings"] = st.toggle(
+                "Resistance Warnings",
+                value=cat_prefs.get("resistance_warnings", True),
+                help="Approaching PDH, MA resistance, weekly/monthly highs",
+                key="cat_resistance_warnings",
+            )
+        with col4:
+            _new_prefs["support_warnings"] = st.toggle(
+                "Support Warnings",
+                value=cat_prefs.get("support_warnings", True),
+                help="PDL breakdown, support loss, weekly/monthly low breaks",
+                key="cat_support_warnings",
+            )
+            _new_prefs["informational"] = st.toggle(
+                "Market Context",
+                value=cat_prefs.get("informational", True),
+                help="First hour summary, consolidation notices, monthly EMA touch",
+                key="cat_informational",
+            )
+
+        st.markdown("")
+
+        # Score filter
+        new_min_score = st.slider(
+            "Minimum Alert Score",
+            min_value=0,
+            max_value=100,
+            value=current_min_score,
+            step=5,
+            help="Only send alerts with score above this threshold. Exit alerts (T1/T2/Stop) always send regardless.",
+            key="min_score_slider",
+        )
+
+        if st.button("Save Alert Preferences", key="save_alert_prefs"):
+            for cat_id, enabled in _new_prefs.items():
+                upsert_alert_category_prefs(user["id"], cat_id, enabled)
+            set_min_alert_score(user["id"], new_min_score)
+            st.success("Alert preferences saved. Changes take effect on the next poll cycle.")
+
 # ── Subscription Tab ─────────────────────────────────────────────────────
 
 with tab_subscription:
