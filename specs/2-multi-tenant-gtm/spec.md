@@ -223,6 +223,97 @@ TradingView provides free charting libraries that we embed in the React frontend
 
 ---
 
+### FR-15: Performance Transparency & Track Record
+
+The #1 trust builder and retention driver. Users need to see the alerts work before they pay — and keep seeing it to stay.
+
+**Public Track Record (landing page + free tier)**
+- Rolling 30-day stats: win rate, avg R:R, total alerts, best/worst trade
+- Per-category performance: "Entry Signals: 72% win rate. Breakouts: 55%." — helps users decide which categories to enable
+- Updated daily after market close
+- Acceptance: Any visitor (even unauthenticated) can see the public track record on the landing page.
+
+**Personal Performance Dashboard (Pro+ tier)**
+- "Your alerts this month: took 12, won 8, +$1,450"
+- Win rate by category, symbol, time of day
+- Equity curve showing cumulative P&L over time
+- "Alerts you skipped that would have worked" — builds confidence in the system
+- Acceptance: User sees personalized stats based on alerts they acknowledged (Took It / Skipped).
+
+**Weekly Scorecard (all tiers, email + dashboard)**
+- Auto-generated every Friday after close
+- Top 3 best alerts of the week with chart screenshots
+- Category performance breakdown
+- AI narrative: "Bounce alerts dominated this week due to oversold conditions"
+- Acceptance: Users receive weekly email with scorecard. Viewable on dashboard.
+
+### FR-16: AI Trading Coach (Education-First, Not Execution)
+
+TradeCoPilot is an **education platform** — we teach users how to trade, not trade for them. AI coaches users to make better decisions over time.
+
+**Per-Alert Education (all tiers)**
+- Every alert includes WHY it fired: "Double bottom at $644 — this zone held twice across daily bars, bounce confirmed with volume"
+- Risk context: "Stop at $642 risks $2/share. At 100 shares, that's $200. Is this within your daily risk budget?"
+- What to watch: "If price holds above $653 (PDL), the trade thesis is intact. Below $642, the thesis is broken."
+
+**Personalized Coaching (Pro+ tier)**
+- Pattern analysis: "You have a 78% win rate on double bottom alerts but only 42% on breakouts. Consider focusing on bounces."
+- Behavioral insights: "You typically exit at T1. Your last 10 T1 hits — 7 continued to T2. Consider holding a runner."
+- Mistake patterns: "3 of your last 5 losses were breakout trades during CHOPPY regime. The system flagged these as CAUTION."
+- Weekly coaching note: "This week, the market is range-bound. Bounce and rejection setups will likely outperform breakouts."
+
+**Learning Library (all tiers)**
+- "What is a prior day low reclaim?" — explain every alert type with real examples
+- "How to read the score" — what makes a high-conviction vs speculative signal
+- "Position sizing 101" — use the entry/stop to calculate shares based on risk tolerance
+- Interactive: user can replay past alerts on charts and see what happened
+
+**Philosophy: We educate, users decide.**
+- We NEVER auto-execute trades
+- We NEVER say "buy this" — we say "here's a setup that matches your criteria"
+- Every alert has "Took It / Skip" buttons — the user always chooses
+- AI coach suggests, never directs
+
+### FR-17: Risk Management Education
+
+Help users build risk discipline — the #1 skill that separates profitable traders from blowups.
+
+**Position Size Calculator (all tiers)**
+- User sets account size and risk-per-trade % (e.g., $50k, 1% = $500 max loss)
+- Every alert auto-calculates: "Entry $653, Stop $651.69 = $1.31 risk. At 1% risk ($500), trade 381 shares."
+- Displayed on every alert card and Telegram message
+
+**Daily Risk Budget (Pro+ tier)**
+- User sets daily loss limit (e.g., $500)
+- Dashboard shows: "Today: 2 trades, -$180. Budget remaining: $320."
+- When budget is near limit, alerts include warning: "Daily loss budget 80% used — consider sitting out."
+- We do NOT stop alerts — we educate and warn. User always decides.
+
+**Portfolio Heat Map (Elite tier)**
+- Visual showing current exposure by sector/correlation
+- "You have 3 tech positions (NVDA, META, GOOGL). Tech is 75% of your exposure."
+- "SPY and QQQ are 95% correlated — alerts on both are redundant"
+- Helps users diversify without us making the decision
+
+### FR-18: Daily & Weekly Intelligence Briefings
+
+For busy professionals who check in once a day, not every 3 minutes.
+
+**Pre-Market Brief (Pro+ tier, 8:30 AM ET)**
+- AI-generated summary: "Today's setups: SPY testing double bottom at $644, NVDA at EMA200 support. Market regime: CHOPPY. Favor bounces over breakouts."
+- Key levels for each watchlist symbol: entry, stop, T1/T2
+- News context if relevant (earnings, Fed, macro)
+
+**End-of-Day Recap (Pro+ tier, 4:30 PM ET)**
+- "5 alerts fired today. 3 hit T1. 1 stopped out. 1 still open."
+- Best trade of the day with chart
+- AI: "The SPY double bottom at $645 was the highest-conviction setup. Score 80, hit T2."
+
+**Weekend Prep (all tiers, Saturday morning)**
+- AI-generated weekly game plan: "5 best setups for next week" with charts and levels
+- Review of the past week's performance
+- "What to watch" — earnings, economic events, technical levels
+
 ## Success Criteria
 
 - [ ] New user completes onboarding and receives first alert within 5 minutes
@@ -232,6 +323,9 @@ TradingView provides free charting libraries that we embed in the React frontend
 - [ ] Free-to-paid conversion rate above 5%
 - [ ] Monthly churn below 8% for paid users
 - [ ] App Store rating above 4.0 after 100 reviews
+- [ ] Public track record visible on landing page with 30-day rolling stats
+- [ ] 90-day retention above 65% (fintech benchmark)
+- [ ] Users who engage with AI coach retain 2x better than those who don't
 
 ## Edge Cases
 
@@ -361,6 +455,10 @@ trade-analytics/
 | WebSocket alerts | Real-time alert stream to frontend | V1 uses st.rerun polling |
 | React frontend | All user-facing pages | V1 is Streamlit (can't scale) |
 | TradingView charts | Lightweight Charts (all tiers) + Advanced Charts (Elite) | V1 uses basic Streamlit charts |
+| Performance dashboard | Public track record, personal P&L, equity curve | V1 has basic alert history only |
+| AI coach | Personalized coaching, behavioral insights, learning library | V1 has basic narratives only |
+| Risk tools | Position size calculator, daily risk budget, heat map | V1 has no risk management |
+| Intelligence briefs | Pre-market, EOD recap, weekend prep | V1 has basic premarket brief |
 | Stripe billing | Subscription management + webhooks | V1 has stub fields only |
 | Onboarding flow | Guided setup wizard | V1 has no onboarding |
 | Push notifications | FCM for mobile alerts | V1 has no mobile support |
@@ -372,12 +470,28 @@ trade-analytics/
 | **Phase 1: Data Isolation** | 2 weeks | Add user_id to trading tables, backfill to admin | None — additive columns |
 | **Phase 2: API Completion** | 3 weeks | All FastAPI endpoints, JWT auth, multi-user worker | None — separate process |
 | **Phase 3: React MVP + Charts** | 4 weeks | Dashboard, watchlist, settings, alert stream + TradingView Lightweight Charts with alert level overlays | None — separate frontend |
-| **Phase 4: Billing** | 2 weeks | Stripe integration, tier enforcement | None — API-only |
-| **Phase 5: Onboarding** | 1 week | Setup wizard, Telegram linking | None — new pages |
-| **Phase 6: Mobile + Advanced Charts** | 2 weeks | PWA, push notifications, Capacitor + Advanced Charts for Elite tier | None — web/ only |
-| **Phase 7: Cutover** | 2 weeks | DNS swap, worker swap, beta migration, landing page with TV widgets | **V1 sunset begins** |
+| **Phase 4: Performance & Risk** | 3 weeks | Public track record, personal P&L dashboard, position size calculator, daily risk budget | None — new features |
+| **Phase 5: AI Coach & Education** | 3 weeks | Per-alert education, personalized coaching insights, learning library, behavioral analysis | None — AI layer |
+| **Phase 6: Intelligence Briefs** | 2 weeks | Pre-market brief, EOD recap, weekend prep — all AI-generated, per-user | None — scheduled jobs |
+| **Phase 7: Billing & Onboarding** | 2 weeks | Stripe integration, tier enforcement, setup wizard, Telegram linking | None — API-only |
+| **Phase 8: Mobile** | 2 weeks | PWA, push notifications, Capacitor, Advanced Charts for Elite | None — web/ only |
+| **Phase 9: Launch** | 2 weeks | Landing page with TV widgets + public track record, marketing content, beta invites | **V1 sunset begins** |
 
-**V1 stays live and untouched through Phases 1-6.** Phase 7 is the only phase that affects production.
+**V1 stays live and untouched through Phases 1-8.** Phase 9 is the only phase that affects production.
+
+## Core Philosophy
+
+> **We educate. Users decide.**
+>
+> TradeCoPilot is NOT a robo-advisor or auto-execution platform. We provide:
+> - Complete entry/exit strategies with structural levels
+> - AI-powered education explaining WHY each setup works
+> - Risk management tools and coaching
+> - Performance transparency so users can trust the system
+>
+> Every alert has "Took It / Skip" buttons. The user ALWAYS chooses.
+> We never auto-execute. We never say "buy this."
+> We say "here's a high-conviction setup that matches your criteria — here's why, here's the risk, here's the plan."
 
 ## Clarifications
 
