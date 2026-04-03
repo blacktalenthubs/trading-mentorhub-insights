@@ -635,38 +635,38 @@ export default function TradingPage() {
           )}
         </div>
 
-        {/* Right: AI Coach Panel */}
-        {showAI && (
-          <div className="hidden w-64 shrink-0 md:block">
-            <AIPanel symbol={selected?.symbol ?? null} signal={selected} />
-          </div>
-        )}
       </div>
 
-      {/* Bottom: Today's Alert Stream */}
-      <div className="shrink-0 rounded-lg border border-border-subtle bg-surface-2">
-        <button
-          onClick={() => setAlertsExpanded(!alertsExpanded)}
-          className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary"
-        >
-          <span>
-            Today's Alerts
-            {todayAlerts && (
-              <span className="ml-2 text-text-muted">({todayAlerts.length})</span>
-            )}
-          </span>
-          {alertsExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-        </button>
-        {alertsExpanded && (
-          <div className="max-h-48 overflow-y-auto border-t border-border-subtle px-2 py-1.5 space-y-1">
-            {symbolAlerts && symbolAlerts.length > 0 ? (
-              symbolAlerts.map((a) => <AlertRow key={a.id} alert={a} />)
-            ) : (
-              <p className="py-2 text-center text-xs text-text-faint">No alerts yet today</p>
-            )}
-          </div>
-        )}
-      </div>
+      {/* Bottom panel: AI Coach OR Alerts (not both) */}
+      {showAI ? (
+        <div className="shrink-0 h-52 rounded-lg border border-border-subtle bg-surface-2">
+          <AIPanel symbol={selected?.symbol ?? null} signal={selected} />
+        </div>
+      ) : (
+        <div className="shrink-0 rounded-lg border border-border-subtle bg-surface-2">
+          <button
+            onClick={() => setAlertsExpanded(!alertsExpanded)}
+            className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary"
+          >
+            <span>
+              Today's Alerts
+              {todayAlerts && (
+                <span className="ml-2 text-text-muted">({todayAlerts.length})</span>
+              )}
+            </span>
+            {alertsExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          </button>
+          {alertsExpanded && (
+            <div className="max-h-48 overflow-y-auto border-t border-border-subtle px-2 py-1.5 space-y-1">
+              {symbolAlerts && symbolAlerts.length > 0 ? (
+                symbolAlerts.map((a) => <AlertRow key={a.id} alert={a} />)
+              ) : (
+                <p className="py-2 text-center text-xs text-text-faint">No alerts yet today</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
