@@ -6,11 +6,48 @@
 
 ---
 
+## Vision & Positioning
+
+> **"Your chart analyst that never sleeps."**
+>
+> TradeCoPilot monitors your watchlist 24/7 for structural setups — support bounces, key level breakouts, double bottoms — and delivers a **complete trade plan** with entry, stop, and targets straight to your phone. You decide. You learn. You get better.
+>
+> **For traders who have a day job but still want a structural edge.**
+
+### The Unique Problem We Solve
+
+Every trader knows they should trade based on structure — support, resistance, prior day levels, moving averages. But:
+
+- **Chart analysis takes hours** — scanning 10+ symbols across multiple timeframes every morning
+- **Setups happen while you're working** — the double bottom at $645 fired at 9:44 AM while you were in a meeting
+- **Alert services give you noise, not plans** — "SPY crossed $653" is useless without entry, stop, targets, and context
+- **Education and execution are separated** — you learn on YouTube, then struggle to apply it live
+
+**TradeCoPilot is the only platform that delivers complete structural trade plans — not just price alerts.**
+
+| What You Get | What Others Give |
+|-------------|-----------------|
+| "SPY double bottom at $644.72, tested 2x across daily bars. Entry $645, Stop $644, T1 PDL $653, T2 PDH $658. Score 80. EMA200 confluence." | "SPY crossed above $653" |
+| AI explanation of WHY the setup works + what invalidates it | No context |
+| Per-category win rates so you know what to trust | Cherry-picked winners |
+| Position size calculated for your risk tolerance | "Use 100 shares" |
+| Personalized coaching: "Your bounce trades win 78%, focus there" | Generic tips |
+
+### Three Things That Make This Different
+
+1. **The alert IS the trade plan.** Entry, stop, T1, T2, score, confluence, AI narrative — all in one notification. No chart analysis needed.
+
+2. **The product makes you a better trader.** Every alert teaches structure. The AI coach analyzes your patterns. Over time, you learn to read charts yourself — you're not just a dependent subscriber.
+
+3. **Radical transparency.** Public track record. Per-category win rates. "Alerts you skipped that would have worked." Most signal services can't survive this level of honesty. We can, because the engine is actually good.
+
+---
+
 ## Overview
 
 Transform TradeCoPilot from a single-admin tool into a production-grade multi-tenant SaaS platform. This is a holistic redesign covering user isolation, platform architecture, notification routing, monetization, and go-to-market strategy. The goal: 1,000+ concurrent users, each with their own watchlist, alerts, trades, and Telegram notifications — while maintaining the alert quality that makes the product valuable.
 
-## Problem Statement
+## Problem Statement (Technical)
 
 TradeCoPilot currently works for one user (admin). The alert engine, trade tracking, and notification system are all single-tenant:
 - **Worker polls one watchlist** and records all alerts under one user_id
@@ -145,12 +182,15 @@ Streamlit is excellent for prototyping and single-user dashboards. For multi-ten
 
 ### FR-8: Competitive Positioning
 
-| Competitor | Their Weakness | Our Advantage |
-|-----------|---------------|---------------|
-| TradingView alerts | Generic "price crossed X" — no context | Structural alerts with entry/stop/T1/T2 + AI narrative |
-| TradeIdeas | Expensive ($200/mo), overwhelming scanner | Simple category toggles, mobile-first, $20-50/mo |
-| StockTwits/Finviz | Social noise, no actionable alerts | Every alert has a trade plan (entry, stop, targets) |
-| Manual charting | Time-consuming, miss setups while away | 24/7 monitoring, alerts while you sleep (crypto) or work |
+| Competitor | What They Do | Their Weakness | Our Advantage |
+|-----------|-------------|---------------|---------------|
+| TradingView | Chart-based alerts | "Price crossed X" — no trade plan, no targets, no education | Complete structural plan: entry/stop/T1/T2 + AI narrative + score |
+| Trade Ideas | AI-powered scanner | $228/mo, overwhelming, requires full-time attention | $29/mo, mobile-first, alerts come to you — no scanning needed |
+| Benzinga Pro | News-driven alerts | Reactive to news, not structural levels | Proactive — detects setups BEFORE they play out |
+| StockTwits/Finviz | Social + screening | Noise, opinions, no actionable plans | Every alert is a trade plan you can act on in 30 seconds |
+| Robo-advisors (Betterment) | Auto-invest | Zero education, zero control, passive only | You learn, you decide, you grow as a trader |
+| Signal groups (Discord/Telegram) | "Buy NVDA now" | No structure, no stops, no accountability, guru dependency | AI-generated from rules, transparent track record, teaches WHY |
+| Manual charting | DIY analysis | 2-3 hours/day, miss setups while working | 24/7 monitoring, structural alerts while you sleep or work |
 
 ### FR-9: Pricing Strategy
 
