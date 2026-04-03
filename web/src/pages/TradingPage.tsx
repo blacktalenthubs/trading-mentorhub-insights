@@ -196,21 +196,17 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
     setLastAutoSymbol(symbol);
     clearMessages();
 
-    // Build a rich context prompt from the signal data
-    const parts = [`Analyze ${symbol} for me.`];
+    // Build a concise context prompt — AI should respond in 3-5 bullet points max
+    const parts = [`Quick analysis of ${symbol}. Be very brief — 3-5 bullet points only.`];
     if (signal) {
+      if (signal.entry) parts.push(`Entry ${signal.entry}, Stop ${signal.stop}, T1 ${signal.target_1}, T2 ${signal.target_2}. R:R ${signal.rr_ratio?.toFixed(1)}:1. Score ${signal.score}.`);
       if (signal.action_label === "Potential Entry") {
-        parts.push(`Signal: ${signal.action_label} (score ${signal.score}, grade ${signal.grade}).`);
-        if (signal.entry) parts.push(`Entry ${signal.entry}, Stop ${signal.stop}, T1 ${signal.target_1}, T2 ${signal.target_2}.`);
-        if (signal.rr_ratio) parts.push(`R:R ${signal.rr_ratio.toFixed(1)}:1.`);
-        parts.push("What's the setup quality? Should I take this trade? What's the risk?");
+        parts.push("Answer ONLY: 1) Setup type, 2) Key support/resistance levels, 3) Entry: take it or wait for pullback?, 4) What invalidates it");
       } else if (signal.action_label === "Watch") {
-        parts.push(`Status: Watch (score ${signal.score}). What would make this actionable? What levels to watch?`);
+        parts.push("Answer ONLY: 1) Current structure, 2) Key levels to watch, 3) What would trigger an entry, 4) Direction bias");
       } else {
-        parts.push(`No setup currently. What's the overall picture? When might a setup develop?`);
+        parts.push("Answer ONLY: 1) Current structure, 2) Nearest support/resistance, 3) When might a setup develop");
       }
-      if (signal.support_status) parts.push(`Support status: ${signal.support_status}.`);
-      if (signal.bias) parts.push(`Bias: ${signal.bias}`);
     }
 
     sendMessage(parts.join(" "));
