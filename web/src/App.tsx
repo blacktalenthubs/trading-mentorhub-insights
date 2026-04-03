@@ -9,12 +9,9 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
-import ScannerPage from "./pages/ScannerPage";
-import ChartsPage from "./pages/ChartsPage";
+import TradingPage from "./pages/TradingPage";
 import RealTradesPage from "./pages/RealTradesPage";
 import SettingsPage from "./pages/SettingsPage";
-import AlertsPage from "./pages/AlertsPage";
-import WatchlistPage from "./pages/WatchlistPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,12 +65,15 @@ export default function App() {
                 }
               >
                 <Route index element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
-                <Route path="scanner" element={<ErrorBoundary><ScannerPage /></ErrorBoundary>} />
-                <Route path="watchlist" element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
-                <Route path="charts" element={<ErrorBoundary><ChartsPage /></ErrorBoundary>} />
+                <Route path="trading" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
                 <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
-                <Route path="alerts" element={<ErrorBoundary><AlertsPage /></ErrorBoundary>} />
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+
+                {/* Legacy redirects */}
+                <Route path="scanner" element={<Navigate to="/trading" replace />} />
+                <Route path="charts" element={<Navigate to="/trading" replace />} />
+                <Route path="alerts" element={<Navigate to="/trading" replace />} />
+                <Route path="watchlist" element={<Navigate to="/settings" replace />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

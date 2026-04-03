@@ -26,9 +26,8 @@ interface QuickLink {
 }
 
 const QUICK_LINKS: QuickLink[] = [
-  { to: "/scanner", label: "Scanner", description: "Scan watchlist for signals", icon: Crosshair },
-  { to: "/charts", label: "Charts", description: "View candlestick charts", icon: BarChart3 },
-  { to: "/trades", label: "Trades", description: "Manage real trades", icon: ArrowLeftRight },
+  { to: "/trading", label: "Trading", description: "Charts, signals & trade plans", icon: Crosshair },
+  { to: "/trades", label: "Trades", description: "P&L and trade history", icon: ArrowLeftRight },
 ];
 
 /** Compute live P&L for a single open trade given current price. */
@@ -185,10 +184,10 @@ export default function DashboardPage() {
         <div className="mb-2 flex items-center justify-between">
           <p className="font-display text-xs font-semibold text-text-muted">WATCHLIST</p>
           <div className="flex items-center gap-2">
-            <Link to="/watchlist" className="text-xs text-text-muted hover:text-text-secondary">
+            <Link to="/settings" className="text-xs text-text-muted hover:text-text-secondary">
               Manage
             </Link>
-            <Link to="/scanner" className="text-xs text-accent hover:text-accent-hover">
+            <Link to="/trading" className="text-xs text-accent hover:text-accent-hover">
               Scan all
             </Link>
           </div>

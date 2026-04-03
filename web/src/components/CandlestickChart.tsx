@@ -34,6 +34,7 @@ export default function CandlestickChart({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
+  const priceLinesRef = useRef<any[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -118,6 +119,12 @@ export default function CandlestickChart({
       }
     }
 
+    // Sort ascending by time — Lightweight Charts requires asc order
+    deduped.sort((a, b) => {
+      if (typeof a.time === "number" && typeof b.time === "number") return a.time - b.time;
+      return String(a.time).localeCompare(String(b.time));
+    });
+
     seriesRef.current.setData(deduped as any);
 
     // Compute and add indicator lines
@@ -137,12 +144,18 @@ export default function CandlestickChart({
     for (const ind of indicators) {
       let lineData: { time: string | number; value: number }[] = [];
 
-      if (ind.key === "sma20") lineData = computeSMA(closes, 20);
-      else if (ind.key === "sma50") lineData = computeSMA(closes, 50);
-      else if (ind.key === "ema9") lineData = computeEMA(closes, 9);
+      const smaMatch = ind.key.match(/^sma(\d+)$/);
+      const emaMatch = ind.key.match(/^ema(\d+)$/);
+      if (smaMatch) lineData = computeSMA(closes, parseInt(smaMatch[1]));
+      else if (emaMatch) lineData = computeEMA(closes, parseInt(emaMatch[1]));
       else if (ind.key === "vwap") lineData = computeVWAP(barsForVWAP);
 
       if (lineData.length > 0) {
+        // Sort ascending — Lightweight Charts requires asc order
+        lineData.sort((a, b) => {
+          if (typeof a.time === "number" && typeof b.time === "number") return a.time - b.time;
+          return String(a.time).localeCompare(String(b.time));
+        });
         const lineSeries = chart.addSeries(LineSeries, {
           color: ind.color,
           lineWidth: 1,
@@ -154,6 +167,14 @@ export default function CandlestickChart({
         lineSeriesRefs.current.push(lineSeries);
       }
     }
+
+    // Remove previous price lines
+    for (const pl of priceLinesRef.current) {
+      try {
+        seriesRef.current!.removePriceLine(pl);
+      } catch { /* already removed */ }
+    }
+    priceLinesRef.current = [];
 
     // Price lines
     const plines: Array<{ price: number; color: string; title: string }> = [];
@@ -167,7 +188,7 @@ export default function CandlestickChart({
     });
 
     for (const pl of plines) {
-      seriesRef.current!.createPriceLine({
+      const line = seriesRef.current!.createPriceLine({
         price: pl.price,
         color: pl.color,
         lineWidth: 1,
@@ -175,6 +196,7 @@ export default function CandlestickChart({
         axisLabelVisible: true,
         title: pl.title,
       });
+      priceLinesRef.current.push(line);
     }
 
     chart.timeScale().fitContent();

@@ -12,10 +12,7 @@ import { usePushNotifications } from "../hooks/usePushNotifications";
 import {
   LayoutDashboard,
   Crosshair,
-  BarChart3,
   ArrowLeftRight,
-  Bell,
-  Star,
   Menu,
   LogOut,
   Settings,
@@ -31,20 +28,16 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/scanner", label: "Scanner", icon: Crosshair },
-  { to: "/charts", label: "Charts", icon: BarChart3 },
-  { to: "/alerts", label: "Alerts", icon: Bell },
+  { to: "/trading", label: "Trading", icon: Crosshair },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
-  { to: "/watchlist", label: "Watchlist", icon: Star },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 const MOBILE_TABS: NavItem[] = [
   { to: "/", label: "Home", icon: LayoutDashboard },
-  { to: "/scanner", label: "Scanner", icon: Crosshair },
-  { to: "/alerts", label: "Alerts", icon: Bell },
+  { to: "/trading", label: "Trading", icon: Crosshair },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
-  { to: "/charts", label: "Charts", icon: BarChart3 },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 function MarketBadge({ market }: { market: { is_open: boolean; is_premarket: boolean } }) {

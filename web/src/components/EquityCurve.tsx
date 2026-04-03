@@ -74,6 +74,9 @@ export default function EquityCurve({ data, height = 200, lineColor = "#3b82f6" 
       }
     }
 
+    // Sort ascending — Lightweight Charts requires asc order
+    deduped.sort((a, b) => a.time.localeCompare(b.time));
+
     series.setData(deduped as any);
 
     // Zero line
