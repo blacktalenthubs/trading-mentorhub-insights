@@ -715,11 +715,13 @@ def check_prior_day_low_reclaim(
     symbol: str,
     bars: pd.DataFrame,
     prior_day_low: float,
+    today_open: float = 0,
 ) -> AlertSignal | None:
     """Price dips below prior day low then reclaims above it.
 
     Conditions:
     - Some bar went below prior day low by >= PDL_DIP_MIN_PCT
+    - At least 2 of the last 3 bars close above PDL (hold confirmation)
     - Current (last) bar closes back above prior day low
     """
     # NaN guard: yfinance can return NaN for prior day low
@@ -752,6 +754,18 @@ def check_prior_day_low_reclaim(
             symbol, last_bar["Close"], prior_day_low,
         )
         return None  # hasn't reclaimed yet
+
+    # Hold confirmation: at least 2 of the last 3 bars must close above PDL.
+    # A single bar crossing PDL could be a wick into resistance — need to see
+    # price holding above the level before calling it a reclaim.
+    recent = bars.tail(3)
+    bars_above = (recent["Close"] > prior_day_low).sum()
+    if bars_above < 2:
+        logger.debug(
+            "%s: PDL reclaim skip — no hold confirmation (%d/3 bars above PDL)",
+            symbol, bars_above,
+        )
+        return None
 
     # Skip if price already ran too far above entry — signal is stale
     distance_pct = (last_bar["Close"] - prior_day_low) / prior_day_low
@@ -1009,6 +1023,12 @@ def check_prior_day_high_breakout(
 
     last_bar = bars.iloc[-1]
     if last_bar["Close"] <= prior_day_high:
+        return None
+
+    # Breakout confirmation: close must be at least 0.15% above PDH.
+    # A barely-above close ($0.14 on PLTR) is a wick/rejection, not a breakout.
+    breakout_margin = prior_day_high * 0.0015
+    if last_bar["Close"] < prior_day_high + breakout_margin:
         return None
 
     # Skip if equity gapped above PDH — no intraday breakout to trade.
@@ -5297,9 +5317,9 @@ def check_planned_level_touch(
     target_2 = plan.get("target_2") or 0
     pattern = plan.get("pattern", "normal")
 
-    # Skip stale plan on significant gap-down: if plan entry is far above
-    # today's open (>2%), it's overhead resistance, not a buy level.
-    if today_open > 0 and entry > today_open * 1.02:
+    # Skip stale plan on gap-down: if today opened below the plan entry,
+    # that entry level is overhead resistance, not a buy level.
+    if today_open > 0 and today_open < entry:
         return None
 
     # Check each level for proximity — entry and support are the primary BUY zone levels
@@ -5736,28 +5756,19 @@ def _find_resistance_targets(
     # Sort ascending (nearest resistance first)
     candidates.sort(key=lambda x: x[0])
 
-    # Minimum target = entry + 1R (never worse than 1:1 R/R)
+    # Minimum target = entry + minimum distance (structural, not just 1R)
     risk = entry - stop
-    min_target = entry + risk
+    min_dist = entry * 0.008  # 0.8% — match MIN_TARGET_DISTANCE_PCT
+    min_target = entry + max(risk, min_dist)
 
-    # When buying from below VWAP, VWAP is the natural T1 regardless of R:R.
-    # It's the first resistance to clear and where sellers often step in.
-    vwap_t1 = None
-    if current_vwap and current_vwap > entry and current_vwap < min_target:
-        vwap_t1 = current_vwap
-
-    # T1 = VWAP (if below it) or first level >= min_target
+    # T1 = first structural resistance level above min_target
     t1 = None
     t1_label = ""
-    if vwap_t1:
-        t1 = vwap_t1
-        t1_label = "VWAP"
-    else:
-        for level, label in candidates:
-            if level >= min_target:
-                t1 = level
-                t1_label = label
-                break
+    for level, label in candidates:
+        if level >= min_target:
+            t1 = level
+            t1_label = label
+            break
 
     if t1 is None:
         return None
@@ -6046,6 +6057,21 @@ def _score_alert(
         vwap_pts = 10
     factors["vwap"] = vwap_pts
     score += vwap_pts
+
+    # --- Multi-day structural level bonus (15) ---
+    # Multi-day double/triple bottoms are tested across daily bars — each touch
+    # is more significant than intraday touches.  These are key levels that
+    # deserve a score boost regardless of MA/VWAP position.
+    _MULTI_DAY_STRUCTURAL = {
+        "multi_day_double_bottom", "multi_day_triple_bottom",
+        "session_low_double_bottom",
+    }
+    struct_pts = 0
+    if alert_type_str in _MULTI_DAY_STRUCTURAL:
+        struct_pts = 15
+    if struct_pts:
+        factors["structural"] = struct_pts
+        score += struct_pts
 
     # --- R:R bonus (BUY and SHORT) ---
     rr_pts = 0
@@ -7133,7 +7159,7 @@ def evaluate_rules(
                         break  # only one approach notice per poll
 
         if AlertType.PRIOR_DAY_LOW_RECLAIM.value in ENABLED_RULES:
-            sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low)
+            sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low, today_open=today_open)
             if sig:
                 sig.message += f" ({phase})"
                 # Gap down days boost PDL reclaim confidence
@@ -8299,24 +8325,19 @@ def evaluate_rules(
     }
     for sig in signals:
         # Structural stop: use session low for MA bounce rules
+        # (targets set later by _find_resistance_targets)
         if (sig.direction == "BUY" and sig.alert_type in _MA_BOUNCE_RULES
                 and session_low > 0 and session_low < sig.entry):
             structural_stop = round(
                 session_low * (1 - MA_BOUNCE_SESSION_STOP_PCT), 2,
             )
             sig.stop = structural_stop
-            risk = sig.entry - sig.stop
-            sig.target_1 = round(sig.entry + risk, 2)
-            sig.target_2 = round(sig.entry + 2 * risk, 2)
 
-        # Apply per-symbol risk cap to all BUY signals and recalculate targets
+        # Apply per-symbol risk cap to all BUY signals
         if sig.direction == "BUY" and sig.entry and sig.stop:
             capped_stop = _cap_risk(sig.entry, sig.stop, symbol=symbol)
             if capped_stop != sig.stop:
                 sig.stop = capped_stop
-                risk = sig.entry - sig.stop
-                sig.target_1 = round(sig.entry + risk, 2)
-                sig.target_2 = round(sig.entry + 2 * risk, 2)
 
         # ATR-based dynamic stop (feature flag: USE_ATR_STOPS)
         if sig.direction == "BUY" and sig.entry and sig.stop and current_atr:
@@ -8324,10 +8345,6 @@ def evaluate_rules(
             # Use ATR stop only if it's tighter (higher) than current stop
             if atr_stop > sig.stop:
                 sig.stop = atr_stop
-                risk = sig.entry - sig.stop
-                if risk > 0:
-                    sig.target_1 = round(sig.entry + risk, 2)
-                    sig.target_2 = round(sig.entry + 2 * risk, 2)
 
         # Smart resistance-based targets for all BUY signals
         smart = None
@@ -8341,10 +8358,7 @@ def evaluate_rules(
                 sig.message += f" | T1: {t1_label} ${sig.target_1:.2f}, T2: {t2_label} ${sig.target_2:.2f}"
 
         # Minimum target distance: prevent tiny T1/T2 on chased entries.
-        # Skip if T1 is VWAP (natural resistance even if close to entry).
-        _t1_is_vwap = (smart and smart[2] == "VWAP") if smart else False
-        if (sig.direction == "BUY" and sig.entry and sig.target_1 is not None
-                and not _t1_is_vwap):
+        if (sig.direction == "BUY" and sig.entry and sig.target_1 is not None):
             min_dist = sig.entry * MIN_TARGET_DISTANCE_PCT
             if sig.target_1 < sig.entry + min_dist:
                 sig.target_1 = round(sig.entry + min_dist, 2)
@@ -8353,15 +8367,23 @@ def evaluate_rules(
                 sig.target_2 = round(sig.target_1 + min_dist, 2)
 
         # Guardrail: T1 must be above the current price for BUY signals.
-        # When entry < current price (e.g. ORB entry = breakout level),
-        # R-based or smart targets can land below the displayed price.
+        # Re-run smart target search from current_price instead of falling
+        # back to 1R/2R which produces meaningless targets.
         if (sig.direction == "BUY" and sig.target_1 is not None
                 and sig.entry and sig.stop
                 and sig.target_1 <= current_price):
-            risk = sig.entry - sig.stop
-            if risk > 0:
-                sig.target_1 = round(current_price + risk, 2)
-                sig.target_2 = round(current_price + 2 * risk, 2)
+            # Try to find next resistance above current price
+            _guard_smart = _find_resistance_targets(
+                current_price, sig.stop, prior_day, current_vwap,
+                hourly_resistance=hourly_resistance,
+            )
+            if _guard_smart:
+                sig.target_1, sig.target_2 = _guard_smart[0], _guard_smart[1]
+            else:
+                risk = sig.entry - sig.stop
+                if risk > 0:
+                    sig.target_1 = round(current_price + risk, 2)
+                    sig.target_2 = round(current_price + 2 * risk, 2)
 
         # MA confluence detection: flag when an MA aligns with a horizontal entry.
         # Runs before macro demotions so CHOPPY/SPY can still override the boost.

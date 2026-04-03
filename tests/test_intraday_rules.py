@@ -407,25 +407,27 @@ class TestPDLReclaimWidenedDistance:
     """Verify PDL reclaim fires within the widened 2% max distance."""
 
     def test_fires_at_1_5pct_above_pdl(self):
-        """Price reclaimed and is 1.5% above PDL — should now fire (was blocked at 0.8%)."""
+        """Price reclaimed and held above PDL for 2+ bars — should fire."""
         pdl = 177.88
         close = pdl * 1.015  # 1.5% above
         bars = _bars([
             {"Open": 178.0, "High": 178.5, "Low": 177.50, "Close": 177.0, "Volume": 5000},  # dip below
-            {"Open": 177.0, "High": close + 0.5, "Low": 177.60, "Close": close, "Volume": 4000},
+            {"Open": 177.0, "High": close + 0.5, "Low": 177.60, "Close": close - 0.2, "Volume": 4000},  # reclaim
+            {"Open": close - 0.2, "High": close + 0.5, "Low": 178.0, "Close": close, "Volume": 4000},  # hold
         ])
         sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
-        assert sig.entry == round(pdl * 1.015, 2)
+        assert sig.entry == round(close, 2)
 
     def test_fires_at_1_9pct_above_pdl(self):
-        """Price 1.9% above PDL — still within 2% threshold."""
+        """Price 1.9% above PDL, held 2+ bars — still within 2% threshold."""
         pdl = 100.0
         close = 101.9  # 1.9% above
         bars = _bars([
             {"Open": 100, "High": 101, "Low": 99.5, "Close": 99.8, "Volume": 1000},  # dip
-            {"Open": 99.8, "High": 102.0, "Low": 99.9, "Close": close, "Volume": 1200},
+            {"Open": 99.8, "High": 102.0, "Low": 99.9, "Close": 101.5, "Volume": 1200},  # reclaim
+            {"Open": 101.5, "High": 102.0, "Low": 101.0, "Close": close, "Volume": 1100},  # hold
         ])
         sig = check_prior_day_low_reclaim("META", bars, prior_day_low=pdl)
         assert sig is not None
@@ -461,8 +463,9 @@ class TestPDLReclaimWidenedDistance:
 class TestPriorDayLowReclaim:
     def test_fires_on_dip_and_reclaim(self):
         bars = _bars([
-            {"Open": 100, "High": 100.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},
-            {"Open": 99.0, "High": 99.6, "Low": 98.8, "Close": 99.5, "Volume": 1200},
+            {"Open": 100, "High": 100.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},  # dip
+            {"Open": 99.0, "High": 99.6, "Low": 98.8, "Close": 99.3, "Volume": 1200},  # reclaim
+            {"Open": 99.3, "High": 99.8, "Low": 99.1, "Close": 99.5, "Volume": 1100},  # hold
         ])
         sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
         assert sig is not None
@@ -475,8 +478,9 @@ class TestPriorDayLowReclaim:
     def test_stop_is_pdl_based_not_session_low(self):
         """Stop should be just below PDL, not at the deep session low."""
         bars = _bars([
-            {"Open": 100, "High": 100.5, "Low": 96.0, "Close": 98.0, "Volume": 1000},
-            {"Open": 98.0, "High": 100.5, "Low": 99.2, "Close": 100.2, "Volume": 1200},
+            {"Open": 100, "High": 100.5, "Low": 96.0, "Close": 98.0, "Volume": 1000},  # dip
+            {"Open": 98.0, "High": 100.5, "Low": 99.2, "Close": 100.1, "Volume": 1200},  # reclaim
+            {"Open": 100.1, "High": 100.6, "Low": 99.8, "Close": 100.2, "Volume": 1100},  # hold
         ])
         sig = check_prior_day_low_reclaim("ETH-USD", bars, prior_day_low=100.0)
         assert sig is not None
@@ -2432,8 +2436,8 @@ class TestPlannedLevelTouch:
         assert sig is not None
         assert "50 MA" in sig.message
 
-    def test_fires_when_entry_slightly_above_open(self):
-        """Entry 0.5% above open (normal intraday range) → should fire."""
+    def test_no_fire_when_open_below_entry(self):
+        """Open below plan entry → entry is resistance, not a buy level."""
         plan = {
             "pattern": "normal",
             "entry": 679.62, "stop": 677.14,
@@ -2443,7 +2447,7 @@ class TestPlannedLevelTouch:
         }
         bars = self._make_bars(open_=680.0, high=681.0, low=679.50, close=680.5)
         sig = check_planned_level_touch("SPY", bars, plan, today_open=676.0)
-        assert sig is not None
+        assert sig is None
 
     def test_no_fire_on_big_gap_down(self):
         """Entry 3% above open (gap-down day) → stale, skip."""

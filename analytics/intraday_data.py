@@ -523,10 +523,13 @@ def detect_daily_double_bottoms(
 def _safe_daily_double_bottoms(
     hist: pd.DataFrame, market_open: bool,
 ) -> list[dict]:
-    """Wrapper that silences errors so fetch_prior_day never breaks."""
+    """Wrapper that silences errors so fetch_prior_day never breaks.
+
+    Includes today's partial bar so that intraday wicks into a prior
+    daily low zone count as the second touch (real-time detection).
+    """
     try:
-        completed = hist.iloc[:-1] if market_open else hist
-        return detect_daily_double_bottoms(completed)
+        return detect_daily_double_bottoms(hist)
     except Exception:
         return []
 
