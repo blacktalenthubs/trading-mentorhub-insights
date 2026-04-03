@@ -5,14 +5,15 @@
  *  Bottom: Today's alert stream (real-time)
  */
 
-import { useState } from "react";
-import { useScanner, useOHLCV, useAlertsToday, useAckAlert } from "../api/hooks";
+import { useState, useRef } from "react";
+import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useDailyAnalysis } from "../api/hooks";
+import { useCoachStream } from "../hooks/useCoachStream";
 import type { SignalResult, Alert } from "../types";
 import CandlestickChart from "../components/CandlestickChart";
 import Card from "../components/ui/Card";
 import Badge from "../components/ui/Badge";
 import WatchlistBar from "../components/WatchlistBar";
-import { RefreshCw, ChevronDown, ChevronUp, Check, X } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Check, X, Brain, Send, MessageSquare } from "lucide-react";
 
 /* ── constants ────────────────────────────────────────────────────── */
 
@@ -178,6 +179,117 @@ function AlertRow({ alert: a }: { alert: Alert }) {
 
 /* ── Main Trading Page ───────────────────────────────────────────── */
 
+/* ── AI Coach Panel ──────────────────────────────────────────────── */
+
+function AIPanel({ symbol }: { symbol: string | null }) {
+  const { data: analysis } = useDailyAnalysis(symbol ?? "");
+  const { messages, streaming, sendMessage, stop, clear } = useCoachStream();
+  const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  function handleSend() {
+    if (!input.trim()) return;
+    const prompt = symbol
+      ? `[Looking at ${symbol}] ${input.trim()}`
+      : input.trim();
+    sendMessage(prompt);
+    setInput("");
+  }
+
+  return (
+    <div className="flex h-full flex-col rounded-lg border border-border-subtle bg-surface-2">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-accent" />
+          <span className="text-sm font-semibold text-text-primary">AI Coach</span>
+        </div>
+        {messages.length > 0 && (
+          <button onClick={clear} className="text-[10px] text-text-faint hover:text-text-muted">
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Setup Analysis (when no chat yet) */}
+      {messages.length === 0 && (
+        <div className="border-b border-border-subtle px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase text-text-faint mb-1">Setup Analysis</p>
+          {analysis?.analysis ? (
+            <p className="text-xs leading-relaxed text-text-secondary">{analysis.analysis}</p>
+          ) : symbol ? (
+            <p className="text-xs text-text-faint italic">Loading analysis for {symbol}...</p>
+          ) : (
+            <p className="text-xs text-text-faint italic">Select a symbol to see AI analysis</p>
+          )}
+        </div>
+      )}
+
+      {/* Quick prompts */}
+      {messages.length === 0 && symbol && (
+        <div className="border-b border-border-subtle px-3 py-2 space-y-1">
+          <p className="text-[10px] font-semibold uppercase text-text-faint">Ask about {symbol}</p>
+          {[
+            "What's the best entry strategy here?",
+            "Where should I set my stop?",
+            "Is this setup high conviction?",
+            "What could invalidate this trade?",
+          ].map((q) => (
+            <button
+              key={q}
+              onClick={() => { sendMessage(`[Looking at ${symbol}] ${q}`); }}
+              className="block w-full rounded-md bg-surface-3/50 px-2 py-1.5 text-left text-xs text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Chat messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+        {messages.map((m, i) => (
+          <div key={i} className={`text-xs leading-relaxed ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
+            {m.role === "user" ? (
+              <p className="font-medium">{m.content}</p>
+            ) : (
+              <p className="whitespace-pre-wrap">{m.content}</p>
+            )}
+          </div>
+        ))}
+        {streaming && (
+          <div className="flex items-center gap-1 text-xs text-text-faint">
+            <span className="animate-pulse">Thinking...</span>
+            <button onClick={stop} className="text-bearish-text hover:text-bearish text-[10px]">Stop</button>
+          </div>
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="border-t border-border-subtle p-2">
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+            placeholder={symbol ? `Ask about ${symbol}...` : "Ask the AI coach..."}
+            disabled={streaming}
+            className="flex-1 rounded-md border border-border-subtle bg-surface-3 px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none disabled:opacity-50"
+          />
+          <button
+            onClick={handleSend}
+            disabled={streaming || !input.trim()}
+            className="rounded-md bg-accent px-2.5 py-1.5 text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Available indicators ─────────────────────────────────────────── */
 
 interface IndicatorDef {
@@ -210,6 +322,7 @@ export default function TradingPage() {
   const [alertsExpanded, setAlertsExpanded] = useState(true);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
   const [showLevels, setShowLevels] = useState(true);
+  const [showAI, setShowAI] = useState(false);
 
   function toggleIndicator(key: string) {
     setActiveIndicators((prev) => {
@@ -268,6 +381,15 @@ export default function TradingPage() {
               {potentialEntryCount} setups · {signals.length} symbols
             </span>
           )}
+          <button
+            onClick={() => setShowAI(!showAI)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              showAI ? "bg-accent text-white" : "bg-surface-3 text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            <Brain className="h-3.5 w-3.5" />
+            AI Coach
+          </button>
           <button
             onClick={() => refetch()}
             disabled={isFetching}
@@ -449,6 +571,13 @@ export default function TradingPage() {
             </div>
           )}
         </div>
+
+        {/* Right: AI Coach Panel */}
+        {showAI && (
+          <div className="hidden w-72 shrink-0 md:block">
+            <AIPanel symbol={selected?.symbol ?? null} />
+          </div>
+        )}
       </div>
 
       {/* Bottom: Today's Alert Stream */}
