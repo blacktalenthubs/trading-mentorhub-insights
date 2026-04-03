@@ -183,11 +183,38 @@ function AlertRow({ alert: a }: { alert: Alert }) {
 
 /* ── AI Coach Panel ──────────────────────────────────────────────── */
 
-function AIPanel({ symbol }: { symbol: string | null }) {
+function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResult | null }) {
   const { data: analysis } = useDailyAnalysis(symbol ?? "");
   const { messages, streaming, sendMessage, stop, clear } = useCoachStream();
   const [input, setInput] = useState("");
+  const [lastAutoSymbol, setLastAutoSymbol] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-analyze when symbol changes — send context-aware prompt automatically
+  useEffect(() => {
+    if (!symbol || symbol === lastAutoSymbol || streaming) return;
+    setLastAutoSymbol(symbol);
+    clear();
+
+    // Build a rich context prompt from the signal data
+    const parts = [`Analyze ${symbol} for me.`];
+    if (signal) {
+      if (signal.action_label === "Potential Entry") {
+        parts.push(`Signal: ${signal.action_label} (score ${signal.score}, grade ${signal.grade}).`);
+        if (signal.entry) parts.push(`Entry ${signal.entry}, Stop ${signal.stop}, T1 ${signal.target_1}, T2 ${signal.target_2}.`);
+        if (signal.rr_ratio) parts.push(`R:R ${signal.rr_ratio.toFixed(1)}:1.`);
+        parts.push("What's the setup quality? Should I take this trade? What's the risk?");
+      } else if (signal.action_label === "Watch") {
+        parts.push(`Status: Watch (score ${signal.score}). What would make this actionable? What levels to watch?`);
+      } else {
+        parts.push(`No setup currently. What's the overall picture? When might a setup develop?`);
+      }
+      if (signal.support_status) parts.push(`Support status: ${signal.support_status}.`);
+      if (signal.bias) parts.push(`Bias: ${signal.bias}`);
+    }
+
+    sendMessage(parts.join(" "));
+  }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSend() {
     if (!input.trim()) return;
@@ -207,25 +234,11 @@ function AIPanel({ symbol }: { symbol: string | null }) {
           <span className="text-sm font-semibold text-text-primary">AI Coach</span>
         </div>
         {messages.length > 0 && (
-          <button onClick={clear} className="text-[10px] text-text-faint hover:text-text-muted">
+          <button onClick={() => { clear(); setLastAutoSymbol(null); }} className="text-[10px] text-text-faint hover:text-text-muted">
             Clear
           </button>
         )}
       </div>
-
-      {/* Setup Analysis (when no chat yet) */}
-      {messages.length === 0 && (
-        <div className="border-b border-border-subtle px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase text-text-faint mb-1">Setup Analysis</p>
-          {analysis?.analysis ? (
-            <p className="text-xs leading-relaxed text-text-secondary">{analysis.analysis}</p>
-          ) : symbol ? (
-            <p className="text-xs text-text-faint italic">Loading analysis for {symbol}...</p>
-          ) : (
-            <p className="text-xs text-text-faint italic">Select a symbol to see AI analysis</p>
-          )}
-        </div>
-      )}
 
       {/* Quick prompts */}
       {messages.length === 0 && symbol && (
@@ -616,7 +629,7 @@ export default function TradingPage() {
         {/* Right: AI Coach Panel */}
         {showAI && (
           <div className="hidden w-64 shrink-0 md:block">
-            <AIPanel symbol={selected?.symbol ?? null} />
+            <AIPanel symbol={selected?.symbol ?? null} signal={selected} />
           </div>
         )}
       </div>
