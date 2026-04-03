@@ -144,6 +144,12 @@ COOLDOWN_MINUTES = 30
 # Alerts still get recorded to DB for later review — just no push notification.
 BUY_BURST_COOLDOWN_MINUTES = 10  # after a BUY notification, suppress next BUY for same symbol for 10 min
 
+# Crypto Telegram hours: only send crypto alerts to Telegram during US waking
+# hours (Central Time).  Outside this window, alerts are still recorded to DB
+# and visible on the dashboard — just no push notification.
+CRYPTO_TELEGRAM_START_HOUR = 7   # 7 AM Central
+CRYPTO_TELEGRAM_END_HOUR = 21    # 9 PM Central
+
 # Intraday Support Bounce: bar low must be at or within this % ABOVE support
 # to count as a touch.  Using a directional check — bar low must actually
 # reach the support level (not just be "near" it from above).

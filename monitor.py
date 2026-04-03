@@ -22,6 +22,8 @@ from alert_config import (
     AI_CONVICTION_SUPPRESS_BELOW,
     BUY_BURST_COOLDOWN_MINUTES,
     COOLDOWN_MINUTES,
+    CRYPTO_TELEGRAM_END_HOUR,
+    CRYPTO_TELEGRAM_START_HOUR,
     POLL_INTERVAL_MINUTES,
 )
 
@@ -71,6 +73,16 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("monitor")
+
+def _is_crypto_telegram_hours() -> bool:
+    """Return True if current time is within crypto Telegram notification window (Central Time)."""
+    try:
+        import pytz
+        ct = datetime.now(pytz.timezone("US/Central"))
+        return CRYPTO_TELEGRAM_START_HOUR <= ct.hour < CRYPTO_TELEGRAM_END_HOUR
+    except Exception:
+        return True  # fail-open: send if timezone check fails
+
 
 # Burst cooldown: last BUY notification time per symbol (in-memory, resets on restart)
 _last_buy_notify: dict[str, datetime] = {}  # {symbol: datetime}
@@ -390,8 +402,16 @@ def poll_cycle(dry_run: bool = False, symbols_override: list[str] | None = None)
                             signal.price, (_now - _prev).total_seconds(),
                         )
 
+                # Crypto quiet hours: record to DB but skip Telegram outside US hours
+                _crypto_quiet = _is_crypto and not _is_crypto_telegram_hours()
+                if _crypto_quiet:
+                    logger.info(
+                        "%s: crypto quiet hours — %s recorded to DB (dashboard only)",
+                        symbol, signal.alert_type.value,
+                    )
+
                 # Single group notification
-                _telegram_muted = getattr(signal, "_suppress_telegram", False)
+                _telegram_muted = getattr(signal, "_suppress_telegram", False) or _crypto_quiet
                 if _burst_suppressed or _telegram_muted:
                     email_sent, sms_sent = False, False
                     if _telegram_muted:
