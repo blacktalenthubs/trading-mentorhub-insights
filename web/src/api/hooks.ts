@@ -78,7 +78,8 @@ export function useScanner() {
   return useQuery({
     queryKey: ["scanner"],
     queryFn: () => api.get<SignalResult[]>("/scanner/scan"),
-    staleTime: 5 * 60_000,
+    staleTime: 20_000, // 20s — fresh data every poll
+    refetchInterval: 20_000, // auto-refresh every 20s
   });
 }
 
@@ -150,7 +151,7 @@ export function useAlertsToday() {
   return useQuery({
     queryKey: ["alerts-today"],
     queryFn: () => api.get<Alert[]>("/alerts/today"),
-    refetchInterval: 60_000,
+    refetchInterval: 20_000, // refresh every 20s to catch new alerts
   });
 }
 
@@ -253,13 +254,17 @@ export function useDeleteChartLevel() {
   });
 }
 
-export function useOHLCV(symbol: string, period = "3mo", interval = "1d") {
+export function useOHLCV(symbol: string, period = "1y", interval = "1d") {
+  // Intraday intervals refresh every 20s; daily+ every 5 min
+  const isIntraday = ["1m", "5m", "15m", "30m", "60m"].includes(interval);
+  const refreshMs = isIntraday ? 20_000 : 5 * 60_000;
   return useQuery({
     queryKey: ["ohlcv", symbol, period, interval],
     queryFn: () => api.get<OHLCBar[]>(`/charts/ohlcv/${symbol}?period=${period}&interval=${interval}`),
     enabled: !!symbol,
-    staleTime: 15 * 60_000, // match backend 15-min cache
-    gcTime: 30 * 60_000, // keep in memory 30 min for fast symbol switching
+    staleTime: refreshMs,
+    refetchInterval: refreshMs,
+    gcTime: 30 * 60_000,
   });
 }
 
