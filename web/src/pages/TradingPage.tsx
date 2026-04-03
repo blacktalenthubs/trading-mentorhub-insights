@@ -475,10 +475,10 @@ export default function TradingPage() {
         ) : (
           <button
             onClick={() => setShowSidebar(true)}
-            className="hidden shrink-0 items-center rounded-lg border border-border-subtle bg-surface-2 px-1 py-2 text-text-faint hover:text-text-muted md:flex"
+            className="hidden shrink-0 items-center rounded border border-border-subtle bg-surface-2 w-5 text-text-faint hover:text-text-muted hover:bg-surface-3 md:flex justify-center"
             title="Expand watchlist"
           >
-            <ChevronDown className="h-4 w-4 rotate-90" />
+            <ChevronDown className="h-3 w-3 rotate-90" />
           </button>
         )}
 
@@ -635,34 +635,24 @@ export default function TradingPage() {
 
       </div>
 
-      {/* Bottom panel: AI Coach OR Alerts (not both) */}
+      {/* Bottom panel: AI Coach OR Alerts */}
       {showAI ? (
-        <div className={`shrink-0 rounded-lg border border-border-subtle bg-surface-2 transition-all ${aiExpanded ? "h-80" : "h-44"}`}>
+        <div className="shrink-0 rounded-lg border border-border-subtle bg-surface-2 overflow-hidden h-36">
           <div className="flex h-full flex-col">
-            {/* Expand/collapse bar */}
             <div className="flex items-center justify-between border-b border-border-subtle px-3 py-1 shrink-0">
               <div className="flex items-center gap-2">
-                <Brain className="h-3.5 w-3.5 text-accent" />
-                <span className="text-xs font-semibold text-text-primary">AI Coach</span>
+                <Brain className="h-3 w-3 text-accent" />
+                <span className="text-[11px] font-semibold text-text-primary">AI Coach</span>
               </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setAiExpanded(!aiExpanded)}
-                  className="rounded p-0.5 text-text-faint hover:text-text-muted"
-                  title={aiExpanded ? "Shrink" : "Expand"}
-                >
-                  {aiExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-                </button>
-                <button
-                  onClick={() => setShowAI(false)}
-                  className="rounded p-0.5 text-text-faint hover:text-text-muted"
-                  title="Close AI Coach"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              <button
+                onClick={() => setShowAI(false)}
+                className="rounded p-0.5 text-text-faint hover:text-text-muted"
+                title="Close"
+              >
+                <X className="h-3 w-3" />
+              </button>
             </div>
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto">
               <AIPanel symbol={selected?.symbol ?? null} signal={selected} />
             </div>
           </div>
