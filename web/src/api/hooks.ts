@@ -258,6 +258,8 @@ export function useOHLCV(symbol: string, period = "3mo", interval = "1d") {
     queryKey: ["ohlcv", symbol, period, interval],
     queryFn: () => api.get<OHLCBar[]>(`/charts/ohlcv/${symbol}?period=${period}&interval=${interval}`),
     enabled: !!symbol,
+    staleTime: 15 * 60_000, // match backend 15-min cache
+    gcTime: 30 * 60_000, // keep in memory 30 min for fast symbol switching
   });
 }
 

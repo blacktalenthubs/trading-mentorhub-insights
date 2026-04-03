@@ -5,9 +5,11 @@
  *  Bottom: Today's alert stream (real-time)
  */
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useDailyAnalysis } from "../api/hooks";
 import { useCoachStream } from "../hooks/useCoachStream";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import CandlestickChart from "../components/CandlestickChart";
 import Card from "../components/ui/Card";
@@ -319,10 +321,11 @@ export default function TradingPage() {
   const { data: todayAlerts } = useAlertsToday();
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [tfIdx, setTfIdx] = useState(DEFAULT_TF);
-  const [alertsExpanded, setAlertsExpanded] = useState(true);
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
   const [showLevels, setShowLevels] = useState(true);
   const [showAI, setShowAI] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
 
   function toggleIndicator(key: string) {
     setActiveIndicators((prev) => {
@@ -336,6 +339,27 @@ export default function TradingPage() {
   const chartIndicators = ALL_INDICATORS
     .filter((ind) => activeIndicators.has(ind.key))
     .map(({ key, color }) => ({ key, color }));
+
+  const queryClient = useQueryClient();
+
+  // Auto-select first symbol or first "Potential Entry" if none selected
+  if (!selectedSymbol && signals && signals.length > 0) {
+    const entry = signals.find((s) => s.action_label === "Potential Entry");
+    setSelectedSymbol(entry?.symbol ?? signals[0].symbol);
+  }
+
+  // Prefetch OHLCV for top symbols so chart switching is instant
+  useEffect(() => {
+    if (!signals) return;
+    const tf = TIMEFRAMES[DEFAULT_TF];
+    signals.slice(0, 5).forEach((s) => {
+      queryClient.prefetchQuery({
+        queryKey: ["ohlcv", s.symbol, tf.period, tf.interval],
+        queryFn: () => api.get(`/charts/ohlcv/${s.symbol}?period=${tf.period}&interval=${tf.interval}`),
+        staleTime: 15 * 60_000,
+      });
+    });
+  }, [signals, queryClient]);
 
   const selected = signals?.find((s) => s.symbol === selectedSymbol) ?? null;
   const tf = TIMEFRAMES[tfIdx];
@@ -371,7 +395,7 @@ export default function TradingPage() {
   const potentialEntryCount = signals?.filter((s) => s.action_label === "Potential Entry").length ?? 0;
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col gap-3 md:h-[calc(100vh-3rem)]">
+    <div className="flex h-[calc(100vh-4rem)] flex-col gap-2 md:h-[calc(100vh-3rem)]">
       {/* Top bar: title + refresh + watchlist */}
       <div className="flex items-center justify-between shrink-0">
         <h1 className="font-display text-2xl font-bold">Trading</h1>
@@ -402,24 +426,41 @@ export default function TradingPage() {
       </div>
 
       {/* Main content: sidebar + chart */}
-      <div className="flex min-h-0 flex-1 gap-3">
-        {/* Left: Watchlist / Signal list */}
-        <div className="hidden w-60 shrink-0 flex-col rounded-lg border border-border-subtle bg-surface-2 md:flex">
-          <div className="border-b border-border-subtle p-2">
-            <WatchlistBar compact />
+      <div className="flex min-h-0 flex-1 gap-2">
+        {/* Left: Collapsible Watchlist / Signal list */}
+        {showSidebar ? (
+          <div className="hidden w-56 shrink-0 flex-col rounded-lg border border-border-subtle bg-surface-2 md:flex">
+            <div className="flex items-center justify-between border-b border-border-subtle px-2 py-1.5">
+              <WatchlistBar compact />
+              <button
+                onClick={() => setShowSidebar(false)}
+                className="ml-1 rounded p-0.5 text-text-faint hover:text-text-muted"
+                title="Collapse watchlist"
+              >
+                <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
+              {isLoading && <p className="p-3 text-xs text-text-faint">Scanning...</p>}
+              {signals?.map((s) => (
+                <SignalRow
+                  key={s.symbol}
+                  signal={s}
+                  selected={selectedSymbol === s.symbol}
+                  onClick={() => setSelectedSymbol(s.symbol)}
+                />
+              ))}
+            </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
-            {isLoading && <p className="p-3 text-xs text-text-faint">Scanning...</p>}
-            {signals?.map((s) => (
-              <SignalRow
-                key={s.symbol}
-                signal={s}
-                selected={selectedSymbol === s.symbol}
-                onClick={() => setSelectedSymbol(s.symbol)}
-              />
-            ))}
-          </div>
-        </div>
+        ) : (
+          <button
+            onClick={() => setShowSidebar(true)}
+            className="hidden shrink-0 items-center rounded-lg border border-border-subtle bg-surface-2 px-1 py-2 text-text-faint hover:text-text-muted md:flex"
+            title="Expand watchlist"
+          >
+            <ChevronDown className="h-4 w-4 rotate-90" />
+          </button>
+        )}
 
         {/* Mobile: horizontal symbol pills */}
         <div className="flex gap-1.5 overflow-x-auto pb-1 md:hidden shrink-0">
@@ -574,7 +615,7 @@ export default function TradingPage() {
 
         {/* Right: AI Coach Panel */}
         {showAI && (
-          <div className="hidden w-72 shrink-0 md:block">
+          <div className="hidden w-64 shrink-0 md:block">
             <AIPanel symbol={selected?.symbol ?? null} />
           </div>
         )}
