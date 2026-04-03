@@ -257,17 +257,21 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
         </div>
       )}
 
-      {/* Chat messages */}
+      {/* Chat messages — hide first auto-generated user prompt, only show AI response + follow-ups */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-        {messages.map((m, i) => (
-          <div key={i} className={`text-xs leading-relaxed ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
-            {m.role === "user" ? (
-              <p className="font-medium">{m.content}</p>
-            ) : (
-              <p className="whitespace-pre-wrap">{m.content}</p>
-            )}
-          </div>
-        ))}
+        {messages.map((m, i) => {
+          // Hide the auto-generated prompt (first user message)
+          if (i === 0 && m.role === "user") return null;
+          return (
+            <div key={i} className={`text-xs leading-relaxed ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
+              {m.role === "user" ? (
+                <p className="font-medium">{m.content}</p>
+              ) : (
+                <p className="whitespace-pre-wrap">{m.content}</p>
+              )}
+            </div>
+          );
+        })}
         {streaming && (
           <div className="flex items-center gap-1 text-xs text-text-faint">
             <span className="animate-pulse">Thinking...</span>
