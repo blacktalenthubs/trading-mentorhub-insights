@@ -191,28 +191,27 @@ function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResu
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-analyze when symbol changes — send context-aware prompt automatically
-  const mountedRef = useRef(false);
   useEffect(() => {
-    // Skip first mount to avoid duplicate with React strict mode
-    if (!mountedRef.current) { mountedRef.current = true; }
     if (!symbol || symbol === lastAutoSymbol || streaming) return;
     setLastAutoSymbol(symbol);
     clearMessages();
 
-    // Build a concise context prompt — AI should respond in 3-5 bullet points max
-    const parts = [`Quick analysis of ${symbol}. Be very brief — 3-5 bullet points only.`];
+    // Build concise prompt — delay to let clearMessages settle
+    const parts = [`Quick take on ${symbol}.`];
     if (signal) {
       if (signal.entry) parts.push(`Entry ${signal.entry}, Stop ${signal.stop}, T1 ${signal.target_1}, T2 ${signal.target_2}. R:R ${signal.rr_ratio?.toFixed(1)}:1. Score ${signal.score}.`);
       if (signal.action_label === "Potential Entry") {
-        parts.push("Answer ONLY: 1) Setup type, 2) Key support/resistance levels, 3) Entry: take it or wait for pullback?, 4) What invalidates it");
+        parts.push("4 bullets ONLY: 1) Setup type 2) Key levels 3) Entry now or wait? 4) Invalidation");
       } else if (signal.action_label === "Watch") {
-        parts.push("Answer ONLY: 1) Current structure, 2) Key levels to watch, 3) What would trigger an entry, 4) Direction bias");
+        parts.push("3 bullets ONLY: 1) Structure 2) Key levels 3) What triggers entry");
       } else {
-        parts.push("Answer ONLY: 1) Current structure, 2) Nearest support/resistance, 3) When might a setup develop");
+        parts.push("2 bullets ONLY: 1) Structure 2) Nearest support/resistance");
       }
     }
 
-    sendMessage(parts.join(" "));
+    // Delay send so clearMessages state update takes effect first
+    const timer = setTimeout(() => sendMessage(parts.join(" ")), 100);
+    return () => clearTimeout(timer);
   }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSend() {
