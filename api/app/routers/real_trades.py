@@ -63,7 +63,7 @@ async def open_trade(
     return trade
 
 
-@router.post("/{trade_id}/close", response_model=RealTradeResponse)
+@router.post("/{trade_id}/close")
 async def close_trade(
     trade_id: int,
     body: CloseRealTradeRequest,
@@ -91,7 +91,14 @@ async def close_trade(
         trade.pnl = round((trade.entry_price - body.exit_price) * trade.shares, 2)
 
     await db.flush()
-    return trade
+    return {
+        "id": trade.id,
+        "symbol": trade.symbol,
+        "direction": trade.direction,
+        "pnl": trade.pnl,
+        "status": trade.status,
+        "exit_price": trade.exit_price,
+    }
 
 
 @router.get("/open", response_model=List[RealTradeResponse])
