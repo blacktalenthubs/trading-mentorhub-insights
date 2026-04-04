@@ -12,10 +12,18 @@ except ImportError:
 
 
 def _get_secret(key: str, default: str = "") -> str:
-    """Read from env vars first (.env / local), then Streamlit secrets (Cloud)."""
+    """Read from env vars, then V2 FastAPI config, then Streamlit secrets."""
     val = os.environ.get(key, "")
     if val:
         return val
+    # V2 FastAPI pydantic-settings resolves Railway reference vars that os.environ misses
+    try:
+        from app.config import get_settings
+        val = getattr(get_settings(), key, "")
+        if val:
+            return str(val)
+    except Exception:
+        pass
     try:
         import streamlit as st
         return st.secrets.get(key, default)
