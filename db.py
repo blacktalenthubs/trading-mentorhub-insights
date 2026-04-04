@@ -13,6 +13,10 @@ import pandas as pd
 from config import DB_PATH
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
+# Debug: dump all DB-related env vars
+_db_env = {k: v[:30]+"..." for k, v in os.environ.items() if "DATABASE" in k or "PG" in k or "POSTGRES" in k}
+print(f"[db.py] DB env vars: {_db_env}")
+
 # Resolve DATABASE_URL — check env, override, then Railway Postgres reference vars
 _DATABASE_URL = os.environ.get("DATABASE_URL", "") or os.environ.get("DATABASE_URL_OVERRIDE", "")
 if not _DATABASE_URL:
