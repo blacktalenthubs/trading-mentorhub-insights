@@ -70,35 +70,43 @@ async def close_trade(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(RealTrade).where(RealTrade.id == trade_id, RealTrade.user_id == user.id)
-    )
-    trade = result.scalar_one_or_none()
-    if not trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-    if trade.status != "open":
-        raise HTTPException(status_code=409, detail="Trade already closed")
+    import logging
+    _log = logging.getLogger("real_trades")
+    try:
+        result = await db.execute(
+            select(RealTrade).where(RealTrade.id == trade_id, RealTrade.user_id == user.id)
+        )
+        trade = result.scalar_one_or_none()
+        if not trade:
+            raise HTTPException(status_code=404, detail="Trade not found")
+        if trade.status != "open":
+            raise HTTPException(status_code=409, detail="Trade already closed")
 
-    trade.exit_price = body.exit_price
-    trade.status = "closed"
-    trade.closed_at = datetime.now(timezone.utc)
-    trade.notes = body.notes or trade.notes
+        trade.exit_price = body.exit_price
+        trade.status = "closed"
+        trade.closed_at = datetime.now(timezone.utc)
+        trade.notes = body.notes or trade.notes
 
-    # Calculate P&L
-    if trade.direction == "BUY":
-        trade.pnl = round((body.exit_price - trade.entry_price) * trade.shares, 2)
-    else:
-        trade.pnl = round((trade.entry_price - body.exit_price) * trade.shares, 2)
+        # Calculate P&L
+        if trade.direction == "BUY":
+            trade.pnl = round((body.exit_price - trade.entry_price) * trade.shares, 2)
+        else:
+            trade.pnl = round((trade.entry_price - body.exit_price) * trade.shares, 2)
 
-    await db.flush()
-    return {
-        "id": trade.id,
-        "symbol": trade.symbol,
-        "direction": trade.direction,
-        "pnl": trade.pnl,
-        "status": trade.status,
-        "exit_price": trade.exit_price,
-    }
+        await db.flush()
+        return {
+            "id": trade.id,
+            "symbol": trade.symbol,
+            "direction": trade.direction,
+            "pnl": trade.pnl,
+            "status": trade.status,
+            "exit_price": trade.exit_price,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log.exception("Close trade %d failed", trade_id)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/open", response_model=List[RealTradeResponse])
