@@ -230,3 +230,42 @@ async def telegram_unlink(
     user.telegram_enabled = False
     await db.flush()
     return {"linked": False, "telegram_enabled": False}
+
+
+@router.post("/telegram-test")
+async def telegram_test_alert(
+    user: User = Depends(get_current_user),
+):
+    """Send a test alert to the user's linked Telegram."""
+    import asyncio
+    from functools import partial
+
+    if not user.telegram_enabled or not user.telegram_chat_id:
+        raise HTTPException(status_code=400, detail="Telegram not linked")
+
+    from analytics.intraday_rules import AlertSignal, AlertType
+    from alerting.notifier import notify_user
+
+    signal = AlertSignal(
+        symbol="TEST",
+        alert_type=AlertType.MA_BOUNCE_20,
+        direction="BUY",
+        price=100.00,
+        entry=99.50,
+        stop=98.00,
+        target_1=103.00,
+        target_2=106.00,
+        confidence="high",
+        score=90,
+        message="Test Alert — if you see this, Telegram alerts are working!",
+    )
+
+    prefs = {
+        "telegram_enabled": True,
+        "telegram_chat_id": user.telegram_chat_id,
+        "email_enabled": False,
+    }
+
+    loop = asyncio.get_event_loop()
+    _, tg_sent = await loop.run_in_executor(None, partial(notify_user, signal, prefs))
+    return {"sent": tg_sent}

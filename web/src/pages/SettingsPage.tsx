@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useAuthStore } from "../stores/auth";
+import { api } from "../api/client";
 import {
   useUpdateProfile,
   useChangePassword,
@@ -75,6 +76,19 @@ function TelegramSetup() {
             className="text-xs text-text-faint hover:text-bearish-text transition-colors"
           >
             Disconnect Telegram
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                await api.post("/settings/telegram-test");
+                toast.success("Test alert sent to your Telegram");
+              } catch {
+                toast.error("Failed to send test alert");
+              }
+            }}
+            className="text-xs text-accent hover:text-accent-hover transition-colors ml-3"
+          >
+            Send Test Alert
           </button>
         </div>
       ) : (
