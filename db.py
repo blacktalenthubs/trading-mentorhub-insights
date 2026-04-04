@@ -13,9 +13,20 @@ import pandas as pd
 from config import DB_PATH
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
-_USE_POSTGRES = bool(os.environ.get("DATABASE_URL"))
-_db_url_preview = (os.environ.get("DATABASE_URL", "")[:30] + "...") if os.environ.get("DATABASE_URL") else "(not set)"
-print(f"[db.py] _USE_POSTGRES={_USE_POSTGRES}, DATABASE_URL={_db_url_preview}")
+# Resolve DATABASE_URL — check env first, then V2 FastAPI config as fallback
+_DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if not _DATABASE_URL:
+    try:
+        from app.config import get_settings as _get_v2_settings
+        _v2_url = _get_v2_settings().DATABASE_URL
+        # Strip async driver prefix — db.py uses sync psycopg2
+        _DATABASE_URL = _v2_url.replace("+asyncpg", "").replace("+aiosqlite", "")
+        if _DATABASE_URL.startswith("postgresql"):
+            os.environ["DATABASE_URL"] = _DATABASE_URL
+    except Exception:
+        pass
+
+_USE_POSTGRES = _DATABASE_URL.startswith("postgresql") if _DATABASE_URL else False
 
 if _USE_POSTGRES:
     import psycopg2
