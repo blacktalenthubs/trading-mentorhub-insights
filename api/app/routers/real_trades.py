@@ -84,7 +84,7 @@ async def close_trade(
 
         trade.exit_price = body.exit_price
         trade.status = "closed"
-        trade.closed_at = datetime.now(timezone.utc)
+        trade.closed_at = datetime.utcnow()
         trade.notes = body.notes or trade.notes
 
         # Calculate P&L
