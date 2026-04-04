@@ -330,6 +330,21 @@ export function useClosedTrades(limit = 50) {
   });
 }
 
+export function useCloseTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, exit_price, notes }: { id: number; exit_price: number; notes?: string }) =>
+      api.post<RealTrade>(`/real-trades/${id}/close`, { exit_price, notes: notes || "" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["real-trades-open"] });
+      qc.invalidateQueries({ queryKey: ["real-trades-closed"] });
+      qc.invalidateQueries({ queryKey: ["real-trade-stats"] });
+      toast.success("Position closed");
+    },
+    onError: () => toast.error("Failed to close position"),
+  });
+}
+
 export interface RealTradeStats {
   total_pnl: number;
   total_trades: number;

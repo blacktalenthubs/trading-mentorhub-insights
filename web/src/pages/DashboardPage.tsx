@@ -10,7 +10,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   useAlertsToday, useSessionSummary, useAckAlert,
-  useOpenTrades, useIntraday, useMarketStatus, useScanner,
+  useOpenTrades, useCloseTrade, useIntraday, useMarketStatus, useScanner,
 } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import type { RealTrade } from "../api/hooks";
@@ -263,14 +263,20 @@ function ActionedAlert({ alert: a }: { alert: Alert }) {
 
 function PositionRow({ trade }: { trade: RealTrade }) {
   const { data: bars } = useIntraday(trade.symbol);
+  const closeTrade = useCloseTrade();
   const lastPrice = bars?.length ? bars[bars.length - 1].close : null;
   const pnl = lastPrice != null ? livePnl(trade, lastPrice) : null;
   const pnlPct = lastPrice != null && trade.entry_price > 0
     ? ((lastPrice - trade.entry_price) / trade.entry_price) * 100 * (trade.direction === "BUY" ? 1 : -1)
     : null;
 
+  function handleClose() {
+    if (!lastPrice) return;
+    closeTrade.mutate({ id: trade.id, exit_price: lastPrice, notes: "Closed from dashboard" });
+  }
+
   return (
-    <tr className="border-b border-border-subtle/30 hover:bg-surface-2/30 transition-colors">
+    <tr className="border-b border-border-subtle/30 hover:bg-surface-2/30 transition-colors group">
       <td className="px-5 py-3">
         <div className="flex items-center gap-2.5">
           <div className={`w-1.5 h-6 rounded-full ${trade.direction === "BUY" ? "bg-bullish" : "bg-bearish"}`} />
@@ -300,6 +306,15 @@ function PositionRow({ trade }: { trade: RealTrade }) {
             )}
           </div>
         ) : "—"}
+      </td>
+      <td className="px-3 py-3">
+        <button
+          onClick={handleClose}
+          disabled={!lastPrice || closeTrade.isPending}
+          className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-bearish-text bg-bearish/10 hover:bg-bearish/20 border border-bearish/20 px-2.5 py-1 rounded transition-all disabled:opacity-30"
+        >
+          {closeTrade.isPending ? "..." : "Close"}
+        </button>
       </td>
     </tr>
   );
@@ -406,6 +421,7 @@ export default function DashboardPage() {
                         <th className="px-5 py-2.5 font-medium text-right">Entry</th>
                         <th className="px-5 py-2.5 font-medium text-right">Last</th>
                         <th className="px-5 py-2.5 font-medium text-right">P&L</th>
+                        <th className="px-3 py-2.5 font-medium"></th>
                       </tr>
                     </thead>
                     <tbody className="text-sm">
