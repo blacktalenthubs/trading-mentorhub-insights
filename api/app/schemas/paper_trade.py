@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
@@ -41,8 +41,8 @@ class RealTradeResponse(BaseModel):
     alert_type: Optional[str]
     notes: Optional[str]
     session_date: str
-    opened_at: str
-    closed_at: Optional[str]
+    opened_at: Any = None
+    closed_at: Any = None
 
     model_config = {"from_attributes": True}
 
