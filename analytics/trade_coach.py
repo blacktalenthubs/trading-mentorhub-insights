@@ -461,7 +461,7 @@ def format_system_prompt(context: dict) -> str:
     if closed:
         lines = ["[RECENT CLOSED TRADES]"]
         for t in closed[:10]:
-            pnl = t.get("pnl", 0)
+            pnl = t.get("pnl") or 0
             pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
             lines.append(f"- {t['symbol']}  P&L: {pnl_str}  status={t.get('status', 'closed')}")
         sections.append("\n".join(lines))
