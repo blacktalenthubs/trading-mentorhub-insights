@@ -13,12 +13,13 @@ import pandas as pd
 from config import DB_PATH
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
-# Debug: dump all DB-related env vars
-_db_env = {k: v[:30]+"..." for k, v in os.environ.items() if "DATABASE" in k or "PG" in k or "POSTGRES" in k}
-print(f"[db.py] DB env vars: {_db_env}")
-
-# Resolve DATABASE_URL — check env, override, then Railway Postgres reference vars
+# Resolve DATABASE_URL — Railway may use reference vars that don't appear in os.environ
+# Check DATABASE_URL first, then DATABASE_URL_OVERRIDE (explicitly set raw value)
 _DATABASE_URL = os.environ.get("DATABASE_URL", "") or os.environ.get("DATABASE_URL_OVERRIDE", "")
+
+# If we found it via override, also set DATABASE_URL so downstream code works
+if _DATABASE_URL and not os.environ.get("DATABASE_URL"):
+    os.environ["DATABASE_URL"] = _DATABASE_URL
 if not _DATABASE_URL:
     # Railway sets PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE for linked Postgres
     _pghost = os.environ.get("PGHOST") or os.environ.get("RAILWAY_TCP_PROXY_DOMAIN")
@@ -40,6 +41,7 @@ if not _DATABASE_URL:
         pass
 
 _USE_POSTGRES = _DATABASE_URL.startswith("postgresql") if _DATABASE_URL else False
+print(f"[db.py] _USE_POSTGRES={_USE_POSTGRES} URL={_DATABASE_URL[:40]}..." if _DATABASE_URL else f"[db.py] _USE_POSTGRES=False (no URL)")
 
 if _USE_POSTGRES:
     import psycopg2
