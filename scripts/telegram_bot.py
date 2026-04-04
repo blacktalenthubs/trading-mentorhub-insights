@@ -480,6 +480,13 @@ def start_bot_thread() -> bool:
 
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not bot_token:
+        # Fallback: read from alert_config which uses _get_secret (supports Railway)
+        try:
+            from alert_config import TELEGRAM_BOT_TOKEN
+            bot_token = TELEGRAM_BOT_TOKEN
+        except Exception:
+            pass
+    if not bot_token:
         logger.warning("TELEGRAM_BOT_TOKEN not set — bot listener disabled")
         start_bot_thread._started = False
         return False

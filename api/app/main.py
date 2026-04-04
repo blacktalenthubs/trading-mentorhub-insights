@@ -75,6 +75,21 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to start background monitor")
 
+    # Start Telegram bot listener (handles /start, Took/Skip/Exit callbacks)
+    try:
+        import sys
+        from pathlib import Path
+        _scripts = str(Path(__file__).resolve().parents[2] / "scripts")
+        if _scripts not in sys.path:
+            sys.path.insert(0, _scripts)
+        from telegram_bot import start_bot_thread
+        if start_bot_thread():
+            logger.info("Telegram bot listener started")
+        else:
+            logger.warning("Telegram bot listener not started (token missing or import error)")
+    except Exception:
+        logger.exception("Failed to start Telegram bot listener")
+
     yield
 
     if scheduler:
