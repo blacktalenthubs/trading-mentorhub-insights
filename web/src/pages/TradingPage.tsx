@@ -471,11 +471,15 @@ export default function TradingPage() {
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
   const [showLevels, setShowLevels] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
+  const [showLeftPanel, setShowLeftPanel] = useState(true);
 
-  // Trigger chart resize when right panel toggles
+  // Trigger chart resize when panels toggle
   function toggleRightPanel() {
     setShowRightPanel((prev) => !prev);
-    // Lightweight-charts listens for window resize to recalculate dimensions
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
+  }
+  function toggleLeftPanel() {
+    setShowLeftPanel((prev) => !prev);
     setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
   }
   const [searchFilter, setSearchFilter] = useState("");
@@ -571,8 +575,9 @@ export default function TradingPage() {
 
   return (
     <div className="flex h-full">
-      {/* ── LEFT: Watchlist Panel ── */}
-      <aside className="hidden lg:flex w-[300px] bg-surface-1 border-r border-border-subtle flex-col shrink-0">
+      {/* ── LEFT: Watchlist Panel (collapsible) ── */}
+      {showLeftPanel && (
+      <aside className="hidden lg:flex w-[280px] bg-surface-1 border-r border-border-subtle flex-col shrink-0">
         {/* Header */}
         <div className="h-14 px-4 flex items-center justify-between border-b border-border-subtle shrink-0">
           <h2 className="text-sm font-semibold tracking-wide text-text-primary">
@@ -688,13 +693,28 @@ export default function TradingPage() {
           )}
         </div>
       </aside>
+      )}
 
       {/* ── CENTER: Chart Canvas + Cockpit ── */}
       <section className="flex-1 flex flex-col min-w-0 bg-surface-0">
         {/* Chart header */}
         <header className="h-14 border-b border-border-subtle px-4 flex items-center justify-between shrink-0 bg-surface-1/50">
-          {/* Left: symbol + price */}
-          <div className="flex items-baseline gap-3">
+          {/* Left: watchlist toggle + symbol + price */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleLeftPanel}
+              className={`hidden lg:flex w-7 h-7 items-center justify-center rounded transition-colors ${
+                showLeftPanel ? "text-text-faint hover:text-text-muted" : "text-accent bg-accent/10"
+              }`}
+              title={showLeftPanel ? "Hide watchlist" : "Show watchlist"}
+            >
+              {showLeftPanel ? (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+              ) : (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="14 9 17 12 14 15"/></svg>
+              )}
+            </button>
+            <div className="flex items-baseline gap-3">
             {selected ? (
               <>
                 <h1 className="text-2xl font-bold tracking-tight text-text-primary">{selected.symbol}</h1>
@@ -705,6 +725,7 @@ export default function TradingPage() {
             ) : (
               <h1 className="text-lg font-bold text-text-muted">Select a symbol</h1>
             )}
+            </div>
           </div>
 
           {/* Center: timeframes */}
@@ -727,7 +748,7 @@ export default function TradingPage() {
           {/* Right: indicators + right panel toggle */}
           <div className="flex items-center gap-1">
             {/* Indicator toggles (compact) */}
-            <div className="hidden md:flex items-center gap-0.5 mr-2">
+            <div className="hidden md:flex items-center gap-0.5 mr-2 flex-wrap">
               <button
                 onClick={() => setShowLevels(!showLevels)}
                 className={`rounded px-2 py-1 text-[10px] font-semibold transition-colors ${
@@ -736,7 +757,8 @@ export default function TradingPage() {
               >
                 Levels
               </button>
-              {ALL_INDICATORS.filter((i) => i.group === "ema").slice(0, 3).map((ind) => (
+              <span className="w-px h-4 bg-border-subtle mx-0.5" />
+              {ALL_INDICATORS.map((ind) => (
                 <button
                   key={ind.key}
                   onClick={() => toggleIndicator(ind.key)}
@@ -836,7 +858,7 @@ export default function TradingPage() {
 
       {/* ── RIGHT: AI Coach + Signal Feed ── */}
       {showRightPanel && (
-        <aside className="hidden xl:flex w-[320px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
+        <aside className="hidden xl:flex w-[380px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
           {/* AI Coach (top half) */}
           <div className="flex-1 flex flex-col min-h-[45%] border-b border-border-subtle relative overflow-hidden">
             <AIPanel symbol={selected?.symbol ?? null} signal={selected} ohlcv={ohlcv} timeframe={tf.label} />
