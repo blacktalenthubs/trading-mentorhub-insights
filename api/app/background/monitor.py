@@ -257,10 +257,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         db.add(ActiveEntry(
                             user_id=user_id,
                             symbol=symbol,
-                            entry_price=signal.entry,
-                            stop_price=signal.stop,
-                            target_1=signal.target_1,
-                            target_2=signal.target_2,
+                            entry_price=_py(signal.entry),
+                            stop_price=_py(signal.stop),
+                            target_1=_py(signal.target_1),
+                            target_2=_py(signal.target_2),
                             alert_type=signal.alert_type.value,
                             session_date=session_date,
                         ))
