@@ -127,34 +127,15 @@ def handle_start(token: str, chat_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def _find_alert(alert_id: int) -> dict | None:
-    """Look up alert by ID — checks V2 database first (new alerts), then V1."""
-    # Try V2 API DB first (api/tradesignal_dev.db) — this is where new alerts go
+    """Look up alert by ID — uses db.py get_db() which handles Postgres/SQLite."""
     try:
-        import sqlite3 as _sqlite3
-        v2_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "api", "tradesignal_dev.db")
-        if os.path.exists(v2_db_path):
-            conn = _sqlite3.connect(v2_db_path)
-            conn.row_factory = _sqlite3.Row
+        from db import get_db
+        with get_db() as conn:
             row = conn.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,)).fetchone()
-            conn.close()
             if row:
-                result = dict(row)
-                result["_source"] = "v2"
-                logger.info("_find_alert: found alert %d in V2 DB (%s)", alert_id, result.get("symbol"))
-                return result
+                return dict(row)
     except Exception:
-        logger.debug("_find_alert: V2 DB lookup failed", exc_info=True)
-
-    # Fallback to V1 DB (data/trades.db)
-    try:
-        from alerting.alert_store import get_alert_by_id
-        alert = get_alert_by_id(alert_id)
-        if alert:
-            alert["_source"] = "v1"
-            return alert
-    except Exception:
-        pass
-
+        logger.debug("_find_alert: DB lookup failed", exc_info=True)
     return None
 
 
@@ -212,15 +193,11 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
 
 
 def _ack_v2_alert(alert_id: int, action: str) -> None:
-    """Update user_action in the V2 API database."""
+    """Update user_action in the database."""
     try:
-        import sqlite3
-        v2_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "api", "tradesignal_dev.db")
-        if os.path.exists(v2_db_path):
-            conn = sqlite3.connect(v2_db_path)
+        from db import get_db
+        with get_db() as conn:
             conn.execute("UPDATE alerts SET user_action = ? WHERE id = ?", (action, alert_id))
-            conn.commit()
-            conn.close()
             logger.info("_ack_v2_alert: updated alert %d -> %s in V2 DB", alert_id, action)
     except Exception:
         logger.debug("_ack_v2_alert: failed", exc_info=True)
