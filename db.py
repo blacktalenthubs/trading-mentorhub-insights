@@ -13,17 +13,26 @@ import pandas as pd
 from config import DB_PATH
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
-# Resolve DATABASE_URL — check env first, then V2 FastAPI config as fallback
+# Resolve DATABASE_URL — check env, then Railway Postgres reference vars
 _DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not _DATABASE_URL:
+    # Railway sets PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE for linked Postgres
+    _pghost = os.environ.get("PGHOST") or os.environ.get("RAILWAY_TCP_PROXY_DOMAIN")
+    _pgport = os.environ.get("PGPORT") or os.environ.get("RAILWAY_TCP_PROXY_PORT", "5432")
+    _pguser = os.environ.get("PGUSER", "postgres")
+    _pgpass = os.environ.get("PGPASSWORD", "")
+    _pgdb = os.environ.get("PGDATABASE", "railway")
+    if _pghost and _pgpass:
+        _DATABASE_URL = f"postgresql://{_pguser}:{_pgpass}@{_pghost}:{_pgport}/{_pgdb}"
+        os.environ["DATABASE_URL"] = _DATABASE_URL
+
+if not _DATABASE_URL:
+    # Last resort: try reading from .env or V2 config
     try:
-        from app.config import get_settings as _get_v2_settings
-        _v2_url = _get_v2_settings().DATABASE_URL
-        # Strip async driver prefix — db.py uses sync psycopg2
-        _DATABASE_URL = _v2_url.replace("+asyncpg", "").replace("+aiosqlite", "")
-        if _DATABASE_URL.startswith("postgresql"):
-            os.environ["DATABASE_URL"] = _DATABASE_URL
-    except Exception:
+        import dotenv
+        dotenv.load_dotenv()
+        _DATABASE_URL = os.environ.get("DATABASE_URL", "")
+    except ImportError:
         pass
 
 _USE_POSTGRES = _DATABASE_URL.startswith("postgresql") if _DATABASE_URL else False
