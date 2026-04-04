@@ -33,6 +33,14 @@ def poll_all_users(sync_session_factory) -> int:
     Uses synchronous SQLAlchemy since this runs in a background thread.
     Returns total alerts fired across all users.
     """
+    try:
+        return _poll_all_users_inner(sync_session_factory)
+    except Exception:
+        logger.exception("Poll cycle FAILED — will retry next cycle")
+        return 0
+
+
+def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.user import Subscription, User  # noqa: E402
     from app.models.watchlist import WatchlistItem  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
