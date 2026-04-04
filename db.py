@@ -40,10 +40,14 @@ if not _DATABASE_URL:
     except ImportError:
         pass
 
-_USE_POSTGRES = _DATABASE_URL.startswith("postgresql") if _DATABASE_URL else False
-print(f"[db.py] _USE_POSTGRES={_USE_POSTGRES} URL={_DATABASE_URL[:40]}..." if _DATABASE_URL else f"[db.py] _USE_POSTGRES=False (no URL)")
+def _is_postgres():
+    """Check if we should use Postgres — re-reads env every time to handle dual-import."""
+    url = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_OVERRIDE") or ""
+    return url.startswith("postgresql")
 
-if _USE_POSTGRES:
+_USE_POSTGRES = _is_postgres()
+
+if _USE_POSTGRES or _DATABASE_URL.startswith("postgresql"):
     import psycopg2
     import psycopg2.extras
     import psycopg2.errors
@@ -226,7 +230,7 @@ class PostgresConnectionWrapper:
 
 def _adapt_ddl(sql: str) -> str:
     """Convert SQLite DDL to Postgres-compatible DDL when using Postgres."""
-    if not _USE_POSTGRES:
+    if not _is_postgres():
         return sql
     # INTEGER PRIMARY KEY AUTOINCREMENT → SERIAL PRIMARY KEY
     sql = re.sub(
@@ -244,7 +248,7 @@ def _adapt_ddl(sql: str) -> str:
 
 def _pd_read_sql(query: str, conn, params=None) -> pd.DataFrame:
     """Cross-platform pd.read_sql_query that works with both backends."""
-    if _USE_POSTGRES and isinstance(conn, PostgresConnectionWrapper):
+    if _is_postgres() and isinstance(conn, PostgresConnectionWrapper):
         query = query.replace("%", "%%").replace("?", "%s")
         return pd.read_sql_query(query, conn._conn, params=params)
     return pd.read_sql_query(query, conn, params=params)
@@ -261,15 +265,16 @@ def _get_pg_pool():
     global _pg_pool
     if _pg_pool is None or _pg_pool.closed:
         from psycopg2 import pool
+        dsn = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URL_OVERRIDE", "")
         _pg_pool = pool.ThreadedConnectionPool(
             minconn=1, maxconn=5,
-            dsn=os.environ["DATABASE_URL"],
+            dsn=dsn,
         )
     return _pg_pool
 
 
 def get_connection():
-    if _USE_POSTGRES:
+    if _is_postgres():
         conn = _get_pg_pool().getconn()
         return PostgresConnectionWrapper(conn)
     conn = sqlite3.connect(DB_PATH)
@@ -287,14 +292,14 @@ def get_db():
         conn.commit()
     except Exception:
         # Rollback so the connection isn't returned to the pool in a failed state
-        if _USE_POSTGRES and isinstance(conn, PostgresConnectionWrapper):
+        if _is_postgres() and isinstance(conn, PostgresConnectionWrapper):
             try:
                 conn._conn.rollback()
             except Exception:
                 pass
         raise
     finally:
-        if _USE_POSTGRES and isinstance(conn, PostgresConnectionWrapper):
+        if _is_postgres() and isinstance(conn, PostgresConnectionWrapper):
             _get_pg_pool().putconn(conn._conn)
         else:
             conn.close()
@@ -710,7 +715,7 @@ def init_db():
     # SQLite-only migrations — on Postgres the DDL already creates
     # all columns/constraints correctly and these cause deadlocks
     # when multiple services run init_db() concurrently.
-    if not _USE_POSTGRES:
+    if not _is_postgres():
         _migrate_add_user_id()
         _migrate_add_alert_score()
         _migrate_watchlist_user_id()
@@ -796,7 +801,7 @@ def _migrate_watchlist_user_id():
         # column-level ``symbol UNIQUE`` or table-level ``UNIQUE(symbol)``
         # which block multi-user inserts.
         # Skip on Postgres — DDL already creates correct constraints.
-        if not _USE_POSTGRES:
+        if not _is_postgres():
             needs_rebuild = False
             table_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist'"
@@ -991,7 +996,7 @@ def _migrate_per_user_entries_cooldowns():
         _safe_add_column(conn, "ALTER TABLE active_entries ADD COLUMN user_id INTEGER")
 
         # Rebuild table for new UNIQUE constraint
-        if _USE_POSTGRES:
+        if _is_postgres():
             # Add unique constraint on Postgres (idempotent via IF NOT EXISTS)
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_entries_dedup "
@@ -1035,7 +1040,7 @@ def _migrate_per_user_entries_cooldowns():
         _safe_add_column(conn, "ALTER TABLE cooldowns ADD COLUMN user_id INTEGER")
 
         # Rebuild table for new UNIQUE constraint
-        if _USE_POSTGRES:
+        if _is_postgres():
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_cooldowns_dedup "
                 "ON cooldowns(symbol, session_date, user_id)"
