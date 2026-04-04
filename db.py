@@ -14,6 +14,8 @@ from config import DB_PATH
 from models import Trade1099, TradeMonthly, MatchedTrade, AccountSummary, ImportRecord
 
 _USE_POSTGRES = bool(os.environ.get("DATABASE_URL"))
+_db_url_preview = (os.environ.get("DATABASE_URL", "")[:30] + "...") if os.environ.get("DATABASE_URL") else "(not set)"
+print(f"[db.py] _USE_POSTGRES={_USE_POSTGRES}, DATABASE_URL={_db_url_preview}")
 
 if _USE_POSTGRES:
     import psycopg2
