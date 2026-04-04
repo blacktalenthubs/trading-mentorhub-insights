@@ -154,9 +154,11 @@ def create_app() -> FastAPI:
             # If it's a file that exists in dist, serve it
             file_path = dist_dir / full_path
             if file_path.is_file():
-                return FileResponse(str(file_path))
-            # Otherwise serve index.html (React Router handles it)
-            return FileResponse(str(dist_dir / "index.html"))
+                # Assets have hashed filenames — cache forever
+                headers = {"Cache-Control": "public, max-age=31536000, immutable"} if "assets/" in full_path else {}
+                return FileResponse(str(file_path), headers=headers)
+            # index.html — never cache (so users always get latest build)
+            return FileResponse(str(dist_dir / "index.html"), headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
     return app
 

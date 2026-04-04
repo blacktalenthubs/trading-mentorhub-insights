@@ -30,6 +30,9 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "https://aicopilottrader.com",
         "https://www.aicopilottrader.com",
+        "https://tradesignalwithai.com",
+        "https://www.tradesignalwithai.com",
+        "https://worker-production-f56f.up.railway.app",
         "capacitor://localhost",       # iOS Capacitor
         "https://localhost",           # iOS WKWebView
     ]
