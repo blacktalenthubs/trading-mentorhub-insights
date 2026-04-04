@@ -70,8 +70,72 @@ async def lifespan(app: FastAPI):
             args=[sync_session_factory],
             id="alert_monitor_initial",
         )
+        # EOD swing scan — runs once at 4:15 PM ET weekdays
+        def _eod_swing_scan():
+            try:
+                from alerting.swing_scanner import swing_scan_eod
+                swing_scan_eod()
+                logger.info("EOD swing scan completed")
+            except Exception:
+                logger.exception("EOD swing scan failed")
+
+        scheduler.add_job(
+            _eod_swing_scan,
+            "cron",
+            hour=16, minute=15,
+            timezone="US/Eastern",
+            day_of_week="mon-fri",
+            id="eod_swing_scan",
+            replace_existing=True,
+        )
+
+        # Pre-market brief — runs once at 9:15 AM ET weekdays
+        def _premarket_brief():
+            try:
+                from analytics.premarket_brief import send_premarket_brief
+                send_premarket_brief()
+                logger.info("Pre-market brief sent")
+            except Exception:
+                logger.exception("Pre-market brief failed")
+
+        scheduler.add_job(
+            _premarket_brief,
+            "cron",
+            hour=9, minute=15,
+            timezone="US/Eastern",
+            day_of_week="mon-fri",
+            id="premarket_brief",
+            replace_existing=True,
+        )
+
+        # EOD cleanup — close stale active entries at 4:30 PM ET
+        def _eod_cleanup():
+            try:
+                with sync_session_factory() as db:
+                    from app.models.alert import ActiveEntry
+                    today = date.today().isoformat()
+                    db.execute(
+                        ActiveEntry.__table__.update()
+                        .where(ActiveEntry.session_date == today, ActiveEntry.status == "active")
+                        .values(status="closed")
+                    )
+                    db.commit()
+                    logger.info("EOD cleanup: closed stale active entries")
+            except Exception:
+                logger.exception("EOD cleanup failed")
+
+        scheduler.add_job(
+            _eod_cleanup,
+            "cron",
+            hour=16, minute=30,
+            timezone="US/Eastern",
+            day_of_week="mon-fri",
+            id="eod_cleanup",
+            replace_existing=True,
+        )
+
         scheduler.start()
-        logger.info("Background monitor started (3-min interval, immediate first run)")
+        logger.info("Background monitor started (3-min interval + EOD/premarket jobs)")
     except Exception:
         logger.exception("Failed to start background monitor")
 

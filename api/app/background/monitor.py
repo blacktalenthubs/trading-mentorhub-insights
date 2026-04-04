@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List
 
@@ -25,6 +25,13 @@ from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules  # n
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
 logger = logging.getLogger("monitor")
+
+# Burst cooldown: prevent rapid BUY notification spam (in-memory, resets on restart)
+_last_buy_notify: Dict[str, "datetime"] = {}  # {symbol: datetime}
+_last_buy_session: str = ""
+
+# Track SPY inside day notice (one per session)
+_spy_inside_day_notified: bool = False
 
 
 def poll_all_users(sync_session_factory) -> int:
@@ -45,8 +52,15 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.watchlist import WatchlistItem  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
 
+    global _last_buy_session, _spy_inside_day_notified
     session_date = date.today().isoformat()
     total_alerts = 0
+
+    # Clear stale burst cooldown tracking on new session
+    if _last_buy_session != session_date:
+        _last_buy_notify.clear()
+        _spy_inside_day_notified = False
+        _last_buy_session = session_date
 
     with sync_session_factory() as db:
         # Get Pro users
@@ -115,6 +129,39 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
         spy_ctx = get_spy_context()
 
+        # Compute spy_gate for alert gating (parity with V1 monitor.py:241-310)
+        _spy_gate = None
+        try:
+            from analytics.intraday_rules import compute_spy_gate
+            from analytics.intraday_data import compute_vwap, compute_opening_range
+            _spy_bars = intraday_cache.get("SPY")
+            if _spy_bars is not None and not (hasattr(_spy_bars, "empty") and _spy_bars.empty):
+                _spy_vwap = compute_vwap(_spy_bars)
+                _spy_gate = compute_spy_gate(_spy_bars, _spy_vwap)
+
+                # Morning low check
+                _spy_or = compute_opening_range(_spy_bars)
+                if _spy_or and _spy_or.get("or_complete"):
+                    _spy_gate["morning_low"] = _spy_or["or_low"]
+                    _spy_last_close = float(_spy_bars.iloc[-1]["Close"])
+                    _spy_gate["below_morning_low"] = _spy_last_close < _spy_or["or_low"]
+                else:
+                    _spy_gate["below_morning_low"] = False
+                    _spy_gate["morning_low"] = 0
+
+                # SPY inside day detection
+                _spy_prior = prior_day_cache.get("SPY")
+                if _spy_prior and _spy_or and _spy_or.get("or_complete"):
+                    _pdh = _spy_prior.get("high", 0)
+                    _pdl = _spy_prior.get("low", 0)
+                    _today_high = float(_spy_bars["High"].max())
+                    _today_low = float(_spy_bars["Low"].min())
+                    _spy_gate["inside_day"] = _today_high < _pdh and _today_low > _pdl
+                else:
+                    _spy_gate["inside_day"] = False
+        except Exception:
+            logger.debug("SPY gate computation failed", exc_info=True)
+
         # Load user objects for notification routing
         user_rows = {u.id: u for u in db.execute(
             select(User).where(User.id.in_(pro_users))
@@ -141,6 +188,24 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 )
             ).scalars().all()
             cooled_symbols = set(cooldown_rows)
+
+            # Post-stop re-fire: after stop-out + cooldown expiry, allow BUY signals
+            # to re-fire for the same symbol (parity with V1 monitor.py:207-226)
+            _stop_types = {"stop_loss_hit"}
+            stopped_symbols = {a[0] for a in db_alerts if a[1] in _stop_types}
+            _sell_types = _stop_types | {
+                "target_1_hit", "target_2_hit", "support_breakdown",
+                "resistance_prior_high", "resistance_prior_low",
+                "hourly_resistance_approach", "ma_resistance",
+                "weekly_high_resistance", "ema_resistance",
+                "opening_range_breakdown",
+            }
+            for sym in stopped_symbols:
+                if sym not in cooled_symbols:
+                    fired_today = {
+                        (s, at) for s, at in fired_today
+                        if s != sym or at in _sell_types
+                    }
 
             # Load alert category preferences for this user
             try:
@@ -195,6 +260,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     signals = evaluate_rules(
                         symbol, intraday, prior_day, active,
                         spy_context=spy_ctx,
+                        spy_gate=_spy_gate,
                         is_cooled_down=symbol in cooled_symbols,
                         fired_today=fired_today,
                     )
@@ -296,6 +362,21 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             "PREF FILTERED: user=%d %s %s (dashboard only)",
                             user_id, signal.symbol, _at_val,
                         )
+
+                    # Burst cooldown: suppress rapid BUY notification spam
+                    if _send_notification and signal.direction == "BUY":
+                        _prev = _last_buy_notify.get(symbol)
+                        _now = datetime.utcnow()
+                        if _prev and (_now - _prev).total_seconds() < COOLDOWN_MINUTES * 60:
+                            _send_notification = False
+                            logger.info(
+                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last BUY)",
+                                user_id, symbol, _at_val, (_now - _prev).total_seconds(),
+                            )
+
+                    # Track BUY notification time for burst cooldown
+                    if _send_notification and signal.direction == "BUY":
+                        _last_buy_notify[symbol] = datetime.utcnow()
 
                     # Flush to get alert.id for Telegram inline buttons
                     db.flush()
