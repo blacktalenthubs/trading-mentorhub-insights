@@ -216,21 +216,30 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     except Exception:
                         pass
 
+                    # Coerce numpy types to native Python (psycopg2 can't serialize np.float64)
+                    def _py(v):
+                        if v is None:
+                            return None
+                        try:
+                            return v.item()  # numpy scalar → Python native
+                        except (AttributeError, ValueError):
+                            return v
+
                     # Record alert
                     alert = Alert(
                         user_id=user_id,
                         symbol=signal.symbol,
                         alert_type=signal.alert_type.value,
                         direction=signal.direction,
-                        price=signal.price,
-                        entry=signal.entry,
-                        stop=signal.stop,
-                        target_1=signal.target_1,
-                        target_2=signal.target_2,
+                        price=_py(signal.price),
+                        entry=_py(signal.entry),
+                        stop=_py(signal.stop),
+                        target_1=_py(signal.target_1),
+                        target_2=_py(signal.target_2),
                         confidence=signal.confidence,
                         message=signal.message,
                         narrative=_narrative,
-                        score=signal.score,
+                        score=int(signal.score) if signal.score else 0,
                         session_date=session_date,
                     )
                     db.add(alert)
