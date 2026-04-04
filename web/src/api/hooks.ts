@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { toast } from "../components/Toast";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -52,7 +53,21 @@ export function useAddSymbol() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (symbol: string) => api.post<WatchlistItem>("/watchlist", { symbol }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
+    onMutate: async (symbol) => {
+      await qc.cancelQueries({ queryKey: ["watchlist"] });
+      const prev = qc.getQueryData<WatchlistItem[]>(["watchlist"]);
+      qc.setQueryData<WatchlistItem[]>(["watchlist"], (old) => [
+        ...(old ?? []),
+        { id: Date.now(), symbol },
+      ]);
+      return { prev };
+    },
+    onError: (_err, _sym, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["watchlist"], ctx.prev);
+      toast.error("Failed to add symbol");
+    },
+    onSuccess: (_data, symbol) => toast.success(`${symbol} added`),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
   });
 }
 
@@ -60,7 +75,20 @@ export function useRemoveSymbol() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (symbol: string) => api.delete(`/watchlist/${symbol}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
+    onMutate: async (symbol) => {
+      await qc.cancelQueries({ queryKey: ["watchlist"] });
+      const prev = qc.getQueryData<WatchlistItem[]>(["watchlist"]);
+      qc.setQueryData<WatchlistItem[]>(["watchlist"], (old) =>
+        (old ?? []).filter((w) => w.symbol !== symbol),
+      );
+      return { prev };
+    },
+    onError: (_err, _sym, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["watchlist"], ctx.prev);
+      toast.error("Failed to remove symbol");
+    },
+    onSuccess: (_data, symbol) => toast.success(`${symbol} removed`),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
   });
 }
 
@@ -291,6 +319,7 @@ export function useOpenTrades() {
   return useQuery({
     queryKey: ["real-trades-open"],
     queryFn: () => api.get<RealTrade[]>("/real-trades/open"),
+    staleTime: 15_000, // refetch every 15s to catch new positions
   });
 }
 
@@ -415,9 +444,21 @@ export function useAckAlert() {
   return useMutation({
     mutationFn: ({ id, action }: { id: number; action: "took" | "skipped" }) =>
       api.post(`/alerts/${id}/ack?action=${action}`),
-    onSuccess: () => {
+    onMutate: async ({ id, action }) => {
+      await qc.cancelQueries({ queryKey: ["alerts-today"] });
+      const prev = qc.getQueryData<Alert[]>(["alerts-today"]);
+      qc.setQueryData<Alert[]>(["alerts-today"], (old) =>
+        (old ?? []).map((a) => a.id === id ? { ...a, user_action: action } : a),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["alerts-today"], ctx.prev);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["alerts-today"] });
       qc.invalidateQueries({ queryKey: ["session-summary"] });
+      qc.invalidateQueries({ queryKey: ["real-trades-open"] });
     },
   });
 }
@@ -583,6 +624,31 @@ export function useUpdateAlertPrefs() {
     mutationFn: (body: { categories: Record<string, boolean>; min_score: number }) =>
       api.put<import("../types").AlertPrefs>("/settings/alert-preferences", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-prefs"] }),
+  });
+}
+
+// --- Telegram ---
+
+export function useTelegramStatus() {
+  return useQuery({
+    queryKey: ["telegram-status"],
+    queryFn: () => api.get<{ linked: boolean; telegram_enabled: boolean }>("/settings/telegram-status"),
+  });
+}
+
+export function useTelegramLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ deep_link: string; token: string }>("/settings/telegram-link"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["telegram-status"] }),
+  });
+}
+
+export function useTelegramUnlink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete("/settings/telegram-link"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["telegram-status"] }),
   });
 }
 

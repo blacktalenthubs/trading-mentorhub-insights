@@ -148,7 +148,7 @@ async def ack_alert(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark alert as 'took' or 'skipped'."""
+    """Mark alert as 'took' or 'skipped'. If 'took', also open a real trade."""
     result = await db.execute(
         select(Alert).where(Alert.id == alert_id, Alert.user_id == user.id)
     )
@@ -156,8 +156,38 @@ async def ack_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     alert.user_action = action
-    await db.flush()
-    return {"id": alert_id, "user_action": action}
+
+    # Auto-create a real trade when user takes the alert
+    trade_id = None
+    if action == "took" and alert.entry and alert.direction in ("BUY", "SHORT"):
+        from app.models.paper_trade import RealTrade
+
+        # Position sizing: $50k cap, SPY fixed at 200 shares
+        entry = alert.entry
+        if alert.symbol == "SPY":
+            shares = 200
+        else:
+            shares = int(50_000 // entry) if entry > 0 else 0
+
+        trade = RealTrade(
+            user_id=user.id,
+            symbol=alert.symbol,
+            direction=alert.direction,
+            shares=shares,
+            entry_price=entry,
+            stop_price=alert.stop,
+            target_price=alert.target_1,
+            target_2_price=alert.target_2,
+            status="open",
+            alert_type=alert.alert_type,
+            alert_id=alert.id,
+            session_date=alert.session_date,
+        )
+        db.add(trade)
+        await db.flush()
+        trade_id = trade.id
+
+    return {"id": alert_id, "user_action": action, "trade_id": trade_id}
 
 
 @router.get("/session-dates")

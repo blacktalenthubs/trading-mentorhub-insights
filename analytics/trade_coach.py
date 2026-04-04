@@ -330,6 +330,20 @@ def format_system_prompt(context: dict) -> str:
             lines.append(f"Intraday change: {spy['intraday_change_pct']:.2f}%")
         sections.append("\n".join(lines))
 
+    # User's current chart bars (from frontend — the exact chart they're looking at)
+    user_bars = context.get("user_chart_bars")
+    user_tf = context.get("user_chart_timeframe", "")
+    if user_bars:
+        _tf_label = user_tf if user_tf else "chart"
+        _sym = hub.get("symbol", "") if hub else ""
+        lines = [f"[CHART DATA — {_sym} {_tf_label} — LAST {len(user_bars)} BARS (what the user sees right now)]"]
+        for bar in user_bars:
+            lines.append(
+                f"{bar['time']}  O={bar['open']}  H={bar['high']}  "
+                f"L={bar['low']}  C={bar['close']}  vol={bar['volume']:,}"
+            )
+        sections.append("\n".join(lines))
+
     # SPY hourly bars
     spy_hourly = context.get("spy_hourly")
     if spy_hourly:

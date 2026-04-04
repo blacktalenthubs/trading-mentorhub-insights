@@ -22,7 +22,7 @@ if _root not in sys.path:
 from alert_config import COOLDOWN_MINUTES  # noqa: E402
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context  # noqa: E402
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules  # noqa: E402
-from analytics.market_hours import is_market_hours  # noqa: E402
+from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
 logger = logging.getLogger("monitor")
 
@@ -33,10 +33,6 @@ def poll_all_users(sync_session_factory) -> int:
     Uses synchronous SQLAlchemy since this runs in a background thread.
     Returns total alerts fired across all users.
     """
-    if not is_market_hours():
-        logger.info("Market closed — skipping poll")
-        return 0
-
     from app.models.user import Subscription, User  # noqa: E402
     from app.models.watchlist import WatchlistItem  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
@@ -66,7 +62,17 @@ def poll_all_users(sync_session_factory) -> int:
             user_symbols[user_id] = list(symbols)
             all_symbols.update(symbols)
 
+        for uid, syms in user_symbols.items():
+            logger.info("User %d watchlist: %s", uid, ", ".join(syms) if syms else "(empty)")
+
         if not all_symbols:
+            return 0
+
+        # Filter to symbols whose market is open (crypto always, stocks during hours)
+        active_symbols = {s for s in all_symbols if is_market_hours_for_symbol(s)}
+        logger.info("Active symbols (market open): %s", ", ".join(sorted(active_symbols)) if active_symbols else "(none)")
+        if not active_symbols:
+            logger.info("No active market symbols — skipping poll")
             return 0
 
         # Deduplicated market data fetches (also write to app cache for API reuse)
@@ -74,7 +80,7 @@ def poll_all_users(sync_session_factory) -> int:
 
         intraday_cache: dict[str, object] = {}
         prior_day_cache: dict[str, object] = {}
-        for symbol in all_symbols:
+        for symbol in active_symbols:
             intraday_cache[symbol] = fetch_intraday(symbol)
             prior_day_cache[symbol] = fetch_prior_day(symbol)
 
@@ -100,6 +106,11 @@ def poll_all_users(sync_session_factory) -> int:
                 cache_set(f"prior_day:{symbol}", prior_day_cache[symbol], 3600)
 
         spy_ctx = get_spy_context()
+
+        # Load user objects for notification routing
+        user_rows = {u.id: u for u in db.execute(
+            select(User).where(User.id.in_(pro_users))
+        ).scalars().all()}
 
         # Evaluate per user
         for user_id in pro_users:
@@ -143,6 +154,10 @@ def poll_all_users(sync_session_factory) -> int:
                 _min_score = 0
 
             for symbol in symbols:
+                # Skip symbols whose market is closed (crypto always passes)
+                if not is_market_hours_for_symbol(symbol):
+                    continue
+
                 intraday = intraday_cache.get(symbol)
                 prior_day = prior_day_cache.get(symbol)
 
@@ -265,6 +280,9 @@ def poll_all_users(sync_session_factory) -> int:
                             user_id, signal.symbol, _at_val,
                         )
 
+                    # Flush to get alert.id for Telegram inline buttons
+                    db.flush()
+
                     # Push to SSE (only if preference allows)
                     alert_data = {
                         "symbol": signal.symbol,
@@ -279,6 +297,38 @@ def poll_all_users(sync_session_factory) -> int:
                             publish(user_id, alert_data)
                         except Exception:
                             pass
+
+                    # Telegram notification (per-user)
+                    if _send_notification:
+                        _user = user_rows.get(user_id)
+                        if _user and _user.telegram_enabled and _user.telegram_chat_id:
+                            try:
+                                from alerting.notifier import notify_user
+                                _prefs = {
+                                    "telegram_enabled": True,
+                                    "telegram_chat_id": _user.telegram_chat_id,
+                                    "email_enabled": _user.email_enabled,
+                                    "notification_email": _user.email,
+                                }
+                                _email_ok, _tg_ok = notify_user(signal, _prefs, alert_id=alert.id)
+                                logger.info(
+                                    "NOTIFY: user=%d %s %s tg=%s email=%s",
+                                    user_id, signal.symbol, signal.alert_type.value,
+                                    _tg_ok, _email_ok,
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "Telegram notify FAILED for user=%d %s",
+                                    user_id, signal.symbol,
+                                    exc_info=True,
+                                )
+                        else:
+                            logger.info(
+                                "NOTIFY SKIP: user=%d tg_enabled=%s chat_id=%s",
+                                user_id,
+                                getattr(_user, 'telegram_enabled', None),
+                                getattr(_user, 'telegram_chat_id', None),
+                            )
 
                     # Push notification (APNs) — only if preference allows
                     if _send_notification:

@@ -1,24 +1,19 @@
-/** Main app shell — sidebar nav + header + content area.
- *  Mobile: bottom tab bar + hamburger for full nav.
- *  Desktop: sidebar always visible.
+/** App shell — 64px icon-only nav rail (desktop) + bottom tab bar (mobile).
+ *  Maximizes workspace for the Trading page chart.
  */
 
-import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
-import { useFeatureGate } from "../hooks/useFeatureGate";
 import { usePushNotifications } from "../hooks/usePushNotifications";
 import {
   LayoutDashboard,
   Crosshair,
   ArrowLeftRight,
-  Menu,
-  LogOut,
   Settings,
+  LogOut,
   type LucideIcon,
 } from "lucide-react";
-import Badge from "./ui/Badge";
 
 interface NavItem {
   to: string;
@@ -27,157 +22,123 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/trading", label: "Trading", icon: Crosshair },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 const MOBILE_TABS: NavItem[] = [
-  { to: "/", label: "Home", icon: LayoutDashboard },
-  { to: "/trading", label: "Trading", icon: Crosshair },
+  { to: "/dashboard", label: "Home", icon: LayoutDashboard },
+  { to: "/trading", label: "Trade", icon: Crosshair },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
-
-function MarketBadge({ market }: { market: { is_open: boolean; is_premarket: boolean } }) {
-  if (market.is_open) {
-    return (
-      <Badge variant="bullish">
-        <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-bullish" />
-        MARKET OPEN
-      </Badge>
-    );
-  }
-  if (market.is_premarket) {
-    return <Badge variant="warning">PRE-MARKET</Badge>;
-  }
-  return <Badge variant="neutral">CLOSED</Badge>;
-}
 
 export default function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const { data: market } = useMarketStatus();
-  const { isPro } = useFeatureGate();
   usePushNotifications();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  function closeSidebar() {
-    setSidebarOpen(false);
-  }
-
-  function renderNavItem(item: NavItem) {
-    const Icon = item.icon;
-    return (
-      <NavLink
-        key={item.to}
-        to={item.to}
-        end={item.to === "/"}
-        onClick={closeSidebar}
-        className={({ isActive }) =>
-          `group relative flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-            isActive
-              ? "bg-surface-3 text-text-primary font-medium"
-              : "text-text-muted hover:bg-surface-3/50 hover:text-text-secondary"
-          }`
-        }
-      >
-        {({ isActive }) => (
-          <>
-            {isActive && (
-              <span className="absolute inset-y-1 left-0 w-[3px] rounded-r-full bg-accent" />
-            )}
-            <Icon className="h-4 w-4 shrink-0" />
-            {item.label}
-          </>
-        )}
-      </NavLink>
-    );
-  }
 
   return (
-    <div className="flex h-screen">
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
-          onClick={closeSidebar}
-        />
-      )}
+    <div className="flex h-screen bg-surface-0">
+      {/* Desktop: icon-only nav rail */}
+      <nav className="hidden md:flex w-16 flex-col items-center justify-between border-r border-border-subtle bg-surface-0 py-5 shrink-0">
+        {/* Top: brand + nav icons */}
+        <div className="flex flex-col items-center gap-6 w-full">
+          {/* Brand icon */}
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple flex items-center justify-center shadow-glow-accent mb-2">
+            <Crosshair className="h-4 w-4 text-white" />
+          </div>
 
-      {/* Sidebar */}
-      <nav
-        className={`fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-border-subtle bg-surface-2 transition-transform duration-200 md:static md:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {/* Brand header */}
-        <div className="border-b border-border-subtle p-4">
-          <h1 className="font-display text-lg font-bold tracking-tight text-text-primary">
-            <span className="text-accent">Trade</span>Signal
-          </h1>
+          <div className="flex flex-col gap-1 w-full px-2">
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === "/dashboard"}
+                  className={({ isActive }) =>
+                    `group relative flex items-center justify-center w-full aspect-square rounded-xl transition-colors ${
+                      isActive
+                        ? "bg-surface-3 text-accent"
+                        : "text-text-muted hover:text-text-primary hover:bg-surface-2"
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && (
+                        <span className="absolute left-0 w-[3px] h-1/2 bg-accent rounded-r-full" />
+                      )}
+                      <Icon className="h-[18px] w-[18px]" />
+                      {/* Tooltip */}
+                      <span className="absolute left-full ml-3 px-2 py-1 bg-surface-4 text-xs font-medium text-text-primary rounded border border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                        {item.label}
+                      </span>
+                    </>
+                  )}
+                </NavLink>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Bottom: market status + avatar + logout */}
+        <div className="flex flex-col items-center gap-3 w-full">
+          {/* Market status dot */}
           {market && (
-            <div className="mt-2">
-              <MarketBadge market={market} />
+            <div className="group relative flex items-center justify-center w-8 h-8">
+              <div
+                className={`w-2.5 h-2.5 rounded-full ${
+                  market.is_open
+                    ? "bg-bullish shadow-glow-bullish"
+                    : market.is_premarket
+                    ? "bg-warning"
+                    : "bg-text-faint"
+                }`}
+              />
+              <span className="absolute left-full ml-3 px-2 py-1 bg-surface-4 text-xs font-medium text-text-primary rounded border border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                {market.is_open ? "Market Open" : market.is_premarket ? "Pre-Market" : "Closed"}
+              </span>
             </div>
           )}
-        </div>
 
-        {/* Nav items */}
-        <div className="flex-1 overflow-y-auto py-3">
-          {NAV_ITEMS.map(renderNavItem)}
-        </div>
+          <div className="w-8 h-px bg-border-subtle" />
 
-        {/* User footer */}
-        <div className="border-t border-border-subtle p-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-4 font-display text-xs font-semibold text-text-secondary">
+          {/* User avatar */}
+          <div className="group relative">
+            <div className="w-8 h-8 rounded-full bg-surface-4 flex items-center justify-center text-xs font-bold text-text-secondary cursor-pointer border border-border-subtle">
               {user?.display_name?.charAt(0)?.toUpperCase() || "?"}
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-text-primary">{user?.display_name}</p>
-              <p className="truncate text-xs text-text-muted">{user?.email}</p>
-            </div>
+            <span className="absolute left-full ml-3 px-2 py-1 bg-surface-4 text-xs font-medium text-text-primary rounded border border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+              {user?.display_name}
+            </span>
           </div>
-          <div className="mt-2.5 flex items-center justify-between">
-            <Badge variant={isPro ? "pro" : "neutral"}>
-              {isPro ? "PRO" : "FREE"}
-            </Badge>
-            <button
-              onClick={logout}
-              className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary transition-colors"
-            >
-              <LogOut className="h-3 w-3" />
+
+          {/* Logout */}
+          <button
+            onClick={logout}
+            className="group relative flex items-center justify-center w-8 h-8 text-text-faint hover:text-text-secondary transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="absolute left-full ml-3 px-2 py-1 bg-surface-4 text-xs font-medium text-text-primary rounded border border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
               Logout
-            </button>
-          </div>
+            </span>
+          </button>
         </div>
       </nav>
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Mobile header */}
-        <header className="flex items-center gap-3 border-b border-border-subtle bg-surface-2 px-4 py-2.5 md:hidden">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="text-text-muted hover:text-text-primary transition-colors"
-            aria-label="Open menu"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <span className="font-display text-sm font-bold tracking-tight">
-            <span className="text-accent">Trade</span>Signal
-          </span>
-          {market && <MarketBadge market={market} />}
-        </header>
-
-        <main className="flex-1 overflow-y-auto bg-surface-1 p-4 pb-20 md:p-6 md:pb-6">
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+        <main className="flex-1 overflow-hidden bg-surface-0 pb-14 md:pb-0">
           <Outlet />
         </main>
 
         {/* Mobile bottom tab bar */}
-        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-surface-2 pb-[env(safe-area-inset-bottom)] md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-surface-0 pb-[env(safe-area-inset-bottom)] md:hidden">
           {MOBILE_TABS.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -186,7 +147,7 @@ export default function AppLayout() {
                 to={tab.to}
                 end={tab.to === "/"}
                 className={({ isActive }) =>
-                  `flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] transition-colors ${
+                  `flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium tracking-wide transition-colors ${
                     isActive ? "text-accent" : "text-text-muted"
                   }`
                 }

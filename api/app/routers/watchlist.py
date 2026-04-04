@@ -74,14 +74,12 @@ async def remove_symbol(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
+    await db.execute(
         delete(WatchlistItem).where(
             WatchlistItem.user_id == user.id,
             WatchlistItem.symbol == symbol.upper(),
         )
     )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Symbol not in watchlist")
 
 
 @router.put("", response_model=List[WatchlistItemResponse])

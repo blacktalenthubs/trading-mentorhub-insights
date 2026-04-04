@@ -11,7 +11,7 @@ interface Props {
   lineColor?: string;
 }
 
-export default function EquityCurve({ data, height = 200, lineColor = "#3b82f6" }: Props) {
+export default function EquityCurve({ data, height = 200, lineColor = "#22c55e" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
@@ -20,17 +20,17 @@ export default function EquityCurve({ data, height = 200, lineColor = "#3b82f6" 
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#0a0f1a" },
+        background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#64748b",
       },
       grid: {
-        vertLines: { color: "#1a2332" },
-        horzLines: { color: "#1a2332" },
+        vertLines: { color: "rgba(255,255,255,0.03)" },
+        horzLines: { color: "rgba(255,255,255,0.03)" },
       },
       width: containerRef.current.clientWidth,
       height,
-      rightPriceScale: { borderColor: "#1a2332" },
-      timeScale: { borderColor: "#1a2332" },
+      rightPriceScale: { borderColor: "transparent" },
+      timeScale: { borderColor: "transparent" },
     });
 
     chartRef.current = chart;

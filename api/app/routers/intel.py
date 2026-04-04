@@ -152,9 +152,84 @@ async def coach_stream(
     """SSE stream — AI trade coach chat."""
     from analytics.trade_coach import ask_coach, assemble_context, format_system_prompt
 
-    # Assemble trading context and build system prompt
-    hub_symbol = body.symbols[0] if body.symbols else None
+    import re as _re
+
+    # Resolve the actual symbol — extract from user message first, fallback to body.symbols
+    _msg_symbol = None
+    if body.messages:
+        _last_content = body.messages[-1].get("content", "")
+        _sym_match = _re.search(r"\[Looking at ([^\]]+)\]", _last_content)
+        if _sym_match:
+            _msg_symbol = _sym_match.group(1).upper()
+    hub_symbol = _msg_symbol or (body.symbols[0] if body.symbols else None)
+
+    # Detect requested timeframe from user message
+    _tf = body.timeframe
+    if not _tf and body.messages:
+        _last_msg = body.messages[-1].get("content", "").lower()
+        _tf_keywords = [
+            ("1m ", "1m"), ("1-min", "1m"), ("5m ", "5m"), ("5-min", "5m"),
+            ("15m", "15m"), ("15-min", "15m"), ("30m", "30m"), ("30-min", "30m"),
+            ("hour", "1H"), ("1h", "1H"), ("4h", "4H"), ("4-hour", "4H"),
+            ("daily", "D"), ("week", "W"),
+        ]
+        for keyword, tf_val in _tf_keywords:
+            if keyword in _last_msg:
+                _tf = tf_val
+                break
+    if not _tf:
+        _tf = "1H"
+
+    # Assemble trading context
     context = await _run_sync(assemble_context, hub_symbol)
+
+    # Always fetch chart bars for the hub symbol — server-side is the reliable path
+    # Frontend bars are a bonus optimization, but server-side fetch guarantees data
+    _has_matching_bars = False
+    if body.ohlcv_bars and len(body.ohlcv_bars) >= 5:
+        # Only use frontend bars if they match the requested symbol
+        # (frontend might send bars for a different symbol than what's in the message)
+        context["user_chart_bars"] = [
+            {
+                "time": b.timestamp,
+                "open": b.open,
+                "high": b.high,
+                "low": b.low,
+                "close": b.close,
+                "volume": int(b.volume),
+            }
+            for b in body.ohlcv_bars
+        ]
+        context["user_chart_timeframe"] = body.timeframe or _tf
+        _has_matching_bars = True
+
+    if hub_symbol and not _has_matching_bars:
+        # Fetch bars server-side — guaranteed to match the requested symbol + timeframe
+        _tf_map = {
+            "1m": ("1d", "1m"), "5m": ("5d", "5m"), "15m": ("5d", "15m"),
+            "30m": ("5d", "30m"), "1H": ("5d", "60m"), "4H": ("1mo", "60m"),
+            "D": ("1y", "1d"), "W": ("1y", "1wk"), "M": ("5y", "1mo"),
+        }
+        _period, _interval = _tf_map.get(_tf, ("5d", "60m"))
+        try:
+            from analytics.market_data import fetch_ohlc
+            _df = await _run_sync(fetch_ohlc, hub_symbol, _period, _interval)
+            if _df is not None and not _df.empty:
+                _bars = []
+                for ts, row in _df.tail(30).iterrows():
+                    _bars.append({
+                        "time": str(ts),
+                        "open": round(float(row["Open"]), 2),
+                        "high": round(float(row["High"]), 2),
+                        "low": round(float(row["Low"]), 2),
+                        "close": round(float(row["Close"]), 2),
+                        "volume": int(row["Volume"]),
+                    })
+                context["user_chart_bars"] = _bars
+                context["user_chart_timeframe"] = _tf
+        except Exception:
+            pass
+
     system_prompt = format_system_prompt(context)
 
     async def event_generator():
@@ -272,13 +347,12 @@ async def public_track_record(days: int = Query(default=30, le=90)):
             "categories": [],
         }
 
+    overall = data.get("overall", {})
     return {
         "period_days": days,
-        "total_alerts": data.get("total", 0),
-        "wins": data.get("wins", 0),
-        "losses": data.get("losses", 0),
-        "win_rate": data.get("win_rate", 0),
-        "avg_rr": data.get("avg_rr", 0),
-        "by_type": data.get("by_type", {}),
-        "by_direction": data.get("by_direction", {}),
+        "total_signals": overall.get("total", 0),
+        "wins": overall.get("wins", 0),
+        "losses": overall.get("losses", 0),
+        "win_rate": overall.get("win_rate", 0),
+        "by_alert_type": data.get("by_alert_type", {}),
     }

@@ -1,0 +1,32 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting alpaca-py
+  Downloading alpaca_py-0.43.2-py3-none-any.whl (122 kB)
+Requirement already satisfied: requests<3.0.0,>=2.30.0 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from alpaca-py) (2.32.5)
+Requirement already satisfied: websockets>=10.4 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from alpaca-py) (15.0.1)
+Requirement already satisfied: pandas>=1.5.3 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from alpaca-py) (2.3.3)
+Collecting pydantic<3.0.0,>=2.0.3
+  Downloading pydantic-2.12.5-py3-none-any.whl (463 kB)
+Collecting sseclient-py<2.0.0,>=1.7.2
+  Downloading sseclient_py-1.9.0-py3-none-any.whl (8.4 kB)
+Collecting msgpack<2.0.0,>=1.0.3
+  Downloading msgpack-1.1.2-cp39-cp39-macosx_11_0_arm64.whl (84 kB)
+Requirement already satisfied: tzdata>=2022.7 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from pandas>=1.5.3->alpaca-py) (2025.3)
+Requirement already satisfied: pytz>=2020.1 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from pandas>=1.5.3->alpaca-py) (2025.2)
+Requirement already satisfied: numpy>=1.22.4 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from pandas>=1.5.3->alpaca-py) (2.0.2)
+Requirement already satisfied: python-dateutil>=2.8.2 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from pandas>=1.5.3->alpaca-py) (2.9.0.post0)
+Collecting annotated-types>=0.6.0
+  Downloading annotated_types-0.7.0-py3-none-any.whl (13 kB)
+Collecting typing-inspection>=0.4.2
+  Downloading typing_inspection-0.4.2-py3-none-any.whl (14 kB)
+Requirement already satisfied: typing-extensions>=4.14.1 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from pydantic<3.0.0,>=2.0.3->alpaca-py) (4.15.0)
+Collecting pydantic-core==2.41.5
+  Downloading pydantic_core-2.41.5-cp39-cp39-macosx_11_0_arm64.whl (1.9 MB)
+Requirement already satisfied: six>=1.5 in /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/site-packages (from python-dateutil>=2.8.2->pandas>=1.5.3->alpaca-py) (1.15.0)
+Requirement already satisfied: charset_normalizer<4,>=2 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from requests<3.0.0,>=2.30.0->alpaca-py) (3.4.4)
+Requirement already satisfied: certifi>=2017.4.17 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from requests<3.0.0,>=2.30.0->alpaca-py) (2025.10.5)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from requests<3.0.0,>=2.30.0->alpaca-py) (2.5.0)
+Requirement already satisfied: idna<4,>=2.5 in /Users/mentorhub/Library/Python/3.9/lib/python/site-packages (from requests<3.0.0,>=2.30.0->alpaca-py) (3.11)
+Installing collected packages: typing-inspection, pydantic-core, annotated-types, sseclient-py, pydantic, msgpack, alpaca-py
+Successfully installed alpaca-py-0.43.2 annotated-types-0.7.0 msgpack-1.1.2 pydantic-2.12.5 pydantic-core-2.41.5 sseclient-py-1.9.0 typing-inspection-0.4.2
+WARNING: You are using pip version 21.2.4; however, version 26.0.1 is available.
+You should consider upgrading via the '/Library/Developer/CommandLineTools/usr/bin/python3 -m pip install --upgrade pip' command.

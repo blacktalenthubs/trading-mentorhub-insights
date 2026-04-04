@@ -127,99 +127,117 @@ def handle_start(token: str, chat_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def _find_alert(alert_id: int) -> dict | None:
-    """Look up alert by ID, falling back to a sibling match if the ID was deleted.
+    """Look up alert by ID — checks V2 database first (new alerts), then V1."""
+    # Try V2 API DB first (api/tradesignal_dev.db) — this is where new alerts go
+    try:
+        import sqlite3 as _sqlite3
+        v2_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "api", "tradesignal_dev.db")
+        if os.path.exists(v2_db_path):
+            conn = _sqlite3.connect(v2_db_path)
+            conn.row_factory = _sqlite3.Row
+            row = conn.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,)).fetchone()
+            conn.close()
+            if row:
+                result = dict(row)
+                result["_source"] = "v2"
+                logger.info("_find_alert: found alert %d in V2 DB (%s)", alert_id, result.get("symbol"))
+                return result
+    except Exception:
+        logger.debug("_find_alert: V2 DB lookup failed", exc_info=True)
 
-    Duplicate alerts (from the pre-dedup-fix race condition) may have been
-    cleaned up, leaving stale IDs in old Telegram button callbacks.  When the
-    exact ID is gone, find the surviving alert with the same
-    (symbol, alert_type, session_date) so the user's tap still works.
-    """
-    from alerting.alert_store import get_alert_by_id
-    from db import get_db
-
-    alert = get_alert_by_id(alert_id)
-    if alert:
-        return alert
-
-    # Fallback: the alert ID may have been a duplicate that was cleaned up.
-    # Try to find the surviving sibling by scanning nearby IDs for the same
-    # (symbol, alert_type, session_date) combo.
-    logger.info("_find_alert: id=%s gone, trying nearby ID scan", alert_id)
-    with get_db() as conn:
-        # Scan a small window around the missing ID for a match
-        row = conn.execute(
-            """SELECT * FROM alerts
-               WHERE id BETWEEN ? AND ?
-               ORDER BY ABS(id - ?) LIMIT 1""",
-            (alert_id - 5, alert_id + 5, alert_id),
-        ).fetchone()
-        if row:
-            logger.info("_find_alert: matched sibling id=%s for missing id=%s", row["id"], alert_id)
-            return dict(row)
+    # Fallback to V1 DB (data/trades.db)
+    try:
+        from alerting.alert_store import get_alert_by_id
+        alert = get_alert_by_id(alert_id)
+        if alert:
+            alert["_source"] = "v1"
+            return alert
+    except Exception:
+        pass
 
     return None
 
 
 def _handle_ack(alert_id: int, chat_id: int) -> str:
-    """User tapped 'Took It' — open a real trade and activate exit monitoring."""
-    from alerting.alert_store import (
-        ack_alert, create_active_entry_from_alert, get_alert_by_id,
-        get_user_id_by_chat_id, today_session,
-    )
-    from alerting.real_trade_store import open_real_trade, has_open_trade
-
+    """User tapped 'Took It' — mark alert and open a real trade."""
     logger.info("_handle_ack: alert_id=%s chat_id=%s", alert_id, chat_id)
     try:
         alert = _find_alert(alert_id)
     except Exception:
-        logger.exception("_handle_ack: get_alert_by_id failed for %s", alert_id)
+        logger.exception("_handle_ack: lookup failed for %s", alert_id)
         return f"DB error looking up alert {alert_id}."
     if not alert:
-        logger.warning("_handle_ack: alert %s not found in DB", alert_id)
+        logger.warning("_handle_ack: alert %s not found", alert_id)
         return "Alert not found."
-    # Use the found alert's actual ID (may differ from callback if sibling matched)
+
     alert_id = alert["id"]
-    logger.info("_handle_ack: found alert %s symbol=%s", alert_id, alert.get("symbol"))
+    symbol = alert["symbol"]
+    logger.info("_handle_ack: found alert %s symbol=%s", alert_id, symbol)
 
     if alert.get("user_action") == "took":
         return "Already acknowledged this trade."
 
-    # ACK the alert
-    ack_alert(alert_id, "took")
+    # ACK in V2 DB (api/tradesignal_dev.db)
+    _ack_v2_alert(alert_id, "took")
 
-    # Create active entry for exit monitoring (targets/stops)
-    create_active_entry_from_alert(alert_id, user_id=alert.get("user_id"))
+    # Also try V1 ACK for backward compatibility
+    try:
+        from alerting.alert_store import ack_alert, create_active_entry_from_alert
+        ack_alert(alert_id, "took")
+        create_active_entry_from_alert(alert_id, user_id=alert.get("user_id"))
+    except Exception:
+        pass
 
-    symbol = alert["symbol"]
-    if has_open_trade(symbol):
-        return f"\u2705 Trade ACK'd for {symbol} (already have an open position)."
-
-    # Open a real trade from the alert data
-    open_real_trade(
-        symbol=symbol,
-        direction=alert["direction"],
-        entry_price=alert.get("entry") or alert["price"],
-        stop_price=alert.get("stop"),
-        target_price=alert.get("target_1"),
-        target_2_price=alert.get("target_2"),
-        alert_type=alert["alert_type"],
-        alert_id=alert_id,
-        session_date=alert.get("session_date") or today_session(),
-    )
+    # Open a real trade
+    try:
+        from alerting.real_trade_store import open_real_trade, has_open_trade
+        from alerting.alert_store import today_session
+        if not has_open_trade(symbol):
+            open_real_trade(
+                symbol=symbol,
+                direction=alert["direction"],
+                entry_price=alert.get("entry") or alert["price"],
+                stop_price=alert.get("stop"),
+                target_price=alert.get("target_1"),
+                target_2_price=alert.get("target_2"),
+                alert_type=alert["alert_type"],
+                alert_id=alert_id,
+                session_date=alert.get("session_date") or today_session(),
+            )
+    except Exception:
+        logger.debug("_handle_ack: real trade creation skipped", exc_info=True)
 
     entry = alert.get("entry") or alert["price"]
-    return f"\u2705 Trade opened: {symbol} @ ${entry:.2f}"
+    return f"\u2705 Trade ACK'd: {symbol} @ ${entry:.2f}"
+
+
+def _ack_v2_alert(alert_id: int, action: str) -> None:
+    """Update user_action in the V2 API database."""
+    try:
+        import sqlite3
+        v2_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "api", "tradesignal_dev.db")
+        if os.path.exists(v2_db_path):
+            conn = sqlite3.connect(v2_db_path)
+            conn.execute("UPDATE alerts SET user_action = ? WHERE id = ?", (action, alert_id))
+            conn.commit()
+            conn.close()
+            logger.info("_ack_v2_alert: updated alert %d -> %s in V2 DB", alert_id, action)
+    except Exception:
+        logger.debug("_ack_v2_alert: failed", exc_info=True)
 
 
 def _handle_skip(alert_id: int) -> str:
     """User tapped 'Skip' — mark alert as skipped."""
-    from alerting.alert_store import ack_alert
-
     alert = _find_alert(alert_id)
     if not alert:
         return "Alert not found."
 
-    ack_alert(alert["id"], "skipped")
+    _ack_v2_alert(alert["id"], "skipped")
+    try:
+        from alerting.alert_store import ack_alert
+        ack_alert(alert["id"], "skipped")
+    except Exception:
+        pass
     return f"\u274c Skipped {alert['symbol']} alert."
 
 

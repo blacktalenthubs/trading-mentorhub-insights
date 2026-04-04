@@ -156,3 +156,61 @@ h1, h2, h3, h4, h5, h6 {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+
+/* ============================================================
+   CHART GRID PATTERN
+   ============================================================ */
+
+.chart-grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ============================================================
+   AI SWEEP ANIMATION
+   ============================================================ */
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Disabled buttons */
+button:disabled {
+  cursor: not-allowed;
+}
+
+@keyframes ai-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.ai-sweep-glow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(to right, transparent, rgba(99, 102, 241, 0.1), transparent);
+  animation: ai-sweep 3s infinite linear;
+}
+
+/* ============================================================
+   TEXT GRADIENT (AI branding)
+   ============================================================ */
+
+.text-gradient-ai {
+  background: linear-gradient(to right, #a5b4fc, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ============================================================
+   NO SCROLLBAR UTILITY
+   ============================================================ */
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

@@ -60,14 +60,16 @@ def _create_refresh_token(user_id: int) -> str:
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
+    # secure=False on localhost so the cookie is stored over plain HTTP
+    is_dev = settings.DEBUG or settings.CORS_ORIGINS[0].startswith("http://localhost")
     response.set_cookie(
         key=REFRESH_COOKIE,
         value=token,
         httponly=True,
-        secure=True,
+        secure=not is_dev,
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        path="/api/v1/auth",
+        path="/api/v1/auth" if not is_dev else "/",
     )
 
 
@@ -185,7 +187,8 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response):
-    response.delete_cookie(REFRESH_COOKIE, path="/api/v1/auth")
+    is_dev = settings.DEBUG or settings.CORS_ORIGINS[0].startswith("http://localhost")
+    response.delete_cookie(REFRESH_COOKIE, path="/api/v1/auth" if not is_dev else "/")
     return Response(status_code=204)
 
 

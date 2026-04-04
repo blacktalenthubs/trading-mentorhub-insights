@@ -164,3 +164,69 @@ async def update_alert_preferences(
         ))
 
     return AlertPrefsResponse(categories=categories, min_score=user.min_alert_score)
+
+
+# --- Telegram Link ---
+
+
+@router.get("/telegram-status")
+async def telegram_status(user: User = Depends(get_current_user)):
+    """Check if Telegram is linked."""
+    return {
+        "linked": bool(user.telegram_chat_id),
+        "telegram_enabled": user.telegram_enabled,
+    }
+
+
+@router.post("/telegram-link")
+async def telegram_link(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a deep-link URL for linking Telegram."""
+    import os
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.telegram_link import TelegramLinkToken
+
+    token = uuid.uuid4().hex
+    link = TelegramLinkToken(
+        user_id=user.id,
+        token=token,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    db.add(link)
+    await db.flush()
+
+    bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "TradeCoPilotBot")
+    deep_link = f"https://t.me/{bot_username}?start={token}"
+    return {"deep_link": deep_link, "token": token, "expires_in": 600}
+
+
+@router.put("/telegram-chat-id")
+async def set_telegram_chat_id_direct(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Directly set telegram_chat_id (for testing/admin)."""
+    chat_id = str(body.get("chat_id", "")).strip()
+    if not chat_id:
+        raise HTTPException(status_code=422, detail="chat_id required")
+    user.telegram_chat_id = chat_id
+    user.telegram_enabled = True
+    await db.flush()
+    return {"linked": True, "chat_id": chat_id}
+
+
+@router.delete("/telegram-link")
+async def telegram_unlink(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unlink Telegram — clears chat_id and disables Telegram notifications."""
+    user.telegram_chat_id = None
+    user.telegram_enabled = False
+    await db.flush()
+    return {"linked": False, "telegram_enabled": False}

@@ -1,0 +1,364 @@
+<!--
+  aesthetic_dna: Bloomberg Terminal meets Linear. High-density, high-contrast, strictly functional. Layout built for 5-second scannability.
+  ui_paradigm: Multi-pane rigid workspace. Global fixed shell wrapping internal scrolling bento-panes.
+  palette: Obsidion/OLED Dark base (#050505), Slate grey structural lines (#1E1E1E), Acid Green for profit/longs (#00E676), Crimson for loss/shorts (#FF3B30), Copilot Blurple for system events (#6366F1).
+-->
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-black text-slate-300 antialiased selection:bg-indigo-500/30">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSignal Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        dash: {
+                            bg: '#050505',
+                            panel: '#0C0C0E',
+                            border: '#1F1F22',
+                            text: '#D4D4D8',
+                            muted: '#71717A',
+                            up: '#00E676',
+                            down: '#FF3B30',
+                            accent: '#6366F1'
+                        }
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'scanline': 'scan 8s linear infinite',
+                    },
+                    keyframes: {
+                        scan: {
+                            '0%': { transform: 'translateY(-100%)' },
+                            '100%': { transform: 'translateY(100vh)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #27272A; border-radius: 4px; }
+        .custom-scroll:hover::-webkit-scrollbar-thumb { background: #3F3F46; }
+        .glass-header {
+            background: rgba(12, 12, 14, 0.85);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .sparkline-up {
+            background: linear-gradient(to right, transparent, rgba(0, 230, 118, 0.1) 80%, rgba(0, 230, 118, 0.5));
+            clip-path: polygon(0 100%, 0 80%, 20% 70%, 40% 85%, 60% 40%, 80% 60%, 100% 20%, 100% 100%);
+        }
+        .sparkline-down {
+            background: linear-gradient(to right, transparent, rgba(255, 59, 48, 0.1) 80%, rgba(255, 59, 48, 0.5));
+            clip-path: polygon(0 100%, 0 20%, 20% 30%, 40% 10%, 60% 70%, 80% 50%, 100% 90%, 100% 100%);
+        }
+        .ticker-val { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body class="h-full w-full flex bg-dash-bg text-dash-text overflow-hidden relative">
+    <div class="absolute inset-0 pointer-events-none opacity-[0.02]" style="background-image: radial-gradient(#fff 1px, transparent 1px); background-size: 24px 24px;"></div>
+
+    <nav class="w-16 h-full flex-shrink-0 border-r border-dash-border bg-[#08080A] flex flex-col items-center py-6 z-20 relative">
+        <div class="w-10 h-10 rounded-xl bg-dash-accent/10 border border-dash-accent/30 flex items-center justify-center text-dash-accent mb-8 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+            <i class="ph-bold ph-activity text-xl"></i>
+        </div>
+        <div class="flex flex-col gap-6 w-full items-center">
+            <button class="relative group p-3 text-white">
+                <div class="absolute inset-y-0 left-0 w-1 bg-white rounded-r-md"></div>
+                <i class="ph-fill ph-squares-four text-2xl"></i>
+            </button>
+            <button class="p-3 text-dash-muted hover:text-white transition-colors"><i class="ph ph-chart-line-up text-2xl"></i></button>
+            <button class="p-3 text-dash-muted hover:text-white transition-colors"><i class="ph ph-list-dashes text-2xl"></i></button>
+            <button class="p-3 text-dash-muted hover:text-white transition-colors"><i class="ph ph-target text-2xl"></i></button>
+        </div>
+        <div class="mt-auto flex flex-col gap-4">
+            <button class="p-3 text-dash-muted hover:text-white transition-colors"><i class="ph ph-gear text-2xl"></i></button>
+            <div class="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-400 mt-2">T</div>
+        </div>
+    </nav>
+
+    <main class="flex-1 flex flex-col h-full h-screen overflow-hidden z-10 relative">
+        <header class="h-14 flex-shrink-0 border-b border-dash-border bg-dash-bg/90 backdrop-blur-sm px-6 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <h1 class="text-sm font-semibold tracking-wide text-white">Overview Snapshot</h1>
+                <div class="h-4 w-px bg-dash-border"></div>
+                <div class="flex items-center gap-2 bg-yellow-400/10 border border-yellow-400/20 px-2.5 py-1 rounded-md">
+                    <div class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse-fast shadow-[0_0_8px_rgba(250,204,21,0.6)]"></div>
+                    <span class="text-[10px] font-mono font-semibold text-yellow-400 tracking-widest uppercase">PRE-MARKET</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button class="bg-[#18181B] hover:bg-[#27272A] border border-dash-border text-white text-xs font-semibold px-4 py-1.5 rounded-md transition-colors">Go to Trading</button>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-hidden p-6 gap-6 grid grid-cols-1 md:grid-cols-12 auto-rows-fr h-full pb-6">
+            <div class="col-span-12 xl:col-span-8 flex flex-col gap-6 h-full min-h-0">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 flex-shrink-0">
+                    <div class="col-span-1 bg-dash-panel border border-dash-border rounded-xl p-5 flex flex-col relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <i class="ph-fill ph-wallet text-6xl text-white"></i>
+                        </div>
+                        <span class="text-xs font-semibold text-dash-muted uppercase tracking-wider mb-1">Open P&L (Unrealized)</span>
+                        <div class="flex items-baseline gap-2 mt-2">
+                            <span class="text-3xl font-mono font-bold text-dash-up ticker-val drop-shadow-[0_0_12px_rgba(0,230,118,0.2)]">+$4,285.50</span>
+                        </div>
+                        <div class="mt-auto pt-4 flex items-center justify-between border-t border-dash-border/50">
+                            <div class="flex items-center gap-1 text-xs font-mono text-dash-up">
+                                <i class="ph-bold ph-arrow-up-right"></i><span>1.84% Day</span>
+                            </div>
+                            <span class="text-xs text-dash-muted">3 open positions</span>
+                        </div>
+                    </div>
+
+                    <div class="col-span-2 grid grid-cols-2 lg:grid-cols-4 gap-px bg-dash-border rounded-xl overflow-hidden border border-dash-border">
+                        <div class="bg-dash-panel p-4 flex flex-col justify-center">
+                            <div class="text-[10px] uppercase tracking-wider font-semibold text-dash-muted mb-1 flex items-center gap-1.5">
+                                <i class="ph-fill ph-radar text-dash-accent"></i> Signals
+                            </div>
+                            <div class="text-xl font-mono text-white ticker-val">24</div>
+                            <div class="text-[10px] text-dash-muted mt-1">Today</div>
+                        </div>
+                        <div class="bg-dash-panel p-4 flex flex-col justify-center relative overflow-hidden">
+                            <div class="absolute bottom-0 left-0 w-full h-1 bg-dash-up/20"><div class="h-full bg-dash-up w-[68%]"></div></div>
+                            <div class="text-[10px] uppercase tracking-wider font-semibold text-dash-muted mb-1">Win Rate</div>
+                            <div class="text-xl font-mono text-white ticker-val">68.5%</div>
+                            <div class="text-[10px] text-dash-muted mt-1">11W / 5L</div>
+                        </div>
+                        <div class="bg-dash-panel p-4 flex flex-col justify-center">
+                            <div class="text-[10px] uppercase tracking-wider font-semibold text-dash-muted mb-1 flex items-center gap-1.5">
+                                <i class="ph-fill ph-crosshair text-dash-up"></i> Targets Hit
+                            </div>
+                            <div class="text-xl font-mono text-dash-up ticker-val">8</div>
+                            <div class="text-[10px] text-dash-muted mt-1">+$3.1k Realized</div>
+                        </div>
+                        <div class="bg-dash-panel p-4 flex flex-col justify-center">
+                            <div class="text-[10px] uppercase tracking-wider font-semibold text-dash-muted mb-1 flex items-center gap-1.5">
+                                <i class="ph-fill ph-shield-warning text-dash-down"></i> Stops Hit
+                            </div>
+                            <div class="text-xl font-mono text-dash-down ticker-val">2</div>
+                            <div class="text-[10px] text-dash-muted mt-1">Risk mgmt active</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-dash-panel border border-dash-border rounded-xl flex flex-col flex-1 min-h-0 relative">
+                    <div class="h-12 border-b border-dash-border px-5 flex items-center justify-between glass-header rounded-t-xl z-10 w-full">
+                        <div class="flex gap-6 h-full">
+                            <button class="text-sm font-semibold text-white border-b-2 border-dash-accent h-full flex items-center px-1">Active Positions (4)</button>
+                            <button class="text-sm font-medium text-dash-muted hover:text-white h-full flex items-center px-1 transition-colors">Watchlist</button>
+                        </div>
+                        <button class="text-xs font-medium text-dash-muted hover:text-white flex items-center gap-1 transition-colors">View All <i class="ph-bold ph-arrow-right"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-x-auto overflow-y-auto custom-scroll p-1">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="sticky top-0 bg-dash-panel z-10">
+                                <tr>
+                                    <th class="py-3 px-4 text-[10px] font-semibold text-dash-muted uppercase tracking-wider border-b border-dash-border/50">Symbol</th>
+                                    <th class="py-3 px-4 text-[10px] font-semibold text-dash-muted uppercase tracking-wider border-b border-dash-border/50 text-right">Avg Entry</th>
+                                    <th class="py-3 px-4 text-[10px] font-semibold text-dash-muted uppercase tracking-wider border-b border-dash-border/50 text-right">Last Price</th>
+                                    <th class="py-3 px-4 text-[10px] font-semibold text-dash-muted uppercase tracking-wider border-b border-dash-border/50 text-right">Unrealized</th>
+                                    <th class="py-3 px-4 text-[10px] font-semibold text-dash-muted uppercase tracking-wider border-b border-dash-border/50 w-24 text-right">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-sm">
+                                <tr class="border-b border-dash-border/30 hover:bg-[#1A1A1D] transition-colors cursor-pointer">
+                                    <td class="py-3 px-4">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-1.5 h-6 bg-dash-up rounded-full"></div>
+                                            <div>
+                                                <div class="font-bold text-white font-mono">NVDA</div>
+                                                <div class="text-[10px] text-dash-muted">100 Shares · Long</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-mono text-dash-muted ticker-val">128.45</td>
+                                    <td class="py-3 px-4 text-right font-mono text-white ticker-val">132.80</td>
+                                    <td class="py-3 px-4 text-right font-mono ticker-val">
+                                        <div class="text-dash-up">+$435.00</div>
+                                        <div class="text-[10px] text-dash-up/70">+3.38%</div>
+                                    </td>
+                                    <td class="py-3 px-4 text-right">
+                                        <span class="inline-block px-2 py-0.5 border border-dash-up/30 text-dash-up bg-dash-up/10 text-[10px] font-bold rounded">HOLD</span>
+                                    </td>
+                                </tr>
+                                <tr class="border-b border-dash-border/30 hover:bg-[#1A1A1D] transition-colors cursor-pointer">
+                                    <td class="py-3 px-4">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-1.5 h-6 bg-dash-down rounded-full"></div>
+                                            <div>
+                                                <div class="font-bold text-white font-mono">TSLA</div>
+                                                <div class="text-[10px] text-dash-muted">50 Shares · Short</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-mono text-dash-muted ticker-val">175.20</td>
+                                    <td class="py-3 px-4 text-right font-mono text-white ticker-val">178.50</td>
+                                    <td class="py-3 px-4 text-right font-mono ticker-val">
+                                        <div class="text-dash-down">-$165.00</div>
+                                        <div class="text-[10px] text-dash-down/70">-1.88%</div>
+                                    </td>
+                                    <td class="py-3 px-4 text-right">
+                                        <span class="inline-block px-2 py-0.5 border border-yellow-500/30 text-yellow-500 bg-yellow-500/10 text-[10px] font-bold rounded">WARN</span>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-[#1A1A1D] transition-colors cursor-pointer">
+                                    <td class="py-3 px-4">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-1.5 h-6 bg-dash-up rounded-full"></div>
+                                            <div>
+                                                <div class="font-bold text-white font-mono">META</div>
+                                                <div class="text-[10px] text-dash-muted">40 Shares · Long</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="py-3 px-4 text-right font-mono text-dash-muted ticker-val">485.10</td>
+                                    <td class="py-3 px-4 text-right font-mono text-white ticker-val">495.22</td>
+                                    <td class="py-3 px-4 text-right font-mono ticker-val">
+                                        <div class="text-dash-up">+$404.80</div>
+                                        <div class="text-[10px] text-dash-up/70">+2.08%</div>
+                                    </td>
+                                    <td class="py-3 px-4 text-right">
+                                        <span class="inline-block px-2 py-0.5 border border-dash-up/30 text-dash-up bg-dash-up/10 text-[10px] font-bold rounded">HOLD</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 xl:col-span-4 bg-dash-panel border border-dash-border rounded-xl flex flex-col h-full overflow-hidden shadow-2xl relative">
+                <div class="h-14 border-b border-dash-border px-5 flex items-center justify-between bg-[#141417] flex-shrink-0 z-10 w-full relative overflow-hidden">
+                    <div class="absolute inset-0 bg-dash-accent/5 animate-pulse-fast pointer-events-none"></div>
+                    <div class="flex items-center gap-2">
+                        <div class="relative flex h-2.5 w-2.5">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-dash-accent opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-dash-accent"></span>
+                        </div>
+                        <h2 class="text-sm font-semibold text-white tracking-wide">Signal Feed</h2>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-y-auto custom-scroll p-4 flex flex-col gap-4 bg-[#0A0A0C]">
+                    <div class="bg-dash-bg border border-dash-border rounded-lg relative overflow-hidden shadow-xl">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-dash-up shadow-[0_0_10px_rgba(0,230,118,0.5)]"></div>
+                        <div class="p-3.5 pl-5">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-dash-up/15 text-dash-up text-[9px] font-bold px-1.5 py-0.5 rounded border border-dash-up/20 uppercase">Buy</span>
+                                    <span class="font-mono font-bold text-white text-base">AMZN</span>
+                                </div>
+                                <span class="text-[10px] font-mono text-dash-muted">45s ago</span>
+                            </div>
+                            <p class="text-xs text-slate-300 mb-3 leading-relaxed">
+                                <span class="text-white font-medium">EMA20 Bounce</span> — Price bouncing off 20MA support with rising volume.
+                            </p>
+                            <div class="bg-dash-panel/50 rounded p-2.5 mb-3 border border-dash-border/50 grid grid-cols-2 gap-x-4 gap-y-2">
+                                <div class="flex justify-between items-end border-b border-dash-border/30 pb-1">
+                                    <span class="text-[9px] text-dash-muted uppercase">Entry</span>
+                                    <span class="font-mono text-xs text-white">$209.37</span>
+                                </div>
+                                <div class="flex justify-between items-end border-b border-dash-border/30 pb-1">
+                                    <span class="text-[9px] text-dash-muted uppercase">Stop</span>
+                                    <span class="font-mono text-xs text-dash-down">$207.54</span>
+                                </div>
+                                <div class="flex justify-between items-end pt-1">
+                                    <span class="text-[9px] text-dash-muted uppercase">T1</span>
+                                    <span class="font-mono text-xs text-dash-up">$212.21</span>
+                                </div>
+                                <div class="flex justify-between items-end pt-1">
+                                    <span class="text-[9px] text-dash-muted uppercase">R:R</span>
+                                    <span class="font-mono text-xs text-dash-accent">1.6:1</span>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="flex-1 bg-dash-up/20 hover:bg-dash-up/30 text-dash-up text-xs font-semibold py-2 rounded transition-colors border border-dash-up/20">
+                                    ✅ Took It
+                                </button>
+                                <button class="px-4 border border-dash-border text-dash-muted hover:text-white hover:bg-white/5 text-xs font-semibold py-2 rounded transition-colors">
+                                    Skip
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-dash-bg border border-dash-border rounded-lg relative overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-dash-down"></div>
+                        <div class="p-3.5 pl-5">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-dash-down/15 text-dash-down text-[9px] font-bold px-1.5 py-0.5 rounded border border-dash-down/20 uppercase">Short</span>
+                                    <span class="font-mono font-bold text-white text-base">NVDA</span>
+                                </div>
+                                <span class="text-[10px] font-mono text-dash-muted">2m ago</span>
+                            </div>
+                            <p class="text-xs text-slate-300 mb-3">EMA rejection with declining volume. Below all major MAs.</p>
+                            <div class="flex gap-2">
+                                <button class="flex-1 bg-dash-down/20 hover:bg-dash-down/30 text-dash-down text-xs font-semibold py-1.5 rounded transition-colors border border-dash-down/20">
+                                    ✅ Took It
+                                </button>
+                                <button class="px-4 border border-dash-border text-dash-muted hover:text-white text-xs font-semibold py-1.5 rounded transition-colors">
+                                    Skip
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-dash-up/5 border border-dash-up/20 rounded-lg relative overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-dash-up"></div>
+                        <div class="p-3 pl-5 flex items-start gap-3">
+                            <div class="mt-0.5"><i class="ph-fill ph-target text-dash-up text-lg"></i></div>
+                            <div>
+                                <h4 class="text-xs font-bold text-white font-mono uppercase">Target 1 Hit: TSLA</h4>
+                                <p class="text-[10px] text-dash-up mt-0.5">T1 hit at $365.00 — partial profit taken. Trail stop to breakeven.</p>
+                                <div class="text-[9px] font-mono text-dash-muted mt-1">10:42 AM</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-dash-bg/40 border border-dash-border/40 rounded-lg relative overflow-hidden opacity-70">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-dash-muted"></div>
+                        <div class="p-3.5 pl-5">
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-dash-muted text-[10px] font-mono"><i class="ph-fill ph-check-circle text-dash-up mr-1 text-xs"></i>Taken</span>
+                                    <span class="font-mono font-medium text-dash-muted">META (LONG)</span>
+                                </div>
+                                <span class="text-[10px] font-mono text-dash-muted">10:15 AM</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-dash-bg/40 border border-dash-border/40 rounded-lg relative overflow-hidden opacity-70">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-dash-muted"></div>
+                        <div class="p-3.5 pl-5">
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-dash-muted text-[10px] font-mono"><i class="ph-fill ph-x-circle text-dash-muted mr-1 text-xs"></i>Skipped</span>
+                                    <span class="font-mono font-medium text-dash-muted">SPY (LONG)</span>
+                                </div>
+                                <span class="text-[10px] font-mono text-dash-muted">11:05 AM</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

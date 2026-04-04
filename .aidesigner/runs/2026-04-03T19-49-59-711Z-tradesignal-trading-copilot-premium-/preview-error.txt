@@ -1,0 +1,1 @@
+Preview rendering requires puppeteer. Install it in the repo or alongside @aidesigner/agent-skills.

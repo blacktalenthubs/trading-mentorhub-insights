@@ -1,0 +1,17 @@
+{
+  "repoRoot": "/Volumes/mentorhub/repos/investments/trade-analytics",
+  "cwd": "/Volumes/mentorhub/repos/investments/trade-analytics",
+  "stack": {
+    "frameworks": [],
+    "componentLibraries": [],
+    "styling": [],
+    "componentDirectories": [],
+    "packageFiles": []
+  },
+  "routes": [],
+  "tokens": {
+    "sources": [],
+    "tokens": []
+  },
+  "summary": "Repo root: /Volumes/mentorhub/repos/investments/trade-analytics\nWorking directory: /Volumes/mentorhub/repos/investments/trade-analytics\nFrameworks: none detected\nStyling: none detected\nComponent libraries: none detected\nRoute roots: none detected\nRoute candidates: none detected\nComponent directories: none detected\nToken sources: none detected\nVisible design language hints: no strong hints detected"
+}

@@ -45,9 +45,20 @@ class ScannerContextResponse(BaseModel):
     context: Dict[str, Any] = {}
 
 
+class OHLCVBar(BaseModel):
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
 class CoachRequest(BaseModel):
     messages: List[Dict[str, str]]
     symbols: Optional[List[str]] = None
+    ohlcv_bars: Optional[List[OHLCVBar]] = None
+    timeframe: Optional[str] = None
 
 
 class PositionCheckRequest(BaseModel):

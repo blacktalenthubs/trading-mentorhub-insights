@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours for dev
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days for dev
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Redis (optional — falls back to in-memory cache if empty)
@@ -36,6 +36,15 @@ class Settings(BaseSettings):
 
     # Feature limits
     FREE_WATCHLIST_MAX: int = 5
+
+    # Square billing
+    SQUARE_ACCESS_TOKEN: str = ""
+    SQUARE_APP_ID: str = ""
+    SQUARE_LOCATION_ID: str = ""
+    SQUARE_ENVIRONMENT: str = "sandbox"  # "sandbox" or "production"
+    SQUARE_WEBHOOK_SIGNATURE_KEY: str = ""
+    SQUARE_PRO_PLAN_ID: str = ""       # Catalog plan_variation_id for Pro monthly
+    SQUARE_PREMIUM_PLAN_ID: str = ""   # Catalog plan_variation_id for Premium monthly
 
     # AI
     ANTHROPIC_API_KEY: str = ""

@@ -1,7 +1,7 @@
 /** Client-side technical indicator calculations for chart overlays. */
 
 export interface TimeValue {
-  time: string;
+  time: string | number;
   value: number;
 }
 
@@ -10,7 +10,7 @@ export interface TimeValue {
  * Returns one value per bar — NaN for the first (period-1) bars.
  */
 export function computeSMA(
-  closes: { time: string; close: number }[],
+  closes: { time: string | number; close: number }[],
   period: number,
 ): TimeValue[] {
   const result: TimeValue[] = [];
@@ -31,7 +31,7 @@ export function computeSMA(
  * Exponential Moving Average.
  */
 export function computeEMA(
-  closes: { time: string; close: number }[],
+  closes: { time: string | number; close: number }[],
   period: number,
 ): TimeValue[] {
   if (closes.length < period) return [];
@@ -58,7 +58,7 @@ export function computeEMA(
  * VWAP — anchored to start of data (typically session start for intraday).
  */
 export function computeVWAP(
-  bars: { time: string; high: number; low: number; close: number; volume: number }[],
+  bars: { time: string | number; high: number; low: number; close: number; volume: number }[],
 ): TimeValue[] {
   let cumVolume = 0;
   let cumTP = 0;

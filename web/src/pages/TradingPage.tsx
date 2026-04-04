@@ -1,35 +1,42 @@
 /** Trading — the ONE page traders live on all day.
  *
- *  Left sidebar: Watchlist with signal status + score
- *  Center: Chart with entry/stop/target overlays + trade plan
- *  Bottom: Today's alert stream (real-time)
+ *  Layout (desktop):
+ *    Left:   320px watchlist panel (search + AI-ranked symbols)
+ *    Center: Chart canvas (hero) + cockpit trade plan strip
+ *    Right:  340px AI Coach (top) + Signal Feed (bottom)
+ *
+ *  Mobile: horizontal symbol pills + stacked chart/plan
  */
 
 import { useState, useRef, useEffect } from "react";
-import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useDailyAnalysis } from "../api/hooks";
+import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useWatchlist, useAddSymbol, useRemoveSymbol } from "../api/hooks";
 import { useCoachStream } from "../hooks/useCoachStream";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import CandlestickChart from "../components/CandlestickChart";
-import Card from "../components/ui/Card";
-import Badge from "../components/ui/Badge";
-import WatchlistBar from "../components/WatchlistBar";
-import { RefreshCw, ChevronDown, ChevronUp, Check, X, Brain, Send, MessageSquare } from "lucide-react";
+import {
+  RefreshCw, Brain, Send, Search, Target, ShieldAlert,
+  PanelRightOpen, PanelRightClose, Plus, X, Loader2,
+} from "lucide-react";
 
 /* ── constants ────────────────────────────────────────────────────── */
 
 const GRADE_COLORS: Record<string, string> = {
-  "A+": "text-bullish-text",
-  A: "text-bullish-text",
-  B: "text-warning-text",
-  C: "text-text-faint",
+  "A+": "bg-bullish/10 text-bullish-text ring-1 ring-inset ring-bullish/20",
+  A: "bg-bullish/10 text-bullish-text ring-1 ring-inset ring-bullish/20",
+  "A-": "bg-bullish/10 text-bullish-text ring-1 ring-inset ring-bullish/20",
+  B: "bg-warning/10 text-warning-text ring-1 ring-inset ring-warning/20",
+  "B+": "bg-warning/10 text-warning-text ring-1 ring-inset ring-warning/20",
+  "B-": "bg-surface-4 text-text-muted ring-1 ring-inset ring-border-subtle",
+  C: "bg-bearish/10 text-bearish-text ring-1 ring-inset ring-bearish/20",
+  "C-": "bg-surface-4 text-text-muted ring-1 ring-inset ring-border-subtle",
 };
 
-const ACTION_VARIANT: Record<string, "bullish" | "warning" | "bearish" | "neutral"> = {
-  "Potential Entry": "bullish",
-  Watch: "warning",
-  "No Setup": "neutral",
+const SETUP_LABELS: Record<string, string> = {
+  "Potential Entry": "Entry",
+  Watch: "Watch",
+  "No Setup": "No Setup",
 };
 
 const TIMEFRAMES = [
@@ -45,272 +52,20 @@ const TIMEFRAMES = [
 ] as const;
 
 const DEFAULT_TF = 6; // Daily
-const DEFAULT_PORTFOLIO = 150_000;
+const DEFAULT_PORTFOLIO = Number(localStorage.getItem("ts_portfolio_size")) || 50_000;
 
 function fmt(v: number | null | undefined, decimals = 2): string {
   if (v == null) return "—";
   return v.toFixed(decimals);
 }
 
-/* ── Signal row (watchlist sidebar) ──────────────────────────────── */
-
-function SignalRow({
-  signal: s,
-  selected,
-  onClick,
-}: {
-  signal: SignalResult;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-colors ${
-        selected
-          ? "bg-accent/10 border border-accent/30"
-          : "hover:bg-surface-3/50 border border-transparent"
-      }`}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="text-sm font-bold text-text-primary">{s.symbol}</span>
-        <Badge variant={ACTION_VARIANT[s.action_label] || "neutral"}>
-          {s.action_label === "Potential Entry" ? "Entry" : s.action_label}
-        </Badge>
-      </div>
-      <div className="text-right shrink-0">
-        <p className="font-mono text-sm font-semibold text-text-primary">${fmt(s.close)}</p>
-        <p className={`font-mono text-[10px] font-bold ${GRADE_COLORS[s.grade] || "text-text-faint"}`}>
-          {s.grade} · {fmt(s.rr_ratio, 1)}R
-        </p>
-      </div>
-    </button>
-  );
+function pctChange(current: number | null | undefined, ref: number | null | undefined): string | null {
+  if (current == null || ref == null || ref === 0) return null;
+  const pct = ((current - ref) / ref) * 100;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
 }
 
-/* ── Trade plan bar ──────────────────────────────────────────────── */
-
-function TradePlan({ signal: s }: { signal: SignalResult }) {
-  const risk = s.risk_per_share ?? (s.entry && s.stop ? s.entry - s.stop : null);
-  const shares = risk && risk > 0 ? Math.floor(DEFAULT_PORTFOLIO * 0.01 / risk) : null;
-
-  if (s.entry == null) return null;
-
-  return (
-    <div className="grid grid-cols-3 gap-2 sm:grid-cols-7">
-      <div className="rounded-md bg-surface-3 p-2 text-center">
-        <p className="text-[10px] text-text-faint">Entry</p>
-        <p className="font-mono text-sm font-semibold text-bullish-text">${fmt(s.entry)}</p>
-      </div>
-      <div className="rounded-md bg-surface-3 p-2 text-center">
-        <p className="text-[10px] text-text-faint">Stop</p>
-        <p className="font-mono text-sm font-semibold text-bearish-text">${fmt(s.stop)}</p>
-      </div>
-      <div className="rounded-md bg-surface-3 p-2 text-center">
-        <p className="text-[10px] text-text-faint">T1</p>
-        <p className="font-mono text-sm font-semibold text-info-text">${fmt(s.target_1)}</p>
-      </div>
-      <div className="rounded-md bg-surface-3 p-2 text-center">
-        <p className="text-[10px] text-text-faint">T2</p>
-        <p className="font-mono text-sm font-semibold text-info-text">${fmt(s.target_2)}</p>
-      </div>
-      <div className="rounded-md bg-surface-3 p-2 text-center">
-        <p className="text-[10px] text-text-faint">R:R</p>
-        <p className="font-mono text-sm font-semibold text-text-primary">{fmt(s.rr_ratio, 1)}:1</p>
-      </div>
-      <div className="rounded-md bg-surface-3 p-2 text-center">
-        <p className="text-[10px] text-text-faint">Risk/sh</p>
-        <p className="font-mono text-sm font-semibold text-bearish-text">${fmt(risk)}</p>
-      </div>
-      <div className="rounded-md bg-surface-3 p-2 text-center">
-        <p className="text-[10px] text-text-faint">Shares</p>
-        <p className="font-mono text-sm font-semibold text-text-primary">{shares ?? "—"}</p>
-      </div>
-    </div>
-  );
-}
-
-/* ── Alert stream item ───────────────────────────────────────────── */
-
-function AlertRow({ alert: a }: { alert: Alert }) {
-  const ack = useAckAlert();
-  const time = new Date(a.created_at).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const dirColor =
-    a.direction === "BUY" ? "text-bullish-text" :
-    a.direction === "SHORT" ? "text-bearish-text" :
-    a.direction === "SELL" ? "text-warning-text" : "text-text-muted";
-
-  return (
-    <div className="flex items-center gap-3 rounded-md bg-surface-3/50 px-3 py-2 text-sm">
-      <span className="shrink-0 font-mono text-xs text-text-faint">{time}</span>
-      <span className={`shrink-0 font-bold ${dirColor}`}>{a.direction}</span>
-      <span className="font-semibold text-text-primary">{a.symbol}</span>
-      <span className="min-w-0 flex-1 truncate text-text-muted">
-        {a.alert_type.replace(/_/g, " ")}
-      </span>
-      <span className="shrink-0 font-mono text-text-secondary">${fmt(a.price)}</span>
-      {a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
-        <div className="flex shrink-0 gap-1">
-          <button
-            onClick={() => ack.mutate({ alert_id: a.id, action: "took" })}
-            className="rounded bg-bullish/20 p-1 text-bullish-text hover:bg-bullish/30"
-            title="Took it"
-          >
-            <Check className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => ack.mutate({ alert_id: a.id, action: "skipped" })}
-            className="rounded bg-surface-4 p-1 text-text-muted hover:bg-surface-3"
-            title="Skipped"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-      {a.user_action && (
-        <Badge variant={a.user_action === "took" ? "bullish" : "neutral"}>
-          {a.user_action === "took" ? "Took" : "Skip"}
-        </Badge>
-      )}
-    </div>
-  );
-}
-
-/* ── Main Trading Page ───────────────────────────────────────────── */
-
-/* ── AI Coach Panel ──────────────────────────────────────────────── */
-
-function AIPanel({ symbol, signal }: { symbol: string | null; signal: SignalResult | null }) {
-  const { data: analysis } = useDailyAnalysis(symbol ?? "");
-  const { messages, streaming, sendMessage, stopStreaming, clearMessages } = useCoachStream();
-  const [input, setInput] = useState("");
-  const [lastAutoSymbol, setLastAutoSymbol] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Auto-analyze when symbol changes — send context-aware prompt automatically
-  useEffect(() => {
-    if (!symbol || symbol === lastAutoSymbol || streaming) return;
-    setLastAutoSymbol(symbol);
-    clearMessages();
-
-    // Build concise prompt — delay to let clearMessages settle
-    const parts = [`Quick take on ${symbol}.`];
-    if (signal) {
-      if (signal.entry) parts.push(`Entry ${signal.entry}, Stop ${signal.stop}, T1 ${signal.target_1}, T2 ${signal.target_2}. R:R ${signal.rr_ratio?.toFixed(1)}:1. Score ${signal.score}.`);
-      if (signal.action_label === "Potential Entry") {
-        parts.push("4 bullets ONLY: 1) Setup type 2) Key levels 3) Entry now or wait? 4) Invalidation");
-      } else if (signal.action_label === "Watch") {
-        parts.push("3 bullets ONLY: 1) Structure 2) Key levels 3) What triggers entry");
-      } else {
-        parts.push("2 bullets ONLY: 1) Structure 2) Nearest support/resistance");
-      }
-    }
-
-    // Delay send so clearMessages state update takes effect first
-    const timer = setTimeout(() => sendMessage(parts.join(" ")), 100);
-    return () => clearTimeout(timer);
-  }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function handleSend() {
-    if (!input.trim()) return;
-    const prompt = symbol
-      ? `[Looking at ${symbol}] ${input.trim()}`
-      : input.trim();
-    sendMessage(prompt);
-    setInput("");
-  }
-
-  return (
-    <div className="flex h-full flex-col">
-      {/* Clear button */}
-      {messages.length > 0 && (
-        <div className="flex justify-end px-3 py-0.5 shrink-0">
-          <button onClick={() => { clearMessages(); setLastAutoSymbol(null); }} className="text-[10px] text-text-faint hover:text-text-muted">
-            Clear
-          </button>
-        </div>
-      )}
-
-      {/* Quick prompts */}
-      {messages.length === 0 && symbol && (
-        <div className="border-b border-border-subtle px-3 py-2 space-y-1">
-          <p className="text-[10px] font-semibold uppercase text-text-faint">Ask about {symbol}</p>
-          {[
-            "What's the best entry strategy here?",
-            "Where should I set my stop?",
-            "Is this setup high conviction?",
-            "What could invalidate this trade?",
-          ].map((q) => (
-            <button
-              key={q}
-              onClick={() => { sendMessage(`[Looking at ${symbol}] ${q}`); }}
-              className="block w-full rounded-md bg-surface-3/50 px-2 py-1.5 text-left text-xs text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Chat messages — hide auto-generated prompts, render markdown bold */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-        {messages.map((m, i) => {
-          // Hide auto-generated prompts (first user message per symbol)
-          if (i === 0 && m.role === "user") return null;
-          return (
-            <div key={i} className={`text-xs leading-relaxed ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
-              {m.role === "user" ? (
-                <p className="font-medium">{m.content}</p>
-              ) : (
-                <p
-                  className="whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{
-                    __html: m.content
-                      .replace(/\*\*(.+?)\*\*/g, "<strong class='text-text-primary'>$1</strong>")
-                      .replace(/^• /gm, "&#8226; "),
-                  }}
-                />
-              )}
-            </div>
-          );
-        })}
-        {streaming && (
-          <div className="flex items-center gap-1 text-xs text-text-faint">
-            <span className="animate-pulse">Thinking...</span>
-            <button onClick={stopStreaming} className="text-bearish-text hover:text-bearish text-[10px]">Stop</button>
-          </div>
-        )}
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-border-subtle p-2">
-        <div className="flex gap-1.5">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder={symbol ? `Ask about ${symbol}...` : "Ask the AI coach..."}
-            disabled={streaming}
-            className="flex-1 rounded-md border border-border-subtle bg-surface-3 px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none disabled:opacity-50"
-          />
-          <button
-            onClick={handleSend}
-            disabled={streaming || !input.trim()}
-            className="rounded-md bg-accent px-2.5 py-1.5 text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-          >
-            <Send className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Available indicators ─────────────────────────────────────────── */
+/* ── Indicator config ──────────────────────────────────────────────── */
 
 interface IndicatorDef {
   key: string;
@@ -334,17 +89,421 @@ const ALL_INDICATORS: IndicatorDef[] = [
 
 const DEFAULT_INDICATORS = new Set(["ema20", "ema50"]);
 
+/* ── Watchlist signal row ──────────────────────────────────────────── */
+
+function SignalRow({
+  signal: s,
+  selected,
+  onClick,
+  onRemove,
+}: {
+  signal: SignalResult;
+  selected: boolean;
+  onClick: () => void;
+  onRemove?: (e: React.MouseEvent) => void;
+}) {
+  const gradeClass = GRADE_COLORS[s.grade] || "bg-surface-4 text-text-faint ring-1 ring-inset ring-border-subtle";
+  const changeColor = (s.close ?? 0) >= (s.entry ?? s.close ?? 0) ? "text-bullish-text" : "text-bearish-text";
+
+  return (
+    <button
+      onClick={onClick}
+      className={`group flex w-full items-center px-4 py-3 text-left transition-colors ${
+        selected
+          ? "bg-accent/[0.04] border-l-2 border-accent"
+          : "border-l-2 border-transparent hover:bg-surface-2/50"
+      }`}
+    >
+      <div className="w-[52px] relative">
+        <div className="text-sm font-bold text-text-primary">{s.symbol}</div>
+        <div className="text-[10px] text-text-faint truncate">
+          {SETUP_LABELS[s.action_label] || s.action_label}
+        </div>
+      </div>
+      <div className="flex-1 flex flex-col items-end">
+        <div className="font-mono text-sm text-text-primary leading-none">${fmt(s.close)}</div>
+        {s.volume_ratio != null && s.volume_ratio > 0 && (
+          <div className={`font-mono text-[10px] leading-none mt-1 ${changeColor}`}>
+            {s.volume_ratio.toFixed(1)}x vol
+          </div>
+        )}
+      </div>
+      <div className="w-14 ml-3 flex flex-col items-center gap-1">
+        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${gradeClass}`}>
+          {s.grade}
+        </span>
+        <span className="text-[9px] text-text-faint">{fmt(s.rr_ratio, 1)}R</span>
+      </div>
+      {/* Remove button — appears on hover */}
+      {onRemove && (
+        <span
+          onClick={onRemove}
+          className="ml-1 p-1 rounded opacity-0 group-hover:opacity-100 text-text-faint hover:text-bearish-text hover:bg-bearish/10 transition-all"
+          title={`Remove ${s.symbol}`}
+        >
+          <X className="h-3 w-3" />
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── Cockpit trade plan strip ──────────────────────────────────────── */
+
+function CockpitStrip({ signal: s }: { signal: SignalResult }) {
+  const risk = s.risk_per_share ?? (s.entry && s.stop ? s.entry - s.stop : null);
+  const riskPct = (Number(localStorage.getItem("ts_risk_pct")) || 1) / 100;
+  const shares = risk && risk > 0 ? Math.floor(DEFAULT_PORTFOLIO * riskPct / risk) : null;
+  const stopPct = pctChange(s.stop, s.entry);
+  const t1Pct = pctChange(s.target_1, s.entry);
+
+  if (s.entry == null) return null;
+
+  return (
+    <div className="h-[96px] border-t border-border-subtle bg-surface-1 px-3 sm:px-5 flex items-center shrink-0 overflow-x-auto no-scrollbar relative">
+      {/* Subtle gradient */}
+      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-accent/[0.03] to-transparent pointer-events-none" />
+
+      <div className="flex items-center h-full min-w-max w-full relative">
+        {/* Setup type */}
+        <div className="flex flex-col justify-center pr-5">
+          <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1">Setup</span>
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-5 rounded-full ${s.direction === "LONG" || s.direction === "Bullish" ? "bg-bullish" : "bg-bearish"}`} />
+            <div>
+              <div className="text-sm font-bold text-text-primary">{s.action_label}</div>
+              <div className="text-[10px] text-text-faint">{s.pattern}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-px h-10 bg-border-subtle mx-2" />
+
+        {/* Entry */}
+        <div className="flex flex-col justify-center px-4 hover:bg-surface-2/30 h-full transition-colors rounded-lg">
+          <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 flex items-center gap-1">
+            Entry <Target className="h-2.5 w-2.5 text-text-faint" />
+          </span>
+          <div className="font-mono text-lg font-medium text-text-primary">${fmt(s.entry)}</div>
+        </div>
+
+        <div className="w-px h-10 bg-border-subtle mx-2" />
+
+        {/* Stop */}
+        <div className="flex flex-col justify-center px-4 hover:bg-surface-2/30 h-full transition-colors rounded-lg">
+          <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 flex items-center gap-1">
+            Stop <ShieldAlert className="h-2.5 w-2.5 text-text-faint" />
+          </span>
+          <div className="flex items-end gap-2">
+            <span className="font-mono text-lg font-medium text-bearish-text">${fmt(s.stop)}</span>
+            {stopPct && (
+              <span className="font-mono text-[10px] text-bearish-text/70 bg-bearish/10 px-1 py-0.5 rounded mb-0.5">{stopPct}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="w-px h-10 bg-border-subtle mx-2" />
+
+        {/* Targets */}
+        <div className="flex flex-col justify-center px-4 hover:bg-surface-2/30 h-full transition-colors rounded-lg">
+          <div className="flex gap-5">
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 block">T1</span>
+              <div className="flex items-end gap-1">
+                <span className="font-mono text-base font-medium text-bullish-text">${fmt(s.target_1)}</span>
+                {t1Pct && <span className="font-mono text-[9px] text-bullish-text pb-0.5">{t1Pct}</span>}
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 block">T2</span>
+              <span className="font-mono text-base font-medium text-text-secondary/60">${fmt(s.target_2)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-px h-10 bg-border-subtle mx-2" />
+
+        {/* R:R & Shares */}
+        <div className="flex flex-col justify-center px-4">
+          <div className="flex gap-5">
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 block">R:R</span>
+              <div className="font-mono text-base font-bold text-text-primary bg-surface-3 px-2 py-0.5 rounded border border-border-subtle text-center">
+                {fmt(s.rr_ratio, 1)}:1
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 block">Shares</span>
+              <div className="font-mono text-base text-text-secondary">
+                {shares ?? "—"} <span className="text-xs text-text-faint font-sans">sh</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── AI Coach panel ────────────────────────────────────────────────── */
+
+function AIPanel({ symbol, signal: _signal, ohlcv, timeframe }: {
+  symbol: string | null;
+  signal: SignalResult | null;
+  ohlcv?: import("../api/hooks").OHLCBar[];
+  timeframe?: string;
+}) {
+  const { messages, streaming, sendMessage, stopStreaming, clearMessages, setChartContext } = useCoachStream();
+  const [input, setInput] = useState("");
+  const [lastAutoSymbol, setLastAutoSymbol] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Update chart context whenever symbol/timeframe/bars change
+  useEffect(() => {
+    if (symbol && ohlcv && ohlcv.length > 0) {
+      setChartContext({ symbol, timeframe: timeframe || "D", bars: ohlcv });
+    }
+  }, [symbol, ohlcv, timeframe, setChartContext]);
+
+  // Clear coach messages when switching symbols — fresh slate, no stale analysis
+  useEffect(() => {
+    if (symbol && symbol !== lastAutoSymbol) {
+      setLastAutoSymbol(symbol);
+      clearMessages();
+    }
+  }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll on new content
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, streaming]);
+
+  // Build current chart context for manual sends
+  function getCurrentChartContext() {
+    if (symbol && ohlcv && ohlcv.length > 0) {
+      return { symbol, timeframe: timeframe || "D", bars: ohlcv };
+    }
+    return undefined;
+  }
+
+  function handleSend() {
+    if (!input.trim()) return;
+    const prompt = symbol ? `[Looking at ${symbol}] ${input.trim()}` : input.trim();
+    sendMessage(prompt, getCurrentChartContext());
+    setInput("");
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <div className="p-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded bg-accent/20 border border-accent/30 flex items-center justify-center relative overflow-hidden ai-sweep-glow">
+            <Brain className="h-3 w-3 text-accent relative z-10" />
+          </div>
+          <span className="text-sm font-semibold text-text-primary">AI Coach</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {messages.length > 0 && (
+            <button onClick={() => { clearMessages(); setLastAutoSymbol(null); }} className="text-[10px] text-text-faint hover:text-text-muted">
+              Clear
+            </button>
+          )}
+          <span className="text-[10px] font-mono bg-surface-3 text-text-muted px-2 py-0.5 rounded-full ring-1 ring-inset ring-border-subtle uppercase">
+            {streaming ? "Thinking" : "Live"}
+          </span>
+        </div>
+      </div>
+
+      {/* Quick prompts when empty */}
+      {messages.length === 0 && symbol && !streaming && (
+        <div className="px-3 pb-2 space-y-1">
+          <p className="text-[10px] font-semibold uppercase text-text-faint tracking-wider">Ask about {symbol}</p>
+          {[
+            "What's the best entry strategy here?",
+            "Where should I set my stop?",
+            "Is this setup high conviction?",
+          ].map((q) => (
+            <button
+              key={q}
+              onClick={() => sendMessage(`[Looking at ${symbol}] ${q}`, getCurrentChartContext())}
+              className="block w-full rounded-md bg-surface-2/50 px-2.5 py-1.5 text-left text-xs text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+        {messages.map((m, i) => {
+          if (i === 0 && m.role === "user") return null;
+          return (
+            <div key={i} className={`text-[13px] leading-relaxed ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
+              {m.role === "user" ? (
+                <p className="font-medium">{m.content}</p>
+              ) : (
+                <div
+                  className="bg-surface-2/60 rounded-lg border border-border-subtle p-3 relative"
+                >
+                  {i === 1 && (
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-accent via-purple to-accent rounded-t-lg opacity-50" />
+                  )}
+                  <p
+                    className="whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{
+                      __html: m.content
+                        .replace(/\*\*(.+?)\*\*/g, "<strong class='text-text-primary'>$1</strong>")
+                        .replace(/^• /gm, "&#8226; "),
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {streaming && (
+          <div className="flex items-center gap-1 text-xs text-text-faint">
+            <span className="animate-pulse">Analyzing...</span>
+            <button onClick={stopStreaming} className="text-bearish-text hover:text-bearish text-[10px]">Stop</button>
+          </div>
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="border-t border-border-subtle p-2 shrink-0">
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+            placeholder={symbol ? `Ask about ${symbol}...` : "Ask the AI coach..."}
+            disabled={streaming}
+            className="flex-1 rounded-md border border-border-subtle bg-surface-2 px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none disabled:opacity-50"
+          />
+          <button
+            onClick={handleSend}
+            disabled={streaming || !input.trim()}
+            className="rounded-md bg-accent px-2.5 py-1.5 text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Alert timeline item ───────────────────────────────────────────── */
+
+function AlertTimelineItem({ alert: a }: { alert: Alert }) {
+  const ack = useAckAlert();
+  const time = new Date(a.created_at).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const dirBadge =
+    a.direction === "BUY"
+      ? "bg-bullish/10 text-bullish-text border-bullish/20"
+      : a.direction === "SHORT"
+      ? "bg-bearish/10 text-bearish-text border-bearish/20"
+      : "bg-warning/10 text-warning-text border-warning/20";
+
+  const dotColor =
+    a.direction === "BUY" ? "bg-bullish" :
+    a.direction === "SHORT" ? "bg-bearish" :
+    a.direction === "SELL" ? "bg-warning" : "bg-text-faint";
+
+  return (
+    <div className="relative pl-10 py-2.5 group">
+      {/* Time label */}
+      <div className="absolute left-0 top-3 w-9 text-[10px] font-mono text-text-faint text-right">{time}</div>
+      {/* Dot on timeline */}
+      <div className={`absolute left-[38px] top-[16px] w-1.5 h-1.5 rounded-full ${dotColor} ring-4 ring-surface-0 z-10`} />
+      {/* Card */}
+      <div className="bg-surface-2/30 border border-border-subtle/50 rounded-md p-2.5 group-hover:border-border-default transition-colors">
+        <div className="flex justify-between items-start mb-1">
+          <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
+          <span className={`text-[9px] px-1.5 py-0.5 rounded border ${dirBadge}`}>
+            {a.alert_type.replace(/_/g, " ")}
+          </span>
+        </div>
+        <p className="text-[11px] text-text-muted leading-tight">{a.message}</p>
+        {/* Action buttons */}
+        {a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
+          <div className="flex gap-1.5 mt-2">
+            <button
+              onClick={() => ack.mutate({ id: a.id, action: "took" })}
+              className="rounded bg-bullish/10 px-2 py-0.5 text-[10px] font-medium text-bullish-text hover:bg-bullish/20"
+            >
+              Took
+            </button>
+            <button
+              onClick={() => ack.mutate({ id: a.id, action: "skipped" })}
+              className="rounded bg-surface-4 px-2 py-0.5 text-[10px] font-medium text-text-muted hover:bg-surface-3"
+            >
+              Skip
+            </button>
+          </div>
+        )}
+        {a.user_action && (
+          <span className={`mt-1.5 inline-block text-[10px] font-medium ${a.user_action === "took" ? "text-bullish-text" : "text-text-muted"}`}>
+            {a.user_action === "took" ? "Took" : "Skipped"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Trading Page ─────────────────────────────────────────────── */
+
 export default function TradingPage() {
-  const { data: signals, isLoading, refetch, isFetching } = useScanner();
-  const { data: todayAlerts } = useAlertsToday();
+  const { data: signals, isLoading, refetch, isFetching, error: scanError } = useScanner();
+  const { data: todayAlerts, error: alertsError } = useAlertsToday();
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [tfIdx, setTfIdx] = useState(DEFAULT_TF);
-  const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
   const [showLevels, setShowLevels] = useState(true);
-  const [showAI, setShowAI] = useState(false);
-  const [aiExpanded, setAiExpanded] = useState(false); // tall AI panel
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showRightPanel, setShowRightPanel] = useState(true);
+
+  // Trigger chart resize when right panel toggles
+  function toggleRightPanel() {
+    setShowRightPanel((prev) => !prev);
+    // Lightweight-charts listens for window resize to recalculate dimensions
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
+  }
+  const [searchFilter, setSearchFilter] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Watchlist add/remove
+  const { data: watchlistItems } = useWatchlist();
+  const addSymbol = useAddSymbol();
+  const removeSymbol = useRemoveSymbol();
+  const watchlistSymbols = new Set(watchlistItems?.map((w) => w.symbol) ?? []);
+
+  // Determine if the search input looks like a symbol to add
+  const searchUpper = searchFilter.trim().toUpperCase();
+  const isValidTicker = /^[A-Z]{1,5}(-[A-Z]{3,4})?$/.test(searchUpper); // AAPL, BTC-USD
+  const canAdd = isValidTicker && searchUpper.length >= 1 && !watchlistSymbols.has(searchUpper);
+
+  function handleAddFromSearch() {
+    if (!canAdd) return;
+    addSymbol.mutate(searchUpper, {
+      onSuccess: () => setSearchFilter(""),
+    });
+  }
+
+  function handleRemoveSymbol(e: React.MouseEvent, symbol: string) {
+    e.stopPropagation();
+    removeSymbol.mutate(symbol);
+  }
 
   function toggleIndicator(key: string) {
     setActiveIndicators((prev) => {
@@ -359,15 +518,13 @@ export default function TradingPage() {
     .filter((ind) => activeIndicators.has(ind.key))
     .map(({ key, color }) => ({ key, color }));
 
-  const queryClient = useQueryClient();
-
-  // Auto-select first symbol or first "Potential Entry" if none selected
+  // Auto-select first signal
   if (!selectedSymbol && signals && signals.length > 0) {
     const entry = signals.find((s) => s.action_label === "Potential Entry");
     setSelectedSymbol(entry?.symbol ?? signals[0].symbol);
   }
 
-  // Prefetch OHLCV for top symbols so chart switching is instant
+  // Prefetch OHLCV for top symbols
   useEffect(() => {
     if (!signals) return;
     const tf = TIMEFRAMES[DEFAULT_TF];
@@ -382,13 +539,9 @@ export default function TradingPage() {
 
   const selected = signals?.find((s) => s.symbol === selectedSymbol) ?? null;
   const tf = TIMEFRAMES[tfIdx];
-  const { data: ohlcv } = useOHLCV(
-    selected?.symbol ?? "",
-    tf.period,
-    tf.interval,
-  );
+  const { data: ohlcv } = useOHLCV(selected?.symbol ?? "", tf.period, tf.interval);
 
-  // Build chart levels for selected symbol
+  // Build chart levels
   const chartLevels = (() => {
     if (!selected) return [];
     const s = selected;
@@ -406,84 +559,213 @@ export default function TradingPage() {
     return lvls;
   })();
 
-  // Filter alerts for selected symbol
-  const symbolAlerts = todayAlerts?.filter((a) =>
-    selected ? a.symbol === selected.symbol : true,
+  // Show all alerts (consolidated feed, not filtered by selected symbol)
+  const symbolAlerts = todayAlerts;
+
+  // Filtered signals for watchlist search
+  const filteredSignals = signals?.filter((s) =>
+    !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase()),
   );
 
   const potentialEntryCount = signals?.filter((s) => s.action_label === "Potential Entry").length ?? 0;
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col gap-2 md:h-[calc(100vh-3rem)]">
-      {/* Top bar: title + refresh + watchlist */}
-      <div className="flex items-center justify-between shrink-0">
-        <h1 className="font-display text-2xl font-bold">Trading</h1>
-        <div className="flex items-center gap-3">
-          {signals && (
-            <span className="text-xs text-text-muted">
-              {potentialEntryCount} setups · {signals.length} symbols
-            </span>
-          )}
-          <button
-            onClick={() => setShowAI(!showAI)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              showAI ? "bg-accent text-white" : "bg-surface-3 text-text-muted hover:text-text-secondary"
-            }`}
-          >
-            <Brain className="h-3.5 w-3.5" />
-            AI Coach
-          </button>
+    <div className="flex h-full">
+      {/* ── LEFT: Watchlist Panel ── */}
+      <aside className="hidden lg:flex w-[300px] bg-surface-1 border-r border-border-subtle flex-col shrink-0">
+        {/* Header */}
+        <div className="h-14 px-4 flex items-center justify-between border-b border-border-subtle shrink-0">
+          <h2 className="text-sm font-semibold tracking-wide text-text-primary">
+            Watchlist
+            <span className="text-text-faint font-normal ml-1.5 text-xs">{potentialEntryCount} setups</span>
+          </h2>
           <button
             onClick={() => refetch()}
             disabled={isFetching}
-            title="Refresh market data and re-scan all watchlist symbols for setups"
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover disabled:opacity-50 transition-colors"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            {isFetching ? "Scanning..." : "Scan"}
+            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+            Scan
           </button>
         </div>
-      </div>
 
-      {/* Main content: sidebar + chart */}
-      <div className="flex min-h-0 flex-1 gap-2">
-        {/* Left: Collapsible Watchlist / Signal list */}
-        {showSidebar ? (
-          <div className="hidden w-56 shrink-0 flex-col rounded-lg border border-border-subtle bg-surface-2 md:flex">
-            <div className="flex items-center justify-between border-b border-border-subtle px-2 py-1.5">
-              <WatchlistBar compact />
+        {/* Search — filter existing OR add new symbols */}
+        <div className="px-3 py-2.5 border-b border-border-subtle shrink-0">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-faint" />
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canAdd) handleAddFromSearch();
+              }}
+              placeholder="Search or add symbol..."
+              className="w-full bg-surface-2/50 border border-border-subtle rounded-md py-1.5 pl-8 pr-8 text-xs text-text-primary placeholder:text-text-faint focus:outline-none focus:border-accent/50 transition-colors"
+            />
+            {searchFilter && (
               <button
-                onClick={() => setShowSidebar(false)}
-                className="ml-1 rounded p-0.5 text-text-faint hover:text-text-muted"
-                title="Collapse watchlist"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setSearchFilter("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-faint hover:text-text-muted"
               >
-                <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
+                <X className="h-3.5 w-3.5" />
               </button>
+            )}
+          </div>
+
+          {/* Add symbol prompt — shown when typing a symbol not in watchlist */}
+          {searchFilter && canAdd && searchFocused && (
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleAddFromSearch}
+              disabled={addSymbol.isPending}
+              className="mt-1.5 w-full flex items-center gap-2 px-3 py-2 rounded-md bg-accent/10 border border-accent/20 text-xs text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+            >
+              {addSymbol.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Plus className="h-3 w-3" />
+              )}
+              Add <span className="font-bold">{searchUpper}</span> to watchlist
+            </button>
+          )}
+
+          {/* Already in watchlist indicator */}
+          {searchFilter && isValidTicker && watchlistSymbols.has(searchUpper) && searchFocused && (
+            <div className="mt-1.5 flex items-center gap-2 px-3 py-1.5 text-[10px] text-text-faint">
+              <span className="h-1.5 w-1.5 rounded-full bg-bullish" />
+              {searchUpper} is in your watchlist
             </div>
-            <div className="flex-1 overflow-y-auto p-1 space-y-0.5">
-              {isLoading && <p className="p-3 text-xs text-text-faint">Scanning...</p>}
-              {signals?.map((s) => (
-                <SignalRow
-                  key={s.symbol}
-                  signal={s}
-                  selected={selectedSymbol === s.symbol}
-                  onClick={() => setSelectedSymbol(s.symbol)}
-                />
+          )}
+
+          {addSymbol.error && (
+            <p className="mt-1 text-[10px] text-bearish-text px-1">
+              {addSymbol.error instanceof Error ? addSymbol.error.message : "Failed to add"}
+            </p>
+          )}
+        </div>
+
+        {/* Column headers */}
+        <div className="flex px-4 py-1.5 text-[10px] uppercase font-semibold text-text-faint tracking-wider border-b border-border-subtle shrink-0">
+          <div className="w-[52px]">Symbol</div>
+          <div className="flex-1 text-right">Price</div>
+          <div className="w-14 text-center ml-3">Grade</div>
+        </div>
+
+        {/* Signal list */}
+        <div className="flex-1 overflow-y-auto">
+          {isLoading && <p className="p-4 text-xs text-text-faint">Scanning watchlist...</p>}
+          {scanError && !isLoading && (
+            <div className="p-4 text-center">
+              <p className="text-xs text-bearish-text mb-1">Scan failed</p>
+              <button onClick={() => refetch()} className="text-[10px] text-accent hover:text-accent-hover">Retry</button>
+            </div>
+          )}
+          {filteredSignals?.map((s) => (
+            <SignalRow
+              key={s.symbol}
+              signal={s}
+              selected={selectedSymbol === s.symbol}
+              onClick={() => setSelectedSymbol(s.symbol)}
+              onRemove={watchlistSymbols.has(s.symbol) ? (e) => handleRemoveSymbol(e, s.symbol) : undefined}
+            />
+          ))}
+          {filteredSignals && filteredSignals.length === 0 && !isLoading && (
+            <p className="p-4 text-xs text-text-faint text-center">No matches</p>
+          )}
+        </div>
+
+        {/* Watchlist count */}
+        <div className="px-4 py-2.5 border-t border-border-subtle shrink-0 flex items-center justify-between">
+          <span className="text-[10px] text-text-faint">
+            {watchlistItems?.length ?? 0} symbols
+          </span>
+          {removeSymbol.isPending && (
+            <Loader2 className="h-3 w-3 animate-spin text-text-faint" />
+          )}
+        </div>
+      </aside>
+
+      {/* ── CENTER: Chart Canvas + Cockpit ── */}
+      <section className="flex-1 flex flex-col min-w-0 bg-surface-0">
+        {/* Chart header */}
+        <header className="h-14 border-b border-border-subtle px-4 flex items-center justify-between shrink-0 bg-surface-1/50">
+          {/* Left: symbol + price */}
+          <div className="flex items-baseline gap-3">
+            {selected ? (
+              <>
+                <h1 className="text-2xl font-bold tracking-tight text-text-primary">{selected.symbol}</h1>
+                <span className={`text-xl font-mono ${(selected.close ?? 0) >= (selected.entry ?? selected.close ?? 0) ? "text-bullish-text" : "text-bearish-text"}`}>
+                  ${fmt(selected.close)}
+                </span>
+              </>
+            ) : (
+              <h1 className="text-lg font-bold text-text-muted">Select a symbol</h1>
+            )}
+          </div>
+
+          {/* Center: timeframes */}
+          <div className="hidden sm:flex items-center bg-surface-2/50 p-1 rounded-lg border border-border-subtle">
+            {TIMEFRAMES.map((t, i) => (
+              <button
+                key={t.label}
+                onClick={() => setTfIdx(i)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  i === tfIdx
+                    ? "bg-surface-4 text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Right: indicators + right panel toggle */}
+          <div className="flex items-center gap-1">
+            {/* Indicator toggles (compact) */}
+            <div className="hidden md:flex items-center gap-0.5 mr-2">
+              <button
+                onClick={() => setShowLevels(!showLevels)}
+                className={`rounded px-2 py-1 text-[10px] font-semibold transition-colors ${
+                  showLevels ? "bg-accent/20 text-accent" : "bg-surface-3 text-text-faint"
+                }`}
+              >
+                Levels
+              </button>
+              {ALL_INDICATORS.filter((i) => i.group === "ema").slice(0, 3).map((ind) => (
+                <button
+                  key={ind.key}
+                  onClick={() => toggleIndicator(ind.key)}
+                  className="rounded px-1.5 py-1 text-[10px] font-semibold transition-colors"
+                  style={{
+                    backgroundColor: activeIndicators.has(ind.key) ? ind.color + "25" : undefined,
+                    color: activeIndicators.has(ind.key) ? ind.color : "#475569",
+                  }}
+                >
+                  {ind.label}
+                </button>
               ))}
             </div>
+
+            {/* Toggle right panel */}
+            <button
+              onClick={toggleRightPanel}
+              className={`hidden xl:flex w-8 h-8 items-center justify-center rounded transition-colors ${
+                showRightPanel ? "text-accent bg-accent/10 border border-accent/20" : "text-text-muted hover:text-text-secondary"
+              }`}
+              title={showRightPanel ? "Hide AI panel" : "Show AI panel"}
+            >
+              {showRightPanel ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            </button>
           </div>
-        ) : (
-          <button
-            onClick={() => setShowSidebar(true)}
-            className="hidden shrink-0 items-center rounded border border-border-subtle bg-surface-2 w-5 text-text-faint hover:text-text-muted hover:bg-surface-3 md:flex justify-center"
-            title="Expand watchlist"
-          >
-            <ChevronDown className="h-3 w-3 rotate-90" />
-          </button>
-        )}
+        </header>
 
         {/* Mobile: horizontal symbol pills */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1 md:hidden shrink-0">
+        <div className="flex gap-1.5 overflow-x-auto px-3 py-2 lg:hidden shrink-0 no-scrollbar">
           {signals?.map((s) => (
             <button
               key={s.symbol}
@@ -499,188 +781,103 @@ export default function TradingPage() {
           ))}
         </div>
 
-        {/* Center: Chart + Trade Plan */}
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          {selected ? (
-            <>
-              {/* Symbol header */}
-              <div className="flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-xl font-bold text-text-primary">{selected.symbol}</h2>
-                  <Badge variant={ACTION_VARIANT[selected.action_label] || "neutral"}>
-                    {selected.action_label}
-                  </Badge>
-                  <span className={`font-mono text-sm font-bold ${GRADE_COLORS[selected.grade] || "text-text-faint"}`}>
-                    {selected.grade} ({selected.score})
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <p className="font-mono text-xl font-bold text-text-primary">${fmt(selected.close)}</p>
-                  {/* Timeframe picker */}
-                  <div className="flex gap-0.5">
-                    {TIMEFRAMES.map((t, i) => (
-                      <button
-                        key={t.label}
-                        onClick={() => setTfIdx(i)}
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                          i === tfIdx
-                            ? "bg-accent text-white"
-                            : "text-text-muted hover:text-text-secondary"
-                        }`}
-                      >
-                        {t.label}
-                      </button>
+        {/* Chart area */}
+        <div className="flex-1 min-h-0 relative chart-grid-bg">
+          {selected && ohlcv && ohlcv.length > 0 ? (
+            <CandlestickChart
+              data={ohlcv}
+              entry={showLevels ? (selected.entry ?? undefined) : undefined}
+              stop={showLevels ? (selected.stop ?? undefined) : undefined}
+              target={showLevels ? (selected.target_1 ?? undefined) : undefined}
+              levels={showLevels ? chartLevels : []}
+              indicators={chartIndicators}
+              height={0}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              {selected ? (
+                /* Chart skeleton — shimmer bars */
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 px-8">
+                  <div className="flex items-end gap-1 h-32 w-full max-w-md">
+                    {Array.from({ length: 30 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="flex-1 bg-surface-3 rounded-sm animate-pulse"
+                        style={{ height: `${20 + Math.sin(i * 0.5) * 40 + Math.random() * 30}%`, animationDelay: `${i * 30}ms` }}
+                      />
                     ))}
                   </div>
+                  <span className="text-xs text-text-faint">Loading chart...</span>
                 </div>
-              </div>
-
-              {/* Trade plan */}
-              <div className="shrink-0">
-                <TradePlan signal={selected} />
-              </div>
-
-              {/* Indicator toggles */}
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                {/* Levels toggle */}
-                <button
-                  onClick={() => setShowLevels(!showLevels)}
-                  className={`rounded px-2 py-0.5 text-[10px] font-semibold transition-colors ${
-                    showLevels ? "bg-accent/20 text-accent" : "bg-surface-4 text-text-faint"
-                  }`}
-                >
-                  Levels
-                </button>
-                <span className="text-[10px] text-text-faint">|</span>
-                {/* EMA toggles */}
-                {ALL_INDICATORS.filter((i) => i.group === "ema").map((ind) => (
-                  <button
-                    key={ind.key}
-                    onClick={() => toggleIndicator(ind.key)}
-                    className={`rounded px-2 py-0.5 text-[10px] font-semibold transition-colors`}
-                    style={{
-                      backgroundColor: activeIndicators.has(ind.key) ? ind.color + "30" : undefined,
-                      color: activeIndicators.has(ind.key) ? ind.color : "#475569",
-                    }}
-                  >
-                    {ind.label}
-                  </button>
-                ))}
-                <span className="text-[10px] text-text-faint">|</span>
-                {/* SMA toggles */}
-                {ALL_INDICATORS.filter((i) => i.group === "sma").map((ind) => (
-                  <button
-                    key={ind.key}
-                    onClick={() => toggleIndicator(ind.key)}
-                    className="rounded px-2 py-0.5 text-[10px] font-semibold transition-colors"
-                    style={{
-                      backgroundColor: activeIndicators.has(ind.key) ? ind.color + "30" : undefined,
-                      color: activeIndicators.has(ind.key) ? ind.color : "#475569",
-                    }}
-                  >
-                    {ind.label}
-                  </button>
-                ))}
-                <span className="text-[10px] text-text-faint">|</span>
-                {/* VWAP */}
-                {ALL_INDICATORS.filter((i) => i.group === "other").map((ind) => (
-                  <button
-                    key={ind.key}
-                    onClick={() => toggleIndicator(ind.key)}
-                    className="rounded px-2 py-0.5 text-[10px] font-semibold transition-colors"
-                    style={{
-                      backgroundColor: activeIndicators.has(ind.key) ? ind.color + "30" : undefined,
-                      color: activeIndicators.has(ind.key) ? ind.color : "#475569",
-                    }}
-                  >
-                    {ind.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Chart — fills remaining vertical space */}
-              <div className="min-h-0 flex-1" id="chart-container">
-                {ohlcv && ohlcv.length > 0 ? (
-                  <CandlestickChart
-                    data={ohlcv}
-                    entry={showLevels ? (selected.entry ?? undefined) : undefined}
-                    stop={showLevels ? (selected.stop ?? undefined) : undefined}
-                    target={showLevels ? (selected.target_1 ?? undefined) : undefined}
-                    levels={showLevels ? chartLevels : []}
-                    indicators={chartIndicators}
-                    height={0}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center rounded-lg bg-surface-3 text-sm text-text-faint">
-                    Loading chart...
-                  </div>
-                )}
-              </div>
-
-              {/* Context */}
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted shrink-0">
-                {selected.nearest_support != null && (
-                  <span>Support: <span className="font-mono text-text-secondary">${fmt(selected.nearest_support)}</span> {selected.support_label && `(${selected.support_label})`}</span>
-                )}
-                <span>{selected.support_status} · {selected.direction} · {selected.pattern}</span>
-                {selected.bias && <span className="italic">{selected.bias}</span>}
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-1 items-center justify-center text-text-faint">
-              <p>Select a symbol to view analysis</p>
+              ) : (
+                <div className="text-center">
+                  <p className="text-sm text-text-muted">Select a symbol to view analysis</p>
+                  <p className="text-xs text-text-faint mt-1">Click any symbol in the watchlist</p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-      </div>
+        {/* Context strip */}
+        {selected && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-1.5 text-xs text-text-muted border-t border-border-subtle shrink-0 bg-surface-1/30">
+            {selected.nearest_support != null && (
+              <span>Support: <span className="font-mono text-text-secondary">${fmt(selected.nearest_support)}</span> {selected.support_label && `(${selected.support_label})`}</span>
+            )}
+            <span>{selected.support_status} · {selected.direction} · {selected.pattern}</span>
+            {selected.bias && <span className="italic">{selected.bias}</span>}
+          </div>
+        )}
 
-      {/* Bottom panel: AI Coach OR Alerts */}
-      {showAI ? (
-        <div className="shrink-0 rounded-lg border border-border-subtle bg-surface-2 overflow-hidden h-36">
-          <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-border-subtle px-3 py-1 shrink-0">
-              <div className="flex items-center gap-2">
-                <Brain className="h-3 w-3 text-accent" />
-                <span className="text-[11px] font-semibold text-text-primary">AI Coach</span>
-              </div>
-              <button
-                onClick={() => setShowAI(false)}
-                className="rounded p-0.5 text-text-faint hover:text-text-muted"
-                title="Close"
-              >
-                <X className="h-3 w-3" />
-              </button>
+        {/* Cockpit trade plan */}
+        {selected && <CockpitStrip signal={selected} />}
+      </section>
+
+      {/* ── RIGHT: AI Coach + Signal Feed ── */}
+      {showRightPanel && (
+        <aside className="hidden xl:flex w-[320px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
+          {/* AI Coach (top half) */}
+          <div className="flex-1 flex flex-col min-h-[45%] border-b border-border-subtle relative overflow-hidden">
+            <AIPanel symbol={selected?.symbol ?? null} signal={selected} ohlcv={ohlcv} timeframe={tf.label} />
+            {/* Decorative glow */}
+            <div className="absolute top-[-80px] right-[-80px] w-[160px] h-[160px] bg-accent/5 rounded-full blur-3xl pointer-events-none" />
+          </div>
+
+          {/* Signal Feed (bottom half) */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="px-4 py-3 flex items-center justify-between border-b border-border-subtle shrink-0">
+              <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                Signal Feed
+                {todayAlerts && todayAlerts.length > 0 && (
+                  <span className="flex h-2 w-2 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bearish opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-bearish" />
+                  </span>
+                )}
+              </h2>
+              {todayAlerts && (
+                <span className="text-[10px] text-text-faint">{todayAlerts.length} today</span>
+              )}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <AIPanel symbol={selected?.symbol ?? null} signal={selected} />
+
+            <div className="flex-1 overflow-y-auto px-3 relative">
+              {/* Timeline line */}
+              <div className="absolute left-[42px] top-4 bottom-0 w-px bg-border-subtle pointer-events-none" />
+
+              {alertsError ? (
+                <div className="py-8 text-center">
+                  <p className="text-xs text-bearish-text mb-2">Failed to load alerts</p>
+                  <button onClick={() => window.location.reload()} className="text-[10px] text-accent hover:text-accent-hover">Retry</button>
+                </div>
+              ) : symbolAlerts && symbolAlerts.length > 0 ? (
+                symbolAlerts.map((a) => <AlertTimelineItem key={a.id} alert={a} />)
+              ) : (
+                <p className="py-8 text-center text-xs text-text-faint">No alerts fired today</p>
+              )}
             </div>
           </div>
-        </div>
-      ) : (
-        <div className="shrink-0 rounded-lg border border-border-subtle bg-surface-2">
-          <button
-            onClick={() => setAlertsExpanded(!alertsExpanded)}
-            className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary"
-          >
-            <span>
-              Today's Alerts
-              {todayAlerts && (
-                <span className="ml-2 text-text-muted">({todayAlerts.length})</span>
-              )}
-            </span>
-            {alertsExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-          </button>
-          {alertsExpanded && (
-            <div className="max-h-48 overflow-y-auto border-t border-border-subtle px-2 py-1.5 space-y-1">
-              {symbolAlerts && symbolAlerts.length > 0 ? (
-                symbolAlerts.map((a) => <AlertRow key={a.id} alert={a} />)
-              ) : (
-                <p className="py-2 text-center text-xs text-text-faint">No alerts yet today</p>
-              )}
-            </div>
-          )}
-        </div>
+        </aside>
       )}
     </div>
   );

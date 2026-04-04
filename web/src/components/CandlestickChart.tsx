@@ -44,16 +44,24 @@ export default function CandlestickChart({
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#0a0a0a" },
-        textColor: "#9ca3af",
+        background: { type: ColorType.Solid, color: "#050810" },
+        textColor: "#64748b",
       },
       grid: {
-        vertLines: { color: "#1f2937" },
-        horzLines: { color: "#1f2937" },
+        vertLines: { color: "rgba(255,255,255,0.03)" },
+        horzLines: { color: "rgba(255,255,255,0.03)" },
       },
       width: containerRef.current.clientWidth,
       height: chartHeight,
-      crosshair: { mode: 0 },
+      crosshair: { mode: 1 },
+      rightPriceScale: {
+        autoScale: true,
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+      timeScale: {
+        rightOffset: 5,
+        minBarSpacing: 3,
+      },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -135,15 +143,16 @@ export default function CandlestickChart({
     seriesRef.current.setData(deduped as any);
 
     // Compute indicators from sorted deduped data (not raw unsorted data)
+    // Preserve time type (number for intraday, string for daily) so lightweight-charts stays consistent
     const closes = deduped.map((bar) => ({
-      time: String(bar.time),
+      time: bar.time,
       close: bar.close,
     }));
 
     // For VWAP we need high/low/volume — rebuild from sorted raw data
     const sortedRaw = [...data].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     const barsForVWAP = sortedRaw.map((bar) => ({
-      time: toTime(bar.timestamp) as string,
+      time: toTime(bar.timestamp),
       high: bar.high,
       low: bar.low,
       close: bar.close,
@@ -208,7 +217,15 @@ export default function CandlestickChart({
       priceLinesRef.current.push(line);
     }
 
-    chart.timeScale().fitContent();
+    // Show last N bars based on data density — don't show ALL bars
+    // This gives a zoomed-in view that's immediately useful
+    const ts = chart.timeScale();
+    if (data.length > 80) {
+      // Show last 80 bars with some right padding
+      ts.setVisibleLogicalRange({ from: data.length - 80, to: data.length + 5 });
+    } else {
+      ts.fitContent();
+    }
   }, [data, levels, entry, stop, target, indicators]);
 
   return <div ref={containerRef} className="w-full rounded-lg" />;

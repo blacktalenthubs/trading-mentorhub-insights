@@ -1,8 +1,12 @@
-/** SSE hook for AI coach streaming responses. */
+/** SSE hook for AI coach streaming responses.
+ *
+ *  Sends OHLCV bars with every request so the AI can analyze the actual chart.
+ */
 
 import { useCallback, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "../stores/auth";
+import type { OHLCBar } from "../api/hooks";
 
 const API_HOST = Capacitor.isNativePlatform()
   ? String(import.meta.env.VITE_API_URL || "https://api.aicopilottrader.com")
@@ -13,12 +17,24 @@ interface CoachMessage {
   content: string;
 }
 
+export interface ChartContext {
+  symbol: string;
+  timeframe: string;
+  bars: OHLCBar[];
+}
+
 export function useCoachStream() {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Store chart context as both ref (for immediate reads) and state (for re-renders)
+  const chartContextRef = useRef<ChartContext | null>(null);
 
-  const sendMessage = useCallback(async (text: string) => {
+  const setChartContext = useCallback((ctx: ChartContext | null) => {
+    chartContextRef.current = ctx;
+  }, []);
+
+  const sendMessage = useCallback(async (text: string, chartOverride?: ChartContext | null) => {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
 
@@ -26,12 +42,35 @@ export function useCoachStream() {
     setMessages((prev) => [...prev, userMsg]);
     setStreaming(true);
 
-    const body = {
+    // Use explicit override first, then ref
+    const chartCtx = chartOverride !== undefined ? chartOverride : chartContextRef.current;
+
+    // Extract symbol from message pattern [Looking at SYMBOL]
+    const symbolMatch = text.match(/\[Looking at ([^\]]+)\]/);
+    const symbol = symbolMatch ? symbolMatch[1] : chartCtx?.symbol;
+
+    const lastBars = chartCtx?.bars?.slice(-20);
+
+    const body: Record<string, unknown> = {
       messages: [...messages, userMsg].map((m) => ({
         role: m.role,
         content: m.content,
       })),
+      symbols: symbol ? [symbol] : undefined,
     };
+
+    // Always include OHLCV bars if available
+    if (lastBars && lastBars.length > 0) {
+      body.ohlcv_bars = lastBars.map((b) => ({
+        timestamp: b.timestamp,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume,
+      }));
+      body.timeframe = chartCtx?.timeframe || "D";
+    }
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -58,7 +97,6 @@ export function useCoachStream() {
       const decoder = new TextDecoder();
       let assistantText = "";
 
-      // Add placeholder assistant message
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
       while (true) {
@@ -66,7 +104,6 @@ export function useCoachStream() {
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        // Parse SSE events
         const lines = chunk.split("\n");
         for (const line of lines) {
           if (line.startsWith("data:")) {
@@ -86,7 +123,7 @@ export function useCoachStream() {
                 });
               }
             } catch {
-              // skip non-JSON lines (event: done, etc.)
+              // skip non-JSON lines
             }
           }
         }
@@ -112,5 +149,5 @@ export function useCoachStream() {
     setMessages([]);
   }, []);
 
-  return { messages, streaming, sendMessage, stopStreaming, clearMessages };
+  return { messages, streaming, sendMessage, stopStreaming, clearMessages, setChartContext };
 }

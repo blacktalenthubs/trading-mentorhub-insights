@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from app.config import get_settings
 from app.rate_limit import limiter
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
 
 
@@ -31,20 +32,27 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created/verified")
 
-    # Background monitor (skip for SQLite — requires sync postgres driver)
+    # Background monitor — runs for both SQLite (dev) and Postgres (prod)
     scheduler = None
     sync_engine = None
-    if not settings.DATABASE_URL.startswith("sqlite"):
+    try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
 
         from app.background.monitor import poll_all_users
 
-        sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2").replace(
-            "postgresql+psycopg2", "postgresql"
-        )
-        sync_engine = create_engine(sync_url, pool_pre_ping=True)
+        if settings.DATABASE_URL.startswith("sqlite"):
+            # SQLite: use sync engine directly (strip async driver)
+            sync_url = settings.DATABASE_URL.replace("+aiosqlite", "")
+            sync_engine = create_engine(sync_url, pool_pre_ping=True)
+        else:
+            # Postgres: ensure plain postgresql:// for sync psycopg2
+            sync_url = settings.DATABASE_URL
+            for suffix in ("+asyncpg", "+psycopg2", "+psycopg"):
+                sync_url = sync_url.replace(suffix, "")
+            sync_engine = create_engine(sync_url, pool_pre_ping=True)
+
         sync_session_factory = sessionmaker(bind=sync_engine)
 
         scheduler = BackgroundScheduler()
@@ -56,10 +64,16 @@ async def lifespan(app: FastAPI):
             id="alert_monitor",
             replace_existing=True,
         )
+        # Also run immediately on startup so we don't wait 3 min
+        scheduler.add_job(
+            poll_all_users,
+            args=[sync_session_factory],
+            id="alert_monitor_initial",
+        )
         scheduler.start()
-        logger.info("Background monitor started (3-min interval)")
-    else:
-        logger.info("SQLite mode — background monitor disabled")
+        logger.info("Background monitor started (3-min interval, immediate first run)")
+    except Exception:
+        logger.exception("Failed to start background monitor")
 
     yield
 
@@ -100,7 +114,7 @@ def create_app() -> FastAPI:
     from app.routers import (
         auth, watchlist, scanner, market, alerts,
         trades, charts, real_trades, paper_trading, backtest,
-        push, settings, swing, intel,
+        push, settings, swing, intel, learn, billing,
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -116,6 +130,29 @@ def create_app() -> FastAPI:
     app.include_router(settings.router, prefix="/api/v1/settings", tags=["settings"])
     app.include_router(swing.router, prefix="/api/v1/swing", tags=["swing"])
     app.include_router(intel.router, prefix="/api/v1/intel", tags=["intel"])
+    app.include_router(learn.router, prefix="/api/v1/learn", tags=["learn"])
+    app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
+
+    # --- Serve React frontend (production) ---
+    import os
+    from pathlib import Path
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    dist_dir = Path(__file__).resolve().parents[2] / "web" / "dist"
+    if dist_dir.exists():
+        # Serve static assets (JS, CSS, images)
+        app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="static")
+
+        # Catch-all: serve index.html for any non-API route (SPA client-side routing)
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):
+            # If it's a file that exists in dist, serve it
+            file_path = dist_dir / full_path
+            if file_path.is_file():
+                return FileResponse(str(file_path))
+            # Otherwise serve index.html (React Router handles it)
+            return FileResponse(str(dist_dir / "index.html"))
 
     return app
 

@@ -22,6 +22,7 @@ class User(Base):
 
     # Notification preferences (stored directly on user for simplicity)
     telegram_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", default=True)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(50))
     email_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
     push_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
     quiet_hours_start: Mapped[Optional[str]] = mapped_column(String(10))

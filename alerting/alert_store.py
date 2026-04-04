@@ -51,9 +51,9 @@ def was_alert_fired(
             ).fetchone()
         else:
             row = conn.execute(
-                "SELECT 1 FROM alerts WHERE symbol=? AND alert_type=? AND session_date=?",
-                (symbol, alert_type, session),
-            ).fetchone()
+                    "SELECT 1 FROM alerts WHERE symbol=? AND alert_type=? AND session_date=?",
+                    (symbol, alert_type, session),
+                ).fetchone()
         return row is not None
 
 

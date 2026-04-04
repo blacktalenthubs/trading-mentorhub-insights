@@ -6,12 +6,18 @@ import { useNativePlatform } from "./hooks/useNativePlatform";
 
 import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
+import LandingPage from "./pages/LandingPage";
+import LearnPage from "./pages/LearnPage";
+import LearnDetailPage from "./pages/LearnDetailPage";
 import LoginPage from "./pages/LoginPage";
+import OnboardingPage from "./pages/OnboardingPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import TradingPage from "./pages/TradingPage";
 import RealTradesPage from "./pages/RealTradesPage";
 import SettingsPage from "./pages/SettingsPage";
+import { ToastContainer } from "./components/Toast";
+import BillingPage from "./pages/BillingPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,7 +30,7 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -50,11 +56,17 @@ export default function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
+        <ToastContainer />
         <AuthGate>
           <BrowserRouter>
             <Routes>
+              {/* Public routes */}
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/learn" element={<LearnPage />} />
+              <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
 
               {/* Protected routes with sidebar layout */}
               <Route
@@ -64,10 +76,11 @@ export default function App() {
                   </ProtectedRoute>
                 }
               >
-                <Route index element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
+                <Route path="dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
                 <Route path="trading" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
                 <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+                <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
 
                 {/* Legacy redirects */}
                 <Route path="scanner" element={<Navigate to="/trading" replace />} />

@@ -65,8 +65,8 @@ async function request<T>(
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
-  if (res.status === 401) {
-    // Attempt silent token refresh before logging out
+  if (res.status === 401 && !path.startsWith("/auth/")) {
+    // Attempt silent token refresh before logging out (skip for auth endpoints)
     const refreshed = await attemptRefresh();
     if (refreshed) {
       // Retry the original request with the new token

@@ -1,0 +1,19 @@
+{
+  "id": "2026-04-03T20-58-22-517Z-tradesignal-dashboard-premium-dark-t",
+  "createdAt": "2026-04-03T20:58:22.532Z",
+  "prompt": "TradeSignal dashboard - premium dark terminal with P&L hero, session stats bento, positions table, live alert feed",
+  "mode": null,
+  "url": null,
+  "viewport": "desktop",
+  "repoRoot": "/Volumes/mentorhub/repos/investments/trade-analytics",
+  "cwd": "/Volumes/mentorhub/repos/investments/trade-analytics",
+  "requestPath": "/Volumes/mentorhub/repos/investments/trade-analytics/.aidesigner/runs/2026-04-03T20-58-22-517Z-tradesignal-dashboard-premium-dark-t/request.json",
+  "repoContextPath": "/Volumes/mentorhub/repos/investments/trade-analytics/.aidesigner/runs/2026-04-03T20-58-22-517Z-tradesignal-dashboard-premium-dark-t/repo-context.json",
+  "designHtmlPath": "/Volumes/mentorhub/repos/investments/trade-analytics/.aidesigner/runs/2026-04-03T20-58-22-517Z-tradesignal-dashboard-premium-dark-t/design.html",
+  "previewPath": null,
+  "previewError": "Preview rendering requires puppeteer. Install it in the repo or alongside @aidesigner/agent-skills.",
+  "parentRunId": null,
+  "usage": null,
+  "transport": "mcp",
+  "remoteRunId": "a343de0c-604b-4f11-8c69-8b0df425a500"
+}

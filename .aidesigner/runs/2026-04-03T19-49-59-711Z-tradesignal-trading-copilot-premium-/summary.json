@@ -1,0 +1,19 @@
+{
+  "id": "2026-04-03T19-49-59-711Z-tradesignal-trading-copilot-premium-",
+  "createdAt": "2026-04-03T19:49:59.724Z",
+  "prompt": "TradeSignal trading copilot - premium dark terminal redesign with watchlist, chart, trade plan cockpit, AI coach, signal feed",
+  "mode": null,
+  "url": null,
+  "viewport": "desktop",
+  "repoRoot": "/Volumes/mentorhub/repos/investments/trade-analytics",
+  "cwd": "/Volumes/mentorhub/repos/investments/trade-analytics",
+  "requestPath": "/Volumes/mentorhub/repos/investments/trade-analytics/.aidesigner/runs/2026-04-03T19-49-59-711Z-tradesignal-trading-copilot-premium-/request.json",
+  "repoContextPath": "/Volumes/mentorhub/repos/investments/trade-analytics/.aidesigner/runs/2026-04-03T19-49-59-711Z-tradesignal-trading-copilot-premium-/repo-context.json",
+  "designHtmlPath": "/Volumes/mentorhub/repos/investments/trade-analytics/.aidesigner/runs/2026-04-03T19-49-59-711Z-tradesignal-trading-copilot-premium-/design.html",
+  "previewPath": null,
+  "previewError": "Preview rendering requires puppeteer. Install it in the repo or alongside @aidesigner/agent-skills.",
+  "parentRunId": null,
+  "usage": null,
+  "transport": "mcp",
+  "remoteRunId": "8fbe740f-527f-4f51-b593-d9cf0ef6e91e"
+}
