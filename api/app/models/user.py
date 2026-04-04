@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -38,7 +38,7 @@ class Subscription(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
     tier: Mapped[str] = mapped_column(
-        Enum("free", "pro", name="tier_enum"), nullable=False, server_default="free",
+        String(50), nullable=False, server_default="free",
     )
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), server_default="active")
