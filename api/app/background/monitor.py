@@ -129,6 +129,13 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
         spy_ctx = get_spy_context()
 
+        # Regime narrator: check for SPY regime shift (L3 parity)
+        try:
+            from analytics.regime_narrator import check_regime_shift
+            check_regime_shift(spy_ctx)
+        except Exception:
+            logger.debug("Regime narrator check failed", exc_info=True)
+
         # Compute spy_gate for alert gating (parity with V1 monitor.py:241-310)
         _spy_gate = None
         try:
@@ -281,6 +288,20 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         _narrative = generate_narrative(signal) or ""
                     except Exception:
                         pass
+
+                    # Cluster narrator: richer AI synthesis for multi-signal confluence
+                    if "[+" in (signal.message or "") and "confirming:" in (signal.message or ""):
+                        try:
+                            import re as _re
+                            _match = _re.search(r"\[\+\d+ confirming: (.+?)\]", signal.message)
+                            if _match:
+                                _conf_types = [t.strip() for t in _match.group(1).split(",")]
+                                from analytics.cluster_narrator import narrate_cluster
+                                _cluster = narrate_cluster(signal, _conf_types)
+                                if _cluster:
+                                    _narrative = _cluster
+                        except Exception:
+                            logger.debug("Cluster narrator failed for %s", symbol)
 
                     # Coerce numpy types to native Python (psycopg2 can't serialize np.float64)
                     def _py(v):

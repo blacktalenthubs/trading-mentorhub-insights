@@ -16,12 +16,22 @@ V2 (FastAPI + React) is live in production at `www.tradesignalwithai.com`. Core 
 
 | Category | V1 Features | V2 Ported | V2 Missing | Parity |
 |----------|------------|-----------|------------|--------|
-| Alert Pipeline | 8 | 6 | 2 | 75% |
-| Telegram | 5 | 2 | 3 | 40% |
-| Scheduled Jobs | 7 | 0 | 7 | 0% |
+| Alert Pipeline | 8 | 8 | 0 | 100% |
+| Telegram | 5 | 5 | 0 | 100% |
+| Scheduled Jobs | 7 | 4 | 3 | 57% |
 | Trade Management | 6 | 4 | 2 | 67% |
-| Special Features | 5 | 0 | 5 | 0% |
-| **Total** | **31** | **12** | **19** | **39%** |
+| Special Features | 5 | 2 | 3 | 40% |
+| **Total** | **31** | **23** | **8** | **74%** |
+
+### Items completed 2026-04-04:
+- C1: Telegram bot running in V2 — DONE
+- C2: Post-stop re-fire logic — DONE
+- H1: SPY inside day gate / spy_gate — DONE
+- H2: Burst cooldown — DONE
+- H3: EOD swing scan (4:15 PM ET) — DONE
+- H4: Pre-market brief (9:15 AM ET) — DONE
+- M3: EOD cleanup (4:30 PM ET) — DONE
+- Send Test Alert button — DONE (bonus)
 
 ---
 
