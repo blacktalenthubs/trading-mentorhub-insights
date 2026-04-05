@@ -404,10 +404,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             session_date=_sym_session,
                         ))
 
-                    # Stop/target: close entries and add cooldown
+                    # Stop/target: NOTIFY only — do NOT auto-close trades (BUG-9)
+                    # User controls exits. System only informs that levels were breached.
+                    # Still add cooldown after stop to prevent re-entry spam.
                     if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
-                        for ae in active_rows:
-                            ae.status = "closed"
                         db.add(Cooldown(
                             user_id=user_id,
                             symbol=symbol,
@@ -415,10 +415,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             reason=signal.alert_type.value,
                             session_date=_sym_session,
                         ))
-
-                    if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
-                        for ae in active_rows:
-                            ae.status = "closed"
+                    # Target hits: notify but don't close — user decides when to take profits
 
                     # Preference gate: check if user wants this alert category + score
                     _at_val = signal.alert_type.value
