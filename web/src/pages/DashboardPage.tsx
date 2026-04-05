@@ -486,47 +486,62 @@ export default function DashboardPage() {
                           {openCount > 0 && <span className="text-text-faint">{openCount} open</span>}
                         </div>
                       </summary>
-                      <div className="border-t border-border-subtle/50">
-                        {Object.entries(patternGroups).map(([pattern, patAlerts]) => (
-                          <details key={pattern} className="border-b border-border-subtle/20 last:border-b-0">
-                            <summary className="px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-2/20 text-xs">
-                              <div className="flex items-center gap-2">
-                                <span className="text-text-secondary font-medium">{pattern}</span>
-                                <span className="text-[10px] text-text-faint">({patAlerts.length})</span>
+                      <div className="border-t border-border-subtle/50 divide-y divide-border-subtle/20">
+                        {Object.entries(patternGroups).map(([pattern, patAlerts]) => {
+                          const patTook = patAlerts.filter((a) => a.user_action === "took").length;
+                          const patSkipped = patAlerts.filter((a) => a.user_action === "skipped").length;
+                          const dir = patAlerts[0]?.direction || "";
+                          const latestAlert = patAlerts[0]; // most recent
+                          const time = new Date(latestAlert.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+                          return (
+                            <div key={pattern} className="px-4 py-2.5 flex items-center gap-3 hover:bg-surface-2/20 transition-colors group">
+                              {/* Direction indicator */}
+                              <div className={`w-1 h-8 rounded-full shrink-0 ${
+                                dir === "BUY" ? "bg-bullish" : dir === "SHORT" ? "bg-bearish" : "bg-text-faint"
+                              }`} />
+
+                              {/* Pattern name + count */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-text-primary font-medium truncate">{pattern}</span>
+                                  {patAlerts.length > 1 && <span className="text-[10px] text-text-faint">×{patAlerts.length}</span>}
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] text-text-faint">
+                                  <span>{time}</span>
+                                  <span>·</span>
+                                  <span className="font-mono">${fmt(latestAlert.price)}</span>
+                                </div>
                               </div>
-                              {patAlerts.length > 0 && patAlerts[0].direction && (
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                  patAlerts[0].direction === "BUY" ? "text-bullish-text bg-bullish/10" :
-                                  patAlerts[0].direction === "SHORT" ? "text-bearish-text bg-bearish/10" :
-                                  "text-text-faint bg-surface-3"
-                                }`}>{patAlerts[0].direction}</span>
-                              )}
-                            </summary>
-                            <div className="px-4 pb-2 space-y-1">
-                              {patAlerts.map((a) => {
-                                const time = new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-                                return (
-                                  <div key={a.id} className="flex items-center gap-3 py-1.5 text-xs hover:bg-surface-2/20 rounded px-2 -mx-2 transition-colors">
-                                    <span className="font-mono text-text-faint w-16 shrink-0">{time}</span>
-                                    <span className="font-mono text-text-primary">${fmt(a.price)}</span>
-                                    <span className="flex-1" />
-                                    {a.user_action ? (
-                                      <span className={`text-[10px] font-bold ${a.user_action === "took" ? "text-bullish-text" : "text-text-faint"}`}>
-                                        {a.user_action.toUpperCase()}
-                                      </span>
-                                    ) : null}
-                                    <button
-                                      onClick={() => setReplayAlertId(a.id)}
-                                      className="text-[10px] text-accent hover:text-accent-hover"
-                                    >
-                                      ▶
-                                    </button>
-                                  </div>
-                                );
-                              })}
+
+                              {/* Direction badge */}
+                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded shrink-0 ${
+                                dir === "BUY" ? "text-bullish-text bg-bullish/10 border border-bullish/20" :
+                                dir === "SHORT" ? "text-bearish-text bg-bearish/10 border border-bearish/20" :
+                                dir === "SELL" ? "text-warning-text bg-warning/10 border border-warning/20" :
+                                "text-text-faint bg-surface-3 border border-border-subtle"
+                              }`}>{dir === "BUY" ? "LONG" : dir}</span>
+
+                              {/* Took/Skip badges */}
+                              <div className="flex items-center gap-1 shrink-0">
+                                {patTook > 0 && (
+                                  <span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">{patTook} took</span>
+                                )}
+                                {patSkipped > 0 && (
+                                  <span className="text-[10px] text-text-faint bg-surface-3 px-1.5 py-0.5 rounded">{patSkipped} skip</span>
+                                )}
+                              </div>
+
+                              {/* Replay button */}
+                              <button
+                                onClick={() => setReplayAlertId(latestAlert.id)}
+                                className="text-xs text-accent hover:text-accent-hover opacity-60 group-hover:opacity-100 transition-opacity shrink-0 flex items-center gap-1"
+                              >
+                                ▶ Replay
+                              </button>
                             </div>
-                          </details>
-                        ))}
+                          );
+                        })}
                       </div>
                     </details>
                   );
