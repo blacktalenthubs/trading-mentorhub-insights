@@ -115,8 +115,8 @@ class TestSmsFormat:
         assert "T1 $101.50" in body
         assert "T2 $103.00" in body
 
-    def test_sell_suppressed_for_non_exit_types(self):
-        """Non-exit SELL alerts (resistance approach) should be suppressed."""
+    def test_sell_resistance_sent_as_notice(self):
+        """Resistance SELL alerts sent as NOTICE to Telegram."""
         sig = AlertSignal(
             symbol="NVDA",
             alert_type=AlertType.RESISTANCE_PRIOR_HIGH,
@@ -125,7 +125,9 @@ class TestSmsFormat:
             message="Prior High Resistance $182.59",
         )
         body = _format_sms_body(sig)
-        assert body is None  # suppressed
+        assert body is not None
+        assert "NOTICE" in body
+        assert "rejection or breakout" in body
 
     def test_stop_loss_formats_correctly(self):
         sig = AlertSignal(

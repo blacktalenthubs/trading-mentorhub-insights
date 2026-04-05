@@ -57,18 +57,35 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             f"{_notice_msg}"
         )
 
-    # SELL — only send stop_loss through Telegram (T1 handled by monitor T1 NOTIFY)
-    # T1/T2 targets are sent directly by the monitor with Exit buttons, not here
+    # SELL — route by type: stops → alert, resistance → NOTICE, targets → suppressed
     if signal.direction == "SELL":
         _exit_types = {"stop_loss_hit", "auto_stop_out"}
-        if signal.alert_type.value not in _exit_types:
-            return None  # T1/T2 suppressed — monitor sends these with Exit buttons
-        import html as _html2
-        return (
-            f"<b>STOPPED OUT — {_html2.escape(signal.symbol)}</b>\n"
-            f"Stop ${signal.price:.2f} hit\n"
-            f"Trade invalidated — exit"
-        )
+        _resistance_notice_types = {
+            "weekly_high_resistance":  "Rejected at weekly high",
+            "ma_resistance":           "Rejected at MA resistance",
+            "resistance_prior_high":   "Rejected at prior high",
+            "monthly_high_resistance": "Rejected at monthly high",
+        }
+
+        if signal.alert_type.value in _exit_types:
+            import html as _html2
+            return (
+                f"<b>STOPPED OUT — {_html2.escape(signal.symbol)}</b>\n"
+                f"Stop ${signal.price:.2f} hit\n"
+                f"Trade invalidated — exit"
+            )
+
+        if signal.alert_type.value in _resistance_notice_types:
+            import html as _html_res
+            _res_label = _resistance_notice_types[signal.alert_type.value]
+            _detail = signal.message.split(" — ")[0] if signal.message else _res_label
+            return (
+                f"<b>NOTICE — {_html_res.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+                f"{_detail}\n"
+                f"Watch for rejection or breakout"
+            )
+
+        return None  # T1/T2 suppressed — monitor sends these with Exit buttons
 
     # VWAP reclaim — send as NOTICE (awareness, not entry pressure)
     # First VWAP reclaim from below is a momentum shift signal
