@@ -201,7 +201,16 @@ function CandlestickChartInner({
 
     if (entry) plines.push({ price: entry, color: "#3b82f6", title: `Entry $${entry.toFixed(2)}` });
     if (stop) plines.push({ price: stop, color: "#ef4444", title: `Stop $${stop.toFixed(2)}` });
-    if (target) plines.push({ price: target, color: "#f59e0b", title: `T1/Resist $${target.toFixed(2)}` });
+    if (target) {
+      // Dynamic label: if price is above T1, resistance is broken → now Support
+      const lastClose = data.length > 0 ? data[data.length - 1].close : 0;
+      const aboveTarget = lastClose > target * 1.002; // 0.2% buffer
+      plines.push({
+        price: target,
+        color: aboveTarget ? "#22c55e" : "#f59e0b",
+        title: aboveTarget ? `Support $${target.toFixed(2)}` : `T1/Resist $${target.toFixed(2)}`,
+      });
+    }
 
     levels.forEach((lvl) => {
       plines.push({ price: lvl.price, color: lvl.color, title: lvl.label || `$${lvl.price}` });
