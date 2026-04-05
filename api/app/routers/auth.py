@@ -84,47 +84,55 @@ def _build_user_response(user: User, tier: str) -> UserResponse:
     )
 
 
-@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(
     body: RegisterRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    # Check duplicate email
-    existing = await db.execute(select(User).where(User.email == body.email.lower()))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Email already registered")
+    import logging as _log
+    _logger = _log.getLogger("auth.register")
+    try:
+        # Check duplicate email
+        existing = await db.execute(select(User).where(User.email == body.email.lower()))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Email already registered")
 
-    if len(body.password) < 6:
-        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+        if len(body.password) < 6:
+            raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
 
-    user = User(
-        email=body.email.lower(),
-        password_hash=_hash_password(body.password),
-        display_name=body.display_name or body.email.split("@")[0],
-    )
-    db.add(user)
-    await db.flush()
+        user = User(
+            email=body.email.lower(),
+            password_hash=_hash_password(body.password),
+            display_name=body.display_name or body.email.split("@")[0],
+        )
+        db.add(user)
+        await db.flush()
 
-    # Create free subscription with 3-day Pro trial
-    from app.tier import TRIAL_DURATION_DAYS
-    trial_ends = datetime.now(timezone.utc) + timedelta(days=TRIAL_DURATION_DAYS)
-    sub = Subscription(user_id=user.id, tier="free", trial_ends_at=trial_ends)
-    db.add(sub)
-    await db.flush()
-    # Attach subscription to user object so _build_user_response can read it
-    user.subscription = sub
+        # Create free subscription with 3-day Pro trial
+        from app.tier import TRIAL_DURATION_DAYS
+        trial_ends = datetime.now(timezone.utc) + timedelta(days=TRIAL_DURATION_DAYS)
+        sub = Subscription(user_id=user.id, tier="free", trial_ends_at=trial_ends)
+        db.add(sub)
+        await db.flush()
+        # Attach subscription to user object so _build_user_response can read it
+        user.subscription = sub
 
-    # During trial, effective tier is "pro"
-    tier = "pro"
-    access_token = _create_access_token(user, tier)
-    refresh_token = _create_refresh_token(user.id)
-    _set_refresh_cookie(response, refresh_token)
+        # During trial, effective tier is "pro"
+        tier = "pro"
+        access_token = _create_access_token(user, tier)
+        refresh_token = _create_refresh_token(user.id)
+        _set_refresh_cookie(response, refresh_token)
 
-    return AuthResponse(
-        access_token=access_token,
-        user=_build_user_response(user, tier),
-    )
+        return AuthResponse(
+            access_token=access_token,
+            user=_build_user_response(user, tier),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _logger.exception("REGISTER FAILED: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Registration error: {exc}")
 
 
 @router.post("/login", response_model=AuthResponse)
