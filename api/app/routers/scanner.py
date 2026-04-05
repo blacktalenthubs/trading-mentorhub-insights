@@ -32,7 +32,7 @@ async def _get_user_symbols(user: User, db: AsyncSession) -> List[str]:
 
 
 @router.get("/scan", response_model=List[SignalResultResponse])
-@limiter.limit("5/minute")
+@limiter.limit("20/minute")
 async def scan(
     request: Request,
     user: User = Depends(get_current_user),
