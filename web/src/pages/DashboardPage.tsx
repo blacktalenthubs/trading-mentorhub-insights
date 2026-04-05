@@ -372,7 +372,11 @@ export default function DashboardPage() {
   ) ?? [];
 
   // Watchlist signals sorted by grade
-  const watchSignals = signals?.filter((s) => s.action_label !== "No Setup").slice(0, 6) ?? [];
+  // Sort watchlist by grade (best first)
+  const _gradeRank: Record<string, number> = { "A+": 0, "A": 1, "A-": 2, "B+": 3, "B": 4, "B-": 5, "C": 6, "C-": 7 };
+  const watchSignals = [...(signals ?? [])]
+    .sort((a, b) => (_gradeRank[a.grade] ?? 9) - (_gradeRank[b.grade] ?? 9))
+    .slice(0, 8);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -527,9 +531,25 @@ export default function DashboardPage() {
                   </a>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                {historyAlerts.slice(0, 12).map((a) => (
-                  <ActionedAlert key={a.id} alert={a} onReplay={setReplayAlertId} />
+              <div className="space-y-4">
+                {/* Group alerts by symbol */}
+                {Object.entries(
+                  historyAlerts.reduce<Record<string, typeof historyAlerts>>((acc, a) => {
+                    (acc[a.symbol] = acc[a.symbol] || []).push(a);
+                    return acc;
+                  }, {})
+                ).sort((a, b) => b[1].length - a[1].length).map(([symbol, symbolAlerts]) => (
+                  <div key={symbol}>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-bold text-sm text-text-primary">{symbol}</span>
+                      <span className="text-[10px] text-text-faint">{symbolAlerts.length} alerts</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                      {symbolAlerts.map((a) => (
+                        <ActionedAlert key={a.id} alert={a} onReplay={setReplayAlertId} />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             </section>

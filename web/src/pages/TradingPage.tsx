@@ -591,10 +591,11 @@ export default function TradingPage() {
   // Show all alerts (consolidated feed, not filtered by selected symbol)
   const symbolAlerts = todayAlerts;
 
-  // Filtered signals for watchlist search
-  const filteredSignals = signals?.filter((s) =>
-    !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase()),
-  );
+  // Filtered and sorted signals for watchlist — best grades first
+  const _gradeOrder: Record<string, number> = { "A+": 0, "A": 1, "A-": 2, "B+": 3, "B": 4, "B-": 5, "C": 6, "C-": 7 };
+  const filteredSignals = signals
+    ?.filter((s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase()))
+    ?.sort((a, b) => (_gradeOrder[a.grade] ?? 9) - (_gradeOrder[b.grade] ?? 9));
 
   const potentialEntryCount = signals?.filter((s) => s.action_label === "Potential Entry").length ?? 0;
 
