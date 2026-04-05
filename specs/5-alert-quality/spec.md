@@ -330,3 +330,34 @@ The system should be AWARE of the user's position when labeling levels and decid
 - If conflict: suppress the newer signal, log it
 
 **Principle: COMMIT to a direction. Signal exit before flipping.**
+
+### BUG-9: System Auto-Closes Trades Without User Input — Misleading P&L
+
+**What happened:** System fires "STOPPED OUT" alert and auto-closes the trade at $2,044.56 with P&L: -$36. But the user may have already exited at a profit manually, or may choose to hold through the dip.
+
+**Problem:**
+1. User takes trade, exits at profit on their broker — but never reports exit price to system
+2. System sees stop level breached, auto-records as loss
+3. Win rate and P&L data become misleading — doesn't reflect actual trading results
+4. V1 had same issue — win rates can't be trusted because many profitable exits went unreported
+
+**Fix — User-Controlled Exits Only:**
+1. System should NEVER auto-close a trade. Only NOTIFY that stop/target level was reached.
+2. Stop/target alerts become INFORMATIONAL: "Stop level $2,025 was breached — consider exiting"
+3. User closes the trade manually:
+   - From Dashboard: Click "Close" → enter exit price → P&L calculated
+   - From Telegram: Tap "Exit" → system uses current market price (best we can do)
+   - `/exit SYMBOL PRICE` command for specific exit price
+4. If user doesn't close, trade stays OPEN indefinitely
+5. This gives ACCURATE P&L data — only user-reported exits count
+
+**Impact on win rate tracking:**
+- Current: auto-stop creates false losses (user may have exited profitably)
+- Fixed: only user-reported exits → accurate win rate → trustworthy track record
+- The track record becomes the user's ACTUAL results, not theoretical system outcomes
+
+**Implementation:**
+- Stop `check_auto_stop_out()` and `check_stop_loss_hit()` from closing real trades
+- These alerts NOTIFY only — direction = "NOTICE" instead of closing entries
+- Dashboard/Telegram exit flow asks for exit price
+- Remove auto-close logic from monitor
