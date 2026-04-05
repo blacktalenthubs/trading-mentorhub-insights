@@ -111,7 +111,8 @@ async def register(
 
         # Create free subscription with 3-day Pro trial
         from app.tier import TRIAL_DURATION_DAYS
-        trial_ends = datetime.now(timezone.utc) + timedelta(days=TRIAL_DURATION_DAYS)
+        # Use naive UTC datetime — Postgres column is TIMESTAMP WITHOUT TIME ZONE
+        trial_ends = datetime.utcnow() + timedelta(days=TRIAL_DURATION_DAYS)
         sub = Subscription(user_id=user.id, tier="free", trial_ends_at=trial_ends)
         db.add(sub)
         await db.flush()
