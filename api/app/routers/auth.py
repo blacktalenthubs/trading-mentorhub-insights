@@ -112,6 +112,8 @@ async def register(
     sub = Subscription(user_id=user.id, tier="free", trial_ends_at=trial_ends)
     db.add(sub)
     await db.flush()
+    # Attach subscription to user object so _build_user_response can read it
+    user.subscription = sub
 
     # During trial, effective tier is "pro"
     tier = "pro"
