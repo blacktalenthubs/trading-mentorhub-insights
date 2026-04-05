@@ -267,7 +267,7 @@ function AlertPreferences() {
           type="range" min={0} max={100} step={5}
           value={minScore}
           onChange={(e) => setMinScore(Number(e.target.value))}
-          className="w-full"
+          className="w-full accent-accent [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-surface-3 [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-track]:bg-surface-3 [&::-moz-range-thumb]:bg-accent"
         />
         <p className="text-[10px] text-text-faint mt-1">Exit alerts (T1/T2/Stop) always send regardless of score.</p>
       </div>
@@ -328,7 +328,7 @@ function ProfileSection() {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="Display name"
-            className="flex-1 rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+            className="flex-1 rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
           />
           <button
             type="submit"
@@ -367,10 +367,10 @@ function ProfileSection() {
             >
               <input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)}
                 placeholder="Current password" required
-                className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none" />
+                className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none" />
               <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)}
                 placeholder="New password (min 6)" required minLength={6}
-                className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none" />
+                className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none" />
               <div className="flex items-center gap-2">
                 <button type="submit" disabled={changePassword.isPending}
                   className="text-xs bg-accent text-white px-3 py-1.5 rounded-md disabled:opacity-50">

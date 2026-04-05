@@ -1,6 +1,6 @@
 /** Candlestick chart using lightweight-charts v5, with MA/VWAP overlays. */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, Component, type ReactNode } from "react";
 import { createChart, CandlestickSeries, LineSeries, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import type { OHLCBar, ChartLevel } from "../api/hooks";
@@ -22,7 +22,7 @@ interface Props {
   hideWicks?: boolean;
 }
 
-export default function CandlestickChart({
+function CandlestickChartInner({
   data,
   levels = [],
   entry,
@@ -231,4 +231,52 @@ export default function CandlestickChart({
   }, [data, levels, entry, stop, target, indicators, hideWicks]);
 
   return <div ref={containerRef} className="w-full rounded-lg" />;
+}
+
+/* ── Chart-specific error boundary ───────────────────────────────── */
+
+interface ChartErrorState {
+  hasError: boolean;
+}
+
+class ChartErrorBoundary extends Component<{ children: ReactNode; height?: number }, ChartErrorState> {
+  constructor(props: { children: ReactNode; height?: number }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ChartErrorState {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const h = this.props.height ?? 400;
+      return (
+        <div
+          className="flex flex-col items-center justify-center gap-3 rounded-lg bg-surface-2 border border-border-subtle"
+          style={{ height: h }}
+        >
+          <p className="text-sm font-medium text-bearish-text">Chart failed to load</p>
+          <button
+            onClick={() => this.setState({ hasError: false })}
+            className="rounded-md bg-surface-4 px-4 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-3 border border-border-subtle transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ── Wrapped export ──────────────────────────────────────────────── */
+
+export default function CandlestickChartWithBoundary(props: Props) {
+  return (
+    <ChartErrorBoundary height={props.height}>
+      <CandlestickChartInner {...props} />
+    </ChartErrorBoundary>
+  );
 }

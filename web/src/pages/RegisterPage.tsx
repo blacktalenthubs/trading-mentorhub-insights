@@ -74,7 +74,7 @@ export default function RegisterPage() {
           name="name"
           autoComplete="name"
           placeholder="Display name (optional)"
-          className="w-full rounded-lg border border-border-subtle bg-surface-3 px-3 py-2.5 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+          className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
         />
         <input
           ref={emailRef}
@@ -82,7 +82,7 @@ export default function RegisterPage() {
           name="email"
           autoComplete="email"
           placeholder="Email"
-          className="w-full rounded-lg border border-border-subtle bg-surface-3 px-3 py-2.5 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+          className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
           required
         />
         <input
@@ -91,7 +91,7 @@ export default function RegisterPage() {
           name="new-password"
           autoComplete="new-password"
           placeholder="Password (min 6 characters)"
-          className="w-full rounded-lg border border-border-subtle bg-surface-3 px-3 py-2.5 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+          className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
           required
           minLength={6}
         />
@@ -107,8 +107,8 @@ export default function RegisterPage() {
               const cf = confirmRef.current?.value ?? "";
               setPwMismatch(cf.length > 0 && pw !== cf);
             }}
-            className={`w-full rounded-lg border bg-surface-3 px-3 py-2.5 text-sm text-text-primary placeholder:text-text-faint focus:outline-none ${
-              pwMismatch ? "border-bearish focus:border-bearish" : "border-border-subtle focus:border-accent"
+            className={`w-full rounded-md border bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:outline-none focus:ring-1 ${
+              pwMismatch ? "border-bearish focus:border-bearish focus:ring-bearish/30" : "border-border-subtle focus:border-accent focus:ring-accent/30"
             }`}
             required
           />
@@ -119,7 +119,7 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-bullish py-2.5 text-sm font-bold text-surface-0 hover:bg-bullish/90 disabled:opacity-50 transition-colors shadow-[0_0_15px_rgba(34,197,94,0.15)]"
+          className="w-full rounded-md bg-bullish py-2 text-sm font-bold text-surface-0 hover:bg-bullish/90 disabled:opacity-50 transition-colors shadow-[0_0_15px_rgba(34,197,94,0.15)]"
         >
           {loading ? "Creating account..." : "Create Account"}
         </button>

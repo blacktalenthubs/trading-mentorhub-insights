@@ -16,7 +16,7 @@ import {
 } from "../api/hooks";
 import {
   Crosshair, Check, ChevronRight, Send, Plus,
-  ExternalLink, Loader2, Search, Zap,
+  ExternalLink, Loader2, Search,
 } from "lucide-react";
 
 /* ── Popular symbols for quick-add ────────────────────────────────── */
@@ -341,11 +341,28 @@ function StepDone() {
 
   return (
     <div className="text-center">
-      <div className="w-16 h-16 rounded-full bg-bullish/10 flex items-center justify-center mx-auto mb-4">
-        <Zap className="h-8 w-8 text-bullish-text" />
+      {/* Celebration keyframes */}
+      <style>{`
+        @keyframes celebrate-bounce {
+          0% { transform: scale(0); opacity: 0; }
+          50% { transform: scale(1.2); }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes celebrate-check {
+          0% { transform: scale(0) rotate(-45deg); opacity: 0; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes celebrate-fade-up {
+          0% { transform: translateY(10px); opacity: 0; }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+      `}</style>
+      {/* Animated checkmark circle */}
+      <div className="w-16 h-16 rounded-full bg-bullish/10 flex items-center justify-center mx-auto mb-4 animate-[celebrate-bounce_0.6s_ease-out]">
+        <Check className="h-8 w-8 text-bullish-text animate-[celebrate-check_0.4s_ease-out_0.2s_both]" />
       </div>
-      <h2 className="text-2xl font-bold text-text-primary mb-2">You're all set!</h2>
-      <p className="text-text-muted text-sm mb-8 max-w-md mx-auto">
+      <h2 className="text-2xl font-bold text-text-primary mb-2 animate-[celebrate-fade-up_0.5s_ease-out_0.3s_both]">You're all set!</h2>
+      <p className="text-text-muted text-sm mb-8 max-w-md mx-auto animate-[celebrate-fade-up_0.5s_ease-out_0.45s_both]">
         We're now scanning {watchlist?.length ?? 0} symbol{(watchlist?.length ?? 0) !== 1 ? "s" : ""} every
         3 minutes during market hours.
         {tgStatus?.linked

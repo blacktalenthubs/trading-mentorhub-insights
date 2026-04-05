@@ -51,7 +51,7 @@ export default function LoginPage() {
           name="email"
           autoComplete="email"
           placeholder="Email"
-          className="w-full rounded border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+          className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
           required
         />
         <input
@@ -60,7 +60,7 @@ export default function LoginPage() {
           name="password"
           autoComplete="current-password"
           placeholder="Password"
-          className="w-full rounded border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+          className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
           required
         />
         <button

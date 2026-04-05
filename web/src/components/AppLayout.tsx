@@ -47,7 +47,7 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen bg-surface-0">
       {/* Desktop: icon-only nav rail */}
-      <nav className="hidden md:flex w-16 flex-col items-center justify-between border-r border-border-subtle bg-surface-0 py-5 shrink-0">
+      <nav role="navigation" aria-label="Main navigation" className="hidden md:flex w-16 flex-col items-center justify-between border-r border-border-subtle bg-surface-0 py-5 shrink-0">
         {/* Top: brand + nav icons */}
         <div className="flex flex-col items-center gap-6 w-full">
           {/* Brand icon */}
@@ -63,6 +63,8 @@ export default function AppLayout() {
                   key={item.to}
                   to={item.to}
                   end={item.to === "/dashboard"}
+                  aria-label={item.label}
+                  tabIndex={0}
                   className={({ isActive }) =>
                     `group relative flex items-center justify-center w-full aspect-square rounded-xl transition-colors ${
                       isActive
@@ -93,7 +95,7 @@ export default function AppLayout() {
         <div className="flex flex-col items-center gap-3 w-full">
           {/* Market status dot */}
           {market && (
-            <div className="group relative flex items-center justify-center w-8 h-8">
+            <div className="group relative flex flex-col items-center justify-center gap-0.5">
               <div
                 className={`w-2.5 h-2.5 rounded-full ${
                   market.is_open
@@ -103,6 +105,15 @@ export default function AppLayout() {
                     : "bg-text-faint"
                 }`}
               />
+              <span className={`text-[8px] font-bold uppercase tracking-wider ${
+                market.is_open
+                  ? "text-bullish-text"
+                  : market.is_premarket
+                  ? "text-warning-text"
+                  : "text-text-faint"
+              }`}>
+                {market.is_open ? "Open" : market.is_premarket ? "Pre" : "Off"}
+              </span>
               <span className="absolute left-full ml-3 px-2 py-1 bg-surface-4 text-xs font-medium text-text-primary rounded border border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
                 {market.is_open ? "Market Open" : market.is_premarket ? "Pre-Market" : "Closed"}
               </span>
@@ -170,7 +181,7 @@ export default function AppLayout() {
         </main>
 
         {/* Mobile bottom tab bar */}
-        <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-surface-0 pb-[env(safe-area-inset-bottom)] md:hidden">
+        <nav role="navigation" aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-surface-0 pb-[env(safe-area-inset-bottom)] md:hidden">
           {MOBILE_TABS.map((tab) => {
             const Icon = tab.icon;
             return (
