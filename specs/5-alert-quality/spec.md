@@ -192,3 +192,19 @@ Forces multiple structural levels to agree before notifying.
 - [ ] No Tier 1 signals are suppressed (zero false negatives on best rules)
 - [ ] Users can see all alerts on dashboard (only push is filtered)
 - [ ] Score correlates with actual win rate (R² > 0.5)
+
+---
+
+## Bugs Found (2026-04-05)
+
+### BUG-1: Consolidation Uses Lowest Entry Instead of Primary Signal Entry
+
+**What happened:** ETH-USD session_low_double_bottom fired at $2052.49 with [+3 confirming: Ma Bounce 50, PDL Reclaim, Inside Day Reclaim]. The consolidation logic picked the LOWEST entry from all signals ($2046.06 from MA Bounce 50) instead of the primary signal's entry ($2052.49).
+
+**Problem:** The 50MA entry ($2046.06) was BELOW the current price ($2052). The stop was set at $2044.56 — only $1.50 below the artificial entry. Price was actually at $2052 so the stop was $8 above the real risk level. Stop hit immediately → false stop-out.
+
+**Fix needed:** `_consolidate_signals()` should use the PRIMARY signal's entry (highest scored) as the base, not the lowest entry from all confirming signals. Confirming signals should validate the thesis, not change the entry point.
+
+**File:** `analytics/intraday_rules.py` → `_consolidate_signals()` function
+
+**Impact:** False stop-outs on consolidated signals. Traders lose money on trades that should have held.
