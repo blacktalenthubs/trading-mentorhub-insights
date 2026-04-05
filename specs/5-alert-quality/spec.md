@@ -268,3 +268,43 @@ Forces multiple structural levels to agree before notifying.
 Observation from live trading: ETH touched 50MA intraday but hadn't closed below on the daily chart. The 50MA had been support for days. System should only fire MA rejection SHORT after a daily close below the MA — intraday wicks don't confirm bearish.
 
 This reinforces BUG-6 fix (2-bar confirmation) but goes further: for DAILY MAs, require a DAILY CLOSE below, not just intraday bars.
+
+### BUG-7: Breakout Alert at Resistance Should Be Exit Alert for Active Longs
+
+**What happened:** ETH-USD rallied from $2,024 (double bottom) up to $2,065 resistance (T1/Resist). System fired a "CONSOLIDATION BREAKOUT" BUY alert at $2,061 — right at the resistance level. 
+
+**Problem:** For a trader who is LONG from $2,024, the $2,065 level is their EXIT POINT (T1), not a new entry. The breakout alert encourages them to ADD at the worst possible spot — right at resistance where sellers appear.
+
+**The dual-purpose level:**
+- For a trader WITH NO POSITION: a breakout above $2,065 confirmed with a close IS a valid new long entry
+- For a trader WITH AN ACTIVE LONG from below: $2,065 is their T1 — they should be taking profits, not adding
+
+**Fix needed (two parts):**
+
+**Part A: Breakout alerts at resistance need CLOSE confirmation**
+- Current: consolidation breakout fires when price BREAKS the range
+- Needed: require a CLOSE above the resistance level (not just a wick/break)
+- Implementation: check if the bar CLOSES above the resistance, not just if high exceeds it
+- For PDH breakout this already exists (0.15% above close required) — apply same logic to consol breakout
+
+**Part B: When user has active LONG approaching T1, send EXIT alert instead of BUY**
+- If user has active entry at $2,024 and price reaches $2,065 (their T1):
+  → Send "T1 APPROACHING — consider taking partial profits" (EXIT)
+  → Do NOT send "CONSOLIDATION BREAKOUT — new long entry" (BUY)
+- This is an extension of BUG-5 (conflicting direction)
+- The system should check: is this breakout level near any active entry's T1?
+
+**File:** `analytics/intraday_rules.py` — `check_consol_breakout_long()`, `check_prior_day_high_breakout()`
+**File:** `api/app/background/monitor.py` — check active entries before sending breakout alerts near T1
+
+### INSIGHT-2: Levels Are Context-Dependent
+
+A price level is not inherently "support" or "resistance" or "target" — it depends on WHERE THE TRADER IS:
+
+| Trader Position | Level $2,065 Is |
+|----------------|-----------------|
+| Long from $2,024 | T1 / EXIT (take profits) |
+| No position | Breakout entry IF confirmed with close |
+| Short from $2,080 | T1 / EXIT (cover short) |
+
+The system should be AWARE of the user's position when labeling levels and deciding what alert to send. This is the foundation of "position-aware alerts."
