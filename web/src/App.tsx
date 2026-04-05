@@ -9,6 +9,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import LandingPage from "./pages/LandingPage";
 import LearnPage from "./pages/LearnPage";
 import LearnDetailPage from "./pages/LearnDetailPage";
+import PatternDetailPage from "./pages/PatternDetailPage";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -64,6 +65,7 @@ export default function App() {
               <Route path="/" element={<LandingPage />} />
               <Route path="/learn" element={<LearnPage />} />
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
+              <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />

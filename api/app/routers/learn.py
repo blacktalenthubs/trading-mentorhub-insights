@@ -16,6 +16,7 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from app.data.learn_content import CATEGORIES, CATEGORY_ORDER
+from app.data.pattern_content import PATTERNS, PATTERN_ORDER
 
 router = APIRouter()
 
@@ -170,5 +171,128 @@ async def get_category(category_id: str):
         how_to_read=cat["how_to_read"],
         pro_tips=cat["pro_tips"],
         key_alert_types=[AlertTypeInfo(**at) for at in cat["key_alert_types"]],
+        stats=stats,
+    )
+
+
+# ── Per-Pattern Deep Dives ────────────────────────────────────────────
+
+class PatternSummary(BaseModel):
+    id: str
+    name: str
+    category: str
+    direction: str
+    difficulty: str
+    tagline: str
+    stats: CategoryStats
+
+
+class PatternDetail(BaseModel):
+    id: str
+    name: str
+    category: str
+    direction: str
+    difficulty: str
+    tagline: str
+    what_it_is: str
+    how_to_identify: List[str]
+    why_it_works: str
+    when_it_fails: str
+    common_mistakes: List[str]
+    pro_tips: List[str]
+    stats: CategoryStats
+
+
+def _compute_pattern_stats(alert_type: str, days: int = 90) -> CategoryStats:
+    """Compute win/loss stats for a specific alert type."""
+    try:
+        from db import get_db
+
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM alerts WHERE alert_type = ? AND session_date >= ?",
+                (alert_type, cutoff),
+            ).fetchone()
+            signal_count = row[0] if row else 0
+
+            sessions = conn.execute(
+                "SELECT DISTINCT symbol, session_date FROM alerts "
+                "WHERE alert_type = ? AND session_date >= ? AND direction IN ('BUY', 'SHORT')",
+                (alert_type, cutoff),
+            ).fetchall()
+
+            win_count = 0
+            loss_count = 0
+            for s in sessions:
+                outcomes = conn.execute(
+                    "SELECT alert_type FROM alerts "
+                    "WHERE symbol = ? AND session_date = ? AND alert_type IN (?, ?, ?, ?)",
+                    (s["symbol"], s["session_date"], "target_1_hit", "target_2_hit",
+                     "stop_loss_hit", "auto_stop_out"),
+                ).fetchall()
+                types = {r["alert_type"] for r in outcomes}
+                if types & {"target_1_hit", "target_2_hit"}:
+                    win_count += 1
+                elif types & {"stop_loss_hit", "auto_stop_out"}:
+                    loss_count += 1
+
+            total = win_count + loss_count
+            win_rate = round(win_count / total * 100, 1) if total > 0 else None
+
+            return CategoryStats(
+                signal_count=signal_count,
+                win_rate=win_rate,
+                win_count=win_count,
+                loss_count=loss_count,
+            )
+    except Exception:
+        return CategoryStats()
+
+
+@router.get("/patterns", response_model=List[PatternSummary])
+async def list_patterns():
+    """List all individual pattern deep-dives with stats. Public."""
+    results = []
+    for pat_id in PATTERN_ORDER:
+        pat = PATTERNS.get(pat_id)
+        if not pat:
+            continue
+        stats = _compute_pattern_stats(pat_id)
+        results.append(PatternSummary(
+            id=pat_id,
+            name=pat["name"],
+            category=pat["category"],
+            direction=pat["direction"],
+            difficulty=pat["difficulty"],
+            tagline=pat["tagline"],
+            stats=stats,
+        ))
+    return results
+
+
+@router.get("/patterns/{pattern_id}", response_model=PatternDetail)
+async def get_pattern(pattern_id: str):
+    """Get deep-dive educational content for a specific pattern. Public."""
+    pat = PATTERNS.get(pattern_id)
+    if not pat:
+        raise HTTPException(status_code=404, detail="Pattern not found")
+
+    stats = _compute_pattern_stats(pattern_id)
+
+    return PatternDetail(
+        id=pattern_id,
+        name=pat["name"],
+        category=pat["category"],
+        direction=pat["direction"],
+        difficulty=pat["difficulty"],
+        tagline=pat["tagline"],
+        what_it_is=pat["what_it_is"],
+        how_to_identify=pat["how_to_identify"],
+        why_it_works=pat["why_it_works"],
+        when_it_fails=pat["when_it_fails"],
+        common_mistakes=pat["common_mistakes"],
+        pro_tips=pat["pro_tips"],
         stats=stats,
     )
