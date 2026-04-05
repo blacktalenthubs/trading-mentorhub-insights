@@ -1,0 +1,194 @@
+# Feature Specification: Alert Quality & Noise Management
+
+**Status**: Research Complete — Ready for Optimization
+**Created**: 2026-04-04
+**Priority**: High — core product quality
+
+---
+
+## The Problem
+
+A trader with 20 symbols on their watchlist gets 50-85 alerts per day. Most are noise. The system needs to send fewer, higher-conviction alerts that traders actually act on.
+
+**Current daily volume:** 14-85 alerts/day (varies by market volatility)
+**Goal:** 10-20 high-conviction alerts/day for a 20-symbol watchlist
+
+---
+
+## Production Win Rates (Last 30 Days)
+
+### Top Performers (>80% win rate, 10+ signals)
+
+| Alert Type | Dir | Total | Win | Loss | WR% | Avg Score |
+|-----------|-----|-------|-----|------|-----|-----------|
+| **vwap_reclaim** | BUY | 20 | 14 | 0 | **100%** | 72 |
+| **consol_breakout_long** | BUY | 15 | 10 | 0 | **100%** | 84 |
+| **consol_breakout_short** | SHORT | 27 | 22 | 1 | **95.7%** | 80 |
+| **prior_day_high_breakout** | BUY | 24 | 12 | 1 | **92.3%** | 68 |
+| **vwap_bounce** | BUY | 18 | 11 | 1 | **91.7%** | 73 |
+| **pdh_retest_hold** | BUY | 17 | 9 | 1 | **90.0%** | 66 |
+| **vwap_loss** | SHORT | 23 | 16 | 2 | **88.9%** | 61 |
+| **session_low_bounce_vwap** | BUY | 40 | 27 | 4 | **87.1%** | 55 |
+| **prior_day_low_reclaim** | BUY | 36 | 20 | 3 | **87.0%** | 66 |
+| **prior_day_low_bounce** | BUY | 18 | 12 | 2 | **85.7%** | 69 |
+| **ema_rejection_short** | SHORT | 20 | 11 | 2 | **84.6%** | 56 |
+| **opening_low_base** | BUY | 7 | 5 | 1 | **83.3%** | 64 |
+| **hourly_resistance_rejection_short** | SHORT | 18 | 9 | 2 | **81.8%** | 57 |
+
+### Moderate Performers (60-80% win rate)
+
+| Alert Type | Dir | Total | Win | Loss | WR% | Avg Score |
+|-----------|-----|-------|-----|------|-----|-----------|
+| **planned_level_touch** | BUY | 31 | 16 | 5 | 76.2% | 67 |
+| **weekly_level_touch** | BUY | 14 | 9 | 3 | 75.0% | 48 |
+| **intraday_support_bounce** | BUY | 34 | 17 | 6 | 73.9% | 59 |
+| **morning_low_retest** | BUY | 20 | 11 | 4 | 73.3% | 68 |
+| **fib_retracement_bounce** | BUY | 13 | 8 | 3 | 72.7% | 74 |
+| **ema_bounce_100** | BUY | 10 | 5 | 2 | 71.4% | 62 |
+| **ma_bounce_200** | BUY | 9 | 5 | 2 | 71.4% | 51 |
+| **session_low_double_bottom** | BUY | 43 | 23 | 11 | 67.6% | 53 |
+| **ema_bounce_200** | BUY | 23 | 12 | 6 | 66.7% | 58 |
+| **multi_day_double_bottom** | BUY | 33 | 17 | 9 | 65.4% | 61 |
+
+### Weak/Low Sample
+
+| Alert Type | Dir | Total | Win | Loss | WR% | Notes |
+|-----------|-----|-------|-----|------|-----|-------|
+| ma_bounce_50 | BUY | 7 | 1 | 1 | 50% | Low sample |
+| intraday_ema_rejection_short | SHORT | 3 | 1 | 1 | 50% | Low sample |
+| pdh_failed_breakout | SHORT | 8 | 4 | 2 | 66.7% | Moderate |
+
+---
+
+## Key Insights
+
+### 1. Score ≠ Win Rate
+- `session_low_bounce_vwap` has **87% win rate** but avg score 55 (B)
+- `ma_bounce_50` has avg score 88 (A+) but only 50% win rate
+- **Scoring needs recalibration** — VWAP-based signals outperform MA-based ones
+
+### 2. High-Volume Winners (Signal, Not Noise)
+These fire often AND win consistently:
+- `session_low_bounce_vwap` (40 signals, 87% WR) — VWAP support bounce
+- `prior_day_low_reclaim` (36 signals, 87% WR) — PDL structural level
+- `consol_breakout_short` (27 signals, 96% WR) — range breakdown
+- `prior_day_high_breakout` (24 signals, 92% WR) — PDH structural level
+
+### 3. High-Volume Losers (Noise Candidates)
+These fire often but win less:
+- `session_low_double_bottom` (43 signals, 68% WR) — too loose?
+- `multi_day_double_bottom` (33 signals, 65% WR) — false bottoms
+- `intraday_support_bounce` (34 signals, 74% WR) — broad support
+
+### 4. VWAP Signals Dominate
+- `vwap_reclaim` 100%, `vwap_bounce` 92%, `session_low_bounce_vwap` 87%
+- VWAP is the institutional benchmark — signals based on it have structural edge
+
+### 5. Daily Volume
+- Average: ~50 alerts/day for current watchlist (6-8 symbols)
+- With 20 symbols: projects to ~120-170 alerts/day — **too noisy**
+- Need 70-80% reduction for usable experience
+
+---
+
+## Noise Reduction Strategies
+
+### Strategy 1: Score Threshold Per Tier
+```
+Free tier:  Only A+ alerts (score ≥ 90) → ~5-8/day
+Pro tier:   A and above (score ≥ 75) → ~15-25/day  
+Elite tier: B+ and above (score ≥ 65) → ~30-50/day
+```
+**Problem:** Score doesn't correlate well with win rate (see insight #1)
+
+### Strategy 2: Win-Rate Weighted Scoring
+Adjust base score by historical win rate for that alert type:
+```
+adjusted_score = base_score * (1 + (historical_wr - 0.70) * 2)
+```
+- 90% WR rule: 80 * 1.40 = 112 → capped at 100
+- 65% WR rule: 80 * 0.90 = 72 → demoted from A to B+
+
+### Strategy 3: Conviction Tiers (Not Just Score)
+```
+TIER 1 (Push immediately):
+  - vwap_reclaim, consol_breakout_*, prior_day_high_breakout
+  - pdh_retest_hold, vwap_bounce
+  → Rules with >85% historical win rate
+
+TIER 2 (Push with context):
+  - prior_day_low_reclaim, prior_day_low_bounce
+  - session_low_bounce_vwap, ema_rejection_short
+  → Rules with 75-85% win rate
+
+TIER 3 (Dashboard only, no push):
+  - session_low_double_bottom, multi_day_double_bottom
+  - intraday_support_bounce, ema_bounce_200
+  → Rules with <75% win rate OR low sample
+
+TIER 4 (Disabled):
+  - Consistently underperforming rules
+```
+
+### Strategy 4: Per-Symbol Daily Alert Budget
+```
+Max alerts per symbol per day: 3 (entry) + unlimited (exit)
+After 3 BUY signals for NVDA → suppress further BUY until next session
+```
+
+### Strategy 5: Confluence Requirement
+```
+Single signal alone: Dashboard only (no push)
+2+ confirming signals: Push notification (consolidated)
+```
+Forces multiple structural levels to agree before notifying.
+
+---
+
+## Current Noise Filters (Already Implemented)
+
+| Filter | What It Does | Effectiveness |
+|--------|-------------|---------------|
+| SPY Gate (VWAP <40%) | Suppresses equity BUY when SPY weak | High |
+| Opening Wait (15 min) | No BUY first 3 bars | High |
+| Burst Cooldown (10 min) | Suppress repeat BUY notification | Medium |
+| Post-Stop Cooldown (30 min) | No BUY after stop-out | Medium |
+| Dedup (per session) | One alert_type per symbol per day | Medium |
+| Low Volume Skip (<0.4x) | Drop thin-volume signals | Medium |
+| ADX Choppy Penalty (-10) | Demote in trendless markets | Low |
+| Staleness Filter (>1R moved) | Drop signals where price ran | Medium |
+| User Preferences | Toggle categories on/off | User-controlled |
+
+---
+
+## Recommended Optimization Plan
+
+### Phase 1: Score Recalibration (Based on Data)
+- Weight VWAP alignment higher (currently 25 pts, should be 35)
+- Add historical win rate multiplier to score
+- Reduce MA position weight for non-bounce alerts (currently 25 pts)
+
+### Phase 2: Conviction Tiers
+- Classify rules into Tier 1-4 based on 30-day rolling win rate
+- Only Tier 1+2 get push notifications by default
+- Users can opt into Tier 3 in settings
+
+### Phase 3: Per-Symbol Budget
+- Max 3 push alerts per symbol per session
+- Consolidation counts as 1 (not 3)
+- Exit alerts exempt
+
+### Phase 4: Confluence Gate (Aggressive Noise Cut)
+- Require 2+ confirming signals for push
+- Single signals → dashboard only
+- Exception: Tier 1 rules (proven >85% WR) always push
+
+---
+
+## Acceptance Criteria
+
+- [ ] Daily alert volume drops from 50-85 to 15-25 for 8-symbol watchlist
+- [ ] Win rate of pushed alerts increases from 77% to 85%+
+- [ ] No Tier 1 signals are suppressed (zero false negatives on best rules)
+- [ ] Users can see all alerts on dashboard (only push is filtered)
+- [ ] Score correlates with actual win rate (R² > 0.5)
