@@ -232,3 +232,22 @@ Forces multiple structural levels to agree before notifying.
 **Fix needed:** Target calculation should check for overhead resistance levels (broken support, MAs, prior highs) and use the NEAREST one as T1, not a fixed R:R multiple.
 
 **File:** `analytics/intraday_rules.py` — target calculation in each check_* function
+
+### BUG-5: SHORT Alert Fires While User Has Active LONG Position
+
+**What happened:** ETH-USD fired an EMA rejection SHORT alert while the user had an active LONG trade (multi-day double bottom). This is confusing — the system is telling the trader to go short on the same symbol they're long on.
+
+**Fix needed:** When a user has an active entry (status='active') for a symbol, suppress SHORT alerts for that symbol. Only send exit alerts (T1/stop) for the active trade direction.
+
+**File:** `api/app/background/monitor.py` — check active_entries before sending conflicting direction alerts
+
+### BUG-6: First Touch of MA50 Treated as Rejection — Should Wait for Confirmation
+
+**What happened:** ETH-USD touched the 50MA ($2,045) for the first time after it broke below. System immediately fired "MA50 REJECTION" SHORT. But on the daily chart, the 50MA had been support for days — the first retest from below is often a reclaim attempt, not a rejection.
+
+**Fix needed:** MA resistance rejection should require:
+1. At least 2 bars of rejection (not just one bar close below)
+2. Check if the MA was recently support (within last 5 sessions) — if so, demote confidence or suppress
+3. First touch after a break should be labeled "MA50 TEST" (NOTICE) not "MA50 REJECTION" (SHORT)
+
+**File:** `analytics/intraday_rules.py` — `check_ema_rejection_short()` and `check_ma_resistance()`
