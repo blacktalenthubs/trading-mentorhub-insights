@@ -169,24 +169,40 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
     except Exception:
         pass
 
-    # Open a real trade
+    # Open a real trade — write directly to DB with user_id
     try:
-        from alerting.real_trade_store import open_real_trade, has_open_trade
-        from alerting.alert_store import today_session
-        if not has_open_trade(symbol):
-            open_real_trade(
-                symbol=symbol,
-                direction=alert["direction"],
-                entry_price=alert.get("entry") or alert["price"],
-                stop_price=alert.get("stop"),
-                target_price=alert.get("target_1"),
-                target_2_price=alert.get("target_2"),
-                alert_type=alert["alert_type"],
-                alert_id=alert_id,
-                session_date=alert.get("session_date") or today_session(),
-            )
+        from db import get_db
+        user_id = alert.get("user_id")
+        entry_price = alert.get("entry") or alert["price"]
+        direction = alert["direction"]
+        session_date = alert.get("session_date") or date.today().isoformat()
+
+        # Check if already have open trade for this symbol
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT id FROM real_trades WHERE symbol = ? AND status = 'open' AND user_id = ?",
+                (symbol, user_id),
+            ).fetchone()
+
+        if not existing:
+            # Position sizing
+            if symbol == "SPY":
+                shares = 200
+            else:
+                shares = int(50000 // entry_price) if entry_price > 0 else 0
+
+            with get_db() as conn:
+                conn.execute(
+                    """INSERT INTO real_trades (user_id, symbol, direction, shares, entry_price,
+                       stop_price, target_price, target_2_price, status, alert_type, alert_id, session_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)""",
+                    (user_id, symbol, direction, shares, entry_price,
+                     alert.get("stop"), alert.get("target_1"), alert.get("target_2"),
+                     alert["alert_type"], alert_id, session_date),
+                )
+            logger.info("_handle_ack: opened real trade for %s %s @ %.2f (user=%s)", symbol, direction, entry_price, user_id)
     except Exception:
-        logger.debug("_handle_ack: real trade creation skipped", exc_info=True)
+        logger.exception("_handle_ack: real trade creation failed")
 
     entry = alert.get("entry") or alert["price"]
     return f"\u2705 Trade ACK'd: {symbol} @ ${entry:.2f}"

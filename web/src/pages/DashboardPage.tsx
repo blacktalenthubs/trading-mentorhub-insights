@@ -10,13 +10,13 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   useAlertsToday, useSessionSummary, useAckAlert,
-  useOpenTrades, useCloseTrade, useIntraday, useMarketStatus, useScanner,
+  useOpenTrades, useCloseTrade, useIntraday, useMarketStatus,
 } from "../api/hooks";
-import type { Alert, SignalResult } from "../types";
+import type { Alert } from "../types";
 import type { RealTrade } from "../api/hooks";
 import ChartReplay from "../components/ChartReplay";
 import {
-  Crosshair, Radar, Briefcase, Clock,
+  Crosshair, Briefcase, Clock, BarChart3,
   FileText, Download,
 } from "lucide-react";
 
@@ -187,86 +187,6 @@ function SignalCard({ alert: a }: { alert: Alert }) {
 
 /* ── Actioned alert (expandable history) ──────────────────────────── */
 
-function ActionedAlert({ alert: a, onReplay }: { alert: Alert; onReplay: (id: number) => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const time = new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-  const isTarget = a.alert_type.includes("target");
-  const isStop = a.alert_type.includes("stop");
-  const rr = a.entry && a.stop && a.target_1
-    ? ((a.target_1 - a.entry) / Math.abs(a.entry - a.stop)).toFixed(1)
-    : null;
-
-  return (
-    <div
-      onClick={() => setExpanded(!expanded)}
-      className={`rounded-lg border cursor-pointer transition-all ${
-        a.user_action === "took" ? "bg-bullish/[0.03] border-bullish/10 hover:border-bullish/25" :
-        a.user_action === "skipped" ? "bg-surface-2/30 border-border-subtle/30 hover:border-border-subtle opacity-70 hover:opacity-100" :
-        isTarget ? "bg-bullish/[0.03] border-bullish/10 hover:border-bullish/25" :
-        isStop ? "bg-bearish/[0.03] border-bearish/10 hover:border-bearish/25" :
-        "bg-surface-2/30 border-border-subtle/30 hover:border-border-subtle"
-      }`}
-    >
-      {/* Collapsed row */}
-      <div className="flex items-center gap-3 px-4 py-2.5">
-        <div className={`w-1 h-8 rounded-full shrink-0 ${
-          a.user_action === "took" ? "bg-bullish" :
-          a.user_action === "skipped" ? "bg-text-faint" :
-          isTarget ? "bg-bullish" : isStop ? "bg-bearish" : "bg-text-faint"
-        }`} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-bold text-text-primary">{a.symbol}</span>
-            <span className={`text-[9px] font-bold uppercase ${
-              a.direction === "BUY" ? "text-bullish-text" : a.direction === "SHORT" ? "text-bearish-text" : "text-text-muted"
-            }`}>{a.direction}</span>
-            <span className="text-[10px] text-text-faint">{a.alert_type.replace(/_/g, " ")}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          {a.user_action && (
-            <span className={`text-[10px] font-bold uppercase ${a.user_action === "took" ? "text-bullish-text" : "text-text-faint"}`}>
-              {a.user_action}
-            </span>
-          )}
-          <span className="font-mono text-xs text-text-faint">{time}</span>
-        </div>
-      </div>
-
-      {/* Expanded details */}
-      {expanded && (
-        <div className="border-t border-border-subtle/30 px-4 py-3 space-y-2.5">
-          {/* Price + levels */}
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-            <span className="text-text-muted">Price: <span className="font-mono text-text-primary">${fmt(a.price)}</span></span>
-            {a.entry != null && <span className="text-text-muted">Entry: <span className="font-mono text-text-primary">${fmt(a.entry)}</span></span>}
-            {a.stop != null && <span className="text-text-muted">Stop: <span className="font-mono text-bearish-text">${fmt(a.stop)}</span></span>}
-            {a.target_1 != null && <span className="text-text-muted">T1: <span className="font-mono text-bullish-text">${fmt(a.target_1)}</span></span>}
-            {a.target_2 != null && <span className="text-text-muted">T2: <span className="font-mono text-bullish-text">${fmt(a.target_2)}</span></span>}
-            {rr && <span className="text-text-muted">R:R: <span className="font-mono text-text-primary">1:{rr}</span></span>}
-          </div>
-          {/* Message */}
-          {a.message && (
-            <p className="text-xs text-text-secondary leading-relaxed">{a.message}</p>
-          )}
-          {/* Confidence + timestamp + replay */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 text-[10px] text-text-faint">
-              {a.confidence && <span>{a.confidence} confidence</span>}
-              <span>{a.created_at}</span>
-            </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); onReplay(a.id); }}
-              className="text-[10px] text-accent hover:text-accent-hover font-medium flex items-center gap-1"
-            >
-              ▶ Replay
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ── Position Row ─────────────────────────────────────────────────── */
 
@@ -331,28 +251,6 @@ function PositionRow({ trade }: { trade: RealTrade }) {
 
 /* ── Watchlist Scanner Item ───────────────────────────────────────── */
 
-function ScannerItem({ signal: s }: { signal: SignalResult }) {
-  return (
-    <Link
-      to="/trading"
-      className="flex items-center justify-between p-3 rounded-lg hover:bg-surface-2/50 border border-transparent hover:border-border-subtle transition-colors group"
-    >
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded bg-surface-3 border border-border-subtle flex items-center justify-center text-[10px] font-bold text-text-secondary">
-          {s.symbol.slice(0, 4)}
-        </div>
-        <div className="flex flex-col">
-          <span className="font-bold text-sm text-text-primary group-hover:text-accent transition-colors">{s.symbol}</span>
-          <span className="text-[10px] text-text-faint">{s.action_label} · {s.pattern}</span>
-        </div>
-      </div>
-      <div className="text-right">
-        <span className="block font-mono text-sm text-text-primary">${fmt(s.close)}</span>
-        <span className="text-[10px] text-text-faint font-mono">{s.grade} · {fmt(s.rr_ratio, 1)}R</span>
-      </div>
-    </Link>
-  );
-}
 
 /* ── Main Dashboard ───────────────────────────────────────────────── */
 
@@ -360,7 +258,6 @@ export default function DashboardPage() {
   const { data: summary } = useSessionSummary();
   const { data: alerts } = useAlertsToday();
   const { data: openTrades } = useOpenTrades();
-  const { data: signals } = useScanner();
   const [replayAlertId, setReplayAlertId] = useState<number | null>(null);
 
   // Split alerts: actionable (BUY/SHORT without user_action) vs history
@@ -372,11 +269,6 @@ export default function DashboardPage() {
   ) ?? [];
 
   // Watchlist signals sorted by grade
-  // Sort watchlist by grade (best first)
-  const _gradeRank: Record<string, number> = { "A+": 0, "A": 1, "A-": 2, "B+": 3, "B": 4, "B-": 5, "C": 6, "C-": 7 };
-  const watchSignals = [...(signals ?? [])]
-    .sort((a, b) => (_gradeRank[a.grade] ?? 9) - (_gradeRank[b.grade] ?? 9))
-    .slice(0, 8);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -452,38 +344,69 @@ export default function DashboardPage() {
               )}
             </div>
 
-            {/* Watchlist Radar (4 cols) */}
+            {/* Session Intelligence (4 cols) */}
             <div className="lg:col-span-4 bg-surface-1 border border-border-subtle rounded-xl flex flex-col overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-border-subtle flex justify-between items-center bg-surface-2/20">
+              <div className="px-5 py-3.5 border-b border-border-subtle bg-surface-2/20">
                 <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-                  <Radar className="h-4 w-4 text-accent" />
-                  Watchlist Radar
+                  <BarChart3 className="h-4 w-4 text-accent" />
+                  Session Intelligence
                 </h3>
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
-                </span>
               </div>
 
-              <div className="p-3 flex-1 flex flex-col gap-1 overflow-auto">
-                {watchSignals.length > 0 ? (
-                  <>
-                    <p className="text-[10px] text-text-faint px-3 mb-1">Symbols with active setups on your watchlist</p>
-                    {watchSignals.map((s) => <ScannerItem key={s.symbol} signal={s} />)}
-                  </>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-text-faint gap-2">
-                    <Radar className="h-6 w-6 text-text-faint/30" />
-                    <p className="text-xs">No setups detected</p>
-                  </div>
-                )}
+              <div className="p-4 flex-1 flex flex-col gap-3">
+                {(() => {
+                  const took = alerts?.filter((a) => a.user_action === "took") ?? [];
+                  const skipped = alerts?.filter((a) => a.user_action === "skipped") ?? [];
+                  const targets = alerts?.filter((a) => a.alert_type?.includes("target")) ?? [];
+                  const stops = alerts?.filter((a) => a.alert_type?.includes("stop")) ?? [];
+                  const wr = targets.length + stops.length > 0
+                    ? Math.round(targets.length / (targets.length + stops.length) * 100) : null;
+                  const symbols = new Set(alerts?.map((a) => a.symbol) ?? []);
+                  // Most active pattern
+                  const patCounts: Record<string, number> = {};
+                  (alerts ?? []).forEach((a) => { if (a.direction === "BUY" || a.direction === "SHORT") patCounts[a.alert_type] = (patCounts[a.alert_type] || 0) + 1; });
+                  const topPattern = Object.entries(patCounts).sort((a, b) => b[1] - a[1])[0];
 
-                <Link
-                  to="/trading"
-                  className="mt-auto mx-2 mb-1 py-2 text-xs font-medium text-text-muted hover:text-text-primary bg-surface-2/30 hover:bg-surface-3 border border-border-subtle rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <Crosshair className="h-3 w-3" /> Full Scanner
-                </Link>
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
+                          <span className="text-[9px] text-text-faint uppercase">Took</span>
+                          <p className="font-mono text-lg font-bold text-bullish-text">{took.length}</p>
+                        </div>
+                        <div className="bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
+                          <span className="text-[9px] text-text-faint uppercase">Skipped</span>
+                          <p className="font-mono text-lg font-bold text-text-faint">{skipped.length}</p>
+                        </div>
+                        <div className="bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
+                          <span className="text-[9px] text-text-faint uppercase">Win Rate</span>
+                          <p className="font-mono text-lg font-bold text-text-primary">{wr != null ? `${wr}%` : "—"}</p>
+                        </div>
+                        <div className="bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
+                          <span className="text-[9px] text-text-faint uppercase">Symbols</span>
+                          <p className="font-mono text-lg font-bold text-text-primary">{symbols.size}</p>
+                        </div>
+                      </div>
+
+                      {topPattern && (
+                        <div className="bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
+                          <span className="text-[9px] text-text-faint uppercase">Most Active Pattern</span>
+                          <p className="text-sm font-medium text-text-primary mt-0.5">{topPattern[0].replace(/_/g, " ")}</p>
+                          <span className="text-[10px] text-text-faint">{topPattern[1]} alerts today</span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-1.5 mt-auto">
+                        <Link to="/trading" className="text-xs text-center py-2 bg-accent/10 text-accent hover:bg-accent/20 rounded-lg transition-colors font-medium">
+                          Open Trading Terminal
+                        </Link>
+                        <Link to="/trades" className="text-xs text-center py-2 bg-surface-3 text-text-muted hover:bg-surface-4 rounded-lg transition-colors">
+                          View Trade History
+                        </Link>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </section>
@@ -531,26 +454,83 @@ export default function DashboardPage() {
                   </a>
                 </div>
               </div>
-              <div className="space-y-4">
-                {/* Group alerts by symbol */}
+              <div className="space-y-3">
+                {/* Group alerts by symbol → then by pattern */}
                 {Object.entries(
                   historyAlerts.reduce<Record<string, typeof historyAlerts>>((acc, a) => {
                     (acc[a.symbol] = acc[a.symbol] || []).push(a);
                     return acc;
                   }, {})
-                ).sort((a, b) => b[1].length - a[1].length).map(([symbol, symbolAlerts]) => (
-                  <div key={symbol}>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="font-bold text-sm text-text-primary">{symbol}</span>
-                      <span className="text-[10px] text-text-faint">{symbolAlerts.length} alerts</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                      {symbolAlerts.map((a) => (
-                        <ActionedAlert key={a.id} alert={a} onReplay={setReplayAlertId} />
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                ).sort((a, b) => b[1].length - a[1].length).map(([symbol, symbolAlerts]) => {
+                  const tookCount = symbolAlerts.filter((a) => a.user_action === "took").length;
+                  const skippedCount = symbolAlerts.filter((a) => a.user_action === "skipped").length;
+                  const openCount = symbolAlerts.length - tookCount - skippedCount;
+
+                  // Group by pattern type within symbol
+                  const patternGroups = symbolAlerts.reduce<Record<string, typeof symbolAlerts>>((acc, a) => {
+                    const pat = a.alert_type.replace(/_/g, " ");
+                    (acc[pat] = acc[pat] || []).push(a);
+                    return acc;
+                  }, {});
+
+                  return (
+                    <details key={symbol} open className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
+                      <summary className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-surface-2/30 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-text-primary">{symbol}</span>
+                          <span className="text-[10px] text-text-faint">{symbolAlerts.length} alerts</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px]">
+                          {tookCount > 0 && <span className="text-bullish-text font-bold">{tookCount} took</span>}
+                          {skippedCount > 0 && <span className="text-text-faint">{skippedCount} skip</span>}
+                          {openCount > 0 && <span className="text-text-faint">{openCount} open</span>}
+                        </div>
+                      </summary>
+                      <div className="border-t border-border-subtle/50">
+                        {Object.entries(patternGroups).map(([pattern, patAlerts]) => (
+                          <details key={pattern} className="border-b border-border-subtle/20 last:border-b-0">
+                            <summary className="px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-2/20 text-xs">
+                              <div className="flex items-center gap-2">
+                                <span className="text-text-secondary font-medium">{pattern}</span>
+                                <span className="text-[10px] text-text-faint">({patAlerts.length})</span>
+                              </div>
+                              {patAlerts.length > 0 && patAlerts[0].direction && (
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                  patAlerts[0].direction === "BUY" ? "text-bullish-text bg-bullish/10" :
+                                  patAlerts[0].direction === "SHORT" ? "text-bearish-text bg-bearish/10" :
+                                  "text-text-faint bg-surface-3"
+                                }`}>{patAlerts[0].direction}</span>
+                              )}
+                            </summary>
+                            <div className="px-4 pb-2 space-y-1">
+                              {patAlerts.map((a) => {
+                                const time = new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+                                return (
+                                  <div key={a.id} className="flex items-center gap-3 py-1.5 text-xs hover:bg-surface-2/20 rounded px-2 -mx-2 transition-colors">
+                                    <span className="font-mono text-text-faint w-16 shrink-0">{time}</span>
+                                    <span className="font-mono text-text-primary">${fmt(a.price)}</span>
+                                    <span className="flex-1" />
+                                    {a.user_action ? (
+                                      <span className={`text-[10px] font-bold ${a.user_action === "took" ? "text-bullish-text" : "text-text-faint"}`}>
+                                        {a.user_action.toUpperCase()}
+                                      </span>
+                                    ) : null}
+                                    <button
+                                      onClick={() => setReplayAlertId(a.id)}
+                                      className="text-[10px] text-accent hover:text-accent-hover"
+                                    >
+                                      ▶
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </details>
+                  );
+                })}
               </div>
             </section>
           )}
@@ -558,7 +538,7 @@ export default function DashboardPage() {
           {/* Empty state when no alerts at all */}
           {(!alerts || alerts.length === 0) && (
             <div className="flex flex-col items-center justify-center py-16 text-text-faint gap-3">
-              <Radar className="h-12 w-12 text-text-faint/20" />
+              <BarChart3 className="h-12 w-12 text-text-faint/20" />
               <p className="text-lg font-medium text-text-muted">No signals yet today</p>
               <p className="text-sm text-text-faint text-center max-w-md">
                 The scanner checks your watchlist every 3 minutes during market hours.
