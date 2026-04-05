@@ -493,13 +493,14 @@ Alert message: {context.get('message', 'N/A')}
 Recent price action:
 {bar_summary}
 
-Write a brief trade replay analysis (150 words max):
-1. ENTRY: Why this was a valid/invalid entry (1-2 sentences)
-2. WHAT HAPPENED: Key price action moments (2-3 sentences)
-3. OUTCOME: What the result teaches (1-2 sentences)
-4. LESSON: One specific takeaway for next time
+Write a brief trade replay analysis (120 words max). Use this EXACT format:
 
-No markdown. Plain text. Be specific with prices."""
+ENTRY: [1-2 sentences — why this was valid/invalid, reference specific price]
+WHAT HAPPENED: [2-3 sentences — key price action, use dollar amounts]
+OUTCOME: [1-2 sentences — what the result teaches]
+LESSON: [1 sentence — one specific takeaway]
+
+CRITICAL: No markdown, no bold, no asterisks, no headers. Just plain text with the section labels above. Be concise and specific with dollar amounts."""
 
     try:
         client = anthropic.Anthropic(api_key=api_key)

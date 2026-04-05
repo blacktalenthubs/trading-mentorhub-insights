@@ -152,10 +152,13 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       series.createPriceLine({ price: a.entry, color: "#3b82f6", lineWidth: 2, lineStyle: 0, title: `Entry $${fmt(a.entry)}` });
     }
     if (a.stop) {
-      series.createPriceLine({ price: a.stop, color: "#ef4444", lineWidth: 1, lineStyle: 2, title: `Stop $${fmt(a.stop)}` });
+      series.createPriceLine({ price: a.stop, color: "#ef4444", lineWidth: 2, lineStyle: 2, title: `Stop $${fmt(a.stop)}` });
     }
     if (a.target_1) {
-      series.createPriceLine({ price: a.target_1, color: "#22c55e", lineWidth: 1, lineStyle: 2, title: `T1 $${fmt(a.target_1)}` });
+      series.createPriceLine({ price: a.target_1, color: "#22c55e", lineWidth: 2, lineStyle: 0, title: `T1 $${fmt(a.target_1)}` });
+    }
+    if (a.target_2) {
+      series.createPriceLine({ price: a.target_2, color: "#22c55e", lineWidth: 1, lineStyle: 2, title: `T2 $${fmt(a.target_2)}` });
     }
 
     const handleResize = () => {
@@ -192,7 +195,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
         if (prev >= data.bars.length) { setPlaying(false); return data.bars.length; }
         return prev + 1;
       });
-    }, 400 / speed);
+    }, 800 / speed);
     return () => clearInterval(timer);
   }, [playing, speed, data]);
 
@@ -359,7 +362,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
         {/* AI Replay Analysis — appears after outcome */}
         {showOutcome && (
           <div className="px-5 py-4 border-t border-border-subtle bg-surface-2/10">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <Brain className="h-4 w-4 text-accent" />
               <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">AI Trade Analysis</span>
             </div>
@@ -369,7 +372,28 @@ export default function ChartReplay({ alertId, onClose }: Props) {
                 Analyzing trade...
               </div>
             ) : aiAnalysis ? (
-              <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-line">{aiAnalysis}</p>
+              <div className="space-y-2">
+                {aiAnalysis
+                  .replace(/\*\*/g, "")           // strip markdown bold
+                  .replace(/^#+\s*/gm, "")        // strip markdown headers
+                  .split("\n")
+                  .filter((line) => line.trim())
+                  .map((line, i) => {
+                    // Detect section headers (ENTRY:, WHAT HAPPENED:, OUTCOME:, LESSON:)
+                    const headerMatch = line.match(/^(ENTRY|WHAT HAPPENED|OUTCOME|LESSON|TAKEAWAY)[:\s]/i);
+                    if (headerMatch) {
+                      const label = headerMatch[1].toUpperCase();
+                      const rest = line.slice(headerMatch[0].length).trim();
+                      return (
+                        <div key={i}>
+                          <span className="text-[10px] font-bold text-accent uppercase tracking-wider">{label}</span>
+                          <p className="text-sm text-text-secondary leading-relaxed mt-0.5">{rest}</p>
+                        </div>
+                      );
+                    }
+                    return <p key={i} className="text-sm text-text-secondary leading-relaxed">{line}</p>;
+                  })}
+              </div>
             ) : (
               <p className="text-xs text-text-faint">Analysis not available for this trade.</p>
             )}
