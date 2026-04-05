@@ -277,6 +277,36 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     for a in active_rows
                 ]
 
+                # BUG-10 fix: check if current price reached any active entry's T1
+                # Send NOTIFICATION (not close) so user can take profits
+                if active_rows and intraday is not None and not (hasattr(intraday, "empty") and intraday.empty):
+                    _last_price = float(intraday.iloc[-1]["Close"])
+                    for ae in active_rows:
+                        _t1 = ae.target_1 or 0
+                        _entry = ae.entry_price or 0
+                        if _t1 > 0 and _entry > 0 and _last_price >= _t1 * 0.998:
+                            # Check if we already sent this notification (dedup)
+                            _t1_key = (symbol, f"_t1_notify_{ae.id}")
+                            if _t1_key not in fired_today:
+                                fired_today.add(_t1_key)
+                                _pnl = round(_last_price - _entry, 2)
+                                _pnl_pct = round((_pnl / _entry) * 100, 2)
+                                # Send via Telegram
+                                _user = user_rows.get(user_id)
+                                if _user and _user.telegram_enabled and _user.telegram_chat_id:
+                                    try:
+                                        from alerting.notifier import _send_telegram_to
+                                        _msg = (
+                                            f"<b>T1 REACHED — {symbol} ${_last_price:.2f}</b>\n"
+                                            f"Your LONG from ${_entry:.2f} is at target\n"
+                                            f"P&L: ${_pnl:.2f} ({_pnl_pct:+.1f}%)\n"
+                                            f"Consider taking partial profits"
+                                        )
+                                        _send_telegram_to(_msg, _user.telegram_chat_id)
+                                        logger.info("T1 NOTIFY: user=%d %s T1=$%.2f reached, entry=$%.2f", user_id, symbol, _t1, _entry)
+                                    except Exception:
+                                        pass
+
                 try:
                     signals = evaluate_rules(
                         symbol, intraday, prior_day, active,
