@@ -135,6 +135,25 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
 
+        # Daily EOD review — 4:35 PM ET weekdays (after EOD cleanup)
+        def _daily_review():
+            try:
+                from analytics.weekly_review import send_daily_reviews
+                count = send_daily_reviews()
+                logger.info("Daily EOD reviews sent: %d", count)
+            except Exception:
+                logger.exception("Daily EOD review failed")
+
+        scheduler.add_job(
+            _daily_review,
+            "cron",
+            hour=16, minute=35,
+            timezone="US/Eastern",
+            day_of_week="mon-fri",
+            id="daily_review",
+            replace_existing=True,
+        )
+
         # Weekly coaching review — Friday 5 PM ET
         def _weekly_review():
             try:

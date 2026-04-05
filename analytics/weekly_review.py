@@ -1,9 +1,8 @@
-"""Weekly Performance Review — AI-generated coaching summary.
+"""Performance Review — AI-generated coaching summary.
 
-Analyzes user's trading week: wins/losses by pattern, timing insights,
-behavioral observations, and personalized recommendations.
+Daily: sent at 4:30 PM ET — today's session recap + coaching
+Weekly: sent Friday 5 PM ET — full week analysis + patterns + next week focus
 
-Scheduled: Friday 5 PM ET or Sunday 6 PM ET.
 Sent via Telegram to Pro+ users.
 """
 
@@ -161,11 +160,125 @@ def build_weekly_review(user_id: int, days: int = 7) -> str | None:
         today = date.today().strftime("%b %-d, %Y")
         start = (date.today() - timedelta(days=days)).strftime("%b %-d")
         header = f"WEEKLY COACHING REVIEW — {start} to {today}"
-        return f"{header}\n\n{review}"
+        return f"{header}\n\n{review}"[:4000]
 
     except Exception:
         logger.exception("Weekly review AI generation failed")
         return None
+
+
+_DAILY_SYSTEM_PROMPT = """\
+You are a concise trading coach delivering an end-of-day review. \
+Given today's trading data for one user, write a brief coaching summary.
+
+Structure EXACTLY like this:
+
+TODAY: [1 line: trades taken, wins/losses, notable win or loss]
+INSIGHT: [1-2 sentences: what pattern worked, what didn't, one specific observation]
+TOMORROW: [1 sentence: what to watch for or adjust]
+
+Rules:
+- Keep entire response under 80 words
+- Be specific — use symbol names, pattern names, dollar amounts
+- If they skipped winners, mention it briefly
+- If no trades taken, say so and encourage engagement
+- No markdown — plain text only
+- Educational framing, not financial advice"""
+
+
+def build_daily_review(user_id: int) -> str | None:
+    """Build today's EOD review for a user.
+
+    Returns formatted review text, or None if no activity.
+    """
+    from db import get_db
+
+    today = date.today().isoformat()
+
+    with get_db() as conn:
+        alerts = conn.execute(
+            """SELECT symbol, alert_type, direction, price, score, user_action
+               FROM alerts
+               WHERE user_id = ? AND session_date = ?
+                 AND direction IN ('BUY', 'SHORT')
+                 AND alert_type NOT IN ('target_1_hit', 'target_2_hit',
+                                        'stop_loss_hit', 'auto_stop_out')""",
+            (user_id, today),
+        ).fetchall()
+
+        outcomes = conn.execute(
+            """SELECT symbol, alert_type
+               FROM alerts
+               WHERE user_id = ? AND session_date = ?
+                 AND alert_type IN ('target_1_hit', 'target_2_hit',
+                                    'stop_loss_hit', 'auto_stop_out')""",
+            (user_id, today),
+        ).fetchall()
+
+    if not alerts:
+        return None
+
+    wins = {o["symbol"] for o in outcomes if o["alert_type"] in ("target_1_hit", "target_2_hit")}
+    losses = {o["symbol"] for o in outcomes if o["alert_type"] in ("stop_loss_hit", "auto_stop_out")}
+
+    took = [a for a in alerts if a["user_action"] == "took"]
+    skipped = [a for a in alerts if a["user_action"] == "skipped"]
+    took_wins = [a for a in took if a["symbol"] in wins]
+    took_losses = [a for a in took if a["symbol"] in losses]
+    skipped_wins = [a for a in skipped if a["symbol"] in wins]
+
+    data = f"""TODAY'S SESSION ({today}):
+Alerts: {len(alerts)} total | Took: {len(took)} | Skipped: {len(skipped)}
+Took wins: {len(took_wins)} | Took losses: {len(took_losses)}
+Skipped that would have won: {len(skipped_wins)}
+Symbols traded: {', '.join(set(a['symbol'] for a in took)) or 'none'}
+Alert types taken: {', '.join(set(a['alert_type'].replace('_',' ') for a in took)) or 'none'}"""
+
+    from alert_config import ANTHROPIC_API_KEY
+    api_key = ANTHROPIC_API_KEY
+    if not api_key:
+        return None
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=_DAILY_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": data}],
+            timeout=15.0,
+        )
+        review = response.content[0].text.strip()
+        return f"EOD REVIEW — {today}\n\n{review}"
+    except Exception:
+        logger.exception("Daily review generation failed")
+        return None
+
+
+def send_daily_reviews() -> int:
+    """Send daily EOD reviews to all Pro users with Telegram."""
+    from db import get_pro_users_with_telegram
+    from alerting.notifier import _send_telegram_to
+
+    users = get_pro_users_with_telegram()
+    sent = 0
+
+    for u in users:
+        chat_id = u.get("telegram_chat_id", "")
+        if not chat_id:
+            continue
+
+        review = build_daily_review(u["user_id"])
+        if not review:
+            continue
+
+        ok = _send_telegram_to(review, chat_id)
+        if ok:
+            sent += 1
+
+    logger.info("Daily reviews sent: %d of %d users", sent, len(users))
+    return sent
 
 
 def send_weekly_reviews() -> int:
