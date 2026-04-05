@@ -30,36 +30,49 @@ _SKIP_TYPES = {
 }
 
 _SYSTEM_PROMPT = """\
-You are a stock market pattern educator. Given a detected pattern's full context, \
-write a 2-3 sentence educational explanation of why this pattern is worth studying \
-(or why it shows signs of weakness).
+You are a concise day-trading educator. Given a detected pattern's full context, \
+write a structured 3-part analysis. Use these exact section markers:
+
+SETUP: What happened — name the pattern, the key price level, and what confirmed it \
+(volume, hold duration, candle structure). One sentence.
+
+WHY NOW: Market context — regime (bullish/bearish/choppy), VWAP position, \
+time of session, any confluence with other levels. One sentence.
+
+RISK: What invalidates this setup — the stop level and what happens if it breaks. \
+One sentence.
 
 Rules:
-- Lead with the pattern type and key price level
-- Mention volume, VWAP position, and market regime if relevant
-- Include the risk/reward ratio and quality grade
-- Frame as education: "This pattern shows..." not "You should buy..."
-- Never use more than 3 sentences
-- No markdown formatting (no bold, italic, headers) — plain text only
-- This is for educational purposes only — never give financial advice"""
+- Be specific — use actual dollar amounts and percentages from the context
+- Frame as education: "This setup shows..." not "You should buy..."
+- No markdown formatting — plain text only
+- Keep each section to ONE sentence (3 sentences total)
+- Never give financial advice"""
 
 _SYSTEM_PROMPT_ENHANCED = """\
-You are a stock market educator writing a detailed pattern analysis. Given a \
-detected pattern's full context, write a 4-5 sentence educational analysis covering:
+You are a day-trading educator writing a detailed pattern analysis. Given a \
+detected pattern's full context, write a structured analysis:
 
-1. The pattern — what setup was detected and at what price level
-2. Quality assessment — rate this HIGH, MEDIUM, or LOW quality with a one-line reason
-3. Key invalidation level — the price where this pattern thesis breaks
-4. Context — how market regime, volume, and nearby S/R levels affect this pattern
-5. Lesson — what a disciplined trader would watch for before considering action
+SETUP: What pattern fired, at what price, and what confirmed it (volume, candle, \
+hold duration). Reference the specific levels from the data.
+
+WHY NOW: Market regime context — is SPY supporting this direction? VWAP position? \
+Time of session? Any confluence with other support/resistance levels?
+
+CONVICTION: Rate HIGH/MEDIUM/LOW with a one-line reason based on the score, \
+R:R ratio, volume, and regime alignment.
+
+RISK: Exact invalidation level (the stop price) and what structurally breaks \
+if that level fails. Where is the next support/resistance?
+
+LESSON: One actionable insight a learning trader can take from this pattern — \
+what to look for next time, or what mistake to avoid.
 
 Rules:
-- Be specific — use actual numbers from the context
-- Include risk/reward ratio and quality grade
-- Frame as education, never as recommendations
-- Use language like "this pattern suggests" not "you should"
+- Be specific — use actual dollar amounts and percentages
+- Frame as education, never recommendations
 - No markdown formatting — plain text only
-- Keep to 4-5 sentences max
+- Keep to 5 sentences total (one per section)
 - This is for educational purposes only"""
 
 
@@ -147,10 +160,16 @@ def generate_narrative(signal: AlertSignal) -> str:
         logger.debug("Narrative cache hit: %s", cache_key)
         return _narrative_cache[cache_key]
 
-    # Use Haiku for all narratives (cost savings during evaluation phase)
-    model = CLAUDE_MODEL
-    system_prompt = _SYSTEM_PROMPT
-    max_tokens = 256
+    # Use enhanced prompt for high-conviction alerts, basic for others
+    # Sonnet for high-score (richer analysis), Haiku for the rest (fast + cheap)
+    if signal.score >= NARRATIVE_SONNET_MIN_SCORE:
+        model = CLAUDE_MODEL_SONNET
+        system_prompt = _SYSTEM_PROMPT_ENHANCED
+        max_tokens = 400
+    else:
+        model = CLAUDE_MODEL
+        system_prompt = _SYSTEM_PROMPT
+        max_tokens = 300
 
     # Call Claude API
     try:

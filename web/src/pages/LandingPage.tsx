@@ -575,6 +575,129 @@ function Footer() {
   );
 }
 
+/* ── Comparison Table ──────────────────────────────────────────────── */
+
+function Comparison() {
+  const rows = [
+    { feature: "Complete trade plan (entry/stop/T1/T2)", us: true, tv: false, ti: false, disc: false },
+    { feature: "AI explains WHY the setup works", us: true, tv: false, ti: false, disc: false },
+    { feature: "Per-pattern win rates (transparent)", us: true, tv: false, ti: false, disc: false },
+    { feature: "Telegram alerts with Took/Skip/Exit", us: true, tv: false, ti: false, disc: false },
+    { feature: "Position sizing calculated for you", us: true, tv: false, ti: true, disc: false },
+    { feature: "Works while you're at your day job", us: true, tv: false, ti: false, disc: false },
+    { feature: "Mobile-first (phone alerts)", us: true, tv: true, ti: false, disc: true },
+    { feature: "Price", us: "$29/mo", tv: "$15+/mo", ti: "$228/mo", disc: "$50-500/mo" },
+  ];
+
+  return (
+    <section className="py-24 px-6 bg-surface-1/50">
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-12">
+          <Badge>How we compare</Badge>
+          <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
+            Not another alert service.
+          </h2>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border-subtle">
+                <th className="text-left py-3 px-4 text-text-muted font-medium">Feature</th>
+                <th className="py-3 px-4 text-accent font-bold">TradeSignal</th>
+                <th className="py-3 px-4 text-text-faint font-medium">TradingView</th>
+                <th className="py-3 px-4 text-text-faint font-medium">Trade Ideas</th>
+                <th className="py-3 px-4 text-text-faint font-medium">Discord Groups</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.feature} className="border-b border-border-subtle/30">
+                  <td className="py-3 px-4 text-text-secondary">{row.feature}</td>
+                  {[row.us, row.tv, row.ti, row.disc].map((val, i) => (
+                    <td key={i} className="py-3 px-4 text-center">
+                      {typeof val === "boolean" ? (
+                        val ? <Check className="h-4 w-4 text-bullish-text mx-auto" /> : <span className="text-text-faint">—</span>
+                      ) : (
+                        <span className={i === 0 ? "font-bold text-accent" : "text-text-faint"}>{val}</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── FAQ ──────────────────────────────────────────────────────────── */
+
+function FAQ() {
+  const [open, setOpen] = useState<number | null>(null);
+
+  const faqs = [
+    {
+      q: "Is this financial advice?",
+      a: "No. TradeSignal is an educational platform that teaches chart structure through real-time pattern detection. Every alert is a learning opportunity — you always decide whether to trade. We never recommend specific trades.",
+    },
+    {
+      q: "How fast are alerts delivered?",
+      a: "The scanner checks your watchlist every 3 minutes during market hours. When a pattern is detected, the alert hits your Telegram within seconds — complete with entry, stop, targets, and AI analysis.",
+    },
+    {
+      q: "What's your win rate?",
+      a: "Our overall win rate across 600+ tracked signals is 77%. But win rates vary by pattern — VWAP reclaims win 100%, consolidation breakouts win 96%, while some patterns are closer to 65%. We show all of this transparently in our Signal Library.",
+    },
+    {
+      q: "Can I cancel anytime?",
+      a: "Yes. No contracts, no cancellation fees. Cancel from your Settings page and you keep access until the end of your billing period. The free tier is available forever.",
+    },
+    {
+      q: "Do I need to watch charts all day?",
+      a: "No — that's the whole point. TradeSignal watches the charts for you. You get a Telegram notification only when a high-conviction setup appears. Many of our users have full-time jobs and trade from their phone.",
+    },
+    {
+      q: "What markets do you cover?",
+      a: "US equities (stocks and ETFs) during market hours (9:30 AM - 4 PM ET), and crypto (BTC, ETH) 24/7. You choose your symbols — up to 20 on Pro, unlimited on Premium.",
+    },
+  ];
+
+  return (
+    <section className="py-24 px-6">
+      <div className="max-w-3xl mx-auto">
+        <div className="text-center mb-12">
+          <Badge>FAQ</Badge>
+          <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
+            Common questions
+          </h2>
+        </div>
+
+        <div className="space-y-2">
+          {faqs.map((faq, i) => (
+            <div key={i} className="border border-border-subtle rounded-lg overflow-hidden">
+              <button
+                onClick={() => setOpen(open === i ? null : i)}
+                className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-surface-2/30 transition-colors"
+              >
+                <span className="text-sm font-medium text-text-primary">{faq.q}</span>
+                <span className="text-text-faint ml-4 shrink-0">{open === i ? "−" : "+"}</span>
+              </button>
+              {open === i && (
+                <div className="px-5 pb-4">
+                  <p className="text-sm text-text-secondary leading-relaxed">{faq.a}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ── Main Landing Page ────────────────────────────────────────────── */
 
 export default function LandingPage() {
@@ -588,8 +711,10 @@ export default function LandingPage() {
       <HowItWorks />
       <Differentiators />
       <div id="features"><Features /></div>
+      <Comparison />
       <div id="pricing"><Pricing /></div>
       <div id="track-record"><Trust track={track} /></div>
+      <FAQ />
       <FinalCTA />
       <Footer />
     </div>
