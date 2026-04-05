@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import {
-  Users, TrendingUp, Send, BarChart3, RefreshCw,
+  Users, Send, BarChart3, RefreshCw,
   Crown, Search, ChevronDown, ChevronRight,
 } from "lucide-react";
 
