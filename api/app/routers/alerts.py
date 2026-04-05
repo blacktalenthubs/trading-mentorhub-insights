@@ -36,12 +36,32 @@ async def alerts_today(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Try today first
     result = await db.execute(
         select(Alert)
         .where(Alert.user_id == user.id, Alert.session_date == _today())
         .order_by(Alert.created_at.desc())
     )
-    return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
+    alerts = result.scalars().all()
+
+    # If no alerts today, show the most recent session (weekend/after-hours)
+    if not alerts:
+        latest = await db.execute(
+            select(Alert.session_date)
+            .where(Alert.user_id == user.id)
+            .order_by(Alert.session_date.desc())
+            .limit(1)
+        )
+        last_date = latest.scalar_one_or_none()
+        if last_date:
+            result2 = await db.execute(
+                select(Alert)
+                .where(Alert.user_id == user.id, Alert.session_date == last_date)
+                .order_by(Alert.created_at.desc())
+            )
+            alerts = result2.scalars().all()
+
+    return [AlertResponse.from_orm_alert(a) for a in alerts]
 
 
 @router.get("/history", response_model=List[AlertResponse])
