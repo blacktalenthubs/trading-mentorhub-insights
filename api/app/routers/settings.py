@@ -184,24 +184,29 @@ async def telegram_link(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a deep-link URL for linking Telegram."""
+    import logging
     import os
     import uuid
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from app.models.telegram_link import TelegramLinkToken
 
-    token = uuid.uuid4().hex
-    link = TelegramLinkToken(
-        user_id=user.id,
-        token=token,
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
-    )
-    db.add(link)
-    await db.flush()
+    try:
+        token = uuid.uuid4().hex
+        link = TelegramLinkToken(
+            user_id=user.id,
+            token=token,
+            expires_at=datetime.utcnow() + timedelta(minutes=10),
+        )
+        db.add(link)
+        await db.flush()
 
-    bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "TradeCoPilotBot")
-    deep_link = f"https://t.me/{bot_username}?start={token}"
-    return {"deep_link": deep_link, "token": token, "expires_in": 600}
+        bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "TradeCoPilotBot")
+        deep_link = f"https://t.me/{bot_username}?start={token}"
+        return {"deep_link": deep_link, "token": token, "expires_in": 600}
+    except Exception as exc:
+        logging.getLogger("settings").exception("telegram-link FAILED: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Telegram link error: {exc}")
 
 
 @router.put("/telegram-chat-id")
