@@ -12,6 +12,7 @@ import LearnDetailPage from "./pages/LearnDetailPage";
 import PatternDetailPage from "./pages/PatternDetailPage";
 import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
+import AdminPage from "./pages/AdminPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import TradingPage from "./pages/TradingPage";
@@ -83,6 +84,7 @@ export default function App() {
                 <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
                 <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
+                <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
 
                 {/* Legacy redirects */}
                 <Route path="scanner" element={<Navigate to="/trading" replace />} />
