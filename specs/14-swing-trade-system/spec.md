@@ -174,41 +174,105 @@ Exit recommended
 
 ---
 
+## Multi-Timeframe Levels
+
+### Weekly Levels (already available in `prior_day`)
+- `prior_week_high` / `prior_week_low` — key weekly S/R
+- Weekly MA20, MA50 (from weekly bars)
+- Weekly RSI — oversold on weekly = massive conviction
+
+### Swing Entry Rules Should Include Weekly Context
+| Level | Entry Type | Example |
+|-------|-----------|---------|
+| **Weekly support hold** | Weekly low tested 2+ times, daily close above | BTC $68,863 weekly level |
+| **Weekly MA50 bounce** | Price at weekly 50MA, daily RSI < 40 | Multi-month trend support |
+| **Prior week low reclaim** | Gap below PWL, daily close reclaims above | Weekly level reclaim |
+| **Monthly support** | Price at prior month low, weekly RSI < 35 | Major structural floor |
+
+### Rule 6: Weekly Support Bounce (NEW)
+```
+Trigger: Daily close within 1% of prior_week_low or weekly support zone
+Confirm: Zone tested 2+ times on weekly chart
+         Daily RSI < 45 (not overbought)
+         Daily close in upper 50% of range (holding)
+Entry:   Daily close
+Stop:    Daily close below weekly support zone
+T1:      Prior week high
+T2:      Weekly MA20
+Score:   +20 if weekly RSI < 35, +10 if monthly support nearby
+```
+
+### Rule 7: Monthly Level Bounce (NEW)
+```
+Trigger: Daily close within 1.5% of prior_month_low
+Confirm: Monthly MA20 or MA50 nearby (confluence)
+Entry:   Daily close
+Stop:    Daily close below monthly low
+T1:      Prior week high
+T2:      Monthly MA20
+```
+
+---
+
 ## Architecture
 
 ```
-┌──────────────────┐     ┌──────────────────┐
-│ swing_scanner.py │────▶│ swing_rules.py   │
-│ (EOD 4:15 PM)    │     │ (entry rules)    │
-└────────┬─────────┘     └──────────────────┘
+┌──────────────────────┐     ┌──────────────────┐
+│ INTRADAY (3-min poll)│────▶│ swing_rules.py   │
+│ "SWING WATCH" notice │     │ (approach detect) │
+│ when price nears key │     └──────────────────┘
+│ daily/weekly levels  │
+└──────────────────────┘
          │
-         ▼
-┌──────────────────┐     ┌──────────────────┐
-│ swing_trades DB  │────▶│ notifier.py      │
-│ (track positions)│     │ (SWING label)    │
-└────────┬─────────┘     └──────────────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Daily exit check │ ← runs AFTER market close (4:15 PM)
-│ (RSI target,     │   checks daily closes, not intraday
-│  MA invalidation,│
-│  PDL break)      │
-└──────────────────┘
+         ▼  (awareness only — no entry yet)
+┌──────────────────────┐
+│ Telegram NOTICE:     │
+│ "SWING WATCH — BTC   │
+│ approaching weekly   │
+│ support $68,863"     │
+└──────────────────────┘
+
+┌──────────────────────┐     ┌──────────────────┐
+│ EOD SCAN (4:15 PM)   │────▶│ swing_rules.py   │
+│ Confirms daily close │     │ (entry rules)    │
+│ above key levels     │     └──────────────────┘
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐     ┌──────────────────┐
+│ swing_trades DB      │────▶│ notifier.py      │
+│ (track positions)    │     │ (SWING LONG)     │
+└──────────┬───────────┘     └──────────────────┘
+           ▼
+┌──────────────────────┐
+│ NEXT DAY EOD check   │ ← checks daily closes for exits
+│ (RSI target,         │   NOT intraday wicks
+│  MA invalidation,    │
+│  PDL break,          │
+│  weekly level break) │
+└──────────────────────┘
 ```
+
+### Two-Phase Approach
+1. **Intraday NOTICE** (3-min poll): "SWING WATCH — BTC nearing weekly support $68,863"
+   - Awareness only, no Took/Skip buttons
+   - Fires once per level per session
+2. **EOD ENTRY** (4:15 PM): "SWING LONG BTC $68,906 — weekly support hold confirmed"
+   - Only if daily close confirms the hold
+   - Took/Skip buttons for trade tracking
 
 ### Key Isolation from Day Trades
 | Aspect | Day Trades | Swing Trades |
 |--------|-----------|--------------|
-| **Timeframe** | 5-min bars | Daily bars |
-| **Entry trigger** | Intraday patterns | Daily close levels |
+| **Timeframe** | 5-min bars | Daily + Weekly bars |
+| **Entry trigger** | Intraday patterns | Daily close at key levels |
 | **Stop basis** | Intraday price | Daily close only |
-| **Exit timing** | During session | After market close |
+| **Exit timing** | During session | After market close (next day) |
 | **Hold period** | Minutes to hours | Days to weeks |
 | **Telegram label** | "LONG" / "SHORT" | "SWING LONG" / "SWING EXIT" |
+| **Approach alert** | N/A | "SWING WATCH" notice during session |
 | **Alert type prefix** | Various | `swing_*` |
 | **Database** | `alerts` + `real_trades` | `swing_trades` |
-| **Scanner** | 3-min poll cycle | Once at 4:15 PM ET |
+| **Scanner** | 3-min poll (entries) | 3-min poll (watch) + EOD (confirm) |
 
 ---
 
