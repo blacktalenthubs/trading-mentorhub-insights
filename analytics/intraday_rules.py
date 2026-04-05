@@ -3658,6 +3658,14 @@ def check_ema_rejection_short(
     if (last_close - last_low) / bar_range > 0.4:
         return None
 
+    # BUG-6 fix: require 2+ bars of rejection, not just one
+    # The previous bar must also have closed below the MA (sustained rejection)
+    if len(bars) >= 2:
+        prev_bar = bars.iloc[-2]
+        prev_close = float(prev_bar["Close"])
+    else:
+        return None
+
     # Check each key MA for rejection
     _ma_levels = [
         ("EMA20", prior_day.get("ema20", 0)),
@@ -3679,7 +3687,12 @@ def check_ema_rejection_short(
         if proximity > 0.003:
             continue
 
-        # Rejection confirmed
+        # BUG-6 fix: previous bar must also close below MA (2-bar confirmation)
+        # First touch after a break is a TEST, not a confirmed REJECTION
+        if prev_close >= ma_val:
+            continue
+
+        # Rejection confirmed (2+ bars below MA)
         entry = round(last_close, 2)
         stop = round(ma_val * 1.003, 2)
         risk = stop - entry

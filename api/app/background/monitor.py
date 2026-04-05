@@ -293,6 +293,19 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     if key in fired_today:
                         continue
 
+                    # BUG-5 fix: suppress conflicting direction alerts
+                    # Don't send SHORT when user has active LONG, and vice versa
+                    if active_rows and signal.direction in ("BUY", "SHORT"):
+                        _active_dirs = {a.alert_type for a in active_rows}
+                        _has_long = any(not at.startswith("short") and not at.startswith("ema_rejection") for at in _active_dirs)
+                        _has_short = any(at.startswith("short") or at.startswith("ema_rejection") or at.startswith("consol_breakout_short") for at in _active_dirs)
+                        if signal.direction == "SHORT" and _has_long:
+                            logger.info("SUPPRESSED: %s %s SHORT — active LONG entry exists", symbol, signal.alert_type.value)
+                            continue
+                        if signal.direction == "BUY" and _has_short:
+                            logger.info("SUPPRESSED: %s %s BUY — active SHORT entry exists", symbol, signal.alert_type.value)
+                            continue
+
                     # Generate AI narrative for education context
                     _narrative = ""
                     try:
