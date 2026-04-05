@@ -15,6 +15,9 @@ from sse_starlette.sse import EventSourceResponse
 from app.database import get_db as get_db_dep
 from app.dependencies import get_current_user, require_pro, require_premium, check_usage_limit, get_user_tier
 from app.models.user import User
+
+from fastapi import HTTPException
+from sqlalchemy import select
 from app.schemas.intel import (
     CoachRequest,
     DecisionQualityResponse,
@@ -356,6 +359,159 @@ async def eod_recap(
         return {"recap": recap or "No alerts to recap today."}
     except Exception as exc:
         return {"recap": f"Recap generation failed: {exc}"}
+
+
+# --- Trade Replay Analyst ---
+
+
+@router.get("/trade-replay/{alert_id}")
+async def trade_replay_analysis(
+    alert_id: int,
+    user: User = Depends(require_pro),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Generate AI narration for a completed trade replay.
+
+    Combines the alert data, chart bars, and outcome into an educational
+    analysis that teaches the user what happened and why.
+    """
+    from app.models.alert import Alert
+    from app.models.paper_trade import RealTrade
+
+    # Fetch alert
+    result = await db.execute(
+        select(Alert).where(Alert.id == alert_id, Alert.user_id == user.id)
+    )
+    alert = result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    # Check for associated trade outcome
+    trade_result = await db.execute(
+        select(RealTrade).where(RealTrade.alert_id == alert_id, RealTrade.user_id == user.id)
+    )
+    trade = trade_result.scalar_one_or_none()
+
+    # Fetch chart data for the alert
+    chart_bars = []
+    try:
+        from analytics.market_data import fetch_ohlc
+        df = await _run_sync(fetch_ohlc, alert.symbol, "5d", "5m")
+        if df is not None and not df.empty:
+            for ts, row in df.tail(60).iterrows():
+                chart_bars.append({
+                    "time": str(ts),
+                    "open": round(float(row["Open"]), 2),
+                    "high": round(float(row["High"]), 2),
+                    "low": round(float(row["Low"]), 2),
+                    "close": round(float(row["Close"]), 2),
+                    "volume": int(row["Volume"]),
+                })
+    except Exception:
+        pass
+
+    # Build AI analysis context
+    context = {
+        "symbol": alert.symbol,
+        "direction": alert.direction,
+        "alert_type": alert.alert_type,
+        "entry": alert.entry,
+        "stop": alert.stop,
+        "target_1": alert.target_1,
+        "target_2": alert.target_2,
+        "price_at_alert": alert.price,
+        "confidence": alert.confidence,
+        "message": alert.message,
+        "created_at": str(alert.created_at),
+        "user_action": alert.user_action,
+    }
+    if trade:
+        context["trade"] = {
+            "entry_price": trade.entry_price,
+            "exit_price": trade.exit_price,
+            "pnl": trade.pnl,
+            "status": trade.status,
+            "shares": trade.shares,
+        }
+
+    # Generate AI narration
+    analysis = None
+    try:
+        analysis = await _run_sync(_generate_replay_analysis, context, chart_bars)
+    except Exception:
+        pass
+
+    return {
+        "alert": context,
+        "trade": context.get("trade"),
+        "bars": chart_bars[-30:] if chart_bars else [],
+        "analysis": analysis or "Replay analysis not available.",
+    }
+
+
+def _generate_replay_analysis(context: dict, bars: list) -> str | None:
+    """Generate AI narration for a trade replay."""
+    from alert_config import ANTHROPIC_API_KEY
+    import anthropic
+
+    api_key = ANTHROPIC_API_KEY
+    if not api_key:
+        return None
+
+    symbol = context["symbol"]
+    direction = context["direction"]
+    alert_type = context.get("alert_type", "").replace("_", " ").title()
+    entry = context.get("entry", 0)
+    stop = context.get("stop", 0)
+    t1 = context.get("target_1", 0)
+    trade = context.get("trade", {})
+    outcome = "UNKNOWN"
+    if trade:
+        if trade.get("pnl") and trade["pnl"] > 0:
+            outcome = f"WIN (+${trade['pnl']:.2f})"
+        elif trade.get("pnl") and trade["pnl"] < 0:
+            outcome = f"LOSS (${trade['pnl']:.2f})"
+        elif trade.get("status") == "open":
+            outcome = "STILL OPEN"
+
+    # Last few bars for price action context
+    bar_summary = ""
+    if bars:
+        recent = bars[-10:]
+        bar_summary = "\n".join([
+            f"  {b['time']}: O={b['open']} H={b['high']} L={b['low']} C={b['close']}"
+            for b in recent
+        ])
+
+    prompt = f"""Analyze this trade replay for a learning trader:
+
+TRADE: {direction} {symbol} — {alert_type}
+Entry: ${entry:.2f}, Stop: ${stop:.2f}, T1: ${t1:.2f}
+Outcome: {outcome}
+Alert message: {context.get('message', 'N/A')}
+
+Recent price action:
+{bar_summary}
+
+Write a brief trade replay analysis (150 words max):
+1. ENTRY: Why this was a valid/invalid entry (1-2 sentences)
+2. WHAT HAPPENED: Key price action moments (2-3 sentences)
+3. OUTCOME: What the result teaches (1-2 sentences)
+4. LESSON: One specific takeaway for next time
+
+No markdown. Plain text. Be specific with prices."""
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=20.0,
+        )
+        return response.content[0].text.strip()
+    except Exception:
+        return None
 
 
 # --- Public Track Record (no auth required) ---

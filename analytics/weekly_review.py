@@ -16,34 +16,36 @@ logger = logging.getLogger(__name__)
 _REVIEW_MODEL = "claude-sonnet-4-20250514"
 
 _SYSTEM_PROMPT = """\
-You are a trading coach writing a weekly performance review for a learning trader. \
-Given their week's trading data (alerts taken, skipped, outcomes), write a concise \
-coaching summary.
+You are a trading coach writing a weekly Edge Report for a learning trader. \
+Given their week's trading data (alerts taken, skipped, outcomes, Edge Score), \
+write a concise coaching summary that helps them discover their trading edge.
 
 Structure your response EXACTLY like this:
 
-PERFORMANCE:
-[2-3 bullet points: total trades, wins/losses, WR%, best/worst trade]
+EDGE SCORE: [X/10] [up/down from last week if available]
 
-PATTERNS:
-[2-3 bullet points: which alert types won, which lost, any pattern in behavior]
+YOUR PROVEN EDGE:
+[2-3 bullet points: what pattern types are winning, speed of execution, discipline]
 
-COACHING:
-[2-3 sentences: ONE specific, actionable improvement based on the data. \
-Reference actual numbers. Be encouraging but honest.]
+YOUR LEAKS:
+[2-3 bullet points: losing patterns, missed opportunities, behavioral issues]
 
-NEXT WEEK:
-[1-2 sentences: what to focus on, market context if relevant]
+WHAT TO CHANGE:
+[1-2 specific, actionable changes with exact numbers from the data]
+
+NEXT WEEK FOCUS:
+[1-2 sentences: one thing to keep doing, one thing to stop doing]
 
 Rules:
 - Be specific — use actual trade data, symbol names, and dollar amounts
 - Reference pattern types by name (e.g., "PDL reclaim", "EMA bounce")
 - If they skipped alerts that would have won, mention it constructively
 - If they have a losing pattern (e.g., breakouts in choppy regime), flag it
-- Keep total response under 200 words
+- Edge Score factors: win rate (40%), discipline (30%), pattern selection (20%), risk mgmt (10%)
+- Keep total response under 250 words
 - No markdown formatting — plain text only
 - Frame as education and coaching, not financial advice
-- Be encouraging — celebrate wins before addressing improvements"""
+- Be encouraging — celebrate edge before addressing leaks"""
 
 
 def build_weekly_review(user_id: int, days: int = 7) -> str | None:
@@ -101,13 +103,27 @@ def build_weekly_review(user_id: int, days: int = 7) -> str | None:
     took_losses = [a for a in took if (a["symbol"], a["session_date"]) in losses_set]
     skipped_would_win = [a for a in skipped if (a["symbol"], a["session_date"]) in wins_set]
 
+    # Calculate Edge Score (0-10)
+    wr = len(took_wins) / max(len(took_wins) + len(took_losses), 1)
+    discipline = len(took) / max(len(alerts), 1)  # selectivity
+    missed_edge = len(skipped_would_win) / max(len(skipped), 1) if skipped else 0
+    edge_score = round(
+        (wr * 4.0)                          # Win rate: 40% weight
+        + (min(discipline, 0.5) * 2 * 3.0)  # Discipline: 30% (optimal ~50% take rate)
+        + (2.0 if len(type_counts) <= 3 else 1.0)  # Pattern focus: 20%
+        + (1.0 if wr > 0.6 else 0.5),       # Risk management: 10%
+        1
+    )
+    edge_score = min(edge_score, 10.0)
+
     # Build data prompt
     lines = [
         f"WEEKLY TRADING DATA (last {days} days):",
         f"Total alerts: {len(alerts)}",
         f"Took: {len(took)} | Skipped: {len(skipped)} | No action: {len(no_action)}",
         f"Took wins: {len(took_wins)} | Took losses: {len(took_losses)}",
-        f"Win rate on took: {len(took_wins)}/{max(len(took_wins)+len(took_losses),1)*100:.0f}%" if took_wins or took_losses else "Win rate: N/A (no closed trades)",
+        f"Win rate on took: {wr*100:.0f}%" if took_wins or took_losses else "Win rate: N/A (no closed trades)",
+        f"Edge Score: {edge_score}/10",
     ]
 
     if skipped_would_win:
@@ -159,7 +175,7 @@ def build_weekly_review(user_id: int, days: int = 7) -> str | None:
 
         today = date.today().strftime("%b %-d, %Y")
         start = (date.today() - timedelta(days=days)).strftime("%b %-d")
-        header = f"WEEKLY COACHING REVIEW — {start} to {today}"
+        header = f"YOUR EDGE REPORT — {start} to {today}"
         return f"{header}\n\n{review}"[:4000]
 
     except Exception:

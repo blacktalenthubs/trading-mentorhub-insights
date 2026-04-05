@@ -35,19 +35,22 @@ _ai_brief_sent_date: str | None = None
 _AI_PREMARKET_MODEL = "claude-sonnet-4-20250514"
 
 _AI_PREMARKET_SYSTEM = """\
-You are a sharp day-trading coach delivering specific if/then trade plans. \
-Given today's pre-market data, overnight futures, key levels, and SPY regime, \
-produce actionable trade plans for each stock.
+You are a sharp day-trading coach delivering a personalized daily battle plan. \
+Given today's pre-market data, overnight futures, key levels, SPY regime, \
+open positions, and recent activity, produce actionable trade plans.
 
 Structure your response EXACTLY like this:
 
 SPY OUTLOOK: [regime + key levels + overnight bias in 1-2 sentences]
 TODAY'S BIAS: [Bullish/Bearish/Neutral] — [reason]
 
-TRADE PLANS:
+MANAGE FIRST (if open positions exist):
+[For each open position: hold/tighten stop/take profit guidance with prices]
+
+YOUR PLAYS:
 
 [SYMBOL] [price] — [pattern: INSIDE DAY / GAP UP / etc.]
-  BUY: If [condition with specific price], entry [price], stop [price], T1 VWAP [price]
+  BUY: If [condition with specific price], entry [price], stop [price], T1 [price]
   SELL: If rejected at [resistance level + price], exit
   KEY: PDL [price] | PDH [price] | EMA20 [price] | VWAP ~[price]
 
@@ -55,9 +58,12 @@ TRADE PLANS:
 
 AVOID: [symbols or conditions to stay away from today]
 
+RISK BUDGET: [comment on recent activity — too many trades? good discipline?]
+
 Rules:
 - Write a specific if/then trade plan for EVERY symbol in the data
 - Always include exact price levels from the data — never say "near support"
+- If user has open positions, address those FIRST (manage before new trades)
 - BUY scenarios: reference PDL reclaim, morning low hold, MA bounce, VWAP reclaim
 - SELL scenarios: reference PDH rejection, MA resistance, VWAP rejection, PDL breakdown
 - T1 should be VWAP when buying from below VWAP
@@ -190,15 +196,56 @@ def build_premarket_message() -> str | None:
     return "\n".join(parts)
 
 
-def _build_ai_premarket_prompt(data_brief: str) -> str:
+def _build_ai_premarket_prompt(data_brief: str, user_id: int | None = None) -> str:
     """Build the user prompt for AI pre-market analysis.
 
-    Enriches the data brief with daily plans AND key technical levels
-    (MAs, EMAs, prior day high/low) for each symbol so the AI can
-    produce specific if/then trade plans with exact prices.
+    Enriches the data brief with daily plans, key technical levels,
+    open positions, and recent performance for personalized battle plans.
     """
     session = today_session()
     parts = [data_brief]
+
+    # Add user's open positions context
+    if user_id:
+        try:
+            from db import get_db
+            with get_db() as conn:
+                positions = conn.execute(
+                    "SELECT symbol, direction, entry_price, stop_price, target_price, "
+                    "target_2_price, shares FROM real_trades "
+                    "WHERE user_id = ? AND status = 'open'",
+                    (user_id,),
+                ).fetchall()
+                if positions:
+                    lines = ["", "YOUR OPEN POSITIONS:"]
+                    for p in positions:
+                        lines.append(
+                            f"  {p['symbol']} {p['direction']} @ {p['entry_price']:.2f} "
+                            f"(stop={p['stop_price']}, T1={p['target_price']}, "
+                            f"shares={p['shares']})"
+                        )
+                    parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+        # Add recent performance stats (last 7 days)
+        try:
+            from db import get_db
+            with get_db() as conn:
+                stats = conn.execute(
+                    "SELECT COUNT(*) as total, "
+                    "SUM(CASE WHEN user_action = 'took' THEN 1 ELSE 0 END) as took, "
+                    "SUM(CASE WHEN user_action = 'skipped' THEN 1 ELSE 0 END) as skipped "
+                    "FROM alerts WHERE user_id = ? AND session_date >= date('now', '-7 days')",
+                    (user_id,),
+                ).fetchone()
+                if stats and stats["total"] > 0:
+                    parts.append(
+                        f"\nRECENT ACTIVITY (7 days): {stats['total']} alerts, "
+                        f"{stats['took'] or 0} taken, {stats['skipped'] or 0} skipped"
+                    )
+        except Exception:
+            pass
 
     # Add daily plans
     try:
@@ -260,11 +307,11 @@ def _build_ai_premarket_prompt(data_brief: str) -> str:
     return "\n".join(parts)
 
 
-def build_ai_premarket_analysis(data_brief: str) -> str | None:
+def build_ai_premarket_analysis(data_brief: str, user_id: int | None = None) -> str | None:
     """Generate AI pre-market analysis using Sonnet.
 
     Takes the raw data brief as input, enriches with daily plans,
-    and returns the AI game plan text or None on failure.
+    open positions, and returns the AI game plan text or None on failure.
     """
     from alert_config import ANTHROPIC_API_KEY
 
@@ -285,7 +332,7 @@ def build_ai_premarket_analysis(data_brief: str) -> str | None:
         logger.info("AI premarket: no API key available")
         return None
 
-    prompt = _build_ai_premarket_prompt(data_brief)
+    prompt = _build_ai_premarket_prompt(data_brief, user_id=user_id)
 
     try:
         import anthropic
@@ -427,7 +474,7 @@ def send_ai_premarket_brief() -> bool:
             if not user_brief:
                 continue
 
-            analysis = build_ai_premarket_analysis(user_brief)
+            analysis = build_ai_premarket_analysis(user_brief, user_id=user_id)
             if not analysis:
                 continue
 
@@ -447,3 +494,53 @@ def send_ai_premarket_brief() -> bool:
         logger.info("AI premarket brief delivered for %s", session)
 
     return any_sent
+
+
+def generate_premarket_brief(symbols: list[str], user_id: int | None = None) -> str | None:
+    """On-demand pre-market brief — called from the API endpoint.
+
+    Returns the AI battle plan text for the given symbols and user.
+    """
+    if not symbols:
+        return None
+
+    # Build data brief for these specific symbols
+    briefs: list[dict] = []
+    for symbol in symbols:
+        try:
+            pm_bars = fetch_premarket_bars(symbol)
+            if pm_bars.empty:
+                continue
+            prior = fetch_prior_day(symbol)
+            if prior is None:
+                continue
+            brief = compute_premarket_brief(symbol, pm_bars, prior)
+            if brief is not None:
+                briefs.append(brief)
+        except Exception:
+            continue
+
+    if not briefs:
+        return "No pre-market data available for your watchlist symbols."
+
+    spy_ctx = get_spy_context()
+    now_et = datetime.now(ET)
+    date_str = now_et.strftime("%b %-d, %Y")
+
+    parts: list[str] = [
+        f"PRE-MARKET BRIEF \u2014 {date_str}",
+        "",
+        _format_spy_header(spy_ctx),
+    ]
+    for b in briefs:
+        parts.append(_format_symbol_line(b))
+
+    data_brief = "\n".join(parts)
+
+    # Generate AI analysis
+    analysis = build_ai_premarket_analysis(data_brief, user_id=user_id)
+    if analysis:
+        return analysis
+
+    # Fallback to raw data brief if AI fails
+    return data_brief
