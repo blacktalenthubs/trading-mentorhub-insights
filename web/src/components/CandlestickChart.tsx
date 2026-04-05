@@ -199,9 +199,9 @@ export default function CandlestickChart({
     // Price lines
     const plines: Array<{ price: number; color: string; title: string }> = [];
 
-    if (entry) plines.push({ price: entry, color: "#22c55e", title: "Entry" });
-    if (stop) plines.push({ price: stop, color: "#ef4444", title: "Stop" });
-    if (target) plines.push({ price: target, color: "#3b82f6", title: "Target" });
+    if (entry) plines.push({ price: entry, color: "#3b82f6", title: `Entry $${entry.toFixed(2)}` });
+    if (stop) plines.push({ price: stop, color: "#ef4444", title: `Stop $${stop.toFixed(2)}` });
+    if (target) plines.push({ price: target, color: "#f59e0b", title: `T1/Resist $${target.toFixed(2)}` });
 
     levels.forEach((lvl) => {
       plines.push({ price: lvl.price, color: lvl.color, title: lvl.label || `$${lvl.price}` });

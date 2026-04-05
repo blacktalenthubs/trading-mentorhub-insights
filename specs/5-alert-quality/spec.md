@@ -251,3 +251,20 @@ Forces multiple structural levels to agree before notifying.
 3. First touch after a break should be labeled "MA50 TEST" (NOTICE) not "MA50 REJECTION" (SHORT)
 
 **File:** `analytics/intraday_rules.py` — `check_ema_rejection_short()` and `check_ma_resistance()`
+
+### ENHANCEMENT-1: Targets = Nearest Resistance (Not Fixed R:R)
+
+**Observation:** Target at $2,065 is the hourly resistance where price was rejected multiple times. When price approaches it, traders should know it's a DECISION POINT — take partial profits or hold for breakout.
+
+**Current:** Target labeled "Target" in blue — implies price will reach it.
+**Fixed:** Target labeled "T1/Resist" in amber — communicates both target AND resistance.
+
+**Status:** FIXED (2026-04-05) — chart label changed.
+
+**Future:** Target calculation should use nearest overhead resistance as T1, not fixed R:R multiple. When resistance breaks and price closes above, it flips to support and next resistance becomes T2.
+
+### INSIGHT-1: Daily Close Matters for MA Rejection
+
+Observation from live trading: ETH touched 50MA intraday but hadn't closed below on the daily chart. The 50MA had been support for days. System should only fire MA rejection SHORT after a daily close below the MA — intraday wicks don't confirm bearish.
+
+This reinforces BUG-6 fix (2-bar confirmation) but goes further: for DAILY MAs, require a DAILY CLOSE below, not just intraday bars.
