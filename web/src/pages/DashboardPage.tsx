@@ -14,6 +14,7 @@ import {
 } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import type { RealTrade } from "../api/hooks";
+import ChartReplay from "../components/ChartReplay";
 import {
   Crosshair, Radar, Briefcase, Clock,
   FileText, Download,
@@ -186,7 +187,7 @@ function SignalCard({ alert: a }: { alert: Alert }) {
 
 /* ── Actioned alert (expandable history) ──────────────────────────── */
 
-function ActionedAlert({ alert: a }: { alert: Alert }) {
+function ActionedAlert({ alert: a, onReplay }: { alert: Alert; onReplay: (id: number) => void }) {
   const [expanded, setExpanded] = useState(false);
   const time = new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   const isTarget = a.alert_type.includes("target");
@@ -248,10 +249,18 @@ function ActionedAlert({ alert: a }: { alert: Alert }) {
           {a.message && (
             <p className="text-xs text-text-secondary leading-relaxed">{a.message}</p>
           )}
-          {/* Confidence + timestamp */}
-          <div className="flex items-center gap-3 text-[10px] text-text-faint">
-            {a.confidence && <span>{a.confidence} confidence</span>}
-            <span>{a.created_at}</span>
+          {/* Confidence + timestamp + replay */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 text-[10px] text-text-faint">
+              {a.confidence && <span>{a.confidence} confidence</span>}
+              <span>{a.created_at}</span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onReplay(a.id); }}
+              className="text-[10px] text-accent hover:text-accent-hover font-medium flex items-center gap-1"
+            >
+              ▶ Replay
+            </button>
           </div>
         </div>
       )}
@@ -352,6 +361,7 @@ export default function DashboardPage() {
   const { data: alerts } = useAlertsToday();
   const { data: openTrades } = useOpenTrades();
   const { data: signals } = useScanner();
+  const [replayAlertId, setReplayAlertId] = useState<number | null>(null);
 
   // Split alerts: actionable (BUY/SHORT without user_action) vs history
   const actionableAlerts = alerts?.filter((a) =>
@@ -519,7 +529,7 @@ export default function DashboardPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                 {historyAlerts.slice(0, 12).map((a) => (
-                  <ActionedAlert key={a.id} alert={a} />
+                  <ActionedAlert key={a.id} alert={a} onReplay={setReplayAlertId} />
                 ))}
               </div>
             </section>
@@ -547,6 +557,11 @@ export default function DashboardPage() {
 
         </div>
       </div>
+
+      {/* Chart Replay Modal */}
+      {replayAlertId && (
+        <ChartReplay alertId={replayAlertId} onClose={() => setReplayAlertId(null)} />
+      )}
     </div>
   );
 }

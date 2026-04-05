@@ -123,3 +123,18 @@ async def ohlcv(
     if bars:
         cache_set(key, bars, _OHLCV_TTL)
     return bars
+
+
+@router.get("/replay/{alert_id}")
+async def chart_replay(
+    alert_id: int,
+    request: Request,
+):
+    """Get chart replay data for an alert — OHLCV bars + outcome. Public for Signal Library."""
+    from app.services.replay import get_replay_data
+
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(None, partial(get_replay_data, alert_id))
+    if not data:
+        raise HTTPException(404, "Alert not found")
+    return data
