@@ -373,3 +373,19 @@ The system should be AWARE of the user's position when labeling levels and decid
 Direction = NOTICE (not SELL). Don't close anything. Just inform.
 
 **Status:** FIXED below
+
+### ENHANCEMENT-2: VWAP as Dynamic T2 Target
+
+**Observation:** When price rallies from below VWAP, VWAP acts as a magnet. If T1 (nearest resistance) breaks, VWAP becomes the natural T2 target.
+
+**Current:** Targets are fixed R:R multiples or structural levels but don't consider VWAP.
+**Proposed:** Target hierarchy for LONG from below VWAP:
+  T1 = nearest overhead resistance
+  T2 = VWAP (if above T1)
+  T3 = next resistance above VWAP
+
+For LONG from above VWAP:
+  T1 = nearest resistance (PDH, hourly levels)
+  T2 = extended R:R target
+
+**Impact:** More realistic profit targets that align with institutional price levels.
