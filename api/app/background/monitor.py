@@ -33,6 +33,9 @@ _last_buy_session: str = ""
 # Track SPY inside day notice (one per session)
 _spy_inside_day_notified: bool = False
 
+# Direction lock: once BUY/SHORT fires for a symbol, suppress opposite for 30 min
+_direction_lock: Dict[str, tuple] = {}  # {symbol: (direction, datetime)}
+
 
 def poll_all_users(sync_session_factory) -> int:
     """Run one poll cycle for all Pro users.
@@ -306,6 +309,19 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             logger.info("SUPPRESSED: %s %s BUY — active SHORT entry exists", symbol, signal.alert_type.value)
                             continue
 
+                    # BUG-8 fix: direction lock — no BUY then SHORT (or vice versa) within 30 min
+                    if signal.direction in ("BUY", "SHORT"):
+                        _lock = _direction_lock.get(symbol)
+                        if _lock:
+                            _locked_dir, _locked_time = _lock
+                            _elapsed = (datetime.utcnow() - _locked_time).total_seconds()
+                            if _locked_dir != signal.direction and _elapsed < 1800:  # 30 min
+                                logger.info(
+                                    "DIRECTION LOCK: %s %s suppressed — %s fired %ds ago",
+                                    symbol, signal.direction, _locked_dir, int(_elapsed),
+                                )
+                                continue
+
                     # Generate AI narrative for education context
                     _narrative = ""
                     try:
@@ -363,6 +379,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     )
                     db.add(alert)
                     fired_today.add(key)
+
+                    # Set direction lock for this symbol
+                    if signal.direction in ("BUY", "SHORT"):
+                        _direction_lock[symbol] = (signal.direction, datetime.utcnow())
 
                     # Create active entry for BUY signals
                     _non_entry_types = {
