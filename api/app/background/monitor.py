@@ -289,6 +289,26 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     logger.exception("Error evaluating %s for user %d", symbol, user_id)
                     continue
 
+                # BUG-4 fix: adjust BUY targets to nearest overhead resistance
+                if prior_day and signals:
+                    _overhead = []
+                    _pdh = prior_day.get("high", 0)
+                    _ema20 = prior_day.get("ema20", 0)
+                    _ema50 = prior_day.get("ema50", 0)
+                    _nearest_sup = prior_day.get("nearest_support", 0)
+                    for _lv in [_pdh, _ema20, _ema50, _nearest_sup]:
+                        if _lv and _lv > 0:
+                            _overhead.append(_lv)
+
+                    for sig in signals:
+                        if sig.direction == "BUY" and sig.entry and sig.target_1:
+                            # Find nearest overhead resistance above entry but below current T1
+                            _closer = [r for r in _overhead if sig.entry < r < sig.target_1]
+                            if _closer:
+                                _new_t1 = min(_closer)
+                                sig.target_2 = sig.target_1  # old T1 becomes T2
+                                sig.target_1 = round(_new_t1, 2)
+
                 for signal in signals:
                   try:
                     # Dedup check
@@ -308,6 +328,22 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         if signal.direction == "BUY" and _has_short:
                             logger.info("SUPPRESSED: %s %s BUY — active SHORT entry exists", symbol, signal.alert_type.value)
                             continue
+
+                    # BUG-7 fix: suppress BUY breakout at resistance when user has active LONG from below
+                    # The breakout level IS the user's exit point, not a new entry
+                    if active_rows and signal.direction == "BUY":
+                        _breakout_types = {"consol_breakout_long", "prior_day_high_breakout",
+                                           "inside_day_breakout", "weekly_high_breakout",
+                                           "opening_range_breakout", "first_hour_high_breakout"}
+                        if signal.alert_type.value in _breakout_types:
+                            for ae in active_rows:
+                                t1 = ae.target_1 or 0
+                                if t1 > 0 and signal.entry and abs(signal.entry - t1) / t1 < 0.01:
+                                    logger.info(
+                                        "SUPPRESSED: %s %s BUY — breakout near active LONG T1 $%.2f (exit point, not entry)",
+                                        symbol, signal.alert_type.value, t1,
+                                    )
+                                    continue
 
                     # BUG-8 fix: direction lock — no BUY then SHORT (or vice versa) within 30 min
                     if signal.direction in ("BUY", "SHORT"):

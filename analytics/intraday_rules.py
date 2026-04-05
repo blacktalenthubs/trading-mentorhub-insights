@@ -6481,22 +6481,10 @@ def _consolidate_signals(signals: list[AlertSignal]) -> list[AlertSignal]:
         primary = group[0]
         others = group[1:]
 
-        # Use the BEST (lowest) entry from all signals — first touch is best entry
-        best_entry = primary.entry
-        best_stop = primary.stop
-        for s in others:
-            if s.entry and best_entry and s.entry < best_entry:
-                best_entry = s.entry
-            if s.stop and best_stop and s.stop < best_stop:
-                best_stop = s.stop
-        if best_entry and best_entry < (primary.entry or float("inf")):
-            primary.entry = best_entry
-            primary.stop = best_stop
-            # Recalculate targets from better entry
-            risk = primary.entry - primary.stop if primary.stop else 0
-            if risk > 0:
-                primary.target_1 = round(primary.entry + risk, 2)
-                primary.target_2 = round(primary.entry + 2 * risk, 2)
+        # BUG-1 fix: use PRIMARY signal's entry (highest scored), not lowest from all
+        # The lowest entry may be a level price hasn't reached, causing immediate stop-out
+        # Confirming signals VALIDATE the thesis, they don't change the entry point
+        # Keep primary's entry/stop/targets as-is — they come from the best-scored signal
 
         # Boost score (v1 and v2)
         boost = min(len(others) * CONSOLIDATION_SCORE_BOOST, CONSOLIDATION_MAX_BOOST)

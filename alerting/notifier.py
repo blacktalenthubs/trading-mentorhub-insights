@@ -87,9 +87,15 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
     parts = [f"<b>{_dir} {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
 
     # Levels
+    # BUG-2 fix: show both structural entry and current price when they differ
     _levels = []
     if signal.entry is not None:
-        _levels.append(f"Entry ${signal.entry:.2f}")
+        # If current price is >0.5% above entry, show both so trader knows the gap
+        _entry_gap = abs(signal.price - signal.entry) / signal.entry if signal.entry > 0 else 0
+        if _entry_gap > 0.005:
+            _levels.append(f"Entry ${signal.entry:.2f} (now ${signal.price:.2f})")
+        else:
+            _levels.append(f"Entry ${signal.entry:.2f}")
     if signal.stop is not None:
         _levels.append(f"Stop ${signal.stop:.2f}")
     if signal.target_1 is not None:
