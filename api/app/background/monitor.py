@@ -54,6 +54,8 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
     global _last_buy_session, _spy_inside_day_notified
     session_date = date.today().isoformat()
+    # Crypto uses UTC date so dedup resets at midnight UTC (not server time)
+    _utc_date = datetime.utcnow().date().isoformat()
     total_alerts = 0
 
     # Clear stale burst cooldown tracking on new session
@@ -180,13 +182,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
             if not symbols:
                 continue
 
-            # Load user's fired alerts for dedup
+            # Load user's fired alerts for dedup (equity session + crypto UTC session)
+            _dedup_dates = {session_date, _utc_date}
             db_alerts = db.execute(
-                select(Alert.symbol, Alert.alert_type).where(
-                    Alert.user_id == user_id, Alert.session_date == session_date
+                select(Alert.symbol, Alert.alert_type, Alert.session_date).where(
+                    Alert.user_id == user_id, Alert.session_date.in_(_dedup_dates)
                 )
             ).all()
-            fired_today: set[tuple[str, str]] = {(a[0], a[1]) for a in db_alerts}
+            # Build per-session dedup sets
+            _fired_equity: set[tuple[str, str]] = {(a[0], a[1]) for a in db_alerts if a[2] == session_date}
+            _fired_crypto: set[tuple[str, str]] = {(a[0], a[1]) for a in db_alerts if a[2] == _utc_date}
 
             # Load cooldowns
             cooldown_rows = db.execute(
@@ -237,6 +242,12 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 # Skip symbols whose market is closed (crypto always passes)
                 if not is_market_hours_for_symbol(symbol):
                     continue
+
+                # Crypto uses UTC date for session so dedup resets at midnight UTC
+                from config import is_crypto_alert_symbol
+                _is_crypto = is_crypto_alert_symbol(symbol)
+                _sym_session = _utc_date if _is_crypto else session_date
+                fired_today = _fired_crypto if _is_crypto else _fired_equity
 
                 intraday = intraday_cache.get(symbol)
                 prior_day = prior_day_cache.get(symbol)
@@ -327,7 +338,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         message=signal.message,
                         narrative=_narrative,
                         score=int(signal.score) if signal.score else 0,
-                        session_date=session_date,
+                        session_date=_sym_session,
                     )
                     db.add(alert)
                     fired_today.add(key)
@@ -349,7 +360,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             target_1=_py(signal.target_1),
                             target_2=_py(signal.target_2),
                             alert_type=signal.alert_type.value,
-                            session_date=session_date,
+                            session_date=_sym_session,
                         ))
 
                     # Stop/target: close entries and add cooldown
@@ -361,7 +372,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             symbol=symbol,
                             cooldown_until="",
                             reason=signal.alert_type.value,
-                            session_date=session_date,
+                            session_date=_sym_session,
                         ))
 
                     if signal.alert_type in (AlertType.TARGET_1_HIT, AlertType.TARGET_2_HIT):
