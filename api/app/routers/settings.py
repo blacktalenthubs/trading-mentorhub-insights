@@ -194,7 +194,7 @@ async def telegram_link(
     link = TelegramLinkToken(
         user_id=user.id,
         token=token,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        expires_at=datetime.utcnow() + timedelta(minutes=10),
     )
     db.add(link)
     await db.flush()
