@@ -3666,9 +3666,8 @@ def check_ema_rejection_short(
     else:
         return None
 
-    # Check each key MA for rejection
+    # Check key DAILY MAs for rejection — EMA20 excluded (too noisy, tested every session)
     _ma_levels = [
-        ("EMA20", prior_day.get("ema20", 0)),
         ("EMA50", prior_day.get("ema50", 0)),
         ("MA50", prior_day.get("ma50", 0)),
         ("EMA100", prior_day.get("ema100", 0)),
