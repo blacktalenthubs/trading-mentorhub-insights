@@ -232,7 +232,7 @@ def create_app() -> FastAPI:
     from app.routers import (
         auth, watchlist, scanner, market, alerts,
         trades, charts, real_trades, paper_trading, backtest,
-        push, settings, swing, intel, learn, billing,
+        push, settings, swing, intel, learn, billing, admin,
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -250,6 +250,7 @@ def create_app() -> FastAPI:
     app.include_router(intel.router, prefix="/api/v1/intel", tags=["intel"])
     app.include_router(learn.router, prefix="/api/v1/learn", tags=["learn"])
     app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
+    app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 
     # --- Serve React frontend (production) ---
     import os
