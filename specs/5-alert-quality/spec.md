@@ -308,3 +308,25 @@ A price level is not inherently "support" or "resistance" or "target" — it dep
 | Short from $2,080 | T1 / EXIT (cover short) |
 
 The system should be AWARE of the user's position when labeling levels and deciding what alert to send. This is the foundation of "position-aware alerts."
+
+### BUG-8: System Sends BUY Then SHORT at Same Level Within Minutes
+
+**What happened:** BTC-USD fired CONSOLIDATION BREAKOUT BUY at $67,375, then SESSION HIGH DOUBLE TOP SHORT at $67,368 — same price, opposite direction, minutes apart.
+
+**Problem:** Trader gets told to go LONG then SHORT at the same level. This is maximum confusion and destroys trust in the system.
+
+**Root cause:** Each rule evaluates independently. The breakout rule sees range broken. The double top rule sees two tests at the same high. Both are technically correct but mutually exclusive.
+
+**Fix needed — Direction Lock:**
+1. Once a BUY signal fires for a symbol, suppress SHORT signals for that symbol for N minutes (15-30 min)
+2. Once a SHORT signal fires, suppress BUY signals
+3. Only EXIT alerts (T1/stop) override the lock
+4. The lock is per-symbol, per-session
+5. This is an extension of BUG-5 (conflicting direction) but applies even without active entries
+
+**Implementation:**
+- Add `_last_direction: dict[str, tuple[str, datetime]]` to monitor
+- Before sending any BUY/SHORT: check if opposite direction fired recently
+- If conflict: suppress the newer signal, log it
+
+**Principle: COMMIT to a direction. Signal exit before flipping.**
