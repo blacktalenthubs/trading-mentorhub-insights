@@ -31,10 +31,12 @@ _square_client = None
 def _get_square():
     global _square_client
     if _square_client is None:
-        from square.client import Client
-        _square_client = Client(
-            access_token=settings.SQUARE_ACCESS_TOKEN,
-            environment=settings.SQUARE_ENVIRONMENT,
+        from square import Square
+        from square.environment import SquareEnvironment
+        env = SquareEnvironment.SANDBOX if settings.SQUARE_ENVIRONMENT == "sandbox" else SquareEnvironment.PRODUCTION
+        _square_client = Square(
+            token=settings.SQUARE_ACCESS_TOKEN,
+            environment=env,
         )
     return _square_client
 
@@ -113,46 +115,44 @@ async def subscribe(
     square_customer_id = sub_row.stripe_customer_id if sub_row else None
 
     if not square_customer_id:
-        cust_result = sq.customers.create_customer(
-            body={
-                "idempotency_key": str(uuid.uuid4()),
-                "email_address": user.email,
-                "reference_id": str(user.id),
-            }
-        )
-        if not cust_result.is_success():
-            logger.error("Create customer failed: %s", cust_result.errors)
+        try:
+            cust_result = sq.customers.create(
+                idempotency_key=str(uuid.uuid4()),
+                email_address=user.email,
+                reference_id=str(user.id),
+            )
+            square_customer_id = cust_result.customer.id
+        except Exception as e:
+            logger.error("Create customer failed: %s", e)
             raise HTTPException(502, "Failed to create billing customer")
-        square_customer_id = cust_result.body["customer"]["id"]
 
     # Store card on file
-    card_result = sq.cards.create_card(
-        body={
-            "idempotency_key": str(uuid.uuid4()),
-            "source_id": body.nonce,
-            "card": {"customer_id": square_customer_id},
-        }
-    )
-    if not card_result.is_success():
-        logger.error("Create card failed: %s", card_result.errors)
+    try:
+        card_result = sq.cards.create(
+            idempotency_key=str(uuid.uuid4()),
+            source_id=body.nonce,
+            card={"customer_id": square_customer_id},
+        )
+        card_id = card_result.card.id
+    except Exception as e:
+        logger.error("Create card failed: %s", e)
         raise HTTPException(502, "Failed to store payment method")
-    card_id = card_result.body["card"]["id"]
 
     # Create subscription
-    sub_result = sq.subscriptions.create_subscription(
-        body={
-            "idempotency_key": str(uuid.uuid4()),
-            "location_id": settings.SQUARE_LOCATION_ID,
-            "plan_variation_id": plan_id,
-            "customer_id": square_customer_id,
-            "card_id": card_id,
-        }
-    )
-    if not sub_result.is_success():
-        logger.error("Create subscription failed: %s", sub_result.errors)
+    try:
+        sub_result = sq.subscriptions.create(
+            idempotency_key=str(uuid.uuid4()),
+            location_id=settings.SQUARE_LOCATION_ID,
+            plan_variation_id=plan_id,
+            customer_id=square_customer_id,
+            card_id=card_id,
+        )
+        sq_sub_id = sub_result.subscription.id
+        sq_sub_status = sub_result.subscription.status
+    except Exception as e:
+        logger.error("Create subscription failed: %s", e)
         raise HTTPException(502, "Failed to create subscription")
 
-    sq_sub = sub_result.body["subscription"]
     tier = _plan_to_tier(plan_id)
 
     # Update DB
@@ -169,11 +169,11 @@ async def subscribe(
         ))
     await db.commit()
 
-    logger.info("SUBSCRIBE: user=%d tier=%s sq_sub=%s", user.id, tier, sq_sub["id"])
+    logger.info("SUBSCRIBE: user=%d tier=%s sq_sub=%s", user.id, tier, sq_sub_id)
     return {
         "tier": tier,
-        "subscription_id": sq_sub["id"],
-        "status": sq_sub["status"],
+        "subscription_id": sq_sub_id,
+        "status": sq_sub_status,
     }
 
 
@@ -193,23 +193,23 @@ async def cancel_subscription(
     if not sub_row or sub_row.status != "active" or sub_row.tier == "free":
         raise HTTPException(400, "No active subscription to cancel")
 
-    # Find the Square subscription
+    # Find and cancel the Square subscription
     sq = _get_square()
-    search = sq.subscriptions.search_subscriptions(
-        body={
-            "query": {
+    try:
+        search = sq.subscriptions.search(
+            query={
                 "filter": {
                     "customer_ids": [sub_row.stripe_customer_id],
                     "location_ids": [settings.SQUARE_LOCATION_ID],
                 }
             }
-        }
-    )
-    if search.is_success() and search.body.get("subscriptions"):
-        for sq_sub in search.body["subscriptions"]:
-            if sq_sub["status"] == "ACTIVE":
-                sq.subscriptions.cancel_subscription(subscription_id=sq_sub["id"])
-                logger.info("CANCEL: user=%d sq_sub=%s", user.id, sq_sub["id"])
+        )
+        for sq_sub in (search.subscriptions or []):
+            if sq_sub.status == "ACTIVE":
+                sq.subscriptions.cancel(subscription_id=sq_sub.id)
+                logger.info("CANCEL: user=%d sq_sub=%s", user.id, sq_sub.id)
+    except Exception as e:
+        logger.error("Cancel search failed: %s", e)
 
     # Downgrade to free
     sub_row.tier = "free"
