@@ -287,6 +287,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     continue
 
                 for signal in signals:
+                  try:
                     # Dedup check
                     key = (symbol, signal.alert_type.value)
                     if key in fired_today:
@@ -321,6 +322,13 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         try:
                             return v.item()  # numpy scalar → Python native
                         except (AttributeError, ValueError):
+                            pass
+                        # Force float/int conversion for any numeric type
+                        try:
+                            if isinstance(v, (int, float)):
+                                return v
+                            return float(v)
+                        except (TypeError, ValueError):
                             return v
 
                     # Record alert
@@ -497,6 +505,13 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         user_id, signal.direction, signal.symbol,
                         signal.alert_type.value, signal.price,
                     )
+
+                  except Exception:
+                    logger.exception(
+                        "Signal processing failed: user=%d %s %s",
+                        user_id, symbol, signal.alert_type.value if signal else "?",
+                    )
+                    continue
 
         db.commit()
 
