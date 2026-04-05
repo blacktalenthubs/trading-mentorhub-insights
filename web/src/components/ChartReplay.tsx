@@ -276,11 +276,48 @@ export default function ChartReplay({ alertId, onClose }: Props) {
         {/* Chart */}
         <div ref={containerRef} className="w-full" />
 
-        {/* Progress bar */}
-        <div className="h-1 bg-surface-3">
+        {/* Progress bar — click/drag to scrub */}
+        <div
+          className="h-3 bg-surface-3 cursor-pointer group relative"
+          onClick={(e) => {
+            if (!data) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const newCount = Math.max(1, Math.round(pct * data.bars.length));
+            setVisibleCount(newCount);
+            setPlaying(false);
+            if (newCount >= (data.outcome_bar_index || data.bars.length) && data.outcome !== "open") {
+              setShowOutcome(true);
+            } else {
+              setShowOutcome(false);
+            }
+          }}
+          onMouseDown={(e) => {
+            if (!data) return;
+            const bar = e.currentTarget;
+            const onMove = (ev: MouseEvent) => {
+              const rect = bar.getBoundingClientRect();
+              const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+              const newCount = Math.max(1, Math.round(pct * data.bars.length));
+              setVisibleCount(newCount);
+              setPlaying(false);
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          }}
+        >
           <div
-            className={`h-full transition-all duration-200 ${showOutcome ? (isWin ? "bg-bullish" : "bg-bearish") : "bg-accent"}`}
+            className={`h-full transition-all duration-100 ${showOutcome ? (isWin ? "bg-bullish" : "bg-bearish") : "bg-accent"}`}
             style={{ width: `${progress}%` }}
+          />
+          {/* Scrub handle */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-accent shadow-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+            style={{ left: `calc(${progress}% - 6px)` }}
           />
         </div>
 
