@@ -70,8 +70,9 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             f"Trade invalidated — exit"
         )
 
-    # SHORT filter — only structural daily-level shorts reach Telegram
-    # Intraday shorts (EMA rejection, VWAP loss, consolidation, etc.) are too noisy
+    # SHORT filter — only structural daily-level shorts reach Telegram as SHORT
+    # Key intraday levels (VWAP loss, session low, morning low) → send as NOTICE
+    # Other intraday shorts → suppress entirely
     if signal.direction == "SHORT":
         _STRUCTURAL_SHORT_TYPES = {
             "pdh_failed_breakout",       # rejection at PDH
@@ -79,8 +80,20 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             "session_high_double_top",   # daily double top rejection
             "ema_rejection_short",       # rejection at key DAILY EMA (50/100/200)
         }
+        _NOTICE_SHORT_TYPES = {
+            "vwap_loss":                "VWAP lost",
+            "session_low_breakdown":    "Session low broken",
+            "morning_low_breakdown":    "Morning low broken",
+        }
+        if signal.alert_type.value in _NOTICE_SHORT_TYPES:
+            import html as _html_notice
+            _notice_label = _NOTICE_SHORT_TYPES[signal.alert_type.value]
+            return (
+                f"<b>NOTICE — {_html_notice.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+                f"{_notice_label} — watch for continuation or reclaim"
+            )
         if signal.alert_type.value not in _STRUCTURAL_SHORT_TYPES:
-            return None  # suppress non-structural shorts from Telegram
+            return None  # suppress remaining non-structural shorts
 
     # LONG (BUY) and SHORT only — minimal format for entry evaluation
     _dir = "SHORT" if signal.direction == "SHORT" else "LONG"

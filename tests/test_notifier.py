@@ -196,21 +196,35 @@ class TestShortFilter:
         body = _format_sms_body(sig)
         assert body is not None
 
-    def test_vwap_loss_suppressed(self):
+    def test_vwap_loss_sent_as_notice(self):
         sig = AlertSignal(
             symbol="AAPL", alert_type=AlertType.VWAP_LOSS,
             direction="SHORT", price=99.0, entry=99.0, stop=100.0,
         )
         body = _format_sms_body(sig)
-        assert body is None  # non-structural, suppressed
+        assert body is not None
+        assert "NOTICE" in body
+        assert "VWAP lost" in body
 
-    def test_session_low_breakdown_suppressed(self):
+    def test_session_low_breakdown_sent_as_notice(self):
         sig = AlertSignal(
             symbol="AAPL", alert_type=AlertType.SESSION_LOW_BREAKDOWN,
             direction="SHORT", price=97.0, entry=97.0, stop=98.0,
         )
         body = _format_sms_body(sig)
-        assert body is None
+        assert body is not None
+        assert "NOTICE" in body
+        assert "Session low broken" in body
+
+    def test_morning_low_breakdown_sent_as_notice(self):
+        sig = AlertSignal(
+            symbol="AAPL", alert_type=AlertType.MORNING_LOW_BREAKDOWN,
+            direction="SHORT", price=96.0, entry=96.0, stop=97.0,
+        )
+        body = _format_sms_body(sig)
+        assert body is not None
+        assert "NOTICE" in body
+        assert "Morning low broken" in body
 
     def test_consol_breakout_short_suppressed(self):
         sig = AlertSignal(
