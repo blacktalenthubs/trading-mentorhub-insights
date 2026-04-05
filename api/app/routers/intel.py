@@ -8,6 +8,7 @@ from functools import partial
 from typing import List
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.dependencies import get_current_user, require_pro
@@ -245,6 +246,30 @@ async def coach_stream(
         yield {"event": "done", "data": ""}
 
     return EventSourceResponse(event_generator())
+
+
+class PreTradeCheckRequest(BaseModel):
+    symbol: str
+    direction: str  # BUY or SHORT
+    entry: float
+    stop: float
+    target: float
+
+
+@router.post("/pre-trade-check")
+async def pre_trade_check(
+    body: PreTradeCheckRequest,
+    user: User = Depends(require_pro),
+):
+    """Run pre-trade checklist — structure, volume, regime, R:R, timing, daily budget."""
+    from analytics.pretrade_check import run_pretrade_check
+
+    result = await _run_sync(
+        run_pretrade_check,
+        body.symbol.upper(), body.direction.upper(),
+        body.entry, body.stop, body.target,
+    )
+    return result
 
 
 @router.post("/position-check")
