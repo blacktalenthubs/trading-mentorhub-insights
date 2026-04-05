@@ -209,7 +209,7 @@ export default function PatternDetailPage() {
             Want {data.name.toLowerCase()} alerts on your phone?
           </h2>
           <p className="text-text-muted text-sm mb-6">
-            TradeSignal detects this pattern in real time and sends you a complete trade plan
+            TradeCoPilot detects this pattern in real time and sends you a complete trade plan
             with entry, stop, targets, and AI analysis.
           </p>
           <Link

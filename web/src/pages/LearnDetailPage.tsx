@@ -229,7 +229,7 @@ export default function LearnDetailPage() {
             Want {data.name.toLowerCase()} delivered to your phone?
           </h2>
           <p className="text-text-muted text-sm mb-6">
-            TradeSignal scans your watchlist every 3 minutes and sends complete trade plans
+            TradeCoPilot scans your watchlist every 3 minutes and sends complete trade plans
             when these patterns appear — entry, stop, targets, and AI analysis.
           </p>
           <Link

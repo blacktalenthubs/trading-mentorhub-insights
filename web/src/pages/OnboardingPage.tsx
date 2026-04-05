@@ -176,7 +176,7 @@ function StepTelegram({ onNext, onBack }: { onNext: () => void; onBack: () => vo
       <h2 className="text-2xl font-bold text-text-primary mb-2">Connect Telegram</h2>
       <p className="text-text-muted text-sm mb-6">
         Get trade alerts delivered to your phone with Took/Skip action buttons.
-        This is how most traders interact with TradeSignal.
+        This is how most traders interact with TradeCoPilot.
       </p>
 
       {linked ? (

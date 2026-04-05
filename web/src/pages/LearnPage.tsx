@@ -84,7 +84,7 @@ export default function LearnPage() {
           <span className="text-text-secondary">Then trade them live.</span>
         </h1>
         <p className="mt-4 text-text-muted max-w-xl mx-auto">
-          Every TradeSignal alert is based on proven chart structure. Understand why each
+          Every TradeCoPilot alert is based on proven chart structure. Understand why each
           pattern works — then let the system find them for you in real time.
         </p>
       </section>

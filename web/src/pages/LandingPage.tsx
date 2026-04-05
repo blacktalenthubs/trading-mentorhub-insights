@@ -1,4 +1,4 @@
-/** Landing Page — TradeSignal public marketing page.
+/** Landing Page — TradeCoPilot public marketing page.
  *
  *  Standalone page (no app shell, no auth required).
  *  Aesthetic: Precision Terminal — data-dense, confident, dark.
@@ -279,7 +279,7 @@ function Differentiators() {
             <p className="mt-3 text-xs text-text-faint">No context. No plan. No education.</p>
           </div>
           <div className="bg-surface-1 border border-bullish/10 rounded-xl p-6 shadow-glow-bullish">
-            <h3 className="text-sm font-bold text-bullish-text uppercase tracking-wider mb-4">What TradeSignal gives you</h3>
+            <h3 className="text-sm font-bold text-bullish-text uppercase tracking-wider mb-4">What TradeCoPilot gives you</h3>
             <div className="bg-surface-2 rounded-lg p-4 text-sm text-text-secondary border border-bullish/10 space-y-1">
               <p className="font-bold text-text-primary">SPY double bottom at $644.72</p>
               <p className="text-xs">Tested 2x across daily bars. EMA200 confluence.</p>
@@ -604,7 +604,7 @@ function Comparison() {
             <thead>
               <tr className="border-b border-border-subtle">
                 <th className="text-left py-3 px-4 text-text-muted font-medium">Feature</th>
-                <th className="py-3 px-4 text-accent font-bold">TradeSignal</th>
+                <th className="py-3 px-4 text-accent font-bold">TradeCoPilot</th>
                 <th className="py-3 px-4 text-text-faint font-medium">TradingView</th>
                 <th className="py-3 px-4 text-text-faint font-medium">Trade Ideas</th>
                 <th className="py-3 px-4 text-text-faint font-medium">Discord Groups</th>
@@ -641,7 +641,7 @@ function FAQ() {
   const faqs = [
     {
       q: "Is this financial advice?",
-      a: "No. TradeSignal is an educational platform that teaches chart structure through real-time pattern detection. Every alert is a learning opportunity — you always decide whether to trade. We never recommend specific trades.",
+      a: "No. TradeCoPilot is an educational platform that teaches chart structure through real-time pattern detection. Every alert is a learning opportunity — you always decide whether to trade. We never recommend specific trades.",
     },
     {
       q: "How fast are alerts delivered?",
@@ -657,7 +657,7 @@ function FAQ() {
     },
     {
       q: "Do I need to watch charts all day?",
-      a: "No — that's the whole point. TradeSignal watches the charts for you. You get a Telegram notification only when a high-conviction setup appears. Many of our users have full-time jobs and trade from their phone.",
+      a: "No — that's the whole point. TradeCoPilot watches the charts for you. You get a Telegram notification only when a high-conviction setup appears. Many of our users have full-time jobs and trade from their phone.",
     },
     {
       q: "What markets do you cover?",
