@@ -57,27 +57,30 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             f"{_notice_msg}"
         )
 
-    # SELL — only allow T1 hit and stop loss through to Telegram
-    # hourly_resistance_approach removed — fires every poll cycle, too noisy
+    # SELL — only send stop_loss through Telegram (T1 handled by monitor T1 NOTIFY)
+    # T1/T2 targets are sent directly by the monitor with Exit buttons, not here
     if signal.direction == "SELL":
-        _exit_types = {"target_1_hit", "stop_loss_hit", "target_2_hit", "auto_stop_out"}
+        _exit_types = {"stop_loss_hit", "auto_stop_out"}
         if signal.alert_type.value not in _exit_types:
-            return None
+            return None  # T1/T2 suppressed — monitor sends these with Exit buttons
         import html as _html2
-        # Format exit alerts cleanly
-        _label = signal.alert_type.value.replace("_", " ").title()
-        if "target" in signal.alert_type.value:
-            return (
-                f"<b>TARGET HIT — {_html2.escape(signal.symbol)}</b>\n"
-                f"{_label} at ${signal.price:.2f}\n"
-                f"Take profits / trail stop"
-            )
-        else:
-            return (
-                f"<b>STOPPED OUT — {_html2.escape(signal.symbol)}</b>\n"
-                f"Stop ${signal.price:.2f} hit\n"
-                f"Trade invalidated — exit"
-            )
+        return (
+            f"<b>STOPPED OUT — {_html2.escape(signal.symbol)}</b>\n"
+            f"Stop ${signal.price:.2f} hit\n"
+            f"Trade invalidated — exit"
+        )
+
+    # SHORT filter — only structural daily-level shorts reach Telegram
+    # Intraday shorts (EMA rejection, VWAP loss, consolidation, etc.) are too noisy
+    if signal.direction == "SHORT":
+        _STRUCTURAL_SHORT_TYPES = {
+            "pdh_failed_breakout",       # rejection at PDH
+            "support_breakdown",         # break of PDL / double bottom low
+            "session_high_double_top",   # daily double top rejection
+            "ema_rejection_short",       # rejection at key DAILY EMA (50/100/200)
+        }
+        if signal.alert_type.value not in _STRUCTURAL_SHORT_TYPES:
+            return None  # suppress non-structural shorts from Telegram
 
     # LONG (BUY) and SHORT only — minimal format for entry evaluation
     _dir = "SHORT" if signal.direction == "SHORT" else "LONG"

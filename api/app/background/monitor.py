@@ -304,14 +304,40 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 _user = user_rows.get(user_id)
                                 if _user and _user.telegram_enabled and _user.telegram_chat_id:
                                     try:
-                                        from alerting.notifier import _send_telegram_to
+                                        from alerting.notifier import _send_telegram_to, _build_trade_buttons
+                                        # Check if T1 is at a key resistance level (PDH, session high)
+                                        _at_resistance = False
+                                        _resistance_label = ""
+                                        if prior_day:
+                                            _pdh = prior_day.get("high", 0)
+                                            if _pdh > 0 and abs(_t1 - _pdh) / _pdh < 0.003:
+                                                _at_resistance = True
+                                                _resistance_label = "PDH"
+                                        _reversal_hint = ""
+                                        if _at_resistance:
+                                            _reversal_hint = f"\nAt {_resistance_label} resistance — potential SHORT reversal"
+
                                         _msg = (
                                             f"<b>T1 REACHED — {symbol} ${_last_price:.2f}</b>\n"
                                             f"Your LONG from ${_entry:.2f} is at target\n"
                                             f"P&L: ${_pnl:.2f} ({_pnl_pct:+.1f}%)\n"
-                                            f"Consider taking partial profits"
+                                            f"Take profits or trail stop"
+                                            f"{_reversal_hint}"
                                         )
-                                        _send_telegram_to(_msg, _user.telegram_chat_id)
+                                        # Include Exit button via inline keyboard
+                                        _alert_row = db.execute(
+                                            select(Alert.id).where(
+                                                Alert.user_id == user_id,
+                                                Alert.symbol == symbol,
+                                                Alert.alert_type == "target_1_hit",
+                                            ).order_by(Alert.id.desc()).limit(1)
+                                        ).scalar_one_or_none()
+                                        _buttons = {
+                                            "inline_keyboard": [[
+                                                {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{_alert_row or ae.id}"},
+                                            ]]
+                                        } if _alert_row else None
+                                        _send_telegram_to(_msg, _user.telegram_chat_id, reply_markup=_buttons)
                                         logger.info("T1 NOTIFY: user=%d %s T1=$%.2f reached, entry=$%.2f", user_id, symbol, _t1, _entry)
                                     except Exception:
                                         pass
