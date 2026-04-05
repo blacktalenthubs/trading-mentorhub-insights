@@ -208,3 +208,27 @@ Forces multiple structural levels to agree before notifying.
 **File:** `analytics/intraday_rules.py` → `_consolidate_signals()` function
 
 **Impact:** False stop-outs on consolidated signals. Traders lose money on trades that should have held.
+
+### BUG-2: Entry Price Not Actionable — Alert Fires After Bounce
+
+**What happened:** ETH-USD multi-day double bottom detected at $66,615. System waits for "recovery confirmed" before firing. By the time alert sends, price is at $66,786 — $170 above entry.
+
+**Problem:** Trader sees "Entry $66,615" but can't buy at that price — it's gone. If they buy at $66,786 (current), their real risk is much larger than the trade plan suggests.
+
+**Fix options:**
+- Show TWO entries: "Ideal entry: $66,615 (if retests)" / "Market entry: $66,786 (current)"
+- Or use current price as entry and adjust stop/targets accordingly
+
+### BUG-3: Broken Support Still Labeled "Support" on Chart
+
+**What happened:** ETH-USD broke below $2,044.87 support. Chart still showed it as green "Support" instead of red "Resistance".
+
+**Status:** FIXED (2026-04-05) — chart dynamically flips label based on price position.
+
+### BUG-4: Target Ignores Overhead Resistance
+
+**What happened:** ETH-USD BUY at $2,024 with T1 at $2,065. But $2,044 (broken support = new resistance) is in the way. Target should be $2,044 first, not $2,065.
+
+**Fix needed:** Target calculation should check for overhead resistance levels (broken support, MAs, prior highs) and use the NEAREST one as T1, not a fixed R:R multiple.
+
+**File:** `analytics/intraday_rules.py` — target calculation in each check_* function
