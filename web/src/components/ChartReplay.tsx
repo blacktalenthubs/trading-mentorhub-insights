@@ -221,7 +221,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
   const isBuy = a.direction === "BUY";
   const outcomeLabel = data.outcome === "target_1_hit" ? "TARGET 1 HIT"
     : data.outcome === "target_2_hit" ? "TARGET 2 HIT"
-    : data.outcome === "stop_loss_hit" ? "STOPPED OUT"
+    : data.outcome === "stop_loss_hit" ? "STOP LEVEL REACHED"
     : data.outcome === "auto_stop_out" ? "AUTO STOPPED"
     : "TRADE OPEN";
 
