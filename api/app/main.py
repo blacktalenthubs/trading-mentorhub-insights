@@ -22,15 +22,34 @@ async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle hook — creates tables + starts monitor."""
     settings = get_settings()
 
-    # Auto-create tables in dev mode (SQLite or DEBUG)
-    if settings.DEBUG or settings.DATABASE_URL.startswith("sqlite"):
-        from app.database import Base, engine
-        # Import all models so Base.metadata knows about them
-        import app.models  # noqa: F401
+    from app.database import Base, engine
+    # Import all models so Base.metadata knows about them
+    import app.models  # noqa: F401
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables created/verified")
+    # Auto-create new tables (usage_limits etc.) and add missing columns
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        # Migration: add trial_ends_at column if missing (idempotent)
+        from sqlalchemy import text
+        try:
+            await conn.execute(text(
+                "ALTER TABLE subscriptions ADD COLUMN trial_ends_at TIMESTAMP"
+            ))
+            logger.info("Migration: added trial_ends_at column")
+        except Exception:
+            pass  # column already exists
+
+        # Give existing free users a 3-day trial (one-time migration)
+        try:
+            result = await conn.execute(text(
+                "UPDATE subscriptions SET trial_ends_at = NOW() + INTERVAL '3 days' "
+                "WHERE tier = 'free' AND status = 'active' AND trial_ends_at IS NULL"
+            ))
+            if result.rowcount and result.rowcount > 0:
+                logger.info("Migration: gave %d free users a 3-day trial", result.rowcount)
+        except Exception:
+            pass  # SQLite uses different syntax; fine for dev
+    logger.info("Database tables created/verified")
 
     # Background monitor — runs for both SQLite (dev) and Postgres (prod)
     scheduler = None
