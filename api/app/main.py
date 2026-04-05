@@ -135,8 +135,27 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
 
+        # Weekly coaching review — Friday 5 PM ET
+        def _weekly_review():
+            try:
+                from analytics.weekly_review import send_weekly_reviews
+                count = send_weekly_reviews()
+                logger.info("Weekly reviews sent: %d", count)
+            except Exception:
+                logger.exception("Weekly review failed")
+
+        scheduler.add_job(
+            _weekly_review,
+            "cron",
+            hour=17, minute=0,
+            timezone="US/Eastern",
+            day_of_week="fri",
+            id="weekly_review",
+            replace_existing=True,
+        )
+
         scheduler.start()
-        logger.info("Background monitor started (3-min interval + EOD/premarket jobs)")
+        logger.info("Background monitor started (3-min poll + EOD/premarket/weekly jobs)")
     except Exception:
         logger.exception("Failed to start background monitor")
 
