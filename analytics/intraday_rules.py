@@ -834,8 +834,11 @@ def check_prior_day_low_bounce(
     if bars["Low"].min() < prior_day_low * (1 - PDL_DIP_MIN_PCT):
         return None
 
-    # Check if any bar's low touched within proximity of PDL
-    proximity_level = prior_day_low * (1 + PDL_BOUNCE_PROXIMITY_PCT)
+    # ENHANCEMENT-4: wider proximity — bounce within 1% of PDL at a swing low zone
+    # Original 0.2% was too tight; a bounce 0.5-1% above PDL at a prior swing low
+    # is still a valid "near-PDL" support hold
+    _near_pdl_pct = max(PDL_BOUNCE_PROXIMITY_PCT, 0.01)  # at least 1%
+    proximity_level = prior_day_low * (1 + _near_pdl_pct)
     touched = (bars["Low"] <= proximity_level).any()
     if not touched:
         return None
