@@ -19,6 +19,7 @@ interface Props {
   target?: number;
   height?: number;
   indicators?: IndicatorConfig[];
+  hideWicks?: boolean;
 }
 
 export default function CandlestickChart({
@@ -29,6 +30,7 @@ export default function CandlestickChart({
   target,
   height = 400,
   indicators = [],
+  hideWicks = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -69,8 +71,8 @@ export default function CandlestickChart({
       downColor: "#ef4444",
       borderDownColor: "#ef4444",
       borderUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
-      wickUpColor: "#22c55e",
+      wickDownColor: hideWicks ? "transparent" : "#ef4444",
+      wickUpColor: hideWicks ? "transparent" : "#22c55e",
     });
 
     chartRef.current = chart;
@@ -91,7 +93,7 @@ export default function CandlestickChart({
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [height]);
+  }, [height, hideWicks]);
 
   // Update data + indicators
   useEffect(() => {
@@ -226,7 +228,7 @@ export default function CandlestickChart({
     } else {
       ts.fitContent();
     }
-  }, [data, levels, entry, stop, target, indicators]);
+  }, [data, levels, entry, stop, target, indicators, hideWicks]);
 
   return <div ref={containerRef} className="w-full rounded-lg" />;
 }

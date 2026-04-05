@@ -470,6 +470,7 @@ export default function TradingPage() {
   const [tfIdx, setTfIdx] = useState(DEFAULT_TF);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
   const [showLevels, setShowLevels] = useState(true);
+  const [hideWicks, setHideWicks] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
 
@@ -757,6 +758,15 @@ export default function TradingPage() {
               >
                 Levels
               </button>
+              <button
+                onClick={() => setHideWicks(!hideWicks)}
+                className={`rounded px-2 py-1 text-[10px] font-semibold transition-colors ${
+                  hideWicks ? "bg-warning/20 text-warning-text" : "bg-surface-3 text-text-faint"
+                }`}
+                title="Toggle candle wicks"
+              >
+                {hideWicks ? "No Wick" : "Wicks"}
+              </button>
               <span className="w-px h-4 bg-border-subtle mx-0.5" />
               {ALL_INDICATORS.map((ind) => (
                 <button
@@ -813,6 +823,7 @@ export default function TradingPage() {
               target={showLevels ? (selected.target_1 ?? undefined) : undefined}
               levels={showLevels ? chartLevels : []}
               indicators={chartIndicators}
+              hideWicks={hideWicks}
               height={0}
             />
           ) : (
