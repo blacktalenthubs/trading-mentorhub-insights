@@ -183,7 +183,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
     if (visibleCount >= data.outcome_bar_index && data.outcome !== "open") {
       setShowOutcome(true);
-      setPlaying(false);
+      // Don't stop — keep playing until end of data
     }
   }, [visibleCount, data]);
 
