@@ -1,16 +1,17 @@
 import { usePaperPositions, usePaperHistory, usePaperAccount, usePaperEquityCurve } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
+import TierGate from "../components/TierGate";
 import EquityCurve from "../components/EquityCurve";
 import Card from "../components/ui/Card";
 
 export default function PaperTradingPage() {
-  const { canAccessPaperTrading } = useFeatureGate();
+  const { hasAccess } = useFeatureGate();
 
-  if (!canAccessPaperTrading) {
+  if (!hasAccess("premium")) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <p className="text-text-muted">Paper Trading requires a Pro subscription.</p>
-      </div>
+      <TierGate require="premium" featureName="Paper Trading Simulator">
+        <div className="h-64" />
+      </TierGate>
     );
   }
 

@@ -43,6 +43,7 @@ class Subscription(Base):
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), server_default="active")
     current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    trial_ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="subscription")

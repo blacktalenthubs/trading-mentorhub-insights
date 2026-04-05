@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from jose import JWTError, jwt
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.dependencies import get_current_user, get_user_tier
+from app.dependencies import get_current_user, get_user_tier, is_trial_active, trial_days_remaining
 from app.models.user import Subscription, User
 from app.schemas.auth import (
     AuthResponse,
@@ -79,6 +79,8 @@ def _build_user_response(user: User, tier: str) -> UserResponse:
         email=user.email,
         display_name=user.display_name,
         tier=tier,
+        trial_active=is_trial_active(user),
+        trial_days_left=trial_days_remaining(user),
     )
 
 
@@ -104,12 +106,15 @@ async def register(
     db.add(user)
     await db.flush()
 
-    # Create free subscription
-    sub = Subscription(user_id=user.id, tier="free")
+    # Create free subscription with 3-day Pro trial
+    from app.tier import TRIAL_DURATION_DAYS
+    trial_ends = datetime.now(timezone.utc) + timedelta(days=TRIAL_DURATION_DAYS)
+    sub = Subscription(user_id=user.id, tier="free", trial_ends_at=trial_ends)
     db.add(sub)
     await db.flush()
 
-    tier = "free"
+    # During trial, effective tier is "pro"
+    tier = "pro"
     access_token = _create_access_token(user, tier)
     refresh_token = _create_refresh_token(user.id)
     _set_refresh_cookie(response, refresh_token)
@@ -126,17 +131,15 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(User).options(selectinload(User.subscription)).where(User.email == body.email.lower())
+    )
     user = result.scalar_one_or_none()
     if not user or not _verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Load subscription
-    sub_result = await db.execute(
-        select(Subscription).where(Subscription.user_id == user.id)
-    )
-    sub = sub_result.scalar_one_or_none()
-    tier = sub.tier if sub and sub.status == "active" else "free"
+    tier = get_user_tier(user)
 
     access_token = _create_access_token(user, tier)
     refresh_token = _create_refresh_token(user.id)
@@ -166,16 +169,15 @@ async def refresh(
     except (JWTError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(User).options(selectinload(User.subscription)).where(User.id == user_id)
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    sub_result = await db.execute(
-        select(Subscription).where(Subscription.user_id == user.id)
-    )
-    sub = sub_result.scalar_one_or_none()
-    tier = sub.tier if sub and sub.status == "active" else "free"
+    tier = get_user_tier(user)
 
     # Rotate refresh token
     new_access = _create_access_token(user, tier)
@@ -196,3 +198,33 @@ async def logout(response: Response):
 async def me(user: User = Depends(get_current_user)):
     tier = get_user_tier(user)
     return _build_user_response(user, tier)
+
+
+@router.get("/usage")
+async def usage_status(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return today's usage counts and limits for the current user."""
+    from app.tier import get_limits
+
+    tier = get_user_tier(user)
+    limits = get_limits(tier)
+    today = date.today().isoformat()
+
+    result = await db.execute(
+        text(
+            "SELECT feature, usage_count FROM usage_limits "
+            "WHERE user_id = :uid AND usage_date = :d"
+        ),
+        {"uid": user.id, "d": today},
+    )
+    usage_rows = {row[0]: row[1] for row in result.fetchall()}
+
+    return {
+        "tier": tier,
+        "trial_active": is_trial_active(user),
+        "trial_days_left": trial_days_remaining(user),
+        "limits": limits,
+        "usage_today": usage_rows,
+    }

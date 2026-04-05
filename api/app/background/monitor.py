@@ -68,15 +68,24 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         _last_buy_session = session_date
 
     with sync_session_factory() as db:
-        # Get Pro users
+        # Get Pro + Premium users (paid or active trial)
+        from datetime import datetime as _dt, timezone as _tz
+        _now = _dt.now(_tz.utc)
         pro_users = db.execute(
             select(User.id).join(Subscription).where(
-                Subscription.tier == "pro", Subscription.status == "active"
+                Subscription.status == "active",
+                (
+                    Subscription.tier.in_(["pro", "premium", "admin"])
+                    | (
+                        (Subscription.trial_ends_at.isnot(None))
+                        & (Subscription.trial_ends_at > _now)
+                    )
+                ),
             )
         ).scalars().all()
 
         if not pro_users:
-            logger.info("No Pro users — skipping poll")
+            logger.info("No Pro/Premium/Trial users — skipping poll")
             return 0
 
         # Gather all unique symbols across Pro users (dedup fetches)

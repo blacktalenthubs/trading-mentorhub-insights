@@ -15,9 +15,11 @@ import {
 import type { Alert } from "../types";
 import type { RealTrade } from "../api/hooks";
 import ChartReplay from "../components/ChartReplay";
+import { useFeatureGate } from "../hooks/useFeatureGate";
+// TierGate used for future feature gating
 import {
   Crosshair, Briefcase, Clock, BarChart3,
-  FileText, Download,
+  FileText, Download, Lock,
 } from "lucide-react";
 
 /* ── helpers ──────────────────────────────────────────────────────── */
@@ -259,6 +261,7 @@ export default function DashboardPage() {
   const { data: alerts } = useAlertsToday();
   const { data: openTrades } = useOpenTrades();
   const [replayAlertId, setReplayAlertId] = useState<number | null>(null);
+  const { visibleAlerts } = useFeatureGate();
 
   // Split alerts: actionable (BUY/SHORT without user_action) vs history
   const actionableAlerts = alerts?.filter((a) =>
@@ -267,6 +270,12 @@ export default function DashboardPage() {
   const historyAlerts = alerts?.filter((a) =>
     a.user_action || a.direction === "SELL" || a.direction === "NOTICE"
   ) ?? [];
+
+  // Tier-based alert visibility: free users see limited actionable alerts
+  const visibleActionable = visibleAlerts != null
+    ? actionableAlerts.slice(0, visibleAlerts)
+    : actionableAlerts;
+  const hiddenCount = actionableAlerts.length - visibleActionable.length;
 
   // Watchlist signals sorted by grade
 
@@ -293,9 +302,26 @@ export default function DashboardPage() {
               </div>
 
               <div className="flex flex-col gap-2">
-                {actionableAlerts.map((a) => (
+                {visibleActionable.map((a) => (
                   <SignalCard key={a.id} alert={a} />
                 ))}
+                {hiddenCount > 0 && (
+                  <div className="relative">
+                    <div className="blur-sm pointer-events-none opacity-30">
+                      <SignalCard alert={actionableAlerts[visibleAlerts!]} />
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="text-center p-4 bg-surface-2/90 backdrop-blur-sm rounded-xl border border-amber-500/20">
+                        <Lock className="h-6 w-6 mx-auto mb-1.5 text-amber-400" />
+                        <p className="text-sm text-text-primary font-semibold">+{hiddenCount} more signal{hiddenCount > 1 ? "s" : ""}</p>
+                        <p className="text-xs text-text-muted mt-0.5 mb-2">Upgrade to see all alerts</p>
+                        <Link to="/billing" className="inline-block bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold px-4 py-1.5 rounded-lg transition-colors">
+                          Upgrade to Pro
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
           )}

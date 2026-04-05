@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useRunBacktest, type BacktestResult } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
+import TierGate from "../components/TierGate";
 
 export default function BacktestPage() {
-  const { canAccessBacktest } = useFeatureGate();
+  const { hasAccess } = useFeatureGate();
 
-  if (!canAccessBacktest) {
+  if (!hasAccess("premium")) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <p className="text-gray-500">Backtesting requires a Pro subscription.</p>
-      </div>
+      <TierGate require="premium" featureName="Backtesting Engine">
+        <div className="h-64" />
+      </TierGate>
     );
   }
 

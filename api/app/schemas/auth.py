@@ -23,6 +23,8 @@ class UserResponse(BaseModel):
     email: str
     display_name: Optional[str]
     tier: str
+    trial_active: bool = False
+    trial_days_left: int = 0
 
     model_config = {"from_attributes": True}
 

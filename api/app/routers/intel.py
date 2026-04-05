@@ -9,9 +9,11 @@ from typing import List
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.dependencies import get_current_user, require_pro
+from app.database import get_db as get_db_dep
+from app.dependencies import get_current_user, require_pro, require_premium, check_usage_limit, get_user_tier
 from app.models.user import User
 from app.schemas.intel import (
     CoachRequest,
@@ -148,9 +150,12 @@ async def scanner_context(
 @router.post("/coach")
 async def coach_stream(
     body: CoachRequest,
-    user: User = Depends(require_pro),
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
 ):
-    """SSE stream — AI trade coach chat."""
+    """SSE stream — AI trade coach chat. Usage-limited per tier."""
+    remaining = await check_usage_limit(user, "ai_queries", db)
     from analytics.trade_coach import ask_coach, assemble_context, format_system_prompt
 
     import re as _re
@@ -243,7 +248,8 @@ async def coach_stream(
                 yield {"event": "chunk", "data": json.dumps({"text": str(gen)})}
         except Exception as exc:
             yield {"event": "error", "data": json.dumps({"error": str(exc)})}
-        yield {"event": "done", "data": ""}
+        # Include remaining usage in done event
+        yield {"event": "done", "data": json.dumps({"remaining": remaining})}
 
     return EventSourceResponse(event_generator())
 

@@ -2,16 +2,18 @@
  *  Maximizes workspace for the Trading page chart.
  */
 
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
 import { usePushNotifications } from "../hooks/usePushNotifications";
+import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   LayoutDashboard,
   Crosshair,
   ArrowLeftRight,
   Settings,
   LogOut,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +41,7 @@ export default function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const { data: market } = useMarketStatus();
+  const { isTrial, trialDaysLeft, tier } = useFeatureGate();
   usePushNotifications();
 
   return (
@@ -133,6 +136,35 @@ export default function AppLayout() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+        {/* Trial banner */}
+        {isTrial && (
+          <div className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 shrink-0">
+            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+            <span className="text-xs text-amber-200">
+              Pro trial — {trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""} left
+            </span>
+            <Link
+              to="/billing"
+              className="text-xs font-semibold text-amber-400 hover:text-amber-300 underline underline-offset-2 ml-1"
+            >
+              Upgrade now
+            </Link>
+          </div>
+        )}
+        {/* Free tier nudge (post-trial) */}
+        {!isTrial && tier === "free" && (
+          <div className="flex items-center justify-center gap-2 px-4 py-1.5 bg-surface-2 border-b border-border-subtle shrink-0">
+            <span className="text-xs text-text-muted">
+              Free plan — limited features
+            </span>
+            <Link
+              to="/billing"
+              className="text-xs font-semibold text-accent hover:text-accent/80 underline underline-offset-2"
+            >
+              See plans
+            </Link>
+          </div>
+        )}
         <main className="flex-1 overflow-hidden bg-surface-0 pb-14 md:pb-0">
           <Outlet />
         </main>

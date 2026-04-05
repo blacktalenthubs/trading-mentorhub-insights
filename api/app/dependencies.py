@@ -1,16 +1,19 @@
-"""FastAPI dependencies: auth, tier enforcement."""
+"""FastAPI dependencies: auth, tier enforcement, usage limits."""
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
+
 from fastapi import Depends, HTTPException, Request, status
 from jose import JWTError, jwt
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.database import get_db
 from app.models.user import Subscription, User
+from app.tier import get_limits, has_access
 
 settings = get_settings()
 
@@ -43,17 +46,116 @@ async def get_current_user(
 
 
 def get_user_tier(user: User) -> str:
-    """Return the user's subscription tier ('free' or 'pro')."""
-    if user.subscription and user.subscription.status == "active":
-        return user.subscription.tier
+    """Return the user's effective tier — checks trial expiry."""
+    if not user.subscription:
+        return "free"
+    sub = user.subscription
+    # Active paid subscription takes priority
+    if sub.status == "active" and sub.tier in ("pro", "premium", "admin"):
+        return sub.tier
+    # Trial check: free tier with unexpired trial → grant pro
+    if sub.tier == "free" and sub.trial_ends_at:
+        if datetime.now(timezone.utc) < sub.trial_ends_at.replace(tzinfo=timezone.utc):
+            return "pro"
     return "free"
 
 
-async def require_pro(user: User = Depends(get_current_user)) -> User:
-    """Dependency that rejects non-Pro users."""
-    if get_user_tier(user) != "pro":
+def is_trial_active(user: User) -> bool:
+    """Check if user is currently on a trial (not a paid subscription)."""
+    if not user.subscription:
+        return False
+    sub = user.subscription
+    if sub.tier in ("pro", "premium"):
+        return False  # paid user, not trial
+    if sub.trial_ends_at:
+        return datetime.now(timezone.utc) < sub.trial_ends_at.replace(tzinfo=timezone.utc)
+    return False
+
+
+def trial_days_remaining(user: User) -> int:
+    """Return days left on trial, 0 if expired or no trial."""
+    if not user.subscription or not user.subscription.trial_ends_at:
+        return 0
+    ends = user.subscription.trial_ends_at.replace(tzinfo=timezone.utc)
+    remaining = (ends - datetime.now(timezone.utc)).total_seconds()
+    if remaining <= 0:
+        return 0
+    return max(1, int(remaining / 86400) + 1)  # ceil to nearest day
+
+
+def require_tier(minimum: str):
+    """Dependency factory — require user tier >= minimum."""
+    async def _check(user: User = Depends(get_current_user)) -> User:
+        user_tier = get_user_tier(user)
+        if not has_access(user_tier, minimum):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "upgrade_required",
+                    "required_tier": minimum,
+                    "current_tier": user_tier,
+                    "message": f"{minimum.title()} subscription required",
+                },
+            )
+        return user
+    return _check
+
+
+# Convenience aliases
+require_pro = require_tier("pro")
+require_premium = require_tier("premium")
+
+
+async def check_usage_limit(
+    user: User, feature: str, db: AsyncSession,
+) -> int:
+    """Check daily usage for a feature. Returns remaining uses.
+
+    Raises 429 if over limit. Returns -1 if unlimited.
+    """
+    user_tier = get_user_tier(user)
+    limits = get_limits(user_tier)
+    limit_key = f"{feature}_per_day"
+    max_uses = limits.get(limit_key)
+
+    if max_uses is None:
+        return -1  # unlimited
+
+    today = date.today().isoformat()
+    result = await db.execute(
+        text(
+            "SELECT usage_count FROM usage_limits "
+            "WHERE user_id = :uid AND feature = :f AND usage_date = :d"
+        ),
+        {"uid": user.id, "f": feature, "d": today},
+    )
+    row = result.fetchone()
+    current = row[0] if row else 0
+    remaining = max_uses - current
+
+    if remaining <= 0:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Pro subscription required",
+            status_code=429,
+            detail={
+                "error": "usage_limit_reached",
+                "feature": feature,
+                "limit": max_uses,
+                "used": current,
+                "remaining": 0,
+                "tier": user_tier,
+                "message": f"Daily limit reached ({max_uses} {feature.replace('_', ' ')}). Upgrade for more.",
+            },
         )
-    return user
+
+    # Increment usage
+    await db.execute(
+        text(
+            "INSERT INTO usage_limits (user_id, feature, usage_date, usage_count) "
+            "VALUES (:uid, :f, :d, 1) "
+            "ON CONFLICT (user_id, feature, usage_date) "
+            "DO UPDATE SET usage_count = usage_limits.usage_count + 1"
+        ),
+        {"uid": user.id, "f": feature, "d": today},
+    )
+
+    return remaining - 1

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import {
   Check, Crown, ChevronRight, Loader2, X,
-  CreditCard, AlertTriangle,
+  CreditCard, AlertTriangle, Sparkles, Clock,
 } from "lucide-react";
 
 /* ── Types ────────────────────────────────────────────────────────── */
@@ -17,6 +17,8 @@ interface BillingStatus {
   tier: string;
   status: string;
   square_subscription_id: string | null;
+  trial_active?: boolean;
+  trial_days_left?: number;
 }
 
 /* ── Plan definitions ─────────────────────────────────────────────── */
@@ -28,10 +30,11 @@ const PLANS = [
     price: "$0",
     period: "forever",
     features: [
-      "5 symbols on watchlist",
-      "Delayed signal feed (15-min)",
+      "3 symbols on watchlist",
+      "3 alerts visible per session",
+      "AI Coach (2 queries/day)",
       "Signal Library access",
-      "Daily EOD summary",
+      "Today's alerts only",
     ],
     cta: "Current Plan",
   },
@@ -42,13 +45,14 @@ const PLANS = [
     period: "/month",
     popular: true,
     features: [
-      "20 symbols on watchlist",
+      "10 symbols on watchlist",
       "Real-time Telegram alerts",
-      "AI Trade Coach",
-      "Full trade analytics",
-      "Decision quality tracking",
-      "Performance dashboard",
-      "Email alerts",
+      "AI Coach (20 queries/day)",
+      "Full alert history (30 days)",
+      "Pre-trade checklist",
+      "Daily EOD review",
+      "Pre-market brief",
+      "Performance analytics",
     ],
     cta: "Upgrade to Pro",
   },
@@ -59,12 +63,12 @@ const PLANS = [
     period: "/month",
     features: [
       "Everything in Pro",
-      "Unlimited watchlist",
-      "Custom alert rules",
-      "API webhook delivery",
-      "Backtest custom rules",
-      "Priority signal delivery",
-      "Export reports (CSV/PDF)",
+      "25 symbols on watchlist",
+      "Unlimited AI Coach",
+      "Full alert history",
+      "Weekly AI review",
+      "Paper trading simulator",
+      "Backtesting engine",
     ],
     cta: "Upgrade to Premium",
   },
@@ -223,7 +227,25 @@ export default function BillingPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-xl font-bold text-text-primary mb-6">Billing & Subscription</h1>
+        <h1 className="text-xl font-bold text-text-primary mb-4">Billing & Subscription</h1>
+
+        {/* Trial banner */}
+        {status?.trial_active && (
+          <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center shrink-0">
+              <Sparkles className="h-5 w-5 text-amber-400" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-200">
+                Pro Trial — {status.trial_days_left} day{status.trial_days_left !== 1 ? "s" : ""} remaining
+              </p>
+              <p className="text-xs text-text-muted mt-0.5">
+                You have full Pro access. Subscribe to keep everything unlocked.
+              </p>
+            </div>
+            <Clock className="h-5 w-5 text-amber-400/50 shrink-0" />
+          </div>
+        )}
 
         {/* Plan cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">

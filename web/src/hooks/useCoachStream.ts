@@ -88,7 +88,14 @@ export function useCoachStream() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || "Coach request failed");
+        const detail = err.detail;
+        if (res.status === 429 && typeof detail === "object" && detail?.error === "usage_limit_reached") {
+          throw new Error(`Daily limit reached (${detail.limit} queries). Upgrade for more.`);
+        }
+        if (res.status === 403 && typeof detail === "object" && detail?.error === "upgrade_required") {
+          throw new Error(`${detail.required_tier?.charAt(0).toUpperCase()}${detail.required_tier?.slice(1)} subscription required.`);
+        }
+        throw new Error(typeof detail === "string" ? detail : detail?.message || "Coach request failed");
       }
 
       const reader = res.body?.getReader();

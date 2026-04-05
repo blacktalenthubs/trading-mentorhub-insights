@@ -8,15 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user, get_user_tier
+from app.tier import get_limits
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 from app.schemas.watchlist import AddSymbolRequest, BulkSetRequest, WatchlistItemResponse
 
 router = APIRouter()
-settings = get_settings()
 
 
 @router.get("", response_model=List[WatchlistItemResponse])
@@ -39,18 +38,24 @@ async def add_symbol(
     db: AsyncSession = Depends(get_db),
 ):
     tier = get_user_tier(user)
+    limits = get_limits(tier)
+    max_symbols = limits["watchlist_max"]
     symbol = body.symbol.upper().strip()
 
-    # Check limit for free tier
-    if tier == "free":
-        count_result = await db.execute(
-            select(WatchlistItem).where(WatchlistItem.user_id == user.id)
+    # Check limit per tier
+    count_result = await db.execute(
+        select(WatchlistItem).where(WatchlistItem.user_id == user.id)
+    )
+    if len(count_result.scalars().all()) >= max_symbols:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "upgrade_required",
+                "current_tier": tier,
+                "limit": max_symbols,
+                "message": f"{tier.title()} tier limited to {max_symbols} symbols. Upgrade for more.",
+            },
         )
-        if len(count_result.scalars().all()) >= settings.FREE_WATCHLIST_MAX:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Free tier limited to {settings.FREE_WATCHLIST_MAX} symbols",
-            )
 
     # Check duplicate
     existing = await db.execute(
@@ -91,10 +96,17 @@ async def bulk_set(
     tier = get_user_tier(user)
     symbols = [s.upper().strip() for s in body.symbols]
 
-    if tier == "free" and len(symbols) > settings.FREE_WATCHLIST_MAX:
+    limits = get_limits(tier)
+    max_symbols = limits["watchlist_max"]
+    if len(symbols) > max_symbols:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Free tier limited to {settings.FREE_WATCHLIST_MAX} symbols",
+            detail={
+                "error": "upgrade_required",
+                "current_tier": tier,
+                "limit": max_symbols,
+                "message": f"{tier.title()} tier limited to {max_symbols} symbols. Upgrade for more.",
+            },
         )
 
     # Replace all

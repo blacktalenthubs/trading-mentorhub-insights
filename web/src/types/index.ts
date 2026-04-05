@@ -4,7 +4,9 @@ export interface User {
   id: number;
   email: string;
   display_name: string;
-  tier: "free" | "pro" | "elite";
+  tier: "free" | "pro" | "premium" | "admin";
+  trial_active?: boolean;
+  trial_days_left?: number;
 }
 
 export interface AuthTokens {

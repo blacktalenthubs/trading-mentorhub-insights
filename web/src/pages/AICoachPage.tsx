@@ -8,7 +8,6 @@ import {
   useMTFContext,
 } from "../api/hooks";
 import { useCoachStream } from "../hooks/useCoachStream";
-import { useFeatureGate } from "../hooks/useFeatureGate";
 import ChatWindow from "../components/ai/ChatWindow";
 import WinRateTable from "../components/ai/WinRateTable";
 import FundamentalsCard from "../components/ai/FundamentalsCard";
@@ -28,16 +27,7 @@ const TABS = [
 type Tab = (typeof TABS)[number];
 
 export default function AICoachPage() {
-  const { isPro } = useFeatureGate();
-
-  if (!isPro) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <p className="text-text-muted">AI Coach requires a Pro subscription.</p>
-      </div>
-    );
-  }
-
+  // All users can access AI Coach — free users get limited queries/day
   return <AICoachContent />;
 }
 

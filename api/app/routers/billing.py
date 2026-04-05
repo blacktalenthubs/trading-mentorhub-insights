@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_user_tier, is_trial_active, trial_days_remaining
 from app.models.user import Subscription, User
 
 logger = logging.getLogger("billing")
@@ -62,6 +62,8 @@ class BillingStatusResponse(BaseModel):
     tier: str
     status: str
     square_subscription_id: Optional[str] = None
+    trial_active: bool = False
+    trial_days_left: int = 0
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -78,9 +80,11 @@ async def billing_status(
     sub_row = sub.scalar_one_or_none()
 
     return BillingStatusResponse(
-        tier=sub_row.tier if sub_row else "free",
+        tier=get_user_tier(user),
         status=sub_row.status if sub_row else "none",
         square_subscription_id=sub_row.stripe_customer_id if sub_row else None,
+        trial_active=is_trial_active(user),
+        trial_days_left=trial_days_remaining(user),
     )
 
 

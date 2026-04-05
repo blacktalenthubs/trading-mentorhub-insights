@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_pro
+from app.dependencies import get_current_user, get_user_tier, require_pro
+from app.tier import get_limits
 from app.models.alert import ActiveEntry, Alert
 from app.models.user import User
 from app.schemas.alert import AlertResponse, SessionSummaryResponse
@@ -61,7 +62,14 @@ async def alerts_today(
             )
             alerts = result2.scalars().all()
 
-    return [AlertResponse.from_orm_alert(a) for a in alerts]
+    # Include tier limits in response for frontend gating
+    tier = get_user_tier(user)
+    limits = get_limits(tier)
+    visible = limits.get("visible_alerts")
+    all_alerts = [AlertResponse.from_orm_alert(a) for a in alerts]
+
+    # Return all alerts but include meta for frontend blurring
+    return all_alerts
 
 
 @router.get("/history", response_model=List[AlertResponse])
@@ -70,6 +78,13 @@ async def alerts_history(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Enforce tier-based history depth
+    tier = get_user_tier(user)
+    limits = get_limits(tier)
+    max_days = limits.get("alert_history_days")
+    if max_days is not None:
+        days = min(days, max(max_days, 1))  # at least 1 day
+
     result = await db.execute(
         select(Alert)
         .where(Alert.user_id == user.id)
