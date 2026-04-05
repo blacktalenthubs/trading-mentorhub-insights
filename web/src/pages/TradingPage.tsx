@@ -581,8 +581,10 @@ export default function TradingPage() {
       lvls.push({ id: -1, symbol: s.symbol, price: s.ref_day_high, label: "Prior High", color: "#22c55e" });
     if (s.ref_day_low != null && !isDup(s.ref_day_low))
       lvls.push({ id: -2, symbol: s.symbol, price: s.ref_day_low, label: "Prior Low", color: "#ef4444" });
-    if (s.nearest_support != null && !isDup(s.nearest_support))
-      lvls.push({ id: -3, symbol: s.symbol, price: s.nearest_support, label: "Support", color: "#f59e0b" });
+    if (s.nearest_support != null && !isDup(s.nearest_support)) {
+      const isBroken = (s.close ?? 0) < s.nearest_support;
+      lvls.push({ id: -3, symbol: s.symbol, price: s.nearest_support, label: isBroken ? "Resistance" : "Support", color: isBroken ? "#ef4444" : "#f59e0b" });
+    }
     return lvls;
   })();
 
