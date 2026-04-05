@@ -58,20 +58,12 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         )
 
     # SELL — only allow T1 hit and stop loss through to Telegram
+    # hourly_resistance_approach removed — fires every poll cycle, too noisy
     if signal.direction == "SELL":
-        _exit_types = {"target_1_hit", "stop_loss_hit"}
-        _warn_types = {"hourly_resistance_approach"}
-        if signal.alert_type.value not in _exit_types and signal.alert_type.value not in _warn_types:
+        _exit_types = {"target_1_hit", "stop_loss_hit", "target_2_hit", "auto_stop_out"}
+        if signal.alert_type.value not in _exit_types:
             return None
         import html as _html2
-        # Resistance approach — near-exit warning
-        if signal.alert_type.value in _warn_types:
-            # Extract resistance level from message (e.g. "APPROACHING HOURLY RESISTANCE at $2076.16 — ...")
-            _res_msg = signal.message.split(" — ")[0] if signal.message else "Approaching resistance"
-            return (
-                f"<b>NEAR EXIT — {_html2.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
-                f"{_res_msg}"
-            )
         # Format exit alerts cleanly
         _label = signal.alert_type.value.replace("_", " ").title()
         if "target" in signal.alert_type.value:

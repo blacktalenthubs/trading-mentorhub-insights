@@ -418,8 +418,8 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     if _send_notification and signal.direction == "BUY":
                         _last_buy_notify[symbol] = datetime.utcnow()
 
-                    # Flush to get alert.id for Telegram inline buttons
-                    db.flush()
+                    # Commit immediately so alert is persisted + has ID for Telegram buttons
+                    db.commit()
 
                     # Push to SSE (only if preference allows)
                     alert_data = {
@@ -513,7 +513,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     )
                     continue
 
-        db.commit()
+        # Individual alerts already committed above
 
     logger.info("Poll complete: %d alerts across %d users", total_alerts, len(pro_users))
     return total_alerts
