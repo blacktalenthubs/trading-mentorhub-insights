@@ -361,3 +361,15 @@ The system should be AWARE of the user's position when labeling levels and decid
 - These alerts NOTIFY only — direction = "NOTICE" instead of closing entries
 - Dashboard/Telegram exit flow asks for exit price
 - Remove auto-close logic from monitor
+
+### BUG-10: No Exit Alert When Price Reaches Active LONG's T1
+
+**What happened:** ETH-USD rallied to $2,067, through the T1/Resist at $2,065. User has active LONGs from $2,024 and $2,030. No exit/profit-taking alert was sent.
+
+**Problem:** The system fires T1 hit alerts based on active_entries' target_1 field. But if BUG-4 fix adjusted T1 in the monitor (nearest resistance), the active_entry in DB may still have the OLD T1. Also the system no longer auto-closes (BUG-9 fix) — which is correct — but it also stopped sending T1 notifications.
+
+**Fix:** When price reaches an active entry's T1 level, send a NOTIFICATION:
+"T1 REACHED — ETH-USD at $2,067. Your LONG from $2,030 is at target. Consider partial profits."
+Direction = NOTICE (not SELL). Don't close anything. Just inform.
+
+**Status:** FIXED below
