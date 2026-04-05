@@ -33,11 +33,11 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         try:
             await conn.execute(text(
-                "ALTER TABLE subscriptions ADD COLUMN trial_ends_at TIMESTAMP"
+                "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP"
             ))
-            logger.info("Migration: added trial_ends_at column")
-        except Exception:
-            pass  # column already exists
+            logger.info("Migration: trial_ends_at column ensured")
+        except Exception as e:
+            logger.warning("Migration ALTER TABLE trial_ends_at: %s", e)
 
         # Give existing free users a 3-day trial (one-time migration)
         try:
