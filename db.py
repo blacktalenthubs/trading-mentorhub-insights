@@ -1337,13 +1337,29 @@ def get_pro_users_with_telegram() -> list[dict]:
     """Return Pro/Elite users who have Telegram enabled.
 
     Each dict has: user_id, tier, telegram_chat_id.
+    Checks both V2 users table and V1 notification_prefs table.
     """
     with get_db() as conn:
+        # V2 path: telegram_chat_id on users table
+        rows = conn.execute(
+            """SELECT u.id as user_id, s.tier, u.telegram_chat_id
+               FROM users u
+               JOIN subscriptions s ON s.user_id = u.id
+               WHERE s.tier IN ('pro', 'elite', 'admin')
+                 AND u.telegram_enabled = ?
+                 AND u.telegram_chat_id IS NOT NULL
+                 AND u.telegram_chat_id != ''""",
+            (True,),
+        ).fetchall()
+        if rows:
+            return [dict(r) for r in rows]
+
+        # V1 fallback: telegram_chat_id on notification_prefs table
         rows = conn.execute(
             """SELECT s.user_id, s.tier, n.telegram_chat_id
                FROM subscriptions s
                JOIN user_notification_prefs n ON s.user_id = n.user_id
-               WHERE s.tier IN ('pro', 'elite')
+               WHERE s.tier IN ('pro', 'elite', 'admin')
                  AND n.telegram_enabled = 1
                  AND n.telegram_chat_id != ''""",
         ).fetchall()

@@ -92,9 +92,10 @@ async def lifespan(app: FastAPI):
         # Pre-market brief — runs once at 9:15 AM ET weekdays
         def _premarket_brief():
             try:
-                from analytics.premarket_brief import send_premarket_brief
+                from analytics.premarket_brief import send_premarket_brief, send_ai_premarket_brief
                 send_premarket_brief()
-                logger.info("Pre-market brief sent")
+                send_ai_premarket_brief()
+                logger.info("Pre-market brief sent (data + AI)")
             except Exception:
                 logger.exception("Pre-market brief failed")
 
