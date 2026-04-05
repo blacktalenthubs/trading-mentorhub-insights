@@ -8,7 +8,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
-import { Play, Pause, SkipBack, SkipForward, X, Target, ShieldAlert } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, X, Target, ShieldAlert, Brain, Loader2 } from "lucide-react";
+import { useAuthStore } from "../stores/auth";
 
 interface ReplayData {
   alert: {
@@ -65,6 +66,10 @@ export default function ChartReplay({ alertId, onClose }: Props) {
   const [speed, setSpeed] = useState(1);
   const [showOutcome, setShowOutcome] = useState(false);
 
+  // AI Replay Analysis
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
   // Live P&L tracking during animation
   const currentPrice = data && visibleCount > 0 && visibleCount <= data.bars.length
     ? data.bars[visibleCount - 1]?.close ?? 0 : 0;
@@ -88,6 +93,23 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       })
       .catch(() => { setError(true); setLoading(false); });
   }, [alertId]);
+
+  // Fetch AI analysis when outcome is revealed
+  useEffect(() => {
+    if (!showOutcome || aiAnalysis || aiLoading) return;
+    const token = useAuthStore.getState().accessToken;
+    if (!token) return;
+    setAiLoading(true);
+    fetch(`/api/v1/intel/trade-replay/${alertId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.analysis) setAiAnalysis(d.analysis);
+      })
+      .catch(() => {})
+      .finally(() => setAiLoading(false));
+  }, [showOutcome, alertId]);
 
   // Create chart
   useEffect(() => {
@@ -331,6 +353,26 @@ export default function ChartReplay({ alertId, onClose }: Props) {
                 (${data.pnl_per_share >= 0 ? "+" : ""}{data.pnl_per_share}/share)
               </span>
             </div>
+          </div>
+        )}
+
+        {/* AI Replay Analysis — appears after outcome */}
+        {showOutcome && (
+          <div className="px-5 py-4 border-t border-border-subtle bg-surface-2/10">
+            <div className="flex items-center gap-2 mb-2">
+              <Brain className="h-4 w-4 text-accent" />
+              <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">AI Trade Analysis</span>
+            </div>
+            {aiLoading ? (
+              <div className="flex items-center gap-2 text-xs text-text-faint py-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Analyzing trade...
+              </div>
+            ) : aiAnalysis ? (
+              <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-line">{aiAnalysis}</p>
+            ) : (
+              <p className="text-xs text-text-faint">Analysis not available for this trade.</p>
+            )}
           </div>
         )}
       </div>
