@@ -333,12 +333,55 @@ def send_premarket_brief() -> bool:
     return sent
 
 
+def _build_user_premarket(user_id: int) -> str | None:
+    """Build pre-market data brief for a specific user's watchlist."""
+    try:
+        from db import get_watchlist
+        symbols = get_watchlist(user_id)
+    except Exception:
+        symbols = []
+
+    if not symbols:
+        return None
+
+    briefs: list[dict] = []
+    for symbol in symbols:
+        try:
+            pm_bars = fetch_premarket_bars(symbol)
+            if pm_bars.empty:
+                continue
+            prior = fetch_prior_day(symbol)
+            if prior is None:
+                continue
+            brief = compute_premarket_brief(symbol, pm_bars, prior)
+            if brief is not None:
+                briefs.append(brief)
+        except Exception:
+            continue
+
+    if not briefs:
+        return None
+
+    spy_ctx = get_spy_context()
+    now_et = datetime.now(ET)
+    date_str = now_et.strftime("%b %-d, %Y")
+
+    parts: list[str] = [
+        f"PRE-MARKET BRIEF \u2014 {date_str}",
+        "",
+        _format_spy_header(spy_ctx),
+    ]
+
+    for b in briefs:
+        parts.append(_format_symbol_line(b))
+
+    return "\n".join(parts)
+
+
 def send_ai_premarket_brief() -> bool:
-    """Send AI pre-market game plan to Pro/Elite users (once per day).
+    """Send per-user AI pre-market game plan to Pro users (once per day).
 
-    Generates the AI analysis from the data brief, then sends to each
-    qualifying user's Telegram.
-
+    Each user gets analysis customized to their personal watchlist.
     Returns True if at least one message was sent.
     """
     global _ai_brief_sent_date
@@ -348,17 +391,7 @@ def send_ai_premarket_brief() -> bool:
         logger.debug("AI premarket brief already sent for %s", session)
         return False
 
-    data_brief = build_premarket_message()
-    if not data_brief:
-        logger.info("AI premarket: no data for analysis")
-        return False
-
-    analysis = build_ai_premarket_analysis(data_brief)
-    if not analysis:
-        logger.info("AI premarket: analysis generation failed")
-        return False
-
-    # Send to all Pro/Elite users with Telegram enabled
+    # Get all Pro users with Telegram enabled
     try:
         from db import get_pro_users_with_telegram
         users = get_pro_users_with_telegram()
@@ -367,23 +400,47 @@ def send_ai_premarket_brief() -> bool:
         users = []
 
     if not users:
-        # Fallback: send to global chat ID
-        sent = _send_telegram(analysis)
-        if sent:
-            _ai_brief_sent_date = session
-        return sent
+        # Fallback: send global brief
+        data_brief = build_premarket_message()
+        if data_brief:
+            analysis = build_ai_premarket_analysis(data_brief)
+            if analysis:
+                sent = _send_telegram(analysis)
+                if sent:
+                    _ai_brief_sent_date = session
+                return sent
+        return False
 
     any_sent = False
     for u in users:
         chat_id = u.get("telegram_chat_id", "")
-        if chat_id:
+        user_id = u.get("user_id")
+        if not chat_id or not user_id:
+            continue
+
+        try:
+            # Build per-user data brief from their watchlist
+            user_brief = _build_user_premarket(user_id)
+            if not user_brief:
+                # Fallback to global brief if user has no symbols
+                user_brief = build_premarket_message()
+            if not user_brief:
+                continue
+
+            analysis = build_ai_premarket_analysis(user_brief)
+            if not analysis:
+                continue
+
             ok = _send_telegram_to(analysis, chat_id)
             if ok:
                 any_sent = True
                 logger.info(
-                    "AI premarket sent to user %s (tier=%s)",
-                    u["user_id"], u.get("tier", "?"),
+                    "AI premarket sent to user %s (tier=%s, symbols=%s)",
+                    user_id, u.get("tier", "?"),
+                    len(user_brief.split("\n")),
                 )
+        except Exception:
+            logger.exception("AI premarket failed for user %s", user_id)
 
     if any_sent:
         _ai_brief_sent_date = session

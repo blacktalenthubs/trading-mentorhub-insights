@@ -49,6 +49,14 @@ async def lifespan(app: FastAPI):
                 logger.info("Migration: gave %d free users a 3-day trial", result.rowcount)
         except Exception:
             pass  # SQLite uses different syntax; fine for dev
+
+        # Migration: add user_id to real_trades if missing (V1 table didn't have it)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE real_trades ADD COLUMN IF NOT EXISTS user_id INTEGER"
+            ))
+        except Exception:
+            pass
     logger.info("Database tables created/verified")
 
     # Background monitor — runs for both SQLite (dev) and Postgres (prod)
@@ -131,9 +139,10 @@ async def lifespan(app: FastAPI):
         # EOD cleanup — close stale active entries at 4:30 PM ET
         def _eod_cleanup():
             try:
+                from datetime import date as _date
                 with sync_session_factory() as db:
                     from app.models.alert import ActiveEntry
-                    today = date.today().isoformat()
+                    today = _date.today().isoformat()
                     db.execute(
                         ActiveEntry.__table__.update()
                         .where(ActiveEntry.session_date == today, ActiveEntry.status == "active")
