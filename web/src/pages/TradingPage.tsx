@@ -33,10 +33,10 @@ const GRADE_COLORS: Record<string, string> = {
   "C-": "bg-surface-4 text-text-muted ring-1 ring-inset ring-border-subtle",
 };
 
-const SETUP_LABELS: Record<string, string> = {
-  "Potential Entry": "Entry",
-  Watch: "Watch",
-  "No Setup": "No Setup",
+const SETUP_LABELS: Record<string, { text: string; class: string }> = {
+  "Potential Entry": { text: "Entry", class: "text-bullish-text bg-bullish/10" },
+  Watch: { text: "Watch", class: "text-warning-text bg-warning/10" },
+  "No Setup": { text: "No Setup", class: "text-text-faint bg-surface-3" },
 };
 
 const TIMEFRAMES = [
@@ -105,40 +105,42 @@ function SignalRow({
   const gradeClass = GRADE_COLORS[s.grade] || "bg-surface-4 text-text-faint ring-1 ring-inset ring-border-subtle";
   const changeColor = (s.close ?? 0) >= (s.entry ?? s.close ?? 0) ? "text-bullish-text" : "text-bearish-text";
 
+  const setupInfo = SETUP_LABELS[s.action_label] || { text: s.action_label, class: "text-text-faint bg-surface-3" };
+
   return (
     <button
       onClick={onClick}
-      className={`group flex w-full items-center px-4 py-3 text-left transition-colors ${
+      className={`group flex w-full items-center px-3 py-2.5 text-left transition-all duration-150 ${
         selected
-          ? "bg-accent/[0.04] border-l-2 border-accent"
-          : "border-l-2 border-transparent hover:bg-surface-2/50"
+          ? "bg-accent/[0.06] border-l-2 border-accent"
+          : "border-l-2 border-transparent hover:bg-surface-2/60"
       }`}
     >
-      <div className="w-[52px] relative">
-        <div className="text-sm font-bold text-text-primary">{s.symbol}</div>
-        <div className="text-[10px] text-text-faint truncate">
-          {SETUP_LABELS[s.action_label] || s.action_label}
-        </div>
+      <div className="w-[56px] relative">
+        <div className="text-sm font-bold text-text-primary leading-tight">{s.symbol}</div>
+        <span className={`inline-block mt-0.5 px-1.5 py-px rounded text-[9px] font-semibold leading-tight ${setupInfo.class}`}>
+          {setupInfo.text}
+        </span>
       </div>
-      <div className="flex-1 flex flex-col items-end">
+      <div className="flex-1 flex flex-col items-end gap-0.5">
         <div className="font-mono text-sm text-text-primary leading-none">${fmt(s.close)}</div>
         {s.volume_ratio != null && s.volume_ratio > 0 && (
-          <div className={`font-mono text-[10px] leading-none mt-1 ${changeColor}`}>
+          <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
             {s.volume_ratio.toFixed(1)}x vol
           </div>
         )}
       </div>
-      <div className="w-14 ml-3 flex flex-col items-center gap-1">
-        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${gradeClass}`}>
+      <div className="w-12 ml-2.5 flex flex-col items-center gap-0.5">
+        <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight ${gradeClass}`}>
           {s.grade}
         </span>
-        <span className="text-[9px] text-text-faint">{fmt(s.rr_ratio, 1)}R</span>
+        <span className="text-[9px] text-text-faint leading-tight">{fmt(s.rr_ratio, 1)}R</span>
       </div>
       {/* Remove button — appears on hover */}
       {onRemove && (
         <span
           onClick={onRemove}
-          className="ml-1 p-1 rounded opacity-0 group-hover:opacity-100 text-text-faint hover:text-bearish-text hover:bg-bearish/10 transition-all"
+          className="ml-1 p-1 rounded opacity-0 group-hover:opacity-100 text-text-faint hover:text-bearish-text hover:bg-bearish/10 transition-all duration-150"
           title={`Remove ${s.symbol}`}
         >
           <X className="h-3 w-3" />
@@ -160,9 +162,9 @@ function CockpitStrip({ signal: s }: { signal: SignalResult }) {
   if (s.entry == null) return null;
 
   return (
-    <div className="h-[96px] border-t border-border-subtle bg-surface-1 px-3 sm:px-5 flex items-center shrink-0 overflow-x-auto no-scrollbar relative">
+    <div className="h-[96px] border-t-2 border-accent/20 bg-surface-1 px-3 sm:px-5 flex items-center shrink-0 overflow-x-auto no-scrollbar relative">
       {/* Subtle gradient */}
-      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-accent/[0.03] to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-r from-accent/[0.04] via-transparent to-accent/[0.04] pointer-events-none" />
 
       <div className="flex items-center h-full min-w-max w-full relative">
         {/* Setup type */}
@@ -182,9 +184,9 @@ function CockpitStrip({ signal: s }: { signal: SignalResult }) {
         {/* Entry */}
         <div className="flex flex-col justify-center px-4 hover:bg-surface-2/30 h-full transition-colors rounded-lg">
           <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 flex items-center gap-1">
-            Entry <Target className="h-2.5 w-2.5 text-text-faint" />
+            Entry <Target className="h-2.5 w-2.5 text-accent" />
           </span>
-          <div className="font-mono text-lg font-medium text-text-primary">${fmt(s.entry)}</div>
+          <div className="font-mono text-lg font-bold text-accent">${fmt(s.entry)}</div>
         </div>
 
         <div className="w-px h-10 bg-border-subtle mx-2" />
@@ -228,7 +230,7 @@ function CockpitStrip({ signal: s }: { signal: SignalResult }) {
           <div className="flex gap-5">
             <div>
               <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-1 block">R:R</span>
-              <div className="font-mono text-base font-bold text-text-primary bg-surface-3 px-2 py-0.5 rounded border border-border-subtle text-center">
+              <div className="font-mono text-base font-bold text-accent bg-accent/10 px-2.5 py-0.5 rounded border border-accent/20 text-center">
                 {fmt(s.rr_ratio, 1)}:1
               </div>
             </div>
@@ -311,7 +313,12 @@ function AIPanel({ symbol, signal: _signal, ohlcv, timeframe }: {
               Clear
             </button>
           )}
-          <span className="text-[10px] font-mono bg-surface-3 text-text-muted px-2 py-0.5 rounded-full ring-1 ring-inset ring-border-subtle uppercase">
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ring-1 ring-inset uppercase flex items-center gap-1.5 ${
+            streaming
+              ? "bg-accent/10 text-accent ring-accent/20"
+              : "bg-bullish/10 text-bullish-text ring-bullish/20"
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${streaming ? "bg-accent animate-pulse" : "bg-bullish"}`} />
             {streaming ? "Thinking" : "Live"}
           </span>
         </div>
@@ -319,18 +326,19 @@ function AIPanel({ symbol, signal: _signal, ohlcv, timeframe }: {
 
       {/* Quick prompts when empty */}
       {messages.length === 0 && symbol && !streaming && (
-        <div className="px-3 pb-2 space-y-1">
-          <p className="text-[10px] font-semibold uppercase text-text-faint tracking-wider">Ask about {symbol}</p>
+        <div className="px-3 pb-3 space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase text-text-faint tracking-wider mb-1">Ask about {symbol}</p>
           {[
-            "What's the best entry strategy here?",
-            "Where should I set my stop?",
-            "Is this setup high conviction?",
-          ].map((q) => (
+            { emoji: "Entry", q: "What's the best entry strategy here?" },
+            { emoji: "Stop", q: "Where should I set my stop?" },
+            { emoji: "Bias", q: "Is this setup high conviction?" },
+          ].map(({ emoji, q }) => (
             <button
               key={q}
               onClick={() => sendMessage(`[Looking at ${symbol}] ${q}`, getCurrentChartContext())}
-              className="block w-full rounded-md bg-surface-2/50 px-2.5 py-1.5 text-left text-xs text-text-muted hover:bg-surface-3 hover:text-text-secondary transition-colors"
+              className="flex items-center gap-2 w-full rounded-lg bg-surface-2/60 border border-border-subtle/50 px-3 py-2 text-left text-xs text-text-muted hover:bg-accent/[0.06] hover:border-accent/20 hover:text-text-secondary transition-all duration-150"
             >
+              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-accent bg-accent/10 px-1.5 py-0.5 rounded">{emoji}</span>
               {q}
             </button>
           ))}
@@ -338,25 +346,25 @@ function AIPanel({ symbol, signal: _signal, ohlcv, timeframe }: {
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-3 min-h-0">
         {messages.map((m, i) => {
           if (i === 0 && m.role === "user") return null;
           return (
-            <div key={i} className={`text-[13px] leading-relaxed ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
+            <div key={i} className={`text-[13px] leading-[1.6] ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}>
               {m.role === "user" ? (
-                <p className="font-medium">{m.content}</p>
+                <p className="font-medium bg-accent/[0.06] rounded-lg px-3 py-2 border border-accent/10">{m.content}</p>
               ) : (
                 <div
-                  className="bg-surface-2/60 rounded-lg border border-border-subtle p-3 relative"
+                  className="bg-surface-2/60 rounded-lg border border-border-subtle p-3.5 relative"
                 >
                   {i === 1 && (
                     <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-accent via-purple to-accent rounded-t-lg opacity-50" />
                   )}
                   <p
-                    className="whitespace-pre-wrap"
+                    className="whitespace-pre-wrap text-[13px]"
                     dangerouslySetInnerHTML={{
                       __html: m.content
-                        .replace(/\*\*(.+?)\*\*/g, "<strong class='text-text-primary'>$1</strong>")
+                        .replace(/\*\*(.+?)\*\*/g, "<strong class='text-text-primary font-semibold'>$1</strong>")
                         .replace(/^• /gm, "&#8226; "),
                     }}
                   />
@@ -366,16 +374,21 @@ function AIPanel({ symbol, signal: _signal, ohlcv, timeframe }: {
           );
         })}
         {streaming && (
-          <div className="flex items-center gap-1 text-xs text-text-faint">
-            <span className="animate-pulse">Analyzing...</span>
-            <button onClick={stopStreaming} className="text-bearish-text hover:text-bearish text-[10px]">Stop</button>
+          <div className="flex items-center gap-2 text-xs bg-surface-2/40 rounded-lg px-3 py-2 border border-border-subtle/50">
+            <span className="flex gap-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "0ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "150ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "300ms" }} />
+            </span>
+            <span className="text-text-muted">Analyzing...</span>
+            <button onClick={stopStreaming} className="ml-auto text-bearish-text hover:text-bearish text-[10px] font-medium">Stop</button>
           </div>
         )}
       </div>
 
       {/* Input */}
-      <div className="border-t border-border-subtle p-2 shrink-0">
-        <div className="flex gap-1.5">
+      <div className="border-t border-border-subtle p-3 shrink-0 bg-surface-1/30">
+        <div className="flex gap-2">
           <input
             type="text"
             value={input}
@@ -383,14 +396,14 @@ function AIPanel({ symbol, signal: _signal, ohlcv, timeframe }: {
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
             placeholder={symbol ? `Ask about ${symbol}...` : "Ask the AI coach..."}
             disabled={streaming}
-            className="flex-1 rounded-md border border-border-subtle bg-surface-2 px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none disabled:opacity-50"
+            className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none disabled:opacity-50 transition-all"
           />
           <button
             onClick={handleSend}
             disabled={streaming || !input.trim()}
-            className="rounded-md bg-accent px-2.5 py-1.5 text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            className="rounded-lg bg-accent px-3 py-2 text-white transition-all hover:bg-accent-hover disabled:opacity-40 hover:shadow-md hover:shadow-accent/20"
           >
-            <Send className="h-3.5 w-3.5" />
+            <Send className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -420,39 +433,48 @@ function AlertTimelineItem({ alert: a }: { alert: Alert }) {
     a.direction === "SELL" ? "bg-warning" : "bg-text-faint";
 
   return (
-    <div className="relative pl-10 py-2.5 group">
+    <div className="relative pl-10 py-2 group">
       {/* Time label */}
-      <div className="absolute left-0 top-3 w-9 text-[10px] font-mono text-text-faint text-right">{time}</div>
+      <div className="absolute left-0 top-2.5 w-9 text-[10px] font-mono text-text-faint text-right">{time}</div>
       {/* Dot on timeline */}
-      <div className={`absolute left-[38px] top-[16px] w-1.5 h-1.5 rounded-full ${dotColor} ring-4 ring-surface-0 z-10`} />
+      <div className={`absolute left-[38px] top-[14px] w-2 h-2 rounded-full ${dotColor} ring-[3px] ring-surface-0 z-10`} />
       {/* Card */}
-      <div className="bg-surface-2/30 border border-border-subtle/50 rounded-md p-2.5 group-hover:border-border-default transition-colors">
-        <div className="flex justify-between items-start mb-1">
-          <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
-          <span className={`text-[9px] px-1.5 py-0.5 rounded border ${dirBadge}`}>
+      <div className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 group-hover:border-border-default group-hover:bg-surface-2/60 transition-all duration-150">
+        <div className="flex justify-between items-center mb-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
+            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${dirBadge}`}>
+              {a.direction}
+            </span>
+          </div>
+          <span className="text-[9px] text-text-faint font-medium px-1.5 py-0.5 bg-surface-3/80 rounded">
             {a.alert_type.replace(/_/g, " ")}
           </span>
         </div>
-        <p className="text-[11px] text-text-muted leading-tight">{a.message}</p>
+        <p className="text-[11px] text-text-muted leading-relaxed">{a.message}</p>
         {/* Action buttons */}
         {a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
-          <div className="flex gap-1.5 mt-2">
+          <div className="flex gap-2 mt-2">
             <button
               onClick={() => ack.mutate({ id: a.id, action: "took" })}
-              className="rounded bg-bullish/10 px-2 py-0.5 text-[10px] font-medium text-bullish-text hover:bg-bullish/20"
+              className="rounded-md bg-bullish/15 px-3 py-1 text-[11px] font-semibold text-bullish-text hover:bg-bullish/25 transition-colors border border-bullish/20"
             >
               Took
             </button>
             <button
               onClick={() => ack.mutate({ id: a.id, action: "skipped" })}
-              className="rounded bg-surface-4 px-2 py-0.5 text-[10px] font-medium text-text-muted hover:bg-surface-3"
+              className="rounded-md bg-surface-4 px-3 py-1 text-[11px] font-semibold text-text-muted hover:bg-surface-3 transition-colors border border-border-subtle"
             >
               Skip
             </button>
           </div>
         )}
         {a.user_action && (
-          <span className={`mt-1.5 inline-block text-[10px] font-medium ${a.user_action === "took" ? "text-bullish-text" : "text-text-muted"}`}>
+          <span className={`mt-2 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ${
+            a.user_action === "took"
+              ? "text-bullish-text bg-bullish/10 border border-bullish/20"
+              : "text-text-muted bg-surface-3 border border-border-subtle"
+          }`}>
             {a.user_action === "took" ? "Took" : "Skipped"}
           </span>
         )}
@@ -869,7 +891,7 @@ export default function TradingPage() {
 
       {/* ── RIGHT: AI Coach + Signal Feed ── */}
       {showRightPanel && (
-        <aside className="hidden xl:flex w-[380px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
+        <aside className="hidden xl:flex w-[400px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
           {/* AI Coach (top half) */}
           <div className="flex-1 flex flex-col min-h-[45%] border-b border-border-subtle relative overflow-hidden">
             <AIPanel symbol={selected?.symbol ?? null} signal={selected} ohlcv={ohlcv} timeframe={tf.label} />
