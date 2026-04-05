@@ -70,6 +70,16 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             f"Trade invalidated — exit"
         )
 
+    # VWAP reclaim — send as NOTICE (awareness, not entry pressure)
+    # First VWAP reclaim from below is a momentum shift signal
+    if signal.direction == "BUY" and signal.alert_type.value == "vwap_reclaim":
+        import html as _html_vwap
+        return (
+            f"<b>NOTICE — {_html_vwap.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+            f"VWAP reclaimed from below — momentum shifting bullish\n"
+            f"Watch for pullback to VWAP for entry"
+        )
+
     # SHORT filter — only structural daily-level shorts reach Telegram as SHORT
     # Key intraday levels (VWAP loss, session low, morning low) → send as NOTICE
     # Other intraday shorts → suppress entirely
