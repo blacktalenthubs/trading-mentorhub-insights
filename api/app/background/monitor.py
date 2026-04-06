@@ -343,13 +343,26 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                         f"Take profits or trail stop"
                                         f"{_reversal_hint}"
                                     )
+                                    # Find the real trade ID for the exit button
+                                    _trade_id = _has_open_trade  # already queried above
                                     _buttons = {
                                         "inline_keyboard": [[
-                                            {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{ae.id}"},
+                                            {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{_trade_id}"},
                                         ]]
                                     }
                                     _send_telegram_to(_msg, _user.telegram_chat_id, reply_markup=_buttons)
                                     logger.info("T1 NOTIFY: user=%d %s T1=$%.2f reached, entry=$%.2f", user_id, symbol, _t1, _entry)
+
+                                    # Persist in DB so dedup survives across poll cycles
+                                    _t1_alert = Alert(
+                                        user_id=user_id,
+                                        symbol=symbol,
+                                        alert_type="_t1_notify",
+                                        direction="NOTICE",
+                                        price=_last_price,
+                                        session_date=_sym_session,
+                                    )
+                                    db.add(_t1_alert)
                                 except Exception:
                                     pass
 
