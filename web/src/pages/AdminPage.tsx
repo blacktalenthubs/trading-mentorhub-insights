@@ -24,9 +24,15 @@ interface UserInfo {
 interface PlatformStats {
   total_users: number;
   pro_users: number;
+  premium_users: number;
   free_users: number;
+  trial_users: number;
   telegram_linked: number;
   total_alerts: number;
+  alerts_today: number;
+  signups_7d: number;
+  signups_30d: number;
+  monthly_revenue_estimate: number;
 }
 
 function StatCard({ label, value, icon, color }: {
@@ -120,8 +126,8 @@ export default function AdminPage() {
         </div>
 
         {/* Stats cards */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+        {stats && (<>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
             <StatCard
               label="Total Users"
               value={stats.total_users}
@@ -134,12 +140,19 @@ export default function AdminPage() {
               color="text-warning-text"
             />
             <StatCard
-              label="Free Users"
-              value={stats.free_users}
-              icon={<Users className="h-4 w-4 text-text-muted" />}
+              label="Premium"
+              value={stats.premium_users}
+              icon={<Crown className="h-4 w-4 text-purple-text" />}
+              color="text-purple-text"
             />
             <StatCard
-              label="Telegram Linked"
+              label="Active Trials"
+              value={stats.trial_users}
+              icon={<Users className="h-4 w-4 text-amber-400" />}
+              color="text-amber-400"
+            />
+            <StatCard
+              label="Telegram"
               value={stats.telegram_linked}
               icon={<Send className="h-4 w-4 text-accent" />}
             />
@@ -149,7 +162,33 @@ export default function AdminPage() {
               icon={<BarChart3 className="h-4 w-4 text-bullish" />}
             />
           </div>
-        )}
+
+          {/* Growth + Revenue row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+            <StatCard
+              label="Alerts Today"
+              value={stats.alerts_today}
+              icon={<BarChart3 className="h-4 w-4 text-accent" />}
+            />
+            <StatCard
+              label="Signups (7d)"
+              value={stats.signups_7d}
+              icon={<Users className="h-4 w-4 text-bullish" />}
+              color="text-bullish-text"
+            />
+            <StatCard
+              label="Signups (30d)"
+              value={stats.signups_30d}
+              icon={<Users className="h-4 w-4 text-bullish" />}
+            />
+            <StatCard
+              label="Est. MRR"
+              value={`$${stats.monthly_revenue_estimate.toLocaleString()}`}
+              icon={<Crown className="h-4 w-4 text-bullish" />}
+              color="text-bullish-text"
+            />
+          </div>
+        </>)}
 
         {/* User search */}
         <div className="mb-4">

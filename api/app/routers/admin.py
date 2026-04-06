@@ -84,10 +84,52 @@ async def platform_stats(
         select(func.count()).select_from(User).where(User.telegram_chat_id.isnot(None))
     )).scalar() or 0
 
+    # Premium users
+    premium_users = (await db.execute(
+        select(func.count()).select_from(Subscription).where(Subscription.tier == "premium")
+    )).scalar() or 0
+
+    # Active trials
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+    trial_users = (await db.execute(
+        select(func.count()).select_from(Subscription).where(
+            Subscription.tier == "free",
+            Subscription.trial_ends_at.isnot(None),
+            Subscription.trial_ends_at > datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+    )).scalar() or 0
+
+    # Signups last 7 days
+    signups_7d = (await db.execute(
+        text("SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '7 days'")
+    )).scalar() or 0
+
+    # Signups last 30 days
+    signups_30d = (await db.execute(
+        text("SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '30 days'")
+    )).scalar() or 0
+
+    # Alerts today
+    from datetime import date
+    today = date.today().isoformat()
+    alerts_today = (await db.execute(
+        select(func.count()).select_from(Alert).where(Alert.session_date == today)
+    )).scalar() or 0
+
+    # Revenue estimate
+    monthly_revenue = (pro_users * 49) + (premium_users * 99)
+
     return {
         "total_users": total_users,
         "pro_users": pro_users,
-        "free_users": total_users - pro_users,
+        "premium_users": premium_users,
+        "free_users": total_users - pro_users - premium_users,
+        "trial_users": trial_users,
         "telegram_linked": telegram_linked,
         "total_alerts": total_alerts,
+        "alerts_today": alerts_today,
+        "signups_7d": signups_7d,
+        "signups_30d": signups_30d,
+        "monthly_revenue_estimate": monthly_revenue,
     }
