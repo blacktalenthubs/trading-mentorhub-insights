@@ -138,7 +138,7 @@ class TestSmsFormat:
             message="Stop hit",
         )
         body = _format_sms_body(sig)
-        assert "STOPPED OUT" in body
+        assert "STOP LEVEL REACHED" in body
         assert "AAPL" in body
 
     def test_buy_conviction_high(self):
@@ -260,7 +260,7 @@ class TestEmailFormat:
             direction="SELL", price=99.0,
         )
         body = _format_email_body(sig)
-        assert "STOPPED OUT" in body
+        assert "STOP LEVEL REACHED" in body
 
     def test_email_fallback_for_suppressed(self):
         """Suppressed types get a simple fallback email body."""

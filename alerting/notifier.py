@@ -98,9 +98,9 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         if signal.alert_type.value in _exit_types:
             import html as _html2
             return (
-                f"<b>STOPPED OUT — {_html2.escape(signal.symbol)}</b>\n"
-                f"Stop ${signal.price:.2f} hit\n"
-                f"Trade invalidated — exit"
+                f"<b>STOP LEVEL REACHED — {_html2.escape(signal.symbol)}</b>\n"
+                f"Stop ${signal.price:.2f} reached\n"
+                f"Review position — exit if thesis broken"
             )
 
         if signal.alert_type.value in _resistance_notice_types:
