@@ -421,11 +421,22 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 for signal in signals:
                   try:
                     # SPY SHORT gate: if SPY shorted recently, suppress equity BUY entries
+                    # EXCEPTION: high-conviction structural setups pass through
+                    _structural_exceptions = {
+                        "multi_day_double_bottom",  # multi-day support level
+                        "prior_day_low_reclaim",    # PDL reclaim is structural
+                        "prior_day_low_bounce",     # PDL hold is structural
+                        "swing_rsi_30_bounce",      # oversold reversal
+                        "swing_200ma_hold",         # 200MA is institutional
+                        "swing_50ma_hold",          # 50MA trend support
+                        "swing_weekly_support",     # weekly level
+                    }
                     if (signal.direction == "BUY"
                             and not _is_crypto
                             and symbol != "SPY"
                             and _spy_short_time is not None
-                            and (datetime.utcnow() - _spy_short_time).total_seconds() < 1800):
+                            and (datetime.utcnow() - _spy_short_time).total_seconds() < 1800
+                            and signal.alert_type.value not in _structural_exceptions):
                         logger.info("SPY GATE: %s BUY suppressed — SPY SHORT fired %ds ago",
                                     symbol, int((datetime.utcnow() - _spy_short_time).total_seconds()))
                         continue
