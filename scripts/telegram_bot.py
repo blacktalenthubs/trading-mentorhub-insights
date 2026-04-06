@@ -535,35 +535,60 @@ def start_bot_thread() -> bool:
     def _run():
         import asyncio
         import urllib.request
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            # Force-clear any existing webhook or polling session
-            # This ensures we take over from any stale instance
+        import time
+        from telegram.error import Conflict
+
+        MAX_RETRIES = 5
+
+        for attempt in range(1, MAX_RETRIES + 1):
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                urllib.request.urlopen(
-                    f"https://api.telegram.org/bot{bot_token}/deleteWebhook?drop_pending_updates=true",
-                    timeout=5,
+                # Force-clear any existing webhook or polling session
+                try:
+                    urllib.request.urlopen(
+                        f"https://api.telegram.org/bot{bot_token}/deleteWebhook?drop_pending_updates=true",
+                        timeout=5,
+                    )
+                    logger.info("Telegram: cleared webhook + pending updates")
+                except Exception:
+                    pass
+
+                # Wait for old polling instance to die (longer on retries)
+                wait = 5 * attempt
+                logger.info("Telegram bot: waiting %ds for old instance to release...", wait)
+                time.sleep(wait)
+
+                app = _build_app(bot_token)
+                logger.info("Telegram bot listener starting (attempt %d/%d)...", attempt, MAX_RETRIES)
+                loop.run_until_complete(app.initialize())
+                loop.run_until_complete(app.start())
+                loop.run_until_complete(app.updater.start_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=["message", "callback_query"],
+                ))
+                loop.run_forever()
+                break  # clean exit
+            except Conflict:
+                logger.warning(
+                    "Telegram bot conflict (attempt %d/%d) — another instance still polling, retrying...",
+                    attempt, MAX_RETRIES,
                 )
-                logger.info("Telegram: cleared webhook + pending updates")
+                try:
+                    loop.run_until_complete(app.updater.stop())
+                    loop.run_until_complete(app.stop())
+                    loop.run_until_complete(app.shutdown())
+                except Exception:
+                    pass
+                finally:
+                    loop.close()
+                if attempt == MAX_RETRIES:
+                    logger.error("Telegram bot: gave up after %d conflict retries", MAX_RETRIES)
+                    start_bot_thread._started = False
             except Exception:
-                pass
-
-            import time
-            time.sleep(2)  # Brief pause to let old polling die
-
-            app = _build_app(bot_token)
-            logger.info("Telegram bot listener starting (background thread)...")
-            loop.run_until_complete(app.initialize())
-            loop.run_until_complete(app.start())
-            loop.run_until_complete(app.updater.start_polling(
-                drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"],
-            ))
-            loop.run_forever()
-        except Exception:
-            logger.exception("Telegram bot listener crashed")
-            start_bot_thread._started = False
+                logger.exception("Telegram bot listener crashed")
+                start_bot_thread._started = False
+                break
 
     t = threading.Thread(target=_run, daemon=True, name="telegram-bot")
     t.start()
