@@ -250,9 +250,12 @@ export default function BillingPage() {
         {/* Plan cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
           {PLANS.map((plan) => {
-            const isCurrent = currentTier === plan.id;
+            const isTrial = status?.trial_active ?? false;
+            // During trial, user has "pro" access but hasn't paid — show upgrade buttons
+            const isCurrent = !isTrial && currentTier === plan.id;
             const isUpgrade = !isCurrent && (
               (currentTier === "free") ||
+              (isTrial && (plan.id === "pro" || plan.id === "premium")) ||
               (currentTier === "pro" && plan.id === "premium")
             );
 
