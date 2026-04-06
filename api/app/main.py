@@ -214,23 +214,49 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to start background monitor")
 
-    # Start Telegram bot listener (handles /start, Took/Skip/Exit callbacks)
+    # Start Telegram bot — prefer webhook mode (no 409 conflicts),
+    # fall back to polling for local dev.
+    import os as _os
+    _webhook_base = _os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if _webhook_base:
+        _webhook_base = f"https://{_webhook_base}"
+    # Also accept explicit override
+    if not _webhook_base:
+        _webhook_base = _os.environ.get("WEBHOOK_BASE_URL")
+
     try:
         import sys
         from pathlib import Path
         _scripts = str(Path(__file__).resolve().parents[2] / "scripts")
         if _scripts not in sys.path:
             sys.path.insert(0, _scripts)
-        from telegram_bot import start_bot_thread
-        if start_bot_thread():
-            logger.info("Telegram bot listener started")
+
+        if _webhook_base:
+            # Production: use webhook — Telegram pushes updates to us
+            from telegram_bot import setup_webhook, shutdown_webhook
+            if await setup_webhook(_webhook_base):
+                logger.info("Telegram bot started (webhook mode)")
+            else:
+                logger.warning("Telegram webhook setup failed")
         else:
-            logger.warning("Telegram bot listener not started (token missing or import error)")
+            # Local dev: use polling (no public URL available)
+            from telegram_bot import start_bot_thread
+            if start_bot_thread():
+                logger.info("Telegram bot started (polling mode)")
+            else:
+                logger.warning("Telegram bot not started (token missing or import error)")
     except Exception:
-        logger.exception("Failed to start Telegram bot listener")
+        logger.exception("Failed to start Telegram bot")
 
     yield
 
+    # Shutdown
+    if _webhook_base:
+        try:
+            from telegram_bot import shutdown_webhook
+            await shutdown_webhook()
+        except Exception:
+            pass
     if scheduler:
         scheduler.shutdown(wait=False)
     if sync_engine:
@@ -306,6 +332,29 @@ def create_app() -> FastAPI:
     app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
+
+    # --- Telegram webhook route (must be before SPA catch-all) ---
+    from fastapi import Request
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _scripts_path = str(_Path(__file__).resolve().parents[2] / "scripts")
+        if _scripts_path not in _sys.path:
+            _sys.path.insert(0, _scripts_path)
+        from telegram_bot import get_webhook_path, process_webhook_update
+        _tg_webhook_path = get_webhook_path()
+
+        @app.post(_tg_webhook_path, include_in_schema=False)
+        async def telegram_webhook(request: Request):
+            data = await request.json()
+            await process_webhook_update(data)
+            return _JSONResponse({"ok": True})
+
+        logger.info("Telegram webhook route registered: POST %s", _tg_webhook_path)
+    except Exception:
+        logger.warning("Could not register Telegram webhook route")
 
     # --- Serve React frontend (production) ---
     import os
