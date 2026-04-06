@@ -41,7 +41,7 @@ export default function LoginPage() {
             <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
           </div>
           <h1 className="font-display text-2xl font-bold text-text-primary">
-            <span className="text-accent">Trade</span>Signal
+            <span className="text-accent">Trade</span>CoPilot
           </h1>
         </div>
         {error && <p className="text-sm text-bearish-text">{error}</p>}

@@ -404,7 +404,7 @@ export default function OnboardingPage() {
             <Crosshair className="h-4 w-4 text-white" />
           </div>
           <span className="font-bold text-lg text-text-primary">
-            <span className="text-accent">Trade</span>Signal
+            <span className="text-accent">Trade</span>CoPilot
           </span>
         </div>
 
