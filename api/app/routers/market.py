@@ -40,6 +40,45 @@ async def market_status(user: User = Depends(get_current_user)):
     )
 
 
+@router.get("/prices")
+async def live_prices(user: User = Depends(get_current_user)):
+    """Get latest prices for user's watchlist symbols. Polled by frontend every 15s."""
+    loop = asyncio.get_event_loop()
+
+    from app.database import get_db as get_db_dep
+    from sqlalchemy import select
+    from app.models.watchlist import WatchlistItem
+
+    # Get user's symbols
+    async for db in get_db_dep():
+        result = await db.execute(
+            select(WatchlistItem.symbol).where(WatchlistItem.user_id == user.id)
+        )
+        symbols = [r[0] for r in result.all()]
+        break
+
+    if not symbols:
+        return {"prices": {}}
+
+    def _fetch_prices(syms):
+        import yfinance as yf
+        prices = {}
+        for sym in syms:
+            try:
+                t = yf.Ticker(sym)
+                fi = t.fast_info
+                price = round(float(fi.last_price), 2)
+                prev = float(fi.previous_close) if hasattr(fi, 'previous_close') and fi.previous_close else price
+                change = round(((price - prev) / prev) * 100, 2) if prev else 0
+                prices[sym] = {"price": price, "change_pct": change}
+            except Exception:
+                pass
+        return prices
+
+    prices = await loop.run_in_executor(None, partial(_fetch_prices, symbols))
+    return {"prices": prices}
+
+
 def _fetch_and_serialize_intraday(symbol: str) -> List[dict]:
     df = fetch_intraday(symbol)
     if df.empty:

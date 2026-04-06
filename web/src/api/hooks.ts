@@ -49,6 +49,16 @@ export function useWatchlist() {
   });
 }
 
+/** Live prices — polls every 15 seconds during market hours. */
+export function useLivePrices() {
+  return useQuery({
+    queryKey: ["live-prices"],
+    queryFn: () => api.get<{ prices: Record<string, { price: number; change_pct: number }> }>("/market/prices"),
+    refetchInterval: 15_000,  // 15 seconds
+    staleTime: 10_000,
+  });
+}
+
 export function useAddSymbol() {
   const qc = useQueryClient();
   return useMutation({

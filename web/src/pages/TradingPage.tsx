@@ -9,7 +9,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useWatchlist, useAddSymbol, useRemoveSymbol } from "../api/hooks";
+import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useWatchlist, useAddSymbol, useRemoveSymbol, useLivePrices } from "../api/hooks";
 import { useCoachStream } from "../hooks/useCoachStream";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -96,14 +96,19 @@ function SignalRow({
   selected,
   onClick,
   onRemove,
+  livePrice,
 }: {
   signal: SignalResult;
   selected: boolean;
   onClick: () => void;
   onRemove?: (e: React.MouseEvent) => void;
+  livePrice?: { price: number; change_pct: number };
 }) {
   const gradeClass = GRADE_COLORS[s.grade] || "bg-surface-4 text-text-faint ring-1 ring-inset ring-border-subtle";
-  const changeColor = (s.close ?? 0) >= (s.entry ?? s.close ?? 0) ? "text-bullish-text" : "text-bearish-text";
+  const displayPrice = livePrice?.price ?? s.close;
+  const changeColor = livePrice
+    ? (livePrice.change_pct >= 0 ? "text-bullish-text" : "text-bearish-text")
+    : ((s.close ?? 0) >= (s.entry ?? s.close ?? 0) ? "text-bullish-text" : "text-bearish-text");
 
   const setupInfo = SETUP_LABELS[s.action_label] || { text: s.action_label, class: "text-text-faint bg-surface-3" };
 
@@ -123,12 +128,16 @@ function SignalRow({
         </span>
       </div>
       <div className="flex-1 flex flex-col items-end gap-0.5">
-        <div className="font-mono text-sm text-text-primary leading-none">${fmt(s.close)}</div>
-        {s.volume_ratio != null && s.volume_ratio > 0 && (
+        <div className="font-mono text-sm text-text-primary leading-none">${fmt(displayPrice)}</div>
+        {livePrice ? (
+          <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
+            {livePrice.change_pct >= 0 ? "+" : ""}{livePrice.change_pct.toFixed(2)}%
+          </div>
+        ) : s.volume_ratio != null && s.volume_ratio > 0 ? (
           <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
             {s.volume_ratio.toFixed(1)}x vol
           </div>
-        )}
+        ) : null}
       </div>
       <div className="w-12 ml-2.5 flex flex-col items-center gap-0.5">
         <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight ${gradeClass}`}>
@@ -488,6 +497,8 @@ function AlertTimelineItem({ alert: a }: { alert: Alert }) {
 export default function TradingPage() {
   const { data: signals, isLoading, refetch, isFetching, error: scanError } = useScanner();
   const { data: todayAlerts, error: alertsError } = useAlertsToday();
+  const { data: livePriceData } = useLivePrices();
+  const livePrices = livePriceData?.prices ?? {};
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [tfIdx, setTfIdx] = useState(DEFAULT_TF);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
@@ -702,6 +713,7 @@ export default function TradingPage() {
               selected={selectedSymbol === s.symbol}
               onClick={() => setSelectedSymbol(s.symbol)}
               onRemove={watchlistSymbols.has(s.symbol) ? (e) => handleRemoveSymbol(e, s.symbol) : undefined}
+              livePrice={livePrices[s.symbol]}
             />
           ))}
           {filteredSignals && filteredSignals.length === 0 && !isLoading && (
@@ -744,8 +756,12 @@ export default function TradingPage() {
             {selected ? (
               <>
                 <h1 className="text-2xl font-bold tracking-tight text-text-primary">{selected.symbol}</h1>
-                <span className={`text-xl font-mono ${(selected.close ?? 0) >= (selected.entry ?? selected.close ?? 0) ? "text-bullish-text" : "text-bearish-text"}`}>
-                  ${fmt(selected.close)}
+                <span className={`text-xl font-mono ${
+                  livePrices[selected.symbol]
+                    ? (livePrices[selected.symbol].change_pct >= 0 ? "text-bullish-text" : "text-bearish-text")
+                    : ((selected.close ?? 0) >= (selected.entry ?? selected.close ?? 0) ? "text-bullish-text" : "text-bearish-text")
+                }`}>
+                  ${fmt(livePrices[selected.symbol]?.price ?? selected.close)}
                 </span>
               </>
             ) : (
