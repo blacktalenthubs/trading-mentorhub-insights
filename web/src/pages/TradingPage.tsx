@@ -449,19 +449,24 @@ function AlertTimelineItem({ alert: a, onSelectSymbol }: { alert: Alert; onSelec
       <div className={`absolute left-[38px] top-[14px] w-2 h-2 rounded-full ${dotColor} ring-[3px] ring-surface-0 z-10`} />
       {/* Card */}
       <div
-        className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 group-hover:border-border-default group-hover:bg-surface-2/60 transition-all duration-150 cursor-pointer"
+        className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 group-hover:border-accent/30 group-hover:bg-surface-2/60 transition-all duration-150 cursor-pointer"
         onClick={() => onSelectSymbol?.(a.symbol)}
       >
         <div className="flex justify-between items-center mb-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
+            <span className="text-xs font-bold text-text-primary group-hover:text-accent transition-colors">{a.symbol}</span>
             <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${dirBadge}`}>
               {a.direction}
             </span>
           </div>
-          <span className="text-[9px] text-text-faint font-medium px-1.5 py-0.5 bg-surface-3/80 rounded">
-            {a.alert_type.replace(/_/g, " ")}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] text-text-faint font-medium px-1.5 py-0.5 bg-surface-3/80 rounded">
+              {a.alert_type.replace(/_/g, " ")}
+            </span>
+            <span className="text-[9px] text-accent opacity-0 group-hover:opacity-100 transition-opacity">
+              View →
+            </span>
+          </div>
         </div>
         <p className="text-[11px] text-text-muted leading-relaxed">{a.message}</p>
         {/* Action buttons */}
