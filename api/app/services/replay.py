@@ -34,6 +34,30 @@ def get_replay_data(alert_id: int, user_id: int | None = None) -> dict | None:
     symbol = alert["symbol"]
     session_date = alert.get("session_date", date.today().isoformat())
 
+    # If this is an exit/SELL alert, find the original entry alert for levels
+    if alert.get("direction") in ("SELL", "SHORT") and not alert.get("entry"):
+        with get_db() as conn:
+            entry_row = conn.execute(
+                """SELECT entry, stop, target_1, target_2, score, direction, alert_type, message
+                   FROM alerts
+                   WHERE symbol = ? AND session_date = ?
+                     AND direction IN ('BUY', 'SHORT')
+                     AND entry IS NOT NULL AND entry > 0
+                   ORDER BY created_at DESC LIMIT 1""",
+                (symbol, session_date),
+            ).fetchone()
+            if entry_row:
+                alert["entry"] = entry_row["entry"]
+                alert["stop"] = entry_row["stop"]
+                alert["target_1"] = entry_row["target_1"]
+                alert["target_2"] = entry_row["target_2"]
+                if not alert.get("score"):
+                    alert["score"] = entry_row["score"]
+                # Use the entry alert's direction for P&L calculation
+                alert["direction"] = entry_row["direction"]
+                alert["alert_type"] = entry_row["alert_type"]
+                alert["message"] = entry_row["message"]
+
     # Fetch 5-min OHLCV for the session
     try:
         from analytics.intraday_data import fetch_intraday
