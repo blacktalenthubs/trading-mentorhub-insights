@@ -295,13 +295,15 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         and _t1_symbol_key not in fired_today):
                     # Check if user has an open real trade for this symbol
                     from app.models.paper_trade import RealTrade
-                    _has_open_trade = db.execute(
-                        select(RealTrade.id).where(
+                    _open_trade_row = db.execute(
+                        select(RealTrade.id, RealTrade.alert_id).where(
                             RealTrade.user_id == user_id,
                             RealTrade.symbol == symbol,
                             RealTrade.status == "open",
                         ).limit(1)
-                    ).scalar_one_or_none()
+                    ).first()
+                    _has_open_trade = _open_trade_row[0] if _open_trade_row else None
+                    _trade_alert_id = _open_trade_row[1] if _open_trade_row else None
 
                     if _has_open_trade:
                         _last_price = float(intraday.iloc[-1]["Close"])
@@ -343,11 +345,12 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                         f"Take profits or trail stop"
                                         f"{_reversal_hint}"
                                     )
-                                    # Find the real trade ID for the exit button
-                                    _trade_id = _has_open_trade  # already queried above
+                                    # Use alert_id for exit button (bot looks up alerts table)
+                                    # Falls back to trade_id if no alert_id linked
+                                    _exit_id = _trade_alert_id or _has_open_trade
                                     _buttons = {
                                         "inline_keyboard": [[
-                                            {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{_trade_id}"},
+                                            {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{_exit_id}"},
                                         ]]
                                     }
                                     _send_telegram_to(_msg, _user.telegram_chat_id, reply_markup=_buttons)

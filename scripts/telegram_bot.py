@@ -239,13 +239,32 @@ def _handle_exit(alert_id: int, chat_id: int) -> str:
 
     Removes active entries for the symbol (stops position updates)
     and closes any open real trade.
+    The ID could be an alert ID or a real_trade ID — try both.
     """
     alert = _find_alert(alert_id)
-    if not alert:
-        return "Alert not found."
+    symbol = None
+    exit_price = 0
 
-    symbol = alert["symbol"]
-    exit_price = alert.get("price", 0)
+    if alert:
+        symbol = alert["symbol"]
+        exit_price = alert.get("price", 0)
+    else:
+        # Try looking up as a real_trade ID
+        try:
+            from db import get_db
+            with get_db() as conn:
+                trade = conn.execute(
+                    "SELECT symbol, entry_price FROM real_trades WHERE id = ?",
+                    (alert_id,),
+                ).fetchone()
+                if trade:
+                    symbol = trade["symbol"]
+                    exit_price = trade["entry_price"]  # fallback — will use current price below
+        except Exception:
+            pass
+
+    if not symbol:
+        return "Alert not found."
 
     # Remove active entries for this symbol
     active_deleted = 0
