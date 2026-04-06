@@ -535,7 +535,10 @@ def start_bot_thread() -> bool:
             logger.info("Telegram bot listener starting (background thread)...")
             loop.run_until_complete(app.initialize())
             loop.run_until_complete(app.start())
-            loop.run_until_complete(app.updater.start_polling())
+            loop.run_until_complete(app.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"],
+            ))
             loop.run_forever()
         except Exception:
             logger.exception("Telegram bot listener crashed")
