@@ -251,6 +251,22 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Redirect old domain → new domain
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import RedirectResponse
+
+    class DomainRedirectMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            host = request.headers.get("host", "")
+            if "tradesignalwithai.com" in host:
+                new_url = f"https://www.tradingwithai.ai{request.url.path}"
+                if request.url.query:
+                    new_url += f"?{request.url.query}"
+                return RedirectResponse(new_url, status_code=301)
+            return await call_next(request)
+
+    app.add_middleware(DomainRedirectMiddleware)
+
     # --- Health check ---
     @app.get("/healthz")
     async def health():
