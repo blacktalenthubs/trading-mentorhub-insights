@@ -587,6 +587,11 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 "intraday_support_bounce", "session_low_double_bottom",
                                 "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
                                 "ema_bounce_20", "ema_bounce_50", "ema_bounce_200",
+                                "opening_low_base",         # morning low hold
+                                "morning_low_breakdown",    # if direction is BUY (reclaim)
+                                "multi_day_double_bottom",  # multi-day support
+                                "opening_range_breakout",   # OR breakout = strength
+                                "gap_fill",                 # gap fill = buyers stepping in
                             }
                             if (signal.direction in _spy_support_types
                                     or signal.alert_type.value in _spy_support_alerts):
