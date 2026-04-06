@@ -116,8 +116,8 @@ export function useScanner() {
   return useQuery({
     queryKey: ["scanner"],
     queryFn: () => api.get<SignalResult[]>("/scanner/scan"),
-    staleTime: 20_000, // 20s — fresh data every poll
-    refetchInterval: 20_000, // auto-refresh every 20s
+    staleTime: 60_000, // 60s — prices come from live feed now
+    refetchInterval: 60_000, // refresh grades/scores every 60s
   });
 }
 
@@ -293,9 +293,10 @@ export function useDeleteChartLevel() {
 }
 
 export function useOHLCV(symbol: string, period = "1y", interval = "1d") {
-  // Intraday intervals refresh every 20s; daily+ every 5 min
+  // Chart data: refresh every 60s for intraday, 5 min for daily
+  // Slower than price feed to avoid chart re-renders that reset scroll position
   const isIntraday = ["1m", "5m", "15m", "30m", "60m"].includes(interval);
-  const refreshMs = isIntraday ? 20_000 : 5 * 60_000;
+  const refreshMs = isIntraday ? 60_000 : 5 * 60_000;
   return useQuery({
     queryKey: ["ohlcv", symbol, period, interval],
     queryFn: () => api.get<OHLCBar[]>(`/charts/ohlcv/${symbol}?period=${period}&interval=${interval}`),
