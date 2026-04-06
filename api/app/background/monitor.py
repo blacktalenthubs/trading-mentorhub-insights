@@ -342,46 +342,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                     except Exception:
                                         pass
 
-                # ENHANCEMENT-3: Support retest re-entry
-                # If price pulls back to a prior BUY entry zone and bounces,
-                # fire a fresh re-entry even if original alert deduped
-                if active_rows and intraday is not None and len(intraday) >= 6:
-                    _last = intraday.iloc[-1]
-                    _last_close = float(_last["Close"])
-                    _last_low = float(_last["Low"])
-                    _bar_range = float(_last["High"]) - _last_low
-                    for ae in active_rows:
-                        _ae_entry = ae.entry_price or 0
-                        if _ae_entry <= 0:
-                            continue
-                        # Check: price dipped to within 0.5% of prior entry then bounced
-                        _retest_key = (symbol, f"_retest_{ae.id}")
-                        if _retest_key in fired_today:
-                            continue
-                        _proximity = abs(_last_low - _ae_entry) / _ae_entry if _ae_entry > 0 else 1
-                        _bounced = _bar_range > 0 and (_last_close - _last_low) / _bar_range > 0.5
-                        if _proximity < 0.005 and _bounced and _last_close > _ae_entry:
-                            fired_today.add(_retest_key)
-                            # Send retest notification
-                            _user = user_rows.get(user_id)
-                            if _user and _user.telegram_enabled and _user.telegram_chat_id:
-                                try:
-                                    from alerting.notifier import _send_telegram_to
-                                    _msg = (
-                                        f"<b>RETEST BOUNCE — {symbol} ${_last_close:.2f}</b>\n"
-                                        f"Entry zone ${_ae_entry:.2f} retested and held\n"
-                                        f"Potential re-entry with tight stop below ${_last_low:.2f}"
-                                    )
-                                    _buttons = {
-                                        "inline_keyboard": [[
-                                            {"text": "\u2705 Took It", "callback_data": f"ack:{ae.id}"},
-                                            {"text": "\u274c Skip", "callback_data": f"skip:{ae.id}"},
-                                        ]]
-                                    }
-                                    _send_telegram_to(_msg, _user.telegram_chat_id, reply_markup=_buttons)
-                                    logger.info("RETEST BOUNCE: user=%d %s entry=$%.2f retested at $%.2f", user_id, symbol, _ae_entry, _last_low)
-                                except Exception:
-                                    pass
+                # ENHANCEMENT-3: Removed — retest bounce alerts were too noisy.
+                # Structural entries (PDL reclaim, consolidation breakout, MA bounce)
+                # already cover the important re-entry scenarios.
 
                 try:
                     signals = evaluate_rules(
