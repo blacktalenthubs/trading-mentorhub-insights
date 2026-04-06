@@ -528,9 +528,24 @@ def start_bot_thread() -> bool:
 
     def _run():
         import asyncio
+        import urllib.request
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+            # Force-clear any existing webhook or polling session
+            # This ensures we take over from any stale instance
+            try:
+                urllib.request.urlopen(
+                    f"https://api.telegram.org/bot{bot_token}/deleteWebhook?drop_pending_updates=true",
+                    timeout=5,
+                )
+                logger.info("Telegram: cleared webhook + pending updates")
+            except Exception:
+                pass
+
+            import time
+            time.sleep(2)  # Brief pause to let old polling die
+
             app = _build_app(bot_token)
             logger.info("Telegram bot listener starting (background thread)...")
             loop.run_until_complete(app.initialize())
@@ -538,6 +553,8 @@ def start_bot_thread() -> bool:
             loop.run_until_complete(app.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=["message", "callback_query"],
+                read_timeout=10,
+                connect_timeout=10,
             ))
             loop.run_forever()
         except Exception:
