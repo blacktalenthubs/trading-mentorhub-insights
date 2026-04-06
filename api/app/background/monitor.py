@@ -425,18 +425,27 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                     )
                                     continue
 
-                    # BUG-8 fix: direction lock — no BUY then SHORT (or vice versa) within 30 min
+                    # Direction lock: suppress ALL alerts (same or opposite) within 30 min
+                    # Prevents: BUY→SHORT flip-flop AND SHORT→SHORT spam at same level
                     if signal.direction in ("BUY", "SHORT"):
                         _lock = _direction_lock.get(symbol)
                         if _lock:
                             _locked_dir, _locked_time = _lock
                             _elapsed = (datetime.utcnow() - _locked_time).total_seconds()
-                            if _locked_dir != signal.direction and _elapsed < 1800:  # 30 min
-                                logger.info(
-                                    "DIRECTION LOCK: %s %s suppressed — %s fired %ds ago",
-                                    symbol, signal.direction, _locked_dir, int(_elapsed),
-                                )
-                                continue
+                            if _elapsed < 1800:  # 30 min cooldown
+                                if _locked_dir != signal.direction:
+                                    logger.info(
+                                        "DIRECTION LOCK: %s %s suppressed — %s fired %ds ago",
+                                        symbol, signal.direction, _locked_dir, int(_elapsed),
+                                    )
+                                    continue
+                                elif _locked_dir == signal.direction:
+                                    # Same direction repeat — suppress SHORT spam
+                                    logger.info(
+                                        "REPEAT LOCK: %s %s suppressed — same direction fired %ds ago",
+                                        symbol, signal.direction, int(_elapsed),
+                                    )
+                                    continue
 
                     # Generate AI narrative for education context
                     _narrative = ""
