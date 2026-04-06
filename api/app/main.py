@@ -228,25 +228,26 @@ async def lifespan(app: FastAPI):
         _webhook_base = _os.environ.get("RAILWAY_STATIC_URL")
     # Last resort: if DATABASE_URL is set, we're on Railway — use known domain
     if not _webhook_base and _os.environ.get("DATABASE_URL"):
-        _webhook_base = "https://www.tradesignalwithai.com"
+        _webhook_base = "https://www.tradingwithai.ai"
         logger.info("Telegram webhook: using fallback production domain")
 
+    import sys
+    from pathlib import Path
+    _scripts = str(Path(__file__).resolve().parents[2] / "scripts")
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
+
+    logger.info("Telegram bot: webhook_base=%s, scripts_path=%s", _webhook_base or "(none)", _scripts)
+
     try:
-        import sys
-        from pathlib import Path
-        _scripts = str(Path(__file__).resolve().parents[2] / "scripts")
-        if _scripts not in sys.path:
-            sys.path.insert(0, _scripts)
-
-        logger.info("Telegram bot: webhook_base=%s", _webhook_base or "(none — polling mode)")
-
         if _webhook_base:
             # Production: use webhook — Telegram pushes updates to us
             from telegram_bot import setup_webhook
+            logger.info("Telegram bot: calling setup_webhook(%s)", _webhook_base)
             if await setup_webhook(_webhook_base):
                 logger.info("Telegram bot started (webhook mode)")
             else:
-                logger.warning("Telegram webhook setup failed — check token and URL")
+                logger.warning("Telegram webhook setup returned False — check token and URL")
         else:
             # Local dev: use polling (no public URL available)
             from telegram_bot import start_bot_thread

@@ -528,8 +528,11 @@ async def setup_webhook(webhook_base_url: str) -> bool:
     """
     global _webhook_app
 
+    logger.info("setup_webhook called with base_url=%s", webhook_base_url)
+
     try:
         from telegram.ext import ApplicationBuilder  # noqa: F401
+        logger.info("python-telegram-bot imported OK")
     except ImportError:
         logger.warning("python-telegram-bot not installed — webhook disabled")
         return False
@@ -539,24 +542,31 @@ async def setup_webhook(webhook_base_url: str) -> bool:
         logger.warning("TELEGRAM_BOT_TOKEN not set — webhook disabled")
         return False
 
+    logger.info("Bot token found: ...%s", bot_token[-6:])
+
     webhook_path = f"/telegram/webhook/{bot_token[-10:]}"
     webhook_url = f"{webhook_base_url.rstrip('/')}{webhook_path}"
 
-    app = _build_app(bot_token)
-    await app.initialize()
+    try:
+        app = _build_app(bot_token)
+        await app.initialize()
+        logger.info("Telegram app initialized, setting webhook to %s", webhook_url)
 
-    # Register webhook with Telegram
-    await app.bot.set_webhook(
-        url=webhook_url,
-        allowed_updates=["message", "callback_query"],
-        drop_pending_updates=True,
-    )
+        # Register webhook with Telegram
+        await app.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True,
+        )
 
-    await app.start()
-    _webhook_app = app
+        await app.start()
+        _webhook_app = app
 
-    logger.info("Telegram webhook registered: %s", webhook_url)
-    return True
+        logger.info("Telegram webhook registered: %s", webhook_url)
+        return True
+    except Exception:
+        logger.exception("setup_webhook failed during bot initialization")
+        return False
 
 
 async def process_webhook_update(update_data: dict) -> None:
