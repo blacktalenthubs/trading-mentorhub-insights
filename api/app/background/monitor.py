@@ -465,10 +465,23 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         except (TypeError, ValueError):
                             return v
 
-                    # Clean message — strip SPY noise before storing
+                    # Clean message — keep useful details, strip SPY noise
+                    import re as _re_clean
                     _clean_msg = signal.message or ""
                     if " | " in _clean_msg:
-                        _clean_msg = _clean_msg.split(" | ")[0].strip()
+                        _parts = _clean_msg.split(" | ")
+                        _noise_patterns = (
+                            "SPY ", "CAUTION:", "BOUNCE QUALITY:",
+                            "CHOPPY", "normal volume", "Defending",
+                            "15m trend", "HA bearish", "HA bullish",
+                            "session:", "reduced confidence",
+                            "SPY at ", "market —",
+                        )
+                        _clean_parts = [
+                            p for p in _parts
+                            if not any(p.strip().startswith(n) or n in p for n in _noise_patterns)
+                        ]
+                        _clean_msg = " | ".join(_clean_parts).strip()
 
                     # Record alert
                     alert = Alert(
