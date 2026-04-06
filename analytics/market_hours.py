@@ -18,7 +18,7 @@ ET = pytz.timezone("US/Eastern")
 # Session phases: (start_hour, start_minute, end_hour, end_minute)
 SESSION_PHASES = {
     "pre_market": (4, 0, 9, 30),
-    "opening_range": (9, 30, 10, 0),
+    "opening_range": (9, 30, 9, 35),  # 5 min — just first candle, not 30 min
     "prime_time": (10, 0, 15, 0),
     "power_hour": (15, 0, 15, 30),
     "last_30": (15, 30, 16, 0),
