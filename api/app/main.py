@@ -214,23 +214,53 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to start background monitor")
 
-    # Start Telegram bot listener (handles /start, Took/Skip/Exit callbacks)
-    try:
-        import sys
-        from pathlib import Path
-        _scripts = str(Path(__file__).resolve().parents[2] / "scripts")
-        if _scripts not in sys.path:
-            sys.path.insert(0, _scripts)
-        from telegram_bot import start_bot_thread
-        if start_bot_thread():
-            logger.info("Telegram bot listener started")
-        else:
-            logger.warning("Telegram bot listener not started (token missing or import error)")
-    except Exception:
-        logger.exception("Failed to start Telegram bot listener")
+    # Start Telegram bot — webhook on Railway, polling for local dev
+    import os as _os
+    import sys
+    from pathlib import Path
+    _scripts = str(Path(__file__).resolve().parents[2] / "scripts")
+    if _scripts not in sys.path:
+        sys.path.insert(0, _scripts)
+
+    _use_webhook = bool(_os.environ.get("DATABASE_URL"))  # Railway has DATABASE_URL
+    logger.info("Telegram bot: mode=%s", "webhook" if _use_webhook else "polling")
+
+    if _use_webhook:
+        # Production: webhook mode — no 409 conflicts
+        _webhook_base = _os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+        if _webhook_base:
+            _webhook_base = f"https://{_webhook_base}"
+        if not _webhook_base:
+            _webhook_base = "https://www.tradingwithai.ai"
+        logger.info("Telegram bot: webhook_base=%s", _webhook_base)
+        try:
+            from telegram_bot import setup_webhook
+            if await setup_webhook(_webhook_base):
+                logger.info("Telegram bot started (webhook mode)")
+            else:
+                logger.warning("Telegram webhook setup failed")
+        except Exception:
+            logger.exception("Telegram webhook setup exception")
+    else:
+        # Local dev: polling (no public URL)
+        try:
+            from telegram_bot import start_bot_thread
+            if start_bot_thread():
+                logger.info("Telegram bot started (polling mode)")
+            else:
+                logger.warning("Telegram bot not started (token missing)")
+        except Exception:
+            logger.exception("Telegram polling setup exception")
 
     yield
 
+    # Shutdown
+    if _use_webhook:
+        try:
+            from telegram_bot import shutdown_webhook
+            await shutdown_webhook()
+        except Exception:
+            pass
     if scheduler:
         scheduler.shutdown(wait=False)
     if sync_engine:
@@ -268,7 +298,7 @@ def create_app() -> FastAPI:
             host = request.headers.get("host", "")
             path = request.url.path
             # Only redirect non-API, non-health paths (don't break API calls)
-            if "tradesignalwithai.com" in host and not path.startswith("/api/") and path != "/healthz":
+            if "tradesignalwithai.com" in host and not path.startswith(("/api/", "/telegram/")) and path != "/healthz":
                 new_url = f"https://www.tradingwithai.ai{path}"
                 if request.url.query:
                     new_url += f"?{request.url.query}"
@@ -306,6 +336,23 @@ def create_app() -> FastAPI:
     app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
+
+    # --- Telegram webhook route (must be before SPA catch-all) ---
+    from fastapi import Request
+    from fastapi.responses import JSONResponse as _JSONResponse
+    try:
+        from telegram_bot import get_webhook_path, process_webhook_update
+        _tg_path = get_webhook_path()
+
+        @app.post(_tg_path, include_in_schema=False)
+        async def telegram_webhook(request: Request):
+            data = await request.json()
+            await process_webhook_update(data)
+            return _JSONResponse({"ok": True})
+
+        logger.info("Telegram webhook route: POST %s", _tg_path)
+    except Exception:
+        logger.warning("Could not register Telegram webhook route")
 
     # --- Serve React frontend (production) ---
     import os

@@ -491,6 +491,95 @@ def _build_app(bot_token: str):
     return app
 
 
+def _get_bot_token() -> str | None:
+    """Resolve the Telegram bot token from env or alert_config."""
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        try:
+            from alert_config import TELEGRAM_BOT_TOKEN
+            bot_token = TELEGRAM_BOT_TOKEN
+        except Exception:
+            pass
+    return bot_token
+
+
+# ---------------------------------------------------------------------------
+# Webhook mode (production — eliminates 409 polling conflicts)
+# ---------------------------------------------------------------------------
+
+_webhook_app = None
+
+
+def get_webhook_path() -> str:
+    """Return the webhook URL path (for registering the FastAPI route)."""
+    bot_token = _get_bot_token()
+    if not bot_token:
+        return "/telegram/webhook/disabled"
+    return f"/telegram/webhook/{bot_token[-10:]}"
+
+
+async def setup_webhook(webhook_base_url: str) -> bool:
+    """Set up Telegram webhook. Call from FastAPI lifespan."""
+    global _webhook_app
+
+    logger.info("setup_webhook: starting with base_url=%s", webhook_base_url)
+
+    bot_token = _get_bot_token()
+    if not bot_token:
+        logger.warning("setup_webhook: no TELEGRAM_BOT_TOKEN — skipping")
+        return False
+
+    try:
+        webhook_path = f"/telegram/webhook/{bot_token[-10:]}"
+        webhook_url = f"{webhook_base_url.rstrip('/')}{webhook_path}"
+
+        app = _build_app(bot_token)
+        await app.initialize()
+
+        await app.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True,
+        )
+
+        await app.start()
+        _webhook_app = app
+
+        logger.info("setup_webhook: registered %s", webhook_url)
+        return True
+    except Exception:
+        logger.exception("setup_webhook: failed")
+        return False
+
+
+async def process_webhook_update(update_data: dict) -> None:
+    """Process an incoming webhook update from Telegram."""
+    if _webhook_app is None:
+        logger.warning("Webhook update received but bot not initialized")
+        return
+
+    from telegram import Update
+    update = Update.de_json(update_data, _webhook_app.bot)
+    await _webhook_app.process_update(update)
+
+
+async def shutdown_webhook() -> None:
+    """Clean shutdown — remove webhook and stop the app."""
+    global _webhook_app
+    if _webhook_app is not None:
+        try:
+            await _webhook_app.bot.delete_webhook()
+            await _webhook_app.stop()
+            await _webhook_app.shutdown()
+        except Exception:
+            logger.exception("shutdown_webhook: error")
+        _webhook_app = None
+
+
+# ---------------------------------------------------------------------------
+# Polling mode (local dev only — no public URL available)
+# ---------------------------------------------------------------------------
+
 def start_bot_thread() -> bool:
     """Start the Telegram bot polling in a background daemon thread.
 
