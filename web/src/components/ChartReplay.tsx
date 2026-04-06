@@ -214,7 +214,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
         if (prev >= data.bars.length) { setPlaying(false); return data.bars.length; }
         return prev + 1;
       });
-    }, 800 / speed);
+    }, 1500 / speed);
     return () => clearInterval(timer);
   }, [playing, speed, data]);
 
@@ -403,7 +403,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
           {/* Speed */}
           <div className="flex items-center gap-1">
-            {[1, 2, 5].map((s) => (
+            {[0.5, 1, 2, 5].map((s) => (
               <button
                 key={s}
                 onClick={() => setSpeed(s)}
