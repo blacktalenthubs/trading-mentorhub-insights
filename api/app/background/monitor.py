@@ -465,6 +465,11 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         except (TypeError, ValueError):
                             return v
 
+                    # Clean message — strip SPY noise before storing
+                    _clean_msg = signal.message or ""
+                    if " | " in _clean_msg:
+                        _clean_msg = _clean_msg.split(" | ")[0].strip()
+
                     # Record alert
                     alert = Alert(
                         user_id=user_id,
@@ -477,7 +482,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         target_1=_py(signal.target_1),
                         target_2=_py(signal.target_2),
                         confidence=signal.confidence,
-                        message=signal.message,
+                        message=_clean_msg,
                         narrative=_narrative,
                         score=int(signal.score) if signal.score else 0,
                         session_date=_sym_session,

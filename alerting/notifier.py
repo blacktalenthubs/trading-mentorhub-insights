@@ -39,6 +39,34 @@ def _get_app_url() -> str:
     return url.rstrip("/")
 
 
+def _clean_message(msg: str | None) -> str:
+    """Strip noisy context from alert messages for Telegram delivery.
+
+    Removes SPY details, bounce quality, volume notes, regime warnings,
+    and other verbose context that clutters the notification.
+    """
+    if not msg:
+        return ""
+    import re
+    # Take only the first segment before " | " separators
+    clean = msg.split(" | ")[0]
+    # Remove common noise patterns
+    _noise = [
+        r"\s*CAUTION:.*$",
+        r"\s*BOUNCE QUALITY:.*$",
+        r"\s*SPY (?:also|at|regime|bearish|bullish).*$",
+        r"\s*CHOPPY market.*$",
+        r"\s*normal volume.*$",
+        r"\s*Defending.*$",
+        r"\s*15m trend.*$",
+        r"\s*session:\s*\w+\s*$",
+        r"\s*\d+MA confluence.*$",
+    ]
+    for pattern in _noise:
+        clean = re.sub(pattern, "", clean, flags=re.IGNORECASE)
+    return clean.strip()
+
+
 def _format_sms_body(signal: AlertSignal) -> str | None:
     """Build a concise SMS/Telegram message. Returns None to skip Telegram.
 
@@ -174,8 +202,8 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
     # LONG (BUY) and SHORT only — minimal format for entry evaluation
     _dir = "SHORT" if signal.direction == "SHORT" else "LONG"
-    # Use message prefix (e.g. "EMA50 REJECTION") when available for specificity
-    _reason = signal.message.split(" — ")[0] if signal.message and " — " in signal.message else label
+    # Clean message — strip SPY noise, take only the core reason
+    _reason = _clean_message(signal.message.split(" — ")[0]) if signal.message and " — " in signal.message else label
 
     parts = [f"<b>{_dir} {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
 
