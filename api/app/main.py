@@ -220,9 +220,16 @@ async def lifespan(app: FastAPI):
     _webhook_base = _os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if _webhook_base:
         _webhook_base = f"https://{_webhook_base}"
-    # Also accept explicit override
+    # Explicit override
     if not _webhook_base:
         _webhook_base = _os.environ.get("WEBHOOK_BASE_URL")
+    # Auto-detect: RAILWAY_STATIC_URL is set on Railway (includes https://)
+    if not _webhook_base:
+        _webhook_base = _os.environ.get("RAILWAY_STATIC_URL")
+    # Last resort: if DATABASE_URL is set, we're on Railway — use known domain
+    if not _webhook_base and _os.environ.get("DATABASE_URL"):
+        _webhook_base = "https://www.tradesignalwithai.com"
+        logger.info("Telegram webhook: using fallback production domain")
 
     try:
         import sys
