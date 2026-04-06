@@ -41,7 +41,7 @@ const PLANS = [
   {
     id: "pro",
     name: "Pro",
-    price: "$29",
+    price: "$49",
     period: "/month",
     popular: true,
     features: [
@@ -59,7 +59,7 @@ const PLANS = [
   {
     id: "premium",
     name: "Premium",
-    price: "$79",
+    price: "$99",
     period: "/month",
     features: [
       "Everything in Pro",

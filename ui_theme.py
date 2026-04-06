@@ -1099,7 +1099,7 @@ TIER_FEATURES = {
     ],
 }
 
-TIER_PRICES = {"free": "$0", "pro": "$29/mo", "elite": "$59/mo"}
+TIER_PRICES = {"free": "$0", "pro": "$49/mo", "elite": "$99/mo"}
 
 FREE_TIER_LIMITS = {
     "ai_queries_per_day": 3,
@@ -1446,12 +1446,12 @@ def render_landing_page():
             "Pattern scanner (15-min delay)", "5-symbol watchlist",
             "Basic candlestick charts", "Community Telegram group",
         ]),
-        ("Pro", "$29", "/month", "#3498db", [
+        ("Pro", "$49", "/month", "#3498db", [
             "Real-time pattern alerts", "Unlimited watchlist",
             "Telegram DM alerts", "AI Pattern Explanations",
             "Full alert history", "Performance analytics",
         ]),
-        ("Elite", "$79", "/month", "#f39c12", [
+        ("Elite", "$99", "/month", "#f39c12", [
             "Everything in Pro", "AI Learning Coach",
             "Backtesting engine", "Paper trading simulator",
             "Priority support",

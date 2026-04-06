@@ -353,7 +353,7 @@ function Pricing() {
     },
     {
       name: "Pro",
-      price: "$29",
+      price: "$49",
       period: "/month",
       desc: "For active traders who want an edge",
       cta: "Start Free Trial",
@@ -371,7 +371,7 @@ function Pricing() {
     },
     {
       name: "Premium",
-      price: "$79",
+      price: "$99",
       period: "/month",
       desc: "For serious traders who want full control",
       cta: "Start Free Trial",
@@ -672,7 +672,7 @@ function Comparison() {
     { feature: "AI coaching based on YOUR data", us: true, tv: false, ti: false, disc: false },
     { feature: "Chart replay with AI narration", us: true, tv: false, ti: false, disc: false },
     { feature: "3-day free Pro trial", us: true, tv: false, ti: false, disc: false },
-    { feature: "Price", us: "$29/mo", tv: "$15+/mo", ti: "$228/mo", disc: "$50-500/mo" },
+    { feature: "Price", us: "$49/mo", tv: "$15+/mo", ti: "$228/mo", disc: "$50-500/mo" },
   ];
 
   return (
