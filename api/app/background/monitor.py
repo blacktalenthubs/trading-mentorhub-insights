@@ -388,6 +388,59 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     logger.exception("Error evaluating %s for user %d", symbol, user_id)
                     continue
 
+                # Intraday SWING WATCH — detect when price approaches key daily levels
+                # One notice per symbol per session (dedup via fired_today)
+                if prior_day and intraday is not None and len(intraday) >= 6 and not _is_crypto:
+                    _sw_key = (symbol, "_swing_watch")
+                    if _sw_key not in fired_today:
+                        _last_close = float(intraday.iloc[-1]["Close"])
+                        _last_low = float(intraday.iloc[-1]["Low"])
+                        _rsi = prior_day.get("rsi14")
+                        _ma200 = prior_day.get("ma200") or prior_day.get("ema200") or 0
+                        _ma50 = prior_day.get("ema50") or prior_day.get("ma50") or 0
+                        _pw_low = prior_day.get("prior_week_low") or 0
+                        _swing_msg = None
+
+                        # Approaching 200MA from above (within 1.5%)
+                        if _ma200 > 0 and _last_low <= _ma200 * 1.015 and _last_close > _ma200:
+                            _swing_msg = f"Approaching 200MA ${_ma200:.2f} — watch for daily close hold"
+                        # Approaching 50MA from above (within 1%)
+                        elif _ma50 > 0 and _last_low <= _ma50 * 1.01 and _last_close > _ma50:
+                            _swing_msg = f"Approaching 50MA ${_ma50:.2f} — watch for daily close hold"
+                        # RSI approaching 30
+                        elif _rsi and _rsi < 35 and _rsi > 28:
+                            _swing_msg = f"RSI {_rsi:.0f} approaching oversold — watch for RSI 30 bounce"
+                        # Approaching weekly support (within 1.5%)
+                        elif _pw_low > 0 and _last_low <= _pw_low * 1.015 and _last_close > _pw_low:
+                            _swing_msg = f"Approaching weekly support ${_pw_low:.2f} — watch for hold"
+
+                        if _swing_msg:
+                            fired_today.add(_sw_key)
+                            _user = user_rows.get(user_id)
+                            if _user and _user.telegram_enabled and _user.telegram_chat_id:
+                                try:
+                                    from alerting.notifier import _send_telegram_to
+                                    _msg = (
+                                        f"<b>SWING WATCH — {symbol} ${_last_close:.2f}</b>\n"
+                                        f"{_swing_msg}\n"
+                                        f"Confirm at daily close for swing entry"
+                                    )
+                                    _send_telegram_to(_msg, _user.telegram_chat_id)
+                                    logger.info("SWING WATCH: user=%d %s %s", user_id, symbol, _swing_msg)
+                                except Exception:
+                                    pass
+                            # Also record as alert so it shows in Signal Feed
+                            _sw_alert = Alert(
+                                user_id=user_id,
+                                symbol=symbol,
+                                alert_type="swing_watch",
+                                direction="NOTICE",
+                                price=_last_close,
+                                message=_swing_msg,
+                                session_date=_sym_session,
+                            )
+                            db.add(_sw_alert)
+
                 # BUG-4 fix: adjust BUY targets to nearest overhead resistance
                 if prior_day and signals:
                     _overhead = []
