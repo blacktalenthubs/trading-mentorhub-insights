@@ -483,13 +483,7 @@ def _build_app(bot_token: str):
         # Send confirmation as a separate message
         await query.message.reply_text(result)
 
-    app = (
-        ApplicationBuilder()
-        .token(bot_token)
-        .read_timeout(10)
-        .connect_timeout(10)
-        .build()
-    )
+    app = ApplicationBuilder().token(bot_token).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("exit", exit_command))
     app.add_handler(CommandHandler("trades", trades_command))
@@ -497,124 +491,12 @@ def _build_app(bot_token: str):
     return app
 
 
-def _get_bot_token() -> str | None:
-    """Resolve the Telegram bot token from env or alert_config."""
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        try:
-            from alert_config import TELEGRAM_BOT_TOKEN
-            bot_token = TELEGRAM_BOT_TOKEN
-        except Exception:
-            pass
-    return bot_token
-
-
-# ---------------------------------------------------------------------------
-# Webhook mode (preferred for Railway — eliminates 409 polling conflicts)
-# ---------------------------------------------------------------------------
-
-# Module-level reference so the FastAPI route can process updates
-_webhook_app = None
-
-
-async def setup_webhook(webhook_base_url: str) -> bool:
-    """Set up Telegram webhook mode. Call from FastAPI lifespan.
-
-    Args:
-        webhook_base_url: The public HTTPS URL of the FastAPI app,
-            e.g. "https://worker-production-f56f.up.railway.app"
-
-    Returns True if webhook was set successfully.
-    """
-    global _webhook_app
-
-    logger.info("setup_webhook called with base_url=%s", webhook_base_url)
-
-    try:
-        from telegram.ext import ApplicationBuilder  # noqa: F401
-        logger.info("python-telegram-bot imported OK")
-    except ImportError:
-        logger.warning("python-telegram-bot not installed — webhook disabled")
-        return False
-
-    bot_token = _get_bot_token()
-    if not bot_token:
-        logger.warning("TELEGRAM_BOT_TOKEN not set — webhook disabled")
-        return False
-
-    logger.info("Bot token found: ...%s", bot_token[-6:])
-
-    webhook_path = f"/telegram/webhook/{bot_token[-10:]}"
-    webhook_url = f"{webhook_base_url.rstrip('/')}{webhook_path}"
-
-    try:
-        app = _build_app(bot_token)
-        await app.initialize()
-        logger.info("Telegram app initialized, setting webhook to %s", webhook_url)
-
-        # Register webhook with Telegram
-        await app.bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=["message", "callback_query"],
-            drop_pending_updates=True,
-        )
-
-        await app.start()
-        _webhook_app = app
-
-        logger.info("Telegram webhook registered: %s", webhook_url)
-        return True
-    except Exception:
-        logger.exception("setup_webhook failed during bot initialization")
-        return False
-
-
-async def process_webhook_update(update_data: dict) -> None:
-    """Process an incoming webhook update from Telegram.
-    Called by the FastAPI route handler."""
-    if _webhook_app is None:
-        logger.warning("Webhook update received but bot app not initialized")
-        return
-
-    from telegram import Update
-    update = Update.de_json(update_data, _webhook_app.bot)
-    await _webhook_app.process_update(update)
-
-
-async def shutdown_webhook() -> None:
-    """Clean shutdown — remove webhook and stop the app."""
-    global _webhook_app
-    if _webhook_app is not None:
-        try:
-            await _webhook_app.bot.delete_webhook()
-            await _webhook_app.stop()
-            await _webhook_app.shutdown()
-        except Exception:
-            logger.exception("Error during webhook shutdown")
-        _webhook_app = None
-
-
-def get_webhook_path() -> str:
-    """Return the webhook URL path (for registering the FastAPI route)."""
-    bot_token = _get_bot_token()
-    if not bot_token:
-        return "/telegram/webhook/disabled"
-    return f"/telegram/webhook/{bot_token[-10:]}"
-
-
-# ---------------------------------------------------------------------------
-# Polling mode (fallback for local dev where there's no public HTTPS URL)
-# ---------------------------------------------------------------------------
-
 def start_bot_thread() -> bool:
     """Start the Telegram bot polling in a background daemon thread.
 
     Returns True if the bot was started, False if dependencies are missing
     or TELEGRAM_BOT_TOKEN is not set.  Safe to call multiple times — only
     the first call starts the bot.
-
-    NOTE: Prefer webhook mode (setup_webhook) in production. Polling mode
-    suffers from 409 conflicts when multiple instances run simultaneously.
     """
     import threading
 
@@ -631,7 +513,14 @@ def start_bot_thread() -> bool:
         start_bot_thread._started = False
         return False
 
-    bot_token = _get_bot_token()
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        # Fallback: read from alert_config which uses _get_secret (supports Railway)
+        try:
+            from alert_config import TELEGRAM_BOT_TOKEN
+            bot_token = TELEGRAM_BOT_TOKEN
+        except Exception:
+            pass
     if not bot_token:
         logger.warning("TELEGRAM_BOT_TOKEN not set — bot listener disabled")
         start_bot_thread._started = False
@@ -639,32 +528,14 @@ def start_bot_thread() -> bool:
 
     def _run():
         import asyncio
-        import urllib.request
-        import time
-
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            # Clear any existing webhook so polling works
-            try:
-                urllib.request.urlopen(
-                    f"https://api.telegram.org/bot{bot_token}/deleteWebhook?drop_pending_updates=true",
-                    timeout=5,
-                )
-                logger.info("Telegram: cleared webhook + pending updates")
-            except Exception:
-                pass
-
-            time.sleep(3)
-
             app = _build_app(bot_token)
-            logger.info("Telegram bot listener starting (polling mode)...")
+            logger.info("Telegram bot listener starting (background thread)...")
             loop.run_until_complete(app.initialize())
             loop.run_until_complete(app.start())
-            loop.run_until_complete(app.updater.start_polling(
-                drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"],
-            ))
+            loop.run_until_complete(app.updater.start_polling())
             loop.run_forever()
         except Exception:
             logger.exception("Telegram bot listener crashed")
@@ -672,7 +543,7 @@ def start_bot_thread() -> bool:
 
     t = threading.Thread(target=_run, daemon=True, name="telegram-bot")
     t.start()
-    logger.info("Telegram bot listener thread started (polling mode)")
+    logger.info("Telegram bot listener thread started")
     return True
 
 
