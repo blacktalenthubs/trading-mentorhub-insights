@@ -95,11 +95,15 @@ function CandlestickChartInner({
     };
   }, [height, hideWicks]);
 
-  // Update data + indicators
+  // Update data + indicators — preserve scroll position
   useEffect(() => {
     if (!seriesRef.current || !chartRef.current || !data.length) return;
 
     const chart = chartRef.current;
+
+    // Save current visible range before updating
+    const timeScale = chart.timeScale();
+    const savedRange = timeScale.getVisibleLogicalRange();
 
     // Remove previous line series
     for (const ls of lineSeriesRefs.current) {
@@ -228,14 +232,15 @@ function CandlestickChartInner({
       priceLinesRef.current.push(line);
     }
 
-    // Show last N bars based on data density — don't show ALL bars
-    // This gives a zoomed-in view that's immediately useful
-    const ts = chart.timeScale();
-    if (data.length > 80) {
-      // Show last 80 bars with some right padding
-      ts.setVisibleLogicalRange({ from: data.length - 80, to: data.length + 5 });
+    // Restore saved scroll position, or set initial view on first load
+    if (savedRange) {
+      // User had a position — restore it (just shift to include any new bars)
+      timeScale.setVisibleLogicalRange(savedRange);
+    } else if (data.length > 80) {
+      // First load: show last 80 bars
+      timeScale.setVisibleLogicalRange({ from: data.length - 80, to: data.length + 5 });
     } else {
-      ts.fitContent();
+      timeScale.fitContent();
     }
   }, [data, levels, entry, stop, target, indicators, hideWicks]);
 
