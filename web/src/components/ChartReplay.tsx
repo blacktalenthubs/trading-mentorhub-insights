@@ -90,8 +90,11 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => {
         setData(d);
-        setVisibleCount(Math.max(1, d.alert_bar_index));
+        // Start 3 bars before the alert — so viewer sees setup, then entry unfolds
+        setVisibleCount(Math.max(1, d.alert_bar_index - 3));
         setLoading(false);
+        // Auto-play after a brief pause so viewer sees the setup first
+        setTimeout(() => setPlaying(true), 1500);
       })
       .catch(() => { setError(true); setLoading(false); });
   }, [alertId]);
@@ -131,7 +134,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       crosshair: { mode: 1 },
       rightPriceScale: {
         autoScale: true,
-        scaleMargins: { top: 0.08, bottom: 0.08 },
+        scaleMargins: { top: 0.12, bottom: 0.12 },
       },
       timeScale: { rightOffset: 3 },
     });
