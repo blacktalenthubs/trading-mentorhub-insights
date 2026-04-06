@@ -287,60 +287,71 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 ]
 
                 # BUG-10 fix: check if current price reached any active entry's T1
-                # Send NOTIFICATION (not close) so user can take profits
-                if active_rows and intraday is not None and not (hasattr(intraday, "empty") and intraday.empty):
-                    _last_price = float(intraday.iloc[-1]["Close"])
-                    for ae in active_rows:
-                        _t1 = ae.target_1 or 0
-                        _entry = ae.entry_price or 0
-                        if _t1 > 0 and _entry > 0 and _last_price >= _t1 * 0.998:
-                            # Check if we already sent this notification (dedup)
-                            _t1_key = (symbol, f"_t1_notify_{ae.id}")
-                            if _t1_key not in fired_today:
-                                fired_today.add(_t1_key)
-                                _pnl = round(_last_price - _entry, 2)
-                                _pnl_pct = round((_pnl / _entry) * 100, 2)
-                                # Send via Telegram
-                                _user = user_rows.get(user_id)
-                                if _user and _user.telegram_enabled and _user.telegram_chat_id:
-                                    try:
-                                        from alerting.notifier import _send_telegram_to, _build_trade_buttons
-                                        # Check if T1 is at a key resistance level (PDH, session high)
-                                        _at_resistance = False
-                                        _resistance_label = ""
-                                        if prior_day:
-                                            _pdh = prior_day.get("high", 0)
-                                            if _pdh > 0 and abs(_t1 - _pdh) / _pdh < 0.003:
-                                                _at_resistance = True
-                                                _resistance_label = "PDH"
-                                        _reversal_hint = ""
-                                        if _at_resistance:
-                                            _reversal_hint = f"\nAt {_resistance_label} resistance — potential SHORT reversal"
+                # Only notify if user has an OPEN real trade (clicked "Took")
+                # One T1 notification per symbol per session — no spam
+                _t1_symbol_key = (symbol, "_t1_notify")
+                if (active_rows and intraday is not None
+                        and not (hasattr(intraday, "empty") and intraday.empty)
+                        and _t1_symbol_key not in fired_today):
+                    # Check if user has an open real trade for this symbol
+                    from app.models.paper_trade import RealTrade
+                    _has_open_trade = db.execute(
+                        select(RealTrade.id).where(
+                            RealTrade.user_id == user_id,
+                            RealTrade.symbol == symbol,
+                            RealTrade.status == "open",
+                        ).limit(1)
+                    ).scalar_one_or_none()
 
-                                        _msg = (
-                                            f"<b>T1 REACHED — {symbol} ${_last_price:.2f}</b>\n"
-                                            f"Your LONG from ${_entry:.2f} is at target\n"
-                                            f"P&L: ${_pnl:.2f} ({_pnl_pct:+.1f}%)\n"
-                                            f"Take profits or trail stop"
-                                            f"{_reversal_hint}"
-                                        )
-                                        # Include Exit button via inline keyboard
-                                        _alert_row = db.execute(
-                                            select(Alert.id).where(
-                                                Alert.user_id == user_id,
-                                                Alert.symbol == symbol,
-                                                Alert.alert_type == "target_1_hit",
-                                            ).order_by(Alert.id.desc()).limit(1)
-                                        ).scalar_one_or_none()
-                                        _buttons = {
-                                            "inline_keyboard": [[
-                                                {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{_alert_row or ae.id}"},
-                                            ]]
-                                        } if _alert_row else None
-                                        _send_telegram_to(_msg, _user.telegram_chat_id, reply_markup=_buttons)
-                                        logger.info("T1 NOTIFY: user=%d %s T1=$%.2f reached, entry=$%.2f", user_id, symbol, _t1, _entry)
-                                    except Exception:
-                                        pass
+                    if _has_open_trade:
+                        _last_price = float(intraday.iloc[-1]["Close"])
+                        # Find the best active entry with T1
+                        _best_ae = None
+                        for ae in active_rows:
+                            _t1 = ae.target_1 or 0
+                            _entry = ae.entry_price or 0
+                            if _t1 > 0 and _entry > 0 and _last_price >= _t1 * 0.998:
+                                _best_ae = ae
+                                break
+
+                        if _best_ae:
+                            ae = _best_ae
+                            _t1 = ae.target_1
+                            _entry = ae.entry_price
+                            fired_today.add(_t1_symbol_key)
+                            _pnl = round(_last_price - _entry, 2)
+                            _pnl_pct = round((_pnl / _entry) * 100, 2)
+                            _user = user_rows.get(user_id)
+                            if _user and _user.telegram_enabled and _user.telegram_chat_id:
+                                try:
+                                    from alerting.notifier import _send_telegram_to
+                                    _at_resistance = False
+                                    _resistance_label = ""
+                                    if prior_day:
+                                        _pdh = prior_day.get("high", 0)
+                                        if _pdh > 0 and abs(_t1 - _pdh) / _pdh < 0.003:
+                                            _at_resistance = True
+                                            _resistance_label = "PDH"
+                                    _reversal_hint = ""
+                                    if _at_resistance:
+                                        _reversal_hint = f"\nAt {_resistance_label} resistance — potential SHORT reversal"
+
+                                    _msg = (
+                                        f"<b>T1 REACHED — {symbol} ${_last_price:.2f}</b>\n"
+                                        f"Your LONG from ${_entry:.2f} is at target\n"
+                                        f"P&L: ${_pnl:.2f} ({_pnl_pct:+.1f}%)\n"
+                                        f"Take profits or trail stop"
+                                        f"{_reversal_hint}"
+                                    )
+                                    _buttons = {
+                                        "inline_keyboard": [[
+                                            {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{ae.id}"},
+                                        ]]
+                                    }
+                                    _send_telegram_to(_msg, _user.telegram_chat_id, reply_markup=_buttons)
+                                    logger.info("T1 NOTIFY: user=%d %s T1=$%.2f reached, entry=$%.2f", user_id, symbol, _t1, _entry)
+                                except Exception:
+                                    pass
 
                 # ENHANCEMENT-3: Removed — retest bounce alerts were too noisy.
                 # Structural entries (PDL reclaim, consolidation breakout, MA bounce)
