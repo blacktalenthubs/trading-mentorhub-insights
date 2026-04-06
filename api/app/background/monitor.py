@@ -36,6 +36,9 @@ _spy_inside_day_notified: bool = False
 # Direction lock: once BUY/SHORT fires for a symbol, suppress opposite for 30 min
 _direction_lock: Dict[str, tuple] = {}  # {symbol: (direction, datetime)}
 
+# SPY SHORT gate: when SPY gets a SHORT alert, suppress equity BUY entries for 30 min
+_spy_short_time: "datetime | None" = None
+
 
 def poll_all_users(sync_session_factory) -> int:
     """Run one poll cycle for all Pro users.
@@ -55,7 +58,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.watchlist import WatchlistItem  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
 
-    global _last_buy_session, _spy_inside_day_notified
+    global _last_buy_session, _spy_inside_day_notified, _spy_short_time
     session_date = date.today().isoformat()
     # Crypto uses UTC date so dedup resets at midnight UTC (not server time)
     _utc_date = datetime.utcnow().date().isoformat()
@@ -417,6 +420,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
                 for signal in signals:
                   try:
+                    # SPY SHORT gate: if SPY shorted recently, suppress equity BUY entries
+                    if (signal.direction == "BUY"
+                            and not _is_crypto
+                            and symbol != "SPY"
+                            and _spy_short_time is not None
+                            and (datetime.utcnow() - _spy_short_time).total_seconds() < 1800):
+                        logger.info("SPY GATE: %s BUY suppressed — SPY SHORT fired %ds ago",
+                                    symbol, int((datetime.utcnow() - _spy_short_time).total_seconds()))
+                        continue
+
                     # Enforce per-symbol budget: max 2 entries per session
                     if signal.direction in ("BUY", "SHORT") and _entry_count >= 2:
                         logger.info("BUDGET: %s %s suppressed — %d entries already this session",
@@ -558,6 +571,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     if signal.direction in ("BUY", "SHORT"):
                         _direction_lock[symbol] = (signal.direction, datetime.utcnow())
                         _entry_count += 1
+                        # SPY SHORT gate: suppress equity BUYs for 30 min
+                        if symbol == "SPY" and signal.direction == "SHORT":
+                            _spy_short_time = datetime.utcnow()
+                            logger.info("SPY GATE SET: SPY SHORT fired — suppressing equity BUY entries for 30 min")
 
                     # Create active entry for BUY signals
                     _non_entry_types = {
