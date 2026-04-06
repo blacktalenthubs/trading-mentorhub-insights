@@ -195,6 +195,8 @@ function SignalCard({ alert: a }: { alert: Alert }) {
 function PositionRow({ trade }: { trade: RealTrade }) {
   const { data: bars } = useIntraday(trade.symbol);
   const closeTrade = useCloseTrade();
+  const [showCloseForm, setShowCloseForm] = useState(false);
+  const [exitPrice, setExitPrice] = useState("");
   const lastPrice = bars?.length ? bars[bars.length - 1].close : null;
   const pnl = lastPrice != null ? livePnl(trade, lastPrice) : null;
   const pnlPct = lastPrice != null && trade.entry_price > 0
@@ -202,11 +204,16 @@ function PositionRow({ trade }: { trade: RealTrade }) {
     : null;
 
   function handleClose() {
-    if (!lastPrice) return;
-    closeTrade.mutate({ id: trade.id, exit_price: lastPrice, notes: "Closed from dashboard" });
+    const price = parseFloat(exitPrice);
+    if (!price || price <= 0) return;
+    closeTrade.mutate(
+      { id: trade.id, exit_price: price, notes: "Closed from dashboard" },
+      { onSuccess: () => setShowCloseForm(false) },
+    );
   }
 
   return (
+    <>
     <tr className="border-b border-border-subtle/30 hover:bg-surface-2/30 transition-colors group">
       <td className="px-5 py-3">
         <div className="flex items-center gap-2.5">
@@ -240,14 +247,59 @@ function PositionRow({ trade }: { trade: RealTrade }) {
       </td>
       <td className="px-3 py-3">
         <button
-          onClick={handleClose}
-          disabled={!lastPrice || closeTrade.isPending}
+          onClick={() => {
+            setExitPrice(lastPrice?.toFixed(2) || "");
+            setShowCloseForm(!showCloseForm);
+          }}
+          disabled={closeTrade.isPending}
           className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-bearish-text bg-bearish/10 hover:bg-bearish/20 border border-bearish/20 px-2.5 py-1 rounded transition-all disabled:opacity-30"
         >
           {closeTrade.isPending ? "..." : "Close"}
         </button>
       </td>
     </tr>
+    {/* Exit price input row */}
+    {showCloseForm && (
+      <tr className="bg-surface-2/40">
+        <td colSpan={6} className="px-5 py-2.5">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-text-muted">Exit price:</span>
+            <input
+              type="number"
+              step="0.01"
+              value={exitPrice}
+              onChange={(e) => setExitPrice(e.target.value)}
+              className="w-32 bg-surface-3 border border-border-subtle rounded px-2.5 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30"
+              placeholder="0.00"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") handleClose(); if (e.key === "Escape") setShowCloseForm(false); }}
+            />
+            <button
+              onClick={handleClose}
+              disabled={!exitPrice || parseFloat(exitPrice) <= 0 || closeTrade.isPending}
+              className="text-xs font-bold text-white bg-bearish hover:bg-bearish/80 px-3 py-1.5 rounded transition-colors disabled:opacity-40"
+            >
+              {closeTrade.isPending ? "Closing..." : "Confirm Exit"}
+            </button>
+            <button
+              onClick={() => setShowCloseForm(false)}
+              className="text-xs text-text-faint hover:text-text-muted"
+            >
+              Cancel
+            </button>
+            {lastPrice && (
+              <button
+                onClick={() => setExitPrice(lastPrice.toFixed(2))}
+                className="text-[10px] text-accent hover:text-accent-hover"
+              >
+                Use current: ${lastPrice.toFixed(2)}
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
