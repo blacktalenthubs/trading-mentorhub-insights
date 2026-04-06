@@ -177,7 +177,10 @@ function CandlestickChartInner({
       const emaMatch = ind.key.match(/^ema(\d+)$/);
       if (smaMatch) lineData = computeSMA(closes, parseInt(smaMatch[1]));
       else if (emaMatch) lineData = computeEMA(closes, parseInt(emaMatch[1]));
-      else if (ind.key === "vwap") lineData = computeVWAP(barsForVWAP);
+      else if (ind.key === "vwap" && sessionBars.length >= 3) {
+        // VWAP only shows on today's session bars (not multi-day)
+        lineData = computeVWAP(barsForVWAP);
+      }
 
       if (lineData.length > 0) {
         // Sort ascending — Lightweight Charts requires asc order
