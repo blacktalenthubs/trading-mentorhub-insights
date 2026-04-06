@@ -243,6 +243,13 @@ def swing_scan_eod() -> int:
         for r in rows:
             fired_today.add((r["symbol"], r["alert_type"]))
 
+    # 3. Get all Pro users for per-user alert recording
+    try:
+        from db import get_pro_users_with_telegram
+        pro_users = get_pro_users_with_telegram()
+    except Exception:
+        pro_users = []
+
     # 3. Scan each watchlist symbol
     symbols = get_all_watchlist_symbols()
     for symbol in symbols:
@@ -269,21 +276,53 @@ def swing_scan_eod() -> int:
                     if sig and (symbol, sig.alert_type.value) not in fired_today:
                         signals.append(sig)
 
-            # Process signals
+            # Process signals — record per-user so they show in Signal Feed
             for sig in signals:
                 try:
-                    email_ok, sms_ok = notify(sig)
-                    record_alert(
-                        sig,
-                        session_date=session,
-                        notified_email=email_ok,
-                        notified_sms=sms_ok,
-                    )
                     fired_today.add((sig.symbol, sig.alert_type.value))
                     total += 1
 
                     # Create swing trade for setup signals
                     _maybe_create_trade(sig, prior_day, session)
+
+                    # Record alert + notify for each Pro user who has this symbol
+                    if pro_users:
+                        for u in pro_users:
+                            user_id = u.get("user_id")
+                            chat_id = u.get("telegram_chat_id", "")
+                            # Check if user has this symbol on watchlist
+                            try:
+                                from db import get_watchlist
+                                user_symbols = get_watchlist(user_id)
+                                if symbol not in user_symbols:
+                                    continue
+                            except Exception:
+                                continue
+
+                            record_alert(
+                                sig,
+                                session_date=session,
+                                user_id=user_id,
+                            )
+                            # Send per-user Telegram
+                            if chat_id:
+                                try:
+                                    from alerting.notifier import _format_sms_body, _send_telegram_to, _build_trade_buttons
+                                    body = _format_sms_body(sig)
+                                    if body:
+                                        buttons = _build_trade_buttons(sig, None)
+                                        _send_telegram_to(body, chat_id, reply_markup=buttons)
+                                except Exception:
+                                    pass
+                    else:
+                        # Fallback: record without user_id + global notify
+                        email_ok, sms_ok = notify(sig)
+                        record_alert(
+                            sig,
+                            session_date=session,
+                            notified_email=email_ok,
+                            notified_sms=sms_ok,
+                        )
 
                 except Exception:
                     logger.exception("Failed to process swing signal %s %s",
