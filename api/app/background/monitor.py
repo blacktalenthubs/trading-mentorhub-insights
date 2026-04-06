@@ -12,7 +12,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 _root = str(Path(__file__).resolve().parents[3])
@@ -405,8 +405,23 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 sig.target_2 = sig.target_1  # old T1 becomes T2
                                 sig.target_1 = round(_new_t1, 2)
 
+                # Per-symbol budget: max 2 entry alerts per symbol per session
+                _entry_count = db.execute(
+                    select(func.count()).where(
+                        Alert.user_id == user_id,
+                        Alert.symbol == symbol,
+                        Alert.session_date == _sym_session,
+                        Alert.direction.in_(["BUY", "SHORT"]),
+                    )
+                ).scalar() or 0
+
                 for signal in signals:
                   try:
+                    # Enforce per-symbol budget: max 2 entries per session
+                    if signal.direction in ("BUY", "SHORT") and _entry_count >= 2:
+                        logger.info("BUDGET: %s %s suppressed — %d entries already this session",
+                                    symbol, signal.alert_type.value, _entry_count)
+                        continue
                     # Dedup check
                     key = (symbol, signal.alert_type.value)
                     if key in fired_today:
@@ -539,9 +554,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     db.add(alert)
                     fired_today.add(key)
 
-                    # Set direction lock for this symbol
+                    # Set direction lock + increment budget counter
                     if signal.direction in ("BUY", "SHORT"):
                         _direction_lock[symbol] = (signal.direction, datetime.utcnow())
+                        _entry_count += 1
 
                     # Create active entry for BUY signals
                     _non_entry_types = {
