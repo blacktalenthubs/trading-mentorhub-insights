@@ -17,3 +17,4 @@ from app.models.device_token import DeviceToken  # noqa: F401
 from app.models.alert_prefs import UserAlertCategoryPref  # noqa: F401
 from app.models.usage import UsageLimit  # noqa: F401
 from app.models.telegram_link import TelegramLinkToken  # noqa: F401
+from app.models.referral import Referral  # noqa: F401

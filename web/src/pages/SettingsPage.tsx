@@ -4,7 +4,7 @@
  *  Telegram linking is prominent (step 1 of getting alerts).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
 import {
@@ -21,7 +21,7 @@ import {
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   Send, Bell, Shield, User, Key, ChevronRight, Check,
-  Smartphone, Mail, ExternalLink, Loader2, DollarSign,
+  Smartphone, Mail, ExternalLink, Loader2, DollarSign, Gift,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -472,6 +472,108 @@ export default function SettingsPage() {
 
         {/* Full width: Alert preferences */}
         <AlertPreferences />
+
+        {/* Referral program */}
+        <ReferralSection />
+      </div>
+    </div>
+  );
+}
+
+
+/* ── Referral Section ────────────────────────────────────────────── */
+
+function ReferralSection() {
+  const [data, setData] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
+  const [refCode, setRefCode] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [applyMsg, setApplyMsg] = useState("");
+
+  useEffect(() => {
+    api.get("/referral/code").then(setData).catch(() => {});
+  }, []);
+
+  function copyLink() {
+    if (!data?.share_url) return;
+    navigator.clipboard.writeText(data.share_url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function applyCode() {
+    if (!refCode.trim()) return;
+    setApplying(true);
+    setApplyMsg("");
+    try {
+      const res = await api.post<{ message: string }>("/referral/apply", { code: refCode.trim() });
+      setApplyMsg(res.message || "Referral applied!");
+    } catch (err: any) {
+      setApplyMsg(err?.message || "Invalid code");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  return (
+    <div className="bg-surface-1 border border-border-subtle rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+        <Gift className="h-4 w-4 text-accent" />
+        Referral Program
+      </h3>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Share your code */}
+        <div>
+          <p className="text-xs text-text-muted mb-2">Share your link — both you and your friend get 30 days free Pro</p>
+          {data && (
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={data.share_url || ""}
+                className="flex-1 bg-surface-3 border border-border-subtle rounded px-3 py-2 text-xs font-mono text-text-secondary"
+              />
+              <button
+                onClick={copyLink}
+                className="text-xs font-bold text-accent bg-accent/10 hover:bg-accent/20 border border-accent/20 px-3 py-2 rounded transition-colors"
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+          )}
+          {data && (
+            <div className="flex items-center gap-4 mt-3 text-xs text-text-faint">
+              <span>Referrals: <span className="text-text-primary font-bold">{data.total_referrals}</span></span>
+              <span>Rewarded: <span className="text-bullish-text font-bold">{data.rewarded}</span></span>
+            </div>
+          )}
+        </div>
+
+        {/* Apply a code */}
+        <div>
+          <p className="text-xs text-text-muted mb-2">Have a referral code? Enter it below</p>
+          <div className="flex items-center gap-2">
+            <input
+              value={refCode}
+              onChange={(e) => setRefCode(e.target.value.toUpperCase())}
+              placeholder="Enter code"
+              className="flex-1 bg-surface-3 border border-border-subtle rounded px-3 py-2 text-xs font-mono text-text-primary uppercase focus:border-accent focus:ring-1 focus:ring-accent/30"
+              maxLength={8}
+            />
+            <button
+              onClick={applyCode}
+              disabled={applying || !refCode.trim()}
+              className="text-xs font-bold text-white bg-bullish hover:bg-bullish/80 px-3 py-2 rounded transition-colors disabled:opacity-40"
+            >
+              {applying ? "..." : "Apply"}
+            </button>
+          </div>
+          {applyMsg && (
+            <p className={`text-xs mt-2 ${applyMsg.includes("applied") ? "text-bullish-text" : "text-bearish-text"}`}>
+              {applyMsg}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

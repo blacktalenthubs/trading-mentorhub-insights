@@ -50,6 +50,14 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass  # SQLite uses different syntax; fine for dev
 
+        # Migration: add referral_code to users if missing
+        try:
+            await conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(20)"
+            ))
+        except Exception:
+            pass
+
         # Migration: add user_id to real_trades if missing (V1 table didn't have it)
         try:
             await conn.execute(text(
@@ -276,7 +284,7 @@ def create_app() -> FastAPI:
     from app.routers import (
         auth, watchlist, scanner, market, alerts,
         trades, charts, real_trades, paper_trading, backtest,
-        push, settings, swing, intel, learn, billing, admin,
+        push, settings, swing, intel, learn, billing, admin, referral,
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -295,6 +303,7 @@ def create_app() -> FastAPI:
     app.include_router(learn.router, prefix="/api/v1/learn", tags=["learn"])
     app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+    app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
 
     # --- Serve React frontend (production) ---
     import os
