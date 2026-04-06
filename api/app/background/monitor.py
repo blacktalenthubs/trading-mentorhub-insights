@@ -571,10 +571,15 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     if signal.direction in ("BUY", "SHORT"):
                         _direction_lock[symbol] = (signal.direction, datetime.utcnow())
                         _entry_count += 1
-                        # SPY SHORT gate: suppress equity BUYs for 30 min
+                        # SPY SHORT gate: suppress equity BUYs until SPY finds support
                         if symbol == "SPY" and signal.direction == "SHORT":
                             _spy_short_time = datetime.utcnow()
-                            logger.info("SPY GATE SET: SPY SHORT fired — suppressing equity BUY entries for 30 min")
+                            logger.info("SPY GATE SET: SPY SHORT fired — suppressing equity BUY entries")
+                        # SPY BUY clears the gate — market found support
+                        if symbol == "SPY" and signal.direction == "BUY" and _spy_short_time is not None:
+                            logger.info("SPY GATE CLEARED: SPY BUY fired — resuming equity BUY entries (gate was %ds)",
+                                        int((datetime.utcnow() - _spy_short_time).total_seconds()))
+                            _spy_short_time = None
 
                     # Create active entry for BUY signals
                     _non_entry_types = {
