@@ -298,12 +298,12 @@ function Differentiators() {
 
 function Features() {
   const features = [
-    { icon: Zap, title: "Real-time Alerts", desc: "8+ structural rules scan your watchlist every 3 minutes. Support bounces, breakouts, rejections, target/stop exits." },
-    { icon: Brain, title: "AI Trade Coach", desc: "Ask about any chart. The AI sees your actual candles, analyzes structure, and gives entry/exit timing with reasoning." },
-    { icon: Send, title: "Telegram Delivery", desc: "Alerts with inline Took/Skip buttons right in Telegram. Act from your phone without opening the app." },
-    { icon: BarChart3, title: "Decision Analytics", desc: "Track which alerts you took vs skipped. See which setups win for you. Build your edge over time." },
-    { icon: LineChart, title: "Live Charts", desc: "TradingView charts with EMA/SMA overlays, entry/stop/target lines, and multi-timeframe analysis." },
-    { icon: Shield, title: "Transparent Track Record", desc: "Public win rates by alert type. Per-symbol performance. We show what works AND what doesn't." },
+    { icon: Zap, title: "Structural Alerts", desc: "PDL reclaims, MA bounces, consolidation breakouts, double bottoms — real patterns, not price crosses. Scans every 3 min." },
+    { icon: Brain, title: "AI Trade Coach", desc: "Ask about any chart. Gets specific prices, targets, and if/then scenarios. Position-aware — knows your open trades." },
+    { icon: Send, title: "Telegram Alerts", desc: "Complete trade plans with Took/Skip/Exit buttons. Act from your phone. Swing trades labeled separately from day trades." },
+    { icon: BarChart3, title: "Edge Tracker", desc: "Weekly Edge Score (0-10). Track your proven edge, leaks, and what to change. AI coaching based on YOUR trading data." },
+    { icon: LineChart, title: "Chart Replay", desc: "Watch any alert play out candle-by-candle. AI narrates entry, price action, and outcome. Learn from every trade." },
+    { icon: Shield, title: "Transparent Track Record", desc: "Public win rates. Per-pattern performance. We show what works AND what fails. 90-day rolling data, always live." },
   ];
 
   return (
@@ -339,14 +339,15 @@ function Pricing() {
     {
       name: "Free",
       price: "$0",
-      period: "forever",
-      desc: "See what the platform can do",
-      cta: "Get Started",
+      period: "3-day Pro trial",
+      desc: "Full Pro access for 3 days, then limited",
+      cta: "Start Free Trial",
       features: [
-        "Delayed signal feed (15-min)",
-        "Daily EOD summary email",
-        "Public track record",
         "3 symbols on watchlist",
+        "3 alerts visible per session",
+        "AI Coach (2 queries/day)",
+        "Signal Library access",
+        "Today's alerts only",
       ],
       highlight: false,
     },
@@ -357,13 +358,14 @@ function Pricing() {
       desc: "For active traders who want an edge",
       cta: "Start Free Trial",
       features: [
-        "Real-time signal feed",
-        "Telegram + email alerts",
-        "AI Trade Coach",
-        "15 symbols on watchlist",
-        "Full trade analytics",
-        "Decision quality tracking",
-        "Performance dashboard",
+        "10 symbols on watchlist",
+        "Real-time Telegram alerts",
+        "AI Trade Coach (20/day)",
+        "Full alert history (30 days)",
+        "Pre-trade checklist",
+        "Daily AI battle plan (9:15 AM)",
+        "Weekly Edge Report",
+        "Performance analytics",
       ],
       highlight: true,
     },
@@ -375,12 +377,13 @@ function Pricing() {
       cta: "Start Free Trial",
       features: [
         "Everything in Pro",
-        "Unlimited watchlist",
-        "Custom alert rules",
-        "API webhook delivery",
-        "Backtest custom rules",
-        "Priority signal delivery",
-        "Export reports (CSV/PDF)",
+        "25 symbols on watchlist",
+        "Unlimited AI Coach",
+        "Full alert history",
+        "Weekly AI review",
+        "Swing trade system",
+        "Paper trading simulator",
+        "Backtesting engine",
       ],
       highlight: false,
     },
@@ -521,7 +524,7 @@ function LandingNav() {
             <Crosshair className="h-4 w-4 text-white" />
           </div>
           <span className="font-bold text-lg text-text-primary">
-            <span className="text-accent">Trade</span>Signal
+            <span className="text-accent">Trade</span>CoPilot
           </span>
         </div>
 
@@ -559,21 +562,101 @@ function Footer() {
             <Crosshair className="h-3 w-3 text-accent" />
           </div>
           <span className="text-sm text-text-muted">
-            <span className="text-accent">Trade</span>Signal
+            <span className="text-accent">Trade</span>CoPilot
           </span>
         </div>
         <p className="text-xs text-text-faint text-center">
           Educational platform. Not financial advice. Past performance does not guarantee future results. Trade responsibly.
         </p>
         <div className="flex gap-6 text-xs text-text-faint">
+          <a href="https://twitter.com/tradecopilot" target="_blank" rel="noopener noreferrer" className="hover:text-text-muted">Twitter/X</a>
+          <a href="https://youtube.com/@tradecopilot" target="_blank" rel="noopener noreferrer" className="hover:text-text-muted">YouTube</a>
+          <a href="https://tiktok.com/@tradecopilot" target="_blank" rel="noopener noreferrer" className="hover:text-text-muted">TikTok</a>
           <a href="#" className="hover:text-text-muted">Terms</a>
           <a href="#" className="hover:text-text-muted">Privacy</a>
-          <a href="#" className="hover:text-text-muted">Contact</a>
         </div>
       </div>
     </footer>
   );
 }
+
+/* ── Telegram Alert Demo ─────────────────────────────────────────── */
+
+function TelegramDemo() {
+  return (
+    <section className="py-24 px-6">
+      <div className="max-w-5xl mx-auto">
+        <div className="text-center mb-16">
+          <Badge variant="blue">Alerts on your phone</Badge>
+          <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
+            Trade from Telegram.
+          </h2>
+          <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
+            Complete trade plans delivered to your phone. Tap Took or Skip.
+            Track your decisions. Build your edge.
+          </p>
+        </div>
+
+        <div className="max-w-sm mx-auto">
+          {/* Phone mockup */}
+          <div className="bg-surface-1 border border-border-subtle rounded-3xl p-4 shadow-elevated">
+            {/* Status bar */}
+            <div className="flex items-center justify-between px-2 py-1 mb-3">
+              <span className="text-[10px] text-text-faint font-mono">9:47 AM</span>
+              <span className="text-[10px] text-text-faint">TradeCoPilot Bot</span>
+              <div className="flex gap-1">
+                <div className="w-3 h-2 bg-text-faint/30 rounded-sm" />
+                <div className="w-3 h-2 bg-text-faint/30 rounded-sm" />
+              </div>
+            </div>
+
+            {/* Alert messages */}
+            <div className="space-y-3">
+              {/* BUY alert */}
+              <div className="bg-surface-2 rounded-xl p-3.5 border border-bullish/10">
+                <p className="text-sm font-bold text-text-primary">LONG SPY $655.83</p>
+                <p className="text-xs text-text-muted mt-1">Entry $654.20 · Stop $652.80 · T1 $658.50</p>
+                <p className="text-xs text-text-secondary mt-1.5">Prior day low bounce — held above $654</p>
+                <p className="text-xs text-accent mt-1">Conviction: HIGH</p>
+                <div className="flex gap-2 mt-3">
+                  <span className="bg-bullish/20 text-bullish-text text-xs font-bold px-3 py-1.5 rounded-lg">Took It</span>
+                  <span className="bg-surface-3 text-text-muted text-xs font-bold px-3 py-1.5 rounded-lg">Skip</span>
+                  <span className="bg-bearish/20 text-bearish-text text-xs font-bold px-3 py-1.5 rounded-lg">Exit</span>
+                </div>
+              </div>
+
+              {/* T1 notification */}
+              <div className="bg-surface-2 rounded-xl p-3.5 border border-bullish/10">
+                <p className="text-sm font-bold text-bullish-text">T1 REACHED — SPY $658.50</p>
+                <p className="text-xs text-text-muted mt-1">Your LONG from $654.20 is at target</p>
+                <p className="text-xs text-bullish-text mt-1">P&L: +$4.30 (+0.66%)</p>
+                <div className="flex gap-2 mt-3">
+                  <span className="bg-bearish/20 text-bearish-text text-xs font-bold px-3 py-1.5 rounded-lg">Exit Trade</span>
+                </div>
+              </div>
+
+              {/* NOTICE */}
+              <div className="bg-surface-2 rounded-xl p-3 border border-border-subtle">
+                <p className="text-xs text-text-muted">
+                  <span className="font-bold text-text-secondary">NOTICE — ETH-USD $2,118</span>
+                  <br />VWAP reclaimed from below — momentum shifting bullish
+                </p>
+              </div>
+
+              {/* Swing */}
+              <div className="bg-surface-2 rounded-xl p-3.5 border border-accent/10">
+                <p className="text-sm font-bold text-accent">SWING LONG BTC-USD $68,906</p>
+                <p className="text-xs text-text-muted mt-1">Entry $68,906 · Stop $68,400 (daily close)</p>
+                <p className="text-xs text-text-secondary mt-1">Weekly support hold — Conviction: HIGH</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 
 /* ── Comparison Table ──────────────────────────────────────────────── */
 
@@ -586,6 +669,9 @@ function Comparison() {
     { feature: "Position sizing calculated for you", us: true, tv: false, ti: true, disc: false },
     { feature: "Works while you're at your day job", us: true, tv: false, ti: false, disc: false },
     { feature: "Mobile-first (phone alerts)", us: true, tv: true, ti: false, disc: true },
+    { feature: "AI coaching based on YOUR data", us: true, tv: false, ti: false, disc: false },
+    { feature: "Chart replay with AI narration", us: true, tv: false, ti: false, disc: false },
+    { feature: "3-day free Pro trial", us: true, tv: false, ti: false, disc: false },
     { feature: "Price", us: "$29/mo", tv: "$15+/mo", ti: "$228/mo", disc: "$50-500/mo" },
   ];
 
@@ -661,7 +747,15 @@ function FAQ() {
     },
     {
       q: "What markets do you cover?",
-      a: "US equities (stocks and ETFs) during market hours (9:30 AM - 4 PM ET), and crypto (BTC, ETH) 24/7. You choose your symbols — up to 20 on Pro, unlimited on Premium.",
+      a: "US equities (stocks and ETFs) during market hours (9:30 AM - 4 PM ET), and crypto (BTC, ETH) 24/7. You choose your symbols — up to 10 on Pro, 25 on Premium.",
+    },
+    {
+      q: "What's included in the free trial?",
+      a: "Every new account gets 3 days of full Pro access — real-time Telegram alerts, AI Coach, analytics, everything. After the trial, you keep free access with limited features (3 symbols, 2 AI queries/day). Upgrade anytime.",
+    },
+    {
+      q: "Do you auto-close my trades?",
+      a: "Never. TradeCoPilot notifies you when stop or target levels are reached, but you always decide when to exit. Close trades from the dashboard or Telegram — you're always in control.",
     },
   ];
 
@@ -711,6 +805,7 @@ export default function LandingPage() {
       <HowItWorks />
       <Differentiators />
       <div id="features"><Features /></div>
+      <TelegramDemo />
       <Comparison />
       <div id="pricing"><Pricing /></div>
       <div id="track-record"><Trust track={track} /></div>
