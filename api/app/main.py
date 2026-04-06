@@ -294,7 +294,7 @@ def create_app() -> FastAPI:
             host = request.headers.get("host", "")
             path = request.url.path
             # Only redirect non-API, non-health paths (don't break API calls)
-            if "tradesignalwithai.com" in host and not path.startswith("/api/") and path != "/healthz":
+            if "tradesignalwithai.com" in host and not path.startswith(("/api/", "/telegram/")) and path != "/healthz":
                 new_url = f"https://www.tradingwithai.ai{path}"
                 if request.url.query:
                     new_url += f"?{request.url.query}"
