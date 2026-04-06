@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
-import { Play, Pause, SkipBack, SkipForward, X, Target, ShieldAlert, Brain, Loader2 } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, X, Target, ShieldAlert, Brain, Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 
 interface ReplayData {
@@ -65,6 +65,8 @@ export default function ChartReplay({ alertId, onClose }: Props) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [showOutcome, setShowOutcome] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // AI Replay Analysis
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
@@ -125,7 +127,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
         horzLines: { color: "rgba(255,255,255,0.03)" },
       },
       width: containerRef.current.clientWidth,
-      height: 320,
+      height: fullscreen ? window.innerHeight - 200 : 320,
       crosshair: { mode: 1 },
       rightPriceScale: {
         autoScale: true,
@@ -162,11 +164,28 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     }
 
     const handleResize = () => {
-      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+      if (containerRef.current) {
+        chart.applyOptions({
+          width: containerRef.current.clientWidth,
+          height: fullscreen ? containerRef.current.clientHeight : 320,
+        });
+      }
     };
     window.addEventListener("resize", handleResize);
     return () => { window.removeEventListener("resize", handleResize); chart.remove(); };
   }, [data]);
+
+  // Resize chart when fullscreen toggles
+  useEffect(() => {
+    if (chartRef.current && containerRef.current) {
+      setTimeout(() => {
+        chartRef.current?.applyOptions({
+          width: containerRef.current!.clientWidth,
+          height: fullscreen ? containerRef.current!.clientHeight : 320,
+        });
+      }, 50);
+    }
+  }, [fullscreen]);
 
   // Update visible bars
   useEffect(() => {
@@ -225,26 +244,41 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     : data.outcome === "auto_stop_out" ? "AUTO STOPPED"
     : "TRADE OPEN";
 
+  function shareReplay() {
+    const url = `${window.location.origin}/replay/${alertId}`;
+    navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
   return (
-    <div className="fixed inset-0 z-50 bg-surface-0/95 flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl bg-surface-1 border border-border-subtle rounded-xl overflow-hidden shadow-elevated">
+    <div className={`fixed inset-0 z-50 bg-surface-0 flex items-center justify-center ${fullscreen ? "p-0" : "p-4 bg-surface-0/95"}`}>
+      <div className={`bg-surface-1 border border-border-subtle overflow-hidden shadow-elevated flex flex-col ${
+        fullscreen ? "w-full h-full rounded-none" : "w-full max-w-4xl rounded-xl"
+      }`}>
 
         {/* Header — Alert Context */}
-        <div className="px-5 py-4 border-b border-border-subtle bg-surface-2/20">
+        <div className={`border-b border-border-subtle bg-surface-2/20 shrink-0 ${fullscreen ? "px-8 py-5" : "px-5 py-4"}`}>
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-lg font-bold text-text-primary">{a.symbol}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+              <div className="flex items-center gap-3 mb-1">
+                <span className={`font-bold text-text-primary ${fullscreen ? "text-3xl" : "text-lg"}`}>{a.symbol}</span>
+                <span className={`font-bold px-2.5 py-1 rounded ${fullscreen ? "text-sm" : "text-[10px]"} ${
                   isBuy ? "bg-bullish/10 text-bullish-text border border-bullish/20" : "bg-bearish/10 text-bearish-text border border-bearish/20"
                 }`}>
                   {isBuy ? "LONG" : "SHORT"}
                 </span>
-                <span className="text-xs text-text-muted bg-surface-3 px-2 py-0.5 rounded">{a.alert_type}</span>
-                <span className="text-xs text-text-faint">Score {a.score}</span>
+                <span className={`text-text-muted bg-surface-3 px-2 py-0.5 rounded ${fullscreen ? "text-sm" : "text-xs"}`}>
+                  {a.alert_type.replace(/_/g, " ")}
+                </span>
+                {fullscreen && (
+                  <span className="text-xs text-text-faint bg-surface-2 px-2 py-0.5 rounded ml-1">
+                    TradeCoPilot
+                  </span>
+                )}
               </div>
               {/* Trade plan strip */}
-              <div className="flex items-center gap-4 text-xs font-mono">
+              <div className={`flex items-center gap-4 font-mono ${fullscreen ? "text-base mt-1" : "text-xs"}`}>
                 <span className="text-accent">Entry ${fmt(a.entry)}</span>
                 <span className="text-bearish-text">Stop ${fmt(a.stop)}</span>
                 <span className="text-bullish-text">T1 ${fmt(a.target_1)}</span>
@@ -254,27 +288,48 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
             {/* Live P&L */}
             <div className="text-right ml-4">
-              <div className={`font-mono text-xl font-bold ${livePnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+              <div className={`font-mono font-bold ${fullscreen ? "text-3xl" : "text-xl"} ${livePnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
                 {livePnl >= 0 ? "+" : ""}{livePnl.toFixed(2)}
               </div>
-              <div className={`text-xs font-mono ${livePnl >= 0 ? "text-bullish-text/70" : "text-bearish-text/70"}`}>
+              <div className={`font-mono ${fullscreen ? "text-sm" : "text-xs"} ${livePnl >= 0 ? "text-bullish-text/70" : "text-bearish-text/70"}`}>
                 {livePnlPct >= 0 ? "+" : ""}{livePnlPct.toFixed(2)}%
               </div>
             </div>
 
-            <button onClick={onClose} className="text-text-faint hover:text-text-muted ml-3">
-              <X className="h-5 w-5" />
-            </button>
+            {/* Action buttons */}
+            <div className="flex items-center gap-1 ml-3">
+              <button
+                onClick={shareReplay}
+                className="p-1.5 text-text-faint hover:text-accent transition-colors"
+                title="Copy share link"
+              >
+                {linkCopied ? <span className="text-[10px] text-accent font-bold">Copied!</span> : (
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                )}
+              </button>
+              <button
+                onClick={() => setFullscreen(!fullscreen)}
+                className="p-1.5 text-text-faint hover:text-text-muted transition-colors"
+                title={fullscreen ? "Exit fullscreen" : "Fullscreen studio"}
+              >
+                {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+              <button onClick={onClose} className="p-1.5 text-text-faint hover:text-text-muted">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
-          {/* Alert message */}
-          {a.message && (
+          {/* Alert message — hide in fullscreen for cleaner look */}
+          {!fullscreen && a.message && (
             <p className="mt-2 text-xs text-text-secondary leading-relaxed">{a.message.slice(0, 120)}</p>
           )}
         </div>
 
         {/* Chart */}
-        <div ref={containerRef} className="w-full" />
+        <div ref={containerRef} className={`w-full ${fullscreen ? "flex-1" : ""}`} />
 
         {/* Progress bar — click/drag to scrub */}
         <div
@@ -396,8 +451,8 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           </div>
         )}
 
-        {/* AI Replay Analysis — appears after outcome */}
-        {showOutcome && (
+        {/* AI Replay Analysis — appears after outcome (hidden in fullscreen for clean recording) */}
+        {showOutcome && !fullscreen && (
           <div className="px-5 py-4 border-t border-border-subtle bg-surface-2/10">
             <div className="flex items-center gap-2 mb-3">
               <Brain className="h-4 w-4 text-accent" />

@@ -7,6 +7,7 @@ import { useNativePlatform } from "./hooks/useNativePlatform";
 import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import LandingPage from "./pages/LandingPage";
+import ReplayPage from "./pages/ReplayPage";
 import LearnPage from "./pages/LearnPage";
 import LearnDetailPage from "./pages/LearnDetailPage";
 import PatternDetailPage from "./pages/PatternDetailPage";
@@ -67,6 +68,7 @@ export default function App() {
               <Route path="/learn" element={<LearnPage />} />
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />
+              <Route path="/replay/:alertId" element={<ReplayPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
