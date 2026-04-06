@@ -155,12 +155,13 @@ function CandlestickChartInner({
       close: bar.close,
     }));
 
-    // For VWAP we need high/low/volume — only today's bars (session-anchored)
+    // For VWAP we need high/low/volume — session-anchored (last trading day)
     const sortedRaw = [...data].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    const today = new Date().toISOString().slice(0, 10);
-    const todayBars = sortedRaw.filter((b) => b.timestamp.startsWith(today));
-    // Use today's bars if available (intraday), otherwise fall back to all bars (daily)
-    const vwapSource = todayBars.length >= 3 ? todayBars : sortedRaw;
+    // Use the last bar's date as "today's session" (handles timezone differences)
+    const lastBarDate = sortedRaw.length > 0 ? sortedRaw[sortedRaw.length - 1].timestamp.slice(0, 10) : "";
+    const sessionBars = lastBarDate ? sortedRaw.filter((b) => b.timestamp.slice(0, 10) === lastBarDate) : sortedRaw;
+    // Use session bars if available (intraday), otherwise all bars (daily)
+    const vwapSource = sessionBars.length >= 3 ? sessionBars : sortedRaw;
     const barsForVWAP = vwapSource.map((bar) => ({
       time: toTime(bar.timestamp),
       high: bar.high,
