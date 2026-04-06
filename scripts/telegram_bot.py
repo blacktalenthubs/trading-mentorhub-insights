@@ -483,7 +483,13 @@ def _build_app(bot_token: str):
         # Send confirmation as a separate message
         await query.message.reply_text(result)
 
-    app = ApplicationBuilder().token(bot_token).build()
+    app = (
+        ApplicationBuilder()
+        .token(bot_token)
+        .read_timeout(10)
+        .connect_timeout(10)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("exit", exit_command))
     app.add_handler(CommandHandler("trades", trades_command))
@@ -553,8 +559,6 @@ def start_bot_thread() -> bool:
             loop.run_until_complete(app.updater.start_polling(
                 drop_pending_updates=True,
                 allowed_updates=["message", "callback_query"],
-                read_timeout=10,
-                connect_timeout=10,
             ))
             loop.run_forever()
         except Exception:
