@@ -12,6 +12,8 @@ import { useState } from "react";
 import {
   useAlertsHistory, useAlertsToday, useRealTradeStats,
   useRealTradeEquityCurve, useAlertSessionDates, useAlertsForDate,
+  useSpyRegime, useSwingCategories, useActiveSwingTrades,
+  useSwingTradesHistory, useTriggerSwingScan,
 } from "../api/hooks";
 import EquityCurve from "../components/EquityCurve";
 import type { Alert } from "../types";
@@ -241,6 +243,51 @@ function SessionBrowser() {
 /* ── Main Trades Page ─────────────────────────────────────────────── */
 
 export default function RealTradesPage() {
+  const [activeTab, setActiveTab] = useState<"day" | "swing">("day");
+
+  return (
+    <div className="h-full overflow-y-auto p-5">
+      <div className="max-w-[1400px] mx-auto flex flex-col gap-6">
+
+        {/* Header + Tab bar */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <h1 className="text-xl font-bold text-text-primary">Trades</h1>
+            <div className="flex bg-surface-2 rounded-lg p-0.5">
+              <button
+                onClick={() => setActiveTab("day")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                  activeTab === "day"
+                    ? "bg-surface-4 text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                Day Trades
+              </button>
+              <button
+                onClick={() => setActiveTab("swing")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                  activeTab === "swing"
+                    ? "bg-surface-4 text-text-primary shadow-sm"
+                    : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                Swing Trades
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {activeTab === "day" ? <DayTradesContent /> : <SwingTradesContent />}
+      </div>
+    </div>
+  );
+}
+
+
+/* ── Day Trades Tab ──────────────────────────────────────────────── */
+
+function DayTradesContent() {
   const { data: stats } = useRealTradeStats();
   const { data: equityCurve } = useRealTradeEquityCurve();
   const { data: todayAlerts } = useAlertsToday();
@@ -249,12 +296,9 @@ export default function RealTradesPage() {
   const alertsForQuality = todayAlerts || [];
 
   return (
-    <div className="h-full overflow-y-auto p-5">
-      <div className="max-w-[1400px] mx-auto flex flex-col gap-6">
-
-        {/* Header */}
+    <>
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-text-primary">Trade Analytics</h1>
+          <div /> {/* spacer */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -328,8 +372,179 @@ export default function RealTradesPage() {
 
         {/* Session Browser */}
         <SessionBrowser />
+    </>
+  );
+}
 
+
+/* ── Swing Trades Tab ────────────────────────────────────────────── */
+
+function SwingTradesContent() {
+  const { data: regime } = useSpyRegime();
+  const { data: categories } = useSwingCategories();
+  const { data: activeTrades } = useActiveSwingTrades();
+  const { data: history } = useSwingTradesHistory();
+  const triggerScan = useTriggerSwingScan();
+
+  return (
+    <>
+      {/* SPY Regime */}
+      {regime && (
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4 flex items-center gap-4">
+          <span className={`text-xs font-bold px-2.5 py-1 rounded ${
+            regime.regime_bullish
+              ? "bg-bullish/10 text-bullish-text border border-bullish/20"
+              : "bg-bearish/10 text-bearish-text border border-bearish/20"
+          }`}>
+            SPY {regime.regime_bullish ? "BULLISH" : "BEARISH"}
+          </span>
+          <span className="text-xs text-text-muted">
+            SPY: <span className="font-mono text-text-primary">${regime.spy_close?.toFixed(2)}</span>
+          </span>
+          {regime.spy_ema20 && (
+            <span className="text-xs text-text-muted">
+              EMA20: <span className="font-mono text-text-primary">${regime.spy_ema20.toFixed(2)}</span>
+            </span>
+          )}
+          {regime.spy_rsi != null && (
+            <span className="text-xs text-text-muted">
+              RSI: <span className={`font-mono ${regime.spy_rsi > 70 ? "text-bearish-text" : regime.spy_rsi < 30 ? "text-bullish-text" : "text-text-primary"}`}>
+                {regime.spy_rsi.toFixed(1)}
+              </span>
+            </span>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={() => triggerScan.mutate()}
+            disabled={triggerScan.isPending}
+            className="text-xs font-medium text-accent hover:text-accent-hover disabled:opacity-50"
+          >
+            {triggerScan.isPending ? "Scanning..." : "Run EOD Scan"}
+          </button>
+        </div>
+      )}
+
+      {/* Watchlist Categories */}
+      {categories && categories.length > 0 && (
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+          <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Watchlist Categories</h3>
+          <div className="flex flex-wrap gap-2">
+            {categories.map((c) => (
+              <div
+                key={c.symbol}
+                className={`rounded-lg border px-3 py-2 ${
+                  c.category === "buy_zone" ? "border-bullish/30 bg-bullish/5" :
+                  c.category === "strongest" ? "border-accent/30 bg-accent/5" :
+                  c.category === "overbought" ? "border-warning/30 bg-warning/5" :
+                  "border-border-subtle bg-surface-2"
+                }`}
+              >
+                <p className="text-sm font-medium text-text-primary">{c.symbol}</p>
+                <p className="text-[10px] text-text-muted capitalize">{c.category.replace("_", " ")}</p>
+                {c.rsi != null && (
+                  <p className={`font-mono text-[10px] ${c.rsi > 70 ? "text-bearish-text" : c.rsi < 30 ? "text-bullish-text" : "text-text-faint"}`}>
+                    RSI {c.rsi.toFixed(0)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Active Swing Trades */}
+      <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+        <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Active Swing Trades</h3>
+        {activeTrades && activeTrades.length > 0 ? (
+          <div className="space-y-2">
+            {activeTrades.map((t) => {
+              const pnl = t.current_price && t.entry_price
+                ? ((t.current_price - t.entry_price) / t.entry_price) * 100
+                : 0;
+              return (
+                <div
+                  key={t.id}
+                  className="flex items-center justify-between rounded-lg bg-surface-2/50 border border-border-subtle px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">SWING</span>
+                    <div>
+                      <span className="font-medium text-text-primary">{t.symbol}</span>
+                      <span className="text-xs text-text-muted ml-2">@ ${t.entry_price.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {t.current_price && (
+                      <span className={`font-mono text-sm font-medium ${pnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                        ${t.current_price.toFixed(2)} ({pnl >= 0 ? "+" : ""}{pnl.toFixed(1)}%)
+                      </span>
+                    )}
+                    {t.current_rsi != null && (
+                      <span className={`text-xs font-mono px-2 py-0.5 rounded ${
+                        t.current_rsi > 70 ? "bg-bearish/10 text-bearish-text" :
+                        t.current_rsi < 30 ? "bg-bullish/10 text-bullish-text" :
+                        "bg-surface-3 text-text-muted"
+                      }`}>
+                        RSI {t.current_rsi.toFixed(0)}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-text-faint">{t.opened_date}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-text-faint py-4 text-center">No active swing trades. Setups scan daily at market close.</p>
+        )}
       </div>
-    </div>
+
+      {/* Closed Swing Trades History */}
+      {history && history.length > 0 && (
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+          <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Swing Trade History</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] text-text-faint uppercase tracking-wider">
+                  <th className="pb-2 pr-4">Symbol</th>
+                  <th className="pb-2 pr-4">Entry</th>
+                  <th className="pb-2 pr-4">Exit</th>
+                  <th className="pb-2 pr-4">P&L</th>
+                  <th className="pb-2 pr-4">RSI Entry</th>
+                  <th className="pb-2 pr-4">Opened</th>
+                  <th className="pb-2 pr-4">Closed</th>
+                  <th className="pb-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((t) => (
+                  <tr key={t.id} className="border-t border-border-subtle/30">
+                    <td className="py-2 pr-4 font-medium text-text-primary">{t.symbol}</td>
+                    <td className="py-2 pr-4 font-mono text-text-secondary">${t.entry_price.toFixed(2)}</td>
+                    <td className="py-2 pr-4 font-mono text-text-secondary">{t.exit_price ? `$${t.exit_price.toFixed(2)}` : "—"}</td>
+                    <td className={`py-2 pr-4 font-mono font-medium ${(t.pnl ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                      {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(1)}%` : "—"}
+                    </td>
+                    <td className="py-2 pr-4 font-mono text-text-muted">{t.current_rsi?.toFixed(0) ?? "—"}</td>
+                    <td className="py-2 pr-4 text-text-muted text-xs">{t.opened_date}</td>
+                    <td className="py-2 pr-4 text-text-muted text-xs">{t.closed_date ?? "—"}</td>
+                    <td className="py-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                        t.status === "target_hit" ? "bg-bullish/10 text-bullish-text" :
+                        t.status === "stopped" ? "bg-bearish/10 text-bearish-text" :
+                        "bg-surface-3 text-text-muted"
+                      }`}>
+                        {t.status === "target_hit" ? "TARGET" : t.status === "stopped" ? "STOPPED" : t.status.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

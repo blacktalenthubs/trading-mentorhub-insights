@@ -589,11 +589,19 @@ def evaluate_swing_rules(
         if sig and (symbol, sig.alert_type.value) not in fired_today:
             signals.append(sig)
 
+    # RSI 30 bounce (runs even without regime gate — oversold is oversold)
+    sig = check_swing_rsi_30_bounce(symbol, prior_day)
+    if sig and (symbol, sig.alert_type.value) not in fired_today:
+        signals.append(sig)
+
     # Setup rules (require regime gate passed — caller checks)
     for check_fn in (
         check_swing_ema_crossover_5_20,
         check_swing_200ma_reclaim,
         check_swing_pullback_20ema,
+        check_swing_200ma_hold,
+        check_swing_50ma_hold,
+        check_swing_weekly_support,
         check_swing_macd_crossover,
         check_swing_candle_patterns,
     ):
@@ -741,3 +749,262 @@ def _score_label(score: int) -> str:
     if score >= 40:
         return "Weak"
     return "Caution"
+
+
+# ---------------------------------------------------------------------------
+# Spec 14 — New Swing Entry Rules
+# ---------------------------------------------------------------------------
+
+
+def check_swing_rsi_30_bounce(
+    symbol: str, prior_day: dict,
+) -> AlertSignal | None:
+    """RSI14 crosses above 30 from below — oversold reversal entry.
+
+    Conditions:
+    1. RSI was below 30 yesterday, now above 30
+    2. Daily close in upper 50% of range (buying pressure)
+    3. Entry: daily close
+    4. Stop: close below the low of the oversold period
+    """
+    rsi = prior_day.get("rsi14")
+    rsi_prev = prior_day.get("rsi14_prev")
+    close = prior_day.get("close", 0)
+    high = prior_day.get("high", 0)
+    low = prior_day.get("low", 0)
+
+    if rsi is None or rsi_prev is None or close <= 0:
+        return None
+
+    # RSI must cross above 30 (was below, now above)
+    if not (rsi_prev < 30 and rsi >= 30):
+        return None
+
+    # Close in upper 50% of range (buying pressure confirmation)
+    bar_range = high - low
+    if bar_range <= 0 or (close - low) / bar_range < 0.5:
+        return None
+
+    # Stop: below today's low (the bounce day low)
+    stop = round(low * 0.995, 2)  # 0.5% below the low
+    entry = round(close, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    score = 60
+    ma200 = prior_day.get("ma200") or prior_day.get("ema200")
+    if ma200 and close <= ma200 * 1.02:
+        score += 20  # near 200MA = higher conviction
+    if prior_day.get("volume_ratio", 1) > 1.2:
+        score += 10
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_RSI_30_BOUNCE,
+        direction="BUY",
+        price=close,
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk * 2, 2),   # 2R initial target
+        target_2=round(entry + risk * 3.5, 2),  # RSI 50 target
+        message=(
+            f"[SWING] RSI 30 bounce — RSI {rsi_prev:.1f} → {rsi:.1f} | "
+            f"Entry ${entry:.2f}, Stop ${stop:.2f} (close below low) | "
+            f"T1: RSI 45, T2: RSI 50"
+        ),
+        score=score,
+        score_label=_score_label(score),
+    )
+
+
+def check_swing_200ma_hold(
+    symbol: str, prior_day: dict,
+) -> AlertSignal | None:
+    """Price wicks to 200MA and closes above — structural support hold.
+
+    Conditions:
+    1. Daily low within 1% of 200MA
+    2. Daily close above 200MA
+    3. Was above 200MA previously (pullback, not breakdown)
+    """
+    close = prior_day.get("close", 0)
+    low = prior_day.get("low", 0)
+    ma200 = prior_day.get("ma200") or prior_day.get("ema200")
+    prev_close = prior_day.get("prev_close")
+
+    if not ma200 or ma200 <= 0 or close <= 0 or not prev_close:
+        return None
+
+    # Low must wick to within 1% of 200MA
+    if low > ma200 * 1.01:
+        return None
+
+    # Close must be above 200MA (held as support)
+    if close <= ma200:
+        return None
+
+    # Previous close should have been above 200MA (pullback to support)
+    if prev_close <= ma200:
+        return None
+
+    entry = round(close, 2)
+    stop = round(ma200 * 0.995, 2)  # close below 200MA = invalidated
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    score = 70
+    rsi = prior_day.get("rsi14")
+    if rsi and rsi < 40:
+        score += 15
+    high = prior_day.get("high", close)
+    if high > low and (close - low) / (high - low) > 0.6:
+        score += 10  # hammer-like candle
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_200MA_HOLD,
+        direction="BUY",
+        price=close,
+        entry=entry,
+        stop=stop,
+        target_1=round(prior_day.get("ema50") or entry + risk * 2, 2),
+        target_2=round(prior_day.get("ema20") or entry + risk * 3, 2),
+        message=(
+            f"[SWING] 200MA hold — low ${low:.2f} wicked to 200MA ${ma200:.2f}, "
+            f"closed above at ${close:.2f} | "
+            f"Stop: close below 200MA | T1: 50MA, T2: 20MA"
+        ),
+        score=score,
+        score_label=_score_label(score),
+    )
+
+
+def check_swing_50ma_hold(
+    symbol: str, prior_day: dict,
+) -> AlertSignal | None:
+    """Price wicks to 50MA and closes above — trend support hold.
+
+    Conditions:
+    1. Daily low within 0.5% of 50MA
+    2. Daily close above 50MA
+    3. 50MA is rising (bullish trend)
+    """
+    close = prior_day.get("close", 0)
+    low = prior_day.get("low", 0)
+    ma50 = prior_day.get("ema50") or prior_day.get("ma50")
+
+    if not ma50 or ma50 <= 0 or close <= 0:
+        return None
+
+    # Low must wick to within 0.5% of 50MA
+    if low > ma50 * 1.005:
+        return None
+
+    # Close must be above 50MA
+    if close <= ma50:
+        return None
+
+    # 50MA should be rising (approximate: close > ma50 by small amount = trend up)
+    ema20 = prior_day.get("ema20")
+    if ema20 and ema20 < ma50:
+        return None  # downtrend — 20MA below 50MA
+
+    entry = round(close, 2)
+    stop = round(ma50 * 0.995, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    score = 65
+    rsi = prior_day.get("rsi14")
+    if rsi and 35 <= rsi <= 45:
+        score += 15
+    high = prior_day.get("high", close)
+    if high > low and (close - low) / (high - low) > 0.5:
+        score += 10
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_50MA_HOLD,
+        direction="BUY",
+        price=close,
+        entry=entry,
+        stop=stop,
+        target_1=round(prior_day.get("ema20") or entry + risk * 2, 2),
+        target_2=round(prior_day.get("high", 0) or entry + risk * 3, 2),
+        message=(
+            f"[SWING] 50MA hold — low ${low:.2f} wicked to 50MA ${ma50:.2f}, "
+            f"closed above at ${close:.2f} | "
+            f"Stop: close below 50MA | T1: 20MA, T2: prior high"
+        ),
+        score=score,
+        score_label=_score_label(score),
+    )
+
+
+def check_swing_weekly_support(
+    symbol: str, prior_day: dict,
+) -> AlertSignal | None:
+    """Price holds at prior week low / weekly support zone — multi-week support.
+
+    Conditions:
+    1. Daily close within 1% of prior_week_low
+    2. Daily close above prior_week_low (held)
+    3. Close in upper 50% of daily range
+    """
+    close = prior_day.get("close", 0)
+    low = prior_day.get("low", 0)
+    pw_low = prior_day.get("prior_week_low")
+
+    if not pw_low or pw_low <= 0 or close <= 0:
+        return None
+
+    # Low must wick near prior week low (within 1%)
+    if low > pw_low * 1.01:
+        return None
+
+    # Close must be above (held as support)
+    if close <= pw_low:
+        return None
+
+    # Close in upper 50% of range
+    high = prior_day.get("high", close)
+    bar_range = high - low
+    if bar_range > 0 and (close - low) / bar_range < 0.5:
+        return None
+
+    entry = round(close, 2)
+    stop = round(pw_low * 0.995, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    pw_high = prior_day.get("prior_week_high", entry + risk * 3)
+
+    score = 70
+    rsi = prior_day.get("rsi14")
+    if rsi and rsi < 35:
+        score += 15
+    ma200 = prior_day.get("ma200") or prior_day.get("ema200")
+    if ma200 and abs(pw_low - ma200) / ma200 < 0.02:
+        score += 10  # weekly support + 200MA confluence
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.SWING_WEEKLY_SUPPORT,
+        direction="BUY",
+        price=close,
+        entry=entry,
+        stop=stop,
+        target_1=round(pw_high if pw_high else entry + risk * 2, 2),
+        target_2=round(entry + risk * 3, 2),
+        message=(
+            f"[SWING] Weekly support hold — low ${low:.2f} near PWL ${pw_low:.2f}, "
+            f"closed ${close:.2f} | "
+            f"Stop: close below weekly low | T1: prior week high ${pw_high:.2f}"
+        ),
+        score=score,
+        score_label=_score_label(score),
+    )

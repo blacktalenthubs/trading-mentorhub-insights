@@ -243,6 +243,17 @@ class AlertType(str, Enum):
     SWING_BULL_FLAG = "swing_bull_flag"
     SWING_CANDLE_PATTERN = "swing_candle_pattern"
     SWING_CONSECUTIVE_RED = "swing_consecutive_red"
+
+    # New swing entries (Spec 14)
+    SWING_RSI_30_BOUNCE = "swing_rsi_30_bounce"
+    SWING_200MA_HOLD = "swing_200ma_hold"
+    SWING_50MA_HOLD = "swing_50ma_hold"
+    SWING_WEEKLY_SUPPORT = "swing_weekly_support"
+
+    # New swing exits (Spec 14)
+    SWING_RSI_TARGET = "swing_rsi_target"
+    SWING_PDL_CLOSE = "swing_pdl_close"
+    SWING_MA_INVALIDATED = "swing_ma_invalidated"
     # MA/EMA approach notice (heads-up, not a BUY)
     MA_APPROACH = "ma_approach"
     # Prior day low breakdown / resistance

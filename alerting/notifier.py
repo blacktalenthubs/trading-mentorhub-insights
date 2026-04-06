@@ -87,6 +87,56 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
         return None  # T1/T2 suppressed — monitor sends these with Exit buttons
 
+    # SWING alerts — labeled "SWING LONG" / "SWING EXIT" in Telegram
+    if signal.alert_type.value.startswith("swing_"):
+        import html as _html_swing
+        _sym = _html_swing.escape(signal.symbol)
+
+        # Swing EXIT alerts
+        if signal.alert_type.value in ("swing_target_hit", "swing_stopped_out",
+                                        "swing_rsi_target", "swing_pdl_close",
+                                        "swing_ma_invalidated"):
+            _exit_label = {
+                "swing_target_hit": "TARGET REACHED",
+                "swing_stopped_out": "STOP REACHED",
+                "swing_rsi_target": "RSI TARGET",
+                "swing_pdl_close": "CLOSED BELOW PDL",
+                "swing_ma_invalidated": "MA INVALIDATED",
+            }.get(signal.alert_type.value, "EXIT")
+            _msg = signal.message.replace("[SWING] ", "") if signal.message else _exit_label
+            return (
+                f"<b>SWING EXIT — {_sym} ${signal.price:.2f}</b>\n"
+                f"{_msg}"
+            )
+
+        # Swing RSI zone notices (oversold/overbought)
+        if signal.alert_type.value in ("swing_rsi_oversold", "swing_rsi_overbought"):
+            _msg = signal.message.replace("[SWING] ", "") if signal.message else label
+            return (
+                f"<b>SWING NOTICE — {_sym} ${signal.price:.2f}</b>\n"
+                f"{_msg}"
+            )
+
+        # Swing BUY entries
+        parts = [f"<b>SWING LONG {_sym} ${signal.price:.2f}</b>"]
+        _levels = []
+        if signal.entry is not None:
+            _levels.append(f"Entry ${signal.entry:.2f}")
+        if signal.stop is not None:
+            _levels.append(f"Stop ${signal.stop:.2f} (daily close)")
+        if signal.target_1 is not None:
+            _levels.append(f"T1 ${signal.target_1:.2f}")
+        if signal.target_2 is not None:
+            _levels.append(f"T2 ${signal.target_2:.2f}")
+        if _levels:
+            parts.append(" · ".join(_levels))
+
+        _reason = signal.message.replace("[SWING] ", "") if signal.message else label
+        _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
+        parts.append(f"Setup: {_reason}")
+        parts.append(f"Conviction: {_conviction}")
+        return "\n".join(parts)[:4000]
+
     # VWAP reclaim — send as NOTICE (awareness, not entry pressure)
     # First VWAP reclaim from below is a momentum shift signal
     if signal.direction == "BUY" and signal.alert_type.value == "vwap_reclaim":

@@ -185,6 +185,30 @@ def _check_stop(trade: dict, prior_day: dict) -> bool:
         if ema20 is not None and close < ema20:
             return True
 
+    elif stop_type == "close_below_50ma":
+        ma50 = prior_day.get("ema50") or prior_day.get("ma50")
+        if ma50 is not None and close < ma50:
+            return True
+
+    elif stop_type == "close_below_weekly_low":
+        pw_low = prior_day.get("prior_week_low")
+        if pw_low is not None and close < pw_low:
+            return True
+
+    elif stop_type == "close_below_bounce_low":
+        # For RSI bounce: stop is close below the entry day's stop price
+        stop_price = trade.get("stop_price") or trade.get("entry_price", 0) * 0.97
+        if close < stop_price:
+            return True
+
+    # Generic: close below prior day low (applies to all swing trades)
+    pdl = prior_day.get("low")
+    prev_low = prior_day.get("prev_low") or prior_day.get("prior_day_low")
+    if prev_low and close < prev_low:
+        # Close below PDL is a warning, not auto-stop
+        # (user decides via Telegram notification)
+        pass
+
     return False
 
 
@@ -289,6 +313,10 @@ def _maybe_create_trade(
         AlertType.SWING_EMA_CROSSOVER_5_20: "ema_cross_under_5_20",
         AlertType.SWING_200MA_RECLAIM: "close_below_200ma",
         AlertType.SWING_PULLBACK_20EMA: "close_below_20ema",
+        AlertType.SWING_RSI_30_BOUNCE: "close_below_bounce_low",
+        AlertType.SWING_200MA_HOLD: "close_below_200ma",
+        AlertType.SWING_50MA_HOLD: "close_below_50ma",
+        AlertType.SWING_WEEKLY_SUPPORT: "close_below_weekly_low",
     }
     stop_type = stop_map.get(signal.alert_type)
     if stop_type is None:
@@ -325,8 +353,12 @@ def _check_active_exits(
             # Update current price/RSI
             update_swing_trade_price(trade["id"], close, rsi)
 
-            # Check RSI target
-            if rsi is not None and rsi >= SWING_RSI_OVERBOUGHT:
+            # Check RSI target — flexible based on entry type
+            # RSI 30 bounce entries → target RSI 45-50
+            # MA bounce entries → target RSI 65-70
+            _entry_type = trade.get("alert_type", "")
+            _rsi_target = 45 if "rsi_30" in _entry_type else SWING_RSI_OVERBOUGHT
+            if rsi is not None and rsi >= _rsi_target:
                 if (symbol, "swing_target_hit") not in fired_today:
                     pnl = ((close - trade["entry_price"]) / trade["entry_price"]) * 100
                     sig = AlertSignal(
