@@ -238,13 +238,15 @@ async def lifespan(app: FastAPI):
         if _scripts not in sys.path:
             sys.path.insert(0, _scripts)
 
+        logger.info("Telegram bot: webhook_base=%s", _webhook_base or "(none — polling mode)")
+
         if _webhook_base:
             # Production: use webhook — Telegram pushes updates to us
-            from telegram_bot import setup_webhook, shutdown_webhook
+            from telegram_bot import setup_webhook
             if await setup_webhook(_webhook_base):
                 logger.info("Telegram bot started (webhook mode)")
             else:
-                logger.warning("Telegram webhook setup failed")
+                logger.warning("Telegram webhook setup failed — check token and URL")
         else:
             # Local dev: use polling (no public URL available)
             from telegram_bot import start_bot_thread
@@ -253,7 +255,7 @@ async def lifespan(app: FastAPI):
             else:
                 logger.warning("Telegram bot not started (token missing or import error)")
     except Exception:
-        logger.exception("Failed to start Telegram bot")
+        logger.exception("Failed to start Telegram bot — exception in setup")
 
     yield
 
