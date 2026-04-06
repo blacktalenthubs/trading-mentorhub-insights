@@ -87,7 +87,7 @@ const ALL_INDICATORS: IndicatorDef[] = [
   { key: "vwap",   label: "VWAP",    color: "#e879f9", group: "other" },
 ];
 
-const DEFAULT_INDICATORS = new Set(["ema20", "ema50"]);
+const DEFAULT_INDICATORS = new Set(["ema5", "ema20", "ema100", "ema200"]);
 
 /* ── Watchlist signal row ──────────────────────────────────────────── */
 
