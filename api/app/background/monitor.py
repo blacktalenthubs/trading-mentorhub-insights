@@ -575,11 +575,27 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         if symbol == "SPY" and signal.direction == "SHORT":
                             _spy_short_time = datetime.utcnow()
                             logger.info("SPY GATE SET: SPY SHORT fired — suppressing equity BUY entries")
-                        # SPY BUY clears the gate — market found support
-                        if symbol == "SPY" and signal.direction == "BUY" and _spy_short_time is not None:
-                            logger.info("SPY GATE CLEARED: SPY BUY fired — resuming equity BUY entries (gate was %ds)",
-                                        int((datetime.utcnow() - _spy_short_time).total_seconds()))
-                            _spy_short_time = None
+                        # SPY BUY or structural support clears the gate
+                        if symbol == "SPY" and _spy_short_time is not None:
+                            _spy_support_types = {
+                                "BUY",     # any SPY BUY alert
+                                "NOTICE",  # VWAP reclaim, support bounce notice
+                            }
+                            _spy_support_alerts = {
+                                "prior_day_low_reclaim", "prior_day_low_bounce",
+                                "vwap_reclaim", "vwap_bounce",
+                                "intraday_support_bounce", "session_low_double_bottom",
+                                "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
+                                "ema_bounce_20", "ema_bounce_50", "ema_bounce_200",
+                            }
+                            if (signal.direction in _spy_support_types
+                                    or signal.alert_type.value in _spy_support_alerts):
+                                logger.info(
+                                    "SPY GATE CLEARED: %s %s — resuming equity BUY entries (gate was %ds)",
+                                    signal.direction, signal.alert_type.value,
+                                    int((datetime.utcnow() - _spy_short_time).total_seconds()),
+                                )
+                                _spy_short_time = None
 
                     # Create active entry for BUY signals
                     _non_entry_types = {
