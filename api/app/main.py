@@ -266,8 +266,10 @@ def create_app() -> FastAPI:
     class DomainRedirectMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
             host = request.headers.get("host", "")
-            if "tradesignalwithai.com" in host:
-                new_url = f"https://www.tradingwithai.ai{request.url.path}"
+            path = request.url.path
+            # Only redirect non-API, non-health paths (don't break API calls)
+            if "tradesignalwithai.com" in host and not path.startswith("/api/") and path != "/healthz":
+                new_url = f"https://www.tradingwithai.ai{path}"
                 if request.url.query:
                     new_url += f"?{request.url.query}"
                 return RedirectResponse(new_url, status_code=301)
