@@ -422,7 +422,7 @@ function AIPanel({ symbol, signal: _signal, ohlcv, timeframe }: {
 
 /* ── Alert timeline item ───────────────────────────────────────────── */
 
-function AlertTimelineItem({ alert: a }: { alert: Alert }) {
+function AlertTimelineItem({ alert: a, onSelectSymbol }: { alert: Alert; onSelectSymbol?: (sym: string) => void }) {
   const ack = useAckAlert();
   const time = new Date(a.created_at).toLocaleTimeString("en-US", {
     hour: "2-digit",
@@ -448,7 +448,10 @@ function AlertTimelineItem({ alert: a }: { alert: Alert }) {
       {/* Dot on timeline */}
       <div className={`absolute left-[38px] top-[14px] w-2 h-2 rounded-full ${dotColor} ring-[3px] ring-surface-0 z-10`} />
       {/* Card */}
-      <div className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 group-hover:border-border-default group-hover:bg-surface-2/60 transition-all duration-150">
+      <div
+        className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 group-hover:border-border-default group-hover:bg-surface-2/60 transition-all duration-150 cursor-pointer"
+        onClick={() => onSelectSymbol?.(a.symbol)}
+      >
         <div className="flex justify-between items-center mb-1.5">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
@@ -465,13 +468,13 @@ function AlertTimelineItem({ alert: a }: { alert: Alert }) {
         {a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
           <div className="flex gap-2 mt-2">
             <button
-              onClick={() => ack.mutate({ id: a.id, action: "took" })}
+              onClick={(e) => { e.stopPropagation(); ack.mutate({ id: a.id, action: "took" }); }}
               className="rounded-md bg-bullish/15 px-3 py-1 text-[11px] font-semibold text-bullish-text hover:bg-bullish/25 transition-colors border border-bullish/20"
             >
               Took
             </button>
             <button
-              onClick={() => ack.mutate({ id: a.id, action: "skipped" })}
+              onClick={(e) => { e.stopPropagation(); ack.mutate({ id: a.id, action: "skipped" }); }}
               className="rounded-md bg-surface-4 px-3 py-1 text-[11px] font-semibold text-text-muted hover:bg-surface-3 transition-colors border border-border-subtle"
             >
               Skip
@@ -945,7 +948,7 @@ export default function TradingPage() {
                   <button onClick={() => window.location.reload()} className="text-[10px] text-accent hover:text-accent-hover">Retry</button>
                 </div>
               ) : symbolAlerts && symbolAlerts.length > 0 ? (
-                symbolAlerts.map((a) => <AlertTimelineItem key={a.id} alert={a} />)
+                symbolAlerts.map((a) => <AlertTimelineItem key={a.id} alert={a} onSelectSymbol={setSelectedSymbol} />)
               ) : (
                 <p className="py-8 text-center text-xs text-text-faint">No alerts fired today</p>
               )}
