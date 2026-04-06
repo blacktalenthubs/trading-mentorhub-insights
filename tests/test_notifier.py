@@ -182,21 +182,38 @@ class TestShortFilter:
         body = _format_sms_body(sig)
         assert body is not None
 
-    def test_session_high_double_top_allowed(self):
+    def test_session_high_double_top_allowed_equity(self):
+        sig = AlertSignal(
+            symbol="SPY", alert_type=AlertType.SESSION_HIGH_DOUBLE_TOP,
+            direction="SHORT", price=655.0, entry=655.0, stop=658.0,
+        )
+        body = _format_sms_body(sig)
+        assert body is not None
+
+    def test_ema_rejection_short_allowed_equity(self):
+        sig = AlertSignal(
+            symbol="NVDA", alert_type=AlertType.EMA_REJECTION_SHORT,
+            direction="SHORT", price=180.0, entry=180.0, stop=183.0,
+        )
+        body = _format_sms_body(sig)
+        assert body is not None
+
+    def test_crypto_short_suppressed(self):
+        """All crypto SHORT alerts are suppressed."""
         sig = AlertSignal(
             symbol="BTC-USD", alert_type=AlertType.SESSION_HIGH_DOUBLE_TOP,
             direction="SHORT", price=67500.0, entry=67500.0, stop=68000.0,
         )
         body = _format_sms_body(sig)
-        assert body is not None
+        assert body is None
 
-    def test_ema_rejection_short_allowed(self):
+    def test_crypto_short_ema_suppressed(self):
         sig = AlertSignal(
             symbol="ETH-USD", alert_type=AlertType.EMA_REJECTION_SHORT,
             direction="SHORT", price=2050.0, entry=2050.0, stop=2060.0,
         )
         body = _format_sms_body(sig)
-        assert body is not None
+        assert body is None
 
     def test_vwap_loss_sent_as_notice(self):
         sig = AlertSignal(

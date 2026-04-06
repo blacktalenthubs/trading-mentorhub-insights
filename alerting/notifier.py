@@ -176,9 +176,13 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         )
 
     # SHORT filter — only structural daily-level shorts reach Telegram as SHORT
+    # CRYPTO: no short alerts at all — too noisy, conflicting signals
     # Key intraday levels (VWAP loss, session low, morning low) → send as NOTICE
     # Other intraday shorts → suppress entirely
     if signal.direction == "SHORT":
+        _is_crypto = signal.symbol.endswith("-USD")
+        if _is_crypto:
+            return None  # suppress all crypto shorts — only exits and notices
         _STRUCTURAL_SHORT_TYPES = {
             "pdh_failed_breakout",       # rejection at PDH
             "support_breakdown",         # break of PDL / double bottom low
