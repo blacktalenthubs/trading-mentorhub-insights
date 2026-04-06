@@ -637,13 +637,21 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # User controls exits. System only informs that levels were breached.
                     # Still add cooldown after stop to prevent re-entry spam.
                     if signal.alert_type in (AlertType.STOP_LOSS_HIT, AlertType.AUTO_STOP_OUT):
-                        db.add(Cooldown(
-                            user_id=user_id,
-                            symbol=symbol,
-                            cooldown_until="",
-                            reason=signal.alert_type.value,
-                            session_date=_sym_session,
-                        ))
+                        # Check if cooldown already exists before inserting
+                        _existing_cd = db.execute(
+                            select(Cooldown.id).where(
+                                Cooldown.symbol == symbol,
+                                Cooldown.session_date == _sym_session,
+                            ).limit(1)
+                        ).scalar_one_or_none()
+                        if not _existing_cd:
+                            db.add(Cooldown(
+                                user_id=user_id,
+                                symbol=symbol,
+                                cooldown_until="",
+                                reason=signal.alert_type.value,
+                                session_date=_sym_session,
+                            ))
                     # Target hits: notify but don't close — user decides when to take profits
 
                     # Preference gate: check if user wants this alert category + score
