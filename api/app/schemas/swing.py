@@ -25,11 +25,15 @@ class SwingTradeResponse(BaseModel):
     id: int
     symbol: str
     direction: str
+    alert_type: Optional[str] = None
     entry_price: float
     stop_price: Optional[float] = None
     target_price: Optional[float] = None
     current_price: Optional[float] = None
     current_rsi: Optional[float] = None
+    entry_rsi: Optional[float] = None
+    stop_type: Optional[str] = None
+    target_type: Optional[str] = None
     status: str
     opened_date: str
     closed_date: Optional[str] = None
