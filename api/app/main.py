@@ -228,12 +228,8 @@ async def lifespan(app: FastAPI):
 
     if _use_webhook:
         # Production: webhook mode — no 409 conflicts
-        # Use Railway's own domain — custom domain CDN blocks Telegram's POSTs
-        _webhook_base = _os.environ.get("RAILWAY_PUBLIC_DOMAIN")
-        if _webhook_base:
-            _webhook_base = f"https://{_webhook_base}"
-        if not _webhook_base:
-            _webhook_base = "https://worker-production-f56f.up.railway.app"
+        # Use Railway's direct domain — custom domains' CDN blocks Telegram POSTs
+        _webhook_base = "https://worker-production-f56f.up.railway.app"
         logger.info("Telegram bot: webhook_base=%s", _webhook_base)
         try:
             from telegram_bot import setup_webhook
