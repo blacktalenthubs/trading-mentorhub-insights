@@ -607,7 +607,17 @@ function SwingTradesContent() {
         <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Active Swing Trades</h3>
         {activeTrades && activeTrades.length > 0 ? (
           <div className="space-y-2">
-            {activeTrades.map((t) => {
+            {(() => {
+              // Deduplicate: keep only the latest entry per symbol
+              const bySymbol = new Map<string, typeof activeTrades[0]>();
+              for (const t of activeTrades) {
+                const existing = bySymbol.get(t.symbol);
+                if (!existing || (t.opened_date > existing.opened_date)) {
+                  bySymbol.set(t.symbol, t);
+                }
+              }
+              return [...bySymbol.values()];
+            })().map((t) => {
               const pnl = t.current_price && t.entry_price
                 ? ((t.current_price - t.entry_price) / t.entry_price) * 100
                 : 0;
