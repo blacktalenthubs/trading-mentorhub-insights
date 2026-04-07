@@ -9,7 +9,7 @@ import pytz
 
 from alert_config import ANTHROPIC_API_KEY
 from alerting.alert_store import get_session_summary, today_session
-from alerting.notifier import _send_telegram
+from alerting.notifier import _send_telegram, _send_telegram_to
 from analytics.intraday_data import get_spy_context
 from db import get_db
 
@@ -188,8 +188,25 @@ def send_eod_review() -> bool:
     if not review:
         return False
 
-    sent = _send_telegram(review)
-    if sent:
+    try:
+        from db import get_pro_users_with_telegram
+        users = get_pro_users_with_telegram()
+    except Exception:
+        users = []
+
+    any_sent = False
+    for u in users:
+        chat_id = u.get("telegram_chat_id", "")
+        if not chat_id:
+            continue
+        try:
+            ok = _send_telegram_to(review, chat_id)
+            if ok:
+                any_sent = True
+        except Exception:
+            pass
+
+    if any_sent:
         _eod_review_sent_date = session
         logger.info("EOD review sent for %s", session)
-    return sent
+    return any_sent

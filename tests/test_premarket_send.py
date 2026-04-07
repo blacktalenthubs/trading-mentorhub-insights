@@ -229,19 +229,21 @@ class TestSendPremarketBrief:
         from analytics.premarket_brief import send_premarket_brief
         assert send_premarket_brief() is False
 
-    @patch("analytics.premarket_brief._send_telegram", return_value=True)
-    @patch("analytics.premarket_brief.build_premarket_message", return_value="test msg")
+    @patch("analytics.premarket_brief._send_telegram_to", return_value=True)
+    @patch("analytics.premarket_brief._build_user_premarket", return_value="test msg")
     @patch("analytics.premarket_brief.today_session", return_value="2025-06-02")
-    def test_sends_once_per_day(self, _ts, _msg, _tg):
+    @patch("db.get_pro_users_with_telegram", return_value=[{"telegram_chat_id": "123", "user_id": 1}])
+    def test_sends_once_per_day(self, _users, _ts, _msg, _tg):
         from analytics.premarket_brief import send_premarket_brief
         assert send_premarket_brief() is True
         # Second call same day — skipped
         assert send_premarket_brief() is False
 
-    @patch("analytics.premarket_brief._send_telegram", return_value=True)
-    @patch("analytics.premarket_brief.build_premarket_message", return_value="test msg")
+    @patch("analytics.premarket_brief._send_telegram_to", return_value=True)
+    @patch("analytics.premarket_brief._build_user_premarket", return_value="test msg")
     @patch("analytics.premarket_brief.today_session")
-    def test_sends_on_new_day(self, mock_ts, _msg, _tg):
+    @patch("db.get_pro_users_with_telegram", return_value=[{"telegram_chat_id": "123", "user_id": 1}])
+    def test_sends_on_new_day(self, _users, mock_ts, _msg, _tg):
         from analytics.premarket_brief import send_premarket_brief
         mock_ts.return_value = "2025-06-02"
         assert send_premarket_brief() is True
@@ -249,10 +251,11 @@ class TestSendPremarketBrief:
         mock_ts.return_value = "2025-06-03"
         assert send_premarket_brief() is True
 
-    @patch("analytics.premarket_brief._send_telegram", return_value=True)
-    @patch("analytics.premarket_brief.build_premarket_message", return_value="test msg")
+    @patch("analytics.premarket_brief._send_telegram_to", return_value=True)
+    @patch("analytics.premarket_brief._build_user_premarket", return_value="test msg")
     @patch("analytics.premarket_brief.today_session", return_value="2025-06-02")
-    def test_calls_telegram(self, _ts, _msg, mock_tg):
+    @patch("db.get_pro_users_with_telegram", return_value=[{"telegram_chat_id": "456", "user_id": 2}])
+    def test_calls_telegram(self, _users, _ts, _msg, mock_tg):
         from analytics.premarket_brief import send_premarket_brief
         send_premarket_brief()
-        mock_tg.assert_called_once_with("test msg")
+        mock_tg.assert_called_once_with("test msg", "456")

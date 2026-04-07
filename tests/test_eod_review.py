@@ -189,18 +189,20 @@ class TestSendEodReview:
         from analytics.eod_review import send_eod_review
         assert send_eod_review() is False
 
-    @patch("analytics.eod_review._send_telegram", return_value=True)
+    @patch("analytics.eod_review._send_telegram_to", return_value=True)
     @patch("analytics.eod_review.build_eod_review", return_value="Review text")
     @patch("analytics.eod_review.today_session", return_value="2025-06-02")
-    def test_sends_once_per_day(self, _ts, _rev, _tg):
+    @patch("db.get_pro_users_with_telegram", return_value=[{"telegram_chat_id": "123", "user_id": 1}])
+    def test_sends_once_per_day(self, _users, _ts, _rev, _tg):
         from analytics.eod_review import send_eod_review
         assert send_eod_review() is True
         assert send_eod_review() is False
 
-    @patch("analytics.eod_review._send_telegram", return_value=True)
+    @patch("analytics.eod_review._send_telegram_to", return_value=True)
     @patch("analytics.eod_review.build_eod_review", return_value="Review text")
     @patch("analytics.eod_review.today_session")
-    def test_sends_on_new_day(self, mock_ts, _rev, _tg):
+    @patch("db.get_pro_users_with_telegram", return_value=[{"telegram_chat_id": "123", "user_id": 1}])
+    def test_sends_on_new_day(self, _users, mock_ts, _rev, _tg):
         from analytics.eod_review import send_eod_review
         mock_ts.return_value = "2025-06-02"
         assert send_eod_review() is True

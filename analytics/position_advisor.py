@@ -348,9 +348,7 @@ def send_position_updates() -> bool:
         return False
 
     if not elite_users:
-        # Fallback to global Telegram
-        from alerting.notifier import _send_telegram
-        return _send_telegram(advice)
+        return False
 
     any_sent = False
     for u in elite_users:

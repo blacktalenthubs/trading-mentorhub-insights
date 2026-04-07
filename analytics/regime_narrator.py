@@ -13,7 +13,7 @@ from datetime import datetime
 import pytz
 
 from alerting.alert_store import today_session
-from alerting.notifier import _send_telegram
+from alerting.notifier import _send_telegram, _send_telegram_to
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,28 @@ def _build_prompt(
     return "\n".join(lines)
 
 
+def _send_to_pro_users(msg: str) -> bool:
+    """Send a message to all Pro users with Telegram enabled."""
+    try:
+        from db import get_pro_users_with_telegram
+        users = get_pro_users_with_telegram()
+    except Exception:
+        users = []
+
+    any_sent = False
+    for u in users:
+        chat_id = u.get("telegram_chat_id", "")
+        if not chat_id:
+            continue
+        try:
+            ok = _send_telegram_to(msg, chat_id)
+            if ok:
+                any_sent = True
+        except Exception:
+            pass
+    return any_sent
+
+
 def check_regime_shift(spy_ctx: dict | None) -> bool:
     """Check for SPY regime change and send AI narration if shifted.
 
@@ -176,7 +198,7 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
             f"{prev_regime} \u2192 {new_regime}\n"
             f"SPY ${spy_ctx.get('close', 0):.2f}"
         )
-        _send_telegram(msg)
+        _send_to_pro_users(msg)
         _narrations_today += 1
         _last_narration_time = datetime.now(ET)
         return True
@@ -203,7 +225,7 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
             f"{prev_regime} \u2192 {new_regime}\n\n"
             f"{analysis}"
         )
-        sent = _send_telegram(msg)
+        sent = _send_to_pro_users(msg)
         if sent:
             _narrations_today += 1
             _last_narration_time = datetime.now(ET)
@@ -220,7 +242,7 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
             f"{prev_regime} \u2192 {new_regime}\n"
             f"SPY ${spy_ctx.get('close', 0):.2f}"
         )
-        _send_telegram(msg)
+        _send_to_pro_users(msg)
         _narrations_today += 1
         _last_narration_time = datetime.now(ET)
         return True
