@@ -95,6 +95,15 @@ def handle_start(token: str, chat_id: int) -> str:
                 email_enabled=bool(get_notification_prefs(prev["user_id"]).get("email_enabled", 1)),
                 anthropic_api_key=get_notification_prefs(prev["user_id"]).get("anthropic_api_key", ""),
             )
+            # Clear V2 users table too
+            try:
+                with get_db() as conn:
+                    conn.execute(
+                        "UPDATE users SET telegram_chat_id = NULL WHERE id = ?",
+                        (prev["user_id"],),
+                    )
+            except Exception:
+                pass
 
     # Update user's notification prefs with chat_id
     prefs = get_notification_prefs(user_id) or {}
@@ -106,6 +115,17 @@ def handle_start(token: str, chat_id: int) -> str:
         email_enabled=bool(prefs.get("email_enabled", 1)),
         anthropic_api_key=prefs.get("anthropic_api_key", ""),
     )
+
+    # Also update V2 users table (FastAPI reads telegram_chat_id from here)
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET telegram_chat_id = ? WHERE id = ?",
+                (str(chat_id), user_id),
+            )
+        logger.info("Updated V2 users.telegram_chat_id for user_id=%s", user_id)
+    except Exception:
+        logger.debug("V2 users table update failed (may not exist)", exc_info=True)
 
     logger.info("Linked Telegram chat_id=%s to user_id=%s", chat_id, user_id)
     msg = (
