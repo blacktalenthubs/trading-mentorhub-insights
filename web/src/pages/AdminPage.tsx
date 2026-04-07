@@ -16,6 +16,8 @@ interface UserInfo {
   created_at: string;
   tier: string;
   status: string;
+  trial_days_left: number;
+  trial_expired: boolean;
   telegram_linked: boolean;
   watchlist_count: number;
   alert_count: number;
@@ -49,17 +51,22 @@ function StatCard({ label, value, icon, color }: {
   );
 }
 
-function TierBadge({ tier }: { tier: string }) {
+function TierBadge({ tier, trialDays, trialExpired }: { tier: string; trialDays?: number; trialExpired?: boolean }) {
   const styles: Record<string, string> = {
     pro: "bg-accent/10 text-accent border-accent/20",
     premium: "bg-purple/10 text-purple-text border-purple/20",
     admin: "bg-warning/10 text-warning-text border-warning/20",
+    trial: "bg-bullish/10 text-bullish-text border-bullish/20",
     free: "bg-surface-3 text-text-faint border-border-subtle",
     none: "bg-surface-3 text-text-faint border-border-subtle",
   };
+  const label = tier === "trial" && trialDays ? `TRIAL ${trialDays}d` : tier.toUpperCase();
   return (
-    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${styles[tier] || styles.free}`}>
-      {tier.toUpperCase()}
+    <span className="inline-flex items-center gap-1">
+      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${styles[tier] || styles.free}`}>
+        {label}
+      </span>
+      {trialExpired && <span className="text-[9px] text-bearish-text">expired</span>}
     </span>
   );
 }
@@ -240,7 +247,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-center"><TierBadge tier={u.tier} /></td>
+                    <td className="px-3 py-3 text-center"><TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} /></td>
                     <td className="px-3 py-3 text-center">
                       {u.telegram_linked ? (
                         <span className="inline-flex items-center gap-1 text-[10px] text-bullish-text">
@@ -269,7 +276,7 @@ export default function AdminPage() {
                         <td className="px-5 py-2">
                           <span className="text-xs text-text-faint">{u.email}</span>
                         </td>
-                        <td className="px-3 py-2 text-center"><TierBadge tier={u.tier} /></td>
+                        <td className="px-3 py-2 text-center"><TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} /></td>
                         <td className="px-3 py-2 text-center text-[10px] text-text-faint">{u.telegram_linked ? "✓" : "—"}</td>
                         <td className="px-3 py-2 text-right font-mono text-text-faint text-xs">{u.watchlist_count}</td>
                         <td className="px-3 py-2 text-right font-mono text-text-faint text-xs">{u.alert_count}</td>

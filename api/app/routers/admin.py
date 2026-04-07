@@ -54,13 +54,34 @@ async def list_users(
         )
         alert_count = alerts.scalar() or 0
 
+        # Trial days remaining
+        _trial_days = 0
+        _trial_expired = False
+        if sub_row and sub_row.trial_ends_at:
+            from datetime import datetime, timezone
+            _ends = sub_row.trial_ends_at
+            if _ends.tzinfo is None:
+                _ends = _ends.replace(tzinfo=timezone.utc)
+            _remaining = (_ends - datetime.now(timezone.utc)).total_seconds()
+            if _remaining > 0:
+                _trial_days = max(1, int(_remaining / 86400) + 1)
+            else:
+                _trial_expired = True
+
+        # Effective tier (accounts for active trial)
+        _effective_tier = sub_row.tier if sub_row else "none"
+        if _effective_tier == "free" and _trial_days > 0:
+            _effective_tier = "trial"
+
         data.append({
             "id": u.id,
             "email": u.email,
             "display_name": u.display_name,
             "created_at": str(u.created_at),
-            "tier": sub_row.tier if sub_row else "none",
+            "tier": _effective_tier,
             "status": sub_row.status if sub_row else "none",
+            "trial_days_left": _trial_days,
+            "trial_expired": _trial_expired,
             "telegram_linked": bool(u.telegram_chat_id),
             "watchlist_count": wl_count,
             "alert_count": alert_count,
