@@ -250,13 +250,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
-    if _use_webhook:
-        try:
-            from telegram_bot import shutdown_webhook
-            await shutdown_webhook()
-        except Exception:
-            pass
+    # Shutdown — do NOT delete webhook (new instance already registered it)
     if scheduler:
         scheduler.shutdown(wait=False)
     if sync_engine:

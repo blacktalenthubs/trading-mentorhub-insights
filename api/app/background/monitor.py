@@ -229,8 +229,8 @@ def _poll_all_users_inner(sync_session_factory) -> int:
             }
             for sym in stopped_symbols:
                 if sym not in cooled_symbols:
-                    fired_today = {
-                        (s, at) for s, at in fired_today
+                    _fired_equity = {
+                        (s, at) for s, at in _fired_equity
                         if s != sym or at in _sell_types
                     }
 
