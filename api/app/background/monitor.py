@@ -70,7 +70,8 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     with sync_session_factory() as db:
         # Get Pro + Premium users (paid or active trial)
         from datetime import datetime as _dt, timezone as _tz
-        _now = _dt.now(_tz.utc)
+        # Use naive UTC (Postgres stores TIMESTAMP WITHOUT TIME ZONE)
+        _now = _dt.utcnow()
         pro_users = db.execute(
             select(User.id).join(Subscription).where(
                 Subscription.status == "active",
@@ -83,6 +84,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 ),
             )
         ).scalars().all()
+        logger.info("Pro/trial users: %s (now=%s)", pro_users, _now.isoformat())
 
         if not pro_users:
             logger.info("No Pro/Premium/Trial users — skipping poll")
