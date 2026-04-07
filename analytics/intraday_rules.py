@@ -4004,6 +4004,10 @@ def check_session_low_bounce_to_vwap(
     vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
     touch_count = nearest_support.get("touch_count", 1)
 
+    # Require at least 2 tests — "tested 1x" is just the current low, not a bounce
+    if touch_count < 2:
+        return None
+
     # Support fatigue: too many tests weakens the level
     fatigue_warning = ""
     if touch_count >= 4:
