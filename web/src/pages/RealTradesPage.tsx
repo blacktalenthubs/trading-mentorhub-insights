@@ -385,6 +385,7 @@ function SwingTradesContent() {
   const { data: activeTrades } = useActiveSwingTrades();
   const { data: history } = useSwingTradesHistory();
   const triggerScan = useTriggerSwingScan();
+  const [expandedSwing, setExpandedSwing] = useState<number | null>(null);
 
   return (
     <>
@@ -461,35 +462,85 @@ function SwingTradesContent() {
               const pnl = t.current_price && t.entry_price
                 ? ((t.current_price - t.entry_price) / t.entry_price) * 100
                 : 0;
+              const isExpanded = expandedSwing === t.id;
+              const setupLabel = (t.alert_type || "").replace(/swing_/i, "").replace(/_/g, " ").toUpperCase() || "SWING SETUP";
+              const stopLabel = (t.stop_type || "").replace(/_/g, " ");
               return (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between rounded-lg bg-surface-2/50 border border-border-subtle px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">SWING</span>
-                    <div>
-                      <span className="font-medium text-text-primary">{t.symbol}</span>
-                      <span className="text-xs text-text-muted ml-2">@ ${t.entry_price.toFixed(2)}</span>
+                <div key={t.id} className="rounded-lg bg-surface-2/50 border border-border-subtle overflow-hidden">
+                  <div
+                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-surface-3/30 transition-colors"
+                    onClick={() => setExpandedSwing(isExpanded ? null : t.id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">SWING</span>
+                      <div>
+                        <span className="font-medium text-text-primary">{t.symbol}</span>
+                        <span className="text-xs text-text-muted ml-2">@ ${t.entry_price.toFixed(2)}</span>
+                      </div>
+                      <span className="text-[10px] text-text-faint">{isExpanded ? "▲" : "▼"}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      {t.current_price && (
+                        <span className={`font-mono text-sm font-medium ${pnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                          ${t.current_price.toFixed(2)} ({pnl >= 0 ? "+" : ""}{pnl.toFixed(1)}%)
+                        </span>
+                      )}
+                      {t.current_rsi != null && (
+                        <span className={`text-xs font-mono px-2 py-0.5 rounded ${
+                          t.current_rsi > 70 ? "bg-bearish/10 text-bearish-text" :
+                          t.current_rsi < 30 ? "bg-bullish/10 text-bullish-text" :
+                          "bg-surface-3 text-text-muted"
+                        }`}>
+                          RSI {t.current_rsi.toFixed(0)}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-text-faint">{t.opened_date}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    {t.current_price && (
-                      <span className={`font-mono text-sm font-medium ${pnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-                        ${t.current_price.toFixed(2)} ({pnl >= 0 ? "+" : ""}{pnl.toFixed(1)}%)
-                      </span>
-                    )}
-                    {t.current_rsi != null && (
-                      <span className={`text-xs font-mono px-2 py-0.5 rounded ${
-                        t.current_rsi > 70 ? "bg-bearish/10 text-bearish-text" :
-                        t.current_rsi < 30 ? "bg-bullish/10 text-bullish-text" :
-                        "bg-surface-3 text-text-muted"
-                      }`}>
-                        RSI {t.current_rsi.toFixed(0)}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-text-faint">{t.opened_date}</span>
-                  </div>
+                  {isExpanded && (
+                    <div className="px-4 pb-3 pt-1 border-t border-border-subtle bg-surface-1/50 space-y-2 text-xs">
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                        <div>
+                          <span className="text-text-faint">Setup:</span>{" "}
+                          <span className="text-accent font-medium">{setupLabel}</span>
+                        </div>
+                        <div>
+                          <span className="text-text-faint">Direction:</span>{" "}
+                          <span className="text-bullish-text font-medium">{t.direction}</span>
+                        </div>
+                        <div>
+                          <span className="text-text-faint">Entry:</span>{" "}
+                          <span className="text-text-primary font-mono">${t.entry_price.toFixed(2)}</span>
+                          {t.entry_rsi != null && <span className="text-text-muted ml-1">(RSI {t.entry_rsi.toFixed(0)})</span>}
+                        </div>
+                        <div>
+                          <span className="text-text-faint">Current:</span>{" "}
+                          <span className={`font-mono ${pnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                            ${(t.current_price || t.entry_price).toFixed(2)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-text-faint">Stop:</span>{" "}
+                          <span className="text-bearish-text font-mono">{stopLabel || "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-text-faint">Target:</span>{" "}
+                          <span className="text-bullish-text font-mono">{t.target_type === "rsi_70" ? "RSI 70" : t.target_type || "—"}</span>
+                        </div>
+                      </div>
+                      <div className="pt-1.5 border-t border-border-subtle/50 text-text-muted">
+                        <span className="text-text-faint">Why this entry: </span>
+                        {setupLabel === "EMA CROSSOVER 5 20" && "5 EMA crossed above 20 EMA — short-term momentum turning bullish."}
+                        {setupLabel === "200MA RECLAIM" && "Price reclaimed the 200-day MA — long-term trend reversal signal."}
+                        {setupLabel === "PULLBACK 20EMA" && "Price pulled back to the rising 20 EMA and held — continuation pattern."}
+                        {setupLabel === "RSI 30 BOUNCE" && "RSI crossed above 30 from oversold — mean reversion bounce setup."}
+                        {setupLabel === "200MA HOLD" && "Price wicked to 200 MA and closed above — key support held."}
+                        {setupLabel === "50MA HOLD" && "Price wicked to rising 50 MA and closed above — intermediate support held."}
+                        {setupLabel === "WEEKLY SUPPORT" && "Price bounced off prior week's low — weekly support zone holding."}
+                        {!["EMA CROSSOVER 5 20", "200MA RECLAIM", "PULLBACK 20EMA", "RSI 30 BOUNCE", "200MA HOLD", "50MA HOLD", "WEEKLY SUPPORT"].includes(setupLabel) && "EOD swing scan detected a setup at a key technical level."}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

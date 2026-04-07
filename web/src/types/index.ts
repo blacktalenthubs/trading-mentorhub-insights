@@ -118,11 +118,15 @@ export interface SwingTrade {
   id: number;
   symbol: string;
   direction: string;
+  alert_type?: string;
   entry_price: number;
   stop_price: number | null;
   target_price: number | null;
   current_price: number | null;
   current_rsi: number | null;
+  entry_rsi: number | null;
+  stop_type?: string;
+  target_type?: string;
   status: string;
   opened_date: string;
   closed_date: string | null;
