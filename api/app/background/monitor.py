@@ -593,16 +593,20 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         AlertType.OPENING_RANGE_BREAKDOWN,
                     }
                     if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
-                        db.add(ActiveEntry(
-                            user_id=user_id,
-                            symbol=symbol,
-                            entry_price=_py(signal.entry),
-                            stop_price=_py(signal.stop),
-                            target_1=_py(signal.target_1),
-                            target_2=_py(signal.target_2),
-                            alert_type=signal.alert_type.value,
-                            session_date=_sym_session,
-                        ))
+                        try:
+                            db.add(ActiveEntry(
+                                user_id=user_id,
+                                symbol=symbol,
+                                entry_price=_py(signal.entry),
+                                stop_price=_py(signal.stop),
+                                target_1=_py(signal.target_1),
+                                target_2=_py(signal.target_2),
+                                alert_type=signal.alert_type.value,
+                                session_date=_sym_session,
+                            ))
+                            db.flush()
+                        except Exception:
+                            db.rollback()  # clear the failed INSERT, continue
 
                     # Stop/target: NOTIFY only — do NOT auto-close trades (BUG-9)
                     # User controls exits. System only informs that levels were breached.
@@ -677,6 +681,12 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # Telegram notification (per-user)
                     if _send_notification:
                         _user = user_rows.get(user_id)
+                        if not _user:
+                            logger.warning("NOTIFY SKIP: user=%d — not in user_rows", user_id)
+                        elif not _user.telegram_chat_id:
+                            logger.warning("NOTIFY SKIP: user=%d — telegram_chat_id empty", user_id)
+                        elif not _user.telegram_enabled:
+                            logger.warning("NOTIFY SKIP: user=%d — telegram_enabled=False", user_id)
                         if _user and _user.telegram_enabled and _user.telegram_chat_id:
                             try:
                                 from alerting.notifier import notify_user
