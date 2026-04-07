@@ -33,11 +33,8 @@ _last_buy_session: str = ""
 # Track SPY inside day notice (one per session)
 _spy_inside_day_notified: bool = False
 
-# Direction lock: once BUY/SHORT fires for a symbol, suppress opposite for 30 min
-_direction_lock: Dict[str, tuple] = {}  # {symbol: (direction, datetime)}
-
-# SPY SHORT gate: when SPY gets a SHORT alert, suppress equity BUY entries for 30 min
-_spy_short_time: "datetime | None" = None
+# Per-alert-type cooldown: prevent same alert type from firing rapidly
+_direction_lock: Dict[tuple, "datetime"] = {}  # {(symbol, alert_type): datetime}
 
 
 def poll_all_users(sync_session_factory) -> int:
@@ -58,7 +55,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.watchlist import WatchlistItem  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
 
-    global _last_buy_session, _spy_inside_day_notified, _spy_short_time
+    global _last_buy_session, _spy_inside_day_notified
     session_date = date.today().isoformat()
     # Crypto uses UTC date so dedup resets at midnight UTC (not server time)
     _utc_date = datetime.utcnow().date().isoformat()
@@ -473,87 +470,20 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
                 for signal in signals:
                   try:
-                    # SPY SHORT gate: if SPY shorted recently, suppress equity BUY entries
-                    # EXCEPTION: high-conviction structural setups pass through
-                    _structural_exceptions = {
-                        "multi_day_double_bottom",  # multi-day support level
-                        "prior_day_low_reclaim",    # PDL reclaim is structural
-                        "prior_day_low_bounce",     # PDL hold is structural
-                        "swing_rsi_30_bounce",      # oversold reversal
-                        "swing_200ma_hold",         # 200MA is institutional
-                        "swing_50ma_hold",          # 50MA trend support
-                        "swing_weekly_support",     # weekly level
-                    }
-                    if (signal.direction == "BUY"
-                            and not _is_crypto
-                            and symbol != "SPY"
-                            and _spy_short_time is not None
-                            and (datetime.utcnow() - _spy_short_time).total_seconds() < 1800
-                            and signal.alert_type.value not in _structural_exceptions):
-                        logger.info("SPY GATE: %s BUY suppressed — SPY SHORT fired %ds ago",
-                                    symbol, int((datetime.utcnow() - _spy_short_time).total_seconds()))
-                        continue
-
-                    # Enforce per-symbol budget: max 2 entries per session
-                    if signal.direction in ("BUY", "SHORT") and _entry_count >= 2:
-                        logger.info("BUDGET: %s %s suppressed — %d entries already this session",
-                                    symbol, signal.alert_type.value, _entry_count)
-                        continue
-                    # Dedup check
+                    # --- Only keep basic dedup (same alert type already fired today) ---
                     key = (symbol, signal.alert_type.value)
                     if key in fired_today:
                         continue
 
-                    # BUG-5 fix: suppress conflicting direction alerts
-                    # Don't send SHORT when user has active LONG, and vice versa
-                    if active_rows and signal.direction in ("BUY", "SHORT"):
-                        _active_dirs = {a.alert_type for a in active_rows}
-                        _has_long = any(not at.startswith("short") and not at.startswith("ema_rejection") for at in _active_dirs)
-                        _has_short = any(at.startswith("short") or at.startswith("ema_rejection") or at.startswith("consol_breakout_short") for at in _active_dirs)
-                        if signal.direction == "SHORT" and _has_long:
-                            logger.info("SUPPRESSED: %s %s SHORT — active LONG entry exists", symbol, signal.alert_type.value)
-                            continue
-                        if signal.direction == "BUY" and _has_short:
-                            logger.info("SUPPRESSED: %s %s BUY — active SHORT entry exists", symbol, signal.alert_type.value)
-                            continue
-
-                    # BUG-7 fix: suppress BUY breakout at resistance when user has active LONG from below
-                    # The breakout level IS the user's exit point, not a new entry
-                    if active_rows and signal.direction == "BUY":
-                        _breakout_types = {"consol_breakout_long", "prior_day_high_breakout",
-                                           "inside_day_breakout", "weekly_high_breakout",
-                                           "opening_range_breakout", "first_hour_high_breakout"}
-                        if signal.alert_type.value in _breakout_types:
-                            for ae in active_rows:
-                                t1 = ae.target_1 or 0
-                                if t1 > 0 and signal.entry and abs(signal.entry - t1) / t1 < 0.01:
-                                    logger.info(
-                                        "SUPPRESSED: %s %s BUY — breakout near active LONG T1 $%.2f (exit point, not entry)",
-                                        symbol, signal.alert_type.value, t1,
-                                    )
-                                    continue
-
-                    # Direction lock: suppress ALL alerts (same or opposite) within 30 min
-                    # Prevents: BUY→SHORT flip-flop AND SHORT→SHORT spam at same level
+                    # Direction lock: only suppress exact same alert type within 10 min
+                    # (prevents rapid-fire spam of the same signal, but allows different setups)
                     if signal.direction in ("BUY", "SHORT"):
-                        _lock = _direction_lock.get(symbol)
+                        _lock = _direction_lock.get((symbol, signal.alert_type.value))
                         if _lock:
-                            _locked_dir, _locked_time = _lock
+                            _locked_time = _lock
                             _elapsed = (datetime.utcnow() - _locked_time).total_seconds()
-                            if _elapsed < 1800:  # 30 min cooldown
-                                if _locked_dir != signal.direction:
-                                    logger.info(
-                                        "DIRECTION LOCK: %s %s suppressed — %s fired %ds ago",
-                                        symbol, signal.direction, _locked_dir, int(_elapsed),
-                                    )
-                                    continue
-                                elif _locked_dir == signal.direction:
-                                    # Same direction repeat — suppress SHORT spam
-                                    logger.info(
-                                        "REPEAT LOCK: %s %s suppressed — same direction fired %ds ago",
-                                        symbol, signal.direction, int(_elapsed),
-                                    )
-                                    continue
+                            if _elapsed < 600:  # 10 min cooldown per alert type
+                                continue
 
                     # Generate AI narrative for education context
                     _narrative = ""
@@ -631,40 +561,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     db.add(alert)
                     fired_today.add(key)
 
-                    # Set direction lock + increment budget counter
+                    # Set per-alert-type cooldown (10 min)
                     if signal.direction in ("BUY", "SHORT"):
-                        _direction_lock[symbol] = (signal.direction, datetime.utcnow())
-                        _entry_count += 1
-                        # SPY SHORT gate: suppress equity BUYs until SPY finds support
-                        if symbol == "SPY" and signal.direction == "SHORT":
-                            _spy_short_time = datetime.utcnow()
-                            logger.info("SPY GATE SET: SPY SHORT fired — suppressing equity BUY entries")
-                        # SPY BUY or structural support clears the gate
-                        if symbol == "SPY" and _spy_short_time is not None:
-                            _spy_support_types = {
-                                "BUY",     # any SPY BUY alert
-                                "NOTICE",  # VWAP reclaim, support bounce notice
-                            }
-                            _spy_support_alerts = {
-                                "prior_day_low_reclaim", "prior_day_low_bounce",
-                                "vwap_reclaim", "vwap_bounce",
-                                "intraday_support_bounce", "session_low_double_bottom",
-                                "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
-                                "ema_bounce_20", "ema_bounce_50", "ema_bounce_200",
-                                "opening_low_base",         # morning low hold
-                                "morning_low_breakdown",    # if direction is BUY (reclaim)
-                                "multi_day_double_bottom",  # multi-day support
-                                "opening_range_breakout",   # OR breakout = strength
-                                "gap_fill",                 # gap fill = buyers stepping in
-                            }
-                            if (signal.direction in _spy_support_types
-                                    or signal.alert_type.value in _spy_support_alerts):
-                                logger.info(
-                                    "SPY GATE CLEARED: %s %s — resuming equity BUY entries (gate was %ds)",
-                                    signal.direction, signal.alert_type.value,
-                                    int((datetime.utcnow() - _spy_short_time).total_seconds()),
-                                )
-                                _spy_short_time = None
+                        _direction_lock[(symbol, signal.alert_type.value)] = datetime.utcnow()
 
                     # Create active entry for BUY signals
                     _non_entry_types = {

@@ -7969,38 +7969,10 @@ def evaluate_rules(
                     symbol, s.alert_type.value, _range_pct * 100,
                 )
 
-    # --- Contradictory signal filter: active SHORT in same cycle suppresses BUY ---
-    # If the system fires a SHORT with entry/stop/targets at the same time as
-    # a BUY, the SHORT wins — the market is showing weakness at the same level.
-    # Passive SELL signals (rejection, resistance, target hits, stops) do NOT
-    # suppress BUYs — they are informational or exit-only.
-    _active_short_in_cycle = any(
-        s.direction == "SHORT"
-        and s.entry is not None
-        for s in signals
-    )
-    # Also suppress if PDH failed breakout or morning low breakdown fires
-    _bearish_breakdown_in_cycle = any(
-        s.alert_type in (
-            AlertType.PDH_FAILED_BREAKOUT,
-            AlertType.MORNING_LOW_BREAKDOWN,
-            AlertType.SUPPORT_BREAKDOWN,
-        )
-        for s in signals
-    )
-    if _active_short_in_cycle or _bearish_breakdown_in_cycle:
-        dropped = [s for s in signals if s.direction == "BUY"]
-        if dropped:
-            _bear_names = ", ".join(
-                s.alert_type.value for s in signals
-                if s.direction in ("SELL", "SHORT")
-            )
-            for s in dropped:
-                logger.info(
-                    "%s: contradictory filter dropped BUY %s (bearish signals: %s)",
-                    symbol, s.alert_type.value, _bear_names,
-                )
-            signals = [s for s in signals if s.direction != "BUY"]
+    # --- Contradictory signal filter: DISABLED ---
+    # Previously suppressed BUYs when SHORT signals existed in the same cycle.
+    # Removed to avoid over-suppression — users should see all signals at key
+    # support/resistance levels and decide for themselves.
 
     # --- Bounce Quality Tagging ---
     # Tag all bounce-type BUY signals with quality assessment
