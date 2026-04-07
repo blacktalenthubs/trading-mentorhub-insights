@@ -621,10 +621,15 @@ def start_bot_thread() -> bool:
         asyncio.set_event_loop(loop)
         try:
             app = _build_app(bot_token)
-            logger.info("Telegram bot listener starting (background thread)...")
+            logger.info("Telegram bot listener starting (polling, local dev)...")
             loop.run_until_complete(app.initialize())
             loop.run_until_complete(app.start())
-            loop.run_until_complete(app.updater.start_polling())
+            # drop_pending_updates=True but do NOT delete webhook
+            # (production uses webhook mode with the same bot token)
+            loop.run_until_complete(app.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"],
+            ))
             loop.run_forever()
         except Exception:
             logger.exception("Telegram bot listener crashed")
