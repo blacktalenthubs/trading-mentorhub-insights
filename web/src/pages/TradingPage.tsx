@@ -225,13 +225,6 @@ function CatalystBanner({
     return `in ${days} days`;
   }
 
-  function eventLabel(c: CatalystItem): string {
-    const kind = c.event === "EARNINGS" ? "earnings" : "ex-dividend";
-    const timing = c.event === "EARNINGS" && c.timing && c.timing !== "Unknown"
-      ? ` (${c.timing})`
-      : "";
-    return `${c.symbol} ${kind} ${daysLabel(c.days_away)}${timing}`;
-  }
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 bg-warning/10 border-b border-warning/20 text-xs shrink-0 overflow-x-auto no-scrollbar">
