@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -328,8 +329,6 @@ def create_app() -> FastAPI:
     app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
 
     # --- Telegram webhook route (must be before SPA catch-all) ---
-    from fastapi import Request
-    from fastapi.responses import JSONResponse as _JSONResponse
     import sys as _sys
     from pathlib import Path as _Path
     _scripts_dir = str(_Path(__file__).resolve().parents[2] / "scripts")
@@ -343,7 +342,7 @@ def create_app() -> FastAPI:
         async def telegram_webhook(request: Request):
             data = await request.json()
             await process_webhook_update(data)
-            return _JSONResponse({"ok": True})
+            return JSONResponse({"ok": True})
 
         logger.info("Telegram webhook route: POST %s", _tg_path)
     except Exception:
