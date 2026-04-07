@@ -195,15 +195,24 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 continue
 
             # Load user's fired alerts for dedup (equity session + crypto UTC session)
+            # Key includes price bucket so same alert type at different levels can fire
+            # e.g. double top at $2148 and double top at $2193 are different setups
             _dedup_dates = {session_date, _utc_date}
             db_alerts = db.execute(
-                select(Alert.symbol, Alert.alert_type, Alert.session_date).where(
+                select(Alert.symbol, Alert.alert_type, Alert.session_date, Alert.price).where(
                     Alert.user_id == user_id, Alert.session_date.in_(_dedup_dates)
                 )
             ).all()
-            # Build per-session dedup sets
-            _fired_equity: set[tuple[str, str]] = {(a[0], a[1]) for a in db_alerts if a[2] == session_date}
-            _fired_crypto: set[tuple[str, str]] = {(a[0], a[1]) for a in db_alerts if a[2] == _utc_date}
+
+            def _dedup_key(sym: str, atype: str, price: float = 0) -> tuple:
+                """Dedup key: same alert type within 1% price = duplicate."""
+                if price and price > 0:
+                    bucket = round(price, -len(str(int(price))) + 2)  # round to 2 sig figs
+                    return (sym, atype, bucket)
+                return (sym, atype, 0)
+
+            _fired_equity: set[tuple] = {_dedup_key(a[0], a[1], a[3] or 0) for a in db_alerts if a[2] == session_date}
+            _fired_crypto: set[tuple] = {_dedup_key(a[0], a[1], a[3] or 0) for a in db_alerts if a[2] == _utc_date}
 
             # Load cooldowns
             cooldown_rows = db.execute(
@@ -477,8 +486,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
                 for signal in signals:
                   try:
-                    # --- Only keep basic dedup (same alert type already fired today) ---
-                    key = (symbol, signal.alert_type.value)
+                    # --- Dedup: same alert type at same price level = skip ---
+                    # Different price levels are allowed (e.g. double top at $2148 vs $2193)
+                    key = _dedup_key(symbol, signal.alert_type.value, signal.price or 0)
                     if key in fired_today:
                         continue
 
