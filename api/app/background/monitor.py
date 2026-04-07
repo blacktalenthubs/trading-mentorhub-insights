@@ -395,7 +395,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 # Intraday SWING WATCH — detect when price approaches key daily levels
                 # One notice per symbol per session (dedup via fired_today)
                 if prior_day and intraday is not None and len(intraday) >= 6 and not _is_crypto:
-                    _sw_key = (symbol, "_swing_watch")
+                    _sw_key = (symbol, "swing_watch")
                     if _sw_key not in fired_today:
                         _last_close = float(intraday.iloc[-1]["Close"])
                         _last_low = float(intraday.iloc[-1]["Low"])
