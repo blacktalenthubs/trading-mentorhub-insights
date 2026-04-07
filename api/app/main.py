@@ -66,6 +66,24 @@ async def lifespan(app: FastAPI):
             ))
         except Exception:
             pass
+
+        # Migration: sync V1 telegram_chat_id to V2 users table
+        # Users who linked Telegram before the V2 sync fix have chat_id in
+        # user_notification_prefs but not in users.telegram_chat_id
+        try:
+            result = await conn.execute(text(
+                "UPDATE users SET telegram_chat_id = n.telegram_chat_id "
+                "FROM user_notification_prefs n "
+                "WHERE users.id = n.user_id "
+                "AND n.telegram_chat_id IS NOT NULL "
+                "AND n.telegram_chat_id != '' "
+                "AND (users.telegram_chat_id IS NULL OR users.telegram_chat_id = '')"
+            ))
+            if result.rowcount and result.rowcount > 0:
+                logger.info("Migration: synced %d telegram_chat_ids from V1 to V2", result.rowcount)
+        except Exception:
+            pass  # V1 table may not exist in fresh installs
+
     logger.info("Database tables created/verified")
 
     # Background monitor — runs for both SQLite (dev) and Postgres (prod)
