@@ -10,7 +10,7 @@ import { Link } from "react-router-dom";
 import {
   Crosshair, Brain, Send, BarChart3, LineChart, Shield,
   Check, Zap, Clock, TrendingUp,
-  ArrowRight, Eye,
+  ArrowRight, Eye, Star, Calendar, PieChart, MessageSquare, Play,
 } from "lucide-react";
 
 /* ── Live track record hook ───────────────────────────────────────── */
@@ -298,17 +298,23 @@ function Differentiators() {
 
 function Features() {
   const features = [
-    { icon: Zap, title: "Structural Alerts", desc: "PDL reclaims, MA bounces, consolidation breakouts, double bottoms — real patterns, not price crosses. Scans every 3 min." },
-    { icon: Brain, title: "AI Trade Coach", desc: "Ask about any chart. Gets specific prices, targets, and if/then scenarios. Position-aware — knows your open trades." },
-    { icon: Send, title: "Telegram Alerts", desc: "Complete trade plans with Took/Skip/Exit buttons. Act from your phone. Swing trades labeled separately from day trades." },
-    { icon: BarChart3, title: "Edge Tracker", desc: "Weekly Edge Score (0-10). Track your proven edge, leaks, and what to change. AI coaching based on YOUR trading data." },
-    { icon: LineChart, title: "Chart Replay", desc: "Watch any alert play out candle-by-candle. AI narrates entry, price action, and outcome. Learn from every trade." },
-    { icon: Shield, title: "Transparent Track Record", desc: "Public win rates. Per-pattern performance. We show what works AND what fails. 90-day rolling data, always live." },
+    { icon: Zap, title: "Real-Time Structural Alerts", desc: "PDL reclaims, MA bounces, breakouts, double bottoms. Scans every 3 min. Complete plans: entry, stop, T1, T2." },
+    { icon: Brain, title: "AI Trade Coach", desc: "Ask about any chart. Get structured analysis: day trade entry, swing trade entry, and verdict. Uses your open positions and live chart data." },
+    { icon: TrendingUp, title: "Options Flow Scanner", desc: "Detects unusual options activity (volume > 3x open interest). See what smart money is positioning for before price moves." },
+    { icon: BarChart3, title: "Sector Rotation Tracker", desc: "Live momentum across 11 sector ETFs. See money flowing into energy, out of tech — know when your sector has tailwinds." },
+    { icon: Star, title: "Smart Watchlist", desc: "AI ranks your symbols 0-100 by tradeability. Volume, key level proximity, RSI extremes, trend clarity. Know which chart to look at first." },
+    { icon: LineChart, title: "Swing Trade System", desc: "End-of-day scans for multi-day setups. EMA crossovers, 200MA reclaims, RSI bounces. Expandable cards show entry reasoning." },
+    { icon: Calendar, title: "Catalyst Calendar", desc: "Warns you before earnings, ex-dividend dates, fed events. Never trade blind into a catalyst again." },
+    { icon: PieChart, title: "Performance Analytics", desc: "Win rate by pattern, time of day, symbol, and day of week. Find your edge — and your leaks." },
+    { icon: MessageSquare, title: "AI Coaching Suite", desc: "Pre-market battle plan (9:15 AM), EOD review (4:35 PM), weekly edge report (Friday). All personalized to your trades." },
+    { icon: Play, title: "Chart Replay", desc: "Watch any alert play out candle-by-candle. AI narrates entry, action, outcome. Create content or learn from every trade." },
+    { icon: Send, title: "Telegram DM Alerts", desc: "Complete trade plans with inline Took/Skip/Exit buttons. Act from your phone in seconds." },
+    { icon: Shield, title: "Transparent Track Record", desc: "Public win rates per pattern. We show what works AND what fails. 90-day rolling data, always honest." },
   ];
 
   return (
     <section className="py-24 px-6 bg-surface-1/50">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
           <Badge>Features</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
@@ -316,7 +322,7 @@ function Features() {
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {features.map((f) => (
             <div key={f.title} className="bg-surface-1 border border-border-subtle rounded-xl p-6 hover:border-border-default transition-colors group">
               <div className="w-10 h-10 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center mb-4 group-hover:shadow-glow-accent transition-shadow">
@@ -361,11 +367,14 @@ function Pricing() {
         "10 symbols on watchlist",
         "Real-time Telegram alerts",
         "AI Trade Coach (20/day)",
+        "Options Flow Scanner",
+        "Sector Rotation Tracker",
+        "Smart Watchlist Ranking",
+        "Catalyst Calendar warnings",
+        "Pre-market AI Battle Plan",
+        "Daily AI EOD Review",
+        "Performance Analytics",
         "Full alert history (30 days)",
-        "Pre-trade checklist",
-        "Daily AI battle plan (9:15 AM)",
-        "Weekly Edge Report",
-        "Performance analytics",
       ],
       highlight: true,
     },
@@ -379,9 +388,9 @@ function Pricing() {
         "Everything in Pro",
         "25 symbols on watchlist",
         "Unlimited AI Coach",
-        "Full alert history",
-        "Weekly AI review",
-        "Swing trade system",
+        "Swing Trade System",
+        "Weekly AI Edge Report",
+        "Chart Replay (unlimited)",
         "Paper trading simulator",
         "Backtesting engine",
       ],
@@ -672,6 +681,13 @@ function Comparison() {
     { feature: "AI coaching based on YOUR data", us: true, tv: false, ti: false, disc: false },
     { feature: "Chart replay with AI narration", us: true, tv: false, ti: false, disc: false },
     { feature: "3-day free Pro trial", us: true, tv: false, ti: false, disc: false },
+    { feature: "Options flow / unusual activity detection", us: true, tv: false, ti: false, disc: false },
+    { feature: "Sector rotation tracking", us: true, tv: false, ti: false, disc: false },
+    { feature: "Catalyst calendar (earnings warnings)", us: true, tv: "partial", ti: false, disc: false },
+    { feature: "Smart watchlist ranking by tradeability", us: true, tv: false, ti: false, disc: false },
+    { feature: "Performance breakdown by pattern/time", us: true, tv: false, ti: true, disc: false },
+    { feature: "Swing trade scanner with entry reasoning", us: true, tv: false, ti: false, disc: false },
+    { feature: "11 AI services (coach, brief, review)", us: true, tv: false, ti: false, disc: false },
     { feature: "Price", us: "$49/mo", tv: "$15+/mo", ti: "$228/mo", disc: "$50-500/mo" },
   ];
 
@@ -704,6 +720,8 @@ function Comparison() {
                     <td key={i} className="py-3 px-4 text-center">
                       {typeof val === "boolean" ? (
                         val ? <Check className="h-4 w-4 text-bullish-text mx-auto" /> : <span className="text-text-faint">—</span>
+                      ) : val === "partial" ? (
+                        <span className="text-text-faint text-xs">Partial</span>
                       ) : (
                         <span className={i === 0 ? "font-bold text-accent" : "text-text-faint"}>{val}</span>
                       )}
@@ -756,6 +774,22 @@ function FAQ() {
     {
       q: "Do you auto-close my trades?",
       a: "Never. TradeCoPilot notifies you when stop or target levels are reached, but you always decide when to exit. Close trades from the dashboard or Telegram — you're always in control.",
+    },
+    {
+      q: "What is the Options Flow Scanner?",
+      a: "Our scanner monitors your watchlist symbols for unusual options activity — when volume exceeds 3x open interest on a strike, it flags it. This often precedes big price moves. Available on the Trading page, refreshes every 3 minutes.",
+    },
+    {
+      q: "How does the AI Trade Coach work?",
+      a: "Select any symbol on your chart and ask the coach. It analyzes your chart data, technicals, and open positions, then gives structured analysis: day trade entry/stop/target, swing trade entry/stop/target, and a verdict on whether to trade. Pro users get 20 queries per day.",
+    },
+    {
+      q: "What is the Smart Watchlist?",
+      a: "Instead of guessing which chart to look at, the Smart Watchlist scores each symbol 0-100 based on volume, proximity to key levels, RSI extremes, and trend clarity. The highest-scored symbol is your best setup right now.",
+    },
+    {
+      q: "Do you have swing trade alerts?",
+      a: "Yes. Our EOD scanner runs at 4:15 PM ET and detects multi-day setups: EMA crossovers, 200MA reclaims, 50MA holds, RSI bounces, and weekly support holds. Each swing trade card expands to show entry reasoning, stop rules, and targets.",
     },
   ];
 
