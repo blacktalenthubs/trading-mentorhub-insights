@@ -357,12 +357,19 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                     logger.info("T1 NOTIFY: user=%d %s T1=$%.2f reached, entry=$%.2f", user_id, symbol, _t1, _entry)
 
                                     # Persist in DB so dedup survives across poll cycles
+                                    _t1_msg = (
+                                        f"T1 REACHED — your LONG from ${_entry:.2f} hit target ${_t1:.2f}. "
+                                        f"P&L: ${_pnl:.2f} ({_pnl_pct:+.1f}%). Take profits or trail stop."
+                                    )
+                                    if _at_resistance:
+                                        _t1_msg += f" At {_resistance_label} resistance."
                                     _t1_alert = Alert(
                                         user_id=user_id,
                                         symbol=symbol,
                                         alert_type="_t1_notify",
                                         direction="NOTICE",
                                         price=_last_price,
+                                        message=_t1_msg,
                                         session_date=_sym_session,
                                     )
                                     db.add(_t1_alert)
