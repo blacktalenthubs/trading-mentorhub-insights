@@ -119,13 +119,23 @@ def handle_start(token: str, chat_id: int) -> str:
     # Also update V2 users table (FastAPI reads telegram_chat_id from here)
     try:
         with get_db() as conn:
-            conn.execute(
-                "UPDATE users SET telegram_chat_id = ? WHERE id = ?",
+            result = conn.execute(
+                "UPDATE users SET telegram_chat_id = ?, telegram_enabled = 1 WHERE id = ?",
                 (str(chat_id), user_id),
             )
-        logger.info("Updated V2 users.telegram_chat_id for user_id=%s", user_id)
+            rows_updated = result.rowcount if hasattr(result, 'rowcount') else -1
+            logger.info(
+                "V2 users table update: user_id=%s chat_id=%s rows_updated=%s",
+                user_id, chat_id, rows_updated,
+            )
+            if rows_updated == 0:
+                logger.warning(
+                    "V2 users table update: NO ROWS MATCHED for user_id=%s — "
+                    "user may not exist in V2 users table",
+                    user_id,
+                )
     except Exception:
-        logger.debug("V2 users table update failed (may not exist)", exc_info=True)
+        logger.exception("V2 users table update FAILED for user_id=%s", user_id)
 
     logger.info("Linked Telegram chat_id=%s to user_id=%s", chat_id, user_id)
     msg = (
