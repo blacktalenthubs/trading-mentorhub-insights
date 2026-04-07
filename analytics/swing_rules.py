@@ -844,9 +844,9 @@ def check_swing_200ma_hold(
     if close <= ma200:
         return None
 
-    # Previous close should have been above 200MA (pullback to support)
-    if prev_close <= ma200:
-        return None
+    # Note: we allow both pullbacks (prev_close > 200MA) and reclaims
+    # (prev_close < 200MA). The 200MA hold is significant in both cases —
+    # closing above it after wicking to it is the key signal.
 
     entry = round(close, 2)
     stop = round(ma200 * 0.995, 2)  # close below 200MA = invalidated

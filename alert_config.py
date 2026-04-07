@@ -445,7 +445,7 @@ SWING_RSI_APPROACHING_OVERBOUGHT = 65
 SWING_EMA_CROSSOVER_MIN_SEPARATION_PCT = 0.0005  # 0.05% anti-flicker
 SWING_PULLBACK_PROXIMITY_PCT = 0.005              # 0.5% near 20 EMA
 SWING_PULLBACK_EMA_RISING_LOOKBACK = 5            # EMA20 today > EMA20 5 days ago
-SWING_200MA_RECLAIM_CONFIRM_EMA10 = True          # require close > EMA10 too
+SWING_200MA_RECLAIM_CONFIRM_EMA10 = False         # disabled — 200MA reclaim is significant on its own during selloffs
 SWING_REGIME_GATE = True                          # require SPY > 20 EMA
 
 # ---------------------------------------------------------------------------
