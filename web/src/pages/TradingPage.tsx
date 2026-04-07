@@ -9,15 +9,19 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useWatchlist, useAddSymbol, useRemoveSymbol, useLivePrices } from "../api/hooks";
+import { useScanner, useOHLCV, useAlertsToday, useAckAlert, useWatchlist, useAddSymbol, useRemoveSymbol, useLivePrices, useOptionsFlow, useCatalysts, useWatchlistRank } from "../api/hooks";
+import type { CatalystItem } from "../api/hooks";
+import type { WatchlistRankItem } from "../types";
 import { useCoachStream } from "../hooks/useCoachStream";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import CandlestickChart from "../components/CandlestickChart";
+import SectorRotation from "../components/SectorRotation";
 import {
   RefreshCw, Brain, Send, Search, Target, ShieldAlert,
   PanelRightOpen, PanelRightClose, Plus, X, Loader2,
+  ChevronDown, Activity,
 } from "lucide-react";
 
 /* ── constants ────────────────────────────────────────────────────── */
@@ -91,19 +95,30 @@ const DEFAULT_INDICATORS = new Set(["ema5", "ema20", "ema100", "ema200"]);
 
 /* ── Watchlist signal row ──────────────────────────────────────────── */
 
+function scoreBadgeClass(score: number): string {
+  if (score >= 70) return "bg-bullish/15 text-bullish-text border-bullish/25";
+  if (score >= 40) return "bg-warning/15 text-warning-text border-warning/25";
+  return "bg-surface-3 text-text-faint border-border-subtle";
+}
+
 function SignalRow({
   signal: s,
   selected,
   onClick,
   onRemove,
   livePrice,
+  rankItem,
+  isTopPick,
 }: {
   signal: SignalResult;
   selected: boolean;
   onClick: () => void;
   onRemove?: (e: React.MouseEvent) => void;
   livePrice?: { price: number; change_pct: number };
+  rankItem?: WatchlistRankItem;
+  isTopPick?: boolean;
 }) {
+  const [showSignal, setShowSignal] = useState(false);
   const gradeClass = GRADE_COLORS[s.grade] || "bg-surface-4 text-text-faint ring-1 ring-inset ring-border-subtle";
   const displayPrice = livePrice?.price ?? s.close;
   const changeColor = livePrice
@@ -113,49 +128,135 @@ function SignalRow({
   const setupInfo = SETUP_LABELS[s.action_label] || { text: s.action_label, class: "text-text-faint bg-surface-3" };
 
   return (
-    <button
-      onClick={onClick}
-      className={`group flex w-full items-center px-3 py-2.5 text-left transition-all duration-150 ${
-        selected
-          ? "bg-accent/[0.06] border-l-2 border-accent"
-          : "border-l-2 border-transparent hover:bg-surface-2/60"
-      }`}
+    <div
+      onMouseEnter={() => setShowSignal(true)}
+      onMouseLeave={() => setShowSignal(false)}
+      className="relative"
     >
-      <div className="w-[56px] relative">
-        <div className="text-sm font-bold text-text-primary leading-tight">{s.symbol}</div>
-        <span className={`inline-block mt-0.5 px-1.5 py-px rounded text-[9px] font-semibold leading-tight ${setupInfo.class}`}>
-          {setupInfo.text}
-        </span>
-      </div>
-      <div className="flex-1 flex flex-col items-end gap-0.5">
-        <div className="font-mono text-sm text-text-primary leading-none">${fmt(displayPrice)}</div>
-        {livePrice ? (
-          <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
-            {livePrice.change_pct >= 0 ? "+" : ""}{livePrice.change_pct.toFixed(2)}%
+      <button
+        onClick={onClick}
+        className={`group flex w-full items-center px-3 py-2.5 text-left transition-all duration-150 ${
+          selected
+            ? "bg-accent/[0.06] border-l-2 border-accent"
+            : isTopPick
+            ? "border-l-2 border-bullish/50 bg-bullish/[0.03]"
+            : "border-l-2 border-transparent hover:bg-surface-2/60"
+        }`}
+      >
+        <div className="w-[56px] relative">
+          <div className="flex items-center gap-1">
+            <span className="text-sm font-bold text-text-primary leading-tight">{s.symbol}</span>
+            {isTopPick && (
+              <span className="text-[7px] font-bold uppercase tracking-wider text-bullish-text bg-bullish/10 px-1 py-px rounded leading-tight border border-bullish/20">
+                Top
+              </span>
+            )}
           </div>
-        ) : s.volume_ratio != null && s.volume_ratio > 0 ? (
-          <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
-            {s.volume_ratio.toFixed(1)}x vol
-          </div>
-        ) : null}
-      </div>
-      <div className="w-12 ml-2.5 flex flex-col items-center gap-0.5">
-        <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight ${gradeClass}`}>
-          {s.grade}
-        </span>
-        <span className="text-[9px] text-text-faint leading-tight">{fmt(s.rr_ratio, 1)}R</span>
-      </div>
-      {/* Remove button — appears on hover */}
-      {onRemove && (
-        <span
-          onClick={onRemove}
-          className="ml-1 p-1 rounded opacity-0 group-hover:opacity-100 text-text-faint hover:text-bearish-text hover:bg-bearish/10 transition-all duration-150"
-          title={`Remove ${s.symbol}`}
-        >
-          <X className="h-3 w-3" />
-        </span>
+          <span className={`inline-block mt-0.5 px-1.5 py-px rounded text-[9px] font-semibold leading-tight ${setupInfo.class}`}>
+            {setupInfo.text}
+          </span>
+        </div>
+        <div className="flex-1 flex flex-col items-end gap-0.5">
+          <div className="font-mono text-sm text-text-primary leading-none">${fmt(displayPrice)}</div>
+          {livePrice ? (
+            <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
+              {livePrice.change_pct >= 0 ? "+" : ""}{livePrice.change_pct.toFixed(2)}%
+            </div>
+          ) : s.volume_ratio != null && s.volume_ratio > 0 ? (
+            <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
+              {s.volume_ratio.toFixed(1)}x vol
+            </div>
+          ) : null}
+        </div>
+        <div className="w-12 ml-2.5 flex flex-col items-center gap-0.5">
+          {rankItem ? (
+            <>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight border ${scoreBadgeClass(rankItem.score)}`}>
+                {rankItem.score}
+              </span>
+              <span className="text-[9px] text-text-faint leading-tight">{s.grade}</span>
+            </>
+          ) : (
+            <>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight ${gradeClass}`}>
+                {s.grade}
+              </span>
+              <span className="text-[9px] text-text-faint leading-tight">{fmt(s.rr_ratio, 1)}R</span>
+            </>
+          )}
+        </div>
+        {/* Remove button — appears on hover */}
+        {onRemove && (
+          <span
+            onClick={onRemove}
+            className="ml-1 p-1 rounded opacity-0 group-hover:opacity-100 text-text-faint hover:text-bearish-text hover:bg-bearish/10 transition-all duration-150"
+            title={`Remove ${s.symbol}`}
+          >
+            <X className="h-3 w-3" />
+          </span>
+        )}
+      </button>
+      {/* Signal tooltip on hover */}
+      {showSignal && rankItem?.signal && (
+        <div className="absolute left-3 right-3 -bottom-0.5 translate-y-full z-20 px-2.5 py-1.5 rounded-md bg-surface-3 border border-border-subtle shadow-lg text-[10px] text-text-secondary leading-snug pointer-events-none">
+          {rankItem.signal}
+        </div>
       )}
-    </button>
+    </div>
+  );
+}
+
+/* ── Catalyst banner ─────────────────────────────────────────────── */
+
+function CatalystBanner({
+  catalysts,
+  onSelectSymbol,
+}: {
+  catalysts: CatalystItem[];
+  onSelectSymbol: (symbol: string) => void;
+}) {
+  // Only show catalysts within 3 days
+  const urgent = catalysts.filter((c) => c.days_away <= 3);
+  if (urgent.length === 0) return null;
+
+  function daysLabel(days: number): string {
+    if (days === 0) return "today";
+    if (days === 1) return "tomorrow";
+    return `in ${days} days`;
+  }
+
+  function eventLabel(c: CatalystItem): string {
+    const kind = c.event === "EARNINGS" ? "earnings" : "ex-dividend";
+    const timing = c.event === "EARNINGS" && c.timing && c.timing !== "Unknown"
+      ? ` (${c.timing})`
+      : "";
+    return `${c.symbol} ${kind} ${daysLabel(c.days_away)}${timing}`;
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 bg-warning/10 border-b border-warning/20 text-xs shrink-0 overflow-x-auto no-scrollbar">
+      <span className="shrink-0 text-warning-text font-semibold">&#9888;</span>
+      <div className="flex items-center gap-3 min-w-0">
+        {urgent.map((c, i) => (
+          <span key={`${c.symbol}-${c.event}`} className="flex items-center gap-1 shrink-0">
+            {i > 0 && <span className="text-warning-text/40 mr-1">|</span>}
+            <button
+              onClick={() => onSelectSymbol(c.symbol)}
+              className="font-semibold text-warning-text hover:text-warning-text/80 underline underline-offset-2 decoration-warning/30 transition-colors"
+            >
+              {c.symbol}
+            </button>
+            <span className="text-text-secondary">
+              {c.event === "EARNINGS" ? "earnings" : "ex-dividend"}{" "}
+              {daysLabel(c.days_away)}
+              {c.event === "EARNINGS" && c.timing && c.timing !== "Unknown" && (
+                <span className="text-text-muted"> ({c.timing})</span>
+              )}
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -500,6 +601,91 @@ function AlertTimelineItem({ alert: a, onSelectSymbol }: { alert: Alert; onSelec
   );
 }
 
+/* ── Options Flow Panel ───────────────────────────────────────────── */
+
+function OptionsFlowPanel({ symbols }: { symbols: string }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const { data: flowItems, isLoading } = useOptionsFlow(symbols);
+
+  const count = flowItems?.length ?? 0;
+
+  return (
+    <div className="border-b border-border-subtle">
+      {/* Header — click to toggle */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-surface-2/40 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Activity className="h-3.5 w-3.5 text-accent" />
+          <span className="text-sm font-semibold text-text-primary">Options Flow</span>
+          {count > 0 && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-accent/15 text-accent ring-1 ring-inset ring-accent/20">
+              {count}
+            </span>
+          )}
+        </div>
+        <ChevronDown className={`h-3.5 w-3.5 text-text-faint transition-transform duration-200 ${collapsed ? "" : "rotate-180"}`} />
+      </button>
+
+      {/* Collapsible body */}
+      {!collapsed && (
+        <div className="px-3 pb-3 max-h-[280px] overflow-y-auto">
+          {isLoading && (
+            <div className="flex items-center justify-center py-4 gap-2">
+              <Loader2 className="h-3 w-3 animate-spin text-text-faint" />
+              <span className="text-xs text-text-faint">Scanning options chains...</span>
+            </div>
+          )}
+
+          {!isLoading && count === 0 && (
+            <p className="py-4 text-center text-xs text-text-faint">No unusual options activity detected</p>
+          )}
+
+          {!isLoading && flowItems && flowItems.length > 0 && (
+            <div className="space-y-1.5">
+              {flowItems.map((item, i) => (
+                <div
+                  key={`${item.symbol}-${item.type}-${item.strike}-${item.expiry}-${i}`}
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-2/40 border border-border-subtle/60 hover:border-accent/20 transition-colors"
+                >
+                  {/* Symbol */}
+                  <span className="text-xs font-bold text-text-primary w-12 shrink-0">{item.symbol}</span>
+
+                  {/* CALL/PUT badge */}
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                    item.type === "CALL"
+                      ? "bg-bullish/10 text-bullish-text border border-bullish/20"
+                      : "bg-bearish/10 text-bearish-text border border-bearish/20"
+                  }`}>
+                    {item.type}
+                  </span>
+
+                  {/* Strike + Expiry */}
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <span className="font-mono text-xs text-text-secondary">${item.strike}</span>
+                    <span className="text-[10px] text-text-faint">{item.expiry}</span>
+                  </div>
+
+                  {/* Volume */}
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="font-mono text-xs text-text-primary">{item.volume.toLocaleString()}</span>
+                    <span className={`text-[10px] font-bold ${
+                      item.volume_oi_ratio >= 10 ? "text-accent" : "text-text-muted"
+                    }`}>
+                      {item.volume_oi_ratio.toFixed(1)}x
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Trading Page ─────────────────────────────────────────────── */
 
 export default function TradingPage() {
@@ -526,13 +712,23 @@ export default function TradingPage() {
   }
   const [searchFilter, setSearchFilter] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [sortMode, setSortMode] = useState<"score" | "az">("score");
   const queryClient = useQueryClient();
+
+  // Watchlist ranking
+  const { data: rankItems } = useWatchlistRank();
+  const rankMap = new Map<string, WatchlistRankItem>();
+  rankItems?.forEach((r) => rankMap.set(r.symbol, r));
 
   // Watchlist add/remove
   const { data: watchlistItems } = useWatchlist();
   const addSymbol = useAddSymbol();
   const removeSymbol = useRemoveSymbol();
   const watchlistSymbols = new Set(watchlistItems?.map((w) => w.symbol) ?? []);
+
+  // Catalysts — upcoming earnings/ex-dividend for watchlist symbols
+  const watchlistSymbolsCsv = watchlistItems?.map((w) => w.symbol).join(",") ?? "";
+  const { data: catalysts } = useCatalysts(watchlistSymbolsCsv);
 
   // Determine if the search input looks like a symbol to add
   const searchUpper = searchFilter.trim().toUpperCase();
@@ -610,11 +806,21 @@ export default function TradingPage() {
   // Show all alerts (consolidated feed, not filtered by selected symbol)
   const symbolAlerts = todayAlerts;
 
-  // Filtered and sorted signals for watchlist — best grades first
+  // Filtered and sorted signals for watchlist
   const _gradeOrder: Record<string, number> = { "A+": 0, "A": 1, "A-": 2, "B+": 3, "B": 4, "B-": 5, "C": 6, "C-": 7 };
   const filteredSignals = signals
     ?.filter((s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase()))
-    ?.sort((a, b) => (_gradeOrder[a.grade] ?? 9) - (_gradeOrder[b.grade] ?? 9));
+    ?.sort((a, b) => {
+      if (sortMode === "az") return a.symbol.localeCompare(b.symbol);
+      // Sort by tradeability score (desc), fallback to grade order
+      const aScore = rankMap.get(a.symbol)?.score ?? 0;
+      const bScore = rankMap.get(b.symbol)?.score ?? 0;
+      if (aScore !== bScore) return bScore - aScore;
+      return (_gradeOrder[a.grade] ?? 9) - (_gradeOrder[b.grade] ?? 9);
+    });
+
+  // Top pick = highest ranked symbol
+  const topPickSymbol = filteredSignals?.[0]?.symbol ?? null;
 
   const potentialEntryCount = signals?.filter((s) => s.action_label === "Potential Entry").length ?? 0;
 
@@ -629,14 +835,35 @@ export default function TradingPage() {
             Watchlist
             <span className="text-text-faint font-normal ml-1.5 text-xs">{potentialEntryCount} setups</span>
           </h2>
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-            Scan
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Sort toggle */}
+            <div className="flex items-center bg-surface-2/50 rounded text-[9px] font-semibold border border-border-subtle overflow-hidden">
+              <button
+                onClick={() => setSortMode("score")}
+                className={`px-2 py-1 transition-colors ${
+                  sortMode === "score" ? "bg-accent/15 text-accent" : "text-text-faint hover:text-text-muted"
+                }`}
+              >
+                Score
+              </button>
+              <button
+                onClick={() => setSortMode("az")}
+                className={`px-2 py-1 transition-colors ${
+                  sortMode === "az" ? "bg-accent/15 text-accent" : "text-text-faint hover:text-text-muted"
+                }`}
+              >
+                A-Z
+              </button>
+            </div>
+            <button
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+              Scan
+            </button>
+          </div>
         </div>
 
         {/* Search — filter existing OR add new symbols */}
@@ -702,7 +929,7 @@ export default function TradingPage() {
         <div className="flex px-4 py-1.5 text-[10px] uppercase font-semibold text-text-faint tracking-wider border-b border-border-subtle shrink-0">
           <div className="w-[52px]">Symbol</div>
           <div className="flex-1 text-right">Price</div>
-          <div className="w-14 text-center ml-3">Grade</div>
+          <div className="w-14 text-center ml-3">{sortMode === "score" ? "Score" : "Grade"}</div>
         </div>
 
         {/* Signal list */}
@@ -722,6 +949,8 @@ export default function TradingPage() {
               onClick={() => setSelectedSymbol(s.symbol)}
               onRemove={watchlistSymbols.has(s.symbol) ? (e) => handleRemoveSymbol(e, s.symbol) : undefined}
               livePrice={livePrices[s.symbol]}
+              rankItem={rankMap.get(s.symbol)}
+              isTopPick={sortMode === "score" && s.symbol === topPickSymbol && (rankMap.get(s.symbol)?.score ?? 0) >= 50}
             />
           ))}
           {filteredSignals && filteredSignals.length === 0 && !isLoading && (
@@ -845,6 +1074,11 @@ export default function TradingPage() {
           </div>
         </header>
 
+        {/* Catalyst warning banner */}
+        {catalysts && catalysts.length > 0 && (
+          <CatalystBanner catalysts={catalysts} onSelectSymbol={setSelectedSymbol} />
+        )}
+
         {/* Mobile: horizontal symbol pills */}
         <div className="flex gap-1.5 overflow-x-auto px-3 py-2 lg:hidden shrink-0 no-scrollbar">
           {signals?.map((s) => (
@@ -861,6 +1095,9 @@ export default function TradingPage() {
             </button>
           ))}
         </div>
+
+        {/* Sector Rotation widget */}
+        <SectorRotation />
 
         {/* Chart area */}
         <div className="flex-1 min-h-0 relative chart-grid-bg">
@@ -925,6 +1162,9 @@ export default function TradingPage() {
             {/* Decorative glow */}
             <div className="absolute top-[-80px] right-[-80px] w-[160px] h-[160px] bg-accent/5 rounded-full blur-3xl pointer-events-none" />
           </div>
+
+          {/* Options Flow (collapsible) */}
+          <OptionsFlowPanel symbols={signals?.map((s) => s.symbol).slice(0, 10).join(",") ?? "SPY,QQQ,AAPL,NVDA,TSLA"} />
 
           {/* Signal Feed (bottom half) */}
           <div className="flex-1 flex flex-col min-h-0">

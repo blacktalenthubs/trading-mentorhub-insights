@@ -13,10 +13,10 @@ import {
   useAlertsHistory, useAlertsToday, useRealTradeStats,
   useRealTradeEquityCurve, useAlertSessionDates, useAlertsForDate,
   useSpyRegime, useSwingCategories, useActiveSwingTrades,
-  useSwingTradesHistory, useTriggerSwingScan,
+  useSwingTradesHistory, useTriggerSwingScan, usePerformanceBreakdown,
 } from "../api/hooks";
 import EquityCurve from "../components/EquityCurve";
-import type { Alert } from "../types";
+import type { Alert, PerformanceBreakdown } from "../types";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, BarChart3,
   Calendar, ChevronDown, ChevronRight, Download, FileText,
@@ -240,6 +240,151 @@ function SessionBrowser() {
   );
 }
 
+/* ── Performance Breakdown ───────────────────────────────────────── */
+
+function WinRateBar({ rate, height = "h-2" }: { rate: number; height?: string }) {
+  const color = rate >= 60 ? "bg-bullish" : rate >= 45 ? "bg-warning" : "bg-bearish";
+  return (
+    <div className={`w-full ${height} bg-surface-3 rounded-full overflow-hidden`}>
+      <div className={`${height} ${color} rounded-full transition-all`} style={{ width: `${Math.min(rate, 100)}%` }} />
+    </div>
+  );
+}
+
+function PerformanceBreakdownSection({ data }: { data: PerformanceBreakdown }) {
+  const topPatterns = data.by_pattern.filter((p) => p.trades >= 3).slice(0, 5);
+  const topSymbols = data.by_symbol.slice(0, 5);
+  const hoursSorted = [...data.by_hour].sort((a, b) => parseInt(a.hour) - parseInt(b.hour));
+  const daysOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const daysSorted = daysOrder
+    .map((d) => data.by_day.find((x) => x.day === d))
+    .filter(Boolean) as typeof data.by_day;
+
+  const bestHour = data.by_hour.length > 0
+    ? data.by_hour.reduce((best, h) => h.win_rate > best.win_rate && h.trades >= 2 ? h : best, data.by_hour[0])
+    : null;
+
+  const isEmpty = data.by_pattern.length === 0 && data.by_symbol.length === 0;
+  if (isEmpty) return null;
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
+        <BarChart3 className="h-3.5 w-3.5 text-accent" />
+        Performance Breakdown
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* Best Patterns */}
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+          <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium mb-3">Best Patterns</div>
+          {topPatterns.length > 0 ? (
+            <div className="space-y-2.5">
+              {topPatterns.map((p) => (
+                <div key={p.pattern}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-text-primary font-medium truncate mr-2">{p.label}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] text-text-faint">{p.trades} trades</span>
+                      <span className={`text-xs font-mono font-bold ${p.win_rate >= 60 ? "text-bullish-text" : p.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
+                        {p.win_rate}%
+                      </span>
+                    </div>
+                  </div>
+                  <WinRateBar rate={p.win_rate} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-text-faint text-center py-4">Need 3+ trades per pattern</p>
+          )}
+        </div>
+
+        {/* Best Time */}
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium">Best Time</div>
+            {bestHour && bestHour.trades >= 2 && (
+              <span className="text-[10px] text-accent font-medium">Golden hour: {bestHour.label}</span>
+            )}
+          </div>
+          {hoursSorted.length > 0 ? (
+            <div className="space-y-2">
+              {hoursSorted.map((h) => (
+                <div key={h.hour} className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-text-muted w-10 shrink-0">{h.label}</span>
+                  <div className="flex-1">
+                    <WinRateBar rate={h.win_rate} height="h-1.5" />
+                  </div>
+                  <span className={`text-[10px] font-mono w-10 text-right shrink-0 ${h.win_rate >= 60 ? "text-bullish-text" : h.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
+                    {h.win_rate}%
+                  </span>
+                  <span className="text-[10px] text-text-faint w-6 text-right shrink-0">{h.trades}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-text-faint text-center py-4">No time data yet</p>
+          )}
+        </div>
+
+        {/* By Symbol */}
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+          <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium mb-3">Top Symbols by P&L</div>
+          {topSymbols.length > 0 ? (
+            <div className="space-y-2">
+              {topSymbols.map((s) => (
+                <div key={s.symbol} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-text-primary w-14">{s.symbol}</span>
+                    <span className="text-[10px] text-text-faint">{s.trades} trades</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-[10px] font-mono ${s.win_rate >= 60 ? "text-bullish-text" : s.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
+                      {s.win_rate}% WR
+                    </span>
+                    <span className={`text-xs font-mono font-bold ${s.total_pnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                      {s.total_pnl >= 0 ? "+" : ""}${s.total_pnl.toFixed(0)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-text-faint text-center py-4">No closed trades yet</p>
+          )}
+        </div>
+
+        {/* By Day of Week */}
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+          <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium mb-3">By Day of Week</div>
+          {daysSorted.length > 0 ? (
+            <div className="flex items-end gap-2 h-24">
+              {daysSorted.map((d) => {
+                const barH = Math.max(d.win_rate * 0.8, 8);
+                const color = d.win_rate >= 60 ? "bg-bullish" : d.win_rate >= 45 ? "bg-warning" : "bg-bearish";
+                return (
+                  <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+                    <span className={`text-[10px] font-mono font-bold ${d.win_rate >= 60 ? "text-bullish-text" : d.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
+                      {d.win_rate}%
+                    </span>
+                    <div className={`w-full rounded-t ${color}`} style={{ height: `${barH}%` }} />
+                    <span className="text-[10px] text-text-faint">{d.day.slice(0, 3)}</span>
+                    <span className="text-[9px] text-text-faint">{d.trades}t</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-text-faint text-center py-4">No day data yet</p>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 /* ── Main Trades Page ─────────────────────────────────────────────── */
 
 export default function RealTradesPage() {
@@ -292,6 +437,7 @@ function DayTradesContent() {
   const { data: equityCurve } = useRealTradeEquityCurve();
   const { data: todayAlerts } = useAlertsToday();
   const { data: allAlerts } = useAlertsHistory(30);
+  const { data: breakdown } = usePerformanceBreakdown();
 
   const alertsForQuality = todayAlerts || [];
 
@@ -369,6 +515,9 @@ function DayTradesContent() {
           {/* Decision Quality */}
           <DecisionQuality alerts={alertsForQuality} />
         </div>
+
+        {/* Performance Breakdown */}
+        {breakdown && <PerformanceBreakdownSection data={breakdown} />}
 
         {/* Session Browser */}
         <SessionBrowser />

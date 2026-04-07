@@ -8,6 +8,7 @@ import type {
   OptionsTrade, OptionsTradeStats, EquityPoint,
   SpyRegime, SwingCategory, SwingTrade,
   WinRateData, SetupAnalysis, MTFContext, NotificationPrefs,
+  PerformanceBreakdown,
 } from "../types";
 
 // --- Auth ---
@@ -121,6 +122,15 @@ export function useScanner() {
   });
 }
 
+export function useWatchlistRank() {
+  return useQuery({
+    queryKey: ["watchlist-rank"],
+    queryFn: () => api.get<import("../types").WatchlistRankItem[]>("/scanner/watchlist-rank"),
+    staleTime: 3 * 60_000,  // 3 min — matches backend cache TTL
+    refetchInterval: 3 * 60_000,
+  });
+}
+
 export function useActiveEntries() {
   return useQuery({
     queryKey: ["active-entries"],
@@ -180,6 +190,57 @@ export function usePriorDay(symbol: string) {
     queryFn: () => api.get<Record<string, unknown>>(`/market/prior-day/${symbol}`),
     enabled: !!symbol,
     staleTime: 5 * 60_000,
+  });
+}
+
+export interface SectorRotationItem {
+  symbol: string;
+  name: string;
+  price: number;
+  change_1d: number;
+  change_5d: number;
+  change_20d: number;
+  flow: "INFLOW" | "OUTFLOW" | "NEUTRAL";
+}
+
+export function useSectorRotation() {
+  return useQuery({
+    queryKey: ["sector-rotation"],
+    queryFn: () => api.get<SectorRotationItem[]>("/market/sector-rotation"),
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+// --- Catalysts ---
+
+export interface CatalystItem {
+  symbol: string;
+  event: string;  // "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND"
+  date: string;
+  days_away: number;
+  timing?: string;  // "After Close" | "Before Open" | "Unknown"
+}
+
+/** Upcoming catalysts (earnings, ex-dividend) — refreshes every 30 min. */
+export function useCatalysts(symbols: string) {
+  return useQuery({
+    queryKey: ["catalysts", symbols],
+    queryFn: () => api.get<CatalystItem[]>(`/market/catalysts?symbols=${encodeURIComponent(symbols)}`),
+    enabled: !!symbols,
+    staleTime: 30 * 60_000,  // 30 min — catalysts don't change often
+    refetchInterval: 30 * 60_000,
+  });
+}
+
+/** Options flow — unusual options activity scanner, refreshes every 3 min. */
+export function useOptionsFlow(symbols: string) {
+  return useQuery({
+    queryKey: ["options-flow", symbols],
+    queryFn: () => api.get<import("../types").OptionsFlowItem[]>(`/market/options-flow?symbols=${encodeURIComponent(symbols)}`),
+    enabled: !!symbols,
+    staleTime: 3 * 60_000,
+    refetchInterval: 3 * 60_000,
   });
 }
 
@@ -510,6 +571,16 @@ export function useAlertsForDate(date: string) {
     queryFn: () => api.get<Alert[]>(`/alerts/history?days=90`),
     enabled: !!date,
     select: (data) => data.filter((a) => a.session_date === date),
+  });
+}
+
+// --- Performance Breakdown ---
+
+export function usePerformanceBreakdown() {
+  return useQuery({
+    queryKey: ["performance-breakdown"],
+    queryFn: () => api.get<PerformanceBreakdown>("/real-trades/performance-breakdown"),
+    staleTime: 5 * 60_000,
   });
 }
 

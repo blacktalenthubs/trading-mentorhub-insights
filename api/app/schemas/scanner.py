@@ -42,6 +42,24 @@ class SignalResultResponse(BaseModel):
     ref_day_low: Optional[float] = None
 
 
+class WatchlistRankFactors(BaseModel):
+    volume: int = 0
+    level_proximity: int = 0
+    rsi: int = 0
+    trend: int = 0
+
+
+class WatchlistRankItem(BaseModel):
+    symbol: str
+    score: int
+    rank: int
+    price: float
+    factors: WatchlistRankFactors
+    nearest_level: str = ""
+    rsi: Optional[float] = None
+    signal: str = ""
+
+
 class ActiveEntryResponse(BaseModel):
     id: int
     symbol: str

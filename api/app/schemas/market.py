@@ -22,6 +22,37 @@ class OHLCBar(BaseModel):
     volume: float
 
 
+class OptionsFlowItem(BaseModel):
+    symbol: str
+    type: str  # "CALL" or "PUT"
+    strike: float
+    expiry: str
+    volume: int
+    open_interest: int
+    volume_oi_ratio: float
+    last_price: Optional[float] = None
+    implied_vol: Optional[float] = None
+    sentiment: str  # "BULLISH" or "BEARISH"
+
+
+class SectorRotationItem(BaseModel):
+    symbol: str
+    name: str
+    price: float
+    change_1d: float
+    change_5d: float
+    change_20d: float
+    flow: str  # "INFLOW" | "OUTFLOW" | "NEUTRAL"
+
+
+class CatalystItem(BaseModel):
+    symbol: str
+    event: str  # "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND"
+    date: str  # ISO date string
+    days_away: int
+    timing: Optional[str] = None  # "After Close" | "Before Open" | "Unknown"
+
+
 class PriorDayResponse(BaseModel):
     open: float
     high: float

@@ -98,6 +98,21 @@ export interface EquityPoint {
   pnl: number;
 }
 
+// --- Options Flow ---
+
+export interface OptionsFlowItem {
+  symbol: string;
+  type: "CALL" | "PUT";
+  strike: number;
+  expiry: string;
+  volume: number;
+  open_interest: number;
+  volume_oi_ratio: number;
+  last_price: number | null;
+  implied_vol: number | null;
+  sentiment: "BULLISH" | "BEARISH";
+}
+
 // --- Swing Trades ---
 
 export interface SpyRegime {
@@ -154,6 +169,69 @@ export interface MTFContext {
   daily: Record<string, unknown>;
   weekly: Record<string, unknown>;
   intraday: Record<string, unknown>;
+}
+
+// --- Performance Breakdown ---
+
+export interface PatternBreakdown {
+  pattern: string;
+  label: string;
+  trades: number;
+  wins: number;
+  win_rate: number;
+  avg_pnl: number;
+  total_pnl: number;
+}
+
+export interface HourBreakdown {
+  hour: string;
+  label: string;
+  trades: number;
+  wins: number;
+  win_rate: number;
+  avg_pnl: number;
+}
+
+export interface SymbolBreakdown {
+  symbol: string;
+  trades: number;
+  wins: number;
+  win_rate: number;
+  total_pnl: number;
+}
+
+export interface DayBreakdown {
+  day: string;
+  trades: number;
+  wins: number;
+  win_rate: number;
+}
+
+export interface PerformanceBreakdown {
+  by_pattern: PatternBreakdown[];
+  by_hour: HourBreakdown[];
+  by_symbol: SymbolBreakdown[];
+  by_day: DayBreakdown[];
+}
+
+// --- Watchlist Ranking ---
+
+export interface WatchlistRankFactors {
+  volume: number;
+  level_proximity: number;
+  rsi: number;
+  trend: number;
+}
+
+export interface WatchlistRankItem {
+  symbol: string;
+  score: number;
+  rank: number;
+  price: number;
+  factors: WatchlistRankFactors;
+  nearest_level: string;
+  rsi: number | null;
+  signal: string;
 }
 
 // --- Settings ---

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from datetime import date, datetime, timezone
 from functools import partial
 from typing import List, Optional
@@ -177,6 +178,140 @@ async def trade_stats(
         avg_loss=round(avg_loss, 2),
         expectancy=round(expectancy, 2),
     )
+
+
+# --- Performance Breakdown ---
+
+_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+_HOUR_LABELS = {
+    9: "9AM", 10: "10AM", 11: "11AM", 12: "12PM",
+    13: "1PM", 14: "2PM", 15: "3PM", 16: "4PM",
+}
+
+
+def _format_alert_type(raw: str) -> str:
+    """Convert 'ma_bounce_20' → 'MA Bounce 20'."""
+    return raw.replace("_", " ").title()
+
+
+@router.get("/performance-breakdown")
+async def performance_breakdown(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Breakdown of closed trade performance by pattern, time, symbol, and day."""
+    result = await db.execute(
+        select(RealTrade).where(
+            RealTrade.user_id == user.id, RealTrade.status == "closed"
+        )
+    )
+    trades = result.scalars().all()
+
+    if not trades:
+        return {
+            "by_pattern": [],
+            "by_hour": [],
+            "by_symbol": [],
+            "by_day": [],
+        }
+
+    # ── By Pattern (alert_type) ──
+    pattern_map: dict[str, dict] = defaultdict(lambda: {"trades": 0, "wins": 0, "total_pnl": 0.0})
+    for t in trades:
+        key = t.alert_type or "unknown"
+        bucket = pattern_map[key]
+        bucket["trades"] += 1
+        bucket["total_pnl"] += t.pnl or 0
+        if t.pnl and t.pnl > 0:
+            bucket["wins"] += 1
+
+    by_pattern = []
+    for pattern, d in pattern_map.items():
+        cnt = d["trades"]
+        by_pattern.append({
+            "pattern": pattern,
+            "label": _format_alert_type(pattern),
+            "trades": cnt,
+            "wins": d["wins"],
+            "win_rate": round(d["wins"] / cnt * 100, 1) if cnt else 0,
+            "avg_pnl": round(d["total_pnl"] / cnt, 2) if cnt else 0,
+            "total_pnl": round(d["total_pnl"], 2),
+        })
+    by_pattern.sort(key=lambda x: x["trades"], reverse=True)
+
+    # ── By Hour of Day ──
+    hour_map: dict[int, dict] = defaultdict(lambda: {"trades": 0, "wins": 0, "total_pnl": 0.0})
+    for t in trades:
+        if t.opened_at:
+            h = t.opened_at.hour
+            bucket = hour_map[h]
+            bucket["trades"] += 1
+            bucket["total_pnl"] += t.pnl or 0
+            if t.pnl and t.pnl > 0:
+                bucket["wins"] += 1
+
+    by_hour = []
+    for hour, d in hour_map.items():
+        cnt = d["trades"]
+        by_hour.append({
+            "hour": f"{hour}:00",
+            "label": _HOUR_LABELS.get(hour, f"{hour}:00"),
+            "trades": cnt,
+            "wins": d["wins"],
+            "win_rate": round(d["wins"] / cnt * 100, 1) if cnt else 0,
+            "avg_pnl": round(d["total_pnl"] / cnt, 2) if cnt else 0,
+        })
+    by_hour.sort(key=lambda x: x["trades"], reverse=True)
+
+    # ── By Symbol ──
+    symbol_map: dict[str, dict] = defaultdict(lambda: {"trades": 0, "wins": 0, "total_pnl": 0.0})
+    for t in trades:
+        bucket = symbol_map[t.symbol]
+        bucket["trades"] += 1
+        bucket["total_pnl"] += t.pnl or 0
+        if t.pnl and t.pnl > 0:
+            bucket["wins"] += 1
+
+    by_symbol = []
+    for sym, d in symbol_map.items():
+        cnt = d["trades"]
+        by_symbol.append({
+            "symbol": sym,
+            "trades": cnt,
+            "wins": d["wins"],
+            "win_rate": round(d["wins"] / cnt * 100, 1) if cnt else 0,
+            "total_pnl": round(d["total_pnl"], 2),
+        })
+    by_symbol.sort(key=lambda x: x["trades"], reverse=True)
+
+    # ── By Day of Week ──
+    day_map: dict[int, dict] = defaultdict(lambda: {"trades": 0, "wins": 0})
+    for t in trades:
+        if t.opened_at:
+            dow = t.opened_at.weekday()  # 0=Monday
+            bucket = day_map[dow]
+            bucket["trades"] += 1
+            if t.pnl and t.pnl > 0:
+                bucket["wins"] += 1
+
+    by_day = []
+    for dow, d in day_map.items():
+        cnt = d["trades"]
+        by_day.append({
+            "day": _DAY_NAMES[dow],
+            "trades": cnt,
+            "wins": d["wins"],
+            "win_rate": round(d["wins"] / cnt * 100, 1) if cnt else 0,
+        })
+    by_day.sort(key=lambda x: x["trades"], reverse=True)
+
+    return {
+        "by_pattern": by_pattern,
+        "by_hour": by_hour,
+        "by_symbol": by_symbol,
+        "by_day": by_day,
+    }
 
 
 # --- Notes ---
