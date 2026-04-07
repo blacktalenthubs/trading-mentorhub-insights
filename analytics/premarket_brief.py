@@ -357,9 +357,9 @@ def build_ai_premarket_analysis(data_brief: str, user_id: int | None = None) -> 
 
 
 def send_premarket_brief() -> bool:
-    """Send the pre-market brief via Telegram (once per day).
+    """Send per-user pre-market data brief to Pro users (once per day).
 
-    Returns True if sent, False if skipped or failed.
+    Returns True if at least one message was sent.
     """
     global _brief_sent_date
 
@@ -368,16 +368,32 @@ def send_premarket_brief() -> bool:
         logger.debug("Pre-market brief already sent for %s", session)
         return False
 
-    msg = build_premarket_message()
-    if not msg:
-        logger.info("Pre-market brief: no data to send")
-        return False
+    try:
+        from db import get_pro_users_with_telegram
+        users = get_pro_users_with_telegram()
+    except Exception:
+        users = []
 
-    sent = _send_telegram(msg)
-    if sent:
+    any_sent = False
+    for u in users:
+        chat_id = u.get("telegram_chat_id", "")
+        user_id = u.get("user_id")
+        if not chat_id or not user_id:
+            continue
+        try:
+            user_msg = _build_user_premarket(user_id)
+            if not user_msg:
+                continue
+            ok = _send_telegram_to(user_msg, chat_id)
+            if ok:
+                any_sent = True
+        except Exception:
+            logger.debug("Pre-market brief failed for user %s", user_id)
+
+    if any_sent:
         _brief_sent_date = session
-        logger.info("Pre-market brief sent for %s", session)
-    return sent
+        logger.info("Pre-market data brief sent for %s", session)
+    return any_sent
 
 
 def _build_user_premarket(user_id: int) -> str | None:
@@ -447,15 +463,8 @@ def send_ai_premarket_brief() -> bool:
         users = []
 
     if not users:
-        # Fallback: send global brief
-        data_brief = build_premarket_message()
-        if data_brief:
-            analysis = build_ai_premarket_analysis(data_brief)
-            if analysis:
-                sent = _send_telegram(analysis)
-                if sent:
-                    _ai_brief_sent_date = session
-                return sent
+        logger.info("AI premarket: no Pro users with Telegram — skipping")
+        _ai_brief_sent_date = session
         return False
 
     any_sent = False
