@@ -227,11 +227,7 @@ async def lifespan(app: FastAPI):
 
     if _use_webhook:
         # Production: webhook mode — no 409 conflicts
-        _webhook_base = _os.environ.get("RAILWAY_PUBLIC_DOMAIN")
-        if _webhook_base:
-            _webhook_base = f"https://{_webhook_base}"
-        if not _webhook_base:
-            _webhook_base = "https://www.tradingwithai.ai"
+        _webhook_base = "https://www.tradingwithai.ai"
         logger.info("Telegram bot: webhook_base=%s", _webhook_base)
         try:
             from telegram_bot import setup_webhook
@@ -340,6 +336,11 @@ def create_app() -> FastAPI:
     # --- Telegram webhook route (must be before SPA catch-all) ---
     from fastapi import Request
     from fastapi.responses import JSONResponse as _JSONResponse
+    import sys as _sys
+    from pathlib import Path as _Path
+    _scripts_dir = str(_Path(__file__).resolve().parents[2] / "scripts")
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
     try:
         from telegram_bot import get_webhook_path, process_webhook_update
         _tg_path = get_webhook_path()
@@ -352,7 +353,7 @@ def create_app() -> FastAPI:
 
         logger.info("Telegram webhook route: POST %s", _tg_path)
     except Exception:
-        logger.warning("Could not register Telegram webhook route")
+        logger.exception("Could not register Telegram webhook route")
 
     # --- Serve React frontend (production) ---
     import os

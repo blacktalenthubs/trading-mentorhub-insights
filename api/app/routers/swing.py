@@ -38,9 +38,12 @@ async def spy_regime(user: User = Depends(get_current_user)):
     if bars is None or bars.empty:
         return SpyRegimeResponse(regime_bullish=False)
 
+    # yfinance may return MultiIndex columns — flatten if needed
+    if hasattr(bars.columns, 'nlevels') and bars.columns.nlevels > 1:
+        bars.columns = bars.columns.get_level_values(0)
     last = bars.iloc[-1]
     spy_ctx = {
-        "spy_close": float(last.get("Close", 0)),
+        "spy_close": float(last["Close"]),
         "spy_ema20": float(bars["Close"].ewm(span=20).mean().iloc[-1]) if len(bars) >= 20 else None,
     }
     bullish = check_spy_regime(spy_ctx)
