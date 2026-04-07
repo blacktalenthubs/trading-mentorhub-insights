@@ -315,14 +315,8 @@ def swing_scan_eod() -> int:
                                 except Exception:
                                     pass
                     else:
-                        # Fallback: record without user_id + global notify
-                        email_ok, sms_ok = notify(sig)
-                        record_alert(
-                            sig,
-                            session_date=session,
-                            notified_email=email_ok,
-                            notified_sms=sms_ok,
-                        )
+                        # No Pro users — just record without notification
+                        record_alert(sig, session_date=session)
 
                 except Exception:
                     logger.exception("Failed to process swing signal %s %s",
@@ -411,9 +405,19 @@ def _check_active_exits(
                             f"({pnl:+.1f}%)"
                         ),
                     )
-                    email_ok, sms_ok = notify(sig)
-                    record_alert(sig, session_date=session,
-                                 notified_email=email_ok, notified_sms=sms_ok)
+                    record_alert(sig, session_date=session)
+                    # Notify Pro users who have this symbol
+                    try:
+                        from alerting.notifier import _format_sms_body, _send_telegram_to
+                        from db import get_pro_users_with_telegram
+                        for _u in get_pro_users_with_telegram():
+                            _cid = _u.get("telegram_chat_id", "")
+                            if _cid:
+                                _body = _format_sms_body(sig)
+                                if _body:
+                                    _send_telegram_to(_body, _cid)
+                    except Exception:
+                        pass
                     close_swing_trade(trade["id"], "target_hit", close, session)
                     _auto_close_real_trade(symbol, close, is_stop=False)
                     fired_today.add((symbol, "swing_target_hit"))
@@ -435,9 +439,18 @@ def _check_active_exits(
                             f"({pnl:+.1f}%)"
                         ),
                     )
-                    email_ok, sms_ok = notify(sig)
-                    record_alert(sig, session_date=session,
-                                 notified_email=email_ok, notified_sms=sms_ok)
+                    record_alert(sig, session_date=session)
+                    try:
+                        from alerting.notifier import _format_sms_body, _send_telegram_to
+                        from db import get_pro_users_with_telegram
+                        for _u in get_pro_users_with_telegram():
+                            _cid = _u.get("telegram_chat_id", "")
+                            if _cid:
+                                _body = _format_sms_body(sig)
+                                if _body:
+                                    _send_telegram_to(_body, _cid)
+                    except Exception:
+                        pass
                     close_swing_trade(trade["id"], "stopped", close, session)
                     _auto_close_real_trade(symbol, close, is_stop=True)
                     fired_today.add((symbol, "swing_stopped_out"))
