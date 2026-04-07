@@ -7047,12 +7047,12 @@ def evaluate_rules(
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
-    # ── Gate 1: Wait 15 min after open before any BUY alerts ──────────────
-    # First 15 min (3 bars on 5-min) is opening auction noise — no real
-    # price discovery.  SELL/SHORT/NOTICE always pass through.
+    # ── Gate 1: Wait 5 min after open before any BUY alerts ───────────────
+    # First candle is opening auction noise. After that, let alerts fire.
+    # SELL/SHORT/NOTICE always pass through.
     # Crypto is exempt (24h market, no opening auction).
     # SPY is exempt — we want alerts if SPY hits key levels at open.
-    _OPENING_WAIT_BARS = 3  # 3 × 5-min = 15 min
+    _OPENING_WAIT_BARS = 1  # 1 × 5-min = 5 min
     _is_spy = symbol in ("SPY", "QQQ")
     _in_opening_wait = (
         not is_crypto
