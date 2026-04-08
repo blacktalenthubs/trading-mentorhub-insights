@@ -404,9 +404,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     logger.exception("Error evaluating %s for user %d", symbol, user_id)
                     continue
 
-                # Intraday SWING WATCH — detect when price approaches key daily levels
-                # One notice per symbol per session (dedup via fired_today)
-                if prior_day and intraday is not None and len(intraday) >= 6 and not _is_crypto:
+                # Intraday SWING WATCH — DISABLED (too noisy, fires per-user per-cycle)
+                # EOD swing scan at 4:15 PM handles swing entries properly.
+                # Re-enable after implementing global dedup (not per-user).
+                if False and prior_day and intraday is not None and len(intraday) >= 6 and not _is_crypto:
                     _sw_key = _dedup_key(symbol, "swing_watch", 0)
                     if _sw_key not in fired_today:
                         _last_close = float(intraday.iloc[-1]["Close"])
