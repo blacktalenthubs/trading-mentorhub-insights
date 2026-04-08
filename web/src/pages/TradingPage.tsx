@@ -777,10 +777,19 @@ export default function TradingPage() {
   const { data: livePriceData } = useLivePrices();
   const livePrices = livePriceData?.prices ?? {};
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const [tfIdx, setTfIdx] = useState(DEFAULT_TF);
-  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(DEFAULT_INDICATORS);
-  const [showLevels, setShowLevels] = useState(true);
-  const [hideWicks, setHideWicks] = useState(false);
+  const [tfIdx, setTfIdx] = useState(() => {
+    const saved = localStorage.getItem("chart_timeframe");
+    return saved ? Number(saved) : DEFAULT_TF;
+  });
+  const [activeIndicators, setActiveIndicators] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem("chart_indicators");
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {}
+    return DEFAULT_INDICATORS;
+  });
+  const [showLevels, setShowLevels] = useState(() => localStorage.getItem("chart_levels") !== "false");
+  const [hideWicks, setHideWicks] = useState(() => localStorage.getItem("chart_wicks") === "true");
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showIndicatorPanel, setShowIndicatorPanel] = useState(false);
@@ -837,9 +846,14 @@ export default function TradingPage() {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      localStorage.setItem("chart_indicators", JSON.stringify([...next]));
       return next;
     });
   }
+
+  // Persist levels/wicks toggles
+  function toggleLevels() { setShowLevels((v) => { localStorage.setItem("chart_levels", String(!v)); return !v; }); }
+  function toggleWicks() { setHideWicks((v) => { localStorage.setItem("chart_wicks", String(!v)); return !v; }); }
 
   const chartIndicators = ALL_INDICATORS
     .filter((ind) => activeIndicators.has(ind.key))
@@ -1112,7 +1126,7 @@ export default function TradingPage() {
                 {/* Subtle separator between intraday (1m-4H) and position (D-M) */}
                 {i === 6 && <span className="w-px h-4 bg-border-default mx-0.5 shrink-0" />}
                 <button
-                  onClick={() => setTfIdx(i)}
+                  onClick={() => { setTfIdx(i); localStorage.setItem("chart_timeframe", String(i)); }}
                   className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
                     i === tfIdx
                       ? "bg-accent text-white shadow-sm"
@@ -1246,7 +1260,7 @@ export default function TradingPage() {
                       ))}
                       {/* Levels toggle */}
                       <label className="flex items-center gap-2 cursor-pointer px-1.5 py-1 rounded hover:bg-surface-3/50 transition-colors">
-                        <input type="checkbox" checked={showLevels} onChange={() => setShowLevels(!showLevels)} className="sr-only" />
+                        <input type="checkbox" checked={showLevels} onChange={toggleLevels} className="sr-only" />
                         <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${showLevels ? "bg-accent border-transparent" : "border-border-default"}`}>
                           {showLevels && <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" /></svg>}
                         </span>
@@ -1254,7 +1268,7 @@ export default function TradingPage() {
                       </label>
                       {/* Wicks toggle */}
                       <label className="flex items-center gap-2 cursor-pointer px-1.5 py-1 rounded hover:bg-surface-3/50 transition-colors">
-                        <input type="checkbox" checked={!hideWicks} onChange={() => setHideWicks(!hideWicks)} className="sr-only" />
+                        <input type="checkbox" checked={!hideWicks} onChange={toggleWicks} className="sr-only" />
                         <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${!hideWicks ? "bg-accent border-transparent" : "border-border-default"}`}>
                           {!hideWicks && <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" /></svg>}
                         </span>
