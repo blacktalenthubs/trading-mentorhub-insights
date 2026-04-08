@@ -44,14 +44,16 @@ function CandlestickChartInner({
     // If height is 0, auto-fill parent container height
     const chartHeight = height > 0 ? height : (containerRef.current.parentElement?.clientHeight || 400);
 
+    const isLight = document.documentElement.classList.contains("light");
+
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#050810" },
+        background: { type: ColorType.Solid, color: isLight ? "#ffffff" : "#050810" },
         textColor: "#64748b",
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.03)" },
-        horzLines: { color: "rgba(255,255,255,0.03)" },
+        vertLines: { color: isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.03)" },
+        horzLines: { color: isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.03)" },
       },
       width: containerRef.current.clientWidth,
       height: chartHeight,

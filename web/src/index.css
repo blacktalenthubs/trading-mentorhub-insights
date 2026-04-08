@@ -102,15 +102,15 @@
    ============================================================ */
 
 html.light {
-  --color-surface-0: #f5f6f8;
-  --color-surface-1: #eceef2;
-  --color-surface-2: #e4e6ec;
-  --color-surface-3: #d8dbe3;
-  --color-surface-4: #c8ccd8;
+  --color-surface-0: #ffffff;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #f8f9fb;
+  --color-surface-3: #f1f3f6;
+  --color-surface-4: #e8ebf0;
 
-  --color-border-subtle: #e2e5ea;
-  --color-border-default: #cdd2da;
-  --color-border-strong: #a8b0bf;
+  --color-border-subtle: #e5e7eb;
+  --color-border-default: #d1d5db;
+  --color-border-strong: #9ca3af;
 
   --color-text-primary: #1a1d26;
   --color-text-secondary: #4a5568;

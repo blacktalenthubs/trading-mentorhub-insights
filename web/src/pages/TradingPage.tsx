@@ -27,16 +27,6 @@ import {
 
 /* ── constants ────────────────────────────────────────────────────── */
 
-const GRADE_COLORS: Record<string, string> = {
-  "A+": "bg-bullish/10 text-bullish-text ring-1 ring-inset ring-bullish/20",
-  A: "bg-bullish/10 text-bullish-text ring-1 ring-inset ring-bullish/20",
-  "A-": "bg-bullish/10 text-bullish-text ring-1 ring-inset ring-bullish/20",
-  B: "bg-warning/10 text-warning-text ring-1 ring-inset ring-warning/20",
-  "B+": "bg-warning/10 text-warning-text ring-1 ring-inset ring-warning/20",
-  "B-": "bg-surface-4 text-text-muted ring-1 ring-inset ring-border-subtle",
-  C: "bg-bearish/10 text-bearish-text ring-1 ring-inset ring-bearish/20",
-  "C-": "bg-surface-4 text-text-muted ring-1 ring-inset ring-border-subtle",
-};
 
 const SETUP_LABELS: Record<string, { text: string; class: string }> = {
   "Potential Entry": { text: "Entry", class: "text-bullish-text bg-bullish/10" },
@@ -120,7 +110,6 @@ function SignalRow({
   isTopPick?: boolean;
 }) {
   const [showSignal, setShowSignal] = useState(false);
-  const gradeClass = GRADE_COLORS[s.grade] || "bg-surface-4 text-text-faint ring-1 ring-inset ring-border-subtle";
   const displayPrice = livePrice?.price ?? s.close;
   const changeColor = livePrice
     ? (livePrice.change_pct >= 0 ? "text-bullish-text" : "text-bearish-text")
@@ -170,21 +159,12 @@ function SignalRow({
           ) : null}
         </div>
         <div className="w-12 ml-2.5 flex flex-col items-center gap-0.5">
-          {rankItem ? (
-            <>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight border ${scoreBadgeClass(rankItem.score)}`}>
-                {rankItem.score}
-              </span>
-              <span className="text-[9px] text-text-faint leading-tight">{s.grade}</span>
-            </>
-          ) : (
-            <>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight ${gradeClass}`}>
-                {s.grade}
-              </span>
-              <span className="text-[9px] text-text-faint leading-tight">{fmt(s.rr_ratio, 1)}R</span>
-            </>
-          )}
+          <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight border ${scoreBadgeClass(rankItem?.score ?? s.score)}`}>
+            {rankItem?.score ?? s.score}
+          </span>
+          <span className="text-[9px] text-text-faint leading-tight">
+            {(rankItem?.score ?? s.score) >= 70 ? "Strong" : (rankItem?.score ?? s.score) >= 50 ? "Moderate" : "Weak"}
+          </span>
         </div>
         {/* Remove button — appears on hover */}
         {onRemove && (
@@ -946,7 +926,7 @@ export default function TradingPage() {
     <div className="flex h-full">
       {/* ── LEFT: Watchlist Panel (collapsible) ── */}
       {showLeftPanel && (
-      <aside className="hidden lg:flex w-[280px] bg-surface-1 border-r border-border-subtle flex-col shrink-0">
+      <aside className="hidden lg:flex w-[240px] bg-surface-1 border-r border-border-subtle flex-col shrink-0">
         {/* Header */}
         <div className="h-14 px-4 flex items-center justify-between border-b border-border-subtle shrink-0">
           <h2 className="text-sm font-semibold tracking-wide text-text-primary">
