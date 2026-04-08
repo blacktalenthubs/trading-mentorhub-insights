@@ -132,7 +132,7 @@ async def lifespan(app: FastAPI):
             args=[sync_session_factory],
             id="alert_monitor_initial",
         )
-        # EOD swing scan — runs once at 4:15 PM ET weekdays
+        # EOD swing scan — runs 30 min before close so users can act
         def _eod_swing_scan():
             try:
                 from alerting.swing_scanner import swing_scan_eod
@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             _eod_swing_scan,
             "cron",
-            hour=16, minute=15,
+            hour=15, minute=30,
             timezone="America/New_York",
             day_of_week="mon-fri",
             id="eod_swing_scan",
