@@ -22,6 +22,7 @@ import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   Send, Bell, Shield, User, Key, ChevronRight, Check,
   Smartphone, Mail, ExternalLink, Loader2, DollarSign, Gift,
+  Sun, Moon,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -447,6 +448,41 @@ function TradingSettings() {
 
 /* ── Main Settings Page ───────────────────────────────────────────── */
 
+/* ── Theme Toggle ────────────────────────────────────────────────── */
+
+function ThemeToggle() {
+  const [isDark, setIsDark] = useState(() => !document.documentElement.classList.contains("light"));
+
+  function toggle() {
+    const next = !isDark;
+    setIsDark(next);
+    if (next) {
+      document.documentElement.classList.remove("light");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.add("light");
+      localStorage.setItem("theme", "light");
+    }
+  }
+
+  return (
+    <Section title="Appearance" icon={isDark ? <Moon className="h-4 w-4 text-text-muted" /> : <Sun className="h-4 w-4 text-text-muted" />}>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-text-primary">{isDark ? "Dark Mode" : "Light Mode"}</p>
+          <p className="text-xs text-text-muted">Switch between dark and light themes</p>
+        </div>
+        <button
+          onClick={toggle}
+          className={`relative w-12 h-6 rounded-full transition-colors ${isDark ? "bg-accent" : "bg-surface-4"}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isDark ? "" : "translate-x-6"}`} />
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -459,6 +495,7 @@ export default function SettingsPage() {
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
+            <ThemeToggle />
           </div>
 
           {/* Right column: Account */}

@@ -97,6 +97,76 @@
 }
 
 /* ============================================================
+   LIGHT THEME — toggled via .light class on <html>
+   Inspired by TradingView/Webull light mode.
+   ============================================================ */
+
+html.light {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f8f9fb;
+  --color-surface-2: #f0f2f5;
+  --color-surface-3: #e4e7ec;
+  --color-surface-4: #d1d5de;
+
+  --color-border-subtle: #e2e5ea;
+  --color-border-default: #cdd2da;
+  --color-border-strong: #a8b0bf;
+
+  --color-text-primary: #1a1d26;
+  --color-text-secondary: #4a5568;
+  --color-text-muted: #64748b;
+  --color-text-faint: #94a3b8;
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-muted: #dbeafe;
+  --color-accent-subtle: #eff6ff;
+
+  --color-bullish: #16a34a;
+  --color-bullish-text: #15803d;
+  --color-bullish-muted: #dcfce7;
+  --color-bullish-subtle: #f0fdf4;
+
+  --color-bearish: #dc2626;
+  --color-bearish-text: #b91c1c;
+  --color-bearish-muted: #fee2e2;
+  --color-bearish-subtle: #fef2f2;
+
+  --color-warning: #d97706;
+  --color-warning-text: #b45309;
+  --color-warning-muted: #fef3c7;
+  --color-warning-subtle: #fffbeb;
+
+  --color-info: #2563eb;
+  --color-info-text: #1d4ed8;
+  --color-info-muted: #dbeafe;
+  --color-info-subtle: #eff6ff;
+
+  --color-purple: #7c3aed;
+  --color-purple-text: #6d28d9;
+  --color-purple-muted: #ede9fe;
+  --color-purple-subtle: #f5f3ff;
+
+  --color-orange: #ea580c;
+  --color-orange-text: #c2410c;
+  --color-orange-muted: #ffedd5;
+  --color-orange-subtle: #fff7ed;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-glow-accent: 0 0 20px rgba(37, 99, 235, 0.1);
+  --shadow-glow-bullish: 0 0 20px rgba(22, 163, 74, 0.08);
+  --shadow-glow-bearish: 0 0 20px rgba(220, 38, 38, 0.08);
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #c1c8d4;
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #a8b0bf;
+}
+
+/* ============================================================
    BASE STYLES
    ============================================================ */
 
