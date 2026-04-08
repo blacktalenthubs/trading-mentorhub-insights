@@ -21,7 +21,8 @@ import SectorRotation from "../components/SectorRotation";
 import {
   RefreshCw, Brain, Send, Search, Target, ShieldAlert,
   PanelRightOpen, PanelRightClose, Plus, X, Loader2,
-  ChevronDown, Activity,
+  ChevronDown, ChevronUp, Activity, SlidersHorizontal,
+  Zap,
 } from "lucide-react";
 
 /* ── constants ────────────────────────────────────────────────────── */
@@ -679,6 +680,115 @@ function OptionsFlowPanel({ symbols }: { symbols: string }) {
   );
 }
 
+/* ── Collapsible Right Panel ──────────────────────────────────────── */
+
+function RightPanel({
+  selected,
+  ohlcv,
+  tfLabel,
+  signals,
+  todayAlerts,
+  alertsError,
+  symbolAlerts,
+  onSelectSymbol,
+}: {
+  selected: SignalResult | null;
+  ohlcv?: import("../api/hooks").OHLCBar[];
+  tfLabel: string;
+  signals: SignalResult[];
+  todayAlerts?: Alert[];
+  alertsError: unknown;
+  symbolAlerts?: Alert[];
+  onSelectSymbol: (sym: string) => void;
+}) {
+  const [coachOpen, setCoachOpen] = useState(true);
+  const [signalFeedOpen, setSignalFeedOpen] = useState(true);
+
+  const alertCount = todayAlerts?.length ?? 0;
+
+  return (
+    <aside className="hidden xl:flex w-[400px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
+      {/* AI Coach (collapsible) */}
+      <div className={`flex flex-col ${coachOpen ? "flex-1 min-h-[45%]" : ""} border-b border-border-subtle relative overflow-hidden`}>
+        {/* Collapsible header */}
+        <button
+          onClick={() => setCoachOpen((v) => !v)}
+          className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-surface-2/40 transition-colors shrink-0"
+        >
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded bg-accent/20 border border-accent/30 flex items-center justify-center relative overflow-hidden ai-sweep-glow">
+              <Brain className="h-3 w-3 text-accent relative z-10" />
+            </div>
+            <span className="text-sm font-semibold text-text-primary">AI Coach</span>
+          </div>
+          {coachOpen ? (
+            <ChevronUp className="h-3.5 w-3.5 text-text-faint" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-text-faint" />
+          )}
+        </button>
+        {coachOpen && (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <AIPanel symbol={selected?.symbol ?? null} signal={selected} ohlcv={ohlcv} timeframe={tfLabel} />
+            {/* Decorative glow */}
+            <div className="absolute top-[-80px] right-[-80px] w-[160px] h-[160px] bg-accent/5 rounded-full blur-3xl pointer-events-none" />
+          </div>
+        )}
+      </div>
+
+      {/* Options Flow (collapsible — starts collapsed, has its own internal state) */}
+      <OptionsFlowPanel symbols={signals.map((s) => s.symbol).slice(0, 10).join(",") || "SPY,QQQ,AAPL,NVDA,TSLA"} />
+
+      {/* Signal Feed (collapsible) */}
+      <div className={`flex flex-col ${signalFeedOpen ? "flex-1" : ""} min-h-0`}>
+        <button
+          onClick={() => setSignalFeedOpen((v) => !v)}
+          className="w-full px-4 py-2.5 flex items-center justify-between border-b border-border-subtle hover:bg-surface-2/40 transition-colors shrink-0"
+        >
+          <div className="flex items-center gap-2">
+            <Zap className="h-3.5 w-3.5 text-accent" />
+            <span className="text-sm font-semibold text-text-primary">Signal Feed</span>
+            {alertCount > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-bearish/15 text-bearish-text ring-1 ring-inset ring-bearish/20">
+                {alertCount}
+              </span>
+            )}
+            {todayAlerts && todayAlerts.length > 0 && (
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bearish opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-bearish" />
+              </span>
+            )}
+          </div>
+          {signalFeedOpen ? (
+            <ChevronUp className="h-3.5 w-3.5 text-text-faint" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-text-faint" />
+          )}
+        </button>
+
+        {signalFeedOpen && (
+          <div className="flex-1 overflow-y-auto px-3 relative">
+            {/* Timeline line */}
+            <div className="absolute left-[42px] top-4 bottom-0 w-px bg-border-subtle pointer-events-none" />
+
+            {alertsError ? (
+              <div className="py-8 text-center">
+                <p className="text-xs text-bearish-text mb-2">Failed to load alerts</p>
+                <button onClick={() => window.location.reload()} className="text-[10px] text-accent hover:text-accent-hover">Retry</button>
+              </div>
+            ) : symbolAlerts && symbolAlerts.length > 0 ? (
+              symbolAlerts.map((a) => <AlertTimelineItem key={a.id} alert={a} onSelectSymbol={onSelectSymbol} />)
+            ) : (
+              <p className="py-8 text-center text-xs text-text-faint">No alerts fired today</p>
+            )}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 /* ── Main Trading Page ─────────────────────────────────────────────── */
 
 export default function TradingPage() {
@@ -693,6 +803,8 @@ export default function TradingPage() {
   const [hideWicks, setHideWicks] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
+  const [showIndicatorPanel, setShowIndicatorPanel] = useState(false);
+  const indicatorPanelRef = useRef<HTMLDivElement>(null);
 
   // Trigger chart resize when panels toggle
   function toggleRightPanel() {
@@ -771,6 +883,19 @@ export default function TradingPage() {
       });
     });
   }, [signals, queryClient]);
+
+  // Close indicator popover on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (indicatorPanelRef.current && !indicatorPanelRef.current.contains(e.target as Node)) {
+        setShowIndicatorPanel(false);
+      }
+    }
+    if (showIndicatorPanel) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showIndicatorPanel]);
 
   const selected = signals?.find((s) => s.symbol === selectedSymbol) ?? null;
   const tf = TIMEFRAMES[tfIdx];
@@ -1001,57 +1126,164 @@ export default function TradingPage() {
           </div>
 
           {/* Center: timeframes */}
-          <div className="hidden sm:flex items-center bg-surface-2/50 p-1 rounded-lg border border-border-subtle">
+          <div className="hidden sm:flex items-center bg-surface-2/50 p-0.5 rounded-lg border border-border-subtle">
             {TIMEFRAMES.map((t, i) => (
-              <button
-                key={t.label}
-                onClick={() => setTfIdx(i)}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                  i === tfIdx
-                    ? "bg-surface-4 text-text-primary shadow-sm"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                {t.label}
-              </button>
+              <span key={t.label} className="flex items-center">
+                {/* Subtle separator between intraday (1m-4H) and position (D-M) */}
+                {i === 6 && <span className="w-px h-4 bg-border-default mx-0.5 shrink-0" />}
+                <button
+                  onClick={() => setTfIdx(i)}
+                  className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
+                    i === tfIdx
+                      ? "bg-accent text-white shadow-sm"
+                      : "text-text-muted hover:text-text-secondary"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              </span>
             ))}
           </div>
 
-          {/* Right: indicators + right panel toggle */}
+          {/* Right: indicators popover + right panel toggle */}
           <div className="flex items-center gap-1">
-            {/* Indicator toggles (compact) */}
-            <div className="hidden md:flex items-center gap-0.5 mr-2 flex-wrap">
+            {/* Indicators popover button */}
+            <div className="hidden md:block relative mr-2" ref={indicatorPanelRef}>
               <button
-                onClick={() => setShowLevels(!showLevels)}
-                className={`rounded px-2 py-1 text-[10px] font-semibold transition-colors ${
-                  showLevels ? "bg-accent/20 text-accent" : "bg-surface-3 text-text-faint"
+                onClick={() => setShowIndicatorPanel((v) => !v)}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors border ${
+                  showIndicatorPanel
+                    ? "bg-accent/15 text-accent border-accent/30"
+                    : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary hover:border-border-default"
                 }`}
               >
-                Levels
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Indicators ({activeIndicators.size + (showLevels ? 1 : 0) + (hideWicks ? 0 : 1)})
               </button>
-              <button
-                onClick={() => setHideWicks(!hideWicks)}
-                className={`rounded px-2 py-1 text-[10px] font-semibold transition-colors ${
-                  hideWicks ? "bg-warning/20 text-warning-text" : "bg-surface-3 text-text-faint"
-                }`}
-                title="Toggle candle wicks"
-              >
-                {hideWicks ? "No Wick" : "Wicks"}
-              </button>
-              <span className="w-px h-4 bg-border-subtle mx-0.5" />
-              {ALL_INDICATORS.map((ind) => (
-                <button
-                  key={ind.key}
-                  onClick={() => toggleIndicator(ind.key)}
-                  className="rounded px-1.5 py-1 text-[10px] font-semibold transition-colors"
-                  style={{
-                    backgroundColor: activeIndicators.has(ind.key) ? ind.color + "25" : undefined,
-                    color: activeIndicators.has(ind.key) ? ind.color : "#475569",
-                  }}
-                >
-                  {ind.label}
-                </button>
-              ))}
+
+              {/* Active indicator pills */}
+              {activeIndicators.size > 0 && !showIndicatorPanel && (
+                <div className="absolute top-full left-0 mt-1 flex items-center gap-0.5 flex-wrap max-w-[300px]">
+                  {ALL_INDICATORS.filter((ind) => activeIndicators.has(ind.key)).map((ind) => (
+                    <span
+                      key={ind.key}
+                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold"
+                      style={{ backgroundColor: ind.color + "20", color: ind.color }}
+                    >
+                      {ind.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Popover panel */}
+              {showIndicatorPanel && (
+                <div className="absolute top-full right-0 mt-1.5 w-[260px] bg-surface-2 border border-border-default rounded-lg shadow-elevated z-30 p-3 space-y-3">
+                  {/* EMAs */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-text-faint mb-1.5">EMAs</p>
+                    <div className="space-y-1">
+                      {ALL_INDICATORS.filter((ind) => ind.group === "ema").map((ind) => (
+                        <label key={ind.key} className="flex items-center gap-2 cursor-pointer px-1.5 py-1 rounded hover:bg-surface-3/50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={activeIndicators.has(ind.key)}
+                            onChange={() => toggleIndicator(ind.key)}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${
+                              activeIndicators.has(ind.key) ? "border-transparent" : "border-border-default"
+                            }`}
+                            style={{ backgroundColor: activeIndicators.has(ind.key) ? ind.color : "transparent" }}
+                          >
+                            {activeIndicators.has(ind.key) && (
+                              <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" /></svg>
+                            )}
+                          </span>
+                          <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: ind.color }} />
+                          <span className="text-xs text-text-secondary">{ind.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SMAs */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-text-faint mb-1.5">SMAs</p>
+                    <div className="space-y-1">
+                      {ALL_INDICATORS.filter((ind) => ind.group === "sma").map((ind) => (
+                        <label key={ind.key} className="flex items-center gap-2 cursor-pointer px-1.5 py-1 rounded hover:bg-surface-3/50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={activeIndicators.has(ind.key)}
+                            onChange={() => toggleIndicator(ind.key)}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${
+                              activeIndicators.has(ind.key) ? "border-transparent" : "border-border-default"
+                            }`}
+                            style={{ backgroundColor: activeIndicators.has(ind.key) ? ind.color : "transparent" }}
+                          >
+                            {activeIndicators.has(ind.key) && (
+                              <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" /></svg>
+                            )}
+                          </span>
+                          <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: ind.color }} />
+                          <span className="text-xs text-text-secondary">{ind.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Other */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-text-faint mb-1.5">Other</p>
+                    <div className="space-y-1">
+                      {/* VWAP */}
+                      {ALL_INDICATORS.filter((ind) => ind.group === "other").map((ind) => (
+                        <label key={ind.key} className="flex items-center gap-2 cursor-pointer px-1.5 py-1 rounded hover:bg-surface-3/50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={activeIndicators.has(ind.key)}
+                            onChange={() => toggleIndicator(ind.key)}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${
+                              activeIndicators.has(ind.key) ? "border-transparent" : "border-border-default"
+                            }`}
+                            style={{ backgroundColor: activeIndicators.has(ind.key) ? ind.color : "transparent" }}
+                          >
+                            {activeIndicators.has(ind.key) && (
+                              <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" /></svg>
+                            )}
+                          </span>
+                          <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: ind.color }} />
+                          <span className="text-xs text-text-secondary">{ind.label}</span>
+                        </label>
+                      ))}
+                      {/* Levels toggle */}
+                      <label className="flex items-center gap-2 cursor-pointer px-1.5 py-1 rounded hover:bg-surface-3/50 transition-colors">
+                        <input type="checkbox" checked={showLevels} onChange={() => setShowLevels(!showLevels)} className="sr-only" />
+                        <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${showLevels ? "bg-accent border-transparent" : "border-border-default"}`}>
+                          {showLevels && <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" /></svg>}
+                        </span>
+                        <span className="text-xs text-text-secondary">Levels</span>
+                      </label>
+                      {/* Wicks toggle */}
+                      <label className="flex items-center gap-2 cursor-pointer px-1.5 py-1 rounded hover:bg-surface-3/50 transition-colors">
+                        <input type="checkbox" checked={!hideWicks} onChange={() => setHideWicks(!hideWicks)} className="sr-only" />
+                        <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-colors ${!hideWicks ? "bg-accent border-transparent" : "border-border-default"}`}>
+                          {!hideWicks && <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" /></svg>}
+                        </span>
+                        <span className="text-xs text-text-secondary">Wicks</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Toggle right panel */}
@@ -1146,53 +1378,18 @@ export default function TradingPage() {
         {selected && <CockpitStrip signal={selected} />}
       </section>
 
-      {/* ── RIGHT: AI Coach + Signal Feed ── */}
+      {/* ── RIGHT: AI Coach + Options Flow + Signal Feed (all collapsible) ── */}
       {showRightPanel && (
-        <aside className="hidden xl:flex w-[400px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
-          {/* AI Coach (top half) */}
-          <div className="flex-1 flex flex-col min-h-[45%] border-b border-border-subtle relative overflow-hidden">
-            <AIPanel symbol={selected?.symbol ?? null} signal={selected} ohlcv={ohlcv} timeframe={tf.label} />
-            {/* Decorative glow */}
-            <div className="absolute top-[-80px] right-[-80px] w-[160px] h-[160px] bg-accent/5 rounded-full blur-3xl pointer-events-none" />
-          </div>
-
-          {/* Options Flow (collapsible) */}
-          <OptionsFlowPanel symbols={signals?.map((s) => s.symbol).slice(0, 10).join(",") ?? "SPY,QQQ,AAPL,NVDA,TSLA"} />
-
-          {/* Signal Feed (bottom half) */}
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="px-4 py-3 flex items-center justify-between border-b border-border-subtle shrink-0">
-              <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-                Signal Feed
-                {todayAlerts && todayAlerts.length > 0 && (
-                  <span className="flex h-2 w-2 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bearish opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-bearish" />
-                  </span>
-                )}
-              </h2>
-              {todayAlerts && (
-                <span className="text-[10px] text-text-faint">{todayAlerts.length} today</span>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-3 relative">
-              {/* Timeline line */}
-              <div className="absolute left-[42px] top-4 bottom-0 w-px bg-border-subtle pointer-events-none" />
-
-              {alertsError ? (
-                <div className="py-8 text-center">
-                  <p className="text-xs text-bearish-text mb-2">Failed to load alerts</p>
-                  <button onClick={() => window.location.reload()} className="text-[10px] text-accent hover:text-accent-hover">Retry</button>
-                </div>
-              ) : symbolAlerts && symbolAlerts.length > 0 ? (
-                symbolAlerts.map((a) => <AlertTimelineItem key={a.id} alert={a} onSelectSymbol={setSelectedSymbol} />)
-              ) : (
-                <p className="py-8 text-center text-xs text-text-faint">No alerts fired today</p>
-              )}
-            </div>
-          </div>
-        </aside>
+        <RightPanel
+          selected={selected}
+          ohlcv={ohlcv}
+          tfLabel={tf.label}
+          signals={signals ?? []}
+          todayAlerts={todayAlerts}
+          alertsError={alertsError}
+          symbolAlerts={symbolAlerts}
+          onSelectSymbol={setSelectedSymbol}
+        />
       )}
     </div>
   );

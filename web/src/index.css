@@ -15,22 +15,22 @@
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
   /* ── Surfaces (dark-theme depth system) ───────── */
-  --color-surface-0: #050810;
-  --color-surface-1: #0a0f1a;
-  --color-surface-2: #111827;
-  --color-surface-3: #1a2332;
-  --color-surface-4: #232f42;
+  --color-surface-0: #0f1117;
+  --color-surface-1: #161923;
+  --color-surface-2: #1c2030;
+  --color-surface-3: #252a3a;
+  --color-surface-4: #2e3548;
 
   /* ── Borders ──────────────────────────────────── */
-  --color-border-subtle: #1a2332;
-  --color-border-default: #232f42;
-  --color-border-strong: #334155;
+  --color-border-subtle: #2a3040;
+  --color-border-default: #333b50;
+  --color-border-strong: #424d66;
 
   /* ── Text ─────────────────────────────────────── */
   --color-text-primary: #e8ecf4;
   --color-text-secondary: #94a3b8;
-  --color-text-muted: #64748b;
-  --color-text-faint: #475569;
+  --color-text-muted: #8896ab;
+  --color-text-faint: #6b7a8f;
 
   /* ── Accent (brand) ───────────────────────────── */
   --color-accent: #3b82f6;

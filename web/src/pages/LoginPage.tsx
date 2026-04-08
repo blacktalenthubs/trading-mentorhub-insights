@@ -70,6 +70,11 @@ export default function LoginPage() {
         >
           {loading ? "Signing in..." : "Sign in"}
         </button>
+        <p className="text-right">
+          <Link to="/reset-password" className="text-xs text-text-muted hover:text-accent transition-colors">
+            Forgot password?
+          </Link>
+        </p>
         <p className="text-center text-sm text-text-muted">
           Don't have an account?{" "}
           <Link to="/register" className="text-accent hover:text-accent-hover">

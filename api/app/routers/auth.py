@@ -17,8 +17,10 @@ from app.dependencies import get_current_user, get_user_tier, is_trial_active, t
 from app.models.user import Subscription, User
 from app.schemas.auth import (
     AuthResponse,
+    ForgotPasswordRequest,
     LoginRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenRefreshResponse,
     UserResponse,
 )
@@ -201,6 +203,96 @@ async def logout(response: Response):
 async def me(user: User = Depends(get_current_user)):
     tier = get_user_tier(user)
     return _build_user_response(user, tier)
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Request a password reset link. Always returns 200 to avoid leaking user existence."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    user = result.scalar_one_or_none()
+
+    if user:
+        from app.models.password_reset import PasswordResetToken
+
+        token = uuid.uuid4().hex
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        reset_token = PasswordResetToken(
+            token=token,
+            user_id=user.id,
+            expires_at=expires_at,
+        )
+        db.add(reset_token)
+        await db.flush()
+
+        # Send reset email (fire-and-forget, don't block response)
+        reset_link = f"https://www.tradingwithai.ai/reset-password?token={token}"
+        try:
+            from alerting.notifier import send_plain_email
+
+            send_plain_email(
+                user.email,
+                "TradeCoPilot — Reset Your Password",
+                f"Hi {user.display_name or 'there'},\n\n"
+                f"Click the link below to reset your password. "
+                f"This link expires in 1 hour.\n\n"
+                f"{reset_link}\n\n"
+                f"If you didn't request this, you can safely ignore this email.\n\n"
+                f"— TradeCoPilot",
+            )
+        except Exception:
+            logger.exception("Failed to send password reset email to %s", user.email)
+
+    return {"message": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset password using a valid token."""
+    from app.models.password_reset import PasswordResetToken
+
+    result = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.token == body.token)
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    if reset_token.used:
+        raise HTTPException(status_code=400, detail="This reset link has already been used")
+
+    now = datetime.now(timezone.utc)
+    # Handle both timezone-aware and naive datetimes from DB
+    expires = reset_token.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if now > expires:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+
+    # Update the user's password
+    user_result = await db.execute(select(User).where(User.id == reset_token.user_id))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user.password_hash = _hash_password(body.new_password)
+    reset_token.used = 1
+    await db.flush()
+
+    return {"message": "Password has been reset successfully. You can now sign in."}
 
 
 @router.get("/usage")

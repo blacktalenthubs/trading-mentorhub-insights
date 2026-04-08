@@ -15,6 +15,7 @@ import LoginPage from "./pages/LoginPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import AdminPage from "./pages/AdminPage";
 import RegisterPage from "./pages/RegisterPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import TradingPage from "./pages/TradingPage";
 import RealTradesPage from "./pages/RealTradesPage";
@@ -71,6 +72,7 @@ export default function App() {
               <Route path="/replay/:alertId" element={<ReplayPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
 
               {/* Protected routes with sidebar layout */}
