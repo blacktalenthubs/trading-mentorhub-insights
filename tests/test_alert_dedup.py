@@ -70,7 +70,14 @@ def tmp_db(tmp_path):
             notified_sms INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             session_date TEXT NOT NULL,
-            user_id INTEGER
+            user_id INTEGER,
+            setup_level REAL,
+            setup_condition TEXT,
+            refreshed_entry REAL,
+            refreshed_stop REAL,
+            refreshed_at TIMESTAMP,
+            gap_invalidated INTEGER DEFAULT 0,
+            gap_pct REAL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(symbol, alert_type, session_date, user_id);
 

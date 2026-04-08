@@ -151,6 +151,8 @@ def check_swing_ema_crossover_5_20(
         ),
         score=score,
         score_label=_score_label(score),
+        setup_level=round(ema20, 2),
+        setup_condition="EMA5/20 bullish crossover",
     )
 
 
@@ -192,6 +194,8 @@ def check_swing_200ma_reclaim(
         ),
         score=score,
         score_label=_score_label(score),
+        setup_level=round(ma200, 2),
+        setup_condition="Close reclaims 200 MA",
     )
 
 
@@ -238,6 +242,8 @@ def check_swing_pullback_20ema(
         ),
         score=score,
         score_label=_score_label(score),
+        setup_level=round(ema20, 2),
+        setup_condition="Pullback to rising 20 EMA",
     )
 
 
@@ -506,6 +512,8 @@ def check_swing_candle_patterns(
         confidence=confidence,
         score=score,
         score_label=_score_label(score),
+        setup_level=round(close, 2),
+        setup_condition="Hammer/engulfing at support",
     )
 
 
@@ -815,6 +823,8 @@ def check_swing_rsi_30_bounce(
         ),
         score=score,
         score_label=_score_label(score),
+        setup_level=round(low, 2),
+        setup_condition="RSI bouncing from oversold",
     )
 
 
@@ -878,6 +888,8 @@ def check_swing_200ma_hold(
         ),
         score=score,
         score_label=_score_label(score),
+        setup_level=round(ma200, 2),
+        setup_condition="Holding above 200 MA",
     )
 
 
@@ -941,6 +953,8 @@ def check_swing_50ma_hold(
         ),
         score=score,
         score_label=_score_label(score),
+        setup_level=round(ma50, 2),
+        setup_condition="Holding above 50 MA",
     )
 
 
@@ -1007,4 +1021,6 @@ def check_swing_weekly_support(
         ),
         score=score,
         score_label=_score_label(score),
+        setup_level=round(pw_low, 2),
+        setup_condition="Holding weekly support",
     )

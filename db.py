@@ -457,7 +457,14 @@ def init_db():
                 notified_email INTEGER DEFAULT 0,
                 notified_sms INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                session_date TEXT NOT NULL
+                session_date TEXT NOT NULL,
+                setup_level REAL,
+                setup_condition TEXT,
+                refreshed_entry REAL,
+                refreshed_stop REAL,
+                refreshed_at TIMESTAMP,
+                gap_invalidated INTEGER DEFAULT 0,
+                gap_pct REAL
             );
 
             CREATE TABLE IF NOT EXISTS active_entries (
@@ -655,6 +662,9 @@ def init_db():
                 entry_date    TEXT NOT NULL,
                 closed_date   TEXT,
                 created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                setup_level REAL,
+                setup_condition TEXT,
+                refreshed_entry REAL,
                 UNIQUE(symbol, entry_date, alert_type)
             );
             CREATE INDEX IF NOT EXISTS idx_swing_trades_status

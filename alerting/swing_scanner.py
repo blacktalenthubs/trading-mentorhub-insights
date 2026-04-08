@@ -47,8 +47,8 @@ def create_swing_trade(
                 """INSERT INTO swing_trades
                    (symbol, alert_type, direction, entry_price, current_price,
                     stop_type, target_type, entry_rsi, current_rsi,
-                    status, entry_date)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)""",
+                    status, entry_date, setup_level, setup_condition)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)""",
                 (
                     signal.symbol,
                     signal.alert_type.value,
@@ -60,6 +60,8 @@ def create_swing_trade(
                     entry_rsi,
                     entry_rsi,
                     session,
+                    getattr(signal, "setup_level", None),
+                    getattr(signal, "setup_condition", None),
                 ),
             )
             return cur.lastrowid

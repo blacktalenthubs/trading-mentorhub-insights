@@ -329,6 +329,8 @@ class AlertSignal:
     ma_rejected_by: str = ""   # e.g. "50EMA" — nearest MA above price acting as resistance
     score_factors: dict | None = None  # Breakdown: {"ma": 25, "vol": 15, "conf": 25, ...}
     _suppress_telegram: bool = False   # If True, record to DB but skip Telegram notification
+    setup_level: float | None = None   # Key price level the setup is based on (e.g. EMA20, 200MA)
+    setup_condition: str | None = None # Human-readable setup description for refresh logic
 
 
 def _volume_label(bar_volume: float, avg_volume: float) -> str:

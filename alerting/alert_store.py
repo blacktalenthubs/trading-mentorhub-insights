@@ -75,8 +75,9 @@ def record_alert(
             """INSERT INTO alerts
                (symbol, alert_type, direction, price, entry, stop, target_1, target_2,
                 confidence, message, narrative, score, score_v2, notified_email, notified_sms,
-                session_date, user_id, ai_conviction, ai_reasoning)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                session_date, user_id, ai_conviction, ai_reasoning,
+                setup_level, setup_condition)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 signal.symbol,
                 signal.alert_type.value,
@@ -97,6 +98,8 @@ def record_alert(
                 user_id,
                 getattr(signal, "ai_conviction", None),
                 getattr(signal, "ai_reasoning", None),
+                getattr(signal, "setup_level", None),
+                getattr(signal, "setup_condition", None),
             ),
         )
         return cur.lastrowid or None
