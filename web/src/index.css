@@ -102,11 +102,11 @@
    ============================================================ */
 
 html.light {
-  --color-surface-0: #ffffff;
-  --color-surface-1: #f8f9fb;
-  --color-surface-2: #f0f2f5;
-  --color-surface-3: #e4e7ec;
-  --color-surface-4: #d1d5de;
+  --color-surface-0: #f5f6f8;
+  --color-surface-1: #eceef2;
+  --color-surface-2: #e4e6ec;
+  --color-surface-3: #d8dbe3;
+  --color-surface-4: #c8ccd8;
 
   --color-border-subtle: #e2e5ea;
   --color-border-default: #cdd2da;

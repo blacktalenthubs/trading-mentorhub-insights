@@ -30,7 +30,7 @@ function SectorTile({ sector }: { sector: SectorRotationItem }) {
       </span>
       <div className="flex items-center gap-1">
         <span className={`text-xs font-mono font-bold ${cfg.color}`}>
-          {sector.change_1d >= 0 ? "+" : ""}{sector.change_1d.toFixed(1)}%
+          {sector.change_1d >= 0 ? "+" : ""}{sector.change_1d?.toFixed(1)}%
         </span>
         <MomentumArrow value={sector.change_5d} />
       </div>
@@ -124,16 +124,16 @@ export default function SectorRotation() {
                         </div>
                       </td>
                       <td className="text-right px-2 py-1.5 font-mono text-text-secondary">
-                        ${s.price.toFixed(2)}
+                        ${s.price?.toFixed(2)}
                       </td>
                       <td className={`text-right px-2 py-1.5 font-mono font-bold ${s.change_1d >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-                        {s.change_1d >= 0 ? "+" : ""}{s.change_1d.toFixed(2)}%
+                        {s.change_1d >= 0 ? "+" : ""}{s.change_1d?.toFixed(2)}%
                       </td>
                       <td className={`text-right px-2 py-1.5 font-mono ${s.change_5d >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-                        {s.change_5d >= 0 ? "+" : ""}{s.change_5d.toFixed(2)}%
+                        {s.change_5d >= 0 ? "+" : ""}{s.change_5d?.toFixed(2)}%
                       </td>
                       <td className={`text-right px-2 py-1.5 font-mono ${s.change_20d >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-                        {s.change_20d >= 0 ? "+" : ""}{s.change_20d.toFixed(2)}%
+                        {s.change_20d >= 0 ? "+" : ""}{s.change_20d?.toFixed(2)}%
                       </td>
                       <td className="text-center px-2 py-1.5">
                         <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color} border ${cfg.border}`}>
