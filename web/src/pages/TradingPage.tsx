@@ -84,6 +84,22 @@ const ALL_INDICATORS: IndicatorDef[] = [
 
 const DEFAULT_INDICATORS = new Set(["ema5", "ema20", "ema100", "ema200"]);
 
+/** Read saved indicators from localStorage, return null if not found or invalid. */
+function loadSavedIndicators(): Set<string> | null {
+  try {
+    const raw = localStorage.getItem("chart_indicators");
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    // Validate all keys exist in ALL_INDICATORS
+    const validKeys = new Set(ALL_INDICATORS.map((i) => i.key));
+    const filtered = arr.filter((k: string) => validKeys.has(k));
+    return filtered.length > 0 ? new Set(filtered) : null;
+  } catch {
+    return null;
+  }
+}
+
 /* ── Watchlist signal row ──────────────────────────────────────────── */
 
 function scoreBadgeClass(score: number): string {
@@ -776,17 +792,21 @@ export default function TradingPage() {
   const { data: todayAlerts, error: alertsError } = useAlertsToday();
   const { data: livePriceData } = useLivePrices();
   const livePrices = livePriceData?.prices ?? {};
-  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(() => {
+    return localStorage.getItem("chart_selected_symbol") || null;
+  });
+
+  // Persist selected symbol
+  const selectSymbol = (sym: string) => {
+    setSelectedSymbol(sym);
+    localStorage.setItem("chart_selected_symbol", sym);
+  };
   const [tfIdx, setTfIdx] = useState(() => {
     const saved = localStorage.getItem("chart_timeframe");
     return saved ? Number(saved) : DEFAULT_TF;
   });
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(() => {
-    try {
-      const saved = localStorage.getItem("chart_indicators");
-      if (saved) return new Set(JSON.parse(saved));
-    } catch {}
-    return DEFAULT_INDICATORS;
+    return loadSavedIndicators() ?? DEFAULT_INDICATORS;
   });
   const [showLevels, setShowLevels] = useState(() => localStorage.getItem("chart_levels") !== "false");
   const [hideWicks, setHideWicks] = useState(() => localStorage.getItem("chart_wicks") === "true");
@@ -862,7 +882,7 @@ export default function TradingPage() {
   // Auto-select first signal
   if (!selectedSymbol && signals && signals.length > 0) {
     const entry = signals.find((s) => s.action_label === "Potential Entry");
-    setSelectedSymbol(entry?.symbol ?? signals[0].symbol);
+    selectSymbol(entry?.symbol ?? signals[0].symbol);
   }
 
   // Prefetch OHLCV for top symbols
@@ -1058,7 +1078,7 @@ export default function TradingPage() {
               key={s.symbol}
               signal={s}
               selected={selectedSymbol === s.symbol}
-              onClick={() => setSelectedSymbol(s.symbol)}
+              onClick={() => selectSymbol(s.symbol)}
               onRemove={watchlistSymbols.has(s.symbol) ? (e) => handleRemoveSymbol(e, s.symbol) : undefined}
               livePrice={livePrices[s.symbol]}
               rankItem={rankMap.get(s.symbol)}
@@ -1295,7 +1315,7 @@ export default function TradingPage() {
 
         {/* Catalyst warning banner */}
         {catalysts && catalysts.length > 0 && (
-          <CatalystBanner catalysts={catalysts} onSelectSymbol={setSelectedSymbol} />
+          <CatalystBanner catalysts={catalysts} onSelectSymbol={selectSymbol} />
         )}
 
         {/* Mobile: horizontal symbol pills */}
@@ -1303,7 +1323,7 @@ export default function TradingPage() {
           {signals?.map((s) => (
             <button
               key={s.symbol}
-              onClick={() => setSelectedSymbol(s.symbol)}
+              onClick={() => selectSymbol(s.symbol)}
               className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 selectedSymbol === s.symbol
                   ? "bg-accent text-white"
@@ -1382,7 +1402,7 @@ export default function TradingPage() {
           todayAlerts={todayAlerts}
           alertsError={alertsError}
           symbolAlerts={symbolAlerts}
-          onSelectSymbol={setSelectedSymbol}
+          onSelectSymbol={selectSymbol}
         />
       )}
     </div>
