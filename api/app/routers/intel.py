@@ -19,6 +19,7 @@ from app.models.user import User
 from fastapi import HTTPException
 from sqlalchemy import select
 from app.schemas.intel import (
+    AnalyzeChartRequest,
     CoachRequest,
     DecisionQualityResponse,
     FundamentalsResponse,
@@ -99,14 +100,14 @@ async def weekly_analysis(symbol: str, user: User = Depends(get_current_user)):
 
 @router.get("/mtf/{symbol}", response_model=MTFContextResponse)
 async def mtf_context(symbol: str, user: User = Depends(get_current_user)):
-    from analytics.intel_hub import build_mtf_context
+    from analytics.intel_hub import get_mtf_analysis
 
-    ctx = await _run_sync(build_mtf_context, symbol.upper())
+    ctx = await _run_sync(get_mtf_analysis, symbol.upper())
     return MTFContextResponse(
         symbol=symbol.upper(),
         daily=ctx.get("daily", {}),
         weekly=ctx.get("weekly", {}),
-        intraday=ctx.get("intraday", {}),
+        intraday={},
     )
 
 
@@ -255,6 +256,224 @@ async def coach_stream(
         yield {"event": "done", "data": json.dumps({"remaining": remaining})}
 
     return EventSourceResponse(event_generator())
+
+
+# --- Chart Analysis endpoint ---
+
+
+@router.post("/analyze-chart")
+async def analyze_chart(
+    body: AnalyzeChartRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """SSE stream — AI chart analysis with structured trade plan. Usage-limited."""
+    remaining = await check_usage_limit(user, "ai_queries", db)
+
+    from analytics.chart_analyzer import (
+        assemble_analysis_context,
+        build_analysis_prompt,
+        parse_trade_plan,
+        get_cached_analysis,
+        set_cached_analysis,
+        stream_chart_analysis,
+    )
+    from analytics.trade_coach import ask_coach
+
+    symbol = body.symbol.upper()
+    tf = body.timeframe
+
+    # Check cache
+    cached = get_cached_analysis(user.id, symbol, tf)
+    if cached:
+        async def cached_generator():
+            yield {"event": "plan", "data": json.dumps(cached.get("plan", {}))}
+            yield {"event": "reasoning", "data": json.dumps({"text": cached.get("reasoning", "")})}
+            yield {"event": "higher_tf", "data": json.dumps({"text": cached.get("higher_tf_summary", "")})}
+            yield {"event": "done", "data": json.dumps({"analysis_id": cached.get("id"), "remaining": remaining})}
+        return EventSourceResponse(cached_generator())
+
+    # Prepare bars from request if provided
+    bars = None
+    if body.ohlcv_bars:
+        bars = [
+            {
+                "timestamp": b.timestamp,
+                "Open": b.open, "High": b.high,
+                "Low": b.low, "Close": b.close,
+                "Volume": int(b.volume),
+            }
+            for b in body.ohlcv_bars
+        ]
+
+    async def event_generator():
+        full_text = []
+        analysis_id = None
+        try:
+            # Assemble context and build prompt (blocking I/O — run in executor)
+            context = await _run_sync(assemble_analysis_context, symbol, tf, bars)
+            prompt = build_analysis_prompt(context)
+
+            # Stream from Claude
+            messages = [{"role": "user", "content": f"Analyze the {tf} chart for {symbol} and provide a structured trade plan."}]
+
+            def _stream():
+                chunks = []
+                for chunk in ask_coach(system_prompt=prompt, messages=messages, max_tokens=512):
+                    chunks.append(chunk)
+                return chunks
+
+            chunks = await _run_sync(_stream)
+            for chunk in chunks:
+                full_text.append(chunk)
+                yield {"event": "chunk", "data": json.dumps({"text": chunk})}
+
+            # Parse structured plan from full response
+            response_text = "".join(full_text)
+            plan = parse_trade_plan(response_text)
+
+            # Save to DB
+            analysis_id = None
+            try:
+                from app.models.chart_analysis import ChartAnalysis
+                record = ChartAnalysis(
+                    user_id=user.id,
+                    symbol=symbol,
+                    timeframe=tf,
+                    direction=plan.get("direction"),
+                    entry_price=plan.get("entry"),
+                    stop_price=plan.get("stop"),
+                    target_1=plan.get("target_1"),
+                    target_2=plan.get("target_2"),
+                    rr_ratio=plan.get("rr_ratio"),
+                    confidence=plan.get("confidence"),
+                    confluence_score=plan.get("confluence_score"),
+                    reasoning=plan.get("reasoning"),
+                    higher_tf_summary=plan.get("higher_tf_summary"),
+                    historical_ref=plan.get("historical_ref") if isinstance(plan.get("historical_ref"), str) else None,
+                )
+                db.add(record)
+                await db.flush()
+                analysis_id = record.id
+            except Exception:
+                logging.getLogger("intel").exception("Failed to save chart analysis")
+
+            # Cache the result
+            cache_data = {**plan, "id": analysis_id, "reasoning": plan.get("reasoning", ""), "higher_tf_summary": plan.get("higher_tf_summary", "")}
+            set_cached_analysis(user.id, symbol, tf, cache_data)
+
+            # Emit structured events
+            yield {"event": "plan", "data": json.dumps({
+                "setup": plan.get("setup"),
+                "direction": plan.get("direction"),
+                "entry": plan.get("entry"),
+                "stop": plan.get("stop"),
+                "target_1": plan.get("target_1"),
+                "target_2": plan.get("target_2"),
+                "rr_ratio": plan.get("rr_ratio"),
+                "confidence": plan.get("confidence"),
+                "confluence_score": plan.get("confluence_score"),
+                "timeframe_fit": plan.get("timeframe_fit"),
+                "key_levels": plan.get("key_levels", []),
+                "historical_ref": plan.get("historical_ref") if isinstance(plan.get("historical_ref"), str) else None,
+            })}
+            yield {"event": "reasoning", "data": json.dumps({"text": plan.get("reasoning", "")})}
+            yield {"event": "higher_tf", "data": json.dumps({"text": plan.get("higher_tf_summary", "")})}
+
+        except Exception as exc:
+            yield {"event": "error", "data": json.dumps({"error": str(exc)})}
+
+        yield {"event": "done", "data": json.dumps({"analysis_id": analysis_id if 'analysis_id' in dir() else None, "remaining": remaining})}
+
+    return EventSourceResponse(event_generator())
+
+
+# --- Analysis History & Outcome endpoints ---
+
+
+@router.get("/analysis-history")
+async def analysis_history(
+    symbol: str = Query(default=None),
+    days: int = Query(default=30, le=90),
+    limit: int = Query(default=20, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Get user's saved chart analyses."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import select
+    from app.models.chart_analysis import ChartAnalysis
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    stmt = (
+        select(ChartAnalysis)
+        .where(ChartAnalysis.user_id == user.id)
+        .where(ChartAnalysis.created_at >= cutoff)
+    )
+    if symbol:
+        stmt = stmt.where(ChartAnalysis.symbol == symbol.upper())
+    stmt = stmt.order_by(ChartAnalysis.created_at.desc()).limit(limit)
+
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    return {
+        "analyses": [
+            {
+                "id": r.id,
+                "symbol": r.symbol,
+                "timeframe": r.timeframe,
+                "direction": r.direction,
+                "entry": r.entry_price,
+                "stop": r.stop_price,
+                "target_1": r.target_1,
+                "target_2": r.target_2,
+                "rr_ratio": r.rr_ratio,
+                "confidence": r.confidence,
+                "confluence_score": r.confluence_score,
+                "reasoning": r.reasoning,
+                "actual_outcome": r.actual_outcome,
+                "outcome_pnl": r.outcome_pnl,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.put("/analysis/{analysis_id}/outcome")
+async def record_analysis_outcome(
+    analysis_id: int,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Record actual outcome of a saved analysis."""
+    from sqlalchemy import select
+    from app.models.chart_analysis import ChartAnalysis
+
+    result = await db.execute(
+        select(ChartAnalysis).where(
+            ChartAnalysis.id == analysis_id,
+            ChartAnalysis.user_id == user.id,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    outcome = body.get("outcome", "").upper()
+    if outcome not in ("WIN", "LOSS", "SCRATCH"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="outcome must be WIN, LOSS, or SCRATCH")
+
+    record.actual_outcome = outcome
+    record.outcome_pnl = body.get("pnl")
+    await db.flush()
+
+    return {"id": record.id, "actual_outcome": record.actual_outcome, "outcome_pnl": record.outcome_pnl}
 
 
 class PreTradeCheckRequest(BaseModel):

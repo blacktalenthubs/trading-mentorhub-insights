@@ -67,6 +67,14 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+        # Migration: add auto_analysis_enabled to users
+        try:
+            await conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_analysis_enabled INTEGER DEFAULT 0"
+            ))
+        except Exception:
+            pass
+
         # Migration: sync V1 telegram_chat_id to V2 users table
         # Users who linked Telegram before the V2 sync fix have chat_id in
         # user_notification_prefs but not in users.telegram_chat_id

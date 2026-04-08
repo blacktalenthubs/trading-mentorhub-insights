@@ -1314,6 +1314,86 @@ def build_mtf_context(
     return "\n".join(parts)
 
 
+def get_mtf_analysis(symbol: str) -> dict:
+    """Fetch daily + weekly data and return structured MTF analysis.
+
+    This is the high-level wrapper that the API endpoint should call.
+    Returns a dict with 'daily', 'weekly', 'alignment', 'confluence_score',
+    and 'mtf_text' (the text summary for AI prompts).
+    """
+    daily_df, daily_mas = get_daily_bars(symbol)
+    weekly_df, wmas = get_weekly_bars(symbol)
+
+    daily_setup = analyze_daily_setup(daily_df, daily_mas) if not daily_df.empty else {
+        "setup_type": "NO_SETUP", "score": 0, "score_label": "C",
+        "edge": "Insufficient data", "entry": None, "stop": None,
+        "target_1": None, "target_2": None, "risk_reward": 0,
+        "daily_candle": ("normal", "neutral"), "ma_sequence": "unknown",
+        "consolidation_days": 0, "range_pct": 0,
+    }
+    weekly_setup = analyze_weekly_setup(weekly_df, wmas) if not weekly_df.empty else {
+        "setup_type": "NO_SETUP", "score": 0, "score_label": "C",
+        "edge": "Insufficient data", "entry": None, "stop": None,
+        "target_1": None, "target_2": None, "risk_reward": 0,
+        "weekly_candle": ("normal", "neutral"), "base_weeks": 0,
+        "base_high": None, "base_low": None, "base_range_pct": 0,
+        "volume_contracting": False, "volume_ratio": 0,
+    }
+
+    # Build text summary for AI prompts
+    mtf_text = build_mtf_context(
+        symbol, daily_df, daily_mas, daily_setup,
+        weekly_df, wmas, weekly_setup,
+    )
+
+    # Compute alignment and confluence score
+    wc_dir = weekly_setup.get("weekly_candle", ("normal", "neutral"))[1]
+    w_bullish = weekly_setup["setup_type"] in ("BREAKOUT", "PULLBACK", "BASE_FORMING")
+    d_bullish = daily_setup["setup_type"] in (
+        "BREAKOUT", "PULLBACK_TO_MA", "TREND_CONTINUATION", "MA_COMPRESSION",
+    )
+    w_bearish = weekly_setup["setup_type"] == "NO_SETUP" and wc_dir == "bearish"
+    d_bearish = daily_setup["setup_type"] in ("BREAKDOWN",) or daily_setup.get("ma_sequence") == "bear"
+
+    if w_bullish and d_bullish:
+        alignment = "bullish"
+        confluence_score = 8
+    elif w_bearish and d_bearish:
+        alignment = "bearish"
+        confluence_score = 8
+    elif (w_bullish and d_bearish) or (w_bearish and d_bullish):
+        alignment = "conflict"
+        confluence_score = 3
+    else:
+        alignment = "mixed"
+        confluence_score = 5
+
+    return {
+        "daily": {
+            "setup_type": daily_setup["setup_type"],
+            "score": daily_setup["score"],
+            "score_label": daily_setup["score_label"],
+            "entry": daily_setup.get("entry"),
+            "stop": daily_setup.get("stop"),
+            "target_1": daily_setup.get("target_1"),
+            "ma_sequence": daily_setup.get("ma_sequence", "unknown"),
+            "edge": daily_setup["edge"],
+        },
+        "weekly": {
+            "setup_type": weekly_setup["setup_type"],
+            "score": weekly_setup["score"],
+            "score_label": weekly_setup["score_label"],
+            "entry": weekly_setup.get("entry"),
+            "stop": weekly_setup.get("stop"),
+            "target_1": weekly_setup.get("target_1"),
+            "edge": weekly_setup["edge"],
+        },
+        "alignment": alignment,
+        "confluence_score": confluence_score,
+        "mtf_text": mtf_text,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Daily pattern classification (LLM-based)
 # ---------------------------------------------------------------------------

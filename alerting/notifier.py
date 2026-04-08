@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import smtplib
+import threading
 from datetime import datetime
 from email.mime.text import MIMEText
 from urllib.parse import quote
@@ -482,6 +483,21 @@ def _build_trade_buttons(signal: AlertSignal, alert_id: int | None) -> dict | No
     return None
 
 
+def _send_auto_analysis(symbol: str, chat_id: str) -> None:
+    """Background thread: generate AI Take and send as follow-up Telegram message.
+
+    Never raises — silent failure to avoid disrupting alert flow.
+    """
+    try:
+        from analytics.chart_analyzer import generate_alert_analysis
+
+        ai_take = generate_alert_analysis(symbol, "5m")
+        if ai_take:
+            _send_telegram_to(f"<i>{ai_take}</i>", chat_id, parse_mode="HTML")
+    except Exception:
+        pass  # Silent failure — never disrupt alert flow
+
+
 def notify_user(
     signal: AlertSignal, prefs: dict, alert_id: int | None = None,
 ) -> tuple[bool, bool]:
@@ -507,6 +523,16 @@ def notify_user(
             if body is not None:
                 buttons = _build_trade_buttons(signal, alert_id)
                 telegram_sent = _send_telegram_to(body, chat_id, reply_markup=buttons)
+
+                # Auto-analysis follow-up: spawn background thread if enabled
+                if telegram_sent and prefs.get("auto_analysis_enabled"):
+                    if signal.direction in ("BUY", "SHORT"):
+                        thread = threading.Thread(
+                            target=_send_auto_analysis,
+                            args=(signal.symbol, chat_id),
+                            daemon=True,
+                        )
+                        thread.start()
         else:
             logger.warning("notify_user: telegram_enabled but chat_id empty")
     else:

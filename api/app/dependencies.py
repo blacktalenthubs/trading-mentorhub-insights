@@ -118,6 +118,10 @@ async def check_usage_limit(
     limit_key = f"{feature}_per_day"
     max_uses = limits.get(limit_key)
 
+    # Trial users get reduced AI queries (4/day instead of full Pro 20/day)
+    if max_uses and is_trial_active(user) and feature == "ai_queries":
+        max_uses = min(max_uses, 4)
+
     if max_uses is None:
         return -1  # unlimited
 

@@ -711,6 +711,27 @@ def init_db():
                 usage_count INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(user_id, feature, usage_date)
             );
+
+            CREATE TABLE IF NOT EXISTS chart_analyses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                direction TEXT,
+                entry_price REAL,
+                stop_price REAL,
+                target_1 REAL,
+                target_2 REAL,
+                rr_ratio REAL,
+                confidence TEXT,
+                confluence_score INTEGER,
+                reasoning TEXT,
+                higher_tf_summary TEXT,
+                historical_ref TEXT,
+                actual_outcome TEXT,
+                outcome_pnl REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """))
     # SQLite-only migrations — on Postgres the DDL already creates
     # all columns/constraints correctly and these cause deadlocks

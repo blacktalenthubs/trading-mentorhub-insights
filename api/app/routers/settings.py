@@ -225,6 +225,27 @@ async def set_telegram_chat_id_direct(
     return {"linked": True, "chat_id": chat_id}
 
 
+@router.put("/auto-analysis")
+async def update_auto_analysis(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle auto-analysis on alerts."""
+    enabled = bool(body.get("enabled", False))
+    user.auto_analysis_enabled = enabled
+    await db.flush()
+    return {"auto_analysis_enabled": user.auto_analysis_enabled}
+
+
+@router.get("/auto-analysis")
+async def get_auto_analysis(
+    user: User = Depends(get_current_user),
+):
+    """Get auto-analysis setting."""
+    return {"auto_analysis_enabled": user.auto_analysis_enabled}
+
+
 @router.delete("/telegram-link")
 async def telegram_unlink(
     user: User = Depends(get_current_user),

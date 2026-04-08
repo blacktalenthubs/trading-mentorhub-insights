@@ -12,6 +12,7 @@ import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   LayoutDashboard,
   Crosshair,
+  Brain,
   ArrowLeftRight,
   Settings,
   LogOut,
@@ -31,6 +32,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/trading", label: "Trading", icon: Crosshair },
+  { to: "/copilot", label: "AI CoPilot", icon: Brain },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight, badge: "0" },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
@@ -38,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
 const MOBILE_TABS: NavItem[] = [
   { to: "/dashboard", label: "Home", icon: LayoutDashboard },
   { to: "/trading", label: "Trade", icon: Crosshair },
+  { to: "/copilot", label: "CoPilot", icon: Brain },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
