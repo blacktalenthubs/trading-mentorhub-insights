@@ -232,10 +232,14 @@ async def update_auto_analysis(
     db: AsyncSession = Depends(get_db),
 ):
     """Toggle auto-analysis on alerts."""
-    enabled = bool(body.get("enabled", False))
-    user.auto_analysis_enabled = enabled
-    await db.flush()
-    return {"auto_analysis_enabled": user.auto_analysis_enabled}
+    try:
+        enabled = bool(body.get("enabled", False))
+        user.auto_analysis_enabled = enabled
+        await db.flush()
+        return {"auto_analysis_enabled": user.auto_analysis_enabled}
+    except Exception:
+        # Column may not exist yet — return default
+        return {"auto_analysis_enabled": False}
 
 
 @router.get("/auto-analysis")
@@ -243,7 +247,10 @@ async def get_auto_analysis(
     user: User = Depends(get_current_user),
 ):
     """Get auto-analysis setting."""
-    return {"auto_analysis_enabled": user.auto_analysis_enabled}
+    try:
+        return {"auto_analysis_enabled": user.auto_analysis_enabled}
+    except Exception:
+        return {"auto_analysis_enabled": False}
 
 
 @router.delete("/telegram-link")
