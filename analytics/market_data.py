@@ -12,12 +12,20 @@ import yfinance as yf
 def fetch_ohlc(
     symbol: str, period: str = "3mo", interval: str = "1d",
 ) -> pd.DataFrame:
-    """Fetch OHLC data via yfinance.
+    """Fetch OHLC data — Coinbase for crypto, yfinance for equities.
 
     Returns DataFrame with Open, High, Low, Close, Volume columns.
     Returns empty DataFrame on failure.
     Note: No @st.cache_data here — caching is applied at the page level.
     """
+    # Route crypto through Coinbase for real-time data
+    from config import is_crypto_alert_symbol
+    if is_crypto_alert_symbol(symbol):
+        df = _fetch_ohlc_coinbase(symbol, period, interval)
+        if not df.empty:
+            return df
+        # Fall through to yfinance on failure
+
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period=period, interval=interval)
@@ -27,6 +35,63 @@ def fetch_ohlc(
             hist.index = hist.index.tz_convert(None)
         return hist[["Open", "High", "Low", "Close", "Volume"]].copy()
     except Exception:
+        return pd.DataFrame()
+
+
+def _fetch_ohlc_coinbase(symbol: str, period: str, interval: str) -> pd.DataFrame:
+    """Fetch OHLCV from Coinbase for crypto symbols."""
+    import requests
+    import logging
+    from datetime import datetime, timedelta, timezone
+
+    _gran_map = {
+        "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+        "60m": 3600, "1h": 3600, "4h": 14400,
+        "1d": 86400, "1wk": 604800,
+    }
+    _period_days = {
+        "1d": 1, "5d": 5, "1mo": 30, "3mo": 90,
+        "6mo": 180, "1y": 365, "2y": 730, "5y": 1825,
+    }
+
+    granularity = _gran_map.get(interval)
+    days = _period_days.get(period, 90)
+    if not granularity:
+        return pd.DataFrame()
+
+    try:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
+        # Coinbase max 300 candles per request — limit range if needed
+        max_candles = 300
+        min_start = end - timedelta(seconds=granularity * max_candles)
+        if start < min_start:
+            start = min_start
+
+        url = f"https://api.exchange.coinbase.com/products/{symbol}/candles"
+        resp = requests.get(url, params={
+            "start": start.isoformat(), "end": end.isoformat(),
+            "granularity": granularity,
+        }, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if not data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(data, columns=["timestamp", "Low", "High", "Open", "Close", "Volume"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+        df = df.sort_values("timestamp").set_index("timestamp")
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        # Strip timezone for consistency with yfinance path
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(None)
+        return df
+    except Exception:
+        logging.getLogger("market_data").warning(
+            "Coinbase OHLC fetch failed for %s — falling back to yfinance", symbol,
+        )
         return pd.DataFrame()
 
 

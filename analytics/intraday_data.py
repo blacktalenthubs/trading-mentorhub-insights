@@ -131,26 +131,110 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
         return pd.DataFrame()
 
 
-def fetch_intraday_crypto(symbol: str, interval: str = "5m") -> pd.DataFrame:
-    """Fetch intraday bars for crypto with UTC day boundary handling.
+def _fetch_coinbase_candles(
+    product_id: str,
+    granularity: int,
+    num_candles: int = 100,
+) -> pd.DataFrame:
+    """Fetch OHLCV candles from Coinbase Advanced Trade API (free, no key).
 
-    Uses period="5d" and filters to today (ET) to avoid the near-empty
-    bar problem at UTC midnight (7-8 PM ET) when period="1d" returns
-    only the current UTC day's bars.
+    Args:
+        product_id: e.g. "BTC-USD", "ETH-USD"
+        granularity: seconds per candle (300=5m, 900=15m, 3600=1H, 86400=1D)
+        num_candles: how many candles to fetch (max 300 per request)
 
-    Falls back to last 24h if today (ET) has fewer than 6 bars.
+    Returns DataFrame with [Open, High, Low, Close, Volume], naive ET index.
+    Returns empty DataFrame on failure.
     """
+    import requests
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(seconds=granularity * num_candles)
+
+        url = f"https://api.exchange.coinbase.com/products/{product_id}/candles"
+        params = {
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "granularity": granularity,
+        }
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data:
+            return pd.DataFrame()
+
+        # Coinbase returns [[timestamp, low, high, open, close, volume], ...]
+        # in reverse chronological order
+        df = pd.DataFrame(data, columns=["timestamp", "Low", "High", "Open", "Close", "Volume"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+        df = df.sort_values("timestamp")
+        df = df.set_index("timestamp")
+        # Reorder columns to match yfinance
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+        # Convert to numeric
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        # Normalize to naive ET (same as yfinance path)
+        df.index = df.index.tz_convert(ET).tz_localize(None)
+
+        logger.info("Coinbase: fetched %d candles for %s (%ds granularity)", len(df), product_id, granularity)
+        return df
+    except Exception:
+        logger.warning("Coinbase fetch failed for %s — will fall back to yfinance", product_id, exc_info=True)
+        return pd.DataFrame()
+
+
+# Interval string → Coinbase granularity in seconds
+_COINBASE_GRANULARITY: dict[str, int] = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+    "60m": 3600,
+    "4h": 14400,
+    "1d": 86400,
+    "1wk": 604800,
+}
+
+
+def fetch_intraday_crypto(symbol: str, interval: str = "5m") -> pd.DataFrame:
+    """Fetch intraday bars for crypto — Coinbase first, yfinance fallback.
+
+    Coinbase provides real-time candles (sub-second latency) vs yfinance's
+    15-60 minute delay. Falls back to yfinance transparently on failure.
+
+    Returns DataFrame with [Open, High, Low, Close, Volume], naive ET index.
+    """
+    # Try Coinbase first (real-time)
+    granularity = _COINBASE_GRANULARITY.get(interval)
+    if granularity:
+        df = _fetch_coinbase_candles(symbol, granularity, num_candles=100)
+        if not df.empty:
+            # Filter to today (ET) like the yfinance path does
+            today = pd.Timestamp.now().normalize()
+            today_bars = df[df.index.normalize() == today]
+            if len(today_bars) >= 6:
+                return today_bars
+            # Fallback: return last 24h
+            cutoff = pd.Timestamp.now() - pd.Timedelta(hours=24)
+            fallback = df[df.index >= cutoff]
+            return fallback if not fallback.empty else df.tail(6)
+
+    # Fallback to yfinance (delayed but reliable)
+    logger.info("Crypto fallback to yfinance for %s %s", symbol, interval)
     bars = fetch_intraday(symbol, period="5d", interval=interval)
     if bars.empty:
         return bars
 
-    # After _normalize_index_to_et, index is naive ET. Filter to today (ET).
     today = pd.Timestamp.now().normalize()
     today_bars = bars[bars.index.normalize() == today]
     if len(today_bars) >= 6:
         return today_bars
 
-    # Fallback: return last 24h of bars (covers UTC midnight transition)
     cutoff = pd.Timestamp.now() - pd.Timedelta(hours=24)
     fallback = bars[bars.index >= cutoff]
     return fallback if not fallback.empty else bars.tail(6)
