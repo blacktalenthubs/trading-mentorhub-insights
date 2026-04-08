@@ -54,6 +54,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.user import Subscription, User  # noqa: E402
     from app.models.watchlist import WatchlistItem  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
+    from app.models.paper_trade import RealTrade  # noqa: E402
 
     global _last_buy_session, _spy_inside_day_notified
     session_date = date.today().isoformat()
@@ -406,7 +407,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 # Intraday SWING WATCH — detect when price approaches key daily levels
                 # One notice per symbol per session (dedup via fired_today)
                 if prior_day and intraday is not None and len(intraday) >= 6 and not _is_crypto:
-                    _sw_key = (symbol, "swing_watch")
+                    _sw_key = _dedup_key(symbol, "swing_watch", 0)
                     if _sw_key not in fired_today:
                         _last_close = float(intraday.iloc[-1]["Close"])
                         _last_low = float(intraday.iloc[-1]["Low"])
@@ -688,6 +689,23 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         elif not _user.telegram_enabled:
                             logger.warning("NOTIFY SKIP: user=%d — telegram_enabled=False", user_id)
                         if _user and _user.telegram_enabled and _user.telegram_chat_id:
+                            # Exit/stop alerts: only send to users who have an open trade
+                            _exit_types = {
+                                "stop_loss_hit", "target_1_hit", "target_2_hit",
+                            }
+                            if signal.alert_type.value in _exit_types:
+                                _has_trade = db.execute(
+                                    select(func.count()).select_from(RealTrade).where(
+                                        RealTrade.user_id == user_id,
+                                        RealTrade.symbol == symbol,
+                                        RealTrade.status == "open",
+                                    )
+                                ).scalar() or 0
+                                if not _has_trade:
+                                    logger.info("NOTIFY SKIP: user=%d %s %s — no open trade (exit alert)",
+                                                user_id, symbol, signal.alert_type.value)
+                                    continue
+
                             try:
                                 from alerting.notifier import notify_user
                                 _prefs = {
