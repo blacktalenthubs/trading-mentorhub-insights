@@ -154,3 +154,31 @@ async def platform_stats(
         "signups_30d": signups_30d,
         "monthly_revenue_estimate": monthly_revenue,
     }
+
+
+@router.put("/users/{user_id}/tier")
+async def update_user_tier(
+    user_id: int,
+    body: dict,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: change a user's subscription tier."""
+    new_tier = body.get("tier", "").lower()
+    if new_tier not in ("free", "pro", "premium", "admin"):
+        raise HTTPException(400, f"Invalid tier: {new_tier}")
+
+    from app.models.subscription import Subscription
+    result = await db.execute(
+        select(Subscription).where(Subscription.user_id == user_id)
+    )
+    sub = result.scalar_one_or_none()
+    if not sub:
+        raise HTTPException(404, f"No subscription for user {user_id}")
+
+    sub.tier = new_tier
+    sub.status = "active"
+    sub.trial_ends_at = None  # Clear trial — they're on a real tier now
+    await db.flush()
+
+    return {"user_id": user_id, "tier": new_tier, "status": "active"}
