@@ -3967,21 +3967,12 @@ def check_session_low_bounce_to_vwap(
 
     support_level = nearest_support["level"]
 
-    # Low must have held — last 3 bars' lows above session_low (not breaking)
+    # Low must have held — last bar's low above session_low (not actively breaking)
     hold_threshold = session_low * 1.001  # tiny buffer
-    if len(bars) < 4:
-        return None
-    recent_lows = bars.iloc[-3:]
-    if (recent_lows["Low"] < hold_threshold).any():
+    if last_bar["Low"] < hold_threshold:
         return None  # still actively testing / breaking the low
 
-    # Last bar must close meaningfully above session low (real bounce, not a wick)
-    # Require at least 0.3% recovery from the low
-    bounce_pct = (last_bar["Close"] - session_low) / session_low
-    if bounce_pct < 0.003:
-        return None  # not enough recovery — still near the low
-
-    # Last bar must close above session low
+    # Last bar must close above session low (bounce starting)
     if last_bar["Close"] <= session_low:
         return None
 
