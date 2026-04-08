@@ -717,7 +717,7 @@ function RightPanel({
       </div>
 
       {/* Options Flow (collapsible — starts collapsed, has its own internal state) */}
-      <OptionsFlowPanel symbols={signals.map((s) => s.symbol).slice(0, 10).join(",") || "SPY,QQQ,AAPL,NVDA,TSLA"} />
+      <OptionsFlowPanel symbols={selected?.symbol || signals.map((s) => s.symbol).slice(0, 5).join(",") || "SPY"} />
 
       {/* Signal Feed (collapsible) */}
       <div className={`flex flex-col ${signalFeedOpen ? "flex-1" : ""} min-h-0`}>
