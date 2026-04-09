@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  useAlertsToday, useSessionSummary, useAckAlert,
+  useAlertsToday, useAlertsHistory, useSessionSummary, useAckAlert,
   useOpenTrades, useCloseTrade, useIntraday, useMarketStatus,
 } from "../api/hooks";
 import type { Alert } from "../types";
@@ -310,17 +310,34 @@ function PositionRow({ trade }: { trade: RealTrade }) {
 
 export default function DashboardPage() {
   const { data: summary } = useSessionSummary();
-  const { data: alerts } = useAlertsToday();
+  const { data: todayAlerts } = useAlertsToday();
   const { data: openTrades } = useOpenTrades();
   const [replayAlertId, setReplayAlertId] = useState<number | null>(null);
   const { visibleAlerts } = useFeatureGate();
 
+  // Date navigation for activity section
+  const [daysBack, setDaysBack] = useState(0); // 0 = today, 1 = yesterday, etc.
+  const { data: historyData } = useAlertsHistory(Math.max(daysBack + 1, 7));
+
+  // Get the date label
+  const viewDate = new Date();
+  viewDate.setDate(viewDate.getDate() - daysBack);
+  const dateLabel = daysBack === 0 ? "Today" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const dateStr = viewDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+  // Select alerts for the viewed date
+  const alerts = daysBack === 0
+    ? todayAlerts
+    : historyData?.filter((a) => a.created_at?.startsWith(dateStr));
+
   // Split alerts: actionable (BUY/SHORT without user_action) vs history
-  const actionableAlerts = alerts?.filter((a) =>
-    (a.direction === "BUY" || a.direction === "SHORT") && !a.user_action
+  const actionableAlerts = (daysBack === 0
+    ? alerts?.filter((a) => (a.direction === "BUY" || a.direction === "SHORT") && !a.user_action)
+    : []  // past days: no actionable alerts (already happened)
   ) ?? [];
-  const historyAlerts = alerts?.filter((a) =>
-    a.user_action || a.direction === "SELL" || a.direction === "NOTICE"
+  const historyAlerts = (daysBack === 0
+    ? alerts?.filter((a) => a.user_action || a.direction === "SELL" || a.direction === "NOTICE")
+    : alerts  // past days: all alerts are history
   ) ?? [];
 
   // Tier-based alert visibility: free users see limited actionable alerts
@@ -495,7 +512,22 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-text-secondary flex items-center gap-2">
                   <Clock className="h-4 w-4 text-text-faint" />
-                  Today's Activity
+                  <button
+                    onClick={() => setDaysBack((d) => Math.min(d + 1, 30))}
+                    className="p-0.5 rounded hover:bg-surface-3 text-text-faint hover:text-text-primary transition-colors"
+                    title="Previous day"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 2L4 6l4 4" /></svg>
+                  </button>
+                  <span className="min-w-[100px] text-center">{dateLabel}</span>
+                  <button
+                    onClick={() => setDaysBack((d) => Math.max(d - 1, 0))}
+                    disabled={daysBack === 0}
+                    className="p-0.5 rounded hover:bg-surface-3 text-text-faint hover:text-text-primary transition-colors disabled:opacity-30"
+                    title="Next day"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 2l4 4-4 4" /></svg>
+                  </button>
                   <span className="text-[10px] text-text-faint font-normal">({historyAlerts.length})</span>
                   <span className="text-[10px] text-text-faint font-normal">· Click to expand</span>
                 </h3>
