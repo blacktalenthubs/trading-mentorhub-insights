@@ -56,3 +56,16 @@ Double top and resistance rejection fire on price pattern alone. Adding a volume
 3. Cross-rule directional lock
 4. Volume filter on rejection rules
 5. Full proximity audit across all rules
+
+### 7. Weekly High Breakout Fires at Resistance, Not Breakout (LRCX)
+- LRCX at $255.52 — right at major weekly resistance ($255-260 zone)
+- Alert says "Weekly high breakout — closed above $225.50" 
+- $225.50 is a stale weekly high from weeks ago, NOT the current resistance
+- **Root cause**: `prior_week_high` in `fetch_prior_day()` returns last week's high, but the real weekly resistance is the multi-week/52-week high zone
+- A weekly breakout should require a WEEKLY CLOSE above the level, not just an intraday touch
+- At minimum: use the higher of prior_week_high and the current weekly resistance cluster
+
+### 8. Resistance Approach Alerts Sent to Users Without Positions
+- "APPROACHING HOURLY RESISTANCE" is only useful for users who have an active long
+- Users without a position get a SELL alert they can't act on
+- **Fix**: Only send resistance approach/warning to users with open entries in that symbol
