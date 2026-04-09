@@ -62,6 +62,13 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     _utc_date = datetime.utcnow().date().isoformat()
     total_alerts = 0
 
+    # Clear confluence cache at start of each poll cycle
+    try:
+        from analytics.confluence import clear_confluence_cache
+        clear_confluence_cache()
+    except Exception:
+        pass
+
     # Clear stale burst cooldown tracking on new session
     if _last_buy_session != session_date:
         _last_buy_notify.clear()
@@ -323,7 +330,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         for ae in active_rows:
                             _t1 = ae.target_1 or 0
                             _entry = ae.entry_price or 0
-                            if _t1 > 0 and _entry > 0 and _last_price >= _t1 * 0.998:
+                            # T1 must be meaningfully above entry (at least 0.3% profit)
+                            # Skip if T1 ≈ entry — that's a bad target, not a real T1
+                            if _t1 > 0 and _entry > 0 and _t1 > _entry * 1.003 and _last_price >= _t1 * 0.998:
                                 _best_ae = ae
                                 break
 
@@ -566,6 +575,38 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         ]
                         _clean_msg = " | ".join(_clean_parts).strip()
 
+                    # Compute multi-timeframe confluence
+                    _confluence_score = 0
+                    _confluence_label = ""
+                    _entry_guidance = ""
+                    if signal.direction in ("BUY", "SHORT"):
+                        try:
+                            from analytics.confluence import quick_confluence
+                            _confluence_score, _confluence_label = quick_confluence(
+                                signal.symbol, signal.direction
+                            )
+                        except Exception:
+                            pass
+
+                        # Smart entry guidance based on volume + price action
+                        try:
+                            _vol_r = getattr(signal, "volume_ratio", 0) or 0
+                            _sig_price = _py(signal.price) or 0
+                            _sig_entry = _py(signal.entry) or 0
+                            if _vol_r >= 1.5 and _sig_price and _sig_entry:
+                                if abs(_sig_price - _sig_entry) / max(_sig_entry, 1) < 0.003:
+                                    _entry_guidance = f"Enter now — volume {_vol_r:.1f}x confirming"
+                                elif _sig_price > _sig_entry:
+                                    _entry_guidance = f"Extended from entry — wait for pullback to ${_sig_entry:.2f}"
+                                else:
+                                    _entry_guidance = f"Near entry with strong volume ({_vol_r:.1f}x)"
+                            elif _vol_r < 0.6 and _vol_r > 0:
+                                _entry_guidance = f"Low volume ({_vol_r:.1f}x) — wait for confirmation candle"
+                            elif _sig_price and _sig_entry and _sig_price > _sig_entry * 1.005:
+                                _entry_guidance = f"Price above entry — pullback to ${_sig_entry:.2f} for better R:R"
+                        except Exception:
+                            pass
+
                     # Record alert
                     alert = Alert(
                         user_id=user_id,
@@ -581,6 +622,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         message=_clean_msg,
                         narrative=_narrative,
                         score=int(signal.score) if signal.score else 0,
+                        confluence_score=_confluence_score,
+                        confluence_label=_confluence_label,
+                        entry_guidance=_entry_guidance,
                         session_date=_sym_session,
                     )
                     db.add(alert)
