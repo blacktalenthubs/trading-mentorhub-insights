@@ -1047,10 +1047,18 @@ def check_prior_day_high_breakout(
     if last_bar["Close"] < prior_day_high + breakout_margin:
         return None
 
+    # Skip if price already ran too far above PDH — the breakout already happened,
+    # alerting now is chasing. Max 1.5% above PDH for equities, 2% for crypto.
+    _is_crypto = symbol.endswith("-USD")
+    _max_distance = 0.02 if _is_crypto else 0.015
+    distance_from_pdh = (float(last_bar["Close"]) - prior_day_high) / prior_day_high
+    if distance_from_pdh > _max_distance:
+        return None
+
     # Skip if equity gapped above PDH — no intraday breakout to trade.
     # PDH retest rule handles the case where price pulls back to retest.
     # Crypto trades 24/7 so gap-ups are continuous moves, not true gaps.
-    if "-USD" not in symbol:
+    if not _is_crypto:
         today_open = bars.iloc[0]["Open"]
         if today_open > prior_day_high:
             return None
