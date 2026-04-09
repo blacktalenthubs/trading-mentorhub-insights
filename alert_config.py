@@ -107,17 +107,17 @@ INSIDE_DAY_FORMING_MIN_BARS = 13   # ~65 min — first hour must pass before dec
 INSIDE_DAY_SCORE_BOOST = 10        # +10 score for PDL/PDH boundary alerts on inside days
 
 # Resistance at Prior High: proximity threshold
-RESISTANCE_PROXIMITY_PCT = 0.003  # 0.3% — symmetric with support bounce
+RESISTANCE_PROXIMITY_PCT = 0.0015  # 0.15% — must actually touch (~$1 for SPY). Tightened from 0.3%
 
 # Prior Day High Rejection: confirmed rejection (high touched, close below)
-PDH_REJECTION_PROXIMITY_PCT = 0.003  # 0.3% — same as resistance proximity
+PDH_REJECTION_PROXIMITY_PCT = 0.0015  # 0.15% — must actually touch. Tightened from 0.3%
 
 # Hourly Resistance Detection
 HOURLY_RESISTANCE_CLUSTER_PCT = 0.003   # 0.3% — merge swing highs within this distance
-HOURLY_RESISTANCE_APPROACH_PCT = 0.003  # 0.3% — symmetric with RESISTANCE_PROXIMITY_PCT
+HOURLY_RESISTANCE_APPROACH_PCT = 0.003  # 0.3% — NOTICE only, can be wider
 
 # Hourly Resistance Rejection SHORT: price rallies into horizontal resistance and gets rejected
-HOURLY_RES_REJECTION_PROXIMITY_PCT = 0.003  # 0.3% — bar high must reach within this of level
+HOURLY_RES_REJECTION_PROXIMITY_PCT = 0.0015  # 0.15% — bar high must actually touch level (~$1 for SPY). Tightened from 0.3% ($2 was too loose)
 HOURLY_RES_REJECTION_CLOSE_PCT = 0.40       # close must be in lower 40% of bar range (rejection)
 HOURLY_RES_REJECTION_MIN_BARS = 12          # 60 min into session minimum
 HOURLY_RES_REJECTION_STOP_OFFSET_PCT = 0.003  # 0.3% above resistance for stop
@@ -138,7 +138,7 @@ LOW_VOLUME_SKIP_RATIO = 0.4
 DAY_TRADE_MAX_RISK_PCT = 0.003  # 0.3%
 
 # Session High Double Top (SHORT) — mirror of session low double bottom
-SESSION_HIGH_PROXIMITY_PCT = 0.003       # 0.3% — how close bar high must be to session high
+SESSION_HIGH_PROXIMITY_PCT = 0.002       # 0.2% — bar high must nearly touch session high. Tightened from 0.3%
 SESSION_HIGH_WEAKNESS_PCT = 0.003        # 0.3% — minimum pullback below session high between touches
 SESSION_HIGH_MIN_AGE_BARS = 3            # ~15 min — session high must be established this long ago
 SESSION_HIGH_MIN_WEAKNESS_BARS = 1       # ~5 min — consecutive bars below weakness threshold

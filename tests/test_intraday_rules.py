@@ -1040,7 +1040,7 @@ class TestOutsideDayBreakout:
 
 class TestResistancePriorHigh:
     def test_fires_when_near_prior_high_with_active_entry(self):
-        bar = _bar(high=100.15)
+        bar = _bar(high=100.10)  # 0.1% from level — within 0.15% threshold
         sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=True)
         assert sig is not None
         assert sig.alert_type == AlertType.RESISTANCE_PRIOR_HIGH
@@ -1048,7 +1048,7 @@ class TestResistancePriorHigh:
 
     def test_fires_warning_without_active_entry(self):
         """No active entry → still fires as resistance warning."""
-        bar = _bar(high=100.15)
+        bar = _bar(high=100.10)  # 0.1% from level — within 0.15% threshold
         sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=False)
         assert sig is not None
         assert sig.direction == "NOTICE"
@@ -1057,7 +1057,7 @@ class TestResistancePriorHigh:
 
     def test_active_entry_gets_take_profit_message(self):
         """Active entry → take profits message."""
-        bar = _bar(high=100.15)
+        bar = _bar(high=100.10)
         sig = check_resistance_prior_high("SPY", bar, prior_day_high=100.0, has_active_entry=True)
         assert "taking profits" in sig.message
 
@@ -4547,20 +4547,19 @@ class TestEmaResistance:
 # ===== Fix 1: Widened Resistance Proximity =====
 
 class TestResistanceProximityWidened:
-    def test_fires_at_0_28_percent_proximity(self):
-        """LRCX at 0.28% from prior high — was missed before, fires now with 0.3% threshold."""
-        # prior_high = 224.12, bar high = 224.12 * (1 - 0.0028) ≈ 223.49
+    def test_fires_at_0_12_percent_proximity(self):
+        """LRCX at 0.12% from prior high — within tightened 0.15% threshold."""
         prior_high = 224.12
-        bar_high = prior_high * (1 - 0.0028)  # 0.28% below
+        bar_high = prior_high * (1 - 0.0012)  # 0.12% below
         bar = _bar(high=bar_high)
         sig = check_resistance_prior_high("LRCX", bar, prior_day_high=prior_high, has_active_entry=False)
         assert sig is not None
         assert sig.alert_type == AlertType.RESISTANCE_PRIOR_HIGH
 
-    def test_no_fire_at_0_35_percent(self):
-        """0.35% away — still outside the 0.3% threshold."""
+    def test_no_fire_at_0_20_percent(self):
+        """0.20% away — outside the tightened 0.15% threshold."""
         prior_high = 224.12
-        bar_high = prior_high * (1 - 0.0035)  # 0.35% below
+        bar_high = prior_high * (1 - 0.0020)  # 0.20% below
         bar = _bar(high=bar_high)
         sig = check_resistance_prior_high("LRCX", bar, prior_day_high=prior_high, has_active_entry=False)
         assert sig is None
@@ -7769,10 +7768,10 @@ class TestHourlyResistanceRejectionShort:
 
     def test_fires_on_valid_rejection(self):
         """Bar high near resistance, close in lower 40% of range → SHORT."""
-        # Resistance at 100.0, bar high reaches 99.8 (0.2% away), closes at 99.2
+        # Resistance at 100.0, bar high reaches 99.9 (0.1% away), closes at 99.2
         bars = _bars([
             *[{"Open": 98, "High": 99, "Low": 97, "Close": 98.5, "Volume": 1000}] * 12,
-            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.2, "Volume": 1500},
+            {"Open": 99, "High": 99.9, "Low": 99.0, "Close": 99.2, "Volume": 1500},
         ])
         sig = check_hourly_resistance_rejection_short(
             "ETH-USD", bars, hourly_resistance=[100.0], prior_close=98.0,
@@ -7789,7 +7788,7 @@ class TestHourlyResistanceRejectionShort:
         """Bar touches resistance but closes in upper 60% → no rejection."""
         bars = _bars([
             *[{"Open": 98, "High": 99, "Low": 97, "Close": 98.5, "Volume": 1000}] * 12,
-            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.7, "Volume": 1500},
+            {"Open": 99, "High": 99.9, "Low": 99.0, "Close": 99.7, "Volume": 1500},
         ])
         sig = check_hourly_resistance_rejection_short(
             "ETH-USD", bars, hourly_resistance=[100.0], prior_close=98.0,
@@ -7810,7 +7809,7 @@ class TestHourlyResistanceRejectionShort:
     def test_no_fire_too_few_bars(self):
         """Less than 12 bars → no fire."""
         bars = _bars([
-            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.2, "Volume": 1500},
+            {"Open": 99, "High": 99.9, "Low": 99.0, "Close": 99.2, "Volume": 1500},
         ] * 5)
         sig = check_hourly_resistance_rejection_short(
             "ETH-USD", bars, hourly_resistance=[100.0], prior_close=98.0,
@@ -7831,7 +7830,7 @@ class TestHourlyResistanceRejectionShort:
         """Multiple levels — fires on nearest resistance above price."""
         bars = _bars([
             *[{"Open": 98, "High": 99, "Low": 97, "Close": 98.5, "Volume": 1000}] * 12,
-            {"Open": 99, "High": 99.8, "Low": 99.0, "Close": 99.2, "Volume": 1500},
+            {"Open": 99, "High": 99.9, "Low": 99.0, "Close": 99.2, "Volume": 1500},
         ])
         sig = check_hourly_resistance_rejection_short(
             "ETH-USD", bars, hourly_resistance=[100.0, 105.0, 110.0], prior_close=98.0,
