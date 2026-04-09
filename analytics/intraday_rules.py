@@ -1040,9 +1040,10 @@ def check_prior_day_high_breakout(
     if last_bar["Close"] <= prior_day_high:
         return None
 
-    # Breakout confirmation: close must be at least 0.15% above PDH.
-    # A barely-above close ($0.14 on PLTR) is a wick/rejection, not a breakout.
-    breakout_margin = prior_day_high * 0.0015
+    # Breakout confirmation: close must be meaningfully above PDH.
+    # 0.05% = ~$0.34 on SPY. Filters wick-touches but catches real breakouts.
+    # Was 0.15% ($1 on SPY) which filtered out valid breakouts like $677.39 above $677.08.
+    breakout_margin = prior_day_high * 0.0005
     if last_bar["Close"] < prior_day_high + breakout_margin:
         return None
 
@@ -4850,6 +4851,22 @@ def check_session_high_double_top(
     # Last bar must close below session high (rejection confirmed)
     if float(last_bar["Close"]) >= session_high:
         return None
+
+    # Confirmation: the PREVIOUS bar must also have closed below session high.
+    # This prevents firing on the same bar as the second test — wait one bar
+    # to confirm the rejection holds. Eliminates false doubles before breakouts.
+    if len(bars) >= 2:
+        prev_bar = bars.iloc[-2]
+        prev_high = float(prev_bar["High"])
+        prev_close = float(prev_bar["Close"])
+        # Previous bar tested the high (was near it) AND closed below = first rejection
+        prev_near_high = abs(prev_high - session_high) / session_high <= SESSION_HIGH_PROXIMITY_PCT
+        if not prev_near_high:
+            # Current bar is the first test at this level — wait for confirmation
+            return None
+        # If previous bar closed AT or ABOVE session high, it's a breakout attempt, not rejection
+        if prev_close >= session_high:
+            return None
 
     # Close in lower 50% of bar range (selling pressure)
     bar_range = float(last_bar["High"]) - float(last_bar["Low"])
