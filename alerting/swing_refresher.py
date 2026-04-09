@@ -51,16 +51,25 @@ def refresh_pending_swing_alerts(sync_session_factory) -> dict:
     session = date.today().isoformat()
     summary = {"refreshed": 0, "invalidated": 0, "details": []}
 
-    # Query today's swing alerts
+    # Query today's swing alerts (handle DBs without new columns gracefully)
     with get_db() as conn:
-        rows = conn.execute(
-            """SELECT id, symbol, alert_type, price, entry, stop, target_1,
-                      setup_level, setup_condition
-               FROM alerts
-               WHERE session_date = ? AND alert_type LIKE 'swing_%'
-                 AND gap_invalidated = 0 AND refreshed_at IS NULL""",
-            (session,),
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                """SELECT id, symbol, alert_type, price, entry, stop, target_1,
+                          setup_level, setup_condition
+                   FROM alerts
+                   WHERE session_date = ? AND alert_type LIKE 'swing_%'
+                     AND gap_invalidated = 0 AND refreshed_at IS NULL""",
+                (session,),
+            ).fetchall()
+        except Exception:
+            # Fallback: columns may not exist yet on older DBs
+            rows = conn.execute(
+                """SELECT id, symbol, alert_type, price, entry, stop, target_1
+                   FROM alerts
+                   WHERE session_date = ? AND alert_type LIKE 'swing_%'""",
+                (session,),
+            ).fetchall()
 
     if not rows:
         logger.info("No pending swing alerts to refresh")
@@ -71,9 +80,16 @@ def refresh_pending_swing_alerts(sync_session_factory) -> dict:
     for row in rows:
         alert_id = row["id"]
         symbol = row["symbol"]
-        setup_level = row["setup_level"]
+        # Handle missing columns gracefully
+        try:
+            setup_level = row["setup_level"]
+        except (KeyError, IndexError):
+            setup_level = None
         original_entry = row["entry"] or row["price"]
-        original_stop = row["stop"]
+        try:
+            original_stop = row["stop"]
+        except (KeyError, IndexError):
+            original_stop = None
 
         current_price = fetch_premarket_price(symbol)
         if current_price is None:
