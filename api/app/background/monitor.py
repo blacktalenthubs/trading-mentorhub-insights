@@ -19,7 +19,7 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from alert_config import COOLDOWN_MINUTES  # noqa: E402
+from alert_config import COOLDOWN_MINUTES, BUY_BURST_COOLDOWN_MINUTES  # noqa: E402
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context  # noqa: E402
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules  # noqa: E402
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
@@ -695,20 +695,23 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             user_id, signal.symbol, _at_val,
                         )
 
-                    # Burst cooldown: suppress rapid BUY notification spam
-                    if _send_notification and signal.direction == "BUY":
-                        _prev = _last_buy_notify.get(symbol)
+                    # Burst cooldown: suppress rapid SAME-TYPE notification spam
+                    # Only cooldown the same alert type, not all BUYs — a PDL bounce
+                    # cooldown must NOT block a PDH breakout on the same symbol
+                    if _send_notification and signal.direction in ("BUY", "SHORT"):
+                        _cooldown_key = (symbol, signal.alert_type.value)
+                        _prev = _last_buy_notify.get(_cooldown_key)
                         _now = datetime.utcnow()
-                        if _prev and (_now - _prev).total_seconds() < COOLDOWN_MINUTES * 60:
+                        if _prev and (_now - _prev).total_seconds() < BUY_BURST_COOLDOWN_MINUTES * 60:
                             _send_notification = False
                             logger.info(
-                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last BUY)",
+                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last)",
                                 user_id, symbol, _at_val, (_now - _prev).total_seconds(),
                             )
 
-                    # Track BUY notification time for burst cooldown
-                    if _send_notification and signal.direction == "BUY":
-                        _last_buy_notify[symbol] = datetime.utcnow()
+                    # Track notification time for burst cooldown (per alert type)
+                    if _send_notification and signal.direction in ("BUY", "SHORT"):
+                        _last_buy_notify[(symbol, signal.alert_type.value)] = datetime.utcnow()
 
                     # Zone clustering: suppress redundant directional signals at same price zone
                     if _send_notification and signal.direction in ("SHORT", "BUY"):
