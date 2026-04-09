@@ -301,10 +301,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 # BUG-10 fix: check if current price reached any active entry's T1
                 # Only notify if user has an OPEN real trade (clicked "Took")
                 # One T1 notification per symbol per session — no spam
-                _t1_symbol_key = (symbol, "_t1_notify")
+                # Use _dedup_key (3-tuple) so it matches fired_today format loaded from DB
                 if (active_rows and intraday is not None
-                        and not (hasattr(intraday, "empty") and intraday.empty)
-                        and _t1_symbol_key not in fired_today):
+                        and not (hasattr(intraday, "empty") and intraday.empty)):
                     # Check if user has an open real trade for this symbol
                     from app.models.paper_trade import RealTrade
                     _open_trade_row = db.execute(
@@ -328,11 +327,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 _best_ae = ae
                                 break
 
+                        # Dedup: skip if T1 notify already fired for this target level
+                        if _best_ae:
+                            _t1_key = _dedup_key(symbol, "_t1_notify", _best_ae.target_1 or 0)
+                            if _t1_key in fired_today:
+                                _best_ae = None  # already notified
                         if _best_ae:
                             ae = _best_ae
                             _t1 = ae.target_1
                             _entry = ae.entry_price
-                            fired_today.add(_t1_symbol_key)
+                            fired_today.add(_t1_key)
                             _pnl = round(_last_price - _entry, 2)
                             _pnl_pct = round((_pnl / _entry) * 100, 2)
                             _user = user_rows.get(user_id)
@@ -661,6 +665,20 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # Track BUY notification time for burst cooldown
                     if _send_notification and signal.direction == "BUY":
                         _last_buy_notify[symbol] = datetime.utcnow()
+
+                    # Zone clustering: suppress redundant directional signals at same price zone
+                    if _send_notification and signal.direction in ("SHORT", "BUY"):
+                        _price_bucket = round(signal.price, -1) if signal.price > 100 else round(signal.price, 0)
+                        _zone_key = (symbol, signal.direction, _price_bucket)
+                        _zone_cooldown = getattr(_poll_all_users_inner, "_zone_cooldown", {})
+                        _now_ts = datetime.utcnow()
+                        _last_zone = _zone_cooldown.get(_zone_key)
+                        if _last_zone and (_now_ts - _last_zone).total_seconds() < 1800:  # 30 min cooldown
+                            _send_notification = False
+                            logger.info("ZONE CLUSTER: user=%d %s %s at $%.0f — suppressed (same zone as recent alert)", user_id, symbol, _at_val, signal.price)
+                        else:
+                            _zone_cooldown[_zone_key] = _now_ts
+                            _poll_all_users_inner._zone_cooldown = _zone_cooldown
 
                     # Commit immediately so alert is persisted + has ID for Telegram buttons
                     db.commit()
