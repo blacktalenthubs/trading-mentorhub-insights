@@ -16,6 +16,7 @@ import {
   useSwingTradesHistory, useTriggerSwingScan, usePerformanceBreakdown,
 } from "../api/hooks";
 import EquityCurve from "../components/EquityCurve";
+import PerformanceDashboard from "../components/PerformanceDashboard";
 import type { Alert, PerformanceBreakdown } from "../types";
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, BarChart3,
@@ -518,6 +519,11 @@ function DayTradesContent() {
 
         {/* Performance Breakdown */}
         {breakdown && <PerformanceBreakdownSection data={breakdown} />}
+
+        {/* Strategy Win Rate Dashboard */}
+        <div className="mt-6">
+          <PerformanceDashboard />
+        </div>
 
         {/* Session Browser */}
         <SessionBrowser />

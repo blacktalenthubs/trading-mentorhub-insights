@@ -18,6 +18,10 @@ class AlertResponse(BaseModel):
     target_1: Optional[float] = None
     target_2: Optional[float] = None
     confidence: Optional[str] = None
+    score: int = 0
+    confluence_score: int = 0
+    confluence_label: Optional[str] = None
+    entry_guidance: Optional[str] = None
     message: Optional[str] = None
     created_at: str
     session_date: str
@@ -38,6 +42,10 @@ class AlertResponse(BaseModel):
             target_1=alert.target_1,
             target_2=alert.target_2,
             confidence=alert.confidence,
+            score=alert.score or 0,
+            confluence_score=getattr(alert, "confluence_score", 0) or 0,
+            confluence_label=getattr(alert, "confluence_label", None),
+            entry_guidance=getattr(alert, "entry_guidance", None),
             message=alert.message,
             created_at=str(alert.created_at) if alert.created_at else "",
             session_date=alert.session_date or "",

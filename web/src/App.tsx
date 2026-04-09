@@ -18,6 +18,7 @@ import RegisterPage from "./pages/RegisterPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import TradingPage from "./pages/TradingPage";
+import TradingPageV2 from "./pages/TradingPageV2";
 import RealTradesPage from "./pages/RealTradesPage";
 import SettingsPage from "./pages/SettingsPage";
 import AICoPilotPage from "./pages/AICoPilotPage";
@@ -85,7 +86,8 @@ export default function App() {
                 }
               >
                 <Route path="dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
-                <Route path="trading" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
+                <Route path="trading" element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
+                <Route path="trading-v1" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
                 <Route path="copilot" element={<ErrorBoundary><AICoPilotPage /></ErrorBoundary>} />
                 <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />

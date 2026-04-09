@@ -763,3 +763,62 @@ async def public_track_record(days: int = Query(default=30, le=90)):
         "win_rate": overall.get("win_rate", 0),
         "by_alert_type": data.get("by_alert_type", {}),
     }
+
+
+@router.get("/game-plan")
+async def game_plan(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Get today's top 3 setups ranked by confluence + score."""
+    from app.models.watchlist import WatchlistItem
+
+    result = await db.execute(
+        select(WatchlistItem.symbol).where(WatchlistItem.user_id == user.id)
+    )
+    symbols = [row[0] for row in result.all()]
+    if not symbols:
+        return []
+
+    loop = asyncio.get_event_loop()
+    from analytics.game_plan import generate_game_plan
+    setups = await loop.run_in_executor(None, partial(generate_game_plan, symbols))
+    return setups
+
+
+@router.get("/trade-journal")
+async def trade_journal(
+    request: Request,
+    date: str = Query(None, description="YYYY-MM-DD, defaults to today"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Get trade journal entries for a date."""
+    from sqlalchemy import text as sql_text
+    from datetime import date as _date
+
+    target_date = date or _date.today().isoformat()
+    result = await db.execute(
+        sql_text("""
+            SELECT id, symbol, alert_type, direction, entry_price, exit_price,
+                   stop_price, target_1, target_2, outcome, pnl_r, replay_text,
+                   session_date, created_at
+            FROM trade_journal
+            WHERE user_id = :uid AND session_date = :d
+            ORDER BY created_at DESC
+        """),
+        {"uid": user.id, "d": target_date},
+    )
+    rows = result.fetchall()
+
+    return [
+        {
+            "id": r[0], "symbol": r[1], "alert_type": r[2], "direction": r[3],
+            "entry_price": r[4], "exit_price": r[5], "stop_price": r[6],
+            "target_1": r[7], "target_2": r[8], "outcome": r[9],
+            "pnl_r": r[10], "replay_text": r[11],
+            "session_date": r[12], "created_at": str(r[13]) if r[13] else "",
+        }
+        for r in rows
+    ]

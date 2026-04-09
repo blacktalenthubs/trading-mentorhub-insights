@@ -59,6 +59,10 @@ export interface Alert {
   target_1: number | null;
   target_2: number | null;
   confidence: string;
+  score: number;
+  confluence_score: number;
+  confluence_label: string | null;
+  entry_guidance: string | null;
   message: string;
   created_at: string;
   session_date: string;

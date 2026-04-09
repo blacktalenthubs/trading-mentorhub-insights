@@ -35,11 +35,14 @@ def run_scan(symbols: List[str]) -> List[dict]:
 
 
 def _safe_round(v, decimals=2):
-    """Round a value, returning None if the value is None."""
+    """Round a value, returning None for None/NaN/Inf."""
     if v is None:
         return None
     try:
-        return round(float(v), decimals)
+        f = float(v)
+        if f != f or f == float("inf") or f == float("-inf"):
+            return None
+        return round(f, decimals)
     except (TypeError, ValueError):
         return None
 

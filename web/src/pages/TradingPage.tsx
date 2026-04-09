@@ -17,7 +17,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import CandlestickChart from "../components/CandlestickChart";
-import SectorRotation from "../components/SectorRotation";
+// import SectorRotation from "../components/SectorRotation";
+import GamePlanCard from "../components/GamePlanCard";
 import {
   RefreshCw, Brain, Send, Search, Target, ShieldAlert,
   PanelRightOpen, PanelRightClose, Plus, X, Loader2,
@@ -149,11 +150,11 @@ function SignalRow({
             : "border-l-2 border-transparent hover:bg-surface-2/60"
         }`}
       >
-        <div className="w-[56px] relative">
+        <div className="w-[68px] shrink-0 relative">
           <div className="flex items-center gap-1">
-            <span className="text-sm font-bold text-text-primary leading-tight">{s.symbol}</span>
+            <span className="text-sm font-bold text-text-primary leading-tight truncate">{s.symbol}</span>
             {isTopPick && (
-              <span className="text-[7px] font-bold uppercase tracking-wider text-bullish-text bg-bullish/10 px-1 py-px rounded leading-tight border border-bullish/20">
+              <span className="text-[7px] font-bold uppercase tracking-wider text-bullish-text bg-bullish/10 px-1 py-px rounded leading-tight border border-bullish/20 shrink-0">
                 Top
               </span>
             )}
@@ -162,20 +163,20 @@ function SignalRow({
             {setupInfo.text}
           </span>
         </div>
-        <div className="flex-1 flex flex-col items-end gap-0.5">
-          <div className="font-mono text-sm text-text-primary leading-none">${fmt(displayPrice)}</div>
+        <div className="flex-1 flex flex-col items-end gap-0.5 min-w-0">
+          <div className="font-mono text-sm text-text-primary leading-none tabular-nums">${fmt(displayPrice)}</div>
           {livePrice ? (
-            <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
+            <div className={`font-mono text-[10px] leading-none tabular-nums ${changeColor}`}>
               {livePrice.change_pct >= 0 ? "+" : ""}{livePrice.change_pct.toFixed(2)}%
             </div>
           ) : s.volume_ratio != null && s.volume_ratio > 0 ? (
-            <div className={`font-mono text-[10px] leading-none ${changeColor}`}>
+            <div className={`font-mono text-[10px] leading-none tabular-nums ${changeColor}`}>
               {s.volume_ratio.toFixed(1)}x vol
             </div>
           ) : null}
         </div>
-        <div className="w-12 ml-2.5 flex flex-col items-center gap-0.5">
-          <span className={`px-2 py-0.5 rounded text-[10px] font-bold leading-tight border ${scoreBadgeClass(rankItem?.score ?? s.score)}`}>
+        <div className="w-14 ml-2 flex flex-col items-center gap-0.5 shrink-0">
+          <span className={`w-10 text-center px-1.5 py-0.5 rounded text-[10px] font-bold leading-tight border ${scoreBadgeClass(rankItem?.score ?? s.score)}`}>
             {rankItem?.score ?? s.score}
           </span>
           <span className="text-[9px] text-text-faint leading-tight">
@@ -533,11 +534,11 @@ function AlertTimelineItem({ alert: a, onSelectSymbol }: { alert: Alert; onSelec
     a.direction === "SELL" ? "bg-warning" : "bg-text-faint";
 
   return (
-    <div className="relative pl-10 py-2 group">
+    <div className="relative pl-14 py-2 group">
       {/* Time label */}
-      <div className="absolute left-0 top-2.5 w-9 text-[10px] font-mono text-text-faint text-right">{time}</div>
+      <div className="absolute left-0 top-2.5 w-12 text-[10px] font-mono text-text-faint text-right">{time}</div>
       {/* Dot on timeline */}
-      <div className={`absolute left-[38px] top-[14px] w-2 h-2 rounded-full ${dotColor} ring-[3px] ring-surface-0 z-10`} />
+      <div className={`absolute left-[52px] top-[14px] w-2 h-2 rounded-full ${dotColor} ring-[3px] ring-surface-0 z-10`} />
       {/* Card */}
       <div
         className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 group-hover:border-accent/30 group-hover:bg-surface-2/60 transition-all duration-150 cursor-pointer"
@@ -554,12 +555,50 @@ function AlertTimelineItem({ alert: a, onSelectSymbol }: { alert: Alert; onSelec
             <span className="text-[9px] text-text-faint font-medium px-1.5 py-0.5 bg-surface-3/80 rounded">
               {a.alert_type.replace(/_/g, " ")}
             </span>
+            {a.confidence && (
+              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${
+                a.confidence === "high"
+                  ? "text-bullish-text bg-bullish/10 border-bullish/20"
+                  : a.confidence === "medium"
+                  ? "text-warning-text bg-warning/10 border-warning/20"
+                  : "text-text-faint bg-surface-3 border-border-subtle"
+              }`}>
+                {a.confidence.charAt(0).toUpperCase() + a.confidence.slice(1)}{a.score > 0 ? `/${a.score}` : ""}
+              </span>
+            )}
             <span className="text-[9px] text-accent opacity-0 group-hover:opacity-100 transition-opacity">
               View →
             </span>
           </div>
         </div>
         <p className="text-[11px] text-text-muted leading-relaxed">{a.message}</p>
+        {/* Confluence meter + entry guidance */}
+        {(a.confluence_score > 0 || a.entry_guidance) && (
+          <div className="flex items-center gap-2 mt-1.5">
+            {a.confluence_score > 0 && (
+              <div className="flex items-center gap-1" title={a.confluence_label || ""}>
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className={`w-1.5 h-4 rounded-sm ${
+                      i <= a.confluence_score
+                        ? a.confluence_score === 3
+                          ? "bg-bullish"
+                          : a.confluence_score === 2
+                          ? "bg-warning"
+                          : "bg-text-faint"
+                        : "bg-surface-3"
+                    }`}
+                  />
+                ))}
+                <span className="text-[9px] text-text-faint ml-0.5">{a.confluence_score}/3</span>
+              </div>
+            )}
+            {a.entry_guidance && (
+              <span className="text-[9px] text-accent italic">{a.entry_guidance}</span>
+            )}
+          </div>
+        )}
         {/* Action buttons */}
         {a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
           <div className="flex gap-2 mt-2">
@@ -687,6 +726,7 @@ function RightPanel({
   alertsError,
   symbolAlerts,
   onSelectSymbol,
+  width,
 }: {
   selected: SignalResult | null;
   ohlcv?: import("../api/hooks").OHLCBar[];
@@ -696,6 +736,7 @@ function RightPanel({
   alertsError: unknown;
   symbolAlerts?: Alert[];
   onSelectSymbol: (sym: string) => void;
+  width?: number;
 }) {
   const [coachOpen, setCoachOpen] = useState(true);
   const [signalFeedOpen, setSignalFeedOpen] = useState(true);
@@ -703,7 +744,7 @@ function RightPanel({
   const alertCount = todayAlerts?.length ?? 0;
 
   return (
-    <aside className="hidden xl:flex w-[400px] bg-surface-0 border-l border-border-subtle flex-col shrink-0">
+    <aside className="hidden xl:flex bg-surface-0 border-l border-border-subtle flex-col shrink-0" style={{ width: width ?? 400 }}>
       {/* AI Coach (collapsible) */}
       <div className={`flex flex-col ${coachOpen ? "flex-1 min-h-[45%]" : ""} border-b border-border-subtle relative overflow-hidden`}>
         {/* Collapsible header */}
@@ -814,6 +855,37 @@ export default function TradingPage() {
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showIndicatorPanel, setShowIndicatorPanel] = useState(false);
   const indicatorPanelRef = useRef<HTMLDivElement>(null);
+
+  // Resizable panel widths (persisted)
+  const [leftWidth, setLeftWidth] = useState(() => Number(localStorage.getItem("panel_left_w")) || 240);
+  const [rightWidth, setRightWidth] = useState(() => Number(localStorage.getItem("panel_right_w")) || 400);
+  const dragging = useRef<"left" | "right" | null>(null);
+  const dragStartX = useRef(0);
+  const dragStartW = useRef(0);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!dragging.current) return;
+      const dx = e.clientX - dragStartX.current;
+      if (dragging.current === "left") {
+        const w = Math.max(180, Math.min(400, dragStartW.current + dx));
+        setLeftWidth(w);
+      } else {
+        const w = Math.max(280, Math.min(600, dragStartW.current - dx));
+        setRightWidth(w);
+      }
+    }
+    function onMouseUp() {
+      if (dragging.current === "left") localStorage.setItem("panel_left_w", String(leftWidth));
+      if (dragging.current === "right") localStorage.setItem("panel_right_w", String(rightWidth));
+      dragging.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("mouseup", onMouseUp); };
+  }, [leftWidth, rightWidth]);
 
   // Trigger chart resize when panels toggle
   function toggleRightPanel() {
@@ -960,19 +1032,19 @@ export default function TradingPage() {
     <div className="flex h-full">
       {/* ── LEFT: Watchlist Panel (collapsible) ── */}
       {showLeftPanel && (
-      <aside className="hidden lg:flex w-[240px] bg-surface-1 border-r border-border-subtle flex-col shrink-0">
+      <aside className="hidden lg:flex bg-surface-1 border-r border-border-subtle flex-col shrink-0" style={{ width: leftWidth }}>
         {/* Header */}
         <div className="h-14 px-4 flex items-center justify-between border-b border-border-subtle shrink-0">
-          <h2 className="text-sm font-semibold tracking-wide text-text-primary">
-            Watchlist
-            <span className="text-text-faint font-normal ml-1.5 text-xs">{potentialEntryCount} setups</span>
-          </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col justify-center">
+            <h2 className="text-sm font-semibold tracking-wide text-text-primary leading-tight">Watchlist</h2>
+            <span className="text-text-faint text-[10px] leading-tight">{potentialEntryCount} {potentialEntryCount === 1 ? "setup" : "setups"}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
             {/* Sort toggle */}
             <div className="flex items-center bg-surface-2/50 rounded text-[9px] font-semibold border border-border-subtle overflow-hidden">
               <button
                 onClick={() => setSortMode("score")}
-                className={`px-2 py-1 transition-colors ${
+                className={`px-1.5 py-0.5 transition-colors ${
                   sortMode === "score" ? "bg-accent/15 text-accent" : "text-text-faint hover:text-text-muted"
                 }`}
               >
@@ -980,7 +1052,7 @@ export default function TradingPage() {
               </button>
               <button
                 onClick={() => setSortMode("az")}
-                className={`px-2 py-1 transition-colors ${
+                className={`px-1.5 py-0.5 transition-colors ${
                   sortMode === "az" ? "bg-accent/15 text-accent" : "text-text-faint hover:text-text-muted"
                 }`}
               >
@@ -990,10 +1062,9 @@ export default function TradingPage() {
             <button
               onClick={() => refetch()}
               disabled={isFetching}
-              className="flex items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1 text-[10px] font-medium text-accent hover:text-accent-hover disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-              Scan
             </button>
           </div>
         </div>
@@ -1058,10 +1129,10 @@ export default function TradingPage() {
         </div>
 
         {/* Column headers */}
-        <div className="flex px-4 py-1.5 text-[10px] uppercase font-semibold text-text-faint tracking-wider border-b border-border-subtle shrink-0">
-          <div className="w-[52px]">Symbol</div>
+        <div className="flex items-center px-4 py-1.5 text-[10px] uppercase font-semibold text-text-faint tracking-wider border-b border-border-subtle shrink-0">
+          <div className="w-[68px] shrink-0">Symbol</div>
           <div className="flex-1 text-right">Price</div>
-          <div className="w-14 text-center ml-3">{sortMode === "score" ? "Score" : "Grade"}</div>
+          <div className="w-14 ml-2 text-center shrink-0">{sortMode === "score" ? "Score" : "Grade"}</div>
         </div>
 
         {/* Signal list */}
@@ -1102,8 +1173,18 @@ export default function TradingPage() {
       </aside>
       )}
 
+      {/* Left resize handle */}
+      {showLeftPanel && (
+        <div
+          className="hidden lg:flex w-1 cursor-col-resize items-center justify-center hover:bg-accent/20 active:bg-accent/30 transition-colors shrink-0 group"
+          onMouseDown={(e) => { e.preventDefault(); dragging.current = "left"; dragStartX.current = e.clientX; dragStartW.current = leftWidth; document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none"; }}
+        >
+          <div className="w-px h-8 bg-border-subtle group-hover:bg-accent/50 transition-colors" />
+        </div>
+      )}
+
       {/* ── CENTER: Chart Canvas + Cockpit ── */}
-      <section className="flex-1 flex flex-col min-w-0 bg-surface-0">
+      <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 overflow-hidden">
         {/* Chart header */}
         <header className="h-14 border-b border-border-subtle px-4 flex items-center justify-between shrink-0 bg-surface-1/50">
           {/* Left: watchlist toggle + symbol + price */}
@@ -1134,7 +1215,7 @@ export default function TradingPage() {
                 </span>
               </>
             ) : (
-              <h1 className="text-lg font-bold text-text-muted">Select a symbol</h1>
+              <span className="text-sm text-text-faint">Select a symbol</span>
             )}
             </div>
           </div>
@@ -1174,21 +1255,24 @@ export default function TradingPage() {
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Indicators ({activeIndicators.size + (showLevels ? 1 : 0) + (hideWicks ? 0 : 1)})
               </button>
-
-              {/* Active indicator pills */}
+              {/* Active indicator color dots */}
               {activeIndicators.size > 0 && !showIndicatorPanel && (
-                <div className="absolute top-full left-0 mt-1 flex items-center gap-0.5 flex-wrap max-w-[300px]">
-                  {ALL_INDICATORS.filter((ind) => activeIndicators.has(ind.key)).map((ind) => (
+                <div className="flex items-center gap-0.5 ml-1">
+                  {ALL_INDICATORS.filter((ind) => activeIndicators.has(ind.key)).slice(0, 6).map((ind) => (
                     <span
                       key={ind.key}
-                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold"
-                      style={{ backgroundColor: ind.color + "20", color: ind.color }}
-                    >
-                      {ind.label}
-                    </span>
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: ind.color }}
+                      title={ind.label}
+                    />
                   ))}
+                  {ALL_INDICATORS.filter((ind) => activeIndicators.has(ind.key)).length > 6 && (
+                    <span className="text-[8px] text-text-faint">+{ALL_INDICATORS.filter((ind) => activeIndicators.has(ind.key)).length - 6}</span>
+                  )}
                 </div>
               )}
+
+              {/* Active indicator dots — inline next to button */}
 
               {/* Popover panel */}
               {showIndicatorPanel && (
@@ -1335,8 +1419,11 @@ export default function TradingPage() {
           ))}
         </div>
 
-        {/* Sector Rotation widget */}
-        <SectorRotation />
+        {/* Game Plan — today's top setups */}
+        <GamePlanCard onSelectSymbol={selectSymbol} />
+
+        {/* Sector Rotation widget — hidden until alerting strategies are perfected */}
+        {/* <SectorRotation /> */}
 
         {/* Chart area */}
         <div className="flex-1 min-h-0 relative chart-grid-bg">
@@ -1379,18 +1466,28 @@ export default function TradingPage() {
 
         {/* Context strip */}
         {selected && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-1.5 text-xs text-text-muted border-t border-border-subtle shrink-0 bg-surface-1/30">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2 text-xs border-t border-border-subtle shrink-0 bg-surface-1/50">
             {selected.nearest_support != null && (
-              <span>Support: <span className="font-mono text-text-secondary">${fmt(selected.nearest_support)}</span> {selected.support_label && `(${selected.support_label})`}</span>
+              <span className="text-text-secondary font-medium">Support: <span className="font-mono text-accent">${fmt(selected.nearest_support)}</span> {selected.support_label && <span className="text-text-muted">({selected.support_label})</span>}</span>
             )}
-            <span>{selected.support_status} · {selected.direction} · {selected.pattern}</span>
-            {selected.bias && <span className="italic">{selected.bias}</span>}
+            <span className="text-text-secondary">{selected.support_status} · {selected.direction} · {selected.pattern}</span>
+            {selected.bias && <span className="text-text-muted italic">{selected.bias}</span>}
           </div>
         )}
 
         {/* Cockpit trade plan */}
         {selected && <CockpitStrip signal={selected} />}
       </section>
+
+      {/* Right resize handle */}
+      {showRightPanel && (
+        <div
+          className="hidden xl:flex w-1 cursor-col-resize items-center justify-center hover:bg-accent/20 active:bg-accent/30 transition-colors shrink-0 group"
+          onMouseDown={(e) => { e.preventDefault(); dragging.current = "right"; dragStartX.current = e.clientX; dragStartW.current = rightWidth; document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none"; }}
+        >
+          <div className="w-px h-8 bg-border-subtle group-hover:bg-accent/50 transition-colors" />
+        </div>
+      )}
 
       {/* ── RIGHT: AI Coach + Options Flow + Signal Feed (all collapsible) ── */}
       {showRightPanel && (
@@ -1403,6 +1500,7 @@ export default function TradingPage() {
           alertsError={alertsError}
           symbolAlerts={symbolAlerts}
           onSelectSymbol={selectSymbol}
+          width={rightWidth}
         />
       )}
     </div>

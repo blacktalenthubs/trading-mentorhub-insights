@@ -844,3 +844,89 @@ export function useMTFContext(symbol: string) {
     staleTime: 5 * 60_000,
   });
 }
+
+// --- Performance Analytics ---
+
+export interface StrategyPerformance {
+  alert_type: string;
+  total: number;
+  wins: number;
+  losses: number;
+  no_outcome: number;
+  t2_wins: number;
+  win_rate: number;
+  avg_score: number;
+  avg_confluence: number;
+}
+
+export function usePerformanceByStrategy() {
+  return useQuery({
+    queryKey: ["performance-by-strategy"],
+    queryFn: () => api.get<StrategyPerformance[]>("/performance/by-strategy"),
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function usePerformanceSummary() {
+  return useQuery({
+    queryKey: ["performance-summary"],
+    queryFn: () => api.get<Record<string, number>>("/performance/summary"),
+    staleTime: 10 * 60_000,
+  });
+}
+
+// --- Game Plan ---
+
+export interface GamePlanSetup {
+  symbol: string;
+  direction: string;
+  action_label: string;
+  score: number;
+  confluence_score: number;
+  confluence_label: string;
+  entry: number | null;
+  stop: number | null;
+  target_1: number | null;
+  target_2: number | null;
+  rr_ratio: number | null;
+  risk_per_share: number | null;
+  support_status: string;
+  pattern: string;
+  bias: string;
+  composite_score: number;
+}
+
+export function useGamePlan() {
+  return useQuery({
+    queryKey: ["game-plan"],
+    queryFn: () => api.get<GamePlanSetup[]>("/intel/game-plan"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+// --- Trade Journal ---
+
+export interface JournalEntry {
+  id: number;
+  symbol: string;
+  alert_type: string;
+  direction: string;
+  entry_price: number | null;
+  exit_price: number | null;
+  stop_price: number | null;
+  target_1: number | null;
+  target_2: number | null;
+  outcome: string;
+  pnl_r: number | null;
+  replay_text: string | null;
+  session_date: string;
+  created_at: string;
+}
+
+export function useTradeJournal(date?: string) {
+  return useQuery({
+    queryKey: ["trade-journal", date],
+    queryFn: () => api.get<JournalEntry[]>(`/intel/trade-journal${date ? `?date=${date}` : ""}`),
+    staleTime: 5 * 60_000,
+  });
+}

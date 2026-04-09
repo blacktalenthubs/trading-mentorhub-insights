@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     from app.database import Base, engine
     # Import all models so Base.metadata knows about them
     import app.models  # noqa: F401
+    import app.models.journal  # noqa: F401
 
     # Auto-create new tables (usage_limits etc.) and add missing columns
     async with engine.begin() as conn:
@@ -87,6 +88,10 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE swing_trades ADD COLUMN IF NOT EXISTS setup_level REAL",
             "ALTER TABLE swing_trades ADD COLUMN IF NOT EXISTS setup_condition TEXT",
             "ALTER TABLE swing_trades ADD COLUMN IF NOT EXISTS refreshed_entry REAL",
+            # Premium features: confluence, entry guidance, trade journal
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confluence_score INTEGER DEFAULT 0",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confluence_label TEXT",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS entry_guidance TEXT",
         ]:
             try:
                 await conn.execute(text(col_def))
@@ -196,6 +201,25 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
 
+        # Alert Sniper: Game Plan — 9:05 AM ET weekdays
+        def _game_plan():
+            try:
+                from analytics.game_plan import send_game_plans
+                count = send_game_plans(sync_session_factory)
+                logger.info("Game plans sent: %d users", count)
+            except Exception:
+                logger.exception("Game plan generation failed")
+
+        scheduler.add_job(
+            _game_plan,
+            "cron",
+            hour=9, minute=5,
+            timezone="America/New_York",
+            day_of_week="mon-fri",
+            id="game_plan",
+            replace_existing=True,
+        )
+
         # Pre-market brief — runs once at 9:15 AM ET weekdays
         def _premarket_brief():
             try:
@@ -259,6 +283,25 @@ async def lifespan(app: FastAPI):
             timezone="America/New_York",
             day_of_week="mon-fri",
             id="daily_review",
+            replace_existing=True,
+        )
+
+        # Trade Replay + Auto-Journal — 4:40 PM ET weekdays
+        def _trade_replay():
+            try:
+                from analytics.trade_replay import generate_replays
+                count = generate_replays(sync_session_factory)
+                logger.info("Trade replay: %d journal entries created", count)
+            except Exception:
+                logger.exception("Trade replay failed")
+
+        scheduler.add_job(
+            _trade_replay,
+            "cron",
+            hour=16, minute=40,
+            timezone="America/New_York",
+            day_of_week="mon-fri",
+            id="trade_replay",
             replace_existing=True,
         )
 
@@ -380,6 +423,7 @@ def create_app() -> FastAPI:
         auth, watchlist, scanner, market, alerts,
         trades, charts, real_trades, paper_trading, backtest,
         push, settings, swing, intel, learn, billing, admin, referral,
+        performance,
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -399,6 +443,7 @@ def create_app() -> FastAPI:
     app.include_router(billing.router, prefix="/api/v1/billing", tags=["billing"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
+    app.include_router(performance.router, prefix="/api/v1/performance", tags=["performance"])
 
     # --- Telegram webhook route (must be before SPA catch-all) ---
     import sys as _sys

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f1117"/>
+      <stop offset="100%" style="stop-color:#1c2030"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#22c55e"/>
+      <stop offset="100%" style="stop-color:#4ade80"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.04" stroke="#fff" stroke-width="1">
+    <line x1="128" y1="0" x2="128" y2="512"/>
+    <line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+    <line x1="0" y1="128" x2="512" y2="128"/>
+    <line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+  </g>
+
+  <!-- Candlestick chart (simplified) -->
+  <!-- Red candle -->
+  <rect x="130" y="220" width="24" height="90" rx="3" fill="#ef4444" opacity="0.6"/>
+  <line x1="142" y1="200" x2="142" y2="330" stroke="#ef4444" stroke-width="3" opacity="0.6"/>
+
+  <!-- Green candle -->
+  <rect x="180" y="250" width="24" height="70" rx="3" fill="#22c55e" opacity="0.6"/>
+  <line x1="192" y1="235" x2="192" y2="340" stroke="#22c55e" stroke-width="3" opacity="0.6"/>
+
+  <!-- Red candle -->
+  <rect x="230" y="200" width="24" height="100" rx="3" fill="#ef4444" opacity="0.5"/>
+  <line x1="242" y1="185" x2="242" y2="315" stroke="#ef4444" stroke-width="3" opacity="0.5"/>
+
+  <!-- Green candle (the bounce) -->
+  <rect x="280" y="230" width="24" height="60" rx="3" fill="#22c55e" opacity="0.7"/>
+  <line x1="292" y1="260" x2="292" y2="310" stroke="#22c55e" stroke-width="3" opacity="0.7"/>
+
+  <!-- Crosshair / Target icon (main symbol) -->
+  <circle cx="320" cy="220" r="52" fill="none" stroke="url(#accent)" stroke-width="5" opacity="0.9"/>
+  <circle cx="320" cy="220" r="20" fill="none" stroke="url(#accent)" stroke-width="4" opacity="0.9"/>
+  <line x1="320" y1="155" x2="320" y2="185" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+  <line x1="320" y1="255" x2="320" y2="285" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+  <line x1="255" y1="220" x2="285" y2="220" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+  <line x1="355" y1="220" x2="385" y2="220" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- AI pulse ring -->
+  <circle cx="320" cy="220" r="70" fill="none" stroke="#3b82f6" stroke-width="2" opacity="0.3"/>
+
+  <!-- Rising trend line -->
+  <path d="M 100 360 L 200 310 L 280 330 L 350 250 L 420 200"
+        fill="none" stroke="url(#green)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+
+  <!-- Text: TC -->
+  <text x="256" y="430" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="72" fill="#e8ecf4" letter-spacing="-2">
+    <tspan fill="url(#accent)">Trade</tspan><tspan fill="#e8ecf4">Co</tspan>
+  </text>
+  <text x="256" y="468" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="28" fill="#64748b" letter-spacing="4">
+    PILOT
+  </text>
+</svg>

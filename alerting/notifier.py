@@ -133,7 +133,12 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         _reason = signal.message.replace("[SWING] ", "") if signal.message else label
         _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
         parts.append(f"Setup: {_reason}")
-        parts.append(f"Conviction: {_conviction}")
+        parts.append(f"Conviction: {_conviction}/{signal.score}")
+        # Multi-timeframe confluence
+        _conf = getattr(signal, "_confluence_score", 0)
+        if _conf and _conf >= 2:
+            _conf_emoji = "🟢" if _conf == 3 else "🟡"
+            parts.append(f"{_conf_emoji} Confluence: {_conf}/3 timeframes aligned")
         return "\n".join(parts)[:4000]
 
     # SELL — route by type: stops → alert, resistance → NOTICE, targets → suppressed
@@ -234,7 +239,12 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
     # Reason + Conviction
     _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
     parts.append(f"Reason: {_reason}")
-    parts.append(f"Conviction: {_conviction}")
+    parts.append(f"Conviction: {_conviction}/{signal.score}")
+    # Multi-timeframe confluence
+    _conf = getattr(signal, "_confluence_score", 0)
+    if _conf and _conf >= 2:
+        _conf_emoji = "🟢" if _conf == 3 else "🟡"
+        parts.append(f"{_conf_emoji} Confluence: {_conf}/3 timeframes aligned")
 
     # Telegram message limit is 4096 chars; truncate safely
     return "\n".join(parts)[:4000]
