@@ -1172,7 +1172,18 @@ export default function TradingPageV2() {
         <div className="flex-1 min-h-0 relative chart-grid-bg">
           {selected && ohlcv && ohlcv.length > 0 ? (
             <CandlestickChart
-              data={ohlcv}
+              data={(() => {
+                // Patch last bar with live price so chart matches watchlist
+                const lp = livePrices[selected.symbol]?.price;
+                if (!lp || ohlcv.length === 0) return ohlcv;
+                const bars = [...ohlcv];
+                const last = { ...bars[bars.length - 1] };
+                last.close = lp;
+                if (lp > last.high) last.high = lp;
+                if (lp < last.low) last.low = lp;
+                bars[bars.length - 1] = last;
+                return bars;
+              })()}
               entry={showLevels ? (selected.entry ?? undefined) : undefined}
               stop={showLevels ? (selected.stop ?? undefined) : undefined}
               target={showLevels ? (selected.target_1 ?? undefined) : undefined}
