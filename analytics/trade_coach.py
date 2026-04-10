@@ -471,41 +471,8 @@ def format_system_prompt(context: dict) -> str:
             lines.append(f"- {t['symbol']}  P&L: {pnl_str}  status={t.get('status', 'closed')}")
         sections.append("\n".join(lines))
 
-    # Paper trading positions
-    paper_open = context.get("paper_open")
-    if paper_open:
-        lines = ["[PAPER POSITIONS (Alpaca)]"]
-        for t in paper_open:
-            stop = t.get("stop_price") or "N/A"
-            target = t.get("target_price") or "N/A"
-            lines.append(
-                f"- {t['symbol']} {t.get('direction', 'BUY')} {t.get('shares', '?')} shares "
-                f"@ ${t.get('entry_price', 0):.2f}  stop={stop}  target={target}"
-            )
-        sections.append("\n".join(lines))
-
-    # Paper trading performance
-    paper_stats = context.get("paper_stats")
-    if paper_stats and paper_stats.get("total_trades", 0) > 0:
-        lines = [
-            "[PAPER TRADING PERFORMANCE]",
-            f"Total P&L: ${paper_stats['total_pnl']:.2f}",
-            f"Win rate: {paper_stats['win_rate']:.1f}%",
-            f"Trades: {paper_stats['total_trades']}",
-            f"Expectancy: ${paper_stats['expectancy']:.2f}",
-            f"Avg win: ${paper_stats['avg_win']:.2f}  Avg loss: ${paper_stats['avg_loss']:.2f}",
-        ]
-        sections.append("\n".join(lines))
-
-    # Recent closed paper trades
-    paper_closed = context.get("paper_closed")
-    if paper_closed:
-        lines = ["[RECENT CLOSED PAPER TRADES]"]
-        for t in paper_closed[:10]:
-            pnl = t.get("pnl", 0) or 0
-            pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
-            lines.append(f"- {t['symbol']}  P&L: {pnl_str}  status={t.get('status', 'closed')}")
-        sections.append("\n".join(lines))
+    # Paper trading: REMOVED from Coach context — not used, adds noise and
+    # confuses AI into mentioning positions that don't exist for the user.
 
     # Hub context (when user is focused on a specific symbol)
     hub = context.get("hub")
