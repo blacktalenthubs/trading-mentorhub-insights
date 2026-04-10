@@ -329,7 +329,7 @@ VWAP_RECLAIM_MIN_RECOVERY_PCT = 0.005   # 0.5% minimum bounce from session low
 VWAP_RECLAIM_VOLUME_RATIO = 1.2         # volume confirmation threshold
 VWAP_RECLAIM_MIN_BARS_AFTER_LOW = 3     # 15 min after low before firing
 VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
-VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.003   # 0.3% — skip if price already ran past VWAP
+VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.008   # 0.8% — allow room for the reclaim bar to close above VWAP (~$5 on SPY)
 
 # VWAP Bounce: pullback to VWAP that holds — continuation signal
 VWAP_BOUNCE_MIN_BARS = 18              # ~90 min context (after 11:00 AM)
