@@ -85,6 +85,16 @@ def _get_symbol_technicals(symbols: list[str]) -> dict[str, dict]:
                 if avg_loss > 0:
                     info["rsi14"] = round(100 - 100 / (1 + avg_gain / avg_loss), 1)
 
+            # Prior day high/low (PDH/PDL) — critical key levels
+            try:
+                highs = sym_data["High"].dropna()
+                lows = sym_data["Low"].dropna()
+                if len(highs) >= 2 and len(lows) >= 2:
+                    info["pdh"] = round(float(highs.iloc[-2]), 2)
+                    info["pdl"] = round(float(lows.iloc[-2]), 2)
+            except Exception:
+                pass
+
             # Weekly high/low (prior completed week)
             try:
                 highs = sym_data["High"].dropna()
@@ -381,6 +391,11 @@ def format_system_prompt(context: dict) -> str:
         for sym in sorted(technicals.keys()):
             t = technicals[sym]
             parts = [f"{sym}: ${t['close']:.2f}"]
+            # PDH/PDL — CRITICAL: these are YESTERDAY's high/low, not today's
+            if "pdh" in t:
+                parts.append(f"PDH(yesterday high)=${t['pdh']:.2f}")
+            if "pdl" in t:
+                parts.append(f"PDL(yesterday low)=${t['pdl']:.2f}")
             for key, label in [("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA"),
                                ("ema20", "20EMA"), ("ema50", "50EMA"),
                                ("ema100", "100EMA"), ("ema200", "200EMA")]:
