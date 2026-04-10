@@ -184,14 +184,7 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             f"Watch for pullback to VWAP for entry"
         )
 
-    # SHORT → all sent as RESISTANCE alerts to Telegram
-    # CRYPTO: no short alerts — too noisy
-    if signal.direction == "SHORT":
-        _is_crypto = signal.symbol.endswith("-USD")
-        if _is_crypto:
-            return None  # suppress all crypto shorts
-        # All SHORT types pass through as RESISTANCE — no suppression
-            return None  # suppress remaining non-structural shorts
+    # SHORT → all sent as RESISTANCE alerts to Telegram. No suppression.
 
     # LONG (BUY) and RESISTANCE (SHORT) — entry evaluation format
     _dir = "RESISTANCE" if signal.direction == "SHORT" else "LONG"
