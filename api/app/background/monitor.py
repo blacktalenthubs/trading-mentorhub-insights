@@ -19,7 +19,7 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from alert_config import COOLDOWN_MINUTES, BUY_BURST_COOLDOWN_MINUTES  # noqa: E402
+from alert_config import COOLDOWN_MINUTES  # noqa: E402
 from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context  # noqa: E402
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules  # noqa: E402
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
@@ -61,13 +61,6 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     # Crypto uses UTC date so dedup resets at midnight UTC (not server time)
     _utc_date = datetime.utcnow().date().isoformat()
     total_alerts = 0
-
-    # Clear confluence cache at start of each poll cycle
-    try:
-        from analytics.confluence import clear_confluence_cache
-        clear_confluence_cache()
-    except Exception:
-        pass
 
     # Clear stale burst cooldown tracking on new session
     if _last_buy_session != session_date:
@@ -198,29 +191,6 @@ def _poll_all_users_inner(sync_session_factory) -> int:
             select(User).where(User.id.in_(pro_users))
         ).scalars().all()}
 
-        # Global dedup key function (shared across users)
-        def _dedup_key(sym: str, atype: str, price: float = 0) -> tuple:
-            """Dedup key: same alert type within 1% price = duplicate."""
-            if price and price > 0:
-                bucket = round(price, -len(str(int(price))) + 2)  # round to 2 sig figs
-                return (sym, atype, bucket)
-            return (sym, atype, 0)
-
-        # Global signal cache: evaluate_rules once per symbol per cycle (P2 dedup fix)
-        # Same market data produces same signals — no need to recompute per user.
-        # Per-user differences (notification prefs, active entries) handled after.
-        _signal_cache: dict[str, list] = {}
-        _global_fired: set[tuple] = set()  # global dedup across all users
-
-        # Seed global dedup from all users' existing alerts today
-        _all_alerts_today = db.execute(
-            select(Alert.symbol, Alert.alert_type, Alert.price).where(
-                Alert.session_date.in_({session_date, _utc_date})
-            )
-        ).all()
-        for a in _all_alerts_today:
-            _global_fired.add(_dedup_key(a[0], a[1], a[2] or 0))
-
         # Evaluate per user
         for user_id in pro_users:
             symbols = user_symbols.get(user_id, [])
@@ -236,6 +206,13 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     Alert.user_id == user_id, Alert.session_date.in_(_dedup_dates)
                 )
             ).all()
+
+            def _dedup_key(sym: str, atype: str, price: float = 0) -> tuple:
+                """Dedup key: same alert type within 1% price = duplicate."""
+                if price and price > 0:
+                    bucket = round(price, -len(str(int(price))) + 2)  # round to 2 sig figs
+                    return (sym, atype, bucket)
+                return (sym, atype, 0)
 
             _fired_equity: set[tuple] = {_dedup_key(a[0], a[1], a[3] or 0) for a in db_alerts if a[2] == session_date}
             _fired_crypto: set[tuple] = {_dedup_key(a[0], a[1], a[3] or 0) for a in db_alerts if a[2] == _utc_date}
@@ -321,33 +298,115 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     for a in active_rows
                 ]
 
-                # T1 REACHED notifications — DISABLED (too noisy, fires 3x per user)
-                # Re-enable after per-user dedup fix.
+                # BUG-10 fix: check if current price reached any active entry's T1
+                # Only notify if user has an OPEN real trade (clicked "Took")
+                # One T1 notification per symbol per session — no spam
+                # Use _dedup_key (3-tuple) so it matches fired_today format loaded from DB
+                if (active_rows and intraday is not None
+                        and not (hasattr(intraday, "empty") and intraday.empty)):
+                    # Check if user has an open real trade for this symbol
+                    from app.models.paper_trade import RealTrade
+                    _open_trade_row = db.execute(
+                        select(RealTrade.id, RealTrade.alert_id).where(
+                            RealTrade.user_id == user_id,
+                            RealTrade.symbol == symbol,
+                            RealTrade.status == "open",
+                        ).limit(1)
+                    ).first()
+                    _has_open_trade = _open_trade_row[0] if _open_trade_row else None
+                    _trade_alert_id = _open_trade_row[1] if _open_trade_row else None
+
+                    if _has_open_trade:
+                        _last_price = float(intraday.iloc[-1]["Close"])
+                        # Find the best active entry with T1
+                        _best_ae = None
+                        for ae in active_rows:
+                            _t1 = ae.target_1 or 0
+                            _entry = ae.entry_price or 0
+                            if _t1 > 0 and _entry > 0 and _last_price >= _t1 * 0.998:
+                                _best_ae = ae
+                                break
+
+                        # Dedup: skip if T1 notify already fired for this target level
+                        if _best_ae:
+                            _t1_key = _dedup_key(symbol, "_t1_notify", _best_ae.target_1 or 0)
+                            if _t1_key in fired_today:
+                                _best_ae = None  # already notified
+                        if _best_ae:
+                            ae = _best_ae
+                            _t1 = ae.target_1
+                            _entry = ae.entry_price
+                            fired_today.add(_t1_key)
+                            _pnl = round(_last_price - _entry, 2)
+                            _pnl_pct = round((_pnl / _entry) * 100, 2)
+                            _user = user_rows.get(user_id)
+                            if _user and _user.telegram_enabled and _user.telegram_chat_id:
+                                try:
+                                    from alerting.notifier import _send_telegram_to
+                                    _at_resistance = False
+                                    _resistance_label = ""
+                                    if prior_day:
+                                        _pdh = prior_day.get("high", 0)
+                                        if _pdh > 0 and abs(_t1 - _pdh) / _pdh < 0.003:
+                                            _at_resistance = True
+                                            _resistance_label = "PDH"
+                                    _reversal_hint = ""
+                                    if _at_resistance:
+                                        _reversal_hint = f"\nAt {_resistance_label} resistance — potential SHORT reversal"
+
+                                    _msg = (
+                                        f"<b>T1 REACHED — {symbol} ${_last_price:.2f}</b>\n"
+                                        f"Your LONG from ${_entry:.2f} is at target\n"
+                                        f"P&L: ${_pnl:.2f} ({_pnl_pct:+.1f}%)\n"
+                                        f"Take profits or trail stop"
+                                        f"{_reversal_hint}"
+                                    )
+                                    # Use alert_id for exit button (bot looks up alerts table)
+                                    # Falls back to trade_id if no alert_id linked
+                                    _exit_id = _trade_alert_id or _has_open_trade
+                                    _buttons = {
+                                        "inline_keyboard": [[
+                                            {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{_exit_id}"},
+                                        ]]
+                                    }
+                                    _send_telegram_to(_msg, _user.telegram_chat_id, reply_markup=_buttons)
+                                    logger.info("T1 NOTIFY: user=%d %s T1=$%.2f reached, entry=$%.2f", user_id, symbol, _t1, _entry)
+
+                                    # Persist in DB so dedup survives across poll cycles
+                                    _t1_msg = (
+                                        f"T1 REACHED — your LONG from ${_entry:.2f} hit target ${_t1:.2f}. "
+                                        f"P&L: ${_pnl:.2f} ({_pnl_pct:+.1f}%). Take profits or trail stop."
+                                    )
+                                    if _at_resistance:
+                                        _t1_msg += f" At {_resistance_label} resistance."
+                                    _t1_alert = Alert(
+                                        user_id=user_id,
+                                        symbol=symbol,
+                                        alert_type="_t1_notify",
+                                        direction="NOTICE",
+                                        price=_last_price,
+                                        message=_t1_msg,
+                                        session_date=_sym_session,
+                                    )
+                                    db.add(_t1_alert)
+                                except Exception:
+                                    pass
 
                 # ENHANCEMENT-3: Removed — retest bounce alerts were too noisy.
                 # Structural entries (PDL reclaim, consolidation breakout, MA bounce)
                 # already cover the important re-entry scenarios.
 
-                # Global signal cache: compute once per symbol per cycle
-                _cache_key = f"{symbol}:{_sym_session}"
-                if _cache_key in _signal_cache:
-                    signals = _signal_cache[_cache_key]
-                else:
-                    try:
-                        signals = evaluate_rules(
-                            symbol, intraday, prior_day, active,
-                            spy_context=spy_ctx,
-                            spy_gate=_spy_gate,
-                            is_cooled_down=symbol in cooled_symbols,
-                            fired_today=_global_fired,
-                        )
-                        _signal_cache[_cache_key] = signals
-                        # Update global dedup with newly fired signals
-                        for _sig in signals:
-                            _global_fired.add(_dedup_key(symbol, _sig.alert_type.value, _sig.price or 0))
-                    except Exception:
-                        logger.exception("Error evaluating %s for user %d", symbol, user_id)
-                        continue
+                try:
+                    signals = evaluate_rules(
+                        symbol, intraday, prior_day, active,
+                        spy_context=spy_ctx,
+                        spy_gate=_spy_gate,
+                        is_cooled_down=symbol in cooled_symbols,
+                        fired_today=fired_today,
+                    )
+                except Exception:
+                    logger.exception("Error evaluating %s for user %d", symbol, user_id)
+                    continue
 
                 # Intraday SWING WATCH — DISABLED (too noisy, fires per-user per-cycle)
                 # EOD swing scan at 4:15 PM handles swing entries properly.
@@ -507,39 +566,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         ]
                         _clean_msg = " | ".join(_clean_parts).strip()
 
-                    # Compute multi-timeframe confluence
-                    _confluence_score = 0
-                    _confluence_label = ""
-                    _entry_guidance = ""
-                    if signal.direction in ("BUY", "SHORT"):
-                        try:
-                            from analytics.confluence import quick_confluence
-                            _confluence_score, _confluence_label = quick_confluence(
-                                signal.symbol, signal.direction
-                            )
-                        except Exception:
-                            pass
-
-                        # Smart entry guidance based on volume + price action
-                        try:
-                            _vol_r = getattr(signal, "volume_ratio", 0) or 0
-                            _sig_price = _py(signal.price) or 0
-                            _sig_entry = _py(signal.entry) or 0
-                            if _vol_r >= 1.5 and _sig_price and _sig_entry:
-                                if abs(_sig_price - _sig_entry) / max(_sig_entry, 1) < 0.003:
-                                    _entry_guidance = f"Enter now — volume {_vol_r:.1f}x confirming"
-                                elif _sig_price > _sig_entry:
-                                    _entry_guidance = f"Extended from entry — wait for pullback to ${_sig_entry:.2f}"
-                                else:
-                                    _entry_guidance = f"Near entry with strong volume ({_vol_r:.1f}x)"
-                            elif _vol_r < 0.6 and _vol_r > 0:
-                                _entry_guidance = f"Low volume ({_vol_r:.1f}x) — wait for confirmation candle"
-                            elif _sig_price and _sig_entry and _sig_price > _sig_entry * 1.005:
-                                _entry_guidance = f"Price above entry — pullback to ${_sig_entry:.2f} for better R:R"
-                        except Exception:
-                            pass
-
-                    # Record alert (P3: all signals recorded, including tagged/suppressed)
+                    # Record alert
                     alert = Alert(
                         user_id=user_id,
                         symbol=signal.symbol,
@@ -554,11 +581,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         message=_clean_msg,
                         narrative=_narrative,
                         score=int(signal.score) if signal.score else 0,
-                        confluence_score=_confluence_score,
-                        confluence_label=_confluence_label,
-                        entry_guidance=_entry_guidance,
                         session_date=_sym_session,
-                        suppressed_reason=getattr(signal, 'suppressed_reason', None),
                     )
                     db.add(alert)
                     fired_today.add(key)
@@ -615,36 +638,6 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # Preference gate: check if user wants this alert category + score
                     _at_val = signal.alert_type.value
                     _send_notification = True
-
-                    # Stop/target alerts: only notify if user has an active "Took" trade
-                    # Don't spam users with stop alerts for entries they never took
-                    _EXIT_NOTIFY_TYPES = {"stop_loss_hit", "auto_stop_out", "target_1_hit", "target_2_hit"}
-                    if _at_val in _EXIT_NOTIFY_TYPES:
-                        from app.models.paper_trade import RealTrade
-                        _has_took = db.execute(
-                            select(RealTrade.id).where(
-                                RealTrade.user_id == user_id,
-                                RealTrade.symbol == symbol,
-                                RealTrade.status == "open",
-                            ).limit(1)
-                        ).scalar_one_or_none()
-                        if not _has_took:
-                            _send_notification = False
-                            logger.info(
-                                "EXIT SKIP: user=%d %s %s — no active 'Took' trade, skip notification",
-                                user_id, symbol, _at_val,
-                            )
-
-                    # P3: signals tagged by filters (noise, stale, overhead MA)
-                    # are recorded to DB but skip Telegram notification
-                    if getattr(signal, '_suppress_telegram', False):
-                        _send_notification = False
-                        _reason = getattr(signal, 'suppressed_reason', 'filter')
-                        logger.info(
-                            "TAGGED SUPPRESSED: user=%d %s %s (%s) — recorded to DB, no notification",
-                            user_id, signal.symbol, _at_val, _reason,
-                        )
-
                     if _at_val not in EXIT_ALERT_TYPES:
                         _cat = ALERT_TYPE_TO_CATEGORY.get(_at_val)
                         if _cat and not _cat_prefs.get(_cat, True):
@@ -658,23 +651,20 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             user_id, signal.symbol, _at_val,
                         )
 
-                    # Burst cooldown: suppress rapid SAME-TYPE notification spam
-                    # Only cooldown the same alert type, not all BUYs — a PDL bounce
-                    # cooldown must NOT block a PDH breakout on the same symbol
-                    if _send_notification and signal.direction in ("BUY", "SHORT"):
-                        _cooldown_key = (symbol, signal.alert_type.value)
-                        _prev = _last_buy_notify.get(_cooldown_key)
+                    # Burst cooldown: suppress rapid BUY notification spam
+                    if _send_notification and signal.direction == "BUY":
+                        _prev = _last_buy_notify.get(symbol)
                         _now = datetime.utcnow()
-                        if _prev and (_now - _prev).total_seconds() < BUY_BURST_COOLDOWN_MINUTES * 60:
+                        if _prev and (_now - _prev).total_seconds() < COOLDOWN_MINUTES * 60:
                             _send_notification = False
                             logger.info(
-                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last)",
+                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last BUY)",
                                 user_id, symbol, _at_val, (_now - _prev).total_seconds(),
                             )
 
-                    # Track notification time for burst cooldown (per alert type)
-                    if _send_notification and signal.direction in ("BUY", "SHORT"):
-                        _last_buy_notify[(symbol, signal.alert_type.value)] = datetime.utcnow()
+                    # Track BUY notification time for burst cooldown
+                    if _send_notification and signal.direction == "BUY":
+                        _last_buy_notify[symbol] = datetime.utcnow()
 
                     # Zone clustering: suppress redundant directional signals at same price zone
                     if _send_notification and signal.direction in ("SHORT", "BUY"):

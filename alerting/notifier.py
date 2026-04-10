@@ -135,7 +135,7 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         parts.append(f"Setup: {_reason}")
         parts.append(f"Conviction: {_conviction}/{signal.score}")
         # Multi-timeframe confluence
-        _conf = getattr(signal, "confluence_score", 0) or 0
+        _conf = getattr(signal, "_confluence_score", 0)
         if _conf and _conf >= 2:
             _conf_emoji = "🟢" if _conf == 3 else "🟡"
             parts.append(f"{_conf_emoji} Confluence: {_conf}/3 timeframes aligned")
@@ -164,7 +164,7 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             _res_label = _resistance_notice_types[signal.alert_type.value]
             _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
             _vol = signal.volume_label or ""
-            _vol_line = f"\nVolume: {_vol}" if _vol else ""
+            _vol_line = f" | Volume: {_vol}" if _vol else ""
             return (
                 f"<b>RESISTANCE {_html_res.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
                 f"Level: {_res_label}\n"
@@ -174,49 +174,47 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
 
         return None  # T1/T2 suppressed — monitor sends these with Exit buttons
 
-    # VWAP reclaim — now a BUY entry (P2: key level rules fire at key levels)
-    # Falls through to standard BUY formatting below
+    # VWAP reclaim — send as NOTICE (awareness, not entry pressure)
+    # First VWAP reclaim from below is a momentum shift signal
+    if signal.direction == "BUY" and signal.alert_type.value == "vwap_reclaim":
+        import html as _html_vwap
+        return (
+            f"<b>NOTICE — {_html_vwap.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+            f"VWAP reclaimed from below — momentum shifting bullish\n"
+            f"Watch for pullback to VWAP for entry"
+        )
 
-    # SHORT → display as RESISTANCE alert (user decides action: short, take profit, tighten stop)
-    # DB still records direction=SHORT for analytics.
+    # SHORT filter — only structural daily-level shorts reach Telegram as SHORT
+    # CRYPTO: no short alerts at all — too noisy, conflicting signals
+    # Key intraday levels (VWAP loss, session low, morning low) → send as NOTICE
+    # Other intraday shorts → suppress entirely
     if signal.direction == "SHORT":
         _is_crypto = signal.symbol.endswith("-USD")
-
-        # Resistance level labels for display
-        _RESISTANCE_LABELS: dict[str, str] = {
-            "pdh_failed_breakout":              "PDH rejection",
-            "session_high_double_top":          "Session high double top",
-            "ema_rejection_short":              "EMA rejection",
-            "intraday_ema_rejection_short":     "Intraday EMA rejection",
-            "hourly_resistance_rejection_short": "Hourly resistance rejection",
-            "vwap_loss":                        "VWAP lost",
-            "session_low_breakdown":            "Session low broken",
-            "morning_low_breakdown":            "Morning low broken",
-            "consol_breakout_short":            "Consolidation breakdown",
-            "consol_15m_breakout_short":        "15m consolidation breakdown",
-            "spy_short_entry":                  "SPY at resistance",
+        if _is_crypto:
+            return None  # suppress all crypto shorts — only exits and notices
+        _STRUCTURAL_SHORT_TYPES = {
+            "pdh_failed_breakout",       # rejection at PDH
+            "support_breakdown",         # break of PDL / double bottom low
+            "session_high_double_top",   # daily double top rejection
+            "ema_rejection_short",       # rejection at key DAILY EMA (50/100/200)
         }
+        _NOTICE_SHORT_TYPES = {
+            "vwap_loss":                "VWAP lost",
+            "session_low_breakdown":    "Session low broken",
+            "morning_low_breakdown":    "Morning low broken",
+        }
+        if signal.alert_type.value in _NOTICE_SHORT_TYPES:
+            import html as _html_notice
+            _notice_label = _NOTICE_SHORT_TYPES[signal.alert_type.value]
+            return (
+                f"<b>NOTICE — {_html_notice.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+                f"{_notice_label} — watch for continuation or reclaim"
+            )
+        if signal.alert_type.value not in _STRUCTURAL_SHORT_TYPES:
+            return None  # suppress remaining non-structural shorts
 
-        _res_label = _RESISTANCE_LABELS.get(signal.alert_type.value)
-        if not _res_label:
-            return None  # unknown short type — skip
-
-        _reason = _clean_message(signal.message.split(" — ")[0]) if signal.message and " — " in signal.message else _res_label
-        _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
-
-        _vol = signal.volume_label or ""
-        parts = [f"<b>RESISTANCE {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
-        parts.append(f"Level: {_res_label}")
-        if signal.entry is not None:
-            parts.append(f"Resistance at ${signal.entry:.2f}")
-        _vol_info = f" | Volume: {_vol}" if _vol else ""
-        parts.append(f"Conviction: {_conviction}/{signal.score}{_vol_info}")
-        parts.append(f"Action: tighten stop / take profits / watch for breakdown")
-
-        return "\n".join(parts)[:4000]
-
-    # LONG (BUY) — entry at key support level
-    _dir = "LONG"
+    # LONG (BUY) and RESISTANCE (SHORT) — entry evaluation format
+    _dir = "RESISTANCE" if signal.direction == "SHORT" else "LONG"
     # Clean message — strip SPY noise, take only the core reason
     _reason = _clean_message(signal.message.split(" — ")[0]) if signal.message and " — " in signal.message else label
 
@@ -246,7 +244,7 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
     parts.append(f"Reason: {_reason}")
     parts.append(f"Conviction: {_conviction}/{signal.score}")
     # Multi-timeframe confluence
-    _conf = getattr(signal, "confluence_score", 0) or 0
+    _conf = getattr(signal, "_confluence_score", 0)
     if _conf and _conf >= 2:
         _conf_emoji = "🟢" if _conf == 3 else "🟡"
         parts.append(f"{_conf_emoji} Confluence: {_conf}/3 timeframes aligned")
