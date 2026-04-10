@@ -23,8 +23,26 @@ export interface ChartContext {
   bars: OHLCBar[];
 }
 
+function loadMessages(): CoachMessage[] {
+  try {
+    const saved = sessionStorage.getItem("coach_messages");
+    return saved ? JSON.parse(saved) : [];
+  } catch { return []; }
+}
+
+function saveMessages(msgs: CoachMessage[]) {
+  try { sessionStorage.setItem("coach_messages", JSON.stringify(msgs.slice(-50))); } catch {}
+}
+
 export function useCoachStream() {
-  const [messages, setMessages] = useState<CoachMessage[]>([]);
+  const [messages, _setMessages] = useState<CoachMessage[]>(loadMessages);
+  const setMessages: typeof _setMessages = (action) => {
+    _setMessages((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      saveMessages(next);
+      return next;
+    });
+  };
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   // Store chart context as both ref (for immediate reads) and state (for re-renders)
