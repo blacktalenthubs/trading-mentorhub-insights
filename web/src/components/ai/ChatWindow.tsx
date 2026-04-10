@@ -308,7 +308,16 @@ export default function ChatWindow({ messages, streaming, onSend, onStop, onClea
             }`}
           >
             {m.role === "assistant" ? (
-              <CoachMarkdown text={m.content} />
+              m.content.toLowerCase().includes("limit reached") || m.content.toLowerCase().includes("upgrade") ? (
+                <div>
+                  <p className="text-bearish-text text-sm">{m.content.replace("Error: ", "")}</p>
+                  <a href="/plans" className="inline-block mt-2 text-xs font-semibold text-accent hover:text-accent-hover underline">
+                    Upgrade plan for unlimited access →
+                  </a>
+                </div>
+              ) : (
+                <CoachMarkdown text={m.content} />
+              )
             ) : (
               <pre className="whitespace-pre-wrap font-body">{m.content}</pre>
             )}
