@@ -366,7 +366,7 @@ Output ONLY these fields, one per line. NO markdown, NO bold, NO headers, NO tab
 
 SETUP: which playbook setup applies (e.g. "MA Bounce 20" or "PDH Breakout" or "None — range-bound")
 DIRECTION: LONG or SHORT or NO_TRADE
-ENTRY: $price (specific level, not "at market")
+ENTRY: $price — MUST be a key support/resistance level (MA, VWAP, PDL, PDH, swing low/high), NEVER the current price. If price is not at a key level right now, use the nearest level where you would place a limit order.
 STOP: $price (below the structure — MA, support, swing low)
 TARGET_1: $price (next resistance — prior high, MA, PDH)
 TARGET_2: $price (extended target — weekly level, higher MA)
@@ -376,11 +376,11 @@ CONFLUENCE_SCORE: 0-10
 TIMEFRAME_FIT: hold duration
 KEY_LEVELS: $level1 (label), $level2 (label), $level3 (label)
 
-REASONING: 2-3 sentences. Name the playbook setup. Explain why it applies or why no setup is active. Plain text.
-
-HIGHER_TF_SUMMARY: 1 sentence. Daily/weekly alignment. Does higher TF support or conflict?
+REASONING: 2-3 sentences. Name the playbook setup. Where is the key level entry? Why that level matters. Plain text.
 
 RULES:
+- CRITICAL: Entry must be a KEY LEVEL (MA, VWAP, PDL, PDH, swing low, fib level) — NOT the current market price. We are dip buyers, not chasers.
+- If price is already past the key level, set Direction to WAIT or NO_TRADE.
 - Use N/A for fields that don't apply (e.g. NO_TRADE has no entry/stop)
 - Total response under 200 words
 - NO markdown formatting (no **, no ##, no ---, no tables, no bullet points)
