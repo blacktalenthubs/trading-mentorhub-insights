@@ -708,6 +708,25 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     _at_val = signal.alert_type.value
                     _send_notification = True
 
+                    # Stop/target alerts: only notify if user has an active "Took" trade
+                    # Don't spam users with stop alerts for entries they never took
+                    _EXIT_NOTIFY_TYPES = {"stop_loss_hit", "auto_stop_out", "target_1_hit", "target_2_hit"}
+                    if _at_val in _EXIT_NOTIFY_TYPES:
+                        from app.models.paper_trade import RealTrade
+                        _has_took = db.execute(
+                            select(RealTrade.id).where(
+                                RealTrade.user_id == user_id,
+                                RealTrade.symbol == symbol,
+                                RealTrade.status == "open",
+                            ).limit(1)
+                        ).scalar_one_or_none()
+                        if not _has_took:
+                            _send_notification = False
+                            logger.info(
+                                "EXIT SKIP: user=%d %s %s — no active 'Took' trade, skip notification",
+                                user_id, symbol, _at_val,
+                            )
+
                     # P3: signals tagged by filters (noise, stale, overhead MA)
                     # are recorded to DB but skip Telegram notification
                     if getattr(signal, '_suppress_telegram', False):
