@@ -321,10 +321,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     for a in active_rows
                 ]
 
-                # BUG-10 fix: check if current price reached any active entry's T1
-                # Only notify if user has an OPEN real trade (clicked "Took")
-                # One T1 notification per symbol per session — no spam
-                # Use _dedup_key (3-tuple) so it matches fired_today format loaded from DB
+                # T1 REACHED notifications — DISABLED (too noisy, fires 3x per user)
+                # Users see T1 hit in the alert feed. Re-enable after dedup fix.
+                if False:  # DISABLED per P4 — entries first, reduce noise
                 if (active_rows and intraday is not None
                         and not (hasattr(intraday, "empty") and intraday.empty)):
                     # Check if user has an open real trade for this symbol
