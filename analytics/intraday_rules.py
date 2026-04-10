@@ -7064,7 +7064,7 @@ def evaluate_rules(
         if _spy_vwap_dom < 0.5 or spy_gate.get("gate") == "red":
             _spy_currently_below_vwap = True
 
-    if not is_cooled_down:
+    if True:  # P2: cooldown removed — key levels fire regardless of stop history
         sig = check_ma_bounce_20(symbol, intraday_bars, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
@@ -7874,119 +7874,17 @@ def evaluate_rules(
             )
 
     # --- EMA Crossover 5/20 (BUY) ---
-    if not is_cooled_down and AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
+    if AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
         sig = check_ema_crossover_5_20(symbol, intraday_bars)
         if sig:
             sig.message += f" ({phase})"
             sig.message += caution_suffix
             signals.append(sig)
 
-    # --- TRENDING_DOWN regime: suppress weak BUY types that chase the knife ---
-    # These rules have 0% win rate in bearish conditions based on live data.
-    # They remain active in CHOPPY and TRENDING_UP regimes.
-    if not is_crypto and spy_regime == "TRENDING_DOWN":
-        _weak_in_downtrend = {
-            AlertType.VWAP_BOUNCE.value,
-            AlertType.VWAP_RECLAIM.value,
-            AlertType.PDH_RETEST_HOLD.value,
-        }
-        pre_regime = signals[:]
-        signals = [
-            s for s in signals
-            if not (s.direction == "BUY" and s.alert_type.value in _weak_in_downtrend)
-        ]
-        for s in pre_regime:
-            if s.direction == "BUY" and s.alert_type.value in _weak_in_downtrend and s not in signals:
-                logger.info(
-                    "%s: TRENDING_DOWN filter dropped %s (0%% win rate in bearish regime)",
-                    symbol, s.alert_type.value,
-                )
-
-    # --- Opening wait: suppress ALL BUY in first 15 min ---
-    if _in_opening_wait:
-        pre_open = signals[:]
-        signals = [s for s in signals if s.direction != "BUY"]
-        for s in pre_open:
-            if s.direction == "BUY" and s not in signals:
-                logger.info(
-                    "%s: OPENING WAIT suppressed BUY %s (only %d bars, need %d)",
-                    symbol, s.alert_type.value, len(intraday_bars), _OPENING_WAIT_BARS,
-                )
-
-    # --- SPY above VWAP: suppress non-index SHORT alerts ---
-    # When SPY is above VWAP, bulls are in control. Only allow SHORT on SPY/QQQ.
-    # Other equity shorts (NVDA, PLTR etc.) fight the trend.
-    _spy_above_vwap = (
-        spy_gate.get("vwap_dominance", 0) >= 0.5 if spy_gate else False
-    )
-    if not is_crypto and not _is_spy and _spy_above_vwap:
-        pre_vwap = signals[:]
-        signals = [s for s in signals if s.direction != "SHORT"]
-        for s in pre_vwap:
-            if s.direction == "SHORT" and s not in signals:
-                logger.info(
-                    "%s: SPY ABOVE VWAP suppressed SHORT %s",
-                    symbol, s.alert_type.value,
-                )
-
-    # --- 15-min range filter: suppress BUY when symbol is in a tight range ---
-    # If the hourly bars show consolidation (no breakout), BUY signals are
-    # just catching knives inside a range — suppress them.
-    # Exception: inside_day_breakout and bb_squeeze_breakout are specifically
-    # designed for range-breaking and should not be suppressed.
-    _range_exempt_types = {
-        AlertType.INSIDE_DAY_BREAKOUT.value,
-        AlertType.BB_SQUEEZE_BREAKOUT.value,
-        AlertType.CONSOL_BREAKOUT_LONG.value,
-    }
-    _consol_check = detect_hourly_consolidation_break(intraday_bars)
-    if _consol_check and _consol_check.get("status") == "consolidating":
-        _range_pct = _consol_check.get("range_pct", 0)
-        pre_range = signals[:]
-        signals = [
-            s for s in signals
-            if s.direction != "BUY"
-            or s.alert_type.value in _range_exempt_types
-        ]
-        for s in pre_range:
-            if s.direction == "BUY" and s not in signals:
-                logger.info(
-                    "%s: RANGE FILTER suppressed BUY %s (consolidating, range %.1f%%)",
-                    symbol, s.alert_type.value, _range_pct * 100,
-                )
-
-    # --- Contradictory signal filter: active SHORT in same cycle suppresses BUY ---
-    # If the system fires a SHORT with entry/stop/targets at the same time as
-    # a BUY, the SHORT wins — the market is showing weakness at the same level.
-    # Passive SELL signals (rejection, resistance, target hits, stops) do NOT
-    # suppress BUYs — they are informational or exit-only.
-    _active_short_in_cycle = any(
-        s.direction == "SHORT"
-        and s.entry is not None
-        for s in signals
-    )
-    # Also suppress if PDH failed breakout or morning low breakdown fires
-    _bearish_breakdown_in_cycle = any(
-        s.alert_type in (
-            AlertType.PDH_FAILED_BREAKOUT,
-            AlertType.MORNING_LOW_BREAKDOWN,
-            AlertType.SUPPORT_BREAKDOWN,
-        )
-        for s in signals
-    )
-    if _active_short_in_cycle or _bearish_breakdown_in_cycle:
-        dropped = [s for s in signals if s.direction == "BUY"]
-        if dropped:
-            _bear_names = ", ".join(
-                s.alert_type.value for s in signals
-                if s.direction in ("SELL", "SHORT")
-            )
-            for s in dropped:
-                logger.info(
-                    "%s: contradictory filter dropped BUY %s (bearish signals: %s)",
-                    symbol, s.alert_type.value, _bear_names,
-                )
-            signals = [s for s in signals if s.direction != "BUY"]
+    # --- ALL SUPPRESSION FILTERS REMOVED (P2) ---
+    # Removed: trending_down, opening wait, SPY VWAP short filter,
+    # range filter, contradictory signal filter, SPY gate.
+    # Key level rules fire at key levels. Period.
 
     # --- Bounce Quality Tagging ---
     # Tag all bounce-type BUY signals with quality assessment
@@ -8067,7 +7965,7 @@ def evaluate_rules(
                 symbol, _active_gate["gate"], _active_gate["reason"],
             )
 
-    if SPY_GATE_ENABLED:
+    if False and SPY_GATE_ENABLED:  # P2: gate disabled — key levels fire at key levels
         if _is_spy:
             # SPY keeps ALL its alerts — never suppressed
             pass
