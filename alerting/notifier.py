@@ -162,11 +162,12 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         if signal.alert_type.value in _resistance_notice_types:
             import html as _html_res
             _res_label = _resistance_notice_types[signal.alert_type.value]
-            _detail = signal.message.split(" — ")[0] if signal.message else _res_label
+            _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
             return (
-                f"<b>NOTICE — {_html_res.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
-                f"{_detail}\n"
-                f"Watch for rejection or breakout"
+                f"<b>RESISTANCE {_html_res.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
+                f"Level: {_res_label}\n"
+                f"Conviction: {_conviction}/{signal.score}\n"
+                f"Action: tighten stop / take profits / watch for breakdown"
             )
 
         return None  # T1/T2 suppressed — monitor sends these with Exit buttons
