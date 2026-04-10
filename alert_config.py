@@ -588,8 +588,8 @@ ENABLED_RULES: set[str] = {
     "morning_low_breakdown",
     "pdh_failed_breakout",
     # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
-    # DISABLED (P4): informational SELL alerts — not entries, SHORT rules cover resistance
-    # "resistance_prior_high",         # DISABLED (P4): 104 alerts/4 days — "watch for rejection" not actionable
+    # Key level awareness — tells user price is at resistance (actionable: tighten stop, take profits)
+    "resistance_prior_high",           # RE-ENABLED: key level awareness at PDH — sent to Telegram as RESISTANCE
     # "pdh_rejection",                 # DISABLED (P4): 98 alerts — SHORT entry rules (double_top, failed_breakout) cover this
     # "resistance_prior_low",          # DISABLED (P4): 11 alerts — not an entry
     # "weekly_high_resistance",        # DISABLED (P4): 65 alerts — not an entry
