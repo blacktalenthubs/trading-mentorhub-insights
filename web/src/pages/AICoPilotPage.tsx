@@ -176,7 +176,7 @@ export default function AICoPilotPage() {
 
   const [plan, setPlan] = useState<TradePlan | null>(null);
   const [reasoning, setReasoning] = useState("");
-  const [higherTfSummary, setHigherTfSummary] = useState("");
+  const [higherTfSummary, setHigherTfSummary] = useState(""); void higherTfSummary;
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -375,17 +375,46 @@ export default function AICoPilotPage() {
                 {streaming && <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />}
               </h3>
               {reasoning ? (
-                <p className="text-[13px] text-text-secondary leading-relaxed whitespace-pre-line">{cleanText(reasoning)}</p>
+                <div className="space-y-2.5">
+                  {(() => {
+                    const text = cleanText(reasoning);
+                    // Parse PATTERN: / LEVELS: / CONTEXT: sections
+                    const patternMatch = text.match(/PATTERN:\s*(.+?)(?=LEVELS:|CONTEXT:|$)/s);
+                    const levelsMatch = text.match(/LEVELS:\s*(.+?)(?=CONTEXT:|$)/s);
+                    const contextMatch = text.match(/CONTEXT:\s*(.+?)$/s);
+
+                    if (patternMatch || levelsMatch || contextMatch) {
+                      return (
+                        <>
+                          {patternMatch && (
+                            <div>
+                              <span className="text-[10px] font-bold text-accent uppercase tracking-wider">Pattern</span>
+                              <p className="text-[13px] text-text-secondary leading-relaxed mt-0.5">{patternMatch[1].trim()}</p>
+                            </div>
+                          )}
+                          {levelsMatch && (
+                            <div>
+                              <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider">Key Levels</span>
+                              <p className="text-[13px] text-text-secondary leading-relaxed mt-0.5">{levelsMatch[1].trim()}</p>
+                            </div>
+                          )}
+                          {contextMatch && (
+                            <div>
+                              <span className="text-[10px] font-bold text-text-faint uppercase tracking-wider">Context</span>
+                              <p className="text-[13px] text-text-secondary leading-relaxed mt-0.5">{contextMatch[1].trim()}</p>
+                            </div>
+                          )}
+                        </>
+                      );
+                    }
+                    // Fallback: plain text
+                    return <p className="text-[13px] text-text-secondary leading-relaxed whitespace-pre-line">{text}</p>;
+                  })()}
+                </div>
               ) : streaming ? (
                 <p className="text-sm text-text-muted italic">Generating analysis...</p>
               ) : (
                 <p className="text-sm text-text-muted italic">No reasoning available.</p>
-              )}
-              {higherTfSummary && (
-                <div className="border-t border-border-subtle/50 pt-3">
-                  <h4 className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-1.5">Higher Timeframes</h4>
-                  <p className="text-[13px] text-text-secondary leading-relaxed">{cleanText(higherTfSummary)}</p>
-                </div>
               )}
             </div>
           </div>

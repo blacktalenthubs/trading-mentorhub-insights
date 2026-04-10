@@ -376,7 +376,10 @@ CONFLUENCE_SCORE: 0-10
 TIMEFRAME_FIT: hold duration
 KEY_LEVELS: $level1 (label), $level2 (label), $level3 (label)
 
-REASONING: 2-3 sentences. Name the playbook setup. Where is the key level entry? Why that level matters. Plain text.
+REASONING:
+PATTERN: 1 sentence — which playbook setup and why it applies here.
+LEVELS: 1 sentence — the key support/resistance levels from the data (include specific prices).
+CONTEXT: 1 sentence — regime, volume, or timeframe context that supports or weakens the trade.
 
 RULES:
 - CRITICAL: Entry must be a KEY LEVEL (MA, VWAP, PDL, PDH, swing low, fib level) — NOT the current market price. We are dip buyers, not chasers.
