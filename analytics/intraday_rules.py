@@ -852,7 +852,11 @@ def check_prior_day_low_bounce(
     # A prior 1% override was too wide (SPY $671 firing at $675 = $4 away = false signal)
     _near_pdl_pct = PDL_BOUNCE_PROXIMITY_PCT  # 0.2% = ~$1.35 for SPY
     proximity_level = prior_day_low * (1 + _near_pdl_pct)
-    touched = (bars["Low"] <= proximity_level).any()
+
+    # CRITICAL: the RECENT bars (last 6 = 30 min) must have touched near PDL.
+    # Not "any bar today" — price near PDL 3 hours ago is not a current bounce.
+    _recent_touch = bars.tail(6)
+    touched = (_recent_touch["Low"] <= proximity_level).any()
     if not touched:
         return None
 
@@ -862,6 +866,11 @@ def check_prior_day_low_bounce(
         return None
 
     last_bar = bars.iloc[-1]
+
+    # Skip if current price already ran too far from PDL — not a bounce anymore
+    _distance_from_pdl = (float(last_bar["Close"]) - prior_day_low) / prior_day_low
+    if _distance_from_pdl > 0.005:  # 0.5% — if price is >0.5% above PDL, the bounce already happened
+        return None
 
     # Skip if price already ran too far (tighter limit for crypto)
     _is_crypto = symbol.endswith("-USD")
