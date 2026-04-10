@@ -3,7 +3,7 @@
  *  Sends OHLCV bars with every request so the AI can analyze the actual chart.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "../stores/auth";
 import type { OHLCBar } from "../api/hooks";
@@ -23,26 +23,43 @@ export interface ChartContext {
   bars: OHLCBar[];
 }
 
-function loadMessages(): CoachMessage[] {
+/** Save a single message to the API (fire-and-forget). */
+function persistMessage(role: string, content: string, symbol?: string) {
+  const token = useAuthStore.getState().accessToken;
+  if (!token || !content) return;
+  fetch(`${API_HOST}/api/v1/coach-history/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ role, content, symbol }),
+  }).catch(() => {}); // fire-and-forget
+}
+
+/** Load messages from API. */
+async function loadMessagesFromAPI(): Promise<CoachMessage[]> {
+  const token = useAuthStore.getState().accessToken;
+  if (!token) return [];
   try {
-    const saved = sessionStorage.getItem("coach_messages");
-    return saved ? JSON.parse(saved) : [];
+    const res = await fetch(`${API_HOST}/api/v1/coach-history/messages?limit=50`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.map((m: any) => ({ role: m.role, content: m.content }));
   } catch { return []; }
 }
 
-function saveMessages(msgs: CoachMessage[]) {
-  try { sessionStorage.setItem("coach_messages", JSON.stringify(msgs.slice(-50))); } catch {}
-}
-
 export function useCoachStream() {
-  const [messages, _setMessages] = useState<CoachMessage[]>(loadMessages);
-  const setMessages: typeof _setMessages = (action) => {
-    _setMessages((prev) => {
-      const next = typeof action === "function" ? action(prev) : action;
-      saveMessages(next);
-      return next;
+  const [messages, setMessages] = useState<CoachMessage[]>([]);
+  const loadedRef = useRef(false);
+
+  // Load from API on mount
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    loadMessagesFromAPI().then((msgs) => {
+      if (msgs.length > 0) setMessages(msgs);
     });
-  };
+  }, []);
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   // Store chart context as both ref (for immediate reads) and state (for re-renders)
@@ -58,6 +75,7 @@ export function useCoachStream() {
 
     const userMsg: CoachMessage = { role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
+    persistMessage("user", text, chartContextRef.current?.symbol);
     setStreaming(true);
 
     // Use explicit override first, then ref
@@ -153,11 +171,16 @@ export function useCoachStream() {
           }
         }
       }
+      // Persist complete assistant response to API
+      if (assistantText) {
+        persistMessage("assistant", assistantText, chartContextRef.current?.symbol);
+      }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
+        const errMsg = (err as Error).message;
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: (err as Error).message },
+          { role: "assistant", content: errMsg },
         ]);
       }
     } finally {
@@ -172,6 +195,14 @@ export function useCoachStream() {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
+    // Clear from API too
+    const token = useAuthStore.getState().accessToken;
+    if (token) {
+      fetch(`${API_HOST}/api/v1/coach-history/messages`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
   }, []);
 
   return { messages, streaming, sendMessage, stopStreaming, clearMessages, setChartContext };

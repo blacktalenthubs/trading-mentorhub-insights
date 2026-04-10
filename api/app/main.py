@@ -94,6 +94,15 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS entry_guidance TEXT",
             # P3: record suppressed_reason for tagged signals (noise, stale, overhead MA)
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS suppressed_reason VARCHAR(200)",
+            # Coach message history persistence
+            """CREATE TABLE IF NOT EXISTS coach_messages (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                symbol VARCHAR(20),
+                role VARCHAR(10) NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )""",
         ]:
             try:
                 await conn.execute(text(col_def))
@@ -425,7 +434,7 @@ def create_app() -> FastAPI:
         auth, watchlist, scanner, market, alerts,
         trades, charts, real_trades, paper_trading, backtest,
         push, settings, swing, intel, learn, billing, admin, referral,
-        performance,
+        performance, coach_history,
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -446,6 +455,7 @@ def create_app() -> FastAPI:
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
     app.include_router(performance.router, prefix="/api/v1/performance", tags=["performance"])
+    app.include_router(coach_history.router, prefix="/api/v1", tags=["coach"])
 
     # --- Telegram webhook route (must be before SPA catch-all) ---
     import sys as _sys
