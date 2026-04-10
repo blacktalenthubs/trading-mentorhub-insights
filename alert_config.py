@@ -547,18 +547,18 @@ ENABLED_RULES: set[str] = {
     "weekly_level_touch",
     "weekly_high_breakout",
     # "weekly_high_test",             # NOISE: downgraded — test without break
-    "weekly_low_test",
-    "weekly_low_breakdown",
+    # "weekly_low_test",              # DISABLED (P4): informational, not an entry
+    # "weekly_low_breakdown",         # DISABLED (P4): informational, not an entry
     # BUY — monthly high/low + monthly EMA
     "monthly_level_touch",
     "monthly_high_breakout",
     # "monthly_high_test",            # NOISE: downgraded — test without break
-    "monthly_low_test",
-    "monthly_low_breakdown",
-    "monthly_ema_touch",
+    # "monthly_low_test",             # DISABLED (P4): informational, not an entry
+    # "monthly_low_breakdown",        # DISABLED (P4): informational, not an entry
+    # "monthly_ema_touch",            # DISABLED (P4): 229 alerts in 4 days — pure noise, not an entry
     # BUY — VWAP
-    # "vwap_reclaim",                  # DISABLED: fades consistently, session_low_bounce_vwap is the better version
-    # "vwap_bounce",                   # DISABLED: 0% win rate in bearish, VWAP becomes resistance in downtrends
+    "vwap_reclaim",                    # RE-ENABLED (AF-7): key level — VWAP reclaim is the regime inflection point
+    "vwap_bounce",                     # RE-ENABLED (AF-7): pullback to VWAP that holds — continuation signal
     # BUY — opening range (Crabel methodology)
     # "opening_low_base",              # DISABLED: redundant with morning_low_retest, 0% win rate
     "morning_low_retest",
@@ -588,15 +588,16 @@ ENABLED_RULES: set[str] = {
     "morning_low_breakdown",
     "pdh_failed_breakout",
     # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
-    "resistance_prior_high",
-    "pdh_rejection",
-    "resistance_prior_low",
-    "weekly_high_resistance",
-    "monthly_high_resistance",
-    "inside_day_breakdown",
-    "support_breakdown",
-    "prior_day_low_breakdown",
-    "prior_day_low_resistance",
+    # DISABLED (P4): informational SELL alerts — not entries, SHORT rules cover resistance
+    # "resistance_prior_high",         # DISABLED (P4): 104 alerts/4 days — "watch for rejection" not actionable
+    # "pdh_rejection",                 # DISABLED (P4): 98 alerts — SHORT entry rules (double_top, failed_breakout) cover this
+    # "resistance_prior_low",          # DISABLED (P4): 11 alerts — not an entry
+    # "weekly_high_resistance",        # DISABLED (P4): 65 alerts — not an entry
+    # "monthly_high_resistance",       # DISABLED (P4): 6 alerts — not an entry
+    # "inside_day_breakdown",          # DISABLED (P4): informational, not an entry
+    # "support_breakdown",             # DISABLED (P4): informational, not an entry
+    # "prior_day_low_breakdown",       # DISABLED (P4): 32 alerts — not an entry
+    # "prior_day_low_resistance",      # DISABLED (P4): 89 alerts — not an entry
     "spy_short_entry",
     "consol_breakout_long",
     "consol_breakout_short",
@@ -613,9 +614,9 @@ ENABLED_RULES: set[str] = {
     "target_2_hit",
     "stop_loss_hit",
     "auto_stop_out",
-    # ── NOTICE — informational only ─────────────────────────────────────────
+    # ── NOTICE — informational only (ALL DISABLED per P4) ──────────────────
     # "first_hour_summary",            # DISABLED: noise, 5 alerts/day with no value
-    "inside_day_forming",
+    # "inside_day_forming",            # DISABLED (P4): 6 alerts — not an entry, premature
     # ── DISABLED — noise alerts removed ─────────────────────────────────────
     # "ma_approach",                  # NOISE: price always near some MA
     # "ma_resistance",               # NOISE: use as filter, not alert

@@ -46,6 +46,7 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     session_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     user_action: Mapped[Optional[str]] = mapped_column(String(20))
+    suppressed_reason: Mapped[Optional[str]] = mapped_column(String(200))
 
 
 class ActiveEntry(Base):

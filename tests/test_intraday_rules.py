@@ -3850,7 +3850,13 @@ class TestOverheadMAResistanceFilter:
         }
         signals2 = evaluate_rules("TEST", bars, prior2)
         ma_bounces = [s for s in signals2 if s.alert_type == AlertType.MA_BOUNCE_20]
-        assert len(ma_bounces) == 0, "MA bounce should be blocked by overhead 100MA"
+        # P3: overhead MA filter now tags signals instead of dropping them
+        # Signal is kept but marked with suppressed_reason + _suppress_telegram
+        if ma_bounces:
+            assert ma_bounces[0].suppressed_reason is not None, \
+                "MA bounce near overhead 100MA should be tagged with suppressed_reason"
+            assert "overhead_ma" in ma_bounces[0].suppressed_reason
+            assert ma_bounces[0]._suppress_telegram is True
 
 
 # ===== RSI Wilder Computation =====

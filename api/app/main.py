@@ -92,6 +92,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confluence_score INTEGER DEFAULT 0",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confluence_label TEXT",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS entry_guidance TEXT",
+            # P3: record suppressed_reason for tagged signals (noise, stale, overhead MA)
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS suppressed_reason VARCHAR(200)",
         ]:
             try:
                 await conn.execute(text(col_def))

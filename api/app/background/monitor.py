@@ -198,6 +198,29 @@ def _poll_all_users_inner(sync_session_factory) -> int:
             select(User).where(User.id.in_(pro_users))
         ).scalars().all()}
 
+        # Global dedup key function (shared across users)
+        def _dedup_key(sym: str, atype: str, price: float = 0) -> tuple:
+            """Dedup key: same alert type within 1% price = duplicate."""
+            if price and price > 0:
+                bucket = round(price, -len(str(int(price))) + 2)  # round to 2 sig figs
+                return (sym, atype, bucket)
+            return (sym, atype, 0)
+
+        # Global signal cache: evaluate_rules once per symbol per cycle (P2 dedup fix)
+        # Same market data produces same signals — no need to recompute per user.
+        # Per-user differences (notification prefs, active entries) handled after.
+        _signal_cache: dict[str, list] = {}
+        _global_fired: set[tuple] = set()  # global dedup across all users
+
+        # Seed global dedup from all users' existing alerts today
+        _all_alerts_today = db.execute(
+            select(Alert.symbol, Alert.alert_type, Alert.price).where(
+                Alert.session_date.in_({session_date, _utc_date})
+            )
+        ).all()
+        for a in _all_alerts_today:
+            _global_fired.add(_dedup_key(a[0], a[1], a[2] or 0))
+
         # Evaluate per user
         for user_id in pro_users:
             symbols = user_symbols.get(user_id, [])
@@ -213,13 +236,6 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     Alert.user_id == user_id, Alert.session_date.in_(_dedup_dates)
                 )
             ).all()
-
-            def _dedup_key(sym: str, atype: str, price: float = 0) -> tuple:
-                """Dedup key: same alert type within 1% price = duplicate."""
-                if price and price > 0:
-                    bucket = round(price, -len(str(int(price))) + 2)  # round to 2 sig figs
-                    return (sym, atype, bucket)
-                return (sym, atype, 0)
 
             _fired_equity: set[tuple] = {_dedup_key(a[0], a[1], a[3] or 0) for a in db_alerts if a[2] == session_date}
             _fired_crypto: set[tuple] = {_dedup_key(a[0], a[1], a[3] or 0) for a in db_alerts if a[2] == _utc_date}
@@ -405,17 +421,26 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 # Structural entries (PDL reclaim, consolidation breakout, MA bounce)
                 # already cover the important re-entry scenarios.
 
-                try:
-                    signals = evaluate_rules(
-                        symbol, intraday, prior_day, active,
-                        spy_context=spy_ctx,
-                        spy_gate=_spy_gate,
-                        is_cooled_down=symbol in cooled_symbols,
-                        fired_today=fired_today,
-                    )
-                except Exception:
-                    logger.exception("Error evaluating %s for user %d", symbol, user_id)
-                    continue
+                # Global signal cache: compute once per symbol per cycle
+                _cache_key = f"{symbol}:{_sym_session}"
+                if _cache_key in _signal_cache:
+                    signals = _signal_cache[_cache_key]
+                else:
+                    try:
+                        signals = evaluate_rules(
+                            symbol, intraday, prior_day, active,
+                            spy_context=spy_ctx,
+                            spy_gate=_spy_gate,
+                            is_cooled_down=symbol in cooled_symbols,
+                            fired_today=_global_fired,
+                        )
+                        _signal_cache[_cache_key] = signals
+                        # Update global dedup with newly fired signals
+                        for _sig in signals:
+                            _global_fired.add(_dedup_key(symbol, _sig.alert_type.value, _sig.price or 0))
+                    except Exception:
+                        logger.exception("Error evaluating %s for user %d", symbol, user_id)
+                        continue
 
                 # Intraday SWING WATCH — DISABLED (too noisy, fires per-user per-cycle)
                 # EOD swing scan at 4:15 PM handles swing entries properly.
@@ -607,7 +632,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         except Exception:
                             pass
 
-                    # Record alert
+                    # Record alert (P3: all signals recorded, including tagged/suppressed)
                     alert = Alert(
                         user_id=user_id,
                         symbol=signal.symbol,
@@ -626,6 +651,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         confluence_label=_confluence_label,
                         entry_guidance=_entry_guidance,
                         session_date=_sym_session,
+                        suppressed_reason=getattr(signal, 'suppressed_reason', None),
                     )
                     db.add(alert)
                     fired_today.add(key)
@@ -682,6 +708,17 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # Preference gate: check if user wants this alert category + score
                     _at_val = signal.alert_type.value
                     _send_notification = True
+
+                    # P3: signals tagged by filters (noise, stale, overhead MA)
+                    # are recorded to DB but skip Telegram notification
+                    if getattr(signal, '_suppress_telegram', False):
+                        _send_notification = False
+                        _reason = getattr(signal, 'suppressed_reason', 'filter')
+                        logger.info(
+                            "TAGGED SUPPRESSED: user=%d %s %s (%s) — recorded to DB, no notification",
+                            user_id, signal.symbol, _at_val, _reason,
+                        )
+
                     if _at_val not in EXIT_ALERT_TYPES:
                         _cat = ALERT_TYPE_TO_CATEGORY.get(_at_val)
                         if _cat and not _cat_prefs.get(_cat, True):

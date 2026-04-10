@@ -94,11 +94,12 @@ class TestSwing200maHold:
         sig = check_swing_200ma_hold("AAPL", pd)
         assert sig is None
 
-    def test_no_fire_prev_was_below_200ma(self):
+    def test_fires_prev_was_below_200ma_reclaim(self):
+        """200MA hold fires even if prev was below — reclaim is valid (see swing_rules.py:857)."""
         from analytics.swing_rules import check_swing_200ma_hold
         pd = self._make_prior_day(close=100, low=96, ma200=96, prev_close=95)
         sig = check_swing_200ma_hold("AAPL", pd)
-        assert sig is None
+        assert sig is not None, "200MA hold should fire on reclaim (prev below, now above)"
 
     def test_no_fire_low_too_far_from_200ma(self):
         from analytics.swing_rules import check_swing_200ma_hold
