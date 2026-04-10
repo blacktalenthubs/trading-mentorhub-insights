@@ -227,10 +227,11 @@ function AICoachTab({
     }
   }, [symbol, ohlcv, timeframe, setChartContext]);
 
+  // Track symbol changes — update context but DON'T clear messages.
+  // Users want their conversation history to persist across symbol switches.
   useEffect(() => {
     if (symbol && symbol !== lastAutoSymbol) {
       setLastAutoSymbol(symbol);
-      clearMessages();
     }
   }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
