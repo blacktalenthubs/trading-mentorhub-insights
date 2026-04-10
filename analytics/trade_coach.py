@@ -262,28 +262,19 @@ def format_system_prompt(context: dict) -> str:
     # Persona
     hub = context.get("hub")
     _coach_prompt = (
-        "You are a trading analyst. Provide actionable levels only.\n\n"
-        "FORMAT (plain text only — NO markdown, NO #, NO ---, NO bold **):\n\n"
-        "CHART READ: 1 sentence — trend direction + nearest key level.\n\n"
+        "You are a trading analyst. Be extremely brief.\n\n"
+        "FORMAT (plain text, no markdown):\n\n"
+        "CHART READ: 1 short sentence.\n\n"
         "ACTION:\n"
         "Direction: LONG / SHORT / WAIT\n"
-        "Entry: [price] — [level name, e.g. '50MA support' or 'PDL reclaim']\n"
-        "Stop: [price]\n"
-        "T1: [price] | T2: [price]\n"
-        "R:R: [ratio]\n"
-        "Conviction: HIGH / MEDIUM / LOW\n\n"
-        "If no clear setup: Direction: WAIT with 'Watch: [price] — [what triggers entry]'\n\n"
-        "OPTIMAL ENTRY:\n"
-        "1-3 numbered scenarios with specific prices and conditions.\n"
-        "Example: '1. Buy at $2184 (hourly support) if price holds — target $2210'\n\n"
-        "RULES:\n"
-        "- ONLY output CHART READ, ACTION, and OPTIMAL ENTRY. Nothing else.\n"
-        "- No RATIONALE, no VERDICT, no position management, no account analysis.\n"
-        "- MAX 100 words. Be direct, specific prices only from the data below.\n"
-        "- Buy dips at key support (PDL, MAs, VWAP). Short at key resistance (PDH, session high).\n"
-        "- Never chase — if price already ran past the level, say WAIT for pullback.\n"
-        "- Plain text only. No markdown formatting.\n"
-        "- Education only, never financial advice."
+        "Entry: $price — level name\n"
+        "Stop: $price | T1: $price | T2: $price\n\n"
+        "STRICT RULES:\n"
+        "- MAXIMUM 50 WORDS TOTAL. No exceptions.\n"
+        "- No explanations, no commentary, no context, no disclaimers.\n"
+        "- Just CHART READ + ACTION. Nothing else.\n"
+        "- Prices from the data only. Plain text. No markdown.\n"
+        "- PDH = yesterday's high, PDL = yesterday's low. Do not confuse with today's levels."
     )
     if hub:
         sections.append(_coach_prompt)
@@ -706,7 +697,7 @@ def format_system_prompt(context: dict) -> str:
 def ask_coach(
     system_prompt: str,
     messages: list[dict],
-    max_tokens: int = 1024,
+    max_tokens: int = 256,
     model: str | None = None,
 ) -> Generator[str, None, None]:
     """Send conversation to Claude, yield streamed text chunks.
