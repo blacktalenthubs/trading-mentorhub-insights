@@ -1263,13 +1263,13 @@ export default function TradingPageV2() {
 
           {/* Tab content */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {rightTab === "ai" && (
+            <div className={rightTab === "ai" ? "flex-1 flex flex-col min-h-0" : "hidden"}>
               <AICoachTab
                 symbol={selected?.symbol ?? null}
                 ohlcv={ohlcv}
                 timeframe={tf.label}
               />
-            )}
+            </div>
             {rightTab === "signals" && (
               <SignalFeedTab
                 alerts={todayAlerts}
