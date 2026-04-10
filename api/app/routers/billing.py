@@ -68,6 +68,16 @@ class BillingStatusResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────
 
+@router.get("/config")
+async def billing_config():
+    """Return public Square config for frontend card form."""
+    return {
+        "app_id": settings.SQUARE_APP_ID,
+        "location_id": settings.SQUARE_LOCATION_ID,
+        "configured": bool(settings.SQUARE_APP_ID and settings.SQUARE_LOCATION_ID),
+    }
+
+
 @router.get("/status", response_model=BillingStatusResponse)
 async def billing_status(
     user: User = Depends(get_current_user),

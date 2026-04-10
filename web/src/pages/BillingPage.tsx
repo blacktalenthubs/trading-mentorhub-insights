@@ -87,39 +87,53 @@ function CardForm({ plan, onSuccess, onCancel }: {
   const [error, setError] = useState("");
   const [sdkReady, setSdkReady] = useState(false);
 
-  // Load Square Web Payments SDK
+  // Load Square Web Payments SDK — fetch config from API
   useEffect(() => {
-    const appId = (window as any).__SQUARE_APP_ID__;
-    const locationId = (window as any).__SQUARE_LOCATION_ID__;
-
-    if (!appId || !locationId) {
-      setError("Billing not configured. Contact support.");
-      return;
-    }
-
-    async function initSquare() {
+    async function loadSquare() {
       try {
-        const payments = (window as any).Square.payments(appId, locationId);
-        const card = await payments.card();
-        await card.attach(cardRef.current!);
-        setCardInstance(card);
-        setSdkReady(true);
+        // Fetch Square public config from backend
+        const token = localStorage.getItem("token");
+        const res = await fetch("/api/v1/billing/config", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error("Failed to load billing config");
+        const config = await res.json();
+
+        if (!config.configured || !config.app_id || !config.location_id) {
+          setError("Billing not configured. Contact support.");
+          return;
+        }
+
+        const appId = config.app_id;
+        const locationId = config.location_id;
+
+        async function initSquare() {
+          try {
+            const payments = (window as any).Square.payments(appId, locationId);
+            const card = await payments.card();
+            await card.attach(cardRef.current!);
+            setCardInstance(card);
+            setSdkReady(true);
+          } catch (err) {
+            setError("Failed to load payment form. Please refresh.");
+          }
+        }
+
+        // Load the SDK script (production)
+        if ((window as any).Square) {
+          initSquare();
+        } else {
+          const script = document.createElement("script");
+          script.src = "https://web.squarecdn.com/v1/square.js";
+          script.onload = initSquare;
+          script.onerror = () => setError("Failed to load payment SDK");
+          document.head.appendChild(script);
+        }
       } catch (err) {
-        setError("Failed to load payment form. Please refresh.");
+        setError("Failed to load billing. Please refresh.");
       }
     }
-
-    // Check if Square SDK is loaded
-    if ((window as any).Square) {
-      initSquare();
-    } else {
-      // Load the SDK script
-      const script = document.createElement("script");
-      script.src = "https://sandbox.web.squarecdn.com/v1/square.js";
-      script.onload = initSquare;
-      script.onerror = () => setError("Failed to load payment SDK");
-      document.head.appendChild(script);
-    }
+    loadSquare();
   }, []);
 
   async function handlePay() {
