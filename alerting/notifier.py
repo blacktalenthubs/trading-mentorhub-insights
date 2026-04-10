@@ -163,10 +163,12 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             import html as _html_res
             _res_label = _resistance_notice_types[signal.alert_type.value]
             _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
+            _vol = signal.volume_label or ""
+            _vol_line = f"\nVolume: {_vol}" if _vol else ""
             return (
                 f"<b>RESISTANCE {_html_res.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
                 f"Level: {_res_label}\n"
-                f"Conviction: {_conviction}/{signal.score}\n"
+                f"Conviction: {_conviction}/{signal.score}{_vol_line}\n"
                 f"Action: tighten stop / take profits / watch for breakdown"
             )
 
@@ -202,11 +204,13 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
         _reason = _clean_message(signal.message.split(" — ")[0]) if signal.message and " — " in signal.message else _res_label
         _conviction = "HIGH" if signal.score >= 75 else ("MEDIUM" if signal.score >= 55 else "LOW")
 
+        _vol = signal.volume_label or ""
         parts = [f"<b>RESISTANCE {_html.escape(signal.symbol)} ${signal.price:.2f}</b>"]
         parts.append(f"Level: {_res_label}")
         if signal.entry is not None:
             parts.append(f"Resistance at ${signal.entry:.2f}")
-        parts.append(f"Conviction: {_conviction}/{signal.score}")
+        _vol_info = f" | Volume: {_vol}" if _vol else ""
+        parts.append(f"Conviction: {_conviction}/{signal.score}{_vol_info}")
         parts.append(f"Action: tighten stop / take profits / watch for breakdown")
 
         return "\n".join(parts)[:4000]
