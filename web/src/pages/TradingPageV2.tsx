@@ -119,6 +119,7 @@ function CompactWatchlistRow({
   signal,
   selected,
   onClick,
+  onRemove,
   livePrice,
   rankItem,
   collapsed,
@@ -126,6 +127,7 @@ function CompactWatchlistRow({
   signal: SignalResult;
   selected: boolean;
   onClick: () => void;
+  onRemove?: () => void;
   livePrice?: { price: number; change_pct: number };
   rankItem?: WatchlistRankItem;
   collapsed: boolean;
@@ -187,6 +189,17 @@ function CompactWatchlistRow({
           </span>
         </div>
       </div>
+      {hovered && onRemove && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          className="shrink-0 text-text-faint hover:text-bearish-text transition-colors p-0.5"
+          title="Remove from watchlist"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </button>
   );
 }
@@ -912,6 +925,7 @@ export default function TradingPageV2() {
               signal={s}
               selected={selectedSymbol === s.symbol}
               onClick={() => selectSymbol(s.symbol)}
+              onRemove={() => _removeSymbol.mutate(s.symbol)}
               livePrice={livePrices[s.symbol]}
               rankItem={rankMap.get(s.symbol)}
               collapsed={watchlistCollapsed}
