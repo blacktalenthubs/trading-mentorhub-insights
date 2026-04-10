@@ -354,10 +354,9 @@ export function useDeleteChartLevel() {
 }
 
 export function useOHLCV(symbol: string, period = "1y", interval = "1d") {
-  // Chart data: refresh every 60s for intraday, 5 min for daily
-  // Slower than price feed to avoid chart re-renders that reset scroll position
+  // Chart data: refresh every 10s for intraday, 60s for daily
   const isIntraday = ["1m", "5m", "15m", "30m", "60m"].includes(interval);
-  const refreshMs = isIntraday ? 60_000 : 5 * 60_000;
+  const refreshMs = isIntraday ? 10_000 : 60_000;
   return useQuery({
     queryKey: ["ohlcv", symbol, period, interval],
     queryFn: () => api.get<OHLCBar[]>(`/charts/ohlcv/${symbol}?period=${period}&interval=${interval}`),
