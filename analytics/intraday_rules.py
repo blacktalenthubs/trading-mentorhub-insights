@@ -3615,9 +3615,8 @@ def check_vwap_loss(
     if last_close >= current_vwap:
         return None
 
-    # Close must be in lower 40% of bar range (selling pressure)
-    if bar_range > 0 and (last_close - last_low) / bar_range > 0.4:
-        return None
+    # Removed: lower 40% bar range filter was too strict.
+    # Losing VWAP is the signal — candle structure doesn't change that.
 
     # Prior bars must have been above VWAP (establishing it as support)
     lookback = min(6, len(bars) - 1)
