@@ -4558,13 +4558,13 @@ class TestResistanceProximityWidened:
         assert sig is not None
         assert sig.alert_type == AlertType.RESISTANCE_PRIOR_HIGH
 
-    def test_no_fire_at_0_20_percent(self):
-        """0.20% away — outside the tightened 0.15% threshold."""
+    def test_fires_at_0_20_percent(self):
+        """0.20% away — within the original 0.3% threshold (reverted from 0.15%)."""
         prior_high = 224.12
         bar_high = prior_high * (1 - 0.0020)  # 0.20% below
         bar = _bar(high=bar_high)
         sig = check_resistance_prior_high("LRCX", bar, prior_day_high=prior_high, has_active_entry=False)
-        assert sig is None
+        assert sig is not None  # 0.20% is within 0.3% threshold
 
 
 # ===== Fix 3: VWAP Reclaim =====

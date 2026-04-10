@@ -12,18 +12,10 @@ except ImportError:
 
 
 def _get_secret(key: str, default: str = "") -> str:
-    """Read from env vars, then V2 FastAPI config, then Streamlit secrets."""
+    """Read from env vars first (.env / local), then Streamlit secrets (Cloud)."""
     val = os.environ.get(key, "")
     if val:
         return val
-    # V2 FastAPI pydantic-settings resolves Railway reference vars that os.environ misses
-    try:
-        from app.config import get_settings
-        val = getattr(get_settings(), key, "")
-        if val:
-            return str(val)
-    except Exception:
-        pass
     try:
         import streamlit as st
         return st.secrets.get(key, default)
@@ -107,17 +99,17 @@ INSIDE_DAY_FORMING_MIN_BARS = 13   # ~65 min — first hour must pass before dec
 INSIDE_DAY_SCORE_BOOST = 10        # +10 score for PDL/PDH boundary alerts on inside days
 
 # Resistance at Prior High: proximity threshold
-RESISTANCE_PROXIMITY_PCT = 0.0015  # 0.15% — must actually touch (~$1 for SPY). Tightened from 0.3%
+RESISTANCE_PROXIMITY_PCT = 0.003  # 0.3% — symmetric with support bounce
 
 # Prior Day High Rejection: confirmed rejection (high touched, close below)
-PDH_REJECTION_PROXIMITY_PCT = 0.0015  # 0.15% — must actually touch. Tightened from 0.3%
+PDH_REJECTION_PROXIMITY_PCT = 0.003  # 0.3% — same as resistance proximity
 
 # Hourly Resistance Detection
 HOURLY_RESISTANCE_CLUSTER_PCT = 0.003   # 0.3% — merge swing highs within this distance
-HOURLY_RESISTANCE_APPROACH_PCT = 0.003  # 0.3% — NOTICE only, can be wider
+HOURLY_RESISTANCE_APPROACH_PCT = 0.003  # 0.3% — symmetric with RESISTANCE_PROXIMITY_PCT
 
 # Hourly Resistance Rejection SHORT: price rallies into horizontal resistance and gets rejected
-HOURLY_RES_REJECTION_PROXIMITY_PCT = 0.0015  # 0.15% — bar high must actually touch level (~$1 for SPY). Tightened from 0.3% ($2 was too loose)
+HOURLY_RES_REJECTION_PROXIMITY_PCT = 0.003  # 0.3% — bar high must reach within this of level
 HOURLY_RES_REJECTION_CLOSE_PCT = 0.40       # close must be in lower 40% of bar range (rejection)
 HOURLY_RES_REJECTION_MIN_BARS = 12          # 60 min into session minimum
 HOURLY_RES_REJECTION_STOP_OFFSET_PCT = 0.003  # 0.3% above resistance for stop
@@ -138,7 +130,7 @@ LOW_VOLUME_SKIP_RATIO = 0.4
 DAY_TRADE_MAX_RISK_PCT = 0.003  # 0.3%
 
 # Session High Double Top (SHORT) — mirror of session low double bottom
-SESSION_HIGH_PROXIMITY_PCT = 0.002       # 0.2% — bar high must nearly touch session high. Tightened from 0.3%
+SESSION_HIGH_PROXIMITY_PCT = 0.003       # 0.3% — how close bar high must be to session high
 SESSION_HIGH_WEAKNESS_PCT = 0.003        # 0.3% — minimum pullback below session high between touches
 SESSION_HIGH_MIN_AGE_BARS = 3            # ~15 min — session high must be established this long ago
 SESSION_HIGH_MIN_WEAKNESS_BARS = 1       # ~5 min — consecutive bars below weakness threshold
@@ -329,7 +321,7 @@ VWAP_RECLAIM_MIN_RECOVERY_PCT = 0.005   # 0.5% minimum bounce from session low
 VWAP_RECLAIM_VOLUME_RATIO = 1.2         # volume confirmation threshold
 VWAP_RECLAIM_MIN_BARS_AFTER_LOW = 3     # 15 min after low before firing
 VWAP_RECLAIM_STOP_OFFSET_PCT = 0.003    # 0.3% below session low for stop
-VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.008   # 0.8% — allow room for the reclaim bar to close above VWAP (~$5 on SPY)
+VWAP_RECLAIM_MAX_DISTANCE_PCT = 0.008   # 0.8% — allow room for reclaim bar to close above VWAP (~$5 on SPY)
 
 # VWAP Bounce: pullback to VWAP that holds — continuation signal
 VWAP_BOUNCE_MIN_BARS = 18              # ~90 min context (after 11:00 AM)
@@ -445,7 +437,7 @@ SWING_RSI_APPROACHING_OVERBOUGHT = 65
 SWING_EMA_CROSSOVER_MIN_SEPARATION_PCT = 0.0005  # 0.05% anti-flicker
 SWING_PULLBACK_PROXIMITY_PCT = 0.005              # 0.5% near 20 EMA
 SWING_PULLBACK_EMA_RISING_LOOKBACK = 5            # EMA20 today > EMA20 5 days ago
-SWING_200MA_RECLAIM_CONFIRM_EMA10 = False         # disabled — 200MA reclaim is significant on its own during selloffs
+SWING_200MA_RECLAIM_CONFIRM_EMA10 = True          # require close > EMA10 too
 SWING_REGIME_GATE = True                          # require SPY > 20 EMA
 
 # ---------------------------------------------------------------------------
@@ -547,18 +539,18 @@ ENABLED_RULES: set[str] = {
     "weekly_level_touch",
     "weekly_high_breakout",
     # "weekly_high_test",             # NOISE: downgraded — test without break
-    # "weekly_low_test",              # DISABLED (P4): informational, not an entry
-    # "weekly_low_breakdown",         # DISABLED (P4): informational, not an entry
+    "weekly_low_test",
+    "weekly_low_breakdown",
     # BUY — monthly high/low + monthly EMA
     "monthly_level_touch",
     "monthly_high_breakout",
     # "monthly_high_test",            # NOISE: downgraded — test without break
-    # "monthly_low_test",             # DISABLED (P4): informational, not an entry
-    # "monthly_low_breakdown",        # DISABLED (P4): informational, not an entry
-    # "monthly_ema_touch",            # DISABLED (P4): 229 alerts in 4 days — pure noise, not an entry
+    "monthly_low_test",
+    "monthly_low_breakdown",
+    "monthly_ema_touch",
     # BUY — VWAP
-    "vwap_reclaim",                    # RE-ENABLED (AF-7): key level — VWAP reclaim is the regime inflection point
-    "vwap_bounce",                     # RE-ENABLED (AF-7): pullback to VWAP that holds — continuation signal
+    "vwap_reclaim",                    # RE-ENABLED: key level — VWAP reclaim is the regime inflection point
+    "vwap_bounce",                     # RE-ENABLED: pullback to VWAP that holds
     # BUY — opening range (Crabel methodology)
     # "opening_low_base",              # DISABLED: redundant with morning_low_retest, 0% win rate
     "morning_low_retest",
@@ -588,16 +580,15 @@ ENABLED_RULES: set[str] = {
     "morning_low_breakdown",
     "pdh_failed_breakout",
     # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
-    # Key level awareness — tells user price is at resistance (actionable: tighten stop, take profits)
-    "resistance_prior_high",           # RE-ENABLED: key level awareness at PDH — sent to Telegram as RESISTANCE
-    # "pdh_rejection",                 # DISABLED (P4): 98 alerts — SHORT entry rules (double_top, failed_breakout) cover this
-    # "resistance_prior_low",          # DISABLED (P4): 11 alerts — not an entry
-    # "weekly_high_resistance",        # DISABLED (P4): 65 alerts — not an entry
-    # "monthly_high_resistance",       # DISABLED (P4): 6 alerts — not an entry
-    # "inside_day_breakdown",          # DISABLED (P4): informational, not an entry
-    # "support_breakdown",             # DISABLED (P4): informational, not an entry
-    # "prior_day_low_breakdown",       # DISABLED (P4): 32 alerts — not an entry
-    # "prior_day_low_resistance",      # DISABLED (P4): 89 alerts — not an entry
+    "resistance_prior_high",
+    "pdh_rejection",
+    "resistance_prior_low",
+    "weekly_high_resistance",
+    "monthly_high_resistance",
+    "inside_day_breakdown",
+    "support_breakdown",
+    "prior_day_low_breakdown",
+    "prior_day_low_resistance",
     "spy_short_entry",
     "consol_breakout_long",
     "consol_breakout_short",
@@ -614,9 +605,9 @@ ENABLED_RULES: set[str] = {
     "target_2_hit",
     "stop_loss_hit",
     "auto_stop_out",
-    # ── NOTICE — informational only (ALL DISABLED per P4) ──────────────────
+    # ── NOTICE — informational only ─────────────────────────────────────────
     # "first_hour_summary",            # DISABLED: noise, 5 alerts/day with no value
-    # "inside_day_forming",            # DISABLED (P4): 6 alerts — not an entry, premature
+    "inside_day_forming",
     # ── DISABLED — noise alerts removed ─────────────────────────────────────
     # "ma_approach",                  # NOISE: price always near some MA
     # "ma_resistance",               # NOISE: use as filter, not alert

@@ -243,17 +243,6 @@ class AlertType(str, Enum):
     SWING_BULL_FLAG = "swing_bull_flag"
     SWING_CANDLE_PATTERN = "swing_candle_pattern"
     SWING_CONSECUTIVE_RED = "swing_consecutive_red"
-
-    # New swing entries (Spec 14)
-    SWING_RSI_30_BOUNCE = "swing_rsi_30_bounce"
-    SWING_200MA_HOLD = "swing_200ma_hold"
-    SWING_50MA_HOLD = "swing_50ma_hold"
-    SWING_WEEKLY_SUPPORT = "swing_weekly_support"
-
-    # New swing exits (Spec 14)
-    SWING_RSI_TARGET = "swing_rsi_target"
-    SWING_PDL_CLOSE = "swing_pdl_close"
-    SWING_MA_INVALIDATED = "swing_ma_invalidated"
     # MA/EMA approach notice (heads-up, not a BUY)
     MA_APPROACH = "ma_approach"
     # Prior day low breakdown / resistance
@@ -329,9 +318,6 @@ class AlertSignal:
     ma_rejected_by: str = ""   # e.g. "50EMA" — nearest MA above price acting as resistance
     score_factors: dict | None = None  # Breakdown: {"ma": 25, "vol": 15, "conf": 25, ...}
     _suppress_telegram: bool = False   # If True, record to DB but skip Telegram notification
-    suppressed_reason: str | None = None  # If set, signal was tagged by a filter (noise, stale) — record to DB, skip notification
-    setup_level: float | None = None   # Key price level the setup is based on (e.g. EMA20, 200MA)
-    setup_condition: str | None = None # Human-readable setup description for refresh logic
 
 
 def _volume_label(bar_volume: float, avg_volume: float) -> str:
@@ -848,15 +834,9 @@ def check_prior_day_low_bounce(
     if bars["Low"].min() < prior_day_low * (1 - PDL_DIP_MIN_PCT):
         return None
 
-    # Use configured proximity — 0.2% for equities.
-    # A prior 1% override was too wide (SPY $671 firing at $675 = $4 away = false signal)
-    _near_pdl_pct = PDL_BOUNCE_PROXIMITY_PCT  # 0.2% = ~$1.35 for SPY
-    proximity_level = prior_day_low * (1 + _near_pdl_pct)
-
-    # CRITICAL: the RECENT bars (last 6 = 30 min) must have touched near PDL.
-    # Not "any bar today" — price near PDL 3 hours ago is not a current bounce.
-    _recent_touch = bars.tail(6)
-    touched = (_recent_touch["Low"] <= proximity_level).any()
+    # Check if any bar's low touched within proximity of PDL
+    proximity_level = prior_day_low * (1 + PDL_BOUNCE_PROXIMITY_PCT)
+    touched = (bars["Low"] <= proximity_level).any()
     if not touched:
         return None
 
@@ -866,11 +846,6 @@ def check_prior_day_low_bounce(
         return None
 
     last_bar = bars.iloc[-1]
-
-    # Skip if current price already ran too far from PDL — not a bounce anymore
-    _distance_from_pdl = (float(last_bar["Close"]) - prior_day_low) / prior_day_low
-    if _distance_from_pdl > 0.005:  # 0.5% — if price is >0.5% above PDL, the bounce already happened
-        return None
 
     # Skip if price already ran too far (tighter limit for crypto)
     _is_crypto = symbol.endswith("-USD")
@@ -1050,25 +1025,16 @@ def check_prior_day_high_breakout(
     if last_bar["Close"] <= prior_day_high:
         return None
 
-    # Breakout confirmation: close must be meaningfully above PDH.
-    # 0.1% = ~$0.68 on SPY. Balances between wick-touches (too low) and
-    # filtering valid breakouts (0.15% was too high for tight ranges).
-    breakout_margin = prior_day_high * 0.001
+    # Breakout confirmation: close must be at least 0.15% above PDH.
+    # A barely-above close ($0.14 on PLTR) is a wick/rejection, not a breakout.
+    breakout_margin = prior_day_high * 0.0015
     if last_bar["Close"] < prior_day_high + breakout_margin:
-        return None
-
-    # Skip if price already ran too far above PDH — the breakout already happened,
-    # alerting now is chasing. Max 1.5% above PDH for equities, 2% for crypto.
-    _is_crypto = symbol.endswith("-USD")
-    _max_distance = 0.02 if _is_crypto else 0.015
-    distance_from_pdh = (float(last_bar["Close"]) - prior_day_high) / prior_day_high
-    if distance_from_pdh > _max_distance:
         return None
 
     # Skip if equity gapped above PDH — no intraday breakout to trade.
     # PDH retest rule handles the case where price pulls back to retest.
     # Crypto trades 24/7 so gap-ups are continuous moves, not true gaps.
-    if not _is_crypto:
+    if "-USD" not in symbol:
         today_open = bars.iloc[0]["Open"]
         if today_open > prior_day_high:
             return None
@@ -3615,8 +3581,9 @@ def check_vwap_loss(
     if last_close >= current_vwap:
         return None
 
-    # Removed: lower 40% bar range filter was too strict.
-    # Losing VWAP is the signal — candle structure doesn't change that.
+    # Close must be in lower 40% of bar range (selling pressure)
+    if bar_range > 0 and (last_close - last_low) / bar_range > 0.4:
+        return None
 
     # Prior bars must have been above VWAP (establishing it as support)
     lookback = min(6, len(bars) - 1)
@@ -3691,16 +3658,9 @@ def check_ema_rejection_short(
     if (last_close - last_low) / bar_range > 0.4:
         return None
 
-    # BUG-6 fix: require 2+ bars of rejection, not just one
-    # The previous bar must also have closed below the MA (sustained rejection)
-    if len(bars) >= 2:
-        prev_bar = bars.iloc[-2]
-        prev_close = float(prev_bar["Close"])
-    else:
-        return None
-
-    # Check key DAILY MAs for rejection — EMA20 excluded (too noisy, tested every session)
+    # Check each key MA for rejection
     _ma_levels = [
+        ("EMA20", prior_day.get("ema20", 0)),
         ("EMA50", prior_day.get("ema50", 0)),
         ("MA50", prior_day.get("ma50", 0)),
         ("EMA100", prior_day.get("ema100", 0)),
@@ -3719,12 +3679,7 @@ def check_ema_rejection_short(
         if proximity > 0.003:
             continue
 
-        # BUG-6 fix: previous bar must also close below MA (2-bar confirmation)
-        # First touch after a break is a TEST, not a confirmed REJECTION
-        if prev_close >= ma_val:
-            continue
-
-        # Rejection confirmed (2+ bars below MA)
+        # Rejection confirmed
         entry = round(last_close, 2)
         stop = round(ma_val * 1.003, 2)
         risk = stop - entry
@@ -3986,12 +3941,13 @@ def check_session_low_bounce_to_vwap(
 
     support_level = nearest_support["level"]
 
-    # Low must have held — last bar's low above session_low (not actively breaking)
+    # Low must have held — last 2 bars' lows above session_low (not breaking)
     hold_threshold = session_low * 1.001  # tiny buffer
-    if last_bar["Low"] < hold_threshold:
+    recent_lows = bars.iloc[-2:]
+    if (recent_lows["Low"] < hold_threshold).any():
         return None  # still actively testing / breaking the low
 
-    # Last bar must close above session low (bounce starting)
+    # Last bar must close above session low (bounce confirmed)
     if last_bar["Close"] <= session_low:
         return None
 
@@ -4013,10 +3969,6 @@ def check_session_low_bounce_to_vwap(
 
     vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
     touch_count = nearest_support.get("touch_count", 1)
-
-    # Require at least 2 tests — "tested 1x" is just the current low, not a bounce
-    if touch_count < 2:
-        return None
 
     # Support fatigue: too many tests weakens the level
     fatigue_warning = ""
@@ -4868,11 +4820,6 @@ def check_session_high_double_top(
     # Last bar must close below session high (rejection confirmed)
     if float(last_bar["Close"]) >= session_high:
         return None
-
-    # Note: removed prev-bar confirmation gate (c98f7c1) — it was killing
-    # valid fast double tops (two touches within 10 min). The existing
-    # SESSION_HIGH_MIN_AGE_BARS + proximity + close-below-high checks are
-    # sufficient to confirm the rejection pattern.
 
     # Close in lower 50% of bar range (selling pressure)
     bar_range = float(last_bar["High"]) - float(last_bar["Low"])
@@ -6521,10 +6468,22 @@ def _consolidate_signals(signals: list[AlertSignal]) -> list[AlertSignal]:
         primary = group[0]
         others = group[1:]
 
-        # BUG-1 fix: use PRIMARY signal's entry (highest scored), not lowest from all
-        # The lowest entry may be a level price hasn't reached, causing immediate stop-out
-        # Confirming signals VALIDATE the thesis, they don't change the entry point
-        # Keep primary's entry/stop/targets as-is — they come from the best-scored signal
+        # Use the BEST (lowest) entry from all signals — first touch is best entry
+        best_entry = primary.entry
+        best_stop = primary.stop
+        for s in others:
+            if s.entry and best_entry and s.entry < best_entry:
+                best_entry = s.entry
+            if s.stop and best_stop and s.stop < best_stop:
+                best_stop = s.stop
+        if best_entry and best_entry < (primary.entry or float("inf")):
+            primary.entry = best_entry
+            primary.stop = best_stop
+            # Recalculate targets from better entry
+            risk = primary.entry - primary.stop if primary.stop else 0
+            if risk > 0:
+                primary.target_1 = round(primary.entry + risk, 2)
+                primary.target_2 = round(primary.entry + 2 * risk, 2)
 
         # Boost score (v1 and v2)
         boost = min(len(others) * CONSOLIDATION_SCORE_BOOST, CONSOLIDATION_MAX_BOOST)
@@ -7074,19 +7033,38 @@ def evaluate_rules(
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
 
-    # ── Gate 1: Wait 5 min after open before any BUY alerts ───────────────
-    # First candle is opening auction noise. After that, let alerts fire.
-    # SELL/SHORT/NOTICE always pass through.
+    # ── Gate 1: Wait 15 min after open before any BUY alerts ──────────────
+    # First 15 min (3 bars on 5-min) is opening auction noise — no real
+    # price discovery.  SELL/SHORT/NOTICE always pass through.
     # Crypto is exempt (24h market, no opening auction).
     # SPY is exempt — we want alerts if SPY hits key levels at open.
-    _OPENING_WAIT_BARS = 6  # 6 × 5-min = 30 min — first 30 min is opening auction noise
+    _OPENING_WAIT_BARS = 3  # 3 × 5-min = 15 min
     _is_spy = symbol in ("SPY", "QQQ")
-    # REMOVED (P2): opening wait and SPY below VWAP gates.
-    # Key level rules fire at key levels regardless of regime or time.
+    _in_opening_wait = (
+        not is_crypto
+        and not _is_spy
+        and phase == "opening_range"
+        and len(intraday_bars) < _OPENING_WAIT_BARS
+    )
 
-    # REMOVED (P2): is_cooled_down gate was blocking ALL BUY rules after a stop loss.
-    # Key level rules fire at key levels — a stop doesn't invalidate the next setup.
-    if True:
+    # ── Gate 2: SPY below VWAP = suppress non-SPY equity longs ───────────
+    # Simple real-time check: is SPY's current price below its VWAP?
+    # If yes, no equity BUY alerts except SPY itself.
+    # This replaces the rolling-average vwap_dominance check with an
+    # immediate price-vs-VWAP comparison.
+    _spy_currently_below_vwap = False
+    if (
+        not is_crypto
+        and symbol != "SPY"
+        and spy_gate
+    ):
+        _spy_vwap_dom = spy_gate.get("vwap_dominance", 1.0)
+        _spy_above_ema = spy_gate.get("above_ema", True)
+        # SPY below VWAP: dominance < 50% OR gate explicitly red/yellow
+        if _spy_vwap_dom < 0.5 or spy_gate.get("gate") == "red":
+            _spy_currently_below_vwap = True
+
+    if not is_cooled_down:
         sig = check_ma_bounce_20(symbol, intraday_bars, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
@@ -7896,27 +7874,119 @@ def evaluate_rules(
             )
 
     # --- EMA Crossover 5/20 (BUY) ---
-    if AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
+    if not is_cooled_down and AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
         sig = check_ema_crossover_5_20(symbol, intraday_bars)
         if sig:
             sig.message += f" ({phase})"
             sig.message += caution_suffix
             signals.append(sig)
 
-    # --- REMOVED (P2): trending_down filter, SPY VWAP SHORT suppression, range filter ---
-    # Per spec 23 principle P2: fire at key levels, no gate suppression.
-    # Key level rules (PDL bounce, MA bounce, VWAP reclaim, etc.) should fire
-    # regardless of regime. The rules themselves define the key levels.
-    # Removed: trending_down filter, SPY above VWAP SHORT suppression, 15-min range filter.
-    # These filters were silently killing valid signals (e.g., SPY PDH breakout on April 9).
+    # --- TRENDING_DOWN regime: suppress weak BUY types that chase the knife ---
+    # These rules have 0% win rate in bearish conditions based on live data.
+    # They remain active in CHOPPY and TRENDING_UP regimes.
+    if not is_crypto and spy_regime == "TRENDING_DOWN":
+        _weak_in_downtrend = {
+            AlertType.VWAP_BOUNCE.value,
+            AlertType.VWAP_RECLAIM.value,
+            AlertType.PDH_RETEST_HOLD.value,
+        }
+        pre_regime = signals[:]
+        signals = [
+            s for s in signals
+            if not (s.direction == "BUY" and s.alert_type.value in _weak_in_downtrend)
+        ]
+        for s in pre_regime:
+            if s.direction == "BUY" and s.alert_type.value in _weak_in_downtrend and s not in signals:
+                logger.info(
+                    "%s: TRENDING_DOWN filter dropped %s (0%% win rate in bearish regime)",
+                    symbol, s.alert_type.value,
+                )
 
-    # --- Opening wait: REMOVED (P2 — fire at key levels, no suppression) ---
-    # If price is at a key level at 9:31 AM, the alert fires. The level is the level.
+    # --- Opening wait: suppress ALL BUY in first 15 min ---
+    if _in_opening_wait:
+        pre_open = signals[:]
+        signals = [s for s in signals if s.direction != "BUY"]
+        for s in pre_open:
+            if s.direction == "BUY" and s not in signals:
+                logger.info(
+                    "%s: OPENING WAIT suppressed BUY %s (only %d bars, need %d)",
+                    symbol, s.alert_type.value, len(intraday_bars), _OPENING_WAIT_BARS,
+                )
 
-    # --- Contradictory signal filter: DISABLED ---
-    # Previously suppressed BUYs when SHORT signals existed in the same cycle.
-    # Removed to avoid over-suppression — users should see all signals at key
-    # support/resistance levels and decide for themselves.
+    # --- SPY above VWAP: suppress non-index SHORT alerts ---
+    # When SPY is above VWAP, bulls are in control. Only allow SHORT on SPY/QQQ.
+    # Other equity shorts (NVDA, PLTR etc.) fight the trend.
+    _spy_above_vwap = (
+        spy_gate.get("vwap_dominance", 0) >= 0.5 if spy_gate else False
+    )
+    if not is_crypto and not _is_spy and _spy_above_vwap:
+        pre_vwap = signals[:]
+        signals = [s for s in signals if s.direction != "SHORT"]
+        for s in pre_vwap:
+            if s.direction == "SHORT" and s not in signals:
+                logger.info(
+                    "%s: SPY ABOVE VWAP suppressed SHORT %s",
+                    symbol, s.alert_type.value,
+                )
+
+    # --- 15-min range filter: suppress BUY when symbol is in a tight range ---
+    # If the hourly bars show consolidation (no breakout), BUY signals are
+    # just catching knives inside a range — suppress them.
+    # Exception: inside_day_breakout and bb_squeeze_breakout are specifically
+    # designed for range-breaking and should not be suppressed.
+    _range_exempt_types = {
+        AlertType.INSIDE_DAY_BREAKOUT.value,
+        AlertType.BB_SQUEEZE_BREAKOUT.value,
+        AlertType.CONSOL_BREAKOUT_LONG.value,
+    }
+    _consol_check = detect_hourly_consolidation_break(intraday_bars)
+    if _consol_check and _consol_check.get("status") == "consolidating":
+        _range_pct = _consol_check.get("range_pct", 0)
+        pre_range = signals[:]
+        signals = [
+            s for s in signals
+            if s.direction != "BUY"
+            or s.alert_type.value in _range_exempt_types
+        ]
+        for s in pre_range:
+            if s.direction == "BUY" and s not in signals:
+                logger.info(
+                    "%s: RANGE FILTER suppressed BUY %s (consolidating, range %.1f%%)",
+                    symbol, s.alert_type.value, _range_pct * 100,
+                )
+
+    # --- Contradictory signal filter: active SHORT in same cycle suppresses BUY ---
+    # If the system fires a SHORT with entry/stop/targets at the same time as
+    # a BUY, the SHORT wins — the market is showing weakness at the same level.
+    # Passive SELL signals (rejection, resistance, target hits, stops) do NOT
+    # suppress BUYs — they are informational or exit-only.
+    _active_short_in_cycle = any(
+        s.direction == "SHORT"
+        and s.entry is not None
+        for s in signals
+    )
+    # Also suppress if PDH failed breakout or morning low breakdown fires
+    _bearish_breakdown_in_cycle = any(
+        s.alert_type in (
+            AlertType.PDH_FAILED_BREAKOUT,
+            AlertType.MORNING_LOW_BREAKDOWN,
+            AlertType.SUPPORT_BREAKDOWN,
+        )
+        for s in signals
+    )
+    if _active_short_in_cycle or _bearish_breakdown_in_cycle:
+        dropped = [s for s in signals if s.direction == "BUY"]
+        if dropped:
+            _bear_names = ", ".join(
+                s.alert_type.value for s in signals
+                if s.direction in ("SELL", "SHORT")
+            )
+            for s in dropped:
+                logger.info(
+                    "%s: contradictory filter dropped BUY %s (bearish signals: %s)",
+                    symbol, s.alert_type.value, _bear_names,
+                )
+            signals = [s for s in signals if s.direction != "BUY"]
 
     # --- Bounce Quality Tagging ---
     # Tag all bounce-type BUY signals with quality assessment
@@ -7985,15 +8055,91 @@ def evaluate_rules(
         spy_gate.get("inside_day", False) if spy_gate else False
     )
 
-    # --- REMOVED (P2): SPY gate suppression, crypto self-gate ---
-    # Per spec 23 principle P2: fire at key levels, no gate suppression.
-    # Rules define key levels (PDL, PDH, MAs, VWAP). If price is at a key level,
-    # the rule fires regardless of SPY regime. The gate was redundant on top of
-    # rules that already have proximity, volume, and price action checks.
-    # Removed: SPY gate (equity BUY/SHORT suppression), crypto self-gate.
-    # This was killing valid signals — SPY PDH breakout on April 9 was suppressed
-    # by range filter, and the gate would have suppressed equity BUYs during
-    # inside day even though key level bounces were valid.
+    # Crypto self-gate (unchanged — uses own VWAP + EMA)
+    _active_gate = spy_gate
+    if is_crypto and SPY_GATE_ENABLED and len(intraday_bars) >= 6:
+        from analytics.intraday_data import compute_vwap as _cv
+        _crypto_vwap = _cv(intraday_bars)
+        _active_gate = compute_spy_gate(intraday_bars, _crypto_vwap)
+        if _active_gate["gate"] != "green":
+            logger.debug(
+                "%s: crypto self-gate %s (%s)",
+                symbol, _active_gate["gate"], _active_gate["reason"],
+            )
+
+    if SPY_GATE_ENABLED:
+        if _is_spy:
+            # SPY keeps ALL its alerts — never suppressed
+            pass
+        elif is_crypto and _active_gate and _active_gate.get("gate") == "red":
+            # Crypto with own red gate: only allow session_low_bounce_vwap
+            _red_exempt_types = {AlertType.SESSION_LOW_BOUNCE_VWAP.value}
+            pre_gate = signals[:]
+            signals = [
+                s for s in signals
+                if s.direction != "BUY"
+                or s.alert_type.value in _red_exempt_types
+            ]
+            for s in pre_gate:
+                if s.direction == "BUY" and s not in signals:
+                    logger.info(
+                        "%s: CRYPTO GATE suppressed %s (%s)",
+                        symbol, s.alert_type.value,
+                        _active_gate.get("reason", "crypto self-gate RED"),
+                    )
+        elif not is_crypto and (_spy_below_morning_low or _spy_inside_day):
+            # ── SPY below morning low OR inside day → suppress other equities ──
+            # Below morning low: downtrending, focus shorts on SPY only
+            # Inside day: choppy, EXCEPT at critical institutional levels
+            _ml = spy_gate.get("morning_low", 0)
+            _gate_reason_str = (
+                f"SPY inside day" if _spy_inside_day and not _spy_below_morning_low
+                else f"SPY below morning low ${_ml:.2f}"
+            )
+
+            # Critical levels that pass through even during inside day / morning low break
+            # These are institutional levels where stocks can move independently of SPY
+            _critical_level_types = {
+                AlertType.PRIOR_DAY_LOW_RECLAIM.value,
+                AlertType.PRIOR_DAY_LOW_BOUNCE.value,
+                AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
+                AlertType.MULTI_DAY_DOUBLE_BOTTOM.value,
+                AlertType.EMA_BOUNCE_50.value,
+                AlertType.EMA_BOUNCE_100.value,
+                AlertType.EMA_BOUNCE_200.value,
+                AlertType.MA_BOUNCE_50.value,
+                AlertType.MA_BOUNCE_100.value,
+                AlertType.MA_BOUNCE_200.value,
+                AlertType.WEEKLY_LEVEL_TOUCH.value,
+                AlertType.MONTHLY_LEVEL_TOUCH.value,
+                AlertType.MONTHLY_EMA_TOUCH.value,
+                AlertType.CONSOL_BREAKOUT_LONG.value,
+                AlertType.CONSOL_BREAKOUT_SHORT.value,
+                AlertType.CONSOL_15M_BREAKOUT_LONG.value,
+                AlertType.CONSOL_15M_BREAKOUT_SHORT.value,
+            }
+
+            pre_gate = signals[:]
+            if _is_spy:
+                # SPY/QQQ: suppress BUY only, keep SHORT + exits
+                signals = [s for s in signals if s.direction != "BUY"]
+            elif _spy_below_morning_low:
+                # Morning low broken: suppress all BUY and SHORT on other equities
+                # (even critical levels — market is actively selling)
+                signals = [s for s in signals if s.direction not in ("BUY", "SHORT")]
+            else:
+                # Inside day only: suppress non-critical BUY/SHORT, allow critical levels
+                signals = [
+                    s for s in signals
+                    if s.direction not in ("BUY", "SHORT")
+                    or s.alert_type.value in _critical_level_types
+                ]
+            for s in pre_gate:
+                if s not in signals and s.direction in ("BUY", "SHORT"):
+                    logger.info(
+                        "%s: SPY GATE suppressed %s %s (%s)",
+                        symbol, s.direction, s.alert_type.value, _gate_reason_str,
+                    )
 
     # --- ADX trend filter: demote BUY signals in choppy (low-ADX) markets ---
     _adx = prior_day.get("adx14") if prior_day else None
@@ -8009,18 +8155,20 @@ def evaluate_rules(
                     symbol, s.alert_type.value, _adx,
                 )
 
-    # --- Noise filter: TAG low-volume BUY signals (P3: record all, tag not drop) ---
+    # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
-    for s in signals:
+    pre_noise = signals[:]
+    signals = [s for s in signals if not _should_skip_noise(s, vol_ratio)]
+    for s in pre_noise:
         if _should_skip_noise(s, vol_ratio):
-            s.suppressed_reason = f"low_volume (vol_ratio={vol_ratio:.2f})"
-            s._suppress_telegram = True
             logger.debug(
-                "%s: noise filter tagged %s (vol_ratio=%.2f < threshold)",
+                "%s: noise filter dropped %s (vol_ratio=%.2f < threshold)",
                 symbol, s.alert_type.value, vol_ratio,
             )
 
-    # --- Staleness filter: TAG BUY signals where price already ran past entry + 1R ---
+    # --- Staleness filter: drop BUY signals where price already ran past entry + 1R ---
+    # Exempt breakout alerts — price is supposed to run above entry on breakouts.
+    # Exempt MA bounce + PDL — these are "level" signals; price running confirms thesis.
     _staleness_exempt = {
         AlertType.PRIOR_DAY_HIGH_BREAKOUT.value,
         AlertType.INSIDE_DAY_BREAKOUT.value,
@@ -8035,20 +8183,25 @@ def evaluate_rules(
         AlertType.PRIOR_DAY_LOW_BOUNCE.value,
     }
     current_price = last_bar["Close"]
-    for s in signals:
+    pre_stale = signals[:]
+    signals = [
+        s for s in signals
+        if not (s.direction == "BUY" and s.entry and s.stop
+                and s.alert_type.value not in _staleness_exempt
+                and current_price > s.entry + (s.entry - s.stop))
+    ]
+    for s in pre_stale:
         if (s.direction == "BUY" and s.entry and s.stop
                 and s.alert_type.value not in _staleness_exempt
-                and current_price > s.entry + (s.entry - s.stop)
-                and not s.suppressed_reason):
-            s.suppressed_reason = f"stale (price={current_price:.2f} > entry+1R={s.entry + (s.entry - s.stop):.2f})"
-            s._suppress_telegram = True
+                and current_price > s.entry + (s.entry - s.stop)):
             logger.debug(
-                "%s: staleness filter tagged %s (price=%.2f > entry+1R=%.2f)",
+                "%s: staleness filter dropped %s (price=%.2f > entry+1R=%.2f)",
                 symbol, s.alert_type.value, current_price,
                 s.entry + (s.entry - s.stop),
             )
 
-    # --- Overhead MA resistance filter: TAG BUY heading into nearby MA above ---
+    # --- Overhead MA resistance filter: suppress BUY heading into nearby MA above ---
+    # Exempt MA bounce (the MA IS the entry) and PDL (nearby MA is a target, not blocker).
     _overhead_exempt = {
         AlertType.MA_BOUNCE_100.value,
         AlertType.MA_BOUNCE_200.value,
@@ -8057,20 +8210,21 @@ def evaluate_rules(
         AlertType.PRIOR_DAY_LOW_RECLAIM.value,
         AlertType.PRIOR_DAY_LOW_BOUNCE.value,
     }
+    pre_overhead = signals[:]
+    filtered_signals: list[AlertSignal] = []
     for s in signals:
-        if (s.direction == "BUY" and s.entry
-                and s.alert_type.value not in _overhead_exempt
-                and not s.suppressed_reason):
+        if s.direction == "BUY" and s.entry and s.alert_type.value not in _overhead_exempt:
             blocked, ma_label = _has_overhead_ma_resistance(
                 s.entry, ma20, ma50, ma100, ma200,
             )
             if blocked:
-                s.suppressed_reason = f"overhead_ma ({ma_label})"
-                s._suppress_telegram = True
                 logger.debug(
-                    "%s: overhead MA filter tagged %s (entry=%.2f near %s)",
+                    "%s: overhead MA filter dropped %s (entry=%.2f near %s)",
                     symbol, s.alert_type.value, s.entry, ma_label,
                 )
+                continue
+        filtered_signals.append(s)
+    signals = filtered_signals
 
     # --- Wick rejection filter: demote confidence for wick-only touches ---
     # In choppy markets, wicks create false touches — price wicks to a level
