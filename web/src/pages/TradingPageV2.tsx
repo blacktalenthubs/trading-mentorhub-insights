@@ -408,11 +408,12 @@ function SignalFeedTab({
           hour: "2-digit",
           minute: "2-digit",
         });
+        const dirLabel = a.direction === "SHORT" ? "RESISTANCE" : a.direction;
         const dirBadge =
           a.direction === "BUY"
             ? "bg-bullish/10 text-bullish-text border-bullish/20"
             : a.direction === "SHORT"
-              ? "bg-bearish/10 text-bearish-text border-bearish/20"
+              ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
               : "bg-warning/10 text-warning-text border-warning/20";
 
         return (
@@ -425,7 +426,7 @@ function SignalFeedTab({
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-bold text-text-primary">{a.symbol}</span>
                 <span className={`text-[9px] font-semibold px-1 py-0.5 rounded border ${dirBadge}`}>
-                  {a.direction}
+                  {dirLabel}
                 </span>
               </div>
               <span className="text-[10px] font-mono text-text-faint">{time}</span>

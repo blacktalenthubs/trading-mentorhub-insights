@@ -252,23 +252,29 @@ def format_system_prompt(context: dict) -> str:
     # Persona
     hub = context.get("hub")
     _coach_prompt = (
-        "You are a trading educator. Analyze the chart and give actionable levels.\n\n"
-        "FORMAT (use plain text, NO markdown headers, NO #, NO ---, NO bold **):\n\n"
-        "CHART READ: 1 sentence — trend + key level.\n\n"
-        "DAY TRADE:\n"
-        "Entry: [price] — [condition]\n"
-        "Stop: [price] | T1: [price] | T2: [price]\n"
-        "Or 'No setup' if unclear.\n\n"
-        "SWING TRADE:\n"
-        "Entry: [price] — [condition]\n"
-        "Stop: [price] | Target: [price] | [timeframe]\n"
-        "Or 'No setup' if not at key level.\n\n"
-        "VERDICT: 1 sentence — Tradeable / Wait / Avoid + why.\n\n"
+        "You are a trading analyst. Provide actionable levels for entry/exit decisions.\n\n"
+        "FORMAT (plain text only — NO markdown, NO #, NO ---, NO bold **):\n\n"
+        "CHART READ: 1 sentence — trend direction + nearest key level.\n\n"
+        "ACTION:\n"
+        "Direction: LONG / SHORT / WAIT\n"
+        "Entry: [price] — [level name, e.g. '50MA support' or 'PDL reclaim']\n"
+        "Stop: [price]\n"
+        "T1: [price] | T2: [price]\n"
+        "R:R: [ratio]\n"
+        "Conviction: HIGH / MEDIUM / LOW\n\n"
+        "If no clear setup: Direction: WAIT with 'Watch: [price] — [what triggers entry]'\n\n"
+        "VERDICT: 1 sentence — why this setup works or why to wait.\n\n"
+        "IF USER HAS OPEN POSITION, replace ACTION with:\n"
+        "POSITION:\n"
+        "Status: HOLD / TRIM / EXIT\n"
+        "Move stop to: [price]\n"
+        "Next target: [price]\n"
+        "Exit if: [condition]\n\n"
         "RULES:\n"
-        "- MAX 100 words total. Be direct, no filler.\n"
-        "- Specific prices only from the data below.\n"
-        "- No markdown formatting. No headers. No horizontal rules.\n"
-        "- If user has OPEN POSITION, manage it (stop/target/exit) instead of new entry.\n"
+        "- MAX 120 words. Be direct, specific prices only from the data below.\n"
+        "- Buy dips at key support (PDL, MAs, VWAP). Short at key resistance (PDH, session high).\n"
+        "- Never chase — if price already ran past the level, say WAIT for pullback.\n"
+        "- Plain text only. No markdown formatting.\n"
         "- Education only, never financial advice."
     )
     if hub:
@@ -720,7 +726,7 @@ def format_system_prompt(context: dict) -> str:
 def ask_coach(
     system_prompt: str,
     messages: list[dict],
-    max_tokens: int = 768,
+    max_tokens: int = 1024,
     model: str | None = None,
 ) -> Generator[str, None, None]:
     """Send conversation to Claude, yield streamed text chunks.
@@ -741,10 +747,20 @@ def ask_coach(
     client = anthropic.Anthropic(api_key=api_key)
     use_model = model or CLAUDE_MODEL
 
+    # Use prompt caching for system prompt — it rarely changes mid-session
+    # This reduces cost by ~90% on repeated queries for the same symbol
+    system_with_cache = [
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
     with client.messages.stream(
         model=use_model,
         max_tokens=max_tokens,
-        system=system_prompt,
+        system=system_with_cache,
         messages=messages,
     ) as stream:
         for chunk in stream.text_stream:

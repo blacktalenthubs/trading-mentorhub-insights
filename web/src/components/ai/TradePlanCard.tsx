@@ -86,12 +86,48 @@ export default function TradePlanCard({ plan }: { plan: TradePlan }) {
         <p className="text-xs font-semibold text-accent">{plan.setup}</p>
       )}
 
-      {/* Price levels */}
+      {/* Price levels with visual risk/reward bar */}
       <div className="border-t border-border-subtle/50 pt-2">
         <PriceRow label="Entry" value={plan.entry} color="text-accent" />
         <PriceRow label="Stop" value={plan.stop} color="text-bearish-text" />
         <PriceRow label="Target 1" value={plan.target_1} color="text-bullish-text" />
         <PriceRow label="Target 2" value={plan.target_2} color="text-bullish-text" />
+
+        {/* Visual R:R bar — shows risk vs reward proportionally */}
+        {plan.entry != null && plan.stop != null && plan.target_1 != null && (
+          <div className="mt-2">
+            <div className="flex h-2.5 rounded-full overflow-hidden bg-surface-3">
+              {(() => {
+                const risk = Math.abs(plan.entry - plan.stop);
+                const reward = Math.abs(plan.target_1 - plan.entry);
+                const total = risk + reward;
+                if (total <= 0) return null;
+                const riskPct = (risk / total) * 100;
+                const rewardPct = (reward / total) * 100;
+                return (
+                  <>
+                    <div
+                      className="bg-bearish/60 transition-all"
+                      style={{ width: `${riskPct}%` }}
+                      title={`Risk: $${risk.toFixed(2)}`}
+                    />
+                    <div className="w-px bg-accent" />
+                    <div
+                      className="bg-bullish/60 transition-all"
+                      style={{ width: `${rewardPct}%` }}
+                      title={`Reward: $${reward.toFixed(2)}`}
+                    />
+                  </>
+                );
+              })()}
+            </div>
+            <div className="flex justify-between text-[9px] text-text-faint mt-0.5">
+              <span>Risk</span>
+              <span>Entry</span>
+              <span>Reward</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* R:R and Confluence */}

@@ -256,7 +256,7 @@ def build_analysis_prompt(context: dict) -> str:
 [OUR TRADING PLAYBOOK — analyze through this lens]
 We trade these high-probability setups. Look for which one applies NOW:
 
-BUY SETUPS (long entries):
+BUY SETUPS (long entries at key support levels):
 1. MA/EMA Bounce: Price pulls back to 20/50/100/200 MA or EMA and bounces. Entry on the bounce candle, stop below the MA.
 2. Prior Day Low (PDL) Reclaim: Price dips below yesterday's low then recovers above it. Buyers stepping in.
 3. Prior Day High (PDH) Breakout: Price breaks and holds above yesterday's high with volume. Momentum continuation.
@@ -266,13 +266,18 @@ BUY SETUPS (long entries):
 7. Gap and Go: Stock gaps up and holds above VWAP with strong volume. Trend continuation.
 8. Session Low Reversal: Hammer/doji at session low with volume surge. Capitulation reversal.
 9. Consolidation Breakout: Tight 5-15 bar range followed by directional break with volume.
+10. VWAP Reclaim: Price was trading below VWAP, closes above it. Momentum shift from bearish to bullish. Entry at VWAP, stop below session low.
+11. VWAP Bounce: Price trending above VWAP, pulls back to test it, holds above. Continuation. Entry near VWAP, stop below VWAP.
+12. Fibonacci Retracement Bounce: Price retraces to 50% or 61.8% fib level of the prior swing and bounces. Mean reversion at structure.
+13. Weekly/Monthly Support: Price pulls back to a weekly or monthly support level and holds. Higher timeframe support = stronger conviction.
 
-SHORT/EXIT SETUPS:
+SHORT/EXIT SETUPS (at key resistance levels):
 1. PDH Rejection/Failed Breakout: Price tests PDH but fails to hold above. Trapped longs.
 2. Session High Double Top: Price tests a high twice and reverses. Distribution.
 3. VWAP Loss: Price breaks and holds below VWAP. Intraday trend shift.
 4. Support Breakdown: Key support level breaks with volume. Trend reversal.
 5. EMA Rejection: Price rallies into falling EMA and gets rejected. Resistance confirmation.
+6. Hourly Resistance Rejection: Price rallies into a horizontal resistance zone (multiple touches) and gets rejected with a close in the lower half of the bar.
 
 KEY PRINCIPLES:
 - Stop loss goes below the structure (MA, support level, swing low) — not arbitrary percentages

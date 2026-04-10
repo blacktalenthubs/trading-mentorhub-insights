@@ -136,7 +136,7 @@ class TestFormatSystemPrompt:
     def test_persona_always_present(self):
         from analytics.trade_coach import format_system_prompt
         prompt = format_system_prompt(self._make_context())
-        assert "trading coach" in prompt.lower()
+        assert "trading analyst" in prompt.lower()
 
     def test_open_positions_section(self):
         from analytics.trade_coach import format_system_prompt
@@ -261,4 +261,7 @@ class TestAskCoach:
         # Verify all messages were passed
         call_kwargs = mock_client.messages.stream.call_args[1]
         assert len(call_kwargs["messages"]) == 3
-        assert call_kwargs["system"] == "system"
+        # System prompt is now a list with cache_control for prompt caching
+        assert isinstance(call_kwargs["system"], list)
+        assert call_kwargs["system"][0]["text"] == "system"
+        assert call_kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}

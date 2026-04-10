@@ -15,13 +15,175 @@ interface Props {
   onClear: () => void;
 }
 
+/** Parse ACTION/POSITION block from coach response. */
+function parseActionBlock(text: string): {
+  type: "action" | "position" | null;
+  direction?: string;
+  entry?: string;
+  stop?: string;
+  t1?: string;
+  t2?: string;
+  rr?: string;
+  conviction?: string;
+  watch?: string;
+  // position fields
+  status?: string;
+  moveStop?: string;
+  nextTarget?: string;
+  exitIf?: string;
+} {
+  const lines = text.split("\n");
+  let inBlock = false;
+  let blockType: "action" | "position" | null = null;
+  const data: Record<string, string> = {};
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "ACTION:") { inBlock = true; blockType = "action"; continue; }
+    if (trimmed === "POSITION:") { inBlock = true; blockType = "position"; continue; }
+    if (inBlock && /^[A-Z][A-Z /]+:/.test(trimmed) && !trimmed.startsWith("Entry") && !trimmed.startsWith("Stop") &&
+        !trimmed.startsWith("T1") && !trimmed.startsWith("T2") && !trimmed.startsWith("R:R") &&
+        !trimmed.startsWith("Direction") && !trimmed.startsWith("Conviction") && !trimmed.startsWith("Watch") &&
+        !trimmed.startsWith("Status") && !trimmed.startsWith("Move") && !trimmed.startsWith("Next") &&
+        !trimmed.startsWith("Exit")) {
+      inBlock = false;
+    }
+    if (inBlock) {
+      const match = trimmed.match(/^([^:]+):\s*(.+)$/);
+      if (match) {
+        const key = match[1].trim().toLowerCase().replace(/\s+/g, "_");
+        data[key] = match[2].trim();
+      }
+    }
+  }
+
+  if (!blockType) return { type: null };
+  return {
+    type: blockType,
+    direction: data["direction"],
+    entry: data["entry"],
+    stop: data["stop"],
+    t1: data["t1"],
+    t2: data["t2"],
+    rr: data["r:r"] || data["rr"],
+    conviction: data["conviction"],
+    watch: data["watch"],
+    status: data["status"],
+    moveStop: data["move_stop_to"],
+    nextTarget: data["next_target"],
+    exitIf: data["exit_if"],
+  };
+}
+
+/** Rich ACTION card for trade entries. */
+function ActionCard({ block }: { block: ReturnType<typeof parseActionBlock> }) {
+  if (block.type === "action" && block.direction) {
+    const isLong = block.direction.toUpperCase() === "LONG";
+    const isWait = block.direction.toUpperCase() === "WAIT";
+    const dirColor = isWait ? "bg-yellow-500/20 text-yellow-400" : isLong ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400";
+    const borderColor = isWait ? "border-yellow-500/30" : isLong ? "border-emerald-500/30" : "border-red-500/30";
+
+    return (
+      <div className={`my-2 rounded-lg border ${borderColor} bg-surface-3/50 p-3`}>
+        <div className="flex items-center gap-2 mb-2">
+          <span className={`px-2 py-0.5 rounded text-xs font-bold ${dirColor}`}>
+            {block.direction.toUpperCase()}
+          </span>
+          {block.conviction && (
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+              block.conviction.toUpperCase() === "HIGH" ? "bg-emerald-500/20 text-emerald-400" :
+              block.conviction.toUpperCase() === "MEDIUM" ? "bg-yellow-500/20 text-yellow-400" :
+              "bg-red-500/20 text-red-400"
+            }`}>
+              {block.conviction.toUpperCase()}
+            </span>
+          )}
+          {block.rr && (
+            <span className="text-xs text-text-muted font-mono">R:R {block.rr}</span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          {block.entry && (
+            <div><span className="text-text-muted">Entry:</span> <span className="text-text-primary font-mono">{block.entry}</span></div>
+          )}
+          {block.stop && (
+            <div><span className="text-text-muted">Stop:</span> <span className="text-red-400 font-mono">{block.stop}</span></div>
+          )}
+          {block.t1 && (
+            <div><span className="text-text-muted">T1:</span> <span className="text-emerald-400 font-mono">{block.t1}</span></div>
+          )}
+          {block.t2 && (
+            <div><span className="text-text-muted">T2:</span> <span className="text-emerald-400 font-mono">{block.t2}</span></div>
+          )}
+        </div>
+        {block.watch && (
+          <div className="mt-2 text-xs text-yellow-400">
+            Watch: {block.watch}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (block.type === "position" && block.status) {
+    const isHold = block.status.toUpperCase() === "HOLD";
+    const isExit = block.status.toUpperCase() === "EXIT";
+    const statusColor = isExit ? "bg-red-500/20 text-red-400" : isHold ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400";
+
+    return (
+      <div className="my-2 rounded-lg border border-blue-500/30 bg-surface-3/50 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-bold text-blue-400">POSITION MGMT</span>
+          <span className={`px-2 py-0.5 rounded text-xs font-bold ${statusColor}`}>
+            {block.status.toUpperCase()}
+          </span>
+        </div>
+        <div className="space-y-1 text-xs">
+          {block.moveStop && (
+            <div><span className="text-text-muted">Move stop to:</span> <span className="text-yellow-400 font-mono">{block.moveStop}</span></div>
+          )}
+          {block.nextTarget && (
+            <div><span className="text-text-muted">Next target:</span> <span className="text-emerald-400 font-mono">{block.nextTarget}</span></div>
+          )}
+          {block.exitIf && (
+            <div><span className="text-text-muted">Exit if:</span> <span className="text-red-400">{block.exitIf}</span></div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 /** Lightweight markdown-ish renderer for coach responses. */
 function CoachMarkdown({ text }: { text: string }) {
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
 
+  // Check for ACTION/POSITION block and render as rich card
+  const actionBlock = parseActionBlock(text);
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // Skip lines that are part of the ACTION/POSITION block (rendered as card)
+    if (actionBlock.type) {
+      const trimmed = line.trim();
+      if (trimmed === "ACTION:" || trimmed === "POSITION:") {
+        elements.push(<ActionCard key={`action-${i}`} block={actionBlock} />);
+        // Skip subsequent lines that belong to the block
+        while (i + 1 < lines.length) {
+          const nextLine = lines[i + 1].trim();
+          if (!nextLine || /^(Direction|Entry|Stop|T1|T2|R:R|Conviction|Watch|Status|Move|Next|Exit):/i.test(nextLine)) {
+            i++;
+          } else {
+            break;
+          }
+        }
+        continue;
+      }
+    }
 
     // Horizontal rule
     if (/^---+$/.test(line.trim())) {

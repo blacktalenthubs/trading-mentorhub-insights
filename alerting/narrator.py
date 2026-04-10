@@ -30,50 +30,48 @@ _SKIP_TYPES = {
 }
 
 _SYSTEM_PROMPT = """\
-You are a concise day-trading educator. Given a detected pattern's full context, \
-write a structured 3-part analysis. Use these exact section markers:
+You are a concise trading analyst. Given a detected pattern, write a structured \
+actionable analysis. Use these exact section markers:
 
-SETUP: What happened — name the pattern, the key price level, and what confirmed it \
-(volume, hold duration, candle structure). One sentence.
-
-WHY NOW: Market context — regime (bullish/bearish/choppy), VWAP position, \
-time of session, any confluence with other levels. One sentence.
-
-RISK: What invalidates this setup — the stop level and what happens if it breaks. \
+THESIS: What happened — name the pattern, the key price level, and what confirmed it. \
 One sentence.
 
+KEY LEVELS:
+Entry: $price (the level name)
+Invalidation: $price (what kills the trade)
+Target: $price (first resistance/support target)
+
+WATCH: One sentence — what to monitor for confirmation or failure.
+
 Rules:
-- Be specific — use actual dollar amounts and percentages from the context
-- Frame as education: "This setup shows..." not "You should buy..."
-- No markdown formatting — plain text only
-- Keep each section to ONE sentence (3 sentences total)
-- Never give financial advice"""
+- Use actual dollar amounts from the context — never make up prices
+- Entry = the setup level. Invalidation = the stop. Target = T1.
+- No markdown — plain text only
+- 3 lines max for KEY LEVELS, 1 sentence each for THESIS and WATCH
+- Education only, not financial advice"""
 
 _SYSTEM_PROMPT_ENHANCED = """\
-You are a day-trading educator writing a detailed pattern analysis. Given a \
+You are a trading analyst writing a detailed pattern analysis. Given a \
 detected pattern's full context, write a structured analysis:
 
-SETUP: What pattern fired, at what price, and what confirmed it (volume, candle, \
-hold duration). Reference the specific levels from the data.
+THESIS: What pattern fired, at what price, and what confirmed it (volume, candle, \
+hold duration). Reference the specific levels.
 
-WHY NOW: Market regime context — is SPY supporting this direction? VWAP position? \
-Time of session? Any confluence with other support/resistance levels?
+KEY LEVELS:
+Entry: $price (level name — e.g. "20 EMA support")
+Invalidation: $price (what breaks — e.g. "close below 50MA")
+Target 1: $price (first resistance/support)
+Target 2: $price (second level if T1 clears)
 
-CONVICTION: Rate HIGH/MEDIUM/LOW with a one-line reason based on the score, \
-R:R ratio, volume, and regime alignment.
+CONVICTION: HIGH/MEDIUM/LOW — one-line reason based on score, R:R, volume, regime.
 
-RISK: Exact invalidation level (the stop price) and what structurally breaks \
-if that level fails. Where is the next support/resistance?
-
-LESSON: One actionable insight a learning trader can take from this pattern — \
-what to look for next time, or what mistake to avoid.
+WATCH: What to monitor — is volume confirming? Is SPY aligned? What time risk?
 
 Rules:
-- Be specific — use actual dollar amounts and percentages
-- Frame as education, never recommendations
+- Use actual dollar amounts and percentages from the context
+- Key Levels must use the exact prices from the alert data
 - No markdown formatting — plain text only
-- Keep to 5 sentences total (one per section)
-- This is for educational purposes only"""
+- Education only, not financial advice"""
 
 
 def _build_user_prompt(signal: AlertSignal) -> str:
@@ -176,10 +174,18 @@ def generate_narrative(signal: AlertSignal) -> str:
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
+        # Prompt caching: system prompt is the same for all alerts in a session
+        system_with_cache = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=system_prompt,
+            system=system_with_cache,
             messages=[{"role": "user", "content": _build_user_prompt(signal)}],
             timeout=10.0,
         )
