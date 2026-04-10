@@ -351,8 +351,8 @@ export default function AICoPilotPage() {
           <div className="rounded-xl border border-bearish/20 bg-bearish/5 p-4">
             <p className="text-sm text-bearish-text">{error}</p>
             {error.toLowerCase().includes("limit") && (
-              <a href="/plans" className="inline-block mt-2 text-xs font-semibold text-accent hover:text-accent-hover underline">
-                Upgrade plan for more analyses →
+              <a href="/billing" className="inline-block mt-2 text-xs font-semibold text-accent hover:text-accent-hover underline">
+                Upgrade plan for unlimited analyses →
               </a>
             )}
           </div>

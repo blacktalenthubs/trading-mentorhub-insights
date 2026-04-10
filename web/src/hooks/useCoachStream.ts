@@ -90,7 +90,7 @@ export function useCoachStream() {
         const err = await res.json().catch(() => ({}));
         const detail = err.detail;
         if (res.status === 429 && typeof detail === "object" && detail?.error === "usage_limit_reached") {
-          throw new Error(`Daily limit reached (${detail.limit} queries). Upgrade for more.`);
+          throw new Error(`Daily limit reached (${detail.limit} queries). Upgrade your plan for unlimited access.`);
         }
         if (res.status === 403 && typeof detail === "object" && detail?.error === "upgrade_required") {
           throw new Error(`${detail.required_tier?.charAt(0).toUpperCase()}${detail.required_tier?.slice(1)} subscription required.`);
@@ -139,7 +139,7 @@ export function useCoachStream() {
       if ((err as Error).name !== "AbortError") {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: `Error: ${(err as Error).message}` },
+          { role: "assistant", content: (err as Error).message },
         ]);
       }
     } finally {
