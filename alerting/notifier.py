@@ -184,33 +184,13 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             f"Watch for pullback to VWAP for entry"
         )
 
-    # SHORT filter — only structural daily-level shorts reach Telegram as SHORT
-    # CRYPTO: no short alerts at all — too noisy, conflicting signals
-    # Key intraday levels (VWAP loss, session low, morning low) → send as NOTICE
-    # Other intraday shorts → suppress entirely
+    # SHORT → all sent as RESISTANCE alerts to Telegram
+    # CRYPTO: no short alerts — too noisy
     if signal.direction == "SHORT":
         _is_crypto = signal.symbol.endswith("-USD")
         if _is_crypto:
-            return None  # suppress all crypto shorts — only exits and notices
-        _STRUCTURAL_SHORT_TYPES = {
-            "pdh_failed_breakout",       # rejection at PDH
-            "support_breakdown",         # break of PDL / double bottom low
-            "session_high_double_top",   # daily double top rejection
-            "ema_rejection_short",       # rejection at key DAILY EMA (50/100/200)
-        }
-        _NOTICE_SHORT_TYPES = {
-            "vwap_loss":                "VWAP lost",
-            "session_low_breakdown":    "Session low broken",
-            "morning_low_breakdown":    "Morning low broken",
-        }
-        if signal.alert_type.value in _NOTICE_SHORT_TYPES:
-            import html as _html_notice
-            _notice_label = _NOTICE_SHORT_TYPES[signal.alert_type.value]
-            return (
-                f"<b>NOTICE — {_html_notice.escape(signal.symbol)} ${signal.price:.2f}</b>\n"
-                f"{_notice_label} — watch for continuation or reclaim"
-            )
-        if signal.alert_type.value not in _STRUCTURAL_SHORT_TYPES:
+            return None  # suppress all crypto shorts
+        # All SHORT types pass through as RESISTANCE — no suppression
             return None  # suppress remaining non-structural shorts
 
     # LONG (BUY) and RESISTANCE (SHORT) — entry evaluation format
