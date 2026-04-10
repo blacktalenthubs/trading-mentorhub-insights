@@ -800,6 +800,16 @@ export default function TradingPageV2() {
         color: isBroken ? "#ef4444" : "#f59e0b",
       });
     }
+    // VWAP level — key inflection point
+    if ((s as any).vwap != null && !isDup((s as any).vwap)) {
+      lvls.push({
+        id: -4,
+        symbol: s.symbol,
+        price: (s as any).vwap,
+        label: "VWAP",
+        color: "#a855f7",
+      });
+    }
     return lvls;
   })();
 
