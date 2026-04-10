@@ -1,6 +1,7 @@
 /** Streaming chat UI for AI coach. */
 
 import { useRef, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 interface Message {
   role: "user" | "assistant";
@@ -309,11 +310,14 @@ export default function ChatWindow({ messages, streaming, onSend, onStop, onClea
           >
             {m.role === "assistant" ? (
               m.content.toLowerCase().includes("limit reached") || m.content.toLowerCase().includes("upgrade") ? (
-                <div>
-                  <p className="text-bearish-text text-sm">{m.content}</p>
-                  <a href="/billing" className="inline-block mt-2 text-xs font-semibold text-accent hover:text-accent-hover underline">
-                    Upgrade plan for unlimited access →
-                  </a>
+                <div className="text-center py-2">
+                  <p className="text-text-secondary text-sm mb-3">{m.content}</p>
+                  <Link
+                    to="/billing"
+                    className="inline-block px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors"
+                  >
+                    Upgrade Plan →
+                  </Link>
                 </div>
               ) : (
                 <CoachMarkdown text={m.content} />

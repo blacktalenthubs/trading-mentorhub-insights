@@ -1,6 +1,7 @@
 /** AI CoPilot — chart analysis with structured trade plans. */
 
 import { useState, useCallback, useRef } from "react";
+import { Link } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "../stores/auth";
 import { useWatchlist, useOHLCV, useLivePrices } from "../api/hooks";
@@ -351,9 +352,12 @@ export default function AICoPilotPage() {
           <div className="rounded-xl border border-bearish/20 bg-bearish/5 p-4">
             <p className="text-sm text-bearish-text">{error}</p>
             {error.toLowerCase().includes("limit") && (
-              <a href="/billing" className="inline-block mt-2 text-xs font-semibold text-accent hover:text-accent-hover underline">
-                Upgrade plan for unlimited analyses →
-              </a>
+              <Link
+                to="/billing"
+                className="inline-block mt-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors"
+              >
+                Upgrade Plan →
+              </Link>
             )}
           </div>
         )}
