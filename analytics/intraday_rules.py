@@ -7081,31 +7081,12 @@ def evaluate_rules(
     # SPY is exempt — we want alerts if SPY hits key levels at open.
     _OPENING_WAIT_BARS = 6  # 6 × 5-min = 30 min — first 30 min is opening auction noise
     _is_spy = symbol in ("SPY", "QQQ")
-    _in_opening_wait = (
-        not is_crypto
-        and not _is_spy
-        and phase == "opening_range"
-        and len(intraday_bars) < _OPENING_WAIT_BARS
-    )
+    # REMOVED (P2): opening wait and SPY below VWAP gates.
+    # Key level rules fire at key levels regardless of regime or time.
 
-    # ── Gate 2: SPY below VWAP = suppress non-SPY equity longs ───────────
-    # Simple real-time check: is SPY's current price below its VWAP?
-    # If yes, no equity BUY alerts except SPY itself.
-    # This replaces the rolling-average vwap_dominance check with an
-    # immediate price-vs-VWAP comparison.
-    _spy_currently_below_vwap = False
-    if (
-        not is_crypto
-        and symbol != "SPY"
-        and spy_gate
-    ):
-        _spy_vwap_dom = spy_gate.get("vwap_dominance", 1.0)
-        _spy_above_ema = spy_gate.get("above_ema", True)
-        # SPY below VWAP: dominance < 50% OR gate explicitly red/yellow
-        if _spy_vwap_dom < 0.5 or spy_gate.get("gate") == "red":
-            _spy_currently_below_vwap = True
-
-    if not is_cooled_down:
+    # REMOVED (P2): is_cooled_down gate was blocking ALL BUY rules after a stop loss.
+    # Key level rules fire at key levels — a stop doesn't invalidate the next setup.
+    if True:
         sig = check_ma_bounce_20(symbol, intraday_bars, ma20, ma50)
         if sig:
             sig.message += f" ({phase})"
@@ -7915,7 +7896,7 @@ def evaluate_rules(
             )
 
     # --- EMA Crossover 5/20 (BUY) ---
-    if not is_cooled_down and AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
+    if AlertType.EMA_CROSSOVER_5_20.value in ENABLED_RULES:
         sig = check_ema_crossover_5_20(symbol, intraday_bars)
         if sig:
             sig.message += f" ({phase})"

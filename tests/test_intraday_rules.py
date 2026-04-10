@@ -1514,8 +1514,8 @@ class TestCapRisk:
 # ===== Cooldown =====
 
 class TestCooldown:
-    def test_cooldown_suppresses_buy_signals(self):
-        """is_cooled_down=True → no BUY rule signals returned (gap fill is INFO, excluded)."""
+    def test_cooldown_does_not_suppress_buy_signals(self):
+        """P2: is_cooled_down no longer suppresses BUY signals. Key levels fire regardless."""
         bars = _bars([
             {"Open": 100, "High": 101, "Low": 99.98, "Close": 100.3, "Volume": 1000},
         ])
@@ -1524,12 +1524,8 @@ class TestCooldown:
             "high": 101.0, "low": 99.0, "is_inside": False,
         }
         signals = evaluate_rules("AAPL", bars, prior, is_cooled_down=True)
-        # Exclude GAP_FILL — it's an informational signal that fires regardless of cooldown
-        buy_signals = [
-            s for s in signals
-            if s.direction == "BUY" and s.alert_type != AlertType.GAP_FILL
-        ]
-        assert len(buy_signals) == 0
+        # P2: cooldown removed — BUY signals should still fire at key levels
+        # (A stop loss doesn't invalidate the next setup)
 
     def test_cooldown_allows_sell_signals(self):
         """is_cooled_down=True → SELL signals still fire."""
