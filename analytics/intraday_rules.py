@@ -7930,16 +7930,8 @@ def evaluate_rules(
     # Removed: trending_down filter, SPY above VWAP SHORT suppression, 15-min range filter.
     # These filters were silently killing valid signals (e.g., SPY PDH breakout on April 9).
 
-    # --- Opening wait: suppress ALL BUY in first 15 min (KEPT — data quality guard) ---
-    if _in_opening_wait:
-        pre_open = signals[:]
-        signals = [s for s in signals if s.direction != "BUY"]
-        for s in pre_open:
-            if s.direction == "BUY" and s not in signals:
-                logger.info(
-                    "%s: OPENING WAIT suppressed BUY %s (only %d bars, need %d)",
-                    symbol, s.alert_type.value, len(intraday_bars), _OPENING_WAIT_BARS,
-                )
+    # --- Opening wait: REMOVED (P2 — fire at key levels, no suppression) ---
+    # If price is at a key level at 9:31 AM, the alert fires. The level is the level.
 
     # --- Contradictory signal filter: DISABLED ---
     # Previously suppressed BUYs when SHORT signals existed in the same cycle.
