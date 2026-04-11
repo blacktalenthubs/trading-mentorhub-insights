@@ -182,9 +182,11 @@ def build_day_trade_prompt(
             f"Volume Ratio: {vol_ratio:.1f}x avg\n\n"
             f"[POSITION — CALCULATED BY SYSTEM]\n"
             f"{position}\n"
-            f"If AT a support level → confirm with 2-3 bar hold, then fire LONG.\n"
-            f"If AT a resistance level → fire RESISTANCE.\n"
-            f"If APPROACHING or MID-RANGE → output WAIT."
+            f"If AT SUPPORT → confirm with 2-3 bar hold, then fire LONG.\n"
+            f"If APPROACHING SUPPORT → fire LONG with lower conviction (setup forming).\n"
+            f"If AT RESISTANCE → fire RESISTANCE.\n"
+            f"If APPROACHING RESISTANCE → fire RESISTANCE with lower conviction.\n"
+            f"If MID-RANGE → output WAIT."
         )
 
     # 5-min bars (last 20)
