@@ -451,7 +451,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                         session_date=session,
                     )
                     db.add(alert)
+                    db.flush()  # get alert.id for Telegram buttons
                     total_alerts += 1
+                _alert_id = alert.id
 
                 db.commit()
 
@@ -473,6 +475,13 @@ def day_scan_cycle(sync_session_factory) -> int:
                             f"Setup: {_html.escape(setup_label)}\n"
                             f"Conviction: {conviction}"
                         )
+                        _buttons = {
+                            "inline_keyboard": [[
+                                {"text": "✅ Took It", "callback_data": f"ack:{_alert_id}"},
+                                {"text": "❌ Skip", "callback_data": f"skip:{_alert_id}"},
+                                {"text": "🔴 Exit", "callback_data": f"exit:{_alert_id}"},
+                            ]]
+                        }
 
                         for uid in symbol_users[symbol]:
                             user = db.get(User, uid)
@@ -504,7 +513,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 except Exception:
                                     pass  # skip limit on error
                                 if _send:
-                                    _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                    _send_telegram_to(_tg_msg, user.telegram_chat_id, reply_markup=_buttons)
                                     logger.info("AI day scan %s: LONG at $%.2f → Telegram user %d", symbol, entry, uid)
                     except Exception:
                         logger.exception("AI day scan: Telegram failed for %s", symbol)
