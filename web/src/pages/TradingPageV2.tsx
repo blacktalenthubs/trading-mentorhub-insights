@@ -480,7 +480,10 @@ function SignalFeedTab({
     );
   }
 
-  if (!alerts || alerts.length === 0) {
+  // Filter out AI scan alerts — those show in the AI Scan tab
+  const ruleAlerts = alerts?.filter((a) => !a.alert_type?.startsWith("ai_scan")) ?? [];
+
+  if (ruleAlerts.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-xs text-text-faint">No alerts fired today</p>
@@ -490,7 +493,7 @@ function SignalFeedTab({
 
   return (
     <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-      {alerts.map((a) => {
+      {ruleAlerts.map((a) => {
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
