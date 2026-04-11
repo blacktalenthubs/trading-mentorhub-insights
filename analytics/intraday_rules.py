@@ -7026,15 +7026,8 @@ def evaluate_rules(
             intraday_supports.append(sl)
 
     # --- BUY rules ---
-    spy_regime = spy.get("regime", "CHOPPY")
+    # Regime REMOVED — was defaulting to CHOPPY and suppressing valid alerts
     caution_notes = []
-    if not is_crypto:
-        if spy_trend == "bearish":
-            caution_notes.append("SPY bearish (below 20MA)")
-        if spy_regime == "CHOPPY":
-            caution_notes.append(f"SPY regime: {spy_regime}")
-        if spy_regime == "TRENDING_DOWN":
-            caution_notes.append("SPY TRENDING DOWN — reduced confidence")
     if not entries_allowed:
         caution_notes.append(f"session: {phase}")
     caution_suffix = f" | CAUTION: {', '.join(caution_notes)}" if caution_notes else ""
@@ -7536,18 +7529,13 @@ def evaluate_rules(
 
         # --- Gap-and-Go ---
         if AlertType.GAP_AND_GO.value in ENABLED_RULES:
-            # Suppress gap_and_go in bearish SPY regime — gap-ups get sold
-            _gap_regime_ok = True
-            if not is_crypto and spy_regime == "TRENDING_DOWN":
-                _gap_regime_ok = False
-            if _gap_regime_ok:
-                sig = check_gap_and_go(
-                    symbol, intraday_bars, prior_close, bar_vol, avg_vol,
-                )
-                if sig:
-                    sig.message += f" ({phase})"
-                    sig.message += caution_suffix
-                    signals.append(sig)
+            sig = check_gap_and_go(
+                symbol, intraday_bars, prior_close, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                sig.message += caution_suffix
+                signals.append(sig)
 
         # --- Fibonacci Retracement Bounce ---
         if AlertType.FIB_RETRACEMENT_BOUNCE.value in ENABLED_RULES:
@@ -8351,17 +8339,7 @@ def evaluate_rules(
                     f"SPY {spy_intraday_change:+.1f}% (underperforming {rs_ratio:.1f}x)"
                 )
 
-        # Regime demotion: reduce BUY confidence in CHOPPY markets (equities only)
-        if not is_crypto and sig.direction == "BUY" and spy_regime == "CHOPPY":
-            if sig.confidence == "high":
-                sig.confidence = "medium"
-            sig.message += " | CHOPPY market — reduced confidence"
-
-        # SPY TRENDING_DOWN: strongest demotion (equities only)
-        if not is_crypto and sig.direction == "BUY" and spy_regime == "TRENDING_DOWN":
-            if sig.confidence == "high":
-                sig.confidence = "medium"
-            sig.message += " | SPY TRENDING DOWN — use extreme caution"
+        # Regime demotion: REMOVED — was defaulting to CHOPPY and demoting valid alerts
 
         # SPY S/R level reaction: adjust BUY confidence based on SPY position
         if not is_crypto and sig.direction == "BUY":
