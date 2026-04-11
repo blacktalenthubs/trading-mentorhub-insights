@@ -24,6 +24,7 @@ import SettingsPage from "./pages/SettingsPage";
 import AICoPilotPage from "./pages/AICoPilotPage";
 import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
+import TradeReviewPage from "./pages/TradeReviewPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,6 +90,7 @@ export default function App() {
                 <Route path="trading" element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
                 <Route path="trading-v1" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
                 <Route path="copilot" element={<ErrorBoundary><AICoPilotPage /></ErrorBoundary>} />
+                <Route path="review" element={<ErrorBoundary><TradeReviewPage /></ErrorBoundary>} />
                 <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
                 <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />

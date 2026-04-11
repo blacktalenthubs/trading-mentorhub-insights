@@ -17,6 +17,7 @@ import {
   Settings,
   LogOut,
   Sparkles,
+  PlayCircle,
   PanelLeftClose,
   PanelLeftOpen,
   type LucideIcon,
@@ -33,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/trading", label: "Trading", icon: Crosshair },
   { to: "/copilot", label: "AI CoPilot", icon: Brain },
+  { to: "/review", label: "Review", icon: PlayCircle },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight, badge: "0" },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
@@ -41,6 +43,7 @@ const MOBILE_TABS: NavItem[] = [
   { to: "/dashboard", label: "Home", icon: LayoutDashboard },
   { to: "/trading", label: "Trade", icon: Crosshair },
   { to: "/copilot", label: "CoPilot", icon: Brain },
+  { to: "/review", label: "Review", icon: PlayCircle },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
