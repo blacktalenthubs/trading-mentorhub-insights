@@ -354,6 +354,186 @@ def _handle_hold(alert_id: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# AI Telegram Commands — /spy, /eth, /btc, /levels, /scan
+# ---------------------------------------------------------------------------
+
+# Symbol shortcuts
+_SYMBOL_MAP = {
+    "eth": "ETH-USD", "btc": "BTC-USD", "sol": "SOL-USD",
+    "doge": "DOGE-USD", "ada": "ADA-USD",
+}
+
+def _resolve_symbol(text: str) -> str | None:
+    """Convert command text to symbol. /spy → SPY, /eth → ETH-USD."""
+    parts = text.strip().lstrip("/").split()
+    if not parts:
+        return None
+    raw = parts[0].lower()
+    if not raw or not raw.isalpha():
+        return None
+    return _SYMBOL_MAP.get(raw, raw.upper())
+
+
+def _get_user_from_chat_id(chat_id: int) -> dict | None:
+    """Look up user by telegram chat_id."""
+    try:
+        from db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id, email FROM users WHERE telegram_chat_id = ?",
+                (str(chat_id),),
+            ).fetchone()
+            if row:
+                return {"id": row["id"], "email": row["email"]}
+    except Exception:
+        pass
+    # Try V2 DB
+    try:
+        from db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM user_notification_prefs WHERE telegram_chat_id = ?",
+                (str(chat_id),),
+            ).fetchone()
+            if row:
+                return {"id": row["user_id"]}
+    except Exception:
+        pass
+    return None
+
+
+def _ai_analyze_symbol(symbol: str) -> str:
+    """Run AI analysis on a symbol — same as AI Coach, returns formatted text."""
+    try:
+        from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day
+        from config import is_crypto_alert_symbol
+        from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+
+        is_crypto = is_crypto_alert_symbol(symbol)
+        api_key = ANTHROPIC_API_KEY
+        if not api_key:
+            return "AI not configured. Contact support."
+
+        # Fetch data
+        bars_df = fetch_intraday_crypto(symbol) if is_crypto else fetch_intraday(symbol, period="1d", interval="5m")
+        if bars_df is None or (hasattr(bars_df, "empty") and bars_df.empty):
+            return f"No data available for {symbol}."
+
+        prior_day = fetch_prior_day(symbol, is_crypto=is_crypto)
+
+        # Build context — data only, AI decides
+        current = float(bars_df.iloc[-1]["Close"])
+        parts = [
+            f"Analyze {symbol} at ${current:.2f}. Is there a day trade entry?\n",
+            "Reply with: CHART READ (1 sentence) + ACTION (Direction/Entry/Stop/T1/T2/Conviction).\n"
+            "If no trade, say WAIT with what to watch for.\n"
+            "Entry = key level, not current price. Stop = structural support.\n"
+            "MAXIMUM 60 WORDS. Plain text.\n",
+        ]
+
+        # Key levels
+        if prior_day:
+            levels = []
+            for key, label in [
+                ("high", "PDH"), ("low", "PDL"), ("close", "PriorClose"),
+                ("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA"),
+                ("ema20", "20EMA"), ("ema50", "50EMA"),
+            ]:
+                val = prior_day.get(key)
+                if val and val > 0:
+                    levels.append(f"{label}=${val:.2f}")
+            rsi = prior_day.get("rsi14")
+            if rsi:
+                levels.append(f"RSI={rsi:.1f}")
+            pw_high = prior_day.get("prior_week_high")
+            pw_low = prior_day.get("prior_week_low")
+            if pw_high:
+                levels.append(f"WeekHi=${pw_high:.2f}")
+            if pw_low:
+                levels.append(f"WeekLo=${pw_low:.2f}")
+            parts.append("[LEVELS] " + "  ".join(levels))
+
+        # Session levels
+        session_high = float(bars_df["High"].max())
+        session_low = float(bars_df["Low"].min())
+        import pandas as pd
+        tp = (bars_df["High"] + bars_df["Low"] + bars_df["Close"]) / 3
+        vwap = float((tp * bars_df["Volume"]).sum() / bars_df["Volume"].sum()) if bars_df["Volume"].sum() > 0 else current
+        parts.append(f"[SESSION] High=${session_high:.2f} Low=${session_low:.2f} VWAP=${vwap:.2f}")
+
+        # Last 15 bars
+        lines = ["[5-MIN BARS]"]
+        for _, r in bars_df.tail(15).iterrows():
+            lines.append(f"O={float(r['Open']):.2f} H={float(r['High']):.2f} L={float(r['Low']):.2f} C={float(r['Close']):.2f} V={float(r['Volume']):.0f}")
+        parts.append("\n".join(lines))
+
+        prompt = "\n\n".join(parts)
+
+        # Call Claude
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=200,
+            system=[{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": f"Analyze {symbol} now."}],
+            timeout=10.0,
+        )
+        return response.content[0].text.strip()
+
+    except Exception as e:
+        logger.exception("AI analyze failed for %s", symbol)
+        return f"Analysis failed for {symbol}. Try again."
+
+
+def _get_key_levels(symbol: str) -> str:
+    """Get key levels for a symbol — no AI call, instant."""
+    try:
+        from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day
+        from config import is_crypto_alert_symbol
+
+        is_crypto = is_crypto_alert_symbol(symbol)
+        prior_day = fetch_prior_day(symbol, is_crypto=is_crypto)
+        bars_df = fetch_intraday_crypto(symbol) if is_crypto else fetch_intraday(symbol, period="1d", interval="5m")
+
+        if not prior_day:
+            return f"No data for {symbol}."
+
+        lines = [f"<b>📊 {symbol} Key Levels</b>"]
+
+        for key, label in [("high", "PDH"), ("low", "PDL"), ("close", "Prior Close")]:
+            val = prior_day.get(key)
+            if val and val > 0:
+                lines.append(f"{label}: ${val:.2f}")
+
+        for key, label in [("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA")]:
+            val = prior_day.get(key)
+            if val and val > 0:
+                lines.append(f"{label}: ${val:.2f}")
+
+        if bars_df is not None and not (hasattr(bars_df, "empty") and bars_df.empty):
+            session_high = float(bars_df["High"].max())
+            session_low = float(bars_df["Low"].min())
+            import pandas as pd
+            tp = (bars_df["High"] + bars_df["Low"] + bars_df["Close"]) / 3
+            vol_sum = bars_df["Volume"].sum()
+            vwap = float((tp * bars_df["Volume"]).sum() / vol_sum) if vol_sum > 0 else float(bars_df.iloc[-1]["Close"])
+            lines.append(f"Session Hi: ${session_high:.2f}")
+            lines.append(f"Session Lo: ${session_low:.2f}")
+            lines.append(f"VWAP: ${vwap:.2f}")
+
+        rsi = prior_day.get("rsi14")
+        if rsi:
+            lines.append(f"RSI: {rsi:.1f}")
+
+        return "\n".join(lines)
+
+    except Exception:
+        logger.exception("Key levels failed for %s", symbol)
+        return f"Could not fetch levels for {symbol}."
+
+
+# ---------------------------------------------------------------------------
 # Bot application builder
 # ---------------------------------------------------------------------------
 
@@ -513,10 +693,99 @@ def _build_app(bot_token: str):
         # Send confirmation as a separate message
         await query.message.reply_text(result)
 
+    # --- AI symbol command handler ---
+    async def ai_symbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /spy, /eth, /btc, etc. — AI chart analysis."""
+        symbol = _resolve_symbol(update.message.text)
+        if not symbol:
+            await update.message.reply_text("Usage: /spy, /eth, /btc, /aapl, etc.")
+            return
+
+        # Check user is linked
+        user = _get_user_from_chat_id(update.effective_chat.id)
+        if not user:
+            await update.message.reply_text(
+                "Account not linked. Go to Settings > Notifications > Telegram to connect."
+            )
+            return
+
+        await update.message.reply_text(f"Analyzing {symbol}...")
+
+        # Run AI analysis
+        analysis = _ai_analyze_symbol(symbol)
+        current_price = ""
+        try:
+            from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto
+            from config import is_crypto_alert_symbol
+            is_crypto = is_crypto_alert_symbol(symbol)
+            bars = fetch_intraday_crypto(symbol) if is_crypto else fetch_intraday(symbol, period="1d", interval="5m")
+            if bars is not None and not (hasattr(bars, "empty") and bars.empty):
+                current_price = f" ${float(bars.iloc[-1]['Close']):.2f}"
+        except Exception:
+            pass
+
+        msg = f"<b>📊 {symbol}{current_price}</b>\n\n{analysis}"
+        await update.message.reply_html(msg)
+
+    # --- /levels command handler ---
+    async def levels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /levels spy — show key levels, no AI call."""
+        if not context.args:
+            await update.message.reply_text("Usage: /levels spy, /levels eth")
+            return
+        symbol = _resolve_symbol(context.args[0])
+        if not symbol:
+            await update.message.reply_text("Invalid symbol.")
+            return
+        msg = _get_key_levels(symbol)
+        await update.message.reply_html(msg)
+
+    # --- /scan command handler ---
+    async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /scan — trigger AI scan on user's watchlist."""
+        user = _get_user_from_chat_id(update.effective_chat.id)
+        if not user:
+            await update.message.reply_text("Account not linked.")
+            return
+
+        await update.message.reply_text("Scanning your watchlist...")
+
+        try:
+            from db import get_db
+            with get_db() as conn:
+                rows = conn.execute(
+                    "SELECT symbol FROM watchlist WHERE user_id = ?",
+                    (user["id"],),
+                ).fetchall()
+            symbols = [r["symbol"] for r in rows] if rows else []
+            if not symbols:
+                await update.message.reply_text("No symbols on your watchlist.")
+                return
+
+            results = []
+            for sym in symbols[:10]:  # max 10
+                analysis = _ai_analyze_symbol(sym)
+                # Extract first line as summary
+                first_line = analysis.split("\n")[0][:80]
+                results.append(f"<b>{sym}</b>: {first_line}")
+
+            msg = "<b>📊 Watchlist Scan</b>\n\n" + "\n\n".join(results)
+            await update.message.reply_html(msg)
+        except Exception:
+            logger.exception("Scan command failed")
+            await update.message.reply_text("Scan failed. Try again.")
+
     app = ApplicationBuilder().token(bot_token).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("exit", exit_command))
     app.add_handler(CommandHandler("trades", trades_command))
+    app.add_handler(CommandHandler("levels", levels_command))
+    app.add_handler(CommandHandler("scan", scan_command))
+    # AI symbol commands — register common symbols + catch-all
+    _common_symbols = ["spy", "eth", "btc", "aapl", "tsla", "nvda", "meta",
+                       "pltr", "qqq", "amd", "googl", "amzn", "msft", "sol"]
+    for _sym in _common_symbols:
+        app.add_handler(CommandHandler(_sym, ai_symbol_command))
     app.add_handler(CallbackQueryHandler(callback_handler))
     return app
 
