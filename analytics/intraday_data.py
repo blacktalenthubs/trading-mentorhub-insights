@@ -174,7 +174,9 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
     if not symbol.endswith("-USD"):  # equities only, crypto uses Coinbase
         df = _fetch_alpaca_bars(symbol, interval=interval)
         if not df.empty and len(df) >= 6:
+            logger.info("%s: using ALPACA (%d bars, last=$%.2f)", symbol, len(df), df.iloc[-1]["Close"])
             return df
+        logger.info("%s: Alpaca empty/failed — falling back to yfinance", symbol)
 
     # Fallback to yfinance
     try:
@@ -192,6 +194,7 @@ def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.
             last_ts = df.index[-1].to_pydatetime()
             if now - last_ts < timedelta(minutes=5):
                 df = df.iloc[:-1]
+        logger.info("%s: using YFINANCE fallback (%d bars, last=$%.2f)", symbol, len(df), df.iloc[-1]["Close"] if len(df) else 0)
         return df
     except Exception:
         return pd.DataFrame()
