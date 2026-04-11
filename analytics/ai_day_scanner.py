@@ -131,29 +131,45 @@ def build_day_trade_prompt(
         current = bars_5m[-1]["close"]
 
         # Code-calculated position: distance to each key level
-        _near: list[tuple[str, float, float]] = []  # (name, price, distance_pct)
-        def _check(name: str, price: float):
-            if price and price > 0:
-                dist = abs(current - price) / price
-                _near.append((name, price, dist))
-        _check("Session Low", session_low)
-        _check("Session High", session_high)
-        _check("VWAP", vwap)
+        # Separate support (level at/below price) vs resistance (level above price)
+        _supports: list[tuple[str, float, float]] = []  # (name, price, distance_pct)
+        _resistances: list[tuple[str, float, float]] = []
+
+        def _add_level(name: str, price: float):
+            if not price or price <= 0:
+                return
+            dist = abs(current - price) / price
+            if price <= current * 1.001:  # level at or below price = support
+                _supports.append((name, price, dist))
+            else:  # level above price = resistance
+                _resistances.append((name, price, dist))
+
+        _add_level("Session Low", session_low)
+        _add_level("Session High", session_high)
+        _add_level("VWAP", vwap)
         if prior_day:
-            _check("PDL", prior_day.get("low", 0))
-            _check("PDH", prior_day.get("high", 0))
+            _add_level("PDL", prior_day.get("low", 0))
+            _add_level("PDH", prior_day.get("high", 0))
             for k, l in [("ma20","20MA"),("ma50","50MA"),("ma100","100MA"),("ma200","200MA"),
                         ("ema20","20EMA"),("ema50","50EMA"),("ema100","100EMA"),("ema200","200EMA")]:
-                _check(l, prior_day.get(k, 0))
+                _add_level(l, prior_day.get(k, 0))
 
-        _near.sort(key=lambda x: x[2])
-        _at = [(n,p,d) for n,p,d in _near if d <= 0.003]
-        _approaching = [(n,p,d) for n,p,d in _near if 0.003 < d <= 0.008]
+        _supports.sort(key=lambda x: x[2])
+        _resistances.sort(key=lambda x: x[2])
 
-        if _at:
-            position = f"AT {_at[0][0]} ${_at[0][1]:.2f} (distance: {_at[0][2]*100:.2f}%)"
-        elif _approaching:
-            position = f"APPROACHING {_approaching[0][0]} ${_approaching[0][1]:.2f} (distance: {_approaching[0][2]*100:.2f}%)"
+        _at_support = [(n,p,d) for n,p,d in _supports if d <= 0.003]
+        _at_resistance = [(n,p,d) for n,p,d in _resistances if d <= 0.003]
+        _approaching_support = [(n,p,d) for n,p,d in _supports if 0.003 < d <= 0.008]
+        _approaching_resistance = [(n,p,d) for n,p,d in _resistances if 0.003 < d <= 0.008]
+
+        if _at_support:
+            position = f"AT SUPPORT — {_at_support[0][0]} ${_at_support[0][1]:.2f} (distance: {_at_support[0][2]*100:.2f}%)"
+        elif _at_resistance:
+            position = f"AT RESISTANCE — {_at_resistance[0][0]} ${_at_resistance[0][1]:.2f} (distance: {_at_resistance[0][2]*100:.2f}%)"
+        elif _approaching_support:
+            position = f"APPROACHING SUPPORT — {_approaching_support[0][0]} ${_approaching_support[0][1]:.2f} (distance: {_approaching_support[0][2]*100:.2f}%)"
+        elif _approaching_resistance:
+            position = f"APPROACHING RESISTANCE — {_approaching_resistance[0][0]} ${_approaching_resistance[0][1]:.2f} (distance: {_approaching_resistance[0][2]*100:.2f}%)"
         else:
             position = "MID-RANGE — not near any key level"
 
