@@ -299,6 +299,16 @@ function AICoachTab({
                 <p className="font-medium bg-accent/[0.06] rounded-lg px-3 py-2 border border-accent/10">
                   {m.content}
                 </p>
+              ) : m.content.toLowerCase().includes("limit reached") || m.content.toLowerCase().includes("upgrade") ? (
+                <div className="bg-surface-2/60 rounded-lg border border-accent/20 p-4 text-center">
+                  <p className="text-text-secondary text-sm mb-3">{m.content}</p>
+                  <Link
+                    to="/billing"
+                    className="inline-block px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors"
+                  >
+                    Upgrade Plan →
+                  </Link>
+                </div>
               ) : (
                 <div className="bg-surface-2/60 rounded-lg border border-border-subtle p-3 relative">
                   <p
