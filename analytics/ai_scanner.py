@@ -318,12 +318,12 @@ def ai_scan_cycle(sync_session_factory):
                 if not entry or entry <= 0:
                     continue
 
-                # Dedup: same direction at same price bucket
-                price_bucket = round(entry, -1) if entry > 100 else round(entry, 0)
-                dedup_key = (symbol, direction, price_bucket)
+                # Dedup: one alert per symbol per direction per session
+                # If AI said LONG TSLA once today, don't repeat until direction changes
+                dedup_key = (symbol, direction)
                 fired = _scan_fired.get(session, set())
                 if dedup_key in fired:
-                    logger.debug("AI scan %s: dedup skip (%s at $%.0f)", symbol, direction, price_bucket)
+                    logger.debug("AI scan %s: dedup skip (%s already fired today)", symbol, direction)
                     continue
                 fired.add(dedup_key)
                 _scan_fired[session] = fired
