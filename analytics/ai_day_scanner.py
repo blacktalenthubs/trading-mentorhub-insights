@@ -26,7 +26,7 @@ _day_fired: dict[str, set[tuple]] = {}
 _day_session: str = ""
 # Track last direction sent to Telegram per symbol — only notify on change
 _last_tg_direction: dict[str, str] = {}  # {symbol: "LONG" / "RESISTANCE" / "WAIT"}
-_last_day_price: dict[str, float] = {}
+_last_tg_time: dict[str, float] = {}  # {symbol: timestamp of last Telegram send}
 
 
 def _resolve_api_key() -> str:
@@ -339,13 +339,16 @@ def day_scan_cycle(sync_session_factory) -> int:
                     ))
                     db.commit()
 
-                    # Send WAIT to Telegram only if direction changed from LONG/RESISTANCE
+                    # Send WAIT to Telegram: direction changed + 30 min cooldown
                     _level_keywords = ["PDH", "PDL", "VWAP", "session low", "session high",
                                        "50MA", "100MA", "200MA", "support", "resistance", "weekly"]
                     _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
                     _prev_dir = _last_tg_direction.get(symbol)
-                    if _near_level and reason and _prev_dir != "WAIT":
+                    _last_sent = _last_tg_time.get(symbol, 0)
+                    _cooldown_ok = (time.time() - _last_sent) > 1800  # 30 min
+                    if _near_level and reason and (_prev_dir != "WAIT" or _cooldown_ok):
                         _last_tg_direction[symbol] = "WAIT"
+                        _last_tg_time[symbol] = time.time()
                         try:
                             from alerting.notifier import _send_telegram_to
                             _tg_msg = (
@@ -382,9 +385,12 @@ def day_scan_cycle(sync_session_factory) -> int:
                     ))
                     db.commit()
 
-                    # Send Telegram only if direction changed
-                    if _last_tg_direction.get(symbol) != "RESISTANCE":
+                    # Send Telegram: direction changed + 30 min cooldown
+                    _last_sent_r = _last_tg_time.get(symbol, 0)
+                    _cooldown_r = (time.time() - _last_sent_r) > 1800
+                    if _last_tg_direction.get(symbol) != "RESISTANCE" or _cooldown_r:
                         _last_tg_direction[symbol] = "RESISTANCE"
+                        _last_tg_time[symbol] = time.time()
                         try:
                             from alerting.notifier import _send_telegram_to
                             _tg_msg = (
