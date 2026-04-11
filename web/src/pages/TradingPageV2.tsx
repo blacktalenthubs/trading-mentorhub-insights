@@ -393,14 +393,7 @@ function AIScanFeedTab({
   const isFree = tier === "free";
   const visibleLimit = isFree ? 5 : null;
   const aiAlerts = (alerts?.filter((a) => a.alert_type?.startsWith("ai_")) ?? [])
-    .sort((a, b) => {
-      // Actionable (LONG/RESISTANCE) first, WAITs last
-      const aWait = a.alert_type === "ai_scan_wait" || a.direction === "NOTICE" ? 1 : 0;
-      const bWait = b.alert_type === "ai_scan_wait" || b.direction === "NOTICE" ? 1 : 0;
-      if (aWait !== bWait) return aWait - bWait;
-      // Within same type, newest first
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   if (aiAlerts.length === 0) {
     return (
