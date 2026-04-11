@@ -273,11 +273,6 @@ def scan_day_trade(symbol: str, api_key: str) -> dict | None:
         prior_day = fetch_prior_day(symbol, is_crypto=is_crypto)
 
         current_price = float(bars_5m_df.iloc[-1]["Close"])
-        last_price = _last_day_price.get(symbol, 0)
-        if last_price > 0 and abs(current_price - last_price) / last_price < 0.003:
-            logger.debug("AI day scan: %s skipped — price unchanged", symbol)
-            return None
-        _last_day_price[symbol] = current_price
 
         bars_5m = [
             {"open": float(r["Open"]), "high": float(r["High"]),
