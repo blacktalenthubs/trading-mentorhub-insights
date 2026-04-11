@@ -48,7 +48,7 @@ def build_scan_prompt(
     """Build AI scan prompt — same as Coach but without user-specific data."""
 
     parts = [
-        "You are a trading analyst. Be extremely brief.\n\n"
+        "You are an intraday trading analyst. Be extremely brief.\n\n"
         "FORMAT (plain text, no markdown):\n\n"
         "CHART READ: 1 short sentence — trend + nearest key level.\n\n"
         "ACTION:\n"
@@ -58,9 +58,17 @@ def build_scan_prompt(
         "T1: $price\n"
         "T2: $price\n"
         "Conviction: HIGH / MEDIUM / LOW\n\n"
+        "INTRADAY SETUPS TO LOOK FOR:\n"
+        "- Session low bounce: price tests today's low and holds → BUY\n"
+        "- Session low double bottom: two tests of the same low → BUY\n"
+        "- VWAP reclaim: price crosses above VWAP from below → BUY\n"
+        "- VWAP bounce: pullback to VWAP that holds → BUY\n"
+        "- PDL bounce/reclaim: price at yesterday's low and holds → BUY\n"
+        "- Session high rejection: price tests high and fails → RESISTANCE\n"
+        "- VWAP loss: price drops below VWAP → RESISTANCE\n\n"
         "STRICT RULES:\n"
         "- MAXIMUM 60 WORDS TOTAL.\n"
-        "- Entry must be a KEY LEVEL (MA, VWAP, PDL, PDH, support, fib) — never current price.\n"
+        "- Entry must be a KEY LEVEL (session low, VWAP, PDL, PDH, MA) — never current price.\n"
         "- If price is not at a key level, Direction = WAIT.\n"
         "- Buy dips at support. Short at resistance. Don't chase.\n"
         "- PDH = yesterday's high, PDL = yesterday's low.\n"
@@ -96,6 +104,22 @@ def build_scan_prompt(
                 tech_parts.append(f"{label}=${technicals[key]:.2f}")
         if tech_parts:
             parts.append(f"[TECHNICALS] {' '.join(tech_parts)}")
+
+    # Intraday levels from 5m bars
+    if bars_5m:
+        session_high = max(b["high"] for b in bars_5m)
+        session_low = min(b["low"] for b in bars_5m)
+        # Simple VWAP approximation from bars
+        _tp_vol = sum(((b["high"] + b["low"] + b["close"]) / 3) * b.get("volume", 1) for b in bars_5m)
+        _vol = sum(b.get("volume", 1) for b in bars_5m)
+        vwap = _tp_vol / _vol if _vol > 0 else bars_5m[-1]["close"]
+        parts.append(
+            f"[INTRADAY LEVELS]\n"
+            f"Session High: ${session_high:.2f}\n"
+            f"Session Low: ${session_low:.2f}\n"
+            f"VWAP: ${vwap:.2f}\n"
+            f"Current Price: ${bars_5m[-1]['close']:.2f}"
+        )
 
     # 5-min bars (last 20)
     if bars_5m:
