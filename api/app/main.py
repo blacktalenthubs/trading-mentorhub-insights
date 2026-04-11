@@ -167,8 +167,29 @@ async def lifespan(app: FastAPI):
             id="alert_monitor_initial",
         )
         # SWING DISABLED — focus on day trade entries first.
-        # EOD swing scan and premarket refresh both disabled.
-        # Re-enable after day trade alerts are proven reliable.
+
+        # AI Scan Engine (Spec 26) — proactive AI-powered alerts
+        # Runs every 30 min during market hours, scans all watchlist symbols
+        def _ai_scan():
+            try:
+                from analytics.ai_scanner import ai_scan_cycle
+                count = ai_scan_cycle(sync_session_factory)
+                logger.info("AI scan complete: %d alerts", count)
+            except Exception:
+                logger.exception("AI scan cycle failed")
+
+        scheduler.add_job(
+            _ai_scan,
+            "interval",
+            minutes=30,
+            id="ai_scan",
+            replace_existing=True,
+        )
+        # Also run on startup
+        scheduler.add_job(
+            _ai_scan,
+            id="ai_scan_initial",
+        )
 
         # Alert Sniper: Game Plan — 9:05 AM ET weekdays
         def _game_plan():

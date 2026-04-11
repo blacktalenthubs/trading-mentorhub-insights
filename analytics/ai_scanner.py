@@ -1,0 +1,391 @@
+"""AI Scanner — proactive AI-powered alerts running parallel to rule engine.
+
+Scans each watchlist symbol on a schedule, calls Claude with chart context,
+parses structured output, records alerts. Same quality as AI Coach but automated.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+from datetime import date
+
+from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+
+logger = logging.getLogger(__name__)
+
+# Dedup: track (symbol, direction, entry_bucket) per session
+_scan_fired: dict[str, set[tuple]] = {}
+_scan_session: str = ""
+
+# Track last scan price per symbol — skip if <0.3% change
+_last_scan_price: dict[str, float] = {}
+
+
+def _resolve_api_key() -> str:
+    if ANTHROPIC_API_KEY:
+        return ANTHROPIC_API_KEY
+    try:
+        from db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT anthropic_api_key FROM user_notification_prefs "
+                "WHERE anthropic_api_key != '' LIMIT 1"
+            ).fetchone()
+            return row["anthropic_api_key"] if row else ""
+    except Exception:
+        return ""
+
+
+def build_scan_prompt(
+    symbol: str,
+    bars_5m: list[dict],
+    bars_1h: list[dict],
+    prior_day: dict | None,
+    technicals: dict | None,
+) -> str:
+    """Build AI scan prompt — same as Coach but without user-specific data."""
+
+    parts = [
+        "You are a trading analyst. Be extremely brief.\n\n"
+        "FORMAT (plain text, no markdown):\n\n"
+        "CHART READ: 1 short sentence — trend + nearest key level.\n\n"
+        "ACTION:\n"
+        "Direction: LONG / SHORT / WAIT\n"
+        "Entry: $price — level name (MUST be a key level, NOT current price)\n"
+        "Stop: $price\n"
+        "T1: $price\n"
+        "T2: $price\n"
+        "Conviction: HIGH / MEDIUM / LOW\n\n"
+        "STRICT RULES:\n"
+        "- MAXIMUM 60 WORDS TOTAL.\n"
+        "- Entry must be a KEY LEVEL (MA, VWAP, PDL, PDH, support, fib) — never current price.\n"
+        "- If price is not at a key level, Direction = WAIT.\n"
+        "- Buy dips at support. Short at resistance. Don't chase.\n"
+        "- PDH = yesterday's high, PDL = yesterday's low.\n"
+        "- Prices from the data only. Plain text. No markdown.\n"
+        "- Education only, not financial advice."
+    ]
+
+    # Key levels from prior day
+    if prior_day:
+        levels = [f"[KEY LEVELS — {symbol}]"]
+        for key, label in [
+            ("high", "PDH(yesterday high)"),
+            ("low", "PDL(yesterday low)"),
+            ("close", "Prior Close"),
+            ("ma20", "20MA"), ("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA"),
+            ("ema20", "20EMA"), ("ema50", "50EMA"), ("ema100", "100EMA"), ("ema200", "200EMA"),
+        ]:
+            val = prior_day.get(key)
+            if val and val > 0:
+                levels.append(f"{label}: ${val:.2f}")
+        rsi = prior_day.get("rsi14")
+        if rsi:
+            levels.append(f"RSI14: {rsi:.1f}")
+        parts.append("\n".join(levels))
+
+    # Additional technicals (weekly levels, etc.)
+    if technicals:
+        tech_parts = []
+        for key, label in [("pdh", "PDH"), ("pdl", "PDL"),
+                           ("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA"),
+                           ("prior_week_high", "WeekHi"), ("prior_week_low", "WeekLo")]:
+            if key in technicals:
+                tech_parts.append(f"{label}=${technicals[key]:.2f}")
+        if tech_parts:
+            parts.append(f"[TECHNICALS] {' '.join(tech_parts)}")
+
+    # 5-min bars (last 20)
+    if bars_5m:
+        lines = [f"[5-MIN BARS — last {len(bars_5m)} bars]"]
+        for b in bars_5m[-20:]:
+            lines.append(
+                f"O={b['open']:.2f} H={b['high']:.2f} L={b['low']:.2f} "
+                f"C={b['close']:.2f} V={b.get('volume', 0):.0f}"
+            )
+        parts.append("\n".join(lines))
+
+    # 1-hour bars (last 10)
+    if bars_1h:
+        lines = [f"[1-HOUR BARS — last {len(bars_1h)} bars]"]
+        for b in bars_1h[-10:]:
+            lines.append(
+                f"O={b['open']:.2f} H={b['high']:.2f} L={b['low']:.2f} "
+                f"C={b['close']:.2f} V={b.get('volume', 0):.0f}"
+            )
+        parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)
+
+
+def parse_ai_response(text: str) -> dict:
+    """Parse CHART READ + ACTION block from AI response.
+
+    Returns dict with: direction, entry, stop, t1, t2, conviction, chart_read.
+    Returns None values for missing fields.
+    """
+    result = {
+        "direction": None,
+        "entry": None,
+        "stop": None,
+        "t1": None,
+        "t2": None,
+        "conviction": None,
+        "chart_read": None,
+        "raw": text,
+    }
+
+    # CHART READ
+    cr_match = re.search(r"CHART READ:\s*(.+?)(?:\n|$)", text)
+    if cr_match:
+        result["chart_read"] = cr_match.group(1).strip()
+
+    # Direction
+    dir_match = re.search(r"Direction:\s*(LONG|SHORT|WAIT)", text, re.IGNORECASE)
+    if dir_match:
+        result["direction"] = dir_match.group(1).upper()
+
+    # Entry
+    entry_match = re.search(r"Entry:\s*\$?([\d.]+)", text)
+    if entry_match:
+        result["entry"] = float(entry_match.group(1))
+
+    # Stop
+    stop_match = re.search(r"Stop:\s*\$?([\d.]+)", text)
+    if stop_match:
+        result["stop"] = float(stop_match.group(1))
+
+    # T1
+    t1_match = re.search(r"T1:\s*\$?([\d.]+)", text)
+    if t1_match:
+        result["t1"] = float(t1_match.group(1))
+
+    # T2
+    t2_match = re.search(r"T2:\s*\$?([\d.]+)", text)
+    if t2_match:
+        result["t2"] = float(t2_match.group(1))
+
+    # Conviction
+    conv_match = re.search(r"Conviction:\s*(HIGH|MEDIUM|LOW)", text, re.IGNORECASE)
+    if conv_match:
+        result["conviction"] = conv_match.group(1).upper()
+
+    return result
+
+
+def scan_symbol(
+    symbol: str,
+    api_key: str,
+    model: str = "",
+) -> dict | None:
+    """Fetch data, call Claude, parse response for one symbol.
+
+    Returns parsed dict or None on failure.
+    """
+    from analytics.intraday_data import fetch_intraday, fetch_prior_day
+    from config import is_crypto_alert_symbol
+
+    is_crypto = is_crypto_alert_symbol(symbol)
+    use_model = model or CLAUDE_MODEL
+
+    try:
+        # Fetch 5m bars
+        bars_5m_df = fetch_intraday(symbol, period="1d", interval="5m")
+        if bars_5m_df is None or (hasattr(bars_5m_df, "empty") and bars_5m_df.empty):
+            logger.warning("AI scan: no 5m bars for %s", symbol)
+            return None
+
+        # Fetch 1h bars
+        bars_1h_df = fetch_intraday(symbol, period="5d", interval="1h")
+
+        # Fetch prior day
+        prior_day = fetch_prior_day(symbol, is_crypto=is_crypto)
+
+        # Check if price changed enough since last scan
+        current_price = float(bars_5m_df.iloc[-1]["Close"])
+        last_price = _last_scan_price.get(symbol, 0)
+        if last_price > 0 and abs(current_price - last_price) / last_price < 0.003:
+            logger.debug("AI scan: %s skipped — price unchanged (%.2f → %.2f)", symbol, last_price, current_price)
+            return None
+        _last_scan_price[symbol] = current_price
+
+        # Convert bars to dicts
+        bars_5m = [
+            {"open": float(r["Open"]), "high": float(r["High"]),
+             "low": float(r["Low"]), "close": float(r["Close"]),
+             "volume": float(r["Volume"])}
+            for _, r in bars_5m_df.tail(20).iterrows()
+        ]
+        bars_1h = []
+        if bars_1h_df is not None and not (hasattr(bars_1h_df, "empty") and bars_1h_df.empty):
+            bars_1h = [
+                {"open": float(r["Open"]), "high": float(r["High"]),
+                 "low": float(r["Low"]), "close": float(r["Close"]),
+                 "volume": float(r["Volume"])}
+                for _, r in bars_1h_df.tail(10).iterrows()
+            ]
+
+        # Build prompt
+        prompt = build_scan_prompt(symbol, bars_5m, bars_1h, prior_day, None)
+
+        # Call Claude (non-streaming)
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        system_with_cache = [
+            {"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}
+        ]
+
+        start = time.time()
+        response = client.messages.create(
+            model=use_model,
+            max_tokens=200,
+            system=system_with_cache,
+            messages=[{"role": "user", "content": f"Analyze {symbol} now. What's the trade?"}],
+            timeout=15.0,
+        )
+        elapsed = time.time() - start
+
+        response_text = response.content[0].text.strip()
+        logger.info("AI scan %s: %.1fs, %d tokens — %s",
+                     symbol, elapsed, response.usage.input_tokens, response_text[:80])
+
+        # Parse
+        parsed = parse_ai_response(response_text)
+        parsed["symbol"] = symbol
+        parsed["price"] = current_price
+        return parsed
+
+    except Exception:
+        logger.exception("AI scan failed for %s", symbol)
+        return None
+
+
+def ai_scan_cycle(sync_session_factory):
+    """Main scan cycle — runs on schedule, scans all watchlist symbols."""
+    global _scan_fired, _scan_session
+
+    session = date.today().isoformat()
+    if _scan_session != session:
+        _scan_fired.clear()
+        _last_scan_price.clear()
+        _scan_session = session
+
+    api_key = _resolve_api_key()
+    if not api_key:
+        logger.warning("AI scan: no API key configured, skipping")
+        return 0
+
+    try:
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+
+        with Session(sync_session_factory) as db:
+            # Get all unique symbols across all users
+            from app.models.watchlist import WatchlistItem
+            from app.models.user import User
+
+            all_items = db.execute(
+                select(WatchlistItem.symbol, WatchlistItem.user_id)
+            ).all()
+
+            # Dedup symbols, track which users watch each
+            symbol_users: dict[str, list[int]] = {}
+            for sym, uid in all_items:
+                symbol_users.setdefault(sym, []).append(uid)
+
+            symbols = list(symbol_users.keys())
+            if not symbols:
+                logger.info("AI scan: no symbols on any watchlist")
+                return 0
+
+            logger.info("AI scan: scanning %d symbols", len(symbols))
+            total_alerts = 0
+
+            for symbol in symbols:
+                result = scan_symbol(symbol, api_key)
+                if not result:
+                    continue
+
+                direction = result.get("direction")
+                if not direction or direction == "WAIT":
+                    # Record WAIT for analysis but don't notify
+                    logger.info("AI scan %s: WAIT — %s", symbol, result.get("chart_read", ""))
+                    continue
+
+                entry = result.get("entry", 0)
+                if not entry or entry <= 0:
+                    continue
+
+                # Dedup: same direction at same price bucket
+                price_bucket = round(entry, -1) if entry > 100 else round(entry, 0)
+                dedup_key = (symbol, direction, price_bucket)
+                fired = _scan_fired.get(session, set())
+                if dedup_key in fired:
+                    logger.debug("AI scan %s: dedup skip (%s at $%.0f)", symbol, direction, price_bucket)
+                    continue
+                fired.add(dedup_key)
+                _scan_fired[session] = fired
+
+                # Map direction
+                db_direction = "BUY" if direction == "LONG" else "SHORT"
+                alert_type = f"ai_scan_{direction.lower()}"
+
+                # Score from conviction
+                conviction = result.get("conviction", "MEDIUM")
+                score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
+
+                # Build message
+                chart_read = result.get("chart_read", "")
+                message = f"AI: {chart_read}" if chart_read else f"AI scan {direction}"
+
+                # Record alert for each user watching this symbol
+                from app.models.alert import Alert
+
+                for user_id in symbol_users[symbol]:
+                    alert = Alert(
+                        user_id=user_id,
+                        symbol=symbol,
+                        alert_type=alert_type,
+                        direction=db_direction,
+                        price=result.get("price", entry),
+                        entry=entry,
+                        stop=result.get("stop"),
+                        target_1=result.get("t1"),
+                        target_2=result.get("t2"),
+                        confidence=conviction.lower(),
+                        message=message,
+                        score=score,
+                        session_date=session,
+                    )
+                    db.add(alert)
+                    total_alerts += 1
+
+                db.commit()
+
+                # Send Telegram notification
+                try:
+                    from alerting.notifier import _send_telegram
+                    _dir_label = "LONG" if direction == "LONG" else "RESISTANCE"
+                    _stop = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
+                    _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
+                    _t2 = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
+                    _msg = (
+                        f"<b>AI SCAN — {_dir_label} {symbol} ${entry:.2f}</b>\n"
+                        f"Entry: ${entry:.2f} — {chart_read}\n"
+                        f"Stop: {_stop} | T1: {_t1} | T2: {_t2}\n"
+                        f"Conviction: {conviction}"
+                    )
+                    _send_telegram(_msg)
+                    logger.info("AI scan %s: %s at $%.2f → Telegram sent", symbol, direction, entry)
+                except Exception:
+                    logger.debug("AI scan: Telegram send failed for %s", symbol)
+
+            logger.info("AI scan cycle complete: %d alerts from %d symbols", total_alerts, len(symbols))
+            return total_alerts
+
+    except Exception:
+        logger.exception("AI scan cycle failed")
+        return 0

@@ -422,13 +422,15 @@ function SignalFeedTab({
           hour: "2-digit",
           minute: "2-digit",
         });
-        const dirLabel = a.direction === "SHORT" ? "RESISTANCE" : a.direction;
-        const dirBadge =
-          a.direction === "BUY"
-            ? "bg-bullish/10 text-bullish-text border-bullish/20"
-            : a.direction === "SHORT"
-              ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
-              : "bg-warning/10 text-warning-text border-warning/20";
+        const isAIScan = a.alert_type?.startsWith("ai_scan");
+        const dirLabel = isAIScan ? "AI SCAN" : a.direction === "SHORT" ? "RESISTANCE" : a.direction;
+        const dirBadge = isAIScan
+            ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
+            : a.direction === "BUY"
+              ? "bg-bullish/10 text-bullish-text border-bullish/20"
+              : a.direction === "SHORT"
+                ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+                : "bg-warning/10 text-warning-text border-warning/20";
 
         return (
           <div
