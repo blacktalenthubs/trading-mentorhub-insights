@@ -387,7 +387,7 @@ function AIScanFeedTab({
   alerts?: Alert[];
   onSelectSymbol: (sym: string) => void;
 }) {
-  const aiAlerts = alerts?.filter((a) => a.alert_type?.startsWith("ai_scan")) ?? [];
+  const aiAlerts = alerts?.filter((a) => a.alert_type?.startsWith("ai_")) ?? [];
 
   if (aiAlerts.length === 0) {
     return (
@@ -404,7 +404,7 @@ function AIScanFeedTab({
           hour: "2-digit",
           minute: "2-digit",
         });
-        const isWait = a.alert_type === "ai_scan_wait";
+        const isWait = a.alert_type === "ai_scan_wait" || a.direction === "NOTICE";
         const isLong = a.direction === "BUY";
         const badge = isWait
           ? "bg-gray-500/10 text-gray-400 border-gray-500/20"
@@ -481,7 +481,7 @@ function SignalFeedTab({
   }
 
   // Filter out AI scan alerts — those show in the AI Scan tab
-  const ruleAlerts = alerts?.filter((a) => !a.alert_type?.startsWith("ai_scan")) ?? [];
+  const ruleAlerts = alerts?.filter((a) => !a.alert_type?.startsWith("ai_")) ?? [];
 
   if (ruleAlerts.length === 0) {
     return (
@@ -498,7 +498,7 @@ function SignalFeedTab({
           hour: "2-digit",
           minute: "2-digit",
         });
-        const isAIScan = a.alert_type?.startsWith("ai_scan");
+        const isAIScan = a.alert_type?.startsWith("ai_");
         const dirLabel = isAIScan ? "AI SCAN" : a.direction === "SHORT" ? "RESISTANCE" : a.direction;
         const dirBadge = isAIScan
             ? "bg-purple-500/10 text-purple-400 border-purple-500/20"

@@ -189,35 +189,8 @@ async def lifespan(app: FastAPI):
             id="ai_day_scan_initial",
         )
 
-        # AI Swing Trade Scanner (Spec 27) — daily chart analysis 2x/day
-        def _ai_swing_scan():
-            try:
-                from analytics.ai_swing_scanner import swing_scan_cycle
-                count = swing_scan_cycle(sync_session_factory)
-                logger.info("AI swing scan complete: %d alerts", count)
-            except Exception:
-                logger.exception("AI swing scan cycle failed")
-
-        scheduler.add_job(
-            _ai_swing_scan,
-            "cron",
-            hour=9, minute=5,
-            timezone="US/Eastern",
-            id="ai_swing_premarket",
-            replace_existing=True,
-        )
-        scheduler.add_job(
-            _ai_swing_scan,
-            "cron",
-            hour=15, minute=30,
-            timezone="US/Eastern",
-            id="ai_swing_preclose",
-            replace_existing=True,
-        )
-        scheduler.add_job(
-            _ai_swing_scan,
-            id="ai_swing_initial",
-        )
+        # AI Swing Scanner — DISABLED. Entry below current price is confusing.
+        # Re-enable after fixing entry-at-current-level issue.
 
         # Alert Sniper: Game Plan — 9:05 AM ET weekdays
         def _game_plan():
