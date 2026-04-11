@@ -86,12 +86,21 @@ def _get_symbol_technicals(symbols: list[str]) -> dict[str, dict]:
                     info["rsi14"] = round(100 - 100 / (1 + avg_gain / avg_loss), 1)
 
             # Prior day high/low (PDH/PDL) — critical key levels
+            # For crypto: use Coinbase via fetch_prior_day (yfinance drops daily bars)
             try:
-                highs = sym_data["High"].dropna()
-                lows = sym_data["Low"].dropna()
-                if len(highs) >= 2 and len(lows) >= 2:
-                    info["pdh"] = round(float(highs.iloc[-2]), 2)
-                    info["pdl"] = round(float(lows.iloc[-2]), 2)
+                _is_crypto = sym.endswith("-USD")
+                if _is_crypto:
+                    from analytics.intraday_data import fetch_prior_day as _fpd
+                    _pd = _fpd(sym, is_crypto=True)
+                    if _pd:
+                        info["pdh"] = round(float(_pd["high"]), 2)
+                        info["pdl"] = round(float(_pd["low"]), 2)
+                else:
+                    highs = sym_data["High"].dropna()
+                    lows = sym_data["Low"].dropna()
+                    if len(highs) >= 2 and len(lows) >= 2:
+                        info["pdh"] = round(float(highs.iloc[-2]), 2)
+                        info["pdl"] = round(float(lows.iloc[-2]), 2)
             except Exception:
                 pass
 

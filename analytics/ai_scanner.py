@@ -280,9 +280,8 @@ def ai_scan_cycle(sync_session_factory):
 
     try:
         from sqlalchemy import select
-        from sqlalchemy.orm import Session
 
-        with Session(sync_session_factory) as db:
+        with sync_session_factory() as db:
             # Get all unique symbols across all users
             from app.models.watchlist import WatchlistItem
             from app.models.user import User
