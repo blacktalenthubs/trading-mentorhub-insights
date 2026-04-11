@@ -710,6 +710,7 @@ def _build_app(bot_token: str):
             return
 
         # Rate limit check
+        remaining = -1  # default unlimited
         try:
             from db import get_db, init_db
             from api.app.tier import get_limits
