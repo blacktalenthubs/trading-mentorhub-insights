@@ -23,6 +23,8 @@ import {
 } from "../api/hooks";
 import type { WatchlistRankItem } from "../types";
 import { useCoachStream } from "../hooks/useCoachStream";
+import { useFeatureGate } from "../hooks/useFeatureGate";
+import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
@@ -387,6 +389,9 @@ function AIScanFeedTab({
   alerts?: Alert[];
   onSelectSymbol: (sym: string) => void;
 }) {
+  const { tier } = useFeatureGate();
+  const isFree = tier === "free";
+  const visibleLimit = isFree ? 5 : null;
   const aiAlerts = (alerts?.filter((a) => a.alert_type?.startsWith("ai_")) ?? [])
     .sort((a, b) => {
       // Actionable (LONG/RESISTANCE) first, WAITs last
@@ -407,7 +412,24 @@ function AIScanFeedTab({
 
   return (
     <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-      {aiAlerts.map((a) => {
+      {aiAlerts.map((a, idx) => {
+        // Free tier: blur alerts beyond limit
+        if (visibleLimit && idx >= visibleLimit) {
+          return (
+            <div key={a.id} className="relative">
+              <div className="blur-sm opacity-40 bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5">
+                <div className="text-[11px] text-text-muted">AI Scan alert</div>
+              </div>
+              {idx === visibleLimit && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Link to="/billing" className="bg-accent text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-accent-hover transition-colors">
+                    Upgrade for unlimited AI scans
+                  </Link>
+                </div>
+              )}
+            </div>
+          );
+        }
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",

@@ -709,6 +709,54 @@ def _build_app(bot_token: str):
             )
             return
 
+        # Rate limit check
+        try:
+            from db import get_db, init_db
+            from api.app.tier import get_limits
+            init_db()
+            user_id = user["id"]
+            tier = "free"
+            try:
+                with get_db() as conn:
+                    sub = conn.execute(
+                        "SELECT tier FROM subscriptions WHERE user_id = ? AND status = 'active'",
+                        (user_id,),
+                    ).fetchone()
+                    if sub:
+                        tier = sub["tier"]
+            except Exception:
+                pass
+
+            limits = get_limits(tier)
+            max_cmds = limits.get("telegram_commands_per_day")
+            if max_cmds is not None:
+                today = date.today().isoformat()
+                with get_db() as conn:
+                    row = conn.execute(
+                        "SELECT usage_count FROM usage_limits WHERE user_id = ? AND feature = ? AND usage_date = ?",
+                        (user_id, "telegram_command", today),
+                    ).fetchone()
+                    current = row["usage_count"] if row else 0
+                    if current >= max_cmds:
+                        await update.message.reply_text(
+                            f"Daily command limit reached ({max_cmds}/{max_cmds}).\n"
+                            f"Upgrade to Pro for 50 commands/day.\n"
+                            f"→ tradesignalwithai.com/billing"
+                        )
+                        return
+                    # Increment
+                    conn.execute(
+                        "INSERT INTO usage_limits (user_id, feature, usage_date, usage_count) "
+                        "VALUES (?, ?, ?, 1) "
+                        "ON CONFLICT (user_id, feature, usage_date) "
+                        "DO UPDATE SET usage_count = usage_limits.usage_count + 1",
+                        (user_id, "telegram_command", today),
+                    )
+                    remaining = max_cmds - current - 1
+        except Exception:
+            remaining = -1  # skip limit on error
+            logger.debug("Rate limit check failed, allowing command")
+
         await update.message.reply_text(f"Analyzing {symbol}...")
 
         # Run AI analysis
@@ -724,7 +772,8 @@ def _build_app(bot_token: str):
         except Exception:
             pass
 
-        msg = f"<b>📊 {symbol}{current_price}</b>\n\n{analysis}"
+        _remaining_text = f"\n\n<i>{remaining} queries remaining today</i>" if isinstance(remaining, int) and remaining >= 0 else ""
+        msg = f"<b>📊 {symbol}{current_price}</b>\n\n{analysis}{_remaining_text}"
         await update.message.reply_html(msg)
 
     # --- /levels command handler ---

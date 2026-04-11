@@ -460,8 +460,35 @@ def day_scan_cycle(sync_session_factory) -> int:
                     for uid in symbol_users[symbol]:
                         user = db.get(User, uid)
                         if user and user.telegram_enabled and user.telegram_chat_id:
-                            _send_telegram_to(_tg_msg, user.telegram_chat_id)
-                            logger.info("AI day scan %s: LONG at $%.2f → Telegram user %d", symbol, entry, uid)
+                            # Rate limit: check ai_scan_alerts_per_day
+                            _send = True
+                            try:
+                                from api.app.tier import get_limits as _gl
+                                from api.app.dependencies import get_user_tier as _gut
+                                _tier = _gut(user)
+                                _max = _gl(_tier).get("ai_scan_alerts_per_day")
+                                if _max is not None:
+                                    _today = session
+                                    _cnt = db.execute(
+                                        select(func.count()).where(
+                                            Alert.user_id == uid,
+                                            Alert.alert_type.in_(["ai_day_long", "ai_resistance"]),
+                                            Alert.session_date == _today,
+                                        )
+                                    ).scalar() or 0
+                                    if _cnt > _max:
+                                        _send_telegram_to(
+                                            f"📊 Daily AI scan limit reached ({_max}/{_max}).\n"
+                                            f"Upgrade to Pro for unlimited AI alerts.\n"
+                                            f"→ tradesignalwithai.com/billing",
+                                            user.telegram_chat_id,
+                                        )
+                                        _send = False
+                            except Exception:
+                                pass  # skip limit on error
+                            if _send:
+                                _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                logger.info("AI day scan %s: LONG at $%.2f → Telegram user %d", symbol, entry, uid)
                 except Exception:
                     logger.exception("AI day scan: Telegram failed for %s", symbol)
 

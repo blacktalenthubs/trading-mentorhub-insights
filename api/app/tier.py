@@ -25,12 +25,14 @@ TIER_MAP: dict[str, Tier] = {
 # None = unlimited
 TIER_LIMITS: dict[str, dict] = {
     "free": {
-        "watchlist_max": 3,
-        "ai_queries_per_day": 2,
+        "watchlist_max": 5,
+        "ai_queries_per_day": 3,        # AI Coach + CoPilot combined
+        "ai_scan_alerts_per_day": 3,    # AI scan LONG/RESISTANCE to Telegram
+        "telegram_commands_per_day": 3, # /spy, /eth, /btc commands
         "alert_history_days": 0,        # today only
-        "visible_alerts": 3,            # rest blurred on frontend
+        "visible_alerts": 5,            # rest blurred on frontend
         "chart_replay_per_day": 1,
-        "telegram_alerts": False,
+        "telegram_alerts": True,        # let free see alerts (they upgrade for more)
         "premarket_brief": False,
         "eod_review": False,
         "weekly_review": False,
@@ -41,7 +43,9 @@ TIER_LIMITS: dict[str, dict] = {
     },
     "pro": {
         "watchlist_max": 10,
-        "ai_queries_per_day": 20,
+        "ai_queries_per_day": 50,
+        "ai_scan_alerts_per_day": None, # unlimited
+        "telegram_commands_per_day": 50,
         "alert_history_days": 30,
         "visible_alerts": None,
         "chart_replay_per_day": None,
@@ -56,7 +60,9 @@ TIER_LIMITS: dict[str, dict] = {
     },
     "premium": {
         "watchlist_max": 25,
-        "ai_queries_per_day": None,
+        "ai_queries_per_day": None,     # unlimited
+        "ai_scan_alerts_per_day": None,
+        "telegram_commands_per_day": None,
         "alert_history_days": None,     # full history
         "visible_alerts": None,
         "chart_replay_per_day": None,
