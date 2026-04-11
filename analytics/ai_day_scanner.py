@@ -389,13 +389,13 @@ def day_scan_cycle(sync_session_factory) -> int:
                     _day_fired[session] = fired
 
                     _msg = f"RESISTANCE {symbol} — {reason}" if reason else f"RESISTANCE {symbol} — approaching overhead level"
-                    for uid in symbol_users[symbol]:
-                        db.add(Alert(
-                            user_id=uid, symbol=symbol,
-                            alert_type="ai_resistance", direction="NOTICE",
-                            price=result.get("price", 0), entry=entry,
-                            message=_msg, score=0, session_date=session,
-                        ))
+                    _first_uid = symbol_users[symbol][0]
+                    db.add(Alert(
+                        user_id=_first_uid, symbol=symbol,
+                        alert_type="ai_resistance", direction="NOTICE",
+                        price=result.get("price", 0), entry=entry,
+                        message=_msg, score=0, session_date=session,
+                    ))
                     db.commit()
 
                     # Send Telegram
@@ -422,20 +422,35 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                 # Regime filter: REMOVED (P2 — fire at key levels, no suppression)
 
-                # Dedup: (symbol, setup_type, level_bucket) per session
-                dedup_key = (symbol, setup_type or "LONG", _level_bucket(entry))
-                fired = _day_fired.get(session, set())
-                if dedup_key in fired:
-                    logger.debug("AI day scan %s: dedup skip %s at $%.2f", symbol, setup_type, entry)
+                # Dedup: check DB — survives restarts (in-memory resets on deploy)
+                _existing = db.execute(
+                    select(Alert.id).where(
+                        Alert.symbol == symbol,
+                        Alert.alert_type == "ai_day_long",
+                        Alert.session_date == session,
+                    ).limit(1)
+                ).scalar_one_or_none()
+                if _existing:
+                    logger.debug("AI day scan %s: dedup skip — already fired today", symbol)
+                    # Record as WAIT since setup exists but already alerted
+                    _first_uid = symbol_users[symbol][0]
+                    db.add(Alert(
+                        user_id=_first_uid, symbol=symbol,
+                        alert_type="ai_scan_wait", direction="NOTICE",
+                        price=result.get("price", 0),
+                        message=f"AI: WAIT — {setup_type} already fired. {reason}",
+                        score=0, session_date=session,
+                    ))
+                    db.commit()
                     continue
-                fired.add(dedup_key)
-                _day_fired[session] = fired
 
                 score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
                 setup_label = setup_type or "AI entry"
                 message = f"{setup_label}: {reason}" if reason else setup_label
 
-                for uid in symbol_users[symbol]:
+                # Record once (first user) — not per-user to avoid 7x duplication
+                _first_uid = symbol_users[symbol][0]
+                for uid in [_first_uid]:
                     alert = Alert(
                         user_id=uid, symbol=symbol,
                         alert_type="ai_day_long",
