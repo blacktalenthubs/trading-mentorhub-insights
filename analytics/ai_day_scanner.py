@@ -464,7 +464,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                     _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
                     _t2 = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
                     _tg_msg = (
-                        f"<b>LONG {_html.escape(symbol)} ${result.get('price', entry):.2f}</b>\n"
+                        f"<b>AI SCAN — LONG {_html.escape(symbol)} ${entry:.2f}</b>\n"
                         f"Entry ${entry:.2f} · Stop {_stop} · T1 {_t1} · T2 {_t2}\n"
                         f"Setup: {_html.escape(setup_label)}\n"
                         f"Conviction: {conviction}"
