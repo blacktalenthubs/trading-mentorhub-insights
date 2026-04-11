@@ -335,6 +335,25 @@ def day_scan_cycle(sync_session_factory) -> int:
                         session_date=session,
                     ))
                     db.commit()
+
+                    # If WAIT mentions a key level, send notice to Telegram
+                    _level_keywords = ["PDH", "PDL", "VWAP", "session low", "session high",
+                                       "50MA", "100MA", "200MA", "support", "resistance", "weekly"]
+                    _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
+                    if _near_level and reason:
+                        try:
+                            from alerting.notifier import _send_telegram_to
+                            _tg_msg = (
+                                f"<b>AI SCAN — {symbol} ${result.get('price', 0):.2f}</b>\n"
+                                f"{reason}"
+                            )
+                            for _uid in symbol_users[symbol]:
+                                user = db.get(User, _uid)
+                                if user and user.telegram_enabled and user.telegram_chat_id:
+                                    _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                        except Exception:
+                            pass
+
                     logger.info("AI day scan %s: WAIT — %s", symbol, reason or "no setup")
                     continue
 
