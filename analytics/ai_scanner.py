@@ -110,20 +110,81 @@ def build_scan_prompt(
         if tech_parts:
             parts.append(f"[TECHNICALS] {' '.join(tech_parts)}")
 
-    # Intraday levels from 5m bars
+    # Intraday levels from 5m bars + pre-calculated position detection
     if bars_5m:
         session_high = max(b["high"] for b in bars_5m)
         session_low = min(b["low"] for b in bars_5m)
-        # Simple VWAP approximation from bars
         _tp_vol = sum(((b["high"] + b["low"] + b["close"]) / 3) * b.get("volume", 1) for b in bars_5m)
         _vol = sum(b.get("volume", 1) for b in bars_5m)
         vwap = _tp_vol / _vol if _vol > 0 else bars_5m[-1]["close"]
+        current = bars_5m[-1]["close"]
+
+        # Pre-calculate distance to each key level — code math, no AI guessing
+        support_levels = []
+        resistance_levels = []
+
+        def _add_level(name: str, price: float, is_support: bool):
+            if price and price > 0:
+                dist = abs(current - price) / price
+                entry = {"name": name, "price": price, "distance_pct": dist}
+                if is_support:
+                    support_levels.append(entry)
+                else:
+                    resistance_levels.append(entry)
+
+        # Support levels (below or near current price)
+        _add_level("Session Low", session_low, current >= session_low * 0.998)
+        _add_level("VWAP", vwap, current <= vwap * 1.002)
+        if prior_day:
+            pdl = prior_day.get("low", 0)
+            pdh = prior_day.get("high", 0)
+            if pdl > 0:
+                _add_level("PDL(yesterday low)", pdl, current >= pdl * 0.998)
+            if pdh > 0:
+                _add_level("PDH(yesterday high)", pdh, current <= pdh * 1.002)
+            for key, label in [("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA")]:
+                val = prior_day.get(key, 0)
+                if val and val > 0 and val < current:
+                    _add_level(label, val, True)
+
+        # Resistance levels (above current price)
+        _add_level("Session High", session_high, current <= session_high * 1.002)
+        if prior_day:
+            pdh = prior_day.get("high", 0)
+            if pdh > 0 and pdh > current:
+                _add_level("PDH(yesterday high)", pdh, False)
+
+        # Find nearest support and resistance
+        nearby_support = sorted([s for s in support_levels if s["distance_pct"] <= 0.008], key=lambda x: x["distance_pct"])
+        nearby_resistance = sorted([r for r in resistance_levels if r["distance_pct"] <= 0.008], key=lambda x: x["distance_pct"])
+
+        at_support = [s for s in nearby_support if s["distance_pct"] <= 0.003]
+        at_resistance = [r for r in nearby_resistance if r["distance_pct"] <= 0.003]
+
+        # Determine position (code-calculated, not AI)
+        if at_support:
+            position = f"AT SUPPORT — {at_support[0]['name']} ${at_support[0]['price']:.2f} (distance: {at_support[0]['distance_pct']*100:.2f}%)"
+        elif at_resistance:
+            position = f"AT RESISTANCE — {at_resistance[0]['name']} ${at_resistance[0]['price']:.2f} (distance: {at_resistance[0]['distance_pct']*100:.2f}%)"
+        elif nearby_support:
+            position = f"APPROACHING SUPPORT — {nearby_support[0]['name']} ${nearby_support[0]['price']:.2f} (distance: {nearby_support[0]['distance_pct']*100:.2f}%)"
+        elif nearby_resistance:
+            position = f"APPROACHING RESISTANCE — {nearby_resistance[0]['name']} ${nearby_resistance[0]['price']:.2f} (distance: {nearby_resistance[0]['distance_pct']*100:.2f}%)"
+        else:
+            position = "MID-RANGE — price not near any key level"
+
         parts.append(
             f"[INTRADAY LEVELS]\n"
             f"Session High: ${session_high:.2f}\n"
             f"Session Low: ${session_low:.2f}\n"
             f"VWAP: ${vwap:.2f}\n"
-            f"Current Price: ${bars_5m[-1]['close']:.2f}"
+            f"Current Price: ${current:.2f}\n\n"
+            f"[POSITION — CALCULATED BY SYSTEM, USE THIS]\n"
+            f"{position}\n"
+            f"IMPORTANT: The POSITION above is calculated by code (not you). "
+            f"If it says AT SUPPORT, you MUST set Direction = LONG with entry at the support level. "
+            f"If it says AT RESISTANCE, you MUST set Direction = SHORT. "
+            f"If it says APPROACHING or MID-RANGE, you MUST set Direction = WAIT."
         )
 
     # 5-min bars (last 20)
@@ -350,17 +411,17 @@ def ai_scan_cycle(sync_session_factory):
                 position = result.get("position", "")
 
                 if not direction or direction == "WAIT":
-                    # Record WAIT to DB for AI Scan feed (no Telegram)
+                    # Record WAIT once (not per-user) for AI Scan feed
                     from app.models.alert import Alert as _Alert
                     _wait_msg = f"AI: {position} — {chart_read}" if chart_read else f"AI scan WAIT"
-                    for uid in symbol_users[symbol]:
-                        db.add(_Alert(
-                            user_id=uid, symbol=symbol,
-                            alert_type="ai_scan_wait", direction="NOTICE",
-                            price=result.get("price", 0),
-                            message=_wait_msg, score=0,
-                            session_date=session,
-                        ))
+                    _first_uid = symbol_users[symbol][0]
+                    db.add(_Alert(
+                        user_id=_first_uid, symbol=symbol,
+                        alert_type="ai_scan_wait", direction="NOTICE",
+                        price=result.get("price", 0),
+                        message=_wait_msg, score=0,
+                        session_date=session,
+                    ))
                     db.commit()
                     logger.info("AI scan %s: WAIT — %s", symbol, chart_read)
                     continue
