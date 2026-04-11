@@ -1,14 +1,13 @@
-/** Chart Replay — animated candle-by-candle playback of past alerts.
+/** Chart Replay — cinematic candle-by-candle trade replay for demo & marketing.
  *
- *  Shows the alert context, entry/stop/target lines, and animates price
- *  action forward with a running P&L counter. Clear connection between
- *  the alert that fired and the outcome.
+ *  Phases: SETUP → APPROACH → ENTRY → MOVE → TARGET/STOP → RESULT
+ *  Full-screen first, visual highlights at key moments, result card overlay.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
-import { Play, Pause, SkipBack, SkipForward, X, Target, ShieldAlert, Brain, Loader2, Maximize2, Minimize2 } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, X, Maximize2, Minimize2 } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 
 interface ReplayData {
@@ -48,9 +47,41 @@ interface Props {
   onClose: () => void;
 }
 
+const SETUP_LABELS: Record<string, string> = {
+  session_low_double_bottom: "Session Low Double Bottom",
+  prior_day_low_bounce: "Prior Day Low Bounce",
+  prior_day_low_reclaim: "Prior Day Low Reclaim",
+  vwap_reclaim: "VWAP Reclaim",
+  vwap_bounce: "VWAP Bounce",
+  ma_bounce_20: "20 MA Bounce",
+  ma_bounce_50: "50 MA Bounce",
+  ma_bounce_100: "100 MA Bounce",
+  ma_bounce_200: "200 MA Bounce",
+  ema_bounce_50: "50 EMA Bounce",
+  ema_bounce_100: "100 EMA Bounce",
+  ema_bounce_200: "200 EMA Bounce",
+  prior_day_high_breakout: "PDH Breakout",
+  pdh_retest_hold: "PDH Retest & Hold",
+  session_high_double_top: "Session High Double Top",
+  pdh_failed_breakout: "PDH Failed Breakout",
+  ema_rejection_short: "EMA Rejection",
+  weekly_high_breakout: "Weekly High Breakout",
+  consol_breakout_long: "Consolidation Breakout",
+  fib_retracement_bounce: "Fibonacci Bounce",
+  ai_scan_long: "AI Scan — Long",
+  ai_scan_short: "AI Scan — Short",
+  morning_low_retest: "Morning Low Retest",
+  multi_day_double_bottom: "Multi-Day Double Bottom",
+  gap_and_go: "Gap & Go",
+  bb_squeeze_breakout: "Bollinger Squeeze Breakout",
+  session_low_reversal: "Session Low Reversal",
+};
+
 function fmt(v: number | null | undefined): string {
   return v != null ? v.toFixed(2) : "—";
 }
+
+type Phase = "setup" | "approach" | "entry" | "move" | "target" | "result";
 
 export default function ChartReplay({ alertId, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,58 +94,70 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
   const [visibleCount, setVisibleCount] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
-  const [showOutcome, setShowOutcome] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
+  const [speed, setSpeed] = useState(2);
+  const [fullscreen, setFullscreen] = useState(true); // Start fullscreen
   const [linkCopied, setLinkCopied] = useState(false);
 
-  // AI Replay Analysis
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-
-  // Live P&L tracking during animation
+  // Derived state
   const currentPrice = data && visibleCount > 0 && visibleCount <= data.bars.length
     ? data.bars[visibleCount - 1]?.close ?? 0 : 0;
   const entry = data?.alert.entry ?? 0;
+  const isBuy = data?.alert.direction === "BUY";
   const livePnl = entry && currentPrice
-    ? (data?.alert.direction === "SHORT" ? entry - currentPrice : currentPrice - entry)
-    : 0;
+    ? (isBuy ? currentPrice - entry : entry - currentPrice) : 0;
   const livePnlPct = entry ? (livePnl / entry) * 100 : 0;
-
-  // Progress percentage
   const progress = data ? (visibleCount / data.bars.length) * 100 : 0;
+  const isWin = data?.outcome?.includes("target") ?? false;
+
+  const setupLabel = data ? (SETUP_LABELS[data.alert.alert_type] || data.alert.alert_type.replace(/_/g, " ")) : "";
+
+  // Phase calculation
+  const phase: Phase = useMemo(() => {
+    if (!data) return "setup";
+    const alertIdx = data.alert_bar_index;
+    const outcomeIdx = data.outcome_bar_index || data.bars.length;
+
+    if (visibleCount <= Math.max(1, alertIdx - 4)) return "setup";
+    if (visibleCount <= alertIdx) return "approach";
+    if (visibleCount <= alertIdx + 2) return "entry";
+    if (visibleCount < outcomeIdx) return "move";
+    if (visibleCount <= outcomeIdx + 2) return "target";
+    return "result";
+  }, [data, visibleCount]);
+
+  const outcomeLabel = data?.outcome === "target_1_hit" ? "TARGET 1 HIT"
+    : data?.outcome === "target_2_hit" ? "TARGET 2 HIT"
+    : data?.outcome === "stop_loss_hit" ? "STOPPED OUT"
+    : data?.outcome === "auto_stop_out" ? "AUTO STOPPED"
+    : "TRADE OPEN";
+
+  // Duration
+  const duration = useMemo(() => {
+    if (!data || !data.bars.length) return "";
+    const alertTime = new Date(data.bars[data.alert_bar_index]?.timestamp || "");
+    const outcomeIdx = Math.min(data.outcome_bar_index, data.bars.length - 1);
+    const outcomeTime = new Date(data.bars[outcomeIdx]?.timestamp || "");
+    const diffMin = Math.round((outcomeTime.getTime() - alertTime.getTime()) / 60000);
+    if (diffMin < 60) return `${diffMin} min`;
+    return `${Math.floor(diffMin / 60)}h ${diffMin % 60}m`;
+  }, [data]);
 
   // Fetch replay data
   useEffect(() => {
-    fetch(`/api/v1/charts/replay/${alertId}`)
+    const token = useAuthStore.getState().accessToken;
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    fetch(`/api/v1/charts/replay/${alertId}`, { headers })
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => {
         setData(d);
-        // Start 3 bars before the alert — so viewer sees setup, then entry unfolds
-        setVisibleCount(Math.max(1, d.alert_bar_index - 3));
+        setVisibleCount(Math.max(1, d.alert_bar_index - 6));
         setLoading(false);
-        // Auto-play after a brief pause so viewer sees the setup first
-        setTimeout(() => setPlaying(true), 1500);
+        setTimeout(() => setPlaying(true), 2000);
       })
       .catch(() => { setError(true); setLoading(false); });
   }, [alertId]);
-
-  // Fetch AI analysis when outcome is revealed
-  useEffect(() => {
-    if (!showOutcome || aiAnalysis || aiLoading) return;
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-    setAiLoading(true);
-    fetch(`/api/v1/intel/trade-replay/${alertId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (d?.analysis) setAiAnalysis(d.analysis);
-      })
-      .catch(() => {})
-      .finally(() => setAiLoading(false));
-  }, [showOutcome, alertId]);
 
   // Create chart
   useEffect(() => {
@@ -122,21 +165,26 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#0a0f1a" },
+        background: { type: ColorType.Solid, color: "#080d19" },
         textColor: "#64748b",
+        fontSize: 13,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.03)" },
-        horzLines: { color: "rgba(255,255,255,0.03)" },
+        vertLines: { color: "rgba(255,255,255,0.02)" },
+        horzLines: { color: "rgba(255,255,255,0.02)" },
       },
       width: containerRef.current.clientWidth,
-      height: fullscreen ? window.innerHeight - 200 : 320,
-      crosshair: { mode: 1 },
+      height: containerRef.current.clientHeight || 500,
+      crosshair: { mode: 0 }, // No crosshair during replay
       rightPriceScale: {
         autoScale: true,
-        scaleMargins: { top: 0.12, bottom: 0.12 },
+        scaleMargins: { top: 0.15, bottom: 0.15 },
+        borderVisible: false,
       },
-      timeScale: { rightOffset: 3 },
+      timeScale: {
+        rightOffset: 5,
+        borderVisible: false,
+      },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -144,33 +192,48 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       downColor: "#ef4444",
       borderDownColor: "#ef4444",
       borderUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
-      wickUpColor: "#22c55e",
+      wickDownColor: "#ef444480",
+      wickUpColor: "#22c55e80",
     });
 
     chartRef.current = chart;
     seriesRef.current = series;
 
-    // Draw price lines
+    // Draw key level lines
     const a = data.alert;
     if (a.entry) {
-      series.createPriceLine({ price: a.entry, color: "#3b82f6", lineWidth: 2, lineStyle: 0, title: `Entry $${fmt(a.entry)}` });
+      series.createPriceLine({
+        price: a.entry, color: "#3b82f6", lineWidth: 2, lineStyle: 0,
+        title: `Entry $${fmt(a.entry)}`,
+        axisLabelVisible: true,
+      });
     }
     if (a.stop) {
-      series.createPriceLine({ price: a.stop, color: "#ef4444", lineWidth: 2, lineStyle: 2, title: `Stop $${fmt(a.stop)}` });
+      series.createPriceLine({
+        price: a.stop, color: "#ef4444", lineWidth: 1, lineStyle: 2,
+        title: `Stop $${fmt(a.stop)}`,
+        axisLabelVisible: true,
+      });
     }
     if (a.target_1) {
-      series.createPriceLine({ price: a.target_1, color: "#22c55e", lineWidth: 2, lineStyle: 0, title: `T1 $${fmt(a.target_1)}` });
+      series.createPriceLine({
+        price: a.target_1, color: "#22c55e", lineWidth: 2, lineStyle: 0,
+        title: `T1 $${fmt(a.target_1)}`,
+        axisLabelVisible: true,
+      });
     }
     if (a.target_2) {
-      series.createPriceLine({ price: a.target_2, color: "#22c55e", lineWidth: 1, lineStyle: 2, title: `T2 $${fmt(a.target_2)}` });
+      series.createPriceLine({
+        price: a.target_2, color: "#22c55e80", lineWidth: 1, lineStyle: 2,
+        title: `T2 $${fmt(a.target_2)}`,
+      });
     }
 
     const handleResize = () => {
       if (containerRef.current) {
         chart.applyOptions({
           width: containerRef.current.clientWidth,
-          height: fullscreen ? containerRef.current.clientHeight : 320,
+          height: containerRef.current.clientHeight || 500,
         });
       }
     };
@@ -178,13 +241,13 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     return () => { window.removeEventListener("resize", handleResize); chart.remove(); };
   }, [data]);
 
-  // Resize chart when fullscreen toggles
+  // Resize on fullscreen toggle
   useEffect(() => {
     if (chartRef.current && containerRef.current) {
       setTimeout(() => {
         chartRef.current?.applyOptions({
           width: containerRef.current!.clientWidth,
-          height: fullscreen ? containerRef.current!.clientHeight : 320,
+          height: containerRef.current!.clientHeight || 500,
         });
       }, 50);
     }
@@ -202,50 +265,27 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     const seen = new Set<number>();
     const deduped = visible.filter((v) => { if (seen.has(v.time)) return false; seen.add(v.time); return true; });
     seriesRef.current.setData(deduped);
-
-    if (visibleCount >= data.outcome_bar_index && data.outcome !== "open") {
-      setShowOutcome(true);
-      // Don't stop — keep playing until end of data
-    }
   }, [visibleCount, data]);
 
   // Animation loop
   useEffect(() => {
     if (!playing || !data) return;
+    const interval = phase === "entry" || phase === "target" ? 800 : 400;
     const timer = setInterval(() => {
       setVisibleCount((prev) => {
         if (prev >= data.bars.length) { setPlaying(false); return data.bars.length; }
         return prev + 1;
       });
-    }, 1500 / speed);
+    }, interval / speed);
     return () => clearInterval(timer);
-  }, [playing, speed, data]);
+  }, [playing, speed, data, phase]);
 
-  if (loading) {
-    return (
-      <div className="fixed inset-0 z-50 bg-surface-0/90 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (error || !data || data.bars.length === 0) {
-    return (
-      <div className="fixed inset-0 z-50 bg-surface-0/90 flex flex-col items-center justify-center gap-3">
-        <p className="text-text-muted">Replay not available for this alert</p>
-        <button onClick={onClose} className="text-sm text-accent">Close</button>
-      </div>
-    );
-  }
-
-  const a = data.alert;
-  const isWin = data.outcome.includes("target");
-  const isBuy = a.direction === "BUY";
-  const outcomeLabel = data.outcome === "target_1_hit" ? "TARGET 1 HIT"
-    : data.outcome === "target_2_hit" ? "TARGET 2 HIT"
-    : data.outcome === "stop_loss_hit" ? "STOP LEVEL REACHED"
-    : data.outcome === "auto_stop_out" ? "AUTO STOPPED"
-    : "TRADE OPEN";
+  // Auto-pause at result
+  useEffect(() => {
+    if (phase === "result" && playing) {
+      setTimeout(() => setPlaying(false), 1000);
+    }
+  }, [phase]);
 
   function shareReplay() {
     const url = `${window.location.origin}/replay/${alertId}`;
@@ -254,246 +294,244 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     setTimeout(() => setLinkCopied(false), 2000);
   }
 
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 bg-[#080d19] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-text-muted text-sm">Loading replay...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data || data.bars.length === 0) {
+    return (
+      <div className="fixed inset-0 z-50 bg-[#080d19] flex flex-col items-center justify-center gap-3">
+        <p className="text-text-muted">Replay not available for this alert</p>
+        <button onClick={onClose} className="text-sm text-accent">Close</button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`fixed inset-0 z-50 bg-surface-0 flex items-center justify-center ${fullscreen ? "p-0" : "p-4 bg-surface-0/95"}`}>
-      <div className={`bg-surface-1 border border-border-subtle overflow-hidden shadow-elevated flex flex-col ${
-        fullscreen ? "w-full h-full rounded-none" : "w-full max-w-4xl rounded-xl"
-      }`}>
+    <div className="fixed inset-0 z-50 bg-[#080d19] flex flex-col">
 
-        {/* Header — Alert Context */}
-        <div className={`border-b border-border-subtle bg-surface-2/20 shrink-0 ${fullscreen ? "px-8 py-5" : "px-5 py-4"}`}>
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <span className={`font-bold text-text-primary ${fullscreen ? "text-3xl" : "text-lg"}`}>{a.symbol}</span>
-                <span className={`font-bold px-2.5 py-1 rounded ${fullscreen ? "text-sm" : "text-[10px]"} ${
-                  isBuy ? "bg-bullish/10 text-bullish-text border border-bullish/20" : "bg-bearish/10 text-bearish-text border border-bearish/20"
-                }`}>
-                  {isBuy ? "LONG" : "SHORT"}
-                </span>
-                <span className={`text-text-muted bg-surface-3 px-2 py-0.5 rounded ${fullscreen ? "text-sm" : "text-xs"}`}>
-                  {a.alert_type.replace(/_/g, " ")}
-                </span>
-                {fullscreen && (
-                  <span className="text-xs text-text-faint bg-surface-2 px-2 py-0.5 rounded ml-1">
-                    TradeCoPilot
-                  </span>
-                )}
-              </div>
-              {/* Trade plan strip */}
-              <div className={`flex items-center gap-4 font-mono ${fullscreen ? "text-base mt-1" : "text-xs"}`}>
-                <span className="text-accent">Entry ${fmt(a.entry)}</span>
-                <span className="text-bearish-text">Stop ${fmt(a.stop)}</span>
-                <span className="text-bullish-text">T1 ${fmt(a.target_1)}</span>
-                {a.target_2 && <span className="text-bullish-text/70">T2 ${fmt(a.target_2)}</span>}
-              </div>
+      {/* ── Phase Overlays ── */}
+      <div className="absolute inset-0 z-10 pointer-events-none">
+
+        {/* SETUP phase: show trade name prominently */}
+        {phase === "setup" && (
+          <div className="absolute top-12 left-8 animate-in fade-in slide-in-from-left duration-700">
+            <div className="text-4xl font-bold text-white tracking-tight">
+              {setupLabel.toUpperCase()}
             </div>
-
-            {/* Live P&L */}
-            <div className="text-right ml-4">
-              <div className={`font-mono font-bold ${fullscreen ? "text-3xl" : "text-xl"} ${livePnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-                {livePnl >= 0 ? "+" : ""}{livePnl.toFixed(2)}
-              </div>
-              <div className={`font-mono ${fullscreen ? "text-sm" : "text-xs"} ${livePnl >= 0 ? "text-bullish-text/70" : "text-bearish-text/70"}`}>
-                {livePnlPct >= 0 ? "+" : ""}{livePnlPct.toFixed(2)}%
-              </div>
+            <div className="text-xl text-accent mt-2 font-mono">
+              {data.alert.symbol} — ${fmt(data.alert.price)}
             </div>
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-1 ml-3">
-              <button
-                onClick={shareReplay}
-                className="p-1.5 text-text-faint hover:text-accent transition-colors"
-                title="Copy share link"
-              >
-                {linkCopied ? <span className="text-[10px] text-accent font-bold">Copied!</span> : (
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                )}
-              </button>
-              <button
-                onClick={() => setFullscreen(!fullscreen)}
-                className="p-1.5 text-text-faint hover:text-text-muted transition-colors"
-                title={fullscreen ? "Exit fullscreen" : "Fullscreen studio"}
-              >
-                {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-              </button>
-              <button onClick={onClose} className="p-1.5 text-text-faint hover:text-text-muted">
-                <X className="h-4 w-4" />
-              </button>
+            <div className="flex gap-4 mt-3 text-sm font-mono">
+              <span className="text-blue-400">Entry ${fmt(data.alert.entry)}</span>
+              <span className="text-red-400">Stop ${fmt(data.alert.stop)}</span>
+              <span className="text-emerald-400">T1 ${fmt(data.alert.target_1)}</span>
             </div>
           </div>
+        )}
 
-          {/* Alert message — hide in fullscreen for cleaner look */}
-          {!fullscreen && a.message && (
-            <p className="mt-2 text-xs text-text-secondary leading-relaxed">{a.message.slice(0, 120)}</p>
-          )}
-        </div>
+        {/* APPROACH phase: tension text */}
+        {phase === "approach" && (
+          <div className="absolute top-8 left-8">
+            <div className="text-sm text-text-muted uppercase tracking-widest animate-pulse">
+              Approaching {isBuy ? "support" : "resistance"}...
+            </div>
+          </div>
+        )}
 
-        {/* Chart */}
-        <div ref={containerRef} className={`w-full ${fullscreen ? "flex-1" : ""}`} />
+        {/* ENTRY phase: flash highlight */}
+        {phase === "entry" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="animate-in zoom-in duration-300 bg-accent/15 border-2 border-accent rounded-2xl px-8 py-5 backdrop-blur-sm">
+              <div className="text-2xl font-bold text-accent text-center">
+                {isBuy ? "ENTRY" : "SHORT ENTRY"}
+              </div>
+              <div className="text-lg font-mono text-accent/80 text-center mt-1">
+                ${fmt(data.alert.entry)} — {setupLabel}
+              </div>
+            </div>
+          </div>
+        )}
 
-        {/* Progress bar — click/drag to scrub */}
+        {/* MOVE phase: live P&L counter */}
+        {phase === "move" && (
+          <div className="absolute top-6 right-8">
+            <div className={`text-3xl font-mono font-bold tabular-nums ${livePnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+              {livePnl >= 0 ? "+" : ""}{livePnl.toFixed(2)}
+            </div>
+            <div className={`text-sm font-mono text-right ${livePnl >= 0 ? "text-emerald-400/70" : "text-red-400/70"}`}>
+              {livePnlPct >= 0 ? "+" : ""}{livePnlPct.toFixed(2)}%
+            </div>
+          </div>
+        )}
+
+        {/* TARGET HIT phase: celebration */}
+        {phase === "target" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className={`animate-in zoom-in duration-500 ${isWin ? "bg-emerald-500/10" : "bg-red-500/10"} rounded-3xl px-12 py-8 backdrop-blur-sm border ${isWin ? "border-emerald-500/30" : "border-red-500/30"}`}>
+              <div className={`text-5xl font-bold text-center ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+                {outcomeLabel}
+              </div>
+              <div className={`text-3xl font-mono text-center mt-3 ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+                {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
+                <span className="text-lg ml-2">
+                  (${data.pnl_per_share >= 0 ? "+" : ""}{data.pnl_per_share}/share)
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RESULT phase: result card overlay */}
+        {phase === "result" && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-auto">
+            <div className="bg-[#0f1629] border border-white/10 rounded-2xl p-8 max-w-md shadow-2xl">
+              <div className="flex items-center gap-3 mb-6">
+                <span className="text-3xl">{isWin ? "✅" : "🛑"}</span>
+                <span className={`text-2xl font-bold ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+                  {outcomeLabel}
+                </span>
+              </div>
+              <div className="space-y-3 text-base">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Symbol</span>
+                  <span className="text-white font-bold text-lg">{data.alert.symbol}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Setup</span>
+                  <span className="text-accent font-medium">{setupLabel}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Entry</span>
+                  <span className="text-white font-mono">${fmt(data.alert.entry)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Exit</span>
+                  <span className="text-white font-mono">${fmt(data.outcome_price)}</span>
+                </div>
+                <div className="flex justify-between border-t border-white/10 pt-3">
+                  <span className="text-gray-400">P&L</span>
+                  <span className={`font-bold font-mono text-lg ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+                    {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
+                    <span className="text-sm ml-1">
+                      (${data.pnl_per_share >= 0 ? "+" : ""}{data.pnl_per_share})
+                    </span>
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Duration</span>
+                  <span className="text-white font-mono">{duration}</span>
+                </div>
+              </div>
+              <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
+                <span className="text-xs text-gray-500">tradesignalwithai.com</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={shareReplay}
+                    className="text-xs bg-accent/20 text-accent px-3 py-1.5 rounded-lg hover:bg-accent/30 transition-colors pointer-events-auto"
+                  >
+                    {linkCopied ? "Copied!" : "Share Link"}
+                  </button>
+                  <button
+                    onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 6)); setPlaying(true); }}
+                    className="text-xs bg-white/10 text-white px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors pointer-events-auto"
+                  >
+                    Replay
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Chart Area ── */}
+      <div ref={containerRef} className="flex-1 min-h-0" />
+
+      {/* ── Controls Bar ── */}
+      <div className="shrink-0 bg-[#0a0f1a] border-t border-white/5 px-6 py-3">
+        {/* Progress bar */}
         <div
-          className="h-3 bg-surface-3 cursor-pointer group relative"
+          className="h-1.5 bg-white/5 rounded-full cursor-pointer mb-3 group"
           onClick={(e) => {
             if (!data) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-            const newCount = Math.max(1, Math.round(pct * data.bars.length));
-            setVisibleCount(newCount);
+            setVisibleCount(Math.max(1, Math.round(pct * data.bars.length)));
             setPlaying(false);
-            if (newCount >= (data.outcome_bar_index || data.bars.length) && data.outcome !== "open") {
-              setShowOutcome(true);
-            } else {
-              setShowOutcome(false);
-            }
-          }}
-          onMouseDown={(e) => {
-            if (!data) return;
-            const bar = e.currentTarget;
-            const onMove = (ev: MouseEvent) => {
-              const rect = bar.getBoundingClientRect();
-              const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-              const newCount = Math.max(1, Math.round(pct * data.bars.length));
-              setVisibleCount(newCount);
-              setPlaying(false);
-            };
-            const onUp = () => {
-              document.removeEventListener("mousemove", onMove);
-              document.removeEventListener("mouseup", onUp);
-            };
-            document.addEventListener("mousemove", onMove);
-            document.addEventListener("mouseup", onUp);
           }}
         >
           <div
-            className={`h-full transition-all duration-100 ${showOutcome ? (isWin ? "bg-bullish" : "bg-bearish") : "bg-accent"}`}
+            className={`h-full rounded-full transition-all duration-100 ${
+              phase === "target" || phase === "result"
+                ? (isWin ? "bg-emerald-500" : "bg-red-500")
+                : "bg-accent"
+            }`}
             style={{ width: `${progress}%` }}
-          />
-          {/* Scrub handle */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-accent shadow-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-            style={{ left: `calc(${progress}% - 6px)` }}
           />
         </div>
 
-        {/* Controls */}
-        <div className="px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between">
+          {/* Left: playback controls */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index)); setShowOutcome(false); setPlaying(false); }}
-              className="p-1.5 rounded hover:bg-surface-3 text-text-muted transition-colors"
-              title="Reset to alert"
+              onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 6)); setPlaying(false); }}
+              className="p-1.5 rounded hover:bg-white/5 text-gray-400 transition-colors"
             >
               <SkipBack className="h-4 w-4" />
             </button>
             <button
               onClick={() => setPlaying(!playing)}
-              className="p-2.5 rounded-full bg-accent hover:bg-accent-hover text-white transition-colors"
+              className="p-2.5 rounded-full bg-accent hover:bg-accent/80 text-white transition-colors"
             >
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </button>
             <button
-              onClick={() => { setVisibleCount(data.bars.length); setPlaying(false); setShowOutcome(data.outcome !== "open"); }}
-              className="p-1.5 rounded hover:bg-surface-3 text-text-muted transition-colors"
-              title="Skip to outcome"
+              onClick={() => { setVisibleCount(data.bars.length); setPlaying(false); }}
+              className="p-1.5 rounded hover:bg-white/5 text-gray-400 transition-colors"
             >
               <SkipForward className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Speed */}
-          <div className="flex items-center gap-1">
-            {[0.5, 1, 2, 5].map((s) => (
+          {/* Center: alert info */}
+          <div className="text-center">
+            <span className="text-sm font-bold text-white">{data.alert.symbol}</span>
+            <span className="text-xs text-gray-500 ml-2">{setupLabel}</span>
+            <span className="text-xs text-gray-600 ml-2">Score {data.alert.score}</span>
+          </div>
+
+          {/* Right: speed + controls */}
+          <div className="flex items-center gap-2">
+            {[1, 2, 5].map((s) => (
               <button
                 key={s}
                 onClick={() => setSpeed(s)}
-                className={`px-2.5 py-1 rounded text-xs font-bold transition-colors ${
-                  speed === s ? "bg-accent/20 text-accent" : "text-text-faint hover:text-text-muted"
+                className={`px-2 py-1 rounded text-xs font-bold transition-colors ${
+                  speed === s ? "bg-accent/20 text-accent" : "text-gray-500 hover:text-gray-300"
                 }`}
               >
                 {s}x
               </button>
             ))}
+            <button
+              onClick={() => setFullscreen(!fullscreen)}
+              className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors ml-2"
+            >
+              {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+            <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-gray-300">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-
-          {/* Bar counter */}
-          <span className="text-xs text-text-faint font-mono">
-            Bar {visibleCount}/{data.bars.length}
-          </span>
         </div>
-
-        {/* Outcome banner */}
-        {showOutcome && (
-          <div className={`px-5 py-4 flex items-center justify-between ${
-            isWin ? "bg-bullish/10 border-t border-bullish/20" : "bg-bearish/10 border-t border-bearish/20"
-          }`}>
-            <div className="flex items-center gap-3">
-              {isWin ? <Target className="h-5 w-5 text-bullish-text" /> : <ShieldAlert className="h-5 w-5 text-bearish-text" />}
-              <div>
-                <span className={`font-bold text-sm ${isWin ? "text-bullish-text" : "text-bearish-text"}`}>
-                  {outcomeLabel}
-                </span>
-                {data.outcome_price && (
-                  <span className="text-xs text-text-muted ml-2">
-                    at ${data.outcome_price.toFixed(2)}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="text-right">
-              <span className={`font-mono text-lg font-bold ${isWin ? "text-bullish-text" : "text-bearish-text"}`}>
-                {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
-              </span>
-              <span className="text-xs text-text-faint ml-2">
-                (${data.pnl_per_share >= 0 ? "+" : ""}{data.pnl_per_share}/share)
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* AI Replay Analysis — appears after outcome (hidden in fullscreen for clean recording) */}
-        {showOutcome && !fullscreen && (
-          <div className="px-5 py-4 border-t border-border-subtle bg-surface-2/10">
-            <div className="flex items-center gap-2 mb-3">
-              <Brain className="h-4 w-4 text-accent" />
-              <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">AI Trade Analysis</span>
-            </div>
-            {aiLoading ? (
-              <div className="flex items-center gap-2 text-xs text-text-faint py-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Analyzing trade...
-              </div>
-            ) : aiAnalysis ? (
-              <div className="space-y-2">
-                {aiAnalysis
-                  .replace(/\*\*/g, "")           // strip markdown bold
-                  .replace(/^#+\s*/gm, "")        // strip markdown headers
-                  .split("\n")
-                  .filter((line) => line.trim())
-                  .map((line, i) => {
-                    // Detect section headers (ENTRY:, WHAT HAPPENED:, OUTCOME:, LESSON:)
-                    const headerMatch = line.match(/^(ENTRY|WHAT HAPPENED|OUTCOME|LESSON|TAKEAWAY)[:\s]/i);
-                    if (headerMatch) {
-                      const label = headerMatch[1].toUpperCase();
-                      const rest = line.slice(headerMatch[0].length).trim();
-                      return (
-                        <div key={i}>
-                          <span className="text-[10px] font-bold text-accent uppercase tracking-wider">{label}</span>
-                          <p className="text-sm text-text-secondary leading-relaxed mt-0.5">{rest}</p>
-                        </div>
-                      );
-                    }
-                    return <p key={i} className="text-sm text-text-secondary leading-relaxed">{line}</p>;
-                  })}
-              </div>
-            ) : (
-              <p className="text-xs text-text-faint">Analysis not available for this trade.</p>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
