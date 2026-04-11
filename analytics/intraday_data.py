@@ -803,13 +803,10 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         if is_crypto:
             coinbase_hist = _fetch_coinbase_candles(symbol, granularity=86400, num_candles=250)
             if not coinbase_hist.empty and len(coinbase_hist) >= 3:
-                # Coinbase returns ET-naive index — convert to UTC date for crypto
+                # Coinbase bars are ET-naive after _fetch_coinbase_candles converts them.
+                # Compare with ET "today" so we pick the right daily bar.
                 hist = coinbase_hist[["Open", "High", "Low", "Close", "Volume"]].copy()
-                # Use UTC dates for crypto day boundaries
-                from datetime import datetime, timezone
-                today = pd.Timestamp(
-                    datetime.now(timezone.utc).replace(tzinfo=None)
-                ).normalize()
+                today = pd.Timestamp.now(tz=ET).normalize().tz_localize(None)
                 last_bar_date = hist.index[-1].normalize()
 
                 # Compute MAs on full history
