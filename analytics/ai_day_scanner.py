@@ -359,8 +359,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                     try:
                         from alerting.notifier import _send_telegram_to
                         _tg_msg = (
-                            f"<b>RESISTANCE {symbol} ${entry:.2f}</b>\n"
-                            f"{reason}"
+                            f"<b>AI SCAN — RESISTANCE {symbol} ${entry:.2f}</b>\n"
+                            f"{reason}\n"
+                            f"Action: tighten stop / take profits / watch for rejection"
                         )
                         for uid in symbol_users[symbol]:
                             user = db.get(User, uid)
