@@ -8,6 +8,8 @@ import { useWatchlist, useOHLCV, useLivePrices } from "../api/hooks";
 import type { OHLCBar } from "../api/hooks";
 import CandlestickChart from "../components/CandlestickChart";
 import TradePlanCard, { type TradePlan } from "../components/ai/TradePlanCard";
+import PatternEducation from "../components/ai/PatternEducation";
+import PatternLibrary from "../components/ai/PatternLibrary";
 import AnalysisHistory from "../components/ai/AnalysisHistory";
 import { Brain, Loader2, StopCircle, TrendingUp, TrendingDown } from "lucide-react";
 
@@ -279,7 +281,7 @@ export default function AICoPilotPage() {
         {/* ── Controls bar ── */}
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border-subtle bg-surface-1 px-3 py-2.5">
           <Brain className="h-5 w-5 text-accent shrink-0" />
-          <span className="font-display text-sm font-bold text-text-primary">AI CoPilot</span>
+          <span className="font-display text-sm font-bold text-text-primary">AI CoPilot — Learn Trading Patterns</span>
 
           <SymbolPicker symbols={symbols} active={activeSymbol} prices={prices} onSelect={setSelectedSymbol} />
 
@@ -431,6 +433,25 @@ export default function AICoPilotPage() {
             <p className="text-[13px] text-text-secondary leading-relaxed">{cleanText(reasoning)}</p>
           </div>
         )}
+
+        {/* ── Education Panel — teaches WHY the setup works ── */}
+        {plan && plan.setup && (
+          <PatternEducation
+            data={{
+              what: reasoning ? cleanText(reasoning).split("\n")[0] : null,
+              why: null,
+              confirm_items: [],
+              invalidation: null,
+              risk: plan.entry && plan.stop && plan.target_1
+                ? `Entry: $${plan.entry.toFixed(2)}\nStop: $${plan.stop.toFixed(2)}\nTarget: $${plan.target_1.toFixed(2)}\nR:R: 1:${plan.rr_ratio?.toFixed(1) || "?"}`
+                : null,
+              setup_type: plan.setup || "Unknown Setup",
+            }}
+          />
+        )}
+
+        {/* ── Pattern Library ── */}
+        <PatternLibrary />
 
         {/* ── History ── */}
         <AnalysisHistory />

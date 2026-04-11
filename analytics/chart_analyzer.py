@@ -18,6 +18,186 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Pattern Library — educational content for each setup type
+# ---------------------------------------------------------------------------
+
+PATTERN_LIBRARY = {
+    "pdl_bounce": {
+        "name": "Prior Day Low Bounce",
+        "category": "Support",
+        "difficulty": "Beginner",
+        "description": "Price tests yesterday's low and holds above it — buyers defend the level",
+        "icon": "🟢",
+    },
+    "pdl_reclaim": {
+        "name": "Prior Day Low Reclaim",
+        "category": "Support",
+        "difficulty": "Beginner",
+        "description": "Price dips below yesterday's low then recovers above it — failed breakdown",
+        "icon": "🟢",
+    },
+    "vwap_hold": {
+        "name": "VWAP Hold",
+        "category": "Support",
+        "difficulty": "Beginner",
+        "description": "Price pulls back to VWAP and bounces — trend continuation",
+        "icon": "🟢",
+    },
+    "vwap_reclaim": {
+        "name": "VWAP Reclaim",
+        "category": "Reversal",
+        "difficulty": "Intermediate",
+        "description": "Price crosses above VWAP from below — momentum shift bullish",
+        "icon": "🔄",
+    },
+    "session_low_double_bottom": {
+        "name": "Session Low Double Bottom",
+        "category": "Support",
+        "difficulty": "Beginner",
+        "description": "Price tests the same low twice and holds — classic reversal",
+        "icon": "🟢",
+    },
+    "ma_bounce": {
+        "name": "Moving Average Bounce",
+        "category": "Support",
+        "difficulty": "Intermediate",
+        "description": "Price bounces off a key moving average (50/100/200 MA or EMA)",
+        "icon": "🟢",
+    },
+    "pdh_breakout": {
+        "name": "PDH Breakout",
+        "category": "Breakout",
+        "difficulty": "Intermediate",
+        "description": "Price breaks above yesterday's high on volume — momentum continuation",
+        "icon": "🔵",
+    },
+    "pdh_rejection": {
+        "name": "PDH Rejection",
+        "category": "Resistance",
+        "difficulty": "Beginner",
+        "description": "Price fails at yesterday's high — sellers defend the level",
+        "icon": "🔴",
+    },
+    "session_high_double_top": {
+        "name": "Session High Double Top",
+        "category": "Resistance",
+        "difficulty": "Intermediate",
+        "description": "Price tests session high twice and fails — distribution pattern",
+        "icon": "🔴",
+    },
+    "vwap_loss": {
+        "name": "VWAP Loss",
+        "category": "Reversal",
+        "difficulty": "Beginner",
+        "description": "Price drops below VWAP — bearish shift, average buyer losing",
+        "icon": "🔴",
+    },
+    "inside_day_breakout": {
+        "name": "Inside Day Breakout",
+        "category": "Breakout",
+        "difficulty": "Advanced",
+        "description": "Tight range day followed by expansion — volatility squeeze play",
+        "icon": "🔵",
+    },
+    "fib_bounce": {
+        "name": "Fibonacci Retracement Bounce",
+        "category": "Support",
+        "difficulty": "Advanced",
+        "description": "Price bounces at 50% or 61.8% fibonacci level — mean reversion",
+        "icon": "🟢",
+    },
+    "gap_and_go": {
+        "name": "Gap & Go",
+        "category": "Momentum",
+        "difficulty": "Advanced",
+        "description": "Stock gaps up and holds above VWAP with volume — trend continuation",
+        "icon": "🔵",
+    },
+    "ema_rejection": {
+        "name": "EMA Rejection",
+        "category": "Resistance",
+        "difficulty": "Intermediate",
+        "description": "Price rallies into falling EMA and gets rejected — resistance confirmation",
+        "icon": "🔴",
+    },
+}
+
+
+def build_education_prompt(setup_type: str, symbol: str, entry: float,
+                           stop: float, target: float) -> str:
+    """Build AI prompt for pattern education — teaches WHY a setup works."""
+    entry_str = f"${entry:.2f}" if entry else "N/A"
+    stop_str = f"${stop:.2f}" if stop else "N/A"
+    target_str = f"${target:.2f}" if target else "N/A"
+
+    return (
+        f"You are a trading educator explaining the \"{setup_type}\" pattern "
+        f"to a beginner trader looking at {symbol}.\n\n"
+        f"Use these ACTUAL prices from the chart:\n"
+        f"Entry: {entry_str}\n"
+        f"Stop: {stop_str}\n"
+        f"Target: {target_str}\n\n"
+        f"Explain in 4 sections:\n\n"
+        f"WHAT IS IT: 2 sentences — name the pattern, describe what happened "
+        f"on the chart in simple language a beginner understands.\n\n"
+        f"WHY IT WORKS: 3 bullet points — the market logic (institutional orders, "
+        f"supply/demand, why this level matters).\n\n"
+        f"HOW TO CONFIRM:\n"
+        f"✓ 3-4 checkmarks — what to verify before entering\n"
+        f"✗ 1 item — what invalidates the setup\n\n"
+        f"RISK MANAGEMENT:\n"
+        f"Entry: {entry_str} (the level)\n"
+        f"Stop: {stop_str} (where thesis breaks)\n"
+        f"Target: {target_str} (next resistance/support)\n"
+        f"R:R: calculate from the prices\n\n"
+        f"Keep it under 150 words. Plain text. No markdown.\n"
+        f"Speak simply — assume the reader is new to trading."
+    )
+
+
+def parse_education_response(text: str) -> dict:
+    """Parse AI education response into structured sections."""
+    result = {
+        "what": None,
+        "why": None,
+        "confirm_items": [],
+        "invalidation": None,
+        "risk": None,
+        "raw": text,
+    }
+
+    if not text:
+        return result
+
+    # WHAT IS IT
+    what_match = re.search(r"WHAT IS IT[:\s]*(.+?)(?=WHY IT WORKS|HOW TO CONFIRM|RISK|$)", text, re.DOTALL | re.IGNORECASE)
+    if what_match:
+        result["what"] = what_match.group(1).strip()
+
+    # WHY IT WORKS
+    why_match = re.search(r"WHY IT WORKS[:\s]*(.+?)(?=HOW TO CONFIRM|RISK|$)", text, re.DOTALL | re.IGNORECASE)
+    if why_match:
+        result["why"] = why_match.group(1).strip()
+
+    # HOW TO CONFIRM — extract checkmarks and X items
+    confirm_match = re.search(r"HOW TO CONFIRM[:\s]*(.+?)(?=RISK|$)", text, re.DOTALL | re.IGNORECASE)
+    if confirm_match:
+        confirm_text = confirm_match.group(1)
+        result["confirm_items"] = re.findall(r"[✓✅]\s*(.+?)(?:\n|$)", confirm_text)
+        invalidation = re.findall(r"[✗❌]\s*(.+?)(?:\n|$)", confirm_text)
+        if invalidation:
+            result["invalidation"] = invalidation[0].strip()
+
+    # RISK MANAGEMENT
+    risk_match = re.search(r"RISK MANAGEMENT[:\s]*(.+?)$", text, re.DOTALL | re.IGNORECASE)
+    if risk_match:
+        result["risk"] = risk_match.group(1).strip()
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Timeframe hierarchy — maps each TF to its 2 higher timeframes
 # ---------------------------------------------------------------------------
