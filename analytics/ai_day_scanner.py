@@ -142,7 +142,8 @@ def build_day_trade_prompt(
         if prior_day:
             _check("PDL", prior_day.get("low", 0))
             _check("PDH", prior_day.get("high", 0))
-            for k, l in [("ma50","50MA"),("ma100","100MA"),("ma200","200MA")]:
+            for k, l in [("ma20","20MA"),("ma50","50MA"),("ma100","100MA"),("ma200","200MA"),
+                        ("ema20","20EMA"),("ema50","50EMA"),("ema100","100EMA"),("ema200","200EMA")]:
                 _check(l, prior_day.get(k, 0))
 
         _near.sort(key=lambda x: x[2])
