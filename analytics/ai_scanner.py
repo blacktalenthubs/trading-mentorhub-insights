@@ -295,9 +295,12 @@ def ai_scan_cycle(sync_session_factory):
             for sym, uid in all_items:
                 symbol_users.setdefault(sym, []).append(uid)
 
-            symbols = list(symbol_users.keys())
+            # Filter: only scan symbols whose market is open
+            # Crypto = 24/7, equities = market hours only
+            from analytics.market_hours import is_market_hours_for_symbol
+            symbols = [s for s in symbol_users.keys() if is_market_hours_for_symbol(s)]
             if not symbols:
-                logger.info("AI scan: no symbols on any watchlist")
+                logger.debug("AI scan: no symbols with open markets")
                 return 0
 
             logger.info("AI scan: scanning %d symbols", len(symbols))
