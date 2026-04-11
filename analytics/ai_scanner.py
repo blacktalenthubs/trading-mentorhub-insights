@@ -184,15 +184,15 @@ def scan_symbol(
 
     Returns parsed dict or None on failure.
     """
-    from analytics.intraday_data import fetch_intraday, fetch_prior_day
+    from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day
     from config import is_crypto_alert_symbol
 
     is_crypto = is_crypto_alert_symbol(symbol)
     use_model = model or CLAUDE_MODEL
 
     try:
-        # Fetch 5m bars
-        bars_5m_df = fetch_intraday(symbol, period="1d", interval="5m")
+        # Fetch 5m bars — use Coinbase for crypto (real-time), yfinance for equities
+        bars_5m_df = fetch_intraday_crypto(symbol) if is_crypto else fetch_intraday(symbol, period="1d", interval="5m")
         if bars_5m_df is None or (hasattr(bars_5m_df, "empty") and bars_5m_df.empty):
             logger.warning("AI scan: no 5m bars for %s", symbol)
             return None
