@@ -330,8 +330,18 @@ def day_scan_cycle(sync_session_factory) -> int:
                 reason = result.get("reason", "")
                 conviction = result.get("conviction", "MEDIUM")
 
-                # WAIT — no setup confirmed
+                # WAIT — no setup confirmed, record to DB for AI Scan feed
                 if not direction or direction == "WAIT":
+                    _wait_msg = f"AI: WAIT — {reason}" if reason else "AI: WAIT — no setup confirmed"
+                    _first_uid = symbol_users[symbol][0]
+                    db.add(Alert(
+                        user_id=_first_uid, symbol=symbol,
+                        alert_type="ai_scan_wait", direction="NOTICE",
+                        price=result.get("price", 0),
+                        message=_wait_msg, score=0,
+                        session_date=session,
+                    ))
+                    db.commit()
                     logger.info("AI day scan %s: WAIT — %s", symbol, reason or "no setup")
                     continue
 
