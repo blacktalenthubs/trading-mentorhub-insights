@@ -364,9 +364,11 @@ def ai_scan_cycle(sync_session_factory):
 
                 db.commit()
 
-                # Send Telegram notification
+                # Send Telegram notification per user
                 try:
-                    from alerting.notifier import _send_telegram
+                    from alerting.notifier import _send_telegram_to
+                    from app.models.user import User
+
                     _dir_label = "LONG" if direction == "LONG" else "RESISTANCE"
                     _stop = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
                     _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
@@ -377,10 +379,14 @@ def ai_scan_cycle(sync_session_factory):
                         f"Stop: {_stop} | T1: {_t1} | T2: {_t2}\n"
                         f"Conviction: {conviction}"
                     )
-                    _send_telegram(_msg)
-                    logger.info("AI scan %s: %s at $%.2f → Telegram sent", symbol, direction, entry)
+
+                    for user_id in symbol_users[symbol]:
+                        user = db.get(User, user_id)
+                        if user and user.telegram_enabled and user.telegram_chat_id:
+                            _send_telegram_to(_msg, user.telegram_chat_id)
+                            logger.info("AI scan %s: %s at $%.2f → Telegram sent to user %d", symbol, direction, entry, user_id)
                 except Exception:
-                    logger.debug("AI scan: Telegram send failed for %s", symbol)
+                    logger.exception("AI scan: Telegram send failed for %s", symbol)
 
             logger.info("AI scan cycle complete: %d alerts from %d symbols", total_alerts, len(symbols))
             return total_alerts
