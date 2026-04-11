@@ -166,51 +166,9 @@ async def lifespan(app: FastAPI):
             args=[sync_session_factory],
             id="alert_monitor_initial",
         )
-        # EOD swing scan — runs 30 min before close so users can act
-        def _eod_swing_scan():
-            try:
-                from alerting.swing_scanner import swing_scan_eod
-                swing_scan_eod()
-                logger.info("EOD swing scan completed")
-            except Exception:
-                logger.exception("EOD swing scan failed")
-
-        scheduler.add_job(
-            _eod_swing_scan,
-            "cron",
-            hour=15, minute=30,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="eod_swing_scan",
-            replace_existing=True,
-        )
-
-        # Premarket swing refresh — runs at 9:00 AM ET weekdays
-        def _premarket_swing_refresh():
-            try:
-                from alerting.swing_refresher import refresh_pending_swing_alerts, format_refresh_summary
-                summary = refresh_pending_swing_alerts(sync_session_factory)
-                msg = format_refresh_summary(summary)
-                if msg:
-                    # Send to group chat
-                    from alerting.notifier import _send_telegram_to
-                    from alert_config import TELEGRAM_CHAT_ID
-                    if TELEGRAM_CHAT_ID:
-                        _send_telegram_to(msg, TELEGRAM_CHAT_ID, parse_mode="HTML")
-                logger.info("Premarket swing refresh: %d refreshed, %d invalidated",
-                            summary["refreshed"], summary["invalidated"])
-            except Exception:
-                logger.exception("Premarket swing refresh failed")
-
-        scheduler.add_job(
-            _premarket_swing_refresh,
-            "cron",
-            hour=9, minute=0,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="premarket_swing_refresh",
-            replace_existing=True,
-        )
+        # SWING DISABLED — focus on day trade entries first.
+        # EOD swing scan and premarket refresh both disabled.
+        # Re-enable after day trade alerts are proven reliable.
 
         # Alert Sniper: Game Plan — 9:05 AM ET weekdays
         def _game_plan():
