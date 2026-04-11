@@ -48,31 +48,36 @@ def build_scan_prompt(
     """Build AI scan prompt — same as Coach but without user-specific data."""
 
     parts = [
-        "You are an intraday trading analyst. Be extremely brief.\n\n"
+        "You are an intraday trading analyst. Your job: determine WHERE price is relative to key levels.\n\n"
+        "STEP 1 — Calculate distance from current price to EACH level below.\n"
+        "STEP 2 — Classify position:\n"
+        "  AT SUPPORT (within 0.3% of support level) → potential LONG\n"
+        "  AT RESISTANCE (within 0.3% of resistance level) → potential SHORT\n"
+        "  APPROACHING (0.3-0.8% from level) → WAIT, note which level\n"
+        "  MID-RANGE (>0.8% from all levels) → WAIT\n\n"
         "FORMAT (plain text, no markdown):\n\n"
-        "CHART READ: 1 short sentence — trend + nearest key level.\n\n"
+        "CHART READ: 1 sentence — where price is relative to nearest level.\n\n"
+        "POSITION: AT SUPPORT / AT RESISTANCE / APPROACHING / MID-RANGE\n\n"
         "ACTION:\n"
         "Direction: LONG / SHORT / WAIT\n"
-        "Entry: $price — level name (MUST be a key level, NOT current price)\n"
+        "Entry: $price — level name\n"
         "Stop: $price\n"
-        "T1: $price\n"
+        "T1: $price (next resistance if LONG, next support if SHORT)\n"
         "T2: $price\n"
         "Conviction: HIGH / MEDIUM / LOW\n\n"
-        "INTRADAY SETUPS TO LOOK FOR:\n"
-        "- Session low bounce: price tests today's low and holds → BUY\n"
-        "- Session low double bottom: two tests of the same low → BUY\n"
-        "- VWAP reclaim: price crosses above VWAP from below → BUY\n"
-        "- VWAP bounce: pullback to VWAP that holds → BUY\n"
-        "- PDL bounce/reclaim: price at yesterday's low and holds → BUY\n"
-        "- Session high rejection: price tests high and fails → RESISTANCE\n"
-        "- VWAP loss: price drops below VWAP → RESISTANCE\n\n"
+        "SUPPORT LEVELS (BUY when price is AT these):\n"
+        "- Session low, Prior day low (PDL), VWAP (reclaim from below),\n"
+        "  VWAP (pullback hold), MA bounce (20/50/100/200), Weekly low, Fib 50%/61.8%\n\n"
+        "RESISTANCE LEVELS (SHORT when price is AT these):\n"
+        "- Session high, Prior day high (PDH), VWAP loss (drop below),\n"
+        "  MA rejection, Weekly high\n\n"
         "STRICT RULES:\n"
-        "- MAXIMUM 60 WORDS TOTAL.\n"
-        "- Entry must be a KEY LEVEL (session low, VWAP, PDL, PDH, MA) — never current price.\n"
-        "- If price is not at a key level, Direction = WAIT.\n"
-        "- Buy dips at support. Short at resistance. Don't chase.\n"
-        "- PDH = yesterday's high, PDL = yesterday's low.\n"
-        "- Prices from the data only. Plain text. No markdown.\n"
+        "- MAXIMUM 60 WORDS.\n"
+        "- ONLY fire LONG/SHORT if price is AT a level (within 0.3%).\n"
+        "- If price is between levels or extended, Direction = WAIT.\n"
+        "- Entry = the key level price, NOT current price.\n"
+        "- T1 = next level in trade direction. T2 = level after T1.\n"
+        "- PDH = yesterday's high. PDL = yesterday's low. Don't confuse with today's.\n"
         "- Education only, not financial advice."
     ]
 
@@ -158,6 +163,7 @@ def parse_ai_response(text: str) -> dict:
         "t2": None,
         "conviction": None,
         "chart_read": None,
+        "position": None,
         "raw": text,
     }
 
@@ -165,6 +171,11 @@ def parse_ai_response(text: str) -> dict:
     cr_match = re.search(r"CHART READ:\s*(.+?)(?:\n|$)", text)
     if cr_match:
         result["chart_read"] = cr_match.group(1).strip()
+
+    # POSITION
+    pos_match = re.search(r"POSITION:\s*(AT SUPPORT|AT RESISTANCE|APPROACHING|MID-RANGE)", text, re.IGNORECASE)
+    if pos_match:
+        result["position"] = pos_match.group(1).upper()
 
     # Direction
     dir_match = re.search(r"Direction:\s*(LONG|SHORT|WAIT)", text, re.IGNORECASE)
@@ -397,11 +408,13 @@ def ai_scan_cycle(sync_session_factory):
                     from app.models.user import User
 
                     _dir_label = "LONG" if direction == "LONG" else "RESISTANCE"
+                    _position = result.get("position", "")
+                    _pos_line = f"\n{_position}" if _position else ""
                     _stop = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
                     _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
                     _t2 = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
                     _msg = (
-                        f"<b>AI SCAN — {_dir_label} {symbol} ${entry:.2f}</b>\n"
+                        f"<b>AI SCAN — {_dir_label} {symbol} ${entry:.2f}</b>{_pos_line}\n"
                         f"Entry: ${entry:.2f} — {chart_read}\n"
                         f"Stop: {_stop} | T1: {_t1} | T2: {_t2}\n"
                         f"Conviction: {conviction}"
