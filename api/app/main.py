@@ -168,27 +168,55 @@ async def lifespan(app: FastAPI):
         )
         # SWING DISABLED — focus on day trade entries first.
 
-        # AI Scan Engine (Spec 26) — proactive AI-powered alerts
-        # Runs every 30 min during market hours, scans all watchlist symbols
-        def _ai_scan():
+        # AI Day Trade Scanner (Spec 27) — specialized entry detection every 3 min
+        def _ai_day_scan():
             try:
-                from analytics.ai_scanner import ai_scan_cycle
-                count = ai_scan_cycle(sync_session_factory)
-                logger.info("AI scan complete: %d alerts", count)
+                from analytics.ai_day_scanner import day_scan_cycle
+                count = day_scan_cycle(sync_session_factory)
+                logger.info("AI day scan complete: %d alerts", count)
             except Exception:
-                logger.exception("AI scan cycle failed")
+                logger.exception("AI day scan cycle failed")
 
         scheduler.add_job(
-            _ai_scan,
+            _ai_day_scan,
             "interval",
-            minutes=5,
-            id="ai_scan",
+            minutes=3,
+            id="ai_day_scan",
             replace_existing=True,
         )
-        # Also run on startup
         scheduler.add_job(
-            _ai_scan,
-            id="ai_scan_initial",
+            _ai_day_scan,
+            id="ai_day_scan_initial",
+        )
+
+        # AI Swing Trade Scanner (Spec 27) — daily chart analysis 2x/day
+        def _ai_swing_scan():
+            try:
+                from analytics.ai_swing_scanner import swing_scan_cycle
+                count = swing_scan_cycle(sync_session_factory)
+                logger.info("AI swing scan complete: %d alerts", count)
+            except Exception:
+                logger.exception("AI swing scan cycle failed")
+
+        scheduler.add_job(
+            _ai_swing_scan,
+            "cron",
+            hour=9, minute=5,
+            timezone="US/Eastern",
+            id="ai_swing_premarket",
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            _ai_swing_scan,
+            "cron",
+            hour=15, minute=30,
+            timezone="US/Eastern",
+            id="ai_swing_preclose",
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            _ai_swing_scan,
+            id="ai_swing_initial",
         )
 
         # Alert Sniper: Game Plan — 9:05 AM ET weekdays
