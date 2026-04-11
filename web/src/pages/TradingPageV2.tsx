@@ -37,7 +37,7 @@ import {
   SlidersHorizontal,
   Brain,
   Zap,
-  Activity,
+  Eye,
   Send,
   ChevronLeft,
   ChevronRight,
@@ -378,6 +378,79 @@ function AICoachTab({
   );
 }
 
+/* ── AI Scan Feed Tab ─────────────────────────────────────────────── */
+
+function AIScanFeedTab({
+  alerts,
+  onSelectSymbol,
+}: {
+  alerts?: Alert[];
+  onSelectSymbol: (sym: string) => void;
+}) {
+  const aiAlerts = alerts?.filter((a) => a.alert_type?.startsWith("ai_scan")) ?? [];
+
+  if (aiAlerts.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-xs text-text-faint">No AI scans yet today</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+      {aiAlerts.map((a) => {
+        const time = new Date(a.created_at).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const isWait = a.alert_type === "ai_scan_wait";
+        const isLong = a.direction === "BUY";
+        const badge = isWait
+          ? "bg-gray-500/10 text-gray-400 border-gray-500/20"
+          : isLong
+            ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
+            : "bg-orange-500/10 text-orange-400 border-orange-500/20";
+        const label = isWait ? "WAIT" : isLong ? "AI LONG" : "AI RESISTANCE";
+
+        return (
+          <div
+            key={a.id}
+            className={`border border-border-subtle/60 rounded-lg p-2.5 cursor-pointer transition-colors ${
+              isWait ? "bg-surface-2/20 opacity-60" : "bg-surface-2/40 hover:border-purple-500/20"
+            }`}
+            onClick={() => onSelectSymbol(a.symbol)}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-text-primary">{a.symbol}</span>
+                <span className={`text-[9px] font-semibold px-1 py-0.5 rounded border ${badge}`}>
+                  {label}
+                </span>
+                {a.price > 0 && (
+                  <span className="text-[10px] font-mono text-text-muted">${a.price?.toFixed(2)}</span>
+                )}
+              </div>
+              <span className="text-[10px] font-mono text-text-faint">{time}</span>
+            </div>
+            <p className="text-[11px] text-text-muted leading-relaxed line-clamp-2">
+              {a.message}
+            </p>
+            {!isWait && a.entry && (
+              <div className="flex gap-3 mt-1 text-[10px] text-text-faint">
+                <span>Entry: <span className="text-purple-400 font-mono">${a.entry?.toFixed(2)}</span></span>
+                {a.stop && <span>Stop: <span className="text-red-400 font-mono">${a.stop?.toFixed(2)}</span></span>}
+                {a.target_1 && <span>T1: <span className="text-emerald-400 font-mono">${a.target_1?.toFixed(2)}</span></span>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
 /* ── Signal Feed Tab ──────────────────────────────────────────────── */
 
 function SignalFeedTab({
@@ -632,7 +705,7 @@ function BottomStrip({ signal: s }: { signal: SignalResult }) {
 
 /* ── Right Panel Tabs ─────────────────────────────────────────────── */
 
-type RightTab = "ai" | "signals" | "flow";
+type RightTab = "ai" | "signals" | "flow" | "aiscan";
 
 /* ── Main TradingPage V2 ─────────────────────────────────────────── */
 
@@ -1238,7 +1311,7 @@ export default function TradingPageV2() {
               [
                 { key: "ai" as RightTab, label: "AI Coach", icon: Brain, badge: 0 },
                 { key: "signals" as RightTab, label: "Signals", icon: Zap, badge: alertCount },
-                { key: "flow" as RightTab, label: "Flow", icon: Activity, badge: 0 },
+                { key: "aiscan" as RightTab, label: "AI Scan", icon: Eye, badge: 0 },
               ]
             ).map(({ key, label, icon: Icon, badge }) => (
               <button
@@ -1280,7 +1353,12 @@ export default function TradingPageV2() {
                 onSelectSymbol={selectSymbol}
               />
             )}
-            {rightTab === "flow" && <OptionsFlowTab symbols={flowSymbols} />}
+            {rightTab === "aiscan" && (
+              <AIScanFeedTab
+                alerts={todayAlerts}
+                onSelectSymbol={selectSymbol}
+              />
+            )}
           </div>
         </aside>
       )}
@@ -1312,7 +1390,7 @@ export default function TradingPageV2() {
             [
               { key: "ai" as RightTab, label: "AI", icon: Brain },
               { key: "signals" as RightTab, label: "Signals", icon: Zap },
-              { key: "flow" as RightTab, label: "Flow", icon: Activity },
+              { key: "aiscan" as RightTab, label: "AI Scan", icon: Eye },
             ] as const
           ).map(({ key, label, icon: Icon }) => (
             <button

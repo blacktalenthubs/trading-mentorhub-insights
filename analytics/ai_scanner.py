@@ -347,9 +347,23 @@ def ai_scan_cycle(sync_session_factory):
                     continue
 
                 direction = result.get("direction")
+                chart_read = result.get("chart_read", "")
+                position = result.get("position", "")
+
                 if not direction or direction == "WAIT":
-                    # Record WAIT for analysis but don't notify
-                    logger.info("AI scan %s: WAIT — %s", symbol, result.get("chart_read", ""))
+                    # Record WAIT to DB for AI Scan feed (no Telegram)
+                    from app.models.alert import Alert as _Alert
+                    _wait_msg = f"AI: {position} — {chart_read}" if chart_read else f"AI scan WAIT"
+                    for uid in symbol_users[symbol]:
+                        db.add(_Alert(
+                            user_id=uid, symbol=symbol,
+                            alert_type="ai_scan_wait", direction="NOTICE",
+                            price=result.get("price", 0),
+                            message=_wait_msg, score=0,
+                            session_date=session,
+                        ))
+                    db.commit()
+                    logger.info("AI scan %s: WAIT — %s", symbol, chart_read)
                     continue
 
                 entry = result.get("entry", 0)
