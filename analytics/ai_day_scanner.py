@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 # Dedup: (symbol, setup_type, level_bucket) per session
 _day_fired: dict[str, set[tuple]] = {}
 _day_session: str = ""
+# Track last direction sent to Telegram per symbol — only notify on change
+_last_tg_direction: dict[str, str] = {}  # {symbol: "LONG" / "RESISTANCE" / "WAIT"}
 _last_day_price: dict[str, float] = {}
 
 
@@ -278,6 +280,7 @@ def day_scan_cycle(sync_session_factory) -> int:
     session = date.today().isoformat()
     if _day_session != session:
         _day_fired.clear()
+        _last_tg_direction.clear()
         _last_day_price.clear()
         _day_session = session
 
@@ -336,11 +339,13 @@ def day_scan_cycle(sync_session_factory) -> int:
                     ))
                     db.commit()
 
-                    # If WAIT mentions a key level, send notice to Telegram
+                    # Send WAIT to Telegram only if direction changed from LONG/RESISTANCE
                     _level_keywords = ["PDH", "PDL", "VWAP", "session low", "session high",
                                        "50MA", "100MA", "200MA", "support", "resistance", "weekly"]
                     _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
-                    if _near_level and reason:
+                    _prev_dir = _last_tg_direction.get(symbol)
+                    if _near_level and reason and _prev_dir != "WAIT":
+                        _last_tg_direction[symbol] = "WAIT"
                         try:
                             from alerting.notifier import _send_telegram_to
                             _tg_msg = (
@@ -377,20 +382,22 @@ def day_scan_cycle(sync_session_factory) -> int:
                     ))
                     db.commit()
 
-                    # Send Telegram
-                    try:
-                        from alerting.notifier import _send_telegram_to
-                        _tg_msg = (
-                            f"<b>AI SCAN — RESISTANCE {symbol} ${entry:.2f}</b>\n"
-                            f"{reason}\n"
-                            f"Action: tighten stop / take profits / watch for rejection"
-                        )
-                        for uid in symbol_users[symbol]:
-                            user = db.get(User, uid)
-                            if user and user.telegram_enabled and user.telegram_chat_id:
-                                _send_telegram_to(_tg_msg, user.telegram_chat_id)
-                    except Exception:
-                        logger.exception("AI day scan: Telegram failed for %s", symbol)
+                    # Send Telegram only if direction changed
+                    if _last_tg_direction.get(symbol) != "RESISTANCE":
+                        _last_tg_direction[symbol] = "RESISTANCE"
+                        try:
+                            from alerting.notifier import _send_telegram_to
+                            _tg_msg = (
+                                f"<b>AI SCAN — RESISTANCE {symbol} ${entry:.2f}</b>\n"
+                                f"{reason}\n"
+                                f"Action: tighten stop / take profits / watch for rejection"
+                            )
+                            for uid in symbol_users[symbol]:
+                                user = db.get(User, uid)
+                                if user and user.telegram_enabled and user.telegram_chat_id:
+                                    _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                        except Exception:
+                            logger.exception("AI day scan: Telegram failed for %s", symbol)
 
                     logger.info("AI day scan %s: RESISTANCE at $%.2f", symbol, entry or 0)
                     continue
@@ -442,55 +449,59 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                 db.commit()
 
-                # Telegram — clean format
-                try:
-                    from alerting.notifier import _send_telegram_to
-                    import html as _html
+                # Telegram — only send if direction changed from last notification
+                if _last_tg_direction.get(symbol) == "LONG":
+                    logger.debug("AI day scan %s: LONG already notified, skip Telegram", symbol)
+                else:
+                    _last_tg_direction[symbol] = "LONG"
+                    try:
+                        from alerting.notifier import _send_telegram_to
+                        import html as _html
 
-                    _stop = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
-                    _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
-                    _t2 = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
-                    _tg_msg = (
-                        f"<b>AI SCAN — LONG {_html.escape(symbol)} ${entry:.2f}</b>\n"
-                        f"Entry ${entry:.2f} · Stop {_stop} · T1 {_t1} · T2 {_t2}\n"
-                        f"Setup: {_html.escape(setup_label)}\n"
-                        f"Conviction: {conviction}"
-                    )
+                        _stop = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
+                        _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
+                        _t2 = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
+                        _tg_msg = (
+                            f"<b>AI SCAN — LONG {_html.escape(symbol)} ${entry:.2f}</b>\n"
+                            f"Entry ${entry:.2f} · Stop {_stop} · T1 {_t1} · T2 {_t2}\n"
+                            f"Setup: {_html.escape(setup_label)}\n"
+                            f"Conviction: {conviction}"
+                        )
 
-                    for uid in symbol_users[symbol]:
-                        user = db.get(User, uid)
-                        if user and user.telegram_enabled and user.telegram_chat_id:
-                            # Rate limit: check ai_scan_alerts_per_day
-                            _send = True
-                            try:
-                                from api.app.tier import get_limits as _gl
-                                from api.app.dependencies import get_user_tier as _gut
-                                _tier = _gut(user)
-                                _max = _gl(_tier).get("ai_scan_alerts_per_day")
-                                if _max is not None:
-                                    _today = session
-                                    _cnt = db.execute(
-                                        select(func.count()).where(
-                                            Alert.user_id == uid,
-                                            Alert.alert_type.in_(["ai_day_long", "ai_resistance"]),
-                                            Alert.session_date == _today,
-                                        )
-                                    ).scalar() or 0
-                                    if _cnt > _max:
-                                        _send_telegram_to(
-                                            f"📊 Daily AI scan limit reached ({_max}/{_max}).\n"
-                                            f"Upgrade to Pro for unlimited AI alerts.\n"
-                                            f"→ tradesignalwithai.com/billing",
-                                            user.telegram_chat_id,
-                                        )
-                                        _send = False
-                            except Exception:
-                                pass  # skip limit on error
-                            if _send:
-                                _send_telegram_to(_tg_msg, user.telegram_chat_id)
-                                logger.info("AI day scan %s: LONG at $%.2f → Telegram user %d", symbol, entry, uid)
-                except Exception:
-                    logger.exception("AI day scan: Telegram failed for %s", symbol)
+                        for uid in symbol_users[symbol]:
+                            user = db.get(User, uid)
+                            if user and user.telegram_enabled and user.telegram_chat_id:
+                                # Rate limit: check ai_scan_alerts_per_day
+                                _send = True
+                                try:
+                                    from api.app.tier import get_limits as _gl
+                                    from api.app.dependencies import get_user_tier as _gut
+                                    _tier = _gut(user)
+                                    _max = _gl(_tier).get("ai_scan_alerts_per_day")
+                                    if _max is not None:
+                                        _today = session
+                                        _cnt = db.execute(
+                                            select(func.count()).where(
+                                                Alert.user_id == uid,
+                                                Alert.alert_type.in_(["ai_day_long", "ai_resistance"]),
+                                                Alert.session_date == _today,
+                                            )
+                                        ).scalar() or 0
+                                        if _cnt > _max:
+                                            _send_telegram_to(
+                                                f"📊 Daily AI scan limit reached ({_max}/{_max}).\n"
+                                                f"Upgrade to Pro for unlimited AI alerts.\n"
+                                                f"→ tradesignalwithai.com/billing",
+                                                user.telegram_chat_id,
+                                            )
+                                            _send = False
+                                except Exception:
+                                    pass  # skip limit on error
+                                if _send:
+                                    _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                    logger.info("AI day scan %s: LONG at $%.2f → Telegram user %d", symbol, entry, uid)
+                    except Exception:
+                        logger.exception("AI day scan: Telegram failed for %s", symbol)
 
             logger.info("AI day scan complete: %d alerts from %d symbols", total_alerts, len(symbols))
             return total_alerts
