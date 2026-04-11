@@ -182,25 +182,24 @@ def parse_ai_response(text: str) -> dict:
     if dir_match:
         result["direction"] = dir_match.group(1).upper()
 
+    def _parse_price(pattern: str, text: str) -> float | None:
+        """Parse price handling commas in thousands (e.g. $72,987.96)."""
+        m = re.search(pattern, text)
+        if m:
+            return float(m.group(1).replace(",", ""))
+        return None
+
     # Entry
-    entry_match = re.search(r"Entry:\s*\$?([\d.]+)", text)
-    if entry_match:
-        result["entry"] = float(entry_match.group(1))
+    result["entry"] = _parse_price(r"Entry:\s*\$?([\d,.]+)", text)
 
     # Stop
-    stop_match = re.search(r"Stop:\s*\$?([\d.]+)", text)
-    if stop_match:
-        result["stop"] = float(stop_match.group(1))
+    result["stop"] = _parse_price(r"Stop:\s*\$?([\d,.]+)", text)
 
     # T1
-    t1_match = re.search(r"T1:\s*\$?([\d.]+)", text)
-    if t1_match:
-        result["t1"] = float(t1_match.group(1))
+    result["t1"] = _parse_price(r"T1:\s*\$?([\d,.]+)", text)
 
     # T2
-    t2_match = re.search(r"T2:\s*\$?([\d.]+)", text)
-    if t2_match:
-        result["t2"] = float(t2_match.group(1))
+    result["t2"] = _parse_price(r"T2:\s*\$?([\d,.]+)", text)
 
     # Conviction
     conv_match = re.search(r"Conviction:\s*(HIGH|MEDIUM|LOW)", text, re.IGNORECASE)
