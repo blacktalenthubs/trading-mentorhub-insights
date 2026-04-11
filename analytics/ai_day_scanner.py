@@ -378,9 +378,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                 # WAIT — no setup confirmed, record to DB for AI Scan feed
                 if not direction or direction == "WAIT":
                     _wait_msg = f"AI: WAIT — {reason}" if reason else "AI: WAIT — no setup confirmed"
-                    _first_uid = symbol_users[symbol][0]
-                    db.add(Alert(
-                        user_id=_first_uid, symbol=symbol,
+                    for _uid in symbol_users[symbol]:
+                      db.add(Alert(
+                        user_id=_uid, symbol=symbol,
                         alert_type="ai_scan_wait", direction="NOTICE",
                         price=result.get("price", 0),
                         message=_wait_msg, score=0,
@@ -445,9 +445,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                 if _existing:
                     logger.debug("AI day scan %s: dedup skip — already fired today", symbol)
                     # Record as WAIT since setup exists but already alerted
-                    _first_uid = symbol_users[symbol][0]
-                    db.add(Alert(
-                        user_id=_first_uid, symbol=symbol,
+                    for _uid in symbol_users[symbol]:
+                      db.add(Alert(
+                        user_id=_uid, symbol=symbol,
                         alert_type="ai_scan_wait", direction="NOTICE",
                         price=result.get("price", 0),
                         message=f"AI: WAIT — {setup_type} already fired. {reason}",
