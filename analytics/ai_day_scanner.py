@@ -118,7 +118,7 @@ def build_day_trade_prompt(
             levels.append(f"WeekLo: ${pw_low:.2f}")
         parts.append("\n".join(levels))
 
-    # Intraday levels from 5m bars
+    # Intraday levels from 5m bars + code-calculated position detection
     if bars_5m:
         session_high = max(b["high"] for b in bars_5m)
         session_low = min(b["low"] for b in bars_5m)
@@ -128,13 +128,46 @@ def build_day_trade_prompt(
         avg_vol = sum(b.get("volume", 0) for b in bars_5m) / len(bars_5m) if bars_5m else 0
         last_vol = bars_5m[-1].get("volume", 0)
         vol_ratio = last_vol / avg_vol if avg_vol > 0 else 1.0
+        current = bars_5m[-1]["close"]
+
+        # Code-calculated position: distance to each key level
+        _near: list[tuple[str, float, float]] = []  # (name, price, distance_pct)
+        def _check(name: str, price: float):
+            if price and price > 0:
+                dist = abs(current - price) / price
+                _near.append((name, price, dist))
+        _check("Session Low", session_low)
+        _check("Session High", session_high)
+        _check("VWAP", vwap)
+        if prior_day:
+            _check("PDL", prior_day.get("low", 0))
+            _check("PDH", prior_day.get("high", 0))
+            for k, l in [("ma50","50MA"),("ma100","100MA"),("ma200","200MA")]:
+                _check(l, prior_day.get(k, 0))
+
+        _near.sort(key=lambda x: x[2])
+        _at = [(n,p,d) for n,p,d in _near if d <= 0.003]
+        _approaching = [(n,p,d) for n,p,d in _near if 0.003 < d <= 0.008]
+
+        if _at:
+            position = f"AT {_at[0][0]} ${_at[0][1]:.2f} (distance: {_at[0][2]*100:.2f}%)"
+        elif _approaching:
+            position = f"APPROACHING {_approaching[0][0]} ${_approaching[0][1]:.2f} (distance: {_approaching[0][2]*100:.2f}%)"
+        else:
+            position = "MID-RANGE — not near any key level"
+
         parts.append(
             f"\n[INTRADAY LEVELS]\n"
             f"Session High: ${session_high:.2f}\n"
             f"Session Low: ${session_low:.2f}\n"
             f"VWAP: ${vwap:.2f}\n"
-            f"Current Price: ${bars_5m[-1]['close']:.2f}\n"
-            f"Volume Ratio: {vol_ratio:.1f}x avg"
+            f"Current Price: ${current:.2f}\n"
+            f"Volume Ratio: {vol_ratio:.1f}x avg\n\n"
+            f"[POSITION — CALCULATED BY SYSTEM]\n"
+            f"{position}\n"
+            f"If AT a support level → confirm with 2-3 bar hold, then fire LONG.\n"
+            f"If AT a resistance level → fire RESISTANCE.\n"
+            f"If APPROACHING or MID-RANGE → output WAIT."
         )
 
     # 5-min bars (last 20)
