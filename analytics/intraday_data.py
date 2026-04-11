@@ -722,23 +722,99 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
     so we use iloc[-2] (yesterday) and iloc[-3] (day before).
     After close the last bar is the completed day, so iloc[-1] and iloc[-2].
 
-    For crypto (is_crypto=True): yfinance daily bars are aggregated on UTC
-    midnight boundaries. We keep UTC dates and compare against UTC "today"
-    to avoid an off-by-one error from ET conversion.
+    For crypto (is_crypto=True): uses Coinbase daily candles first (reliable,
+    no missing bars), falls back to yfinance if Coinbase fails.
 
     Returns dict with keys: open, high, low, close, volume, ma20, ma50,
     ma100, ma200, pattern, direction, parent_high, parent_low.
     Returns None on failure.
     """
     try:
+        # Crypto: use Coinbase daily candles (yfinance drops bars, causes wrong PDH/PDL)
+        if is_crypto:
+            coinbase_hist = _fetch_coinbase_candles(symbol, granularity=86400, num_candles=250)
+            if not coinbase_hist.empty and len(coinbase_hist) >= 3:
+                # Coinbase returns ET-naive index — convert to UTC date for crypto
+                hist = coinbase_hist[["Open", "High", "Low", "Close", "Volume"]].copy()
+                # Use UTC dates for crypto day boundaries
+                from datetime import datetime, timezone
+                today = pd.Timestamp(
+                    datetime.now(timezone.utc).replace(tzinfo=None)
+                ).normalize()
+                last_bar_date = hist.index[-1].normalize()
+
+                # Compute MAs on full history
+                hist["MA20"] = hist["Close"].rolling(window=20).mean()
+                hist["MA50"] = hist["Close"].rolling(window=50).mean()
+                hist["MA100"] = hist["Close"].rolling(window=100).mean()
+                hist["MA200"] = hist["Close"].rolling(window=200).mean()
+                hist["EMA5"] = hist["Close"].ewm(span=5, adjust=False).mean()
+                hist["EMA10"] = hist["Close"].ewm(span=10, adjust=False).mean()
+                hist["EMA20"] = hist["Close"].ewm(span=20, adjust=False).mean()
+                hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
+                hist["EMA100"] = hist["Close"].ewm(span=100, adjust=False).mean()
+                hist["EMA200"] = hist["Close"].ewm(span=200, adjust=False).mean()
+
+                if last_bar_date >= today:
+                    last = hist.iloc[-2]
+                    prev = hist.iloc[-3]
+                else:
+                    last = hist.iloc[-1]
+                    prev = hist.iloc[-2]
+
+                logger.info(
+                    "Coinbase prior_day for %s: date=%s H=%.2f L=%.2f C=%.2f",
+                    symbol, last.name, last["High"], last["Low"], last["Close"],
+                )
+
+                # Build return dict with essential fields
+                ma20 = last["MA20"] if pd.notna(last.get("MA20")) else None
+                ma50 = last["MA50"] if pd.notna(last.get("MA50")) else None
+                ma100 = last["MA100"] if pd.notna(last.get("MA100")) else None
+                ma200 = last["MA200"] if pd.notna(last.get("MA200")) else None
+                ema5 = last["EMA5"] if pd.notna(last.get("EMA5")) else None
+                ema10 = last["EMA10"] if pd.notna(last.get("EMA10")) else None
+                ema20 = last["EMA20"] if pd.notna(last.get("EMA20")) else None
+                ema50 = last["EMA50"] if pd.notna(last.get("EMA50")) else None
+                ema100 = last["EMA100"] if pd.notna(last.get("EMA100")) else None
+                ema200 = last["EMA200"] if pd.notna(last.get("EMA200")) else None
+
+                sym_rsi14 = compute_rsi_wilder(hist["Close"], period=14)
+
+                from analytics.market_data import classify_day
+                pattern, direction = classify_day(last, prev)
+                is_inside = last["High"] <= prev["High"] and last["Low"] >= prev["Low"]
+
+                return {
+                    "open": last["Open"], "high": last["High"],
+                    "low": last["Low"], "close": last["Close"],
+                    "volume": last["Volume"],
+                    "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma200": ma200,
+                    "ema5": ema5, "ema5_prev": prev.get("EMA5"),
+                    "ema10": ema10, "ema10_prev": prev.get("EMA10"),
+                    "ema20": ema20, "ema20_prev": prev.get("EMA20"),
+                    "ema50": ema50, "ema100": ema100, "ema200": ema200,
+                    "pattern": pattern, "direction": direction,
+                    "is_inside": is_inside,
+                    "parent_high": prev["High"], "parent_low": prev["Low"],
+                    "parent_range": prev["High"] - prev["Low"],
+                    "prev_close": prev["Close"],
+                    "prior_week_high": None, "prior_week_low": None,
+                    "prior_month_high": None, "prior_month_low": None,
+                    "monthly_ema8": None, "monthly_ema20": None,
+                    "rsi14": sym_rsi14, "rsi14_prev": None,
+                    "adx14": None, "adx14_prev": None,
+                }
+
+            logger.info("Coinbase daily failed for %s — falling back to yfinance", symbol)
+
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="1y")
         if hist.empty or len(hist) < 3:
             return None
 
         if is_crypto:
-            # Crypto daily bars aggregate on UTC midnight boundaries.
-            # Keep UTC dates (don't convert to ET) for correct day selection.
+            # Fallback: yfinance crypto daily bars (may have missing dates)
             if hist.index.tz is not None:
                 hist.index = hist.index.tz_convert("UTC").tz_localize(None)
         else:
