@@ -434,26 +434,19 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                 # Regime filter: REMOVED (P2 — fire at key levels, no suppression)
 
-                # Dedup: check DB — survives restarts (in-memory resets on deploy)
+                # Dedup: same setup at same level = skip. Different setup or level = fire.
+                # "VWAP HOLD at $2243" fired → skip. "PDL HOLD at $2230" → fire (new setup).
+                _level_key = f"{setup_type}_{_level_bucket(entry)}"
                 _existing = db.execute(
                     select(Alert.id).where(
                         Alert.symbol == symbol,
                         Alert.alert_type == "ai_day_long",
                         Alert.session_date == session,
+                        Alert.message.contains(setup_type or "AI"),
                     ).limit(1)
                 ).scalar_one_or_none()
                 if _existing:
-                    logger.debug("AI day scan %s: dedup skip — already fired today", symbol)
-                    # Record as WAIT since setup exists but already alerted
-                    for _uid in symbol_users[symbol]:
-                      db.add(Alert(
-                        user_id=_uid, symbol=symbol,
-                        alert_type="ai_scan_wait", direction="NOTICE",
-                        price=result.get("price", 0),
-                        message=f"AI: WAIT — {setup_type} already fired. {reason}",
-                        score=0, session_date=session,
-                    ))
-                    db.commit()
+                    logger.debug("AI day scan %s: dedup skip — %s already fired", symbol, setup_type)
                     continue
 
                 score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
