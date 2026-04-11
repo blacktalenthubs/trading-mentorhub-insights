@@ -1827,6 +1827,12 @@ def check_weekly_high_breakout(
     if last_bar["Close"] <= pw_high:
         return None
 
+    # Skip if price already ran too far past weekly high (stale breakout)
+    _distance = (last_bar["Close"] - pw_high) / pw_high
+    _max_dist = 0.008 if symbol.endswith("-USD") else 0.015  # 0.8% crypto, 1.5% equity
+    if _distance > _max_dist:
+        return None
+
     # Scan lookback bars above weekly high for best volume
     lookback = bars.tail(MA_BOUNCE_LOOKBACK_BARS)
     above = lookback[lookback["Close"] > pw_high]

@@ -20,7 +20,7 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from alert_config import COOLDOWN_MINUTES  # noqa: E402
-from analytics.intraday_data import fetch_intraday, fetch_prior_day, get_spy_context  # noqa: E402
+from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day, get_spy_context  # noqa: E402
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules  # noqa: E402
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
@@ -117,11 +117,14 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         # Deduplicated market data fetches (also write to app cache for API reuse)
         from app.cache import cache_get, cache_set
 
+        from config import is_crypto_alert_symbol as _is_crypto_sym
+
         intraday_cache: dict[str, object] = {}
         prior_day_cache: dict[str, object] = {}
         for symbol in active_symbols:
-            intraday_cache[symbol] = fetch_intraday(symbol)
-            prior_day_cache[symbol] = fetch_prior_day(symbol)
+            _crypto = _is_crypto_sym(symbol)
+            intraday_cache[symbol] = fetch_intraday_crypto(symbol) if _crypto else fetch_intraday(symbol)
+            prior_day_cache[symbol] = fetch_prior_day(symbol, is_crypto=_crypto)
 
             # Warm the API cache so user requests hit cache instead of yfinance
             if intraday_cache[symbol] is not None and not (
@@ -403,6 +406,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         spy_gate=_spy_gate,
                         is_cooled_down=symbol in cooled_symbols,
                         fired_today=fired_today,
+                        is_crypto=_is_crypto,
                     )
                 except Exception:
                     logger.exception("Error evaluating %s for user %d", symbol, user_id)
