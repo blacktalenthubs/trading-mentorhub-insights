@@ -152,6 +152,21 @@ Users configure: "Only alert me on HIGH conviction setups where my historical wi
 - Trial CTA emphasizes low risk: "3 days free, cancel anytime, no credit card to start"
 - Acceptance: New visitor can see a real AI alert example without creating an account
 
+### FR-7: AI Evidence Board (Public Proof Page)
+- A public, no-login-required page (`/proof` or `/evidence`) showing recent trades with full evidence chain
+- Each evidence card includes:
+  - **The alert**: What AI detected (setup type, entry, stop, T1, T2, conviction)
+  - **The chart replay**: Embedded animated replay showing price action from alert fire to outcome
+  - **AI analysis**: 2-3 sentence explanation of why the setup was valid and what happened
+  - **The outcome**: T1 hit / T2 hit / Stopped / Open — with exact prices and P&L in R-multiples
+  - **Timestamp**: When the alert fired, when the outcome was resolved
+- Page shows the last 10-20 resolved trades (won or lost — transparency)
+- Trades are auto-populated from the existing alert + outcome tracking system
+- Filterable by: symbol, setup type, outcome (win/loss/all), date range
+- Each evidence card is shareable (unique URL) for social media posting
+- Losses are shown with the same detail as wins — builds trust through honesty
+- Acceptance: Public page shows at least 10 resolved trades with replay + AI analysis + verified outcome; page loads without login
+
 ## User Scenarios
 
 ### Scenario 1: New Visitor Evaluates the Platform
@@ -185,6 +200,19 @@ Users configure: "Only alert me on HIGH conviction setups where my historical wi
 3. Friend sees the post, visits tradingwithai.ai
 4. Friend starts free trial
 **Expected Outcome**: Organic viral loop through shareable performance data
+
+### Scenario 4: Skeptic Checks the Evidence Board
+**Actor**: Trader skeptical of AI trading claims, finds platform via Twitter
+**Trigger**: Clicks link to `/proof` page
+**Steps**:
+1. Sees grid of recent trades — some green (wins), some red (losses)
+2. Clicks on a winning ETH-USD PDL bounce trade
+3. Watches embedded chart replay: sees price touch PDL, hold 3 bars, bounce to T1
+4. Reads AI analysis: "PDL hold confirmed with 3-bar close above $2,176. Volume supported the bounce."
+5. Sees outcome: T1 hit at $2,210. P&L: +1.5R
+6. Notices losses are shown too — platform isn't hiding failures
+7. Clicks "Start Free Trial" — convinced by verifiable evidence
+**Expected Outcome**: Skeptic converts because evidence is visual, specific, and honest (shows losses too)
 
 ## Success Criteria
 
@@ -260,8 +288,9 @@ Users configure: "Only alert me on HIGH conviction setups where my historical wi
 3. **Core Values**: 5 pillars (stress-free, educational, transparent, coaching, 24/7)
 4. **Feature Showcase**: 8 live features with AI lead-in (remove 3 unbuilt)
 5. **How It Works**: Set watchlist → Get AI plans → Decide → Learn
-6. **Live Track Record**: Per-pattern win rates with interactive filter
-7. **Why Switch**: 3 unique differentiators (transparency, WAIT signals, edge scoring)
+6. **AI Evidence Board**: Recent trades with replay + AI analysis + outcome (link to /proof)
+7. **Live Track Record**: Per-pattern win rates with interactive filter
+8. **Why Switch**: 3 unique differentiators (transparency, WAIT signals, evidence board)
 8. **Pricing**: 3 tiers with Pro highlighted, trial CTA
 9. **Signal Library Preview**: Top 3 patterns with live stats
 10. **FAQ**: 10 questions addressing objections
@@ -269,4 +298,5 @@ Users configure: "Only alert me on HIGH conviction setups where my historical wi
 
 ## Clarifications
 
-_Added during `/speckit.clarify` sessions_
+### Session 2026-04-11
+- Q: What kind of evidence-based proof would be most convincing? → A: AI Evidence Board — public page showing recent trades with chart replay animation + AI analysis + entry/exit prices + actual outcome. Shows wins AND losses. Shareable cards for social proof. No login required.
