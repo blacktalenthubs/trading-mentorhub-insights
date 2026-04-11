@@ -283,7 +283,9 @@ def format_system_prompt(context: dict) -> str:
         "- No explanations, no commentary, no context, no disclaimers.\n"
         "- Just CHART READ + ACTION. Nothing else.\n"
         "- Prices from the data only. Plain text. No markdown.\n"
-        "- PDH = yesterday's high, PDL = yesterday's low. Do not confuse with today's levels."
+        "- PDH = yesterday's high, PDL = yesterday's low. Do not confuse with today's levels.\n"
+        "- Use CURRENT PRICE and VWAP from the data provided. NEVER guess or calculate VWAP yourself.\n"
+        "- If VWAP is not provided, say 'VWAP unavailable' — do not fabricate a value."
     )
     if hub:
         sections.append(_coach_prompt)
@@ -357,6 +359,17 @@ def format_system_prompt(context: dict) -> str:
                 f"{bar['time']}  O={bar['open']}  H={bar['high']}  "
                 f"L={bar['low']}  C={bar['close']}  vol={bar['volume']:,}"
             )
+        sections.append("\n".join(lines))
+
+    # Live price + VWAP — critical for accurate Coach responses
+    live = context.get("live_price")
+    vwap = context.get("computed_vwap")
+    if live or vwap:
+        lines = ["[CURRENT MARKET DATA — USE THESE VALUES, DO NOT GUESS]"]
+        if live:
+            lines.append(f"CURRENT PRICE: {live['symbol']} ${live['price']:.2f}")
+        if vwap:
+            lines.append(f"SESSION VWAP: ${vwap:.2f}")
         sections.append("\n".join(lines))
 
     # SPY hourly bars

@@ -240,6 +240,32 @@ async def coach_stream(
         except Exception:
             pass
 
+    # Compute VWAP from chart bars so Coach doesn't hallucinate it
+    user_bars = context.get("user_chart_bars")
+    if user_bars and len(user_bars) >= 2:
+        try:
+            import pandas as pd
+            _df = pd.DataFrame(user_bars)
+            # Rename to match compute_vwap expectations
+            _col_map = {"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
+            _df.rename(columns={k: v for k, v in _col_map.items() if k in _df.columns}, inplace=True)
+            if "High" in _df.columns and "Low" in _df.columns and "Close" in _df.columns and "Volume" in _df.columns:
+                _typical = (_df["High"] + _df["Low"] + _df["Close"]) / 3
+                _cum_vol = _df["Volume"].cumsum()
+                _cum_tp_vol = (_typical * _df["Volume"]).cumsum()
+                _vwap_series = _cum_tp_vol / _cum_vol
+                _current_vwap = round(float(_vwap_series.iloc[-1]), 2)
+                context["computed_vwap"] = _current_vwap
+        except Exception:
+            pass
+
+    # Extract latest price from chart bars for the Coach
+    if user_bars and len(user_bars) >= 1:
+        _last_bar = user_bars[-1]
+        _last_close = _last_bar.get("close") or _last_bar.get("Close")
+        if _last_close:
+            context["live_price"] = {"symbol": hub_symbol or "?", "price": round(float(_last_close), 2)}
+
     system_prompt = format_system_prompt(context)
 
     async def event_generator():

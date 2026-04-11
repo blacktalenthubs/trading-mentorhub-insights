@@ -310,6 +310,16 @@ def _compute_indicators(df: pd.DataFrame) -> dict:
         rsi = 100 - (100 / (1 + rs))
         indicators["rsi14"] = round(float(rsi.iloc[-1]), 1)
 
+    # VWAP (session-based, computed from all bars)
+    if "Volume" in df.columns and "High" in df.columns and "Low" in df.columns:
+        typical = (df["High"] + df["Low"] + df["Close"]) / 3
+        cum_vol = df["Volume"].cumsum()
+        cum_tp_vol = (typical * df["Volume"]).cumsum()
+        vwap = cum_tp_vol / cum_vol
+        vwap_val = vwap.iloc[-1]
+        if not pd.isna(vwap_val) and vwap_val > 0:
+            indicators["vwap"] = round(float(vwap_val), 2)
+
     # Current price
     indicators["last_close"] = round(float(close.iloc[-1]), 2)
     indicators["bar_count"] = len(df)
