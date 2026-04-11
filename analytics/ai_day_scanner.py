@@ -308,15 +308,7 @@ def day_scan_cycle(sync_session_factory) -> int:
 
             logger.info("AI day scan: scanning %d symbols", len(symbols))
 
-            # Get SPY regime for filtering
-            spy_regime = "NEUTRAL"
-            try:
-                from analytics.intraday_data import get_spy_context
-                spy_ctx = get_spy_context()
-                if spy_ctx:
-                    spy_regime = spy_ctx.get("regime", "NEUTRAL")
-            except Exception:
-                pass
+            # Regime: REMOVED (P2 — no suppression, fire at key levels)
 
             total_alerts = 0
 
@@ -377,10 +369,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                 if not entry or entry <= 0:
                     continue
 
-                # Regime filter: suppress MEDIUM in CHOPPY
-                if spy_regime == "CHOPPY" and conviction == "MEDIUM":
-                    logger.info("AI day scan %s: MEDIUM suppressed in CHOPPY regime", symbol)
-                    continue
+                # Regime filter: REMOVED (P2 — fire at key levels, no suppression)
 
                 # Dedup: (symbol, setup_type, level_bucket) per session
                 dedup_key = (symbol, setup_type or "LONG", _level_bucket(entry))
