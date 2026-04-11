@@ -281,7 +281,7 @@ def day_scan_cycle(sync_session_factory) -> int:
     if _day_session != session:
         _day_fired.clear()
         _last_tg_direction.clear()
-        _last_day_price.clear()
+        _last_tg_time.clear()
         _day_session = session
 
     api_key = _resolve_api_key()
