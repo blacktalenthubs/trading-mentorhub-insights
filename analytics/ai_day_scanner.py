@@ -116,6 +116,20 @@ def build_day_trade_prompt(
             levels.append(f"WeekHi: ${pw_high:.2f}")
         if pw_low and pw_low > 0:
             levels.append(f"WeekLo: ${pw_low:.2f}")
+        # Monthly levels
+        pm_high = prior_day.get("prior_month_high")
+        pm_low = prior_day.get("prior_month_low")
+        if pm_high and pm_high > 0:
+            levels.append(f"MonthHi: ${pm_high:.2f}")
+        if pm_low and pm_low > 0:
+            levels.append(f"MonthLo: ${pm_low:.2f}")
+        # Monthly EMAs
+        m_ema8 = prior_day.get("monthly_ema8")
+        m_ema20 = prior_day.get("monthly_ema20")
+        if m_ema8 and m_ema8 > 0:
+            levels.append(f"MonthlyEMA8: ${m_ema8:.2f}")
+        if m_ema20 and m_ema20 > 0:
+            levels.append(f"MonthlyEMA20: ${m_ema20:.2f}")
         parts.append("\n".join(levels))
 
     # Intraday levels — data only, AI decides what's important
