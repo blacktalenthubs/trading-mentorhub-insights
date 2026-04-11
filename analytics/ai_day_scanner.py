@@ -491,7 +491,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                                             _send_telegram_to(
                                                 f"📊 Daily AI scan limit reached ({_max}/{_max}).\n"
                                                 f"Upgrade to Pro for unlimited AI alerts.\n"
-                                                f"→ tradesignalwithai.com/billing",
+                                                f"→ https://www.tradesignalwithai.com/billing",
                                                 user.telegram_chat_id,
                                             )
                                             _send = False

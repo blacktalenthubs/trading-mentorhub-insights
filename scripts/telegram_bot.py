@@ -741,7 +741,7 @@ def _build_app(bot_token: str):
                         await update.message.reply_text(
                             f"Daily command limit reached ({max_cmds}/{max_cmds}).\n"
                             f"Upgrade to Pro for 50 commands/day.\n"
-                            f"→ tradesignalwithai.com/billing"
+                            f"→ https://www.tradesignalwithai.com/billing"
                         )
                         return
                     # Increment
