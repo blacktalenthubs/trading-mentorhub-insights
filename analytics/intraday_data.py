@@ -104,13 +104,79 @@ def _normalize_index_to_et(hist: pd.DataFrame) -> pd.DataFrame:
     return hist
 
 
+def _fetch_alpaca_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -> pd.DataFrame:
+    """Fetch intraday bars from Alpaca (real-time IEX feed, free with paper account).
+
+    Returns DataFrame with [Open, High, Low, Close, Volume], naive ET index.
+    Returns empty DataFrame on failure or missing credentials.
+    """
+    import os
+    _key = os.environ.get("ALPACA_API_KEY", "")
+    _secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not _key or not _secret:
+        return pd.DataFrame()
+
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from datetime import datetime, timedelta
+
+        _interval_map = {
+            "1m": TimeFrame(1, TimeFrameUnit.Minute),
+            "5m": TimeFrame(5, TimeFrameUnit.Minute),
+            "15m": TimeFrame(15, TimeFrameUnit.Minute),
+            "1h": TimeFrame(1, TimeFrameUnit.Hour),
+        }
+        tf = _interval_map.get(interval)
+        if not tf:
+            return pd.DataFrame()
+
+        client = StockHistoricalDataClient(_key, _secret)
+        req = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=tf,
+            start=datetime.now() - timedelta(hours=hours_back),
+        )
+        bars = client.get_stock_bars(req)
+        df = bars.df
+        if df.empty:
+            return pd.DataFrame()
+
+        # Reset multi-index (symbol, timestamp) → just timestamp
+        df = df.reset_index(level="symbol", drop=True)
+        # Normalize to naive ET
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(ET).tz_localize(None)
+        # Rename to match yfinance column conventions
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+
+        logger.info("Alpaca: fetched %d bars for %s (%s)", len(df), symbol, interval)
+        return df
+    except Exception:
+        logger.warning("Alpaca fetch failed for %s — will fall back to yfinance", symbol, exc_info=True)
+        return pd.DataFrame()
+
+
 def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.DataFrame:
     """Fetch intraday bars for a symbol.
 
+    Alpaca (real-time) first for equities, yfinance as fallback.
     Returns DataFrame with Open, High, Low, Close, Volume columns.
     Index is timezone-naive datetime. Returns empty DataFrame on failure.
     Drops the last bar if it is still forming (incomplete 5-min candle).
     """
+    # Try Alpaca first (real-time, no delay)
+    if not symbol.endswith("-USD"):  # equities only, crypto uses Coinbase
+        df = _fetch_alpaca_bars(symbol, interval=interval)
+        if not df.empty and len(df) >= 6:
+            return df
+
+    # Fallback to yfinance
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period=period, interval=interval)
