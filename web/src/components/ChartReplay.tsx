@@ -94,7 +94,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
   const [visibleCount, setVisibleCount] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(2);
+  const [speed, setSpeed] = useState(1); // Start at 1x — slow and clear
   const [fullscreen, setFullscreen] = useState(true); // Start fullscreen
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -203,29 +203,30 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     const a = data.alert;
     if (a.entry) {
       series.createPriceLine({
-        price: a.entry, color: "#3b82f6", lineWidth: 2, lineStyle: 0,
-        title: `Entry $${fmt(a.entry)}`,
+        price: a.entry, color: "#3b82f6", lineWidth: 3, lineStyle: 0,
+        title: `▶ ENTRY $${fmt(a.entry)}`,
         axisLabelVisible: true,
       });
     }
     if (a.stop) {
       series.createPriceLine({
-        price: a.stop, color: "#ef4444", lineWidth: 1, lineStyle: 2,
-        title: `Stop $${fmt(a.stop)}`,
+        price: a.stop, color: "#ef4444", lineWidth: 2, lineStyle: 2,
+        title: `✖ STOP $${fmt(a.stop)}`,
         axisLabelVisible: true,
       });
     }
     if (a.target_1) {
       series.createPriceLine({
-        price: a.target_1, color: "#22c55e", lineWidth: 2, lineStyle: 0,
-        title: `T1 $${fmt(a.target_1)}`,
+        price: a.target_1, color: "#22c55e", lineWidth: 3, lineStyle: 0,
+        title: `✔ T1 $${fmt(a.target_1)}`,
         axisLabelVisible: true,
       });
     }
     if (a.target_2) {
       series.createPriceLine({
-        price: a.target_2, color: "#22c55e80", lineWidth: 1, lineStyle: 2,
+        price: a.target_2, color: "#22c55e80", lineWidth: 2, lineStyle: 2,
         title: `T2 $${fmt(a.target_2)}`,
+        axisLabelVisible: true,
       });
     }
 
@@ -270,7 +271,12 @@ export default function ChartReplay({ alertId, onClose }: Props) {
   // Animation loop
   useEffect(() => {
     if (!playing || !data) return;
-    const interval = phase === "entry" || phase === "target" ? 800 : 400;
+    // Slower pacing: entry/target moments get extra pause for clarity
+    const interval = phase === "entry" || phase === "target" ? 1500
+      : phase === "approach" ? 900
+      : phase === "setup" ? 1200
+      : phase === "result" ? 2000
+      : 600; // move phase
     const timer = setInterval(() => {
       setVisibleCount((prev) => {
         if (prev >= data.bars.length) { setPlaying(false); return data.bars.length; }
