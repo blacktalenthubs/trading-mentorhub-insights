@@ -433,7 +433,8 @@ class TestExitManagement:
         assert "EXIT_NOW" in prompt
         assert "TAKE_PROFITS" in prompt
         assert "HOLD" in prompt
-        assert "higher low" in prompt  # thesis term for LONG
+        # LONG stop is BELOW entry — exit only if price actually below stop
+        assert "below the stop level" in prompt
         assert "$2200.00" in prompt
         assert "$2190.00" in prompt
         assert "30 min ago" in prompt
@@ -450,7 +451,8 @@ class TestExitManagement:
             bars_5m=self._sample_bars(),
         )
         assert "SHORT" in prompt
-        assert "lower high" in prompt  # thesis term for SHORT
+        # SHORT stop is ABOVE entry, target BELOW
+        assert "above the stop level" in prompt or "above" in prompt
         assert "$2300.00" in prompt
         assert "$2310.00" in prompt
 
@@ -461,8 +463,34 @@ class TestExitManagement:
             opened_minutes_ago=5,
             bars_5m=self._sample_bars(n=3, base=670.0),
         )
-        assert "Default to HOLD" in prompt
-        assert "do not harass" in prompt.lower()
+        # New conservative exit prompt — must emphasize trust-the-stop
+        assert "TRUST THE STOP" in prompt
+        assert "HOLD is the correct default" in prompt
+
+    def test_exit_prompt_forbids_early_stop_exit(self):
+        """Critical: AI must not EXIT_NOW just because price is approaching stop."""
+        prompt = build_exit_prompt(
+            symbol="ETH-USD", direction="BUY", entry=2200.0,
+            stop=2193.0, t1=2210.0, t2=2225.0,
+            opened_minutes_ago=20,
+            bars_5m=[{"open": 2198, "high": 2199, "low": 2194, "close": 2196, "volume": 1000}],
+        )
+        assert "approaching stop" in prompt.lower() or "approaching" in prompt.lower()
+        assert "trust" in prompt.lower()
+        # Prompt must explicitly forbid "testing stop zone" exits
+        assert "testing stop zone" in prompt.lower() or "Do NOT fire EXIT_NOW" in prompt
+
+    def test_exit_prompt_take_profits_requires_actual_t1_touch(self):
+        """TAKE_PROFITS must require price to actually hit T1, not just approach."""
+        prompt = build_exit_prompt(
+            symbol="NVDA", direction="BUY", entry=128.0,
+            stop=126.0, t1=130.0, t2=132.0,
+            opened_minutes_ago=10,
+            bars_5m=[{"open": 128.5, "high": 129.2, "low": 128.3, "close": 128.9, "volume": 1000}],
+        )
+        # Must require actual T1 touch + rejection, not just proximity
+        assert "TOUCHED or exceeded T1" in prompt
+        assert "approaching T1 = HOLD" in prompt
 
     def test_parse_exit_now(self):
         text = """Status: EXIT_NOW
