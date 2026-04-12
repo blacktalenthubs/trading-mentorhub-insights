@@ -331,23 +331,26 @@ def day_scan_cycle(sync_session_factory) -> int:
 
             logger.info("AI day scan: scanning %d symbols", len(symbols))
 
-            # Fetch active positions — OPEN RealTrades (closed trades are excluded)
+            # Fetch active positions — OPEN RealTrades scoped to users watching these symbols
             active_positions = []
             try:
                 from app.models.paper_trade import RealTrade
-                open_trades = db.execute(
-                    select(RealTrade).where(
-                        RealTrade.status == "open",
-                    )
-                ).scalars().all()
-                for ot in open_trades:
-                    active_positions.append({
-                        "symbol": ot.symbol,
-                        "entry": ot.entry_price,
-                        "stop": f"${ot.stop_price:.2f}" if ot.stop_price else "N/A",
-                        "t1": f"${ot.target_price:.2f}" if ot.target_price else "N/A",
-                        "time": ot.opened_at.strftime("%H:%M") if ot.opened_at else "",
-                    })
+                _all_uids = {uid for uids in symbol_users.values() for uid in uids}
+                if _all_uids:
+                    open_trades = db.execute(
+                        select(RealTrade).where(
+                            RealTrade.status == "open",
+                            RealTrade.user_id.in_(_all_uids),
+                        )
+                    ).scalars().all()
+                    for ot in open_trades:
+                        active_positions.append({
+                            "symbol": ot.symbol,
+                            "entry": ot.entry_price,
+                            "stop": f"${ot.stop_price:.2f}" if ot.stop_price else "N/A",
+                            "t1": f"${ot.target_price:.2f}" if ot.target_price else "N/A",
+                            "time": ot.opened_at.strftime("%H:%M") if ot.opened_at else "",
+                        })
             except Exception:
                 logger.debug("AI day scan: could not fetch active positions")
 
