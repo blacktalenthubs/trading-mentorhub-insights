@@ -246,6 +246,12 @@ export interface NotificationPrefs {
   push_enabled: boolean;
   quiet_hours_start: string | null;
   quiet_hours_end: string | null;
+  // Spec 36 — AI alert filters (optional on PUT; always present on GET)
+  min_conviction?: "low" | "medium" | "high";
+  wait_alerts_enabled?: boolean;
+  alert_directions?: string;  // comma-separated: LONG,SHORT,RESISTANCE,EXIT
+  default_portfolio_size?: number;
+  default_risk_pct?: number;
 }
 
 export interface AlertCategoryItem {

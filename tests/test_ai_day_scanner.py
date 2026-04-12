@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from analytics.ai_day_scanner import (
     parse_day_trade_response, build_day_trade_prompt,
     build_exit_prompt, parse_exit_response,
+    _user_wants_alert,
 )
 
 
@@ -546,6 +547,96 @@ Action: Keep holding, stop still valid."""
         result = parse_exit_response("some random text")
         assert result["status"] is None
 
+    def test_exit_cooldown_is_covered_elsewhere(self):
+        # Placeholder — full cooldown test below
+        pass
+
+
+class TestSpec36UserAlertFilters:
+    """Spec 36 — user-controlled preferences gate Telegram delivery before rate limits."""
+
+    class _FakeUser:
+        def __init__(self, **kw):
+            self.telegram_enabled = kw.get("telegram_enabled", True)
+            self.min_conviction = kw.get("min_conviction", "medium")
+            self.wait_alerts_enabled = kw.get("wait_alerts_enabled", True)
+            self.alert_directions = kw.get("alert_directions", "LONG,SHORT,RESISTANCE,EXIT")
+
+    def test_master_kill_switch(self):
+        u = self._FakeUser(telegram_enabled=False)
+        assert _user_wants_alert(u, "LONG", "high") is False
+        assert _user_wants_alert(u, "WAIT") is False
+        assert _user_wants_alert(u, "EXIT") is False
+
+    def test_wait_toggle_off(self):
+        u = self._FakeUser(wait_alerts_enabled=False)
+        assert _user_wants_alert(u, "WAIT") is False
+        # Other directions unaffected
+        assert _user_wants_alert(u, "LONG", "medium") is True
+
+    def test_wait_toggle_on(self):
+        u = self._FakeUser(wait_alerts_enabled=True)
+        assert _user_wants_alert(u, "WAIT") is True
+
+    def test_direction_filter_blocks(self):
+        u = self._FakeUser(alert_directions="LONG,EXIT")
+        assert _user_wants_alert(u, "LONG", "medium") is True
+        assert _user_wants_alert(u, "SHORT", "medium") is False
+        assert _user_wants_alert(u, "RESISTANCE", "medium") is False
+        assert _user_wants_alert(u, "EXIT") is True
+
+    def test_direction_filter_empty_blocks_all(self):
+        """Defensive: if user unchecked everything, don't spam — treat as opt-out."""
+        u = self._FakeUser(alert_directions="")
+        assert _user_wants_alert(u, "LONG", "high") is False
+
+    def test_min_conviction_high(self):
+        u = self._FakeUser(min_conviction="high")
+        assert _user_wants_alert(u, "LONG", "high") is True
+        assert _user_wants_alert(u, "LONG", "medium") is False
+        assert _user_wants_alert(u, "LONG", "low") is False
+
+    def test_min_conviction_medium(self):
+        u = self._FakeUser(min_conviction="medium")
+        assert _user_wants_alert(u, "LONG", "high") is True
+        assert _user_wants_alert(u, "LONG", "medium") is True
+        assert _user_wants_alert(u, "LONG", "low") is False
+
+    def test_min_conviction_low(self):
+        u = self._FakeUser(min_conviction="low")
+        assert _user_wants_alert(u, "LONG", "high") is True
+        assert _user_wants_alert(u, "LONG", "medium") is True
+        assert _user_wants_alert(u, "LONG", "low") is True
+
+    def test_conviction_ignored_for_exit(self):
+        """Exit signals don't have conviction — must always pass if direction allowed."""
+        u = self._FakeUser(min_conviction="high")
+        assert _user_wants_alert(u, "EXIT") is True  # no conviction passed — still OK
+
+    def test_unknown_conviction_defaults_safely(self):
+        u = self._FakeUser(min_conviction="medium")
+        # Unknown values treated as medium (neither too strict nor too loose)
+        assert _user_wants_alert(u, "LONG", "garbage") is True
+
+    def test_direction_case_insensitive(self):
+        u = self._FakeUser(alert_directions="long,Short,RESISTANCE,exit")
+        assert _user_wants_alert(u, "LONG", "high") is True
+        assert _user_wants_alert(u, "SHORT", "high") is True
+
+    def test_exit_blocked_if_direction_removed(self):
+        u = self._FakeUser(alert_directions="LONG,SHORT")
+        assert _user_wants_alert(u, "EXIT") is False
+
+    def test_defaults_when_attrs_missing(self):
+        """User object missing preference attrs should fail open (allow)."""
+        class Bare:
+            telegram_enabled = True
+        b = Bare()
+        # Should default to allowing alerts (conservative)
+        assert _user_wants_alert(b, "LONG", "medium") is True
+
+
+class TestExitCooldown:
     def test_exit_cooldown_logic(self):
         """Cooldown suppresses same (trade_id, status) within 30 min."""
         import time

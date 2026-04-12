@@ -215,11 +215,40 @@ def _handle_ack(alert_id: int, chat_id: int) -> str:
             ).fetchone()
 
         if not existing:
-            # Position sizing
-            if symbol == "SPY":
-                shares = 200
-            else:
-                shares = int(50000 // entry_price) if entry_price > 0 else 0
+            # Position sizing (Spec 36 Option A) — use user's portfolio + risk%
+            # Falls back to fixed $50k notional if not set or stop missing.
+            shares = 0
+            stop = alert.get("stop")
+            portfolio_size = None
+            risk_pct = None
+            try:
+                with get_db() as conn:
+                    row = conn.execute(
+                        "SELECT default_portfolio_size, default_risk_pct FROM users WHERE id = ?",
+                        (user_id,),
+                    ).fetchone()
+                    if row:
+                        portfolio_size = float(row["default_portfolio_size"]) if row["default_portfolio_size"] else 50000
+                        risk_pct = float(row["default_risk_pct"]) if row["default_risk_pct"] else 1.0
+            except Exception:
+                portfolio_size, risk_pct = 50000.0, 1.0
+
+            if portfolio_size and risk_pct and stop and entry_price and entry_price > 0:
+                # Risk-based sizing: shares = (portfolio * risk%) / |entry - stop|
+                risk_dollars = portfolio_size * (risk_pct / 100.0)
+                per_share_risk = abs(entry_price - float(stop))
+                if per_share_risk > 0:
+                    shares = int(risk_dollars / per_share_risk)
+                    # Cap notional at 2x portfolio to prevent huge leveraged sizing
+                    max_shares = int((portfolio_size * 2) / entry_price)
+                    shares = min(shares, max_shares)
+
+            # Fallback: fixed $50k notional if risk-based sizing not possible
+            if shares <= 0:
+                if symbol == "SPY":
+                    shares = 200
+                else:
+                    shares = int(50000 // entry_price) if entry_price > 0 else 0
 
             with get_db() as conn:
                 conn.execute(

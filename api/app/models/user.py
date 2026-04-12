@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -36,6 +36,25 @@ class User(Base):
     attribution_medium: Mapped[Optional[str]] = mapped_column(String(100))    # social, dm, cpc, organic, ...
     attribution_campaign: Mapped[Optional[str]] = mapped_column(String(200))  # launch, eth_replay, ...
     attribution_referrer: Mapped[Optional[str]] = mapped_column(String(500))  # document.referrer
+
+    # AI Alert Filters (Spec 36) — user-controlled alert volume
+    min_conviction: Mapped[str] = mapped_column(String(10), server_default="medium", default="medium")
+    # Values: "low" | "medium" | "high"  — filters Telegram delivery by signal conviction
+    wait_alerts_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
+    # Default OFF — cleaner signup experience; users opt in for full AI transparency
+    alert_directions: Mapped[str] = mapped_column(
+        String(100), server_default="LONG,SHORT,RESISTANCE,EXIT",
+        default="LONG,SHORT,RESISTANCE,EXIT",
+    )
+    # Comma-separated: any subset of {LONG, SHORT, RESISTANCE, EXIT}
+
+    # Position sizing (Spec 36 Option A) — used by Telegram Took It flow
+    default_portfolio_size: Mapped[float] = mapped_column(
+        Float, server_default="50000", default=50000.0,
+    )
+    default_risk_pct: Mapped[float] = mapped_column(
+        Float, server_default="1.0", default=1.0,
+    )
 
     subscription: Mapped[Optional[Subscription]] = relationship(back_populates="user")
 

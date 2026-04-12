@@ -100,6 +100,48 @@ def _db_increment_count(db, user_id: int, feature: str, usage_date: str) -> int:
     return _db_get_count(db, user_id, feature, usage_date)
 
 
+_CONVICTION_RANK = {"low": 1, "medium": 2, "high": 3}
+
+
+def _user_wants_alert(user, alert_kind: str, conviction: str | None = None) -> bool:
+    """Spec 36 — respect user-controlled alert filters before Telegram delivery.
+
+    alert_kind: one of 'LONG', 'SHORT', 'RESISTANCE', 'WAIT', 'EXIT'
+    conviction: 'low' / 'medium' / 'high' (ignored for WAIT and EXIT)
+    Returns False if the user has opted out of this kind of alert.
+    """
+    # Master kill switch — user disabled all Telegram alerts
+    if not getattr(user, "telegram_enabled", True):
+        return False
+
+    if alert_kind == "WAIT":
+        return bool(getattr(user, "wait_alerts_enabled", False))
+
+    # Direction filter — distinguish "not set" (None) from "explicitly empty" ("")
+    directions_attr = getattr(user, "alert_directions", None)
+    if directions_attr is None:
+        directions_str = "LONG,SHORT,RESISTANCE,EXIT"  # default when attr missing
+    else:
+        directions_str = directions_attr
+    allowed = {d.strip().upper() for d in directions_str.split(",") if d.strip()}
+    if not allowed:
+        # User explicitly disabled all directions — treat as opt-out
+        return False
+    if alert_kind.upper() not in allowed:
+        return False
+
+    # Conviction filter (skip for EXIT — exit signals don't carry conviction)
+    if alert_kind.upper() != "EXIT":
+        user_min = _CONVICTION_RANK.get(
+            (getattr(user, "min_conviction", None) or "medium").lower(), 2
+        )
+        signal_level = _CONVICTION_RANK.get((conviction or "medium").lower(), 2)
+        if signal_level < user_min:
+            return False
+
+    return True
+
+
 def _db_mark_notified(db, user_id: int, feature_notified_key: str, usage_date: str) -> bool:
     """Atomic check-and-set. Returns True if this was the FIRST call today (send msg),
     False if already notified (suppress duplicate)."""
@@ -521,10 +563,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 f"{reason}"
                             )
                             for _uid in symbol_users[symbol]:
-                                # Skip WAIT for users already in a position on this symbol —
-                                # WAIT messages reference direction ("no LONG setup") which is
-                                # confusing noise when the user already holds one.
-                                # Exit management scan handles their position separately.
+                                # Skip WAIT for users already in a position on this symbol
                                 if user_open_longs.get((_uid, symbol)) or user_open_shorts.get((_uid, symbol)):
                                     logger.debug(
                                         "AI day scan %s: user %d holds position, skip WAIT",
@@ -533,6 +572,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                                     continue
                                 user = db.get(User, _uid)
                                 if not (user and user.telegram_enabled and user.telegram_chat_id):
+                                    continue
+                                # Spec 36 — user preference filter (before rate limit)
+                                if not _user_wants_alert(user, "WAIT"):
                                     continue
                                 # Per-user WAIT rate limit — persisted in usage_limits
                                 try:
@@ -598,6 +640,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                             for uid in symbol_users[symbol]:
                                 user = db.get(User, uid)
                                 if not (user and user.telegram_enabled and user.telegram_chat_id):
+                                    continue
+                                # Spec 36 — preference filter
+                                if not _user_wants_alert(user, "RESISTANCE", conviction):
                                     continue
                                 # Rate limit (per-user in-memory counter)
                                 try:
@@ -703,6 +748,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                                     continue
                                 user = db.get(User, uid)
                                 if user and user.telegram_enabled and user.telegram_chat_id:
+                                    # Spec 36 — preference filter (SHORT)
+                                    if not _user_wants_alert(user, "SHORT", conviction):
+                                        continue
                                     # Per-user alert_id for buttons
                                     _user_alert_id_s = per_user_alert_ids_s.get(uid)
                                     _buttons_s = {
@@ -828,6 +876,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 continue
                             user = db.get(User, uid)
                             if user and user.telegram_enabled and user.telegram_chat_id:
+                                # Spec 36 — preference filter (LONG)
+                                if not _user_wants_alert(user, "LONG", conviction):
+                                    continue
                                 # Each user's Telegram uses THEIR own alert_id for ACK/Skip/Exit buttons
                                 _user_alert_id = per_user_alert_ids.get(uid)
                                 _buttons = {
@@ -1118,6 +1169,10 @@ def exit_scan_cycle(sync_session_factory) -> int:
 
                 user = db.get(User, trade.user_id)
                 if not (user and user.telegram_enabled and user.telegram_chat_id):
+                    continue
+
+                # Spec 36 — user preference filter (EXIT signals)
+                if not _user_wants_alert(user, "EXIT"):
                     continue
 
                 try:

@@ -12,17 +12,16 @@ import {
   useChangePassword,
   useNotificationPrefs,
   useUpdateNotificationPrefs,
-  useAlertPrefs,
-  useUpdateAlertPrefs,
   useTelegramStatus,
   useTelegramLink,
   useTelegramUnlink,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
+import type { NotificationPrefs } from "../types";
 import {
-  Send, Bell, Shield, User, Key, ChevronRight, Check,
-  Smartphone, Mail, ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Brain,
+  Send, Bell, User, Key, ChevronRight, Check,
+  ExternalLink, Loader2, DollarSign, Gift,
+  Sun, Moon, Brain, Filter,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -154,54 +153,40 @@ function NotificationChannels() {
   const { data: notifPrefs } = useNotificationPrefs();
   const updateNotifs = useUpdateNotificationPrefs();
   const [telegramOn, setTelegramOn] = useState(true);
-  const [emailOn, setEmailOn] = useState(false);
-  const [pushOn, setPushOn] = useState(false);
   const [synced, setSynced] = useState(false);
 
   if (notifPrefs && !synced) {
     setTelegramOn(notifPrefs.telegram_enabled);
-    setEmailOn(notifPrefs.email_enabled);
-    setPushOn(notifPrefs.push_enabled);
     setSynced(true);
   }
 
-  const dirty = synced && notifPrefs && (
-    telegramOn !== notifPrefs.telegram_enabled ||
-    emailOn !== notifPrefs.email_enabled ||
-    pushOn !== notifPrefs.push_enabled
-  );
+  const dirty = synced && notifPrefs && telegramOn !== notifPrefs.telegram_enabled;
 
   return (
-    <Section title="Notification Channels" icon={<Bell className="h-4 w-4 text-text-muted" />}>
+    <Section title="Notifications" icon={<Bell className="h-4 w-4 text-text-muted" />}>
       <div className="space-y-3">
-        {[
-          { label: "Telegram", sub: "Real-time DM alerts with action buttons", icon: Send, checked: telegramOn, onChange: setTelegramOn },
-          { label: "Email", sub: "Alert summaries to your inbox", icon: Mail, checked: emailOn, onChange: setEmailOn },
-          { label: "Push", sub: "Mobile push notifications", icon: Smartphone, checked: pushOn, onChange: setPushOn },
-        ].map((ch) => (
-          <label key={ch.label} className="flex items-center gap-3 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={ch.checked}
-              onChange={(e) => ch.onChange(e.target.checked)}
-              className="rounded border-border-subtle"
-            />
-            <ch.icon className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
-            <div className="flex-1">
-              <span className="text-sm text-text-primary">{ch.label}</span>
-              <p className="text-[10px] text-text-faint">{ch.sub}</p>
-            </div>
-          </label>
-        ))}
+        <label className="flex items-center gap-3 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={telegramOn}
+            onChange={(e) => setTelegramOn(e.target.checked)}
+            className="rounded border-border-subtle"
+          />
+          <Send className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
+          <div className="flex-1">
+            <span className="text-sm text-text-primary">Telegram alerts</span>
+            <p className="text-[10px] text-text-faint">Master switch — turn all Telegram alerts on or off.</p>
+          </div>
+        </label>
+        <p className="text-[10px] text-text-faint italic">
+          Email &amp; push notifications coming soon.
+        </p>
 
         {dirty && (
           <button
             onClick={() => updateNotifs.mutate({
+              ...(notifPrefs as NotificationPrefs),
               telegram_enabled: telegramOn,
-              email_enabled: emailOn,
-              push_enabled: pushOn,
-              quiet_hours_start: null,
-              quiet_hours_end: null,
             })}
             disabled={updateNotifs.isPending}
             className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
@@ -217,72 +202,156 @@ function NotificationChannels() {
   );
 }
 
-/* ── Alert Preferences ────────────────────────────────────────────── */
+/* ── AI Alert Filters (Spec 36) ────────────────────────────────────
+ *  User-controlled alert volume. Replaces deprecated rule-engine
+ *  pattern toggles.
+ */
 
-function AlertPreferences() {
-  const { data: alertPrefs } = useAlertPrefs();
-  const updateAlertPrefs = useUpdateAlertPrefs();
-  const [catToggles, setCatToggles] = useState<Record<string, boolean>>({});
-  const [minScore, setMinScore] = useState(0);
+const ALL_DIRECTIONS = ["LONG", "SHORT", "RESISTANCE", "EXIT"] as const;
+type Direction = (typeof ALL_DIRECTIONS)[number];
+
+function AIAlertFilters() {
+  const { data: prefs } = useNotificationPrefs();
+  const update = useUpdateNotificationPrefs();
+
+  const [minConviction, setMinConviction] = useState<"low" | "medium" | "high">("medium");
+  const [waitEnabled, setWaitEnabled] = useState(false);
+  const [directions, setDirections] = useState<Set<Direction>>(new Set(ALL_DIRECTIONS));
   const [synced, setSynced] = useState(false);
 
-  if (alertPrefs && !synced) {
-    const toggles: Record<string, boolean> = {};
-    alertPrefs.categories.forEach((c) => { toggles[c.category_id] = c.enabled; });
-    setCatToggles(toggles);
-    setMinScore(alertPrefs.min_score);
+  if (prefs && !synced) {
+    setMinConviction((prefs.min_conviction as "low" | "medium" | "high") || "medium");
+    setWaitEnabled(!!prefs.wait_alerts_enabled);
+    const dirStr = prefs.alert_directions || "LONG,SHORT,RESISTANCE,EXIT";
+    setDirections(new Set(
+      dirStr.split(",").map((d) => d.trim().toUpperCase()).filter(Boolean) as Direction[]
+    ));
     setSynced(true);
   }
 
-  if (!alertPrefs) return null;
+  function toggleDirection(d: Direction) {
+    const next = new Set(directions);
+    if (next.has(d)) next.delete(d);
+    else next.add(d);
+    setDirections(next);
+  }
+
+  const dirty = synced && prefs && (
+    minConviction !== (prefs.min_conviction || "medium") ||
+    waitEnabled !== !!prefs.wait_alerts_enabled ||
+    Array.from(directions).sort().join(",") !==
+      (prefs.alert_directions || "LONG,SHORT,RESISTANCE,EXIT").split(",").map((s) => s.trim().toUpperCase()).sort().join(",")
+  );
+
+  const noDirections = directions.size === 0;
+
+  function save() {
+    if (!prefs) return;
+    update.mutate({
+      ...(prefs as NotificationPrefs),
+      min_conviction: minConviction,
+      wait_alerts_enabled: waitEnabled,
+      alert_directions: Array.from(directions).join(","),
+    });
+  }
+
+  if (!prefs) return null;
 
   return (
-    <Section title="Trading Patterns" icon={<Shield className="h-4 w-4 text-text-muted" />}>
+    <Section title="AI Alert Filters" icon={<Filter className="h-4 w-4 text-accent" />}>
       <p className="text-xs text-text-faint mb-4">
-        Choose which patterns trigger alerts. Disabled patterns still appear on the dashboard — just no push.
+        Control which AI alerts reach your Telegram. These apply on top of your tier's daily limit.
       </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {alertPrefs.categories.map((cat) => (
-          <label key={cat.category_id} className="flex items-start gap-2.5 cursor-pointer p-2 rounded-md hover:bg-surface-2/50 transition-colors">
-            <input
-              type="checkbox"
-              checked={catToggles[cat.category_id] ?? true}
-              onChange={(e) => setCatToggles((prev) => ({ ...prev, [cat.category_id]: e.target.checked }))}
-              className="mt-0.5 rounded border-border-subtle"
-            />
-            <div>
-              <span className="text-xs font-medium text-text-primary">{cat.name}</span>
-              <p className="text-[10px] text-text-faint leading-tight">{cat.description}</p>
-            </div>
-          </label>
-        ))}
-      </div>
-
-      <div className="mt-4 pt-4 border-t border-border-subtle/50">
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="text-xs text-text-muted">Minimum Score</label>
-          <span className="font-mono text-xs text-text-primary">{minScore}</span>
+      {/* Minimum conviction */}
+      <div className="mb-5">
+        <label className="text-xs font-semibold text-text-primary block mb-2">Minimum conviction</label>
+        <div className="grid grid-cols-3 gap-2">
+          {(["high", "medium", "low"] as const).map((level) => (
+            <button
+              key={level}
+              onClick={() => setMinConviction(level)}
+              className={`text-xs font-medium px-3 py-2 rounded-md border transition-colors ${
+                minConviction === level
+                  ? "bg-accent/15 border-accent/40 text-accent"
+                  : "bg-surface-2/40 border-border-subtle text-text-muted hover:bg-surface-2"
+              }`}
+            >
+              {level === "high" ? "High only" : level === "medium" ? "Medium+" : "All (Low+)"}
+            </button>
+          ))}
         </div>
-        <input
-          type="range" min={0} max={100} step={5}
-          value={minScore}
-          onChange={(e) => setMinScore(Number(e.target.value))}
-          className="w-full accent-accent [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-surface-3 [&::-webkit-slider-thumb]:bg-accent [&::-moz-range-track]:bg-surface-3 [&::-moz-range-thumb]:bg-accent"
-        />
-        <p className="text-[10px] text-text-faint mt-1">Exit alerts (T1/T2/Stop) always send regardless of score.</p>
+        <p className="text-[10px] text-text-faint mt-1.5">
+          {minConviction === "high" && "Tightest filter — only the highest-probability AI signals."}
+          {minConviction === "medium" && "Balanced — skip low conviction, deliver medium and high."}
+          {minConviction === "low" && "Full firehose — every AI signal, including low conviction."}
+        </p>
       </div>
 
-      <button
-        onClick={() => updateAlertPrefs.mutate({ categories: catToggles, min_score: minScore })}
-        disabled={updateAlertPrefs.isPending}
-        className="mt-4 text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
-      >
-        {updateAlertPrefs.isPending ? "Saving..." : "Save Alert Preferences"}
-      </button>
-      {updateAlertPrefs.isSuccess && (
-        <span className="ml-2 text-[10px] text-bullish-text"><Check className="h-3 w-3 inline" /> Saved</span>
-      )}
+      {/* WAIT alerts */}
+      <div className="mb-5 pb-5 border-b border-border-subtle/50">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={waitEnabled}
+            onChange={(e) => setWaitEnabled(e.target.checked)}
+            className="mt-0.5 rounded border-border-subtle"
+          />
+          <div className="flex-1">
+            <span className="text-xs font-semibold text-text-primary">Send WAIT alerts</span>
+            <p className="text-[10px] text-text-faint leading-tight mt-0.5">
+              See when the AI is staying out. Builds trust, but can be chatty in choppy markets.
+              WAITs always appear in the dashboard regardless of this setting.
+            </p>
+          </div>
+        </label>
+      </div>
+
+      {/* Direction filters */}
+      <div className="mb-4">
+        <label className="text-xs font-semibold text-text-primary block mb-2">Alert me on</label>
+        <div className="grid grid-cols-2 gap-2">
+          {ALL_DIRECTIONS.map((d) => {
+            const on = directions.has(d);
+            const label =
+              d === "LONG" ? "LONG entries" :
+              d === "SHORT" ? "SHORT entries" :
+              d === "RESISTANCE" ? "Resistance notices" :
+              "Exit signals";
+            return (
+              <label key={d} className="flex items-center gap-2 cursor-pointer p-2 rounded-md hover:bg-surface-2/50 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => toggleDirection(d)}
+                  className="rounded border-border-subtle"
+                />
+                <span className={`text-xs ${on ? "text-text-primary" : "text-text-muted"}`}>{label}</span>
+              </label>
+            );
+          })}
+        </div>
+        {noDirections && (
+          <p className="text-[10px] text-warning-text mt-1.5">
+            ⚠︎ You've disabled all alert directions. You won't receive any AI Telegram alerts.
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={!dirty || update.isPending}
+          className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
+        >
+          {update.isPending ? "Saving..." : "Save Filters"}
+        </button>
+        {update.isSuccess && !dirty && (
+          <span className="text-[10px] text-bullish-text flex items-center gap-1">
+            <Check className="h-3 w-3" /> Saved
+          </span>
+        )}
+      </div>
     </Section>
   );
 }
@@ -392,23 +461,37 @@ function ProfileSection() {
 /* ── Trading Settings (portfolio size, risk) ──────────────────────── */
 
 function TradingSettings() {
-  const [portfolioSize, setPortfolioSize] = useState(
-    () => Number(localStorage.getItem("ts_portfolio_size")) || 50000,
-  );
-  const [riskPct, setRiskPct] = useState(
-    () => Number(localStorage.getItem("ts_risk_pct")) || 1,
+  const { data: prefs } = useNotificationPrefs();
+  const update = useUpdateNotificationPrefs();
+  const [portfolioSize, setPortfolioSize] = useState(50000);
+  const [riskPct, setRiskPct] = useState(1);
+  const [synced, setSynced] = useState(false);
+
+  if (prefs && !synced) {
+    setPortfolioSize(prefs.default_portfolio_size ?? 50000);
+    setRiskPct(prefs.default_risk_pct ?? 1);
+    setSynced(true);
+  }
+
+  const dirty = synced && prefs && (
+    portfolioSize !== (prefs.default_portfolio_size ?? 50000) ||
+    riskPct !== (prefs.default_risk_pct ?? 1)
   );
 
-  function handleSave() {
-    localStorage.setItem("ts_portfolio_size", String(portfolioSize));
-    localStorage.setItem("ts_risk_pct", String(riskPct));
-    toast.success("Trading settings saved");
+  function save() {
+    if (!prefs) return;
+    update.mutate({
+      ...(prefs as NotificationPrefs),
+      default_portfolio_size: portfolioSize,
+      default_risk_pct: riskPct,
+    });
+    toast.success("Position sizing saved");
   }
 
   return (
     <Section title="Position Sizing" icon={<DollarSign className="h-4 w-4 text-text-muted" />}>
       <p className="text-xs text-text-faint mb-4">
-        Used to calculate share size on trade plans. Risk per trade = portfolio x risk%.
+        Used when you tap "Took It" on an AI alert — shares = (portfolio × risk%) / (entry − stop).
       </p>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -425,7 +508,7 @@ function TradingSettings() {
           <input
             type="number"
             value={riskPct}
-            step={0.5}
+            step={0.25}
             min={0.25}
             max={5}
             onChange={(e) => setRiskPct(Number(e.target.value))}
@@ -434,14 +517,22 @@ function TradingSettings() {
         </div>
       </div>
       <p className="text-[10px] text-text-faint mt-2">
-        Max risk per trade: <span className="font-mono text-text-primary">${((portfolioSize * riskPct) / 100).toFixed(0)}</span>
+        Max $ risk per trade: <span className="font-mono text-text-primary">${((portfolioSize * riskPct) / 100).toFixed(0)}</span>
       </p>
-      <button
-        onClick={handleSave}
-        className="mt-3 text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors"
-      >
-        Save
-      </button>
+      <div className="flex items-center gap-3 mt-3">
+        <button
+          onClick={save}
+          disabled={!dirty || update.isPending}
+          className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
+        >
+          {update.isPending ? "Saving..." : "Save"}
+        </button>
+        {update.isSuccess && !dirty && (
+          <span className="text-[10px] text-bullish-text flex items-center gap-1">
+            <Check className="h-3 w-3" /> Saved
+          </span>
+        )}
+      </div>
     </Section>
   );
 }
@@ -551,25 +642,21 @@ export default function SettingsPage() {
 
         {/* Two-column on desktop: alerts left, account right */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Left column: Notifications (the stuff traders care about) */}
+          {/* Left column: Alerts + preferences */}
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
+            <AIAlertFilters />
             <AutoAnalysisToggle />
             <ThemeToggle />
           </div>
 
-          {/* Right column: Account */}
+          {/* Right column: Account + trading */}
           <div className="space-y-5">
             <ProfileSection />
+            <TradingSettings />
           </div>
         </div>
-
-        {/* Trading settings */}
-        <TradingSettings />
-
-        {/* Full width: Alert preferences */}
-        <AlertPreferences />
 
         {/* Referral program */}
         <ReferralSection />

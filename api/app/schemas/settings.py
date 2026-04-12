@@ -22,6 +22,13 @@ class NotificationPrefsResponse(BaseModel):
     push_enabled: bool = False
     quiet_hours_start: Optional[str] = None
     quiet_hours_end: Optional[str] = None
+    # Spec 36 — AI alert filters
+    min_conviction: str = "medium"             # low | medium | high
+    wait_alerts_enabled: bool = False
+    alert_directions: str = "LONG,SHORT,RESISTANCE,EXIT"
+    # Spec 36 — position sizing
+    default_portfolio_size: float = 50000.0
+    default_risk_pct: float = 1.0
 
 
 class UpdateNotificationPrefsRequest(BaseModel):
@@ -30,6 +37,12 @@ class UpdateNotificationPrefsRequest(BaseModel):
     push_enabled: bool = False
     quiet_hours_start: Optional[str] = None
     quiet_hours_end: Optional[str] = None
+    # Spec 36 — AI alert filters (all optional on update)
+    min_conviction: Optional[str] = None
+    wait_alerts_enabled: Optional[bool] = None
+    alert_directions: Optional[str] = None
+    default_portfolio_size: Optional[float] = None
+    default_risk_pct: Optional[float] = None
 
 
 # --- Alert Category Preferences ---

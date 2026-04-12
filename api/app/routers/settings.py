@@ -59,17 +59,30 @@ async def change_password(
     return {"message": "Password updated"}
 
 
-@router.get("/notifications", response_model=NotificationPrefsResponse)
-async def get_notification_prefs(
-    user: User = Depends(get_current_user),
-):
+def _build_notification_response(user: User) -> NotificationPrefsResponse:
     return NotificationPrefsResponse(
         telegram_enabled=user.telegram_enabled,
         email_enabled=user.email_enabled,
         push_enabled=user.push_enabled,
         quiet_hours_start=user.quiet_hours_start,
         quiet_hours_end=user.quiet_hours_end,
+        min_conviction=getattr(user, "min_conviction", None) or "medium",
+        wait_alerts_enabled=bool(getattr(user, "wait_alerts_enabled", False)),
+        alert_directions=getattr(user, "alert_directions", None) or "LONG,SHORT,RESISTANCE,EXIT",
+        default_portfolio_size=float(getattr(user, "default_portfolio_size", None) or 50000),
+        default_risk_pct=float(getattr(user, "default_risk_pct", None) or 1.0),
     )
+
+
+@router.get("/notifications", response_model=NotificationPrefsResponse)
+async def get_notification_prefs(
+    user: User = Depends(get_current_user),
+):
+    return _build_notification_response(user)
+
+
+_VALID_CONVICTION = {"low", "medium", "high"}
+_VALID_DIRECTIONS = {"LONG", "SHORT", "RESISTANCE", "EXIT"}
 
 
 @router.put("/notifications", response_model=NotificationPrefsResponse)
@@ -83,14 +96,42 @@ async def update_notification_prefs(
     user.push_enabled = body.push_enabled
     user.quiet_hours_start = body.quiet_hours_start
     user.quiet_hours_end = body.quiet_hours_end
+
+    # Spec 36 — AI alert filter fields (all optional, only update if provided)
+    if body.min_conviction is not None:
+        mc = body.min_conviction.strip().lower()
+        if mc not in _VALID_CONVICTION:
+            raise HTTPException(
+                status_code=422,
+                detail=f"min_conviction must be one of {sorted(_VALID_CONVICTION)}",
+            )
+        user.min_conviction = mc
+
+    if body.wait_alerts_enabled is not None:
+        user.wait_alerts_enabled = body.wait_alerts_enabled
+
+    if body.alert_directions is not None:
+        dirs = {d.strip().upper() for d in body.alert_directions.split(",") if d.strip()}
+        invalid = dirs - _VALID_DIRECTIONS
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=f"alert_directions contains invalid values: {sorted(invalid)}",
+            )
+        user.alert_directions = ",".join(sorted(dirs)) if dirs else "LONG,SHORT,RESISTANCE,EXIT"
+
+    if body.default_portfolio_size is not None:
+        if body.default_portfolio_size <= 0 or body.default_portfolio_size > 10_000_000:
+            raise HTTPException(status_code=422, detail="default_portfolio_size out of range")
+        user.default_portfolio_size = body.default_portfolio_size
+
+    if body.default_risk_pct is not None:
+        if body.default_risk_pct <= 0 or body.default_risk_pct > 10:
+            raise HTTPException(status_code=422, detail="default_risk_pct must be between 0 and 10")
+        user.default_risk_pct = body.default_risk_pct
+
     await db.flush()
-    return NotificationPrefsResponse(
-        telegram_enabled=user.telegram_enabled,
-        email_enabled=user.email_enabled,
-        push_enabled=user.push_enabled,
-        quiet_hours_start=user.quiet_hours_start,
-        quiet_hours_end=user.quiet_hours_end,
-    )
+    return _build_notification_response(user)
 
 
 # --- Alert Category Preferences ---
