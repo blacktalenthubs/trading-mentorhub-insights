@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -200,6 +201,101 @@ async def signup_attribution(
         "by_source": sources,
         "by_medium": mediums,
         "by_campaign": campaigns,
+    }
+
+
+@router.get("/user-debug")
+async def user_debug(
+    email: str,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Diagnose a specific user's tier + Telegram rate limit state.
+    Use when a user reports getting more/fewer alerts than expected.
+    """
+    from sqlalchemy import text
+    from datetime import date
+
+    # Find user
+    result = await db.execute(
+        select(User).where(User.email == email.lower())
+        .options(selectinload(User.subscription))  # type: ignore
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail=f"No user with email {email}")
+
+    # Resolve tier + trial
+    from app.dependencies import get_user_tier as _gut, is_trial_active, trial_days_remaining
+    from app.tier import get_limits
+    tier = _gut(user)
+    limits = get_limits(tier)
+    trial_active = is_trial_active(user)
+    trial_days = trial_days_remaining(user)
+
+    # In-memory rate limit counters (may be 0 if worker recently restarted)
+    today = date.today().isoformat()
+    try:
+        from analytics.ai_day_scanner import (
+            _user_delivered_count, _user_limit_notified
+        )
+        ai_delivered = _user_delivered_count.get((user.id, today), 0)
+        limit_notified = (user.id, today) in _user_limit_notified
+    except Exception:
+        ai_delivered = None
+        limit_notified = None
+
+    # DB-backed alert counts today (reflects actual records, not memory)
+    alerts_today = (await db.execute(text("""
+        SELECT COUNT(*) FROM alerts
+        WHERE user_id = :uid AND session_date = :d
+          AND alert_type IN ('ai_day_long', 'ai_day_short', 'ai_resistance', 'ai_exit_signal')
+    """), {"uid": user.id, "d": today})).scalar() or 0
+
+    wait_alerts_today = (await db.execute(text("""
+        SELECT COUNT(*) FROM alerts
+        WHERE user_id = :uid AND session_date = :d
+          AND alert_type = 'ai_scan_wait'
+    """), {"uid": user.id, "d": today})).scalar() or 0
+
+    rule_alerts_today = (await db.execute(text("""
+        SELECT COUNT(*) FROM alerts
+        WHERE user_id = :uid AND session_date = :d
+          AND alert_type NOT LIKE 'ai_%'
+    """), {"uid": user.id, "d": today})).scalar() or 0
+
+    sub_info = None
+    if user.subscription:
+        sub = user.subscription
+        sub_info = {
+            "tier": sub.tier,
+            "status": sub.status,
+            "trial_ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
+        }
+
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "telegram_enabled": user.telegram_enabled,
+            "telegram_chat_id": user.telegram_chat_id,
+        },
+        "subscription": sub_info,
+        "resolved_tier": tier,
+        "trial_active": trial_active,
+        "trial_days_left": trial_days,
+        "limits": {
+            "ai_scan_alerts_per_day": limits.get("ai_scan_alerts_per_day"),
+            "visible_alerts": limits.get("visible_alerts"),
+            "telegram_alerts": limits.get("telegram_alerts"),
+        },
+        "today_stats": {
+            "ai_actionable_alerts_in_db": alerts_today,
+            "ai_wait_alerts_in_db": wait_alerts_today,
+            "rule_alerts_in_db": rule_alerts_today,
+            "ai_telegram_delivered_counter": ai_delivered,
+            "limit_reached_notified": limit_notified,
+        },
     }
 
 
