@@ -365,11 +365,12 @@ def format_system_prompt(context: dict) -> str:
     live = context.get("live_price")
     vwap = context.get("computed_vwap")
     if live or vwap:
-        lines = ["[CURRENT MARKET DATA — USE THESE VALUES, DO NOT GUESS]"]
+        lines = ["[CURRENT MARKET DATA — USE THESE EXACT VALUES]"]
         if live:
-            lines.append(f"CURRENT PRICE: {live['symbol']} ${live['price']:.2f}")
+            lines.append(f"CURRENT PRICE: {live['symbol']} ${live['price']:.2f}  <-- USE THIS, NOT THE LAST BAR CLOSE")
         if vwap:
-            lines.append(f"SESSION VWAP: ${vwap:.2f}")
+            lines.append(f"SESSION VWAP: ${vwap:.2f}  <-- USE THIS, DO NOT CALCULATE YOURSELF")
+        lines.append("The chart bars below may be older than the current price. Always quote the CURRENT PRICE above.")
         sections.append("\n".join(lines))
 
     # SPY hourly bars

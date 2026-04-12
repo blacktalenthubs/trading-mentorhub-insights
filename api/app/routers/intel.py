@@ -259,12 +259,26 @@ async def coach_stream(
         except Exception:
             pass
 
-    # Extract latest price from chart bars for the Coach
-    if user_bars and len(user_bars) >= 1:
-        _last_bar = user_bars[-1]
-        _last_close = _last_bar.get("close") or _last_bar.get("Close")
-        if _last_close:
-            context["live_price"] = {"symbol": hub_symbol or "?", "price": round(float(_last_close), 2)}
+    # Fetch LIVE price server-side (not stale last-bar close) so Coach uses real current price
+    if hub_symbol:
+        def _fetch_live_price(sym: str) -> float | None:
+            try:
+                import yfinance as yf
+                t = yf.Ticker(sym)
+                fi = t.fast_info
+                return round(float(fi.last_price), 2)
+            except Exception:
+                return None
+
+        _live = await _run_sync(_fetch_live_price, hub_symbol)
+        if _live:
+            context["live_price"] = {"symbol": hub_symbol, "price": _live}
+        elif user_bars and len(user_bars) >= 1:
+            # Fallback to last bar close only if live fetch fails
+            _last_bar = user_bars[-1]
+            _last_close = _last_bar.get("close") or _last_bar.get("Close")
+            if _last_close:
+                context["live_price"] = {"symbol": hub_symbol, "price": round(float(_last_close), 2)}
 
     system_prompt = format_system_prompt(context)
 
