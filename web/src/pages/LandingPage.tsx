@@ -104,7 +104,7 @@ function Hero({ track }: { track: TrackRecord | null }) {
       <div className="relative z-10 max-w-4xl mx-auto text-center">
         <Badge variant="green">
           <div className="w-1.5 h-1.5 rounded-full bg-bullish animate-pulse" />
-          AI scanning every 5 minutes
+          AI scanning continuously during market hours
         </Badge>
 
         <h1 className="mt-8 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-text-primary leading-[1.08]">
@@ -114,7 +114,7 @@ function Hero({ track }: { track: TrackRecord | null }) {
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto leading-relaxed">
-          AI scans your watchlist every 5 minutes, identifies entries at key levels,
+          AI performs automated scans on your watchlist, identifies entries at key levels,
           and delivers complete trade plans. Entry. Stop. Target. Education.
         </p>
 
@@ -273,7 +273,7 @@ function AIPillars() {
       title: "AI Scan",
       subtitle: "Automated Entry/Exit Detection",
       color: "bullish-text",
-      desc: "Scans your watchlist every 5 minutes. Fires when price hits a key level. Says WAIT when there's no trade.",
+      desc: "Automated scans on your watchlist. Fires when price hits a key level. Says WAIT when there's no trade.",
       bullets: [
         "14 patterns: PDL bounce, VWAP hold, MA bounce, breakouts, more",
         "WAIT signals -- AI tells you when NOT to trade (only we do this)",
@@ -384,7 +384,7 @@ function HowItWorks() {
     },
     {
       num: "02",
-      title: "AI scans every 5 minutes",
+      title: "AI scans continuously",
       desc: "When price hits a key level, AI identifies the setup and sends a complete plan: entry, stop, T1, T2, conviction. When there's no trade, it says WAIT.",
       icon: Scan,
     },
@@ -429,7 +429,7 @@ function HowItWorks() {
 
 function AIvsManual() {
   const rows = [
-    { aspect: "Watching charts", manual: "Hours every day", ai: "AI scans every 5 min" },
+    { aspect: "Watching charts", manual: "Hours every day", ai: "AI scans automatically" },
     { aspect: "Missing setups", manual: "Constantly", ai: "Catches setups 24/7" },
     { aspect: "Entry timing", manual: "Emotional / chasing", ai: "At the structural level" },
     { aspect: "Stop placement", manual: "Arbitrary %", ai: "Below support structure" },
@@ -480,7 +480,7 @@ function DailyWorkflow() {
   const events = [
     { time: "09:05 AM", label: "AI Game Plan", desc: "Top 3 focus symbols + edge reasoning", color: "text-accent" },
     { time: "09:15 AM", label: "Pre-Market Brief", desc: "Market outlook, key levels, bias", color: "text-purple-400" },
-    { time: "09:30 AM", label: "AI Scan Starts", desc: "Every 5 min through market close", color: "text-bullish-text" },
+    { time: "09:30 AM", label: "AI Scan Starts", desc: "Automated scans through market close", color: "text-bullish-text" },
     { time: "All Day", label: "AI Coach Available", desc: "Ask about any chart, anytime", color: "text-yellow-400" },
     { time: "All Day", label: "Telegram Alerts", desc: "Took / Skip / Exit from your phone", color: "text-blue-400" },
     { time: "04:35 PM", label: "AI EOD Review", desc: "What worked, what didn't, lessons", color: "text-orange-400" },
@@ -835,7 +835,7 @@ function FAQ() {
     },
     {
       q: "Do I need to watch charts all day?",
-      a: "No -- that's the whole point. AI scans every 5 minutes and sends alerts to your phone only when a setup appears. Many users trade from their phone while at their day job.",
+      a: "No -- that's the whole point. AI scans your watchlist continuously and sends alerts to your phone only when a setup appears. Many users trade from their phone while at their day job.",
     },
     {
       q: "Can I try before paying?",

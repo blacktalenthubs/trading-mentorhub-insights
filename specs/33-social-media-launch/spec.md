@@ -119,7 +119,7 @@ Attribution captured on first-touch lands, stored in localStorage 30 days, attac
 - [ ] Bio (160 chars):
   ```
   AI finds the trade. You decide.
-  ✦ AI scans every 5 min
+  ✦ Automated AI scans
   ✦ Complete trade plans
   ✦ Public track record
   🔗 www.tradingwithai.ai/tw
@@ -136,7 +136,7 @@ Attribution captured on first-touch lands, stored in localStorage 30 days, attac
 - [ ] Bio (80 chars):
   ```
   AI trading analyst 📊
-  Scans every 5 min
+  Automated scans
   Wins + losses shown 🔽
   www.tradingwithai.ai/tt
   ```
