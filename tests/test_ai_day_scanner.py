@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 from analytics.ai_day_scanner import (
     parse_day_trade_response, build_day_trade_prompt,
     build_exit_prompt, parse_exit_response,
-    _user_wants_alert,
+    _user_wants_alert, _truncate_for_free,
 )
 
 
@@ -634,6 +634,58 @@ class TestSpec36UserAlertFilters:
         b = Bare()
         # Should default to allowing alerts (conservative)
         assert _user_wants_alert(b, "LONG", "medium") is True
+
+
+class TestTruncateForFree:
+    """Spec 36 Option A — free users get headline only on AI Updates."""
+
+    def test_free_truncates_at_sentence_boundary(self):
+        reason = "Price pinned at VWAP with declining volume. Structure flat, no higher low yet."
+        out, truncated = _truncate_for_free(reason, "free")
+        assert truncated is True
+        # Should cut at the first ". " — drops the second sentence
+        assert "Structure flat" not in out
+        assert "Price pinned at VWAP with declining volume" in out
+
+    def test_free_truncates_at_semicolon(self):
+        reason = "Price tested resistance; volume 0.5x average; no rejection candle."
+        out, truncated = _truncate_for_free(reason, "free")
+        assert truncated is True
+        assert "volume" not in out.lower()
+        assert "Price tested resistance" in out
+
+    def test_free_truncates_long_single_clause(self):
+        reason = "This is a single very long reason without any delimiters that should be clipped with ellipsis for free users"
+        out, truncated = _truncate_for_free(reason, "free", max_len=60)
+        assert truncated is True
+        assert len(out) <= 60
+        assert out.endswith("…")
+
+    def test_pro_returns_full_reason_unchanged(self):
+        reason = "Price pinned at VWAP with declining volume. Structure flat."
+        out, truncated = _truncate_for_free(reason, "pro")
+        assert truncated is False
+        assert out == reason
+
+    def test_premium_returns_full_reason_unchanged(self):
+        reason = "Price pinned at VWAP with declining volume."
+        out, truncated = _truncate_for_free(reason, "premium")
+        assert truncated is False
+        assert out == reason
+
+    def test_empty_reason_safe(self):
+        out, truncated = _truncate_for_free("", "free")
+        assert truncated is False
+        assert out == ""
+
+    def test_short_reason_not_clipped_but_marked_free(self):
+        """Short single-clause reasons: no clip, but still mark as 'truncated' since
+        we apply the upgrade tag based on this return."""
+        reason = "Low volume chop."
+        out, truncated = _truncate_for_free(reason, "free")
+        # Free always returns truncated=True so upgrade CTA appears; text is safe
+        assert truncated is True
+        assert "Low volume chop" in out
 
 
 class TestExitCooldown:

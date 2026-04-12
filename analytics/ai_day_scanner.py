@@ -103,6 +103,30 @@ def _db_increment_count(db, user_id: int, feature: str, usage_date: str) -> int:
 _CONVICTION_RANK = {"low": 1, "medium": 2, "high": 3}
 
 
+def _truncate_for_free(reason: str, tier: str, max_len: int = 60) -> tuple[str, bool]:
+    """Spec 36 — free users get a headline only on AI Updates, paid get full analysis.
+
+    Returns (display_text, was_truncated).
+    - Free: first clause (up to max_len chars), ending with ellipsis if clipped
+    - Pro/Premium/Admin: full reason unchanged
+    """
+    if not reason:
+        return ("", False)
+    if (tier or "").lower() != "free":
+        return (reason, False)
+
+    # Cut at first sentence/clause boundary
+    cut = reason
+    for delim in (". ", "; ", " — ", " - "):
+        if delim in cut:
+            cut = cut.split(delim, 1)[0]
+            break
+    cut = cut.strip(" .;—-")
+    if len(cut) > max_len:
+        cut = cut[: max_len - 1].rstrip() + "…"
+    return (cut, True)
+
+
 def _user_wants_alert(user, alert_kind: str, conviction: str | None = None) -> bool:
     """Spec 36 — respect user-controlled alert filters before Telegram delivery.
 
@@ -558,10 +582,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                         _last_tg_time[symbol] = time.time()
                         try:
                             from alerting.notifier import _send_telegram_to
-                            _tg_msg = (
-                                f"<b>AI UPDATE — {symbol} ${result.get('price', 0):.2f}</b>\n"
-                                f"{reason}"
-                            )
+                            _price_fmt = f"${result.get('price', 0):.2f}"
                             for _uid in symbol_users[symbol]:
                                 # Skip WAIT for users already in a position on this symbol
                                 if user_open_longs.get((_uid, symbol)) or user_open_shorts.get((_uid, symbol)):
@@ -576,26 +597,46 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 # Spec 36 — user preference filter (before rate limit)
                                 if not _user_wants_alert(user, "WAIT"):
                                     continue
-                                # Per-user WAIT rate limit — persisted in usage_limits
+
+                                # Resolve tier once for both gating and truncation
                                 try:
                                     from api.app.tier import get_limits as _gl
                                     from api.app.dependencies import get_user_tier as _gut
-                                    _wmax = _gl(_gut(user)).get("ai_wait_alerts_per_day")
-                                    if _wmax is not None:
-                                        _wcount = _db_get_count(db, _uid, _FEATURE_WAIT, session)
-                                        if _wcount >= _wmax:
-                                            if _db_mark_notified(db, _uid, _FEATURE_WAIT_NOTIFIED, session):
-                                                _send_telegram_to(
-                                                    f"💤 Daily AI Updates limit reached ({_wmax}/{_wmax}).\n"
-                                                    f"You still get actionable AI entries. "
-                                                    f"Upgrade to Pro for unlimited AI transparency.\n"
-                                                    f"→ https://www.tradingwithai.ai/billing",
-                                                    user.telegram_chat_id,
-                                                )
-                                            continue
+                                    _tier = _gut(user)
+                                    _wmax = _gl(_tier).get("ai_wait_alerts_per_day")
                                 except Exception:
-                                    pass
-                                _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                    _tier = "free"
+                                    _wmax = None
+
+                                # Per-user WAIT rate limit — persisted in usage_limits
+                                if _wmax is not None:
+                                    _wcount = _db_get_count(db, _uid, _FEATURE_WAIT, session)
+                                    if _wcount >= _wmax:
+                                        if _db_mark_notified(db, _uid, _FEATURE_WAIT_NOTIFIED, session):
+                                            _send_telegram_to(
+                                                f"💤 Daily AI Updates limit reached ({_wmax}/{_wmax}).\n"
+                                                f"You still get actionable AI entries. "
+                                                f"Upgrade to Pro for unlimited AI transparency.\n"
+                                                f"→ https://www.tradingwithai.ai/billing",
+                                                user.telegram_chat_id,
+                                            )
+                                        continue
+
+                                # Spec 36 Option A — truncate reasoning for free users
+                                _reason_out, _truncated = _truncate_for_free(reason, _tier)
+                                if _truncated:
+                                    _user_tg = (
+                                        f"<b>AI UPDATE — {symbol} {_price_fmt}</b>\n"
+                                        f"{_reason_out}\n"
+                                        f"<i>Upgrade to Pro for full AI analysis → "
+                                        f"https://www.tradingwithai.ai/billing</i>"
+                                    )
+                                else:
+                                    _user_tg = (
+                                        f"<b>AI UPDATE — {symbol} {_price_fmt}</b>\n"
+                                        f"{_reason_out}"
+                                    )
+                                _send_telegram_to(_user_tg, user.telegram_chat_id)
                                 _db_increment_count(db, _uid, _FEATURE_WAIT, session)
                         except Exception:
                             pass
