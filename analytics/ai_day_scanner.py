@@ -72,6 +72,12 @@ def build_day_trade_prompt(
         "- Price bouncing off support (session low, PDL, VWAP, MA) → LONG\n"
         "- Price rejecting at resistance (session high, PDH, MA above) → RESISTANCE\n"
         "- Price between levels with no clear setup → WAIT\n\n"
+        "LONG CONFIRMATION RULES (critical — avoid false bottoms):\n"
+        "- Require HIGHER LOW structure: last bar's low must be ABOVE the prior swing low.\n"
+        "  First touch of support with no higher low yet → WAIT (not LONG).\n"
+        "- Require VOLUME > 1.0x average on the bounce bar, OR 2+ bars holding above the level.\n"
+        "- If price is just pinned at support with declining/flat structure → WAIT.\n"
+        "- Only fire LONG when the reversal STRUCTURE is confirmed, not on hope.\n\n"
         "OUTPUT (plain text, no markdown):\n\n"
         "SETUP: [what you see — e.g. PDL bounce, VWAP reclaim, session low hold, MA rejection]\n"
         "Direction: LONG / RESISTANCE / WAIT\n"
@@ -80,12 +86,12 @@ def build_day_trade_prompt(
         "T1: $price (next resistance above)\n"
         "T2: $price (second resistance)\n"
         "Conviction: HIGH / MEDIUM / LOW\n"
-        "Reason: 1 sentence\n\n"
+        "Reason: 1 sentence — must mention the higher low or volume confirmation if LONG\n\n"
         "RULES:\n"
-        "- Be decisive. If price bounced off support, say LONG. Don't wait for perfection.\n"
+        "- Be decisive, but respect the confirmation rules above.\n"
         "- Entry = the key level price, not current price.\n"
         "- Stop = below the next structural support (where thesis breaks).\n"
-        "- If price is between levels with no bounce or rejection, say WAIT.\n"
+        "- If no higher low or no volume confirmation, say WAIT.\n"
         "- MAXIMUM 60 WORDS.\n"
         "- PDH = yesterday's high. PDL = yesterday's low.\n"
     )
@@ -470,9 +476,22 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                 # Regime filter: REMOVED (P2 — fire at key levels, no suppression)
 
-                # Dedup: same setup at same level = skip. Different setup or level = fire.
-                # "VWAP HOLD at $2243" fired → skip. "PDL HOLD at $2230" → fire (new setup).
-                _level_key = f"{setup_type}_{_level_bucket(entry)}"
+                # Dedup by (symbol, LONG, level_bucket) — one LONG per price zone per session.
+                # $2205, $2206, $2207 all bucket to $2200 → only first fires.
+                # Different level (e.g. $2250) → fires as separate alert.
+                _bucket = _level_bucket(entry)
+                _level_dedup_key = (symbol, "LONG", _bucket)
+                _fired_set = _day_fired.get(session, set())
+                if _level_dedup_key in _fired_set:
+                    logger.debug(
+                        "AI day scan %s: LONG at bucket $%.2f already fired this session, skip",
+                        symbol, _bucket,
+                    )
+                    continue
+                _fired_set.add(_level_dedup_key)
+                _day_fired[session] = _fired_set
+
+                # Also keep message-based dedup as backup safety
                 _existing = db.execute(
                     select(Alert.id).where(
                         Alert.symbol == symbol,
