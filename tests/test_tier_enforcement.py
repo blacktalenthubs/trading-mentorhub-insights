@@ -65,16 +65,18 @@ class TestTierModule:
 
     def test_get_limits_free(self):
         limits = tier_mod.get_limits("free")
-        assert limits["watchlist_max"] == 3
-        assert limits["ai_queries_per_day"] == 2
-        assert limits["visible_alerts"] == 3
-        assert limits["telegram_alerts"] is False
+        assert limits["watchlist_max"] == 5
+        assert limits["ai_queries_per_day"] == 3
+        assert limits["ai_scan_alerts_per_day"] == 7
+        assert limits["visible_alerts"] == 10
+        assert limits["telegram_alerts"] is True
         assert limits["paper_trading"] is False
 
     def test_get_limits_pro(self):
         limits = tier_mod.get_limits("pro")
         assert limits["watchlist_max"] == 10
-        assert limits["ai_queries_per_day"] == 20
+        assert limits["ai_queries_per_day"] == 50
+        assert limits["ai_scan_alerts_per_day"] is None  # unlimited
         assert limits["visible_alerts"] is None
         assert limits["telegram_alerts"] is True
         assert limits["paper_trading"] is False
@@ -88,7 +90,7 @@ class TestTierModule:
 
     def test_get_limits_unknown_tier_returns_free(self):
         limits = tier_mod.get_limits("nonexistent")
-        assert limits["watchlist_max"] == 3
+        assert limits["watchlist_max"] == 5
 
     def test_trial_duration(self):
         assert tier_mod.TRIAL_DURATION_DAYS == 3
@@ -256,15 +258,22 @@ class TestTierLimitIntegrity:
                 )
 
     def test_watchlist_limits_ascending(self):
-        assert tier_mod.get_limits("free")["watchlist_max"] == 3
+        assert tier_mod.get_limits("free")["watchlist_max"] == 5
         assert tier_mod.get_limits("pro")["watchlist_max"] == 10
         assert tier_mod.get_limits("premium")["watchlist_max"] == 25
 
-    def test_ai_queries_free_is_2(self):
-        assert tier_mod.get_limits("free")["ai_queries_per_day"] == 2
+    def test_ai_queries_free_is_3(self):
+        assert tier_mod.get_limits("free")["ai_queries_per_day"] == 3
 
-    def test_ai_queries_pro_is_20(self):
-        assert tier_mod.get_limits("pro")["ai_queries_per_day"] == 20
+    def test_ai_queries_pro_is_50(self):
+        assert tier_mod.get_limits("pro")["ai_queries_per_day"] == 50
+
+    def test_ai_scan_alerts_free_is_7(self):
+        """Launch tuning: free users get 7 AI scan alerts/day (was 3) — scales at no AI cost."""
+        assert tier_mod.get_limits("free")["ai_scan_alerts_per_day"] == 7
+
+    def test_ai_scan_alerts_pro_unlimited(self):
+        assert tier_mod.get_limits("pro")["ai_scan_alerts_per_day"] is None
 
     def test_ai_queries_premium_unlimited(self):
         assert tier_mod.get_limits("premium")["ai_queries_per_day"] is None
@@ -279,13 +288,15 @@ class TestTierLimitIntegrity:
         assert tier_mod.get_limits("pro")["backtesting"] is False
         assert tier_mod.get_limits("premium")["backtesting"] is True
 
-    def test_telegram_pro_and_above(self):
-        assert tier_mod.get_limits("free")["telegram_alerts"] is False
+    def test_telegram_enabled_for_all_tiers(self):
+        """All tiers get Telegram; free users are capped via ai_scan_alerts_per_day."""
+        assert tier_mod.get_limits("free")["telegram_alerts"] is True
         assert tier_mod.get_limits("pro")["telegram_alerts"] is True
         assert tier_mod.get_limits("premium")["telegram_alerts"] is True
 
-    def test_visible_alerts_free_is_3(self):
-        assert tier_mod.get_limits("free")["visible_alerts"] == 3
+    def test_visible_alerts_free_is_10(self):
+        """Launch tuning: free UI shows 10 alerts (was 3) so users see the product working."""
+        assert tier_mod.get_limits("free")["visible_alerts"] == 10
 
     def test_visible_alerts_pro_unlimited(self):
         assert tier_mod.get_limits("pro")["visible_alerts"] is None
