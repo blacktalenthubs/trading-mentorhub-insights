@@ -45,6 +45,26 @@ interface AttributionStats {
   by_campaign: { campaign: string; count: number }[];
 }
 
+interface UserDebug {
+  user: { id: number; email: string; telegram_enabled: boolean; telegram_chat_id: string | null };
+  subscription: { tier: string; status: string; trial_ends_at: string | null } | null;
+  resolved_tier: string;
+  trial_active: boolean;
+  trial_days_left: number;
+  limits: {
+    ai_scan_alerts_per_day: number | null;
+    visible_alerts: number | null;
+    telegram_alerts: boolean;
+  };
+  today_stats: {
+    ai_actionable_alerts_in_db: number;
+    ai_wait_alerts_in_db: number;
+    rule_alerts_in_db: number;
+    ai_telegram_delivered_counter: number | null;
+    limit_reached_notified: boolean | null;
+  };
+}
+
 function StatCard({ label, value, icon, color }: {
   label: string; value: string | number; icon: React.ReactNode; color?: string;
 }) {
@@ -82,6 +102,21 @@ function TierBadge({ tier, trialDays, trialExpired }: { tier: string; trialDays?
 export default function AdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [attribution, setAttribution] = useState<AttributionStats | null>(null);
+  const [debugEmail, setDebugEmail] = useState("");
+  const [debugData, setDebugData] = useState<UserDebug | null>(null);
+  const [debugError, setDebugError] = useState("");
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  function runUserDebug() {
+    if (!debugEmail.trim()) return;
+    setDebugLoading(true);
+    setDebugError("");
+    setDebugData(null);
+    api.get<UserDebug>(`/admin/user-debug?email=${encodeURIComponent(debugEmail.trim())}`)
+      .then((d) => setDebugData(d))
+      .catch((err) => setDebugError(err instanceof Error ? err.message : "Lookup failed"))
+      .finally(() => setDebugLoading(false));
+  }
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -264,6 +299,77 @@ export default function AdminPage() {
             </div>
           </section>
         )}
+
+        {/* User Debug — inspect tier + rate limit state for a specific account */}
+        <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">
+          <h2 className="text-sm font-bold text-text-primary mb-3 flex items-center gap-2">
+            <Search className="h-4 w-4 text-accent" />
+            User Debug — inspect tier + alert limits
+          </h2>
+          <p className="text-xs text-text-muted mb-3">
+            Enter a user's email to see their resolved tier, trial status, today's alert counts, and Telegram rate limit state.
+          </p>
+          <div className="flex gap-2 mb-4">
+            <input
+              type="email"
+              value={debugEmail}
+              onChange={(e) => setDebugEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runUserDebug(); }}
+              placeholder="user@example.com"
+              className="flex-1 max-w-sm bg-surface-2 border border-border-subtle rounded-lg py-2 px-3 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+            />
+            <button
+              onClick={runUserDebug}
+              disabled={debugLoading || !debugEmail.trim()}
+              className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"
+            >
+              {debugLoading ? "Loading..." : "Inspect"}
+            </button>
+          </div>
+
+          {debugError && (
+            <p className="text-xs text-red-400 mb-2">{debugError}</p>
+          )}
+
+          {debugData && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Identity */}
+              <div className="bg-surface-2/40 rounded-lg p-3 border border-border-subtle/50">
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">Identity</h3>
+                <dl className="space-y-1 text-xs">
+                  <div className="flex justify-between"><dt className="text-text-muted">ID</dt><dd className="text-text-primary font-mono">{debugData.user.id}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">Email</dt><dd className="text-text-primary truncate ml-2">{debugData.user.email}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">Telegram</dt><dd className={debugData.user.telegram_chat_id ? "text-bullish-text" : "text-text-faint"}>{debugData.user.telegram_chat_id ? "Linked" : "Not linked"}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">TG enabled</dt><dd className={debugData.user.telegram_enabled ? "text-bullish-text" : "text-text-faint"}>{debugData.user.telegram_enabled ? "Yes" : "No"}</dd></div>
+                </dl>
+              </div>
+
+              {/* Tier */}
+              <div className="bg-surface-2/40 rounded-lg p-3 border border-border-subtle/50">
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">Tier &amp; Trial</h3>
+                <dl className="space-y-1 text-xs">
+                  <div className="flex justify-between"><dt className="text-text-muted">Resolved tier</dt><dd className="text-accent font-bold uppercase">{debugData.resolved_tier}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">Sub tier</dt><dd className="text-text-primary">{debugData.subscription?.tier ?? "—"}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">Trial active</dt><dd className={debugData.trial_active ? "text-bullish-text" : "text-text-faint"}>{debugData.trial_active ? "Yes" : "No"}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">Trial days left</dt><dd className="text-text-primary">{debugData.trial_days_left}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">AI cap/day</dt><dd className="text-text-primary">{debugData.limits.ai_scan_alerts_per_day ?? "unlimited"}</dd></div>
+                </dl>
+              </div>
+
+              {/* Today stats */}
+              <div className="bg-surface-2/40 rounded-lg p-3 border border-border-subtle/50">
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">Today</h3>
+                <dl className="space-y-1 text-xs">
+                  <div className="flex justify-between"><dt className="text-text-muted">AI actionable</dt><dd className="text-text-primary font-mono">{debugData.today_stats.ai_actionable_alerts_in_db}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">AI waits</dt><dd className="text-text-faint font-mono">{debugData.today_stats.ai_wait_alerts_in_db}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">Rule alerts</dt><dd className={debugData.today_stats.rule_alerts_in_db > 0 ? "text-yellow-400 font-mono" : "text-text-faint font-mono"}>{debugData.today_stats.rule_alerts_in_db}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">TG delivered</dt><dd className="text-text-primary font-mono">{debugData.today_stats.ai_telegram_delivered_counter ?? "—"}</dd></div>
+                  <div className="flex justify-between"><dt className="text-text-muted">Cap hit</dt><dd className={debugData.today_stats.limit_reached_notified ? "text-yellow-400" : "text-text-faint"}>{debugData.today_stats.limit_reached_notified ? "Yes" : "No"}</dd></div>
+                </dl>
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* User search */}
         <div className="mb-4">
