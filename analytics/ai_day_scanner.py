@@ -31,6 +31,10 @@ _last_tg_time: dict[str, float] = {}  # {symbol: timestamp of last Telegram send
 _user_delivered_count: dict[tuple[int, str], int] = {}  # (uid, session) -> count
 _user_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about cap
 
+# Exit scan cooldown — (trade_id, status) -> last_sent_ts. 30-min cooldown per pair.
+_exit_notified: dict[tuple[int, str], float] = {}
+_EXIT_COOLDOWN_SEC = 1800  # 30 min
+
 
 def _resolve_api_key() -> str:
     if ANTHROPIC_API_KEY:
@@ -336,6 +340,7 @@ def day_scan_cycle(sync_session_factory) -> int:
         _last_tg_time.clear()
         _user_delivered_count.clear()
         _user_limit_notified.clear()
+        _exit_notified.clear()
         _day_session = session
 
     api_key = _resolve_api_key()
@@ -755,4 +760,297 @@ def day_scan_cycle(sync_session_factory) -> int:
 
     except Exception:
         logger.exception("AI day scan cycle failed")
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (Spec 34) — Exit management scan for open positions
+# ---------------------------------------------------------------------------
+
+
+def build_exit_prompt(
+    symbol: str,
+    direction: str,       # "BUY" (long) or "SHORT"
+    entry: float,
+    stop: float | None,
+    t1: float | None,
+    t2: float | None,
+    opened_minutes_ago: int,
+    bars_5m: list[dict],
+) -> str:
+    """Build exit-management prompt — decides EXIT_NOW / TAKE_PROFITS / HOLD."""
+    is_long = direction == "BUY"
+    dir_label = "LONG" if is_long else "SHORT"
+
+    session_high = max((b["high"] for b in bars_5m), default=0) if bars_5m else 0
+    session_low = min((b["low"] for b in bars_5m), default=0) if bars_5m else 0
+    current_price = bars_5m[-1]["close"] if bars_5m else 0
+    if bars_5m:
+        _tp_vol = sum(((b["high"] + b["low"] + b["close"]) / 3) * b.get("volume", 1) for b in bars_5m)
+        _vol = sum(b.get("volume", 1) for b in bars_5m)
+        vwap = _tp_vol / _vol if _vol > 0 else current_price
+        avg_vol = sum(b.get("volume", 0) for b in bars_5m) / len(bars_5m) if bars_5m else 0
+        last_vol = bars_5m[-1].get("volume", 0)
+        vol_ratio = last_vol / avg_vol if avg_vol > 0 else 1.0
+    else:
+        vwap = current_price
+        vol_ratio = 1.0
+
+    break_term = "lower low" if is_long else "higher high"
+    thesis_term = "higher low" if is_long else "lower high"
+    prompt = (
+        "You are managing an open trading position. Read the position data and\n"
+        "current chart, decide if the user should act on their position RIGHT NOW.\n\n"
+        "OUTPUT (plain text, no markdown):\n\n"
+        "Status: EXIT_NOW / TAKE_PROFITS / HOLD\n"
+        "Reason: 1 short sentence\n"
+        "Action: 1 short sentence — specific action (exit, trim, or continue holding)\n\n"
+        "RULES:\n"
+        f"- EXIT_NOW if: price within 0.2% of stop, {thesis_term} structure broken "
+        f"(new {break_term}), or volume collapsed and price stalled at entry.\n"
+        "- TAKE_PROFITS if: price within 0.5% of T1, rejection candle at T1, "
+        "or volume spike into T1.\n"
+        "- HOLD otherwise. Default to HOLD — do not harass the user.\n"
+        "- Be conservative. Only act on clear structural signals.\n"
+        "- MAXIMUM 50 WORDS TOTAL.\n\n"
+        f"[POSITION — {symbol} {dir_label}]\n"
+        f"Entry: ${entry:.2f} ({opened_minutes_ago} min ago)\n"
+    )
+    if stop:
+        prompt += f"Stop: ${stop:.2f}\n"
+    if t1:
+        prompt += f"T1: ${t1:.2f}\n"
+    if t2:
+        prompt += f"T2: ${t2:.2f}\n"
+
+    prompt += (
+        f"\n[CURRENT CHART]\n"
+        f"Current Price: ${current_price:.2f}\n"
+        f"Session High: ${session_high:.2f}\n"
+        f"Session Low: ${session_low:.2f}\n"
+        f"VWAP: ${vwap:.2f}\n"
+        f"Volume Ratio (last bar): {vol_ratio:.1f}x avg\n"
+    )
+
+    if bars_5m:
+        lines = [f"\n[5-MIN BARS — last {min(len(bars_5m), 20)}]"]
+        for b in bars_5m[-20:]:
+            lines.append(
+                f"O={b['open']:.2f} H={b['high']:.2f} L={b['low']:.2f} "
+                f"C={b['close']:.2f} V={b.get('volume', 0):.0f}"
+            )
+        prompt += "\n".join(lines)
+
+    return prompt
+
+
+def parse_exit_response(text: str) -> dict:
+    """Parse exit management response from Claude."""
+    result = {"status": None, "reason": None, "action": None, "raw": text}
+    status_match = re.search(r"Status:\s*(EXIT_NOW|TAKE_PROFITS|HOLD)", text, re.IGNORECASE)
+    if status_match:
+        result["status"] = status_match.group(1).upper()
+    reason_match = re.search(r"Reason:\s*(.+?)(?:\n|$)", text)
+    if reason_match:
+        result["reason"] = reason_match.group(1).strip()
+    action_match = re.search(r"Action:\s*(.+?)(?:\n|$)", text)
+    if action_match:
+        result["action"] = action_match.group(1).strip()
+    return result
+
+
+def scan_open_position(trade_data: dict, bars_5m: list[dict], api_key: str) -> dict | None:
+    """Run exit analysis on one open position. Returns parsed dict or None."""
+    try:
+        prompt = build_exit_prompt(
+            symbol=trade_data["symbol"],
+            direction=trade_data["direction"],
+            entry=trade_data["entry"],
+            stop=trade_data.get("stop"),
+            t1=trade_data.get("t1"),
+            t2=trade_data.get("t2"),
+            opened_minutes_ago=trade_data.get("opened_minutes_ago", 0),
+            bars_5m=bars_5m,
+        )
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        start = time.time()
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=150,
+            system=[{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": f"Manage {trade_data['symbol']} position now."}],
+            timeout=15.0,
+        )
+        elapsed = time.time() - start
+        response_text = response.content[0].text.strip()
+        logger.info("AI exit scan %s: %.1fs — %s", trade_data["symbol"], elapsed, response_text[:80])
+        return parse_exit_response(response_text)
+    except Exception:
+        logger.exception("AI exit scan failed for %s", trade_data.get("symbol"))
+        return None
+
+
+def exit_scan_cycle(sync_session_factory) -> int:
+    """Scan all open RealTrades for exit signals. Runs after entry scan."""
+    from datetime import datetime
+
+    session = date.today().isoformat()
+    api_key = _resolve_api_key()
+    if not api_key:
+        return 0
+
+    try:
+        from sqlalchemy import select
+        from app.models.paper_trade import RealTrade
+        from app.models.user import User
+        from app.models.alert import Alert
+        from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto
+        from analytics.market_hours import is_market_hours_for_symbol
+        from config import is_crypto_alert_symbol
+
+        with sync_session_factory() as db:
+            open_trades = db.execute(
+                select(RealTrade).where(RealTrade.status == "open")
+            ).scalars().all()
+
+            if not open_trades:
+                return 0
+
+            total_sent = 0
+            now_ts = time.time()
+
+            for trade in open_trades:
+                sym = trade.symbol
+                if not is_market_hours_for_symbol(sym):
+                    continue
+
+                is_crypto = is_crypto_alert_symbol(sym)
+                try:
+                    bars_df = fetch_intraday_crypto(sym) if is_crypto else fetch_intraday(sym)
+                    if bars_df is None or bars_df.empty:
+                        continue
+                    bars_5m = [
+                        {"open": float(r["Open"]), "high": float(r["High"]),
+                         "low": float(r["Low"]), "close": float(r["Close"]),
+                         "volume": float(r["Volume"])}
+                        for _, r in bars_df.tail(20).iterrows()
+                    ]
+                except Exception:
+                    continue
+
+                opened_mins = 0
+                if trade.opened_at:
+                    try:
+                        opened_mins = int((datetime.utcnow() - trade.opened_at).total_seconds() / 60)
+                    except Exception:
+                        opened_mins = 0
+
+                trade_data = {
+                    "symbol": sym,
+                    "direction": trade.direction,
+                    "entry": trade.entry_price,
+                    "stop": trade.stop_price,
+                    "t1": trade.target_price,
+                    "t2": trade.target_2_price,
+                    "opened_minutes_ago": opened_mins,
+                }
+
+                result = scan_open_position(trade_data, bars_5m, api_key)
+                if not result or not result.get("status"):
+                    continue
+
+                status = result["status"]
+                if status == "HOLD":
+                    continue  # don't notify
+
+                # Cooldown: (trade_id, status) within last 30 min → skip
+                cooldown_key = (trade.id, status)
+                last_sent = _exit_notified.get(cooldown_key, 0)
+                if (now_ts - last_sent) < _EXIT_COOLDOWN_SEC:
+                    logger.debug("Exit scan trade %d: %s suppressed by cooldown", trade.id, status)
+                    continue
+                _exit_notified[cooldown_key] = now_ts
+
+                reason = result.get("reason") or ""
+                action = result.get("action") or ""
+                alert_msg = f"{status}: {reason}" + (f" | {action}" if action else "")
+
+                exit_alert = Alert(
+                    user_id=trade.user_id,
+                    symbol=sym,
+                    alert_type="ai_exit_signal",
+                    direction="NOTICE",
+                    price=bars_5m[-1]["close"] if bars_5m else trade.entry_price,
+                    message=alert_msg,
+                    score=0,
+                    session_date=session,
+                )
+                db.add(exit_alert)
+                db.flush()
+                _alert_id = exit_alert.id
+                db.commit()
+
+                user = db.get(User, trade.user_id)
+                if not (user and user.telegram_enabled and user.telegram_chat_id):
+                    continue
+
+                try:
+                    from api.app.tier import get_limits as _gl
+                    from api.app.dependencies import get_user_tier as _gut
+                    _tier_max = _gl(_gut(user)).get("ai_scan_alerts_per_day")
+                    if _tier_max is not None:
+                        _uid_key = (trade.user_id, session)
+                        if _user_delivered_count.get(_uid_key, 0) >= _tier_max:
+                            if _uid_key not in _user_limit_notified:
+                                from alerting.notifier import _send_telegram_to
+                                _send_telegram_to(
+                                    f"📊 Daily AI scan limit reached ({_tier_max}/{_tier_max}).\n"
+                                    f"Upgrade to Pro for unlimited alerts.\n"
+                                    f"→ https://www.tradesignalwithai.com/billing",
+                                    user.telegram_chat_id,
+                                )
+                                _user_limit_notified.add(_uid_key)
+                            continue
+                except Exception:
+                    pass
+
+                from alerting.notifier import _send_telegram_to
+                import html as _html
+
+                if status == "EXIT_NOW":
+                    header = f"🔴 AI EXIT NOW — {_html.escape(sym)}"
+                    buttons = {"inline_keyboard": [[
+                        {"text": "🛑 Exit Trade", "callback_data": f"exit:{_alert_id}"},
+                    ]]}
+                else:  # TAKE_PROFITS
+                    header = f"🎯 AI TAKE PROFITS — {_html.escape(sym)}"
+                    buttons = {"inline_keyboard": [[
+                        {"text": "🛑 Exit Trade", "callback_data": f"exit:{_alert_id}"},
+                        {"text": "✋ Keep Holding", "callback_data": f"hold:{_alert_id}"},
+                    ]]}
+
+                tg_msg = (
+                    f"<b>{header}</b>\n"
+                    f"{_html.escape(reason)}\n"
+                    f"Action: {_html.escape(action)}"
+                )
+
+                try:
+                    _send_telegram_to(tg_msg, user.telegram_chat_id, reply_markup=buttons)
+                    _user_delivered_count[(trade.user_id, session)] = \
+                        _user_delivered_count.get((trade.user_id, session), 0) + 1
+                    total_sent += 1
+                    logger.info(
+                        "Exit scan %s trade %d: %s → Telegram user %d",
+                        sym, trade.id, status, trade.user_id,
+                    )
+                except Exception:
+                    logger.exception("Exit scan: Telegram failed for %s trade %d", sym, trade.id)
+
+            logger.info("Exit scan complete: %d exit signals sent", total_sent)
+            return total_sent
+
+    except Exception:
+        logger.exception("Exit scan cycle failed")
         return 0

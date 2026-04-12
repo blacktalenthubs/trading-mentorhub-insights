@@ -2,7 +2,10 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from analytics.ai_day_scanner import parse_day_trade_response, build_day_trade_prompt
+from analytics.ai_day_scanner import (
+    parse_day_trade_response, build_day_trade_prompt,
+    build_exit_prompt, parse_exit_response,
+)
 
 
 class TestParseDayTradeResponse:
@@ -404,3 +407,104 @@ class TestPerUserShortFilter:
         # LONG delivery: user 3 holds LONG → LONG alert suppressed
         long_delivered = [uid for uid in symbol_users_eth if not user_open_longs.get((uid, "ETH-USD"))]
         assert 3 not in long_delivered
+
+
+class TestExitManagement:
+    """Phase 3 (Spec 34) — exit scan for open positions."""
+
+    def _sample_bars(self, n=10, base=2200.0):
+        return [
+            {"open": base, "high": base + 3, "low": base - 2, "close": base + 1, "volume": 1000}
+            for _ in range(n)
+        ]
+
+    def test_exit_prompt_for_long_position(self):
+        prompt = build_exit_prompt(
+            symbol="ETH-USD",
+            direction="BUY",
+            entry=2200.0,
+            stop=2190.0,
+            t1=2220.0,
+            t2=2240.0,
+            opened_minutes_ago=30,
+            bars_5m=self._sample_bars(),
+        )
+        assert "LONG" in prompt
+        assert "EXIT_NOW" in prompt
+        assert "TAKE_PROFITS" in prompt
+        assert "HOLD" in prompt
+        assert "higher low" in prompt  # thesis term for LONG
+        assert "$2200.00" in prompt
+        assert "$2190.00" in prompt
+        assert "30 min ago" in prompt
+
+    def test_exit_prompt_for_short_position(self):
+        prompt = build_exit_prompt(
+            symbol="ETH-USD",
+            direction="SHORT",
+            entry=2300.0,
+            stop=2310.0,
+            t1=2280.0,
+            t2=2260.0,
+            opened_minutes_ago=15,
+            bars_5m=self._sample_bars(),
+        )
+        assert "SHORT" in prompt
+        assert "lower high" in prompt  # thesis term for SHORT
+        assert "$2300.00" in prompt
+        assert "$2310.00" in prompt
+
+    def test_exit_prompt_defaults_to_hold(self):
+        prompt = build_exit_prompt(
+            symbol="SPY", direction="BUY", entry=670.0,
+            stop=668.0, t1=675.0, t2=680.0,
+            opened_minutes_ago=5,
+            bars_5m=self._sample_bars(n=3, base=670.0),
+        )
+        assert "Default to HOLD" in prompt
+        assert "do not harass" in prompt.lower()
+
+    def test_parse_exit_now(self):
+        text = """Status: EXIT_NOW
+Reason: Price broke below stop zone with lower low structure.
+Action: Exit at market now."""
+        result = parse_exit_response(text)
+        assert result["status"] == "EXIT_NOW"
+        assert "broke below stop" in result["reason"]
+        assert "exit at market" in result["action"].lower()
+
+    def test_parse_take_profits(self):
+        text = """Status: TAKE_PROFITS
+Reason: Price within 0.4% of T1, rejection wick forming.
+Action: Trim 50% here, trail stop to breakeven."""
+        result = parse_exit_response(text)
+        assert result["status"] == "TAKE_PROFITS"
+        assert "Trim" in result["action"]
+
+    def test_parse_hold(self):
+        text = """Status: HOLD
+Reason: Structure intact, volume steady, no action needed.
+Action: Keep holding, stop still valid."""
+        result = parse_exit_response(text)
+        assert result["status"] == "HOLD"
+
+    def test_parse_handles_garbage(self):
+        result = parse_exit_response("some random text")
+        assert result["status"] is None
+
+    def test_exit_cooldown_logic(self):
+        """Cooldown suppresses same (trade_id, status) within 30 min."""
+        import time
+        from analytics.ai_day_scanner import _exit_notified, _EXIT_COOLDOWN_SEC
+
+        _exit_notified.clear()
+        trade_id = 42
+        status = "EXIT_NOW"
+        now = time.time()
+
+        # First notification → should fire
+        _exit_notified[(trade_id, status)] = now
+        # Check within cooldown → suppressed
+        assert (now + 60 - _exit_notified[(trade_id, status)]) < _EXIT_COOLDOWN_SEC
+        # Check after cooldown → allowed
+        assert (now + _EXIT_COOLDOWN_SEC + 10 - _exit_notified[(trade_id, status)]) > _EXIT_COOLDOWN_SEC

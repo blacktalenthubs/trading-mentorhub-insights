@@ -173,12 +173,14 @@ async def lifespan(app: FastAPI):
         )
         # SWING DISABLED — focus on day trade entries first.
 
-        # AI Day Trade Scanner (Spec 27) — specialized entry detection every 3 min
+        # AI Day Trade Scanner (Spec 27) — specialized entry detection
+        # Also runs exit management scan (Spec 34 Phase 3) for open positions
         def _ai_day_scan():
             try:
-                from analytics.ai_day_scanner import day_scan_cycle
-                count = day_scan_cycle(sync_session_factory)
-                logger.info("AI day scan complete: %d alerts", count)
+                from analytics.ai_day_scanner import day_scan_cycle, exit_scan_cycle
+                entries = day_scan_cycle(sync_session_factory)
+                exits = exit_scan_cycle(sync_session_factory)
+                logger.info("AI scan cycle: %d entries, %d exit signals", entries, exits)
             except Exception:
                 logger.exception("AI day scan cycle failed")
 
