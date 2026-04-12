@@ -45,8 +45,90 @@ def _resolve_api_key() -> str:
 
 
 def get_user_ai_scan_count(user_id: int, session_date: str) -> int:
-    """Return how many AI scan alerts the user has received today (in-memory counter)."""
+    """Return how many AI scan alerts the user has received today (in-memory counter).
+
+    For persistent count across worker restarts, use db_get_daily_delivery_count().
+    This helper is still kept for fast reads where staleness is OK.
+    """
     return _user_delivered_count.get((user_id, session_date), 0)
+
+
+# ---------------------------------------------------------------------------
+# Persistent rate-limit counters (via usage_limits table — survive worker restarts)
+# ---------------------------------------------------------------------------
+
+# Feature keys used in the shared usage_limits table
+_FEATURE_SCAN = "ai_scan_telegram"        # LONG / SHORT / RESISTANCE / EXIT delivery
+_FEATURE_WAIT = "ai_wait_telegram"        # WAIT delivery
+_FEATURE_SCAN_NOTIFIED = "ai_scan_cap_notified"   # 1 = already told user about cap today
+_FEATURE_WAIT_NOTIFIED = "ai_wait_cap_notified"
+
+
+def _db_get_count(db, user_id: int, feature: str, usage_date: str) -> int:
+    """Sync DB read of today's usage count for a feature. Returns 0 if no row."""
+    from sqlalchemy import text
+    try:
+        row = db.execute(
+            text(
+                "SELECT usage_count FROM usage_limits "
+                "WHERE user_id = :uid AND feature = :f AND usage_date = :d"
+            ),
+            {"uid": user_id, "f": feature, "d": usage_date},
+        ).fetchone()
+        return int(row[0]) if row else 0
+    except Exception:
+        logger.debug("usage_limits read failed for uid=%s feature=%s", user_id, feature)
+        return 0
+
+
+def _db_increment_count(db, user_id: int, feature: str, usage_date: str) -> int:
+    """Atomic increment — upsert row, return new count. Idempotent under ON CONFLICT."""
+    from sqlalchemy import text
+    try:
+        db.execute(
+            text(
+                "INSERT INTO usage_limits (user_id, feature, usage_date, usage_count) "
+                "VALUES (:uid, :f, :d, 1) "
+                "ON CONFLICT (user_id, feature, usage_date) "
+                "DO UPDATE SET usage_count = usage_limits.usage_count + 1"
+            ),
+            {"uid": user_id, "f": feature, "d": usage_date},
+        )
+        db.commit()
+    except Exception:
+        logger.exception("usage_limits increment failed for uid=%s feature=%s", user_id, feature)
+    return _db_get_count(db, user_id, feature, usage_date)
+
+
+def _db_mark_notified(db, user_id: int, feature_notified_key: str, usage_date: str) -> bool:
+    """Atomic check-and-set. Returns True if this was the FIRST call today (send msg),
+    False if already notified (suppress duplicate)."""
+    from sqlalchemy import text
+    try:
+        existing = db.execute(
+            text(
+                "SELECT usage_count FROM usage_limits "
+                "WHERE user_id = :uid AND feature = :f AND usage_date = :d"
+            ),
+            {"uid": user_id, "f": feature_notified_key, "d": usage_date},
+        ).fetchone()
+        if existing and int(existing[0]) >= 1:
+            return False  # already notified
+        # Set the marker
+        db.execute(
+            text(
+                "INSERT INTO usage_limits (user_id, feature, usage_date, usage_count) "
+                "VALUES (:uid, :f, :d, 1) "
+                "ON CONFLICT (user_id, feature, usage_date) "
+                "DO UPDATE SET usage_count = 1"
+            ),
+            {"uid": user_id, "f": feature_notified_key, "d": usage_date},
+        )
+        db.commit()
+        return True
+    except Exception:
+        logger.exception("mark_notified failed for uid=%s feature=%s", user_id, feature_notified_key)
+        return False
 
 
 def _level_bucket(price: float) -> float:
@@ -452,15 +534,15 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 user = db.get(User, _uid)
                                 if not (user and user.telegram_enabled and user.telegram_chat_id):
                                     continue
-                                # Per-user WAIT rate limit (separate cap from actionable)
+                                # Per-user WAIT rate limit — persisted in usage_limits
                                 try:
                                     from api.app.tier import get_limits as _gl
                                     from api.app.dependencies import get_user_tier as _gut
                                     _wmax = _gl(_gut(user)).get("ai_wait_alerts_per_day")
                                     if _wmax is not None:
-                                        _wkey = (_uid, session)
-                                        if _user_wait_count.get(_wkey, 0) >= _wmax:
-                                            if _wkey not in _user_wait_limit_notified:
+                                        _wcount = _db_get_count(db, _uid, _FEATURE_WAIT, session)
+                                        if _wcount >= _wmax:
+                                            if _db_mark_notified(db, _uid, _FEATURE_WAIT_NOTIFIED, session):
                                                 _send_telegram_to(
                                                     f"💤 Daily WAIT alert limit reached ({_wmax}/{_wmax}).\n"
                                                     f"You still get actionable AI entries. "
@@ -468,13 +550,11 @@ def day_scan_cycle(sync_session_factory) -> int:
                                                     f"→ https://www.tradingwithai.ai/billing",
                                                     user.telegram_chat_id,
                                                 )
-                                                _user_wait_limit_notified.add(_wkey)
                                             continue
                                 except Exception:
                                     pass
                                 _send_telegram_to(_tg_msg, user.telegram_chat_id)
-                                _user_wait_count[(_uid, session)] = \
-                                    _user_wait_count.get((_uid, session), 0) + 1
+                                _db_increment_count(db, _uid, _FEATURE_WAIT, session)
                         except Exception:
                             pass
 
