@@ -48,6 +48,7 @@ def build_day_trade_prompt(
     bars_5m: list[dict],
     bars_1h: list[dict],
     prior_day: dict | None,
+    active_positions: list[dict] | None = None,
 ) -> str:
     """Build specialized day trade prompt with specific confirmation rules."""
 
@@ -72,6 +73,8 @@ def build_day_trade_prompt(
         "- Entry = the key level price, not current price.\n"
         "- Stop = below the next structural support (where thesis breaks).\n"
         "- If price is between levels with no bounce or rejection, say WAIT.\n"
+        "- If user is ALREADY LONG this symbol (see ACTIVE POSITIONS), do NOT send another LONG.\n"
+        "  Instead: send RESISTANCE if approaching resistance, or WAIT if holding fine.\n"
         "- MAXIMUM 60 WORDS.\n"
         "- PDH = yesterday's high. PDL = yesterday's low.\n"
     )
@@ -157,6 +160,23 @@ def build_day_trade_prompt(
             )
         parts.append("\n".join(lines))
 
+    # Active positions — tell AI what the user is already in
+    if active_positions:
+        sym_positions = [p for p in active_positions if p.get("symbol") == symbol]
+        if sym_positions:
+            lines = ["\n[ACTIVE POSITIONS — user already holds these]"]
+            for p in sym_positions:
+                _entry_p = p.get("entry", 0)
+                _stop_p = p.get("stop", "N/A")
+                _t1_p = p.get("t1", "N/A")
+                _time_p = p.get("time", "")
+                lines.append(
+                    f"- {symbol} LONG took at ${_entry_p:.2f} "
+                    f"(stop={_stop_p}, T1={_t1_p}) {_time_p}"
+                )
+            lines.append("DO NOT send another LONG for this symbol. Focus on exit/resistance signals.")
+            parts.append("\n".join(lines))
+
     return "\n".join(parts)
 
 
@@ -206,7 +226,7 @@ def parse_day_trade_response(text: str) -> dict:
     return result
 
 
-def scan_day_trade(symbol: str, api_key: str) -> dict | None:
+def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | None = None) -> dict | None:
     """Scan one symbol for day trade entries using specialized prompt."""
     from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day
     from config import is_crypto_alert_symbol
@@ -239,7 +259,7 @@ def scan_day_trade(symbol: str, api_key: str) -> dict | None:
                 for _, r in bars_1h_df.tail(10).iterrows()
             ]
 
-        prompt = build_day_trade_prompt(symbol, bars_5m, bars_1h, prior_day)
+        prompt = build_day_trade_prompt(symbol, bars_5m, bars_1h, prior_day, active_positions)
 
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
@@ -311,12 +331,31 @@ def day_scan_cycle(sync_session_factory) -> int:
 
             logger.info("AI day scan: scanning %d symbols", len(symbols))
 
-            # Regime: REMOVED (P2 — no suppression, fire at key levels)
+            # Fetch active positions — alerts user "took" today, still active
+            active_positions = []
+            try:
+                took_alerts = db.execute(
+                    select(Alert).where(
+                        Alert.session_date == session,
+                        Alert.user_action == "took",
+                        Alert.direction == "BUY",
+                    )
+                ).scalars().all()
+                for ta in took_alerts:
+                    active_positions.append({
+                        "symbol": ta.symbol,
+                        "entry": ta.entry or ta.price,
+                        "stop": f"${ta.stop:.2f}" if ta.stop else "N/A",
+                        "t1": f"${ta.target_1:.2f}" if ta.target_1 else "N/A",
+                        "time": ta.created_at.strftime("%H:%M") if ta.created_at else "",
+                    })
+            except Exception:
+                logger.debug("AI day scan: could not fetch active positions")
 
             total_alerts = 0
 
             for symbol in symbols:
-                result = scan_day_trade(symbol, api_key)
+                result = scan_day_trade(symbol, api_key, active_positions)
                 if not result:
                     continue
 

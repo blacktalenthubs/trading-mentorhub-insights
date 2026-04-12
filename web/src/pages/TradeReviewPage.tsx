@@ -41,10 +41,12 @@ export default function TradeReviewPage() {
   const activeDate = selectedDate || sessionDates[0] || "";
   const dateIdx = sessionDates.indexOf(activeDate);
 
-  // Filter alerts
+  // Filter alerts — exclude WAIT (no replay value)
   const filtered = useMemo(() => {
     if (!alerts) return [];
-    let result = alerts.filter((a) => a.session_date === activeDate);
+    let result = alerts
+      .filter((a) => a.session_date === activeDate)
+      .filter((a) => a.alert_type !== "ai_scan_wait");
 
     if (sourceFilter === "ai") result = result.filter((a) => a.alert_type?.startsWith("ai_"));
     if (sourceFilter === "rules") result = result.filter((a) => !a.alert_type?.startsWith("ai_"));
