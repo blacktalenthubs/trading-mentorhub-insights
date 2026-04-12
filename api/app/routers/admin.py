@@ -237,13 +237,18 @@ async def user_debug(
     today = date.today().isoformat()
     try:
         from analytics.ai_day_scanner import (
-            _user_delivered_count, _user_limit_notified
+            _user_delivered_count, _user_limit_notified,
+            _user_wait_count, _user_wait_limit_notified,
         )
         ai_delivered = _user_delivered_count.get((user.id, today), 0)
         limit_notified = (user.id, today) in _user_limit_notified
+        wait_delivered = _user_wait_count.get((user.id, today), 0)
+        wait_limit_notified = (user.id, today) in _user_wait_limit_notified
     except Exception:
         ai_delivered = None
         limit_notified = None
+        wait_delivered = None
+        wait_limit_notified = None
 
     # DB-backed alert counts today (reflects actual records, not memory)
     alerts_today = (await db.execute(text("""
@@ -286,6 +291,7 @@ async def user_debug(
         "trial_days_left": trial_days,
         "limits": {
             "ai_scan_alerts_per_day": limits.get("ai_scan_alerts_per_day"),
+            "ai_wait_alerts_per_day": limits.get("ai_wait_alerts_per_day"),
             "visible_alerts": limits.get("visible_alerts"),
             "telegram_alerts": limits.get("telegram_alerts"),
         },
@@ -295,6 +301,8 @@ async def user_debug(
             "rule_alerts_in_db": rule_alerts_today,
             "ai_telegram_delivered_counter": ai_delivered,
             "limit_reached_notified": limit_notified,
+            "ai_wait_telegram_delivered_counter": wait_delivered,
+            "wait_limit_reached_notified": wait_limit_notified,
         },
     }
 

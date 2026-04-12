@@ -28,8 +28,10 @@ _day_session: str = ""
 _last_tg_direction: dict[str, str] = {}  # {symbol: "LONG" / "RESISTANCE" / "WAIT"}
 _last_tg_time: dict[str, float] = {}  # {symbol: timestamp of last Telegram send}
 # Per-user rate limit tracking — resets on new session
-_user_delivered_count: dict[tuple[int, str], int] = {}  # (uid, session) -> count
-_user_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about cap
+_user_delivered_count: dict[tuple[int, str], int] = {}  # (uid, session) -> LONG/SHORT/RESISTANCE/EXIT count
+_user_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about actionable cap
+_user_wait_count: dict[tuple[int, str], int] = {}  # (uid, session) -> WAIT Telegram count
+_user_wait_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about wait cap
 
 # Exit scan cooldown — (trade_id, status) -> last_sent_ts. 30-min cooldown per pair.
 _exit_notified: dict[tuple[int, str], float] = {}
@@ -340,6 +342,8 @@ def day_scan_cycle(sync_session_factory) -> int:
         _last_tg_time.clear()
         _user_delivered_count.clear()
         _user_limit_notified.clear()
+        _user_wait_count.clear()
+        _user_wait_limit_notified.clear()
         _exit_notified.clear()
         _day_session = session
 
@@ -436,8 +440,31 @@ def day_scan_cycle(sync_session_factory) -> int:
                             )
                             for _uid in symbol_users[symbol]:
                                 user = db.get(User, _uid)
-                                if user and user.telegram_enabled and user.telegram_chat_id:
-                                    _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                if not (user and user.telegram_enabled and user.telegram_chat_id):
+                                    continue
+                                # Per-user WAIT rate limit (separate cap from actionable)
+                                try:
+                                    from api.app.tier import get_limits as _gl
+                                    from api.app.dependencies import get_user_tier as _gut
+                                    _wmax = _gl(_gut(user)).get("ai_wait_alerts_per_day")
+                                    if _wmax is not None:
+                                        _wkey = (_uid, session)
+                                        if _user_wait_count.get(_wkey, 0) >= _wmax:
+                                            if _wkey not in _user_wait_limit_notified:
+                                                _send_telegram_to(
+                                                    f"💤 Daily WAIT alert limit reached ({_wmax}/{_wmax}).\n"
+                                                    f"You still get actionable AI entries. "
+                                                    f"Upgrade to Pro for unlimited AI transparency.\n"
+                                                    f"→ https://www.tradingwithai.ai/billing",
+                                                    user.telegram_chat_id,
+                                                )
+                                                _user_wait_limit_notified.add(_wkey)
+                                            continue
+                                except Exception:
+                                    pass
+                                _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                _user_wait_count[(_uid, session)] = \
+                                    _user_wait_count.get((_uid, session), 0) + 1
                         except Exception:
                             pass
 

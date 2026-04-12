@@ -27,7 +27,8 @@ TIER_LIMITS: dict[str, dict] = {
     "free": {
         "watchlist_max": 5,
         "ai_queries_per_day": 3,        # AI Coach + CoPilot combined (real per-user AI cost)
-        "ai_scan_alerts_per_day": 7,    # Telegram delivery — AI call is shared across users
+        "ai_scan_alerts_per_day": 7,    # LONG/SHORT/RESISTANCE Telegram delivery
+        "ai_wait_alerts_per_day": 3,    # WAIT Telegram delivery (separate — taste of AI discipline)
         "telegram_commands_per_day": 3, # /spy, /eth, /btc commands (real per-user AI cost)
         "alert_history_days": 0,        # today only
         "visible_alerts": 10,           # UI shows 10 alerts; rest blurred to drive upgrade
@@ -45,6 +46,7 @@ TIER_LIMITS: dict[str, dict] = {
         "watchlist_max": 10,
         "ai_queries_per_day": 50,
         "ai_scan_alerts_per_day": None, # unlimited
+        "ai_wait_alerts_per_day": None, # unlimited — Pro sees full AI transparency
         "telegram_commands_per_day": 50,
         "alert_history_days": 30,
         "visible_alerts": None,
@@ -62,6 +64,7 @@ TIER_LIMITS: dict[str, dict] = {
         "watchlist_max": 25,
         "ai_queries_per_day": None,     # unlimited
         "ai_scan_alerts_per_day": None,
+        "ai_wait_alerts_per_day": None,
         "telegram_commands_per_day": None,
         "alert_history_days": None,     # full history
         "visible_alerts": None,

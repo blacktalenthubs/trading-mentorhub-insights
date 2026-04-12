@@ -275,6 +275,16 @@ class TestTierLimitIntegrity:
     def test_ai_scan_alerts_pro_unlimited(self):
         assert tier_mod.get_limits("pro")["ai_scan_alerts_per_day"] is None
 
+    def test_ai_wait_alerts_free_is_3(self):
+        """Free users get 3 WAIT alerts/day — taste of AI discipline, not flood."""
+        assert tier_mod.get_limits("free")["ai_wait_alerts_per_day"] == 3
+
+    def test_ai_wait_alerts_pro_unlimited(self):
+        assert tier_mod.get_limits("pro")["ai_wait_alerts_per_day"] is None
+
+    def test_ai_wait_alerts_premium_unlimited(self):
+        assert tier_mod.get_limits("premium")["ai_wait_alerts_per_day"] is None
+
     def test_ai_queries_premium_unlimited(self):
         assert tier_mod.get_limits("premium")["ai_queries_per_day"] is None
 
