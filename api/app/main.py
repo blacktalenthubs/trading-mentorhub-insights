@@ -157,20 +157,34 @@ async def lifespan(app: FastAPI):
         sync_session_factory = sessionmaker(bind=sync_engine)
 
         scheduler = BackgroundScheduler()
-        scheduler.add_job(
-            poll_all_users,
-            "interval",
-            minutes=3,
-            args=[sync_session_factory],
-            id="alert_monitor",
-            replace_existing=True,
-        )
-        # Also run immediately on startup so we don't wait 3 min
-        scheduler.add_job(
-            poll_all_users,
-            args=[sync_session_factory],
-            id="alert_monitor_initial",
-        )
+
+        # Feature flag: RULE_ENGINE_ENABLED (default True). Set to "false"/"0" on Railway
+        # to disable rule-based alerting and run AI-scan-only. No redeploy needed.
+        import os as _os
+        _rule_env = _os.environ.get("RULE_ENGINE_ENABLED", "true").strip().lower()
+        RULE_ENGINE_ENABLED = _rule_env not in ("false", "0", "no", "off")
+
+        if RULE_ENGINE_ENABLED:
+            logger.info("Rule engine ENABLED — rule-based alerts will fire alongside AI scan")
+            scheduler.add_job(
+                poll_all_users,
+                "interval",
+                minutes=3,
+                args=[sync_session_factory],
+                id="alert_monitor",
+                replace_existing=True,
+            )
+            # Also run immediately on startup so we don't wait 3 min
+            scheduler.add_job(
+                poll_all_users,
+                args=[sync_session_factory],
+                id="alert_monitor_initial",
+            )
+        else:
+            logger.warning(
+                "Rule engine DISABLED (RULE_ENGINE_ENABLED=false). "
+                "AI scan is the only source of alerts."
+            )
         # SWING DISABLED — focus on day trade entries first.
 
         # AI Day Trade Scanner (Spec 27) — specialized entry detection

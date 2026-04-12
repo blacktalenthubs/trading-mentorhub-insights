@@ -3,6 +3,7 @@
 **Priority**: High (execute after EOD 2026-04-12)
 **Created**: 2026-04-12
 **Owner**: TBD
+**Status**: Phase 1 complete (feature flag shipped 2026-04-12). Set `RULE_ENGINE_ENABLED=false` on Railway to activate AI-only mode.
 
 ## Why
 
