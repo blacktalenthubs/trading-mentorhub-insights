@@ -431,7 +431,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                         try:
                             from alerting.notifier import _send_telegram_to
                             _tg_msg = (
-                                f"<b>AI SCAN — {symbol} ${result.get('price', 0):.2f}</b>\n"
+                                f"<b>AI SIGNAL — {symbol} ${result.get('price', 0):.2f}</b>\n"
                                 f"{reason}"
                             )
                             for _uid in symbol_users[symbol]:
@@ -474,7 +474,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                         try:
                             from alerting.notifier import _send_telegram_to
                             _tg_msg = (
-                                f"<b>AI SCAN — RESISTANCE {symbol} ${entry:.2f}</b>\n"
+                                f"<b>AI SIGNAL — RESISTANCE {symbol} ${entry:.2f}</b>\n"
                                 f"{reason}\n"
                                 f"Action: tighten stop / take profits / watch for rejection"
                             )
@@ -570,7 +570,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                             _t1_s = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
                             _t2_s = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
                             _tg_msg_s = (
-                                f"<b>AI SCAN — SHORT {_html_s.escape(symbol)} ${entry:.2f}</b>\n"
+                                f"<b>AI SIGNAL — SHORT {_html_s.escape(symbol)} ${entry:.2f}</b>\n"
                                 f"Entry ${entry:.2f} · Stop {_stop_s} · T1 {_t1_s} · T2 {_t2_s}\n"
                                 f"Setup: {_html_s.escape(setup_label_s)}\n"
                                 f"Conviction: {conviction}"
@@ -695,7 +695,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                         _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
                         _t2 = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
                         _tg_msg = (
-                            f"<b>AI SCAN — LONG {_html.escape(symbol)} ${entry:.2f}</b>\n"
+                            f"<b>AI SIGNAL — LONG {_html.escape(symbol)} ${entry:.2f}</b>\n"
                             f"Entry ${entry:.2f} · Stop {_stop} · T1 {_t1} · T2 {_t2}\n"
                             f"Setup: {_html.escape(setup_label)}\n"
                             f"Conviction: {conviction}"
