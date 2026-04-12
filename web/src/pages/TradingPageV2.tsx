@@ -390,7 +390,10 @@ function AICoachTab({
   );
 }
 
-/* ── AI Scan Feed Tab ─────────────────────────────────────────────── */
+/* ── AI WAITs Feed Tab ─────────────────────────────────────────────
+ *  WAIT signals only — informational, shows what AI is ignoring.
+ *  Used to build trust (AI is disciplined, not noisy).
+ */
 
 function AIScanFeedTab({
   alerts,
@@ -402,13 +405,14 @@ function AIScanFeedTab({
   const { tier } = useFeatureGate();
   const isFree = tier === "free";
   const visibleLimit = isFree ? 5 : null;
-  const aiAlerts = (alerts?.filter((a) => a.alert_type?.startsWith("ai_")) ?? [])
+  // WAIT alerts only — LONG/SHORT/RESISTANCE/EXIT live in the Signals tab
+  const aiAlerts = (alerts?.filter((a) => a.alert_type === "ai_scan_wait") ?? [])
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   if (aiAlerts.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-text-faint">No AI scans yet today</p>
+        <p className="text-xs text-text-faint">No AI waits yet today</p>
       </div>
     );
   }
@@ -513,13 +517,18 @@ function SignalFeedTab({
     );
   }
 
-  // Filter out AI scan alerts — those show in the AI Scan tab
-  const ruleAlerts = alerts?.filter((a) => !a.alert_type?.startsWith("ai_")) ?? [];
+  // Show actionable AI alerts only — LONG / SHORT / RESISTANCE / EXIT.
+  // WAIT lives in the AI Waits tab. Rule-based alerts are deprecated (Spec 34).
+  const ruleAlerts = alerts?.filter((a) => {
+    if (!a.alert_type?.startsWith("ai_")) return false;  // no rule-based
+    if (a.alert_type === "ai_scan_wait") return false;   // WAITs go to the other tab
+    return true;
+  }) ?? [];
 
   if (ruleAlerts.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-text-faint">No alerts fired today</p>
+        <p className="text-xs text-text-faint">No AI signals yet today</p>
       </div>
     );
   }
@@ -937,7 +946,10 @@ export default function TradingPageV2() {
       return a.symbol.localeCompare(b.symbol);
     });
 
-  const alertCount = todayAlerts?.length ?? 0;
+  // Count only actionable AI signals for the badge — not rules, not WAITs
+  const alertCount = todayAlerts?.filter((a) =>
+    a.alert_type?.startsWith("ai_") && a.alert_type !== "ai_scan_wait"
+  ).length ?? 0;
   const flowSymbols =
     selected?.symbol ||
     (signals ?? [])
@@ -1346,8 +1358,8 @@ export default function TradingPageV2() {
             {(
               [
                 { key: "ai" as RightTab, label: "AI Coach", icon: Brain, badge: 0 },
-                { key: "signals" as RightTab, label: "Signals", icon: Zap, badge: alertCount },
-                { key: "aiscan" as RightTab, label: "AI Scan", icon: Eye, badge: 0 },
+                { key: "signals" as RightTab, label: "AI Signals", icon: Zap, badge: alertCount },
+                { key: "aiscan" as RightTab, label: "AI Waits", icon: Eye, badge: 0 },
               ]
             ).map(({ key, label, icon: Icon, badge }) => (
               <button
@@ -1426,7 +1438,7 @@ export default function TradingPageV2() {
             [
               { key: "ai" as RightTab, label: "AI", icon: Brain },
               { key: "signals" as RightTab, label: "Signals", icon: Zap },
-              { key: "aiscan" as RightTab, label: "AI Scan", icon: Eye },
+              { key: "aiscan" as RightTab, label: "Waits", icon: Eye },
             ] as const
           ).map(({ key, label, icon: Icon }) => (
             <button
