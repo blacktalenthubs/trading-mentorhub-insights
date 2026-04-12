@@ -1,0 +1,43 @@
+name: Smoke Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly at 3am UTC (catches issues not tied to a push)
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target URL to smoke-test"
+        required: false
+        default: "https://www.tradingwithai.ai"
+
+jobs:
+  smoke:
+    name: Smoke tests against live site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install pytest requests
+
+      - name: Run smoke tests
+        env:
+          SMOKE_BASE_URL: ${{ inputs.target || 'https://www.tradingwithai.ai' }}
+          # CI never creates real users — that would pollute production DB
+          SMOKE_SKIP_SIGNUP: "1"
+        run: |
+          python -m pytest tests/smoke/ -v --tb=short -x
