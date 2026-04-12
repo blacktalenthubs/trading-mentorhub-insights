@@ -60,8 +60,11 @@ export default function TradeReviewPage() {
 
   // Stats for the active date
   const dateAlerts = useMemo(() => alerts?.filter((a) => a.session_date === activeDate) ?? [], [alerts, activeDate]);
-  const aiCount = dateAlerts.filter((a) => a.alert_type?.startsWith("ai_")).length;
-  const ruleCount = dateAlerts.length - aiCount;
+  const aiSignalCount = dateAlerts.filter((a) =>
+    a.alert_type?.startsWith("ai_") && a.alert_type !== "ai_scan_wait"
+  ).length;
+  const aiWaitCount = dateAlerts.filter((a) => a.alert_type === "ai_scan_wait").length;
+  const ruleCount = dateAlerts.filter((a) => !a.alert_type?.startsWith("ai_")).length;
   const tookCount = dateAlerts.filter((a) => a.user_action === "took").length;
   const skippedCount = dateAlerts.filter((a) => a.user_action === "skipped").length;
 
@@ -113,8 +116,9 @@ export default function TradeReviewPage() {
 
         {/* Quick stats */}
         <div className="flex items-center gap-3 ml-auto text-[10px] text-text-muted">
-          <span>{dateAlerts.length} alerts</span>
-          {aiCount > 0 && <span className="text-accent">{aiCount} AI</span>}
+          <span>{dateAlerts.length} total</span>
+          {aiSignalCount > 0 && <span className="text-accent">{aiSignalCount} AI signals</span>}
+          {aiWaitCount > 0 && <span className="text-text-faint">{aiWaitCount} waits</span>}
           {ruleCount > 0 && <span>{ruleCount} rules</span>}
           {tookCount > 0 && <span className="text-bullish-text">{tookCount} took</span>}
           {skippedCount > 0 && <span>{skippedCount} skipped</span>}
@@ -125,9 +129,9 @@ export default function TradeReviewPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Filter className="h-3.5 w-3.5 text-text-faint" />
 
-        {/* Source filter */}
+        {/* Source filter — AI Signals is the primary view (LONG/SHORT/RESISTANCE/EXIT) */}
         <div className="flex rounded-lg border border-border-subtle overflow-hidden">
-          {([["all", "All"], ["ai", "AI Scan"], ["rules", "Rules"]] as const).map(([val, label]) => (
+          {([["all", "All"], ["ai", "AI Signals"], ["rules", "Rules"]] as const).map(([val, label]) => (
             <button
               key={val}
               onClick={() => setSourceFilter(val)}
@@ -170,8 +174,14 @@ export default function TradeReviewPage() {
       {isLoading ? (
         <div className="text-center py-12 text-text-muted text-sm">Loading alerts...</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-text-muted text-sm">
-          No alerts match your filters for this date.
+        <div className="text-center py-12 text-text-muted text-sm space-y-2">
+          <p>No replayable alerts match your filters.</p>
+          {aiWaitCount > 0 && aiSignalCount === 0 && (
+            <p className="text-[11px] text-text-faint">
+              AI ran {aiWaitCount} scans today but found no actionable setups (all WAITs).
+              Waits aren't replayed — AI was disciplined, not broken.
+            </p>
+          )}
         </div>
       ) : (
         <div className="rounded-xl border border-border-subtle bg-surface-1 overflow-hidden divide-y divide-border-subtle/30">

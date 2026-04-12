@@ -455,13 +455,14 @@ def day_scan_cycle(sync_session_factory) -> int:
                     _day_fired[session] = fired
 
                     _msg = f"RESISTANCE {symbol} — {reason}" if reason else f"RESISTANCE {symbol} — approaching overhead level"
-                    _first_uid = symbol_users[symbol][0]
-                    db.add(Alert(
-                        user_id=_first_uid, symbol=symbol,
-                        alert_type="ai_resistance", direction="NOTICE",
-                        price=result.get("price", 0), entry=entry,
-                        message=_msg, score=0, session_date=session,
-                    ))
+                    # Record per-user so each user sees it in their feed
+                    for _uid_r in symbol_users[symbol]:
+                        db.add(Alert(
+                            user_id=_uid_r, symbol=symbol,
+                            alert_type="ai_resistance", direction="NOTICE",
+                            price=result.get("price", 0), entry=entry,
+                            message=_msg, score=0, session_date=session,
+                        ))
                     db.commit()
 
                     # Send Telegram: direction changed + 30 min cooldown
@@ -532,25 +533,28 @@ def day_scan_cycle(sync_session_factory) -> int:
                     setup_label_s = setup_type or "AI short entry"
                     message_s = f"{setup_label_s}: {reason}" if reason else setup_label_s
 
-                    _first_uid_s = symbol_users[symbol][0]
-                    alert_s = Alert(
-                        user_id=_first_uid_s, symbol=symbol,
-                        alert_type="ai_day_short",
-                        direction="SHORT",
-                        price=result.get("price", entry),
-                        entry=entry,
-                        stop=result.get("stop"),
-                        target_1=result.get("t1"),
-                        target_2=result.get("t2"),
-                        confidence=conviction.lower(),
-                        message=message_s,
-                        score=score_s,
-                        session_date=session,
-                    )
-                    db.add(alert_s)
-                    db.flush()
-                    total_alerts += 1
-                    _alert_id_s = alert_s.id
+                    # Record Alert for each user watching — so each user sees it in
+                    # their feed and /alerts/history returns it (multi-user correctness)
+                    per_user_alert_ids_s: dict[int, int] = {}
+                    for _uid_s in symbol_users[symbol]:
+                        alert_s = Alert(
+                            user_id=_uid_s, symbol=symbol,
+                            alert_type="ai_day_short",
+                            direction="SHORT",
+                            price=result.get("price", entry),
+                            entry=entry,
+                            stop=result.get("stop"),
+                            target_1=result.get("t1"),
+                            target_2=result.get("t2"),
+                            confidence=conviction.lower(),
+                            message=message_s,
+                            score=score_s,
+                            session_date=session,
+                        )
+                        db.add(alert_s)
+                        db.flush()
+                        per_user_alert_ids_s[_uid_s] = alert_s.id
+                        total_alerts += 1
                     db.commit()
 
                     # Telegram — direction-change gate (SHORT distinct from LONG/RESISTANCE/WAIT)
@@ -571,13 +575,6 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 f"Setup: {_html_s.escape(setup_label_s)}\n"
                                 f"Conviction: {conviction}"
                             )
-                            _buttons_s = {
-                                "inline_keyboard": [[
-                                    {"text": "✅ Took It", "callback_data": f"ack:{_alert_id_s}"},
-                                    {"text": "❌ Skip", "callback_data": f"skip:{_alert_id_s}"},
-                                    {"text": "🔴 Exit", "callback_data": f"exit:{_alert_id_s}"},
-                                ]]
-                            }
 
                             for uid in symbol_users[symbol]:
                                 # Per-user position check: skip SHORT if user already holds SHORT
@@ -589,6 +586,15 @@ def day_scan_cycle(sync_session_factory) -> int:
                                     continue
                                 user = db.get(User, uid)
                                 if user and user.telegram_enabled and user.telegram_chat_id:
+                                    # Per-user alert_id for buttons
+                                    _user_alert_id_s = per_user_alert_ids_s.get(uid)
+                                    _buttons_s = {
+                                        "inline_keyboard": [[
+                                            {"text": "✅ Took It", "callback_data": f"ack:{_user_alert_id_s}"},
+                                            {"text": "❌ Skip", "callback_data": f"skip:{_user_alert_id_s}"},
+                                            {"text": "🔴 Exit", "callback_data": f"exit:{_user_alert_id_s}"},
+                                        ]]
+                                    }
                                     # Rate limit check (same counter as LONG)
                                     _send_s = True
                                     try:
@@ -644,26 +650,18 @@ def day_scan_cycle(sync_session_factory) -> int:
                 _fired_set.add(_level_dedup_key)
                 _day_fired[session] = _fired_set
 
-                # Also keep message-based dedup as backup safety
-                _existing = db.execute(
-                    select(Alert.id).where(
-                        Alert.symbol == symbol,
-                        Alert.alert_type == "ai_day_long",
-                        Alert.session_date == session,
-                        Alert.message.contains(setup_type or "AI"),
-                    ).limit(1)
-                ).scalar_one_or_none()
-                if _existing:
-                    logger.debug("AI day scan %s: dedup skip — %s already fired", symbol, setup_type)
-                    continue
+                # Dedup via _day_fired (in-memory, already set above). DB message-based
+                # dedup removed — it blocked per-user recording and wasn't needed.
 
                 score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
                 setup_label = setup_type or "AI entry"
                 message = f"{setup_label}: {reason}" if reason else setup_label
 
-                # Record once (first user) — not per-user to avoid 7x duplication
-                _first_uid = symbol_users[symbol][0]
-                for uid in [_first_uid]:
+                # Record an Alert for EACH user watching this symbol — so each user
+                # sees it in their own feed and /alerts/history returns it. Dedup is
+                # handled by _day_fired (one AI call → multiple user records).
+                per_user_alert_ids: dict[int, int] = {}  # uid -> alert_id
+                for uid in symbol_users[symbol]:
                     alert = Alert(
                         user_id=uid, symbol=symbol,
                         alert_type="ai_day_long",
@@ -679,10 +677,9 @@ def day_scan_cycle(sync_session_factory) -> int:
                         session_date=session,
                     )
                     db.add(alert)
-                    db.flush()  # get alert.id for Telegram buttons
+                    db.flush()
+                    per_user_alert_ids[uid] = alert.id
                     total_alerts += 1
-                _alert_id = alert.id
-
                 db.commit()
 
                 # Telegram — only send if direction changed from last notification
@@ -703,13 +700,6 @@ def day_scan_cycle(sync_session_factory) -> int:
                             f"Setup: {_html.escape(setup_label)}\n"
                             f"Conviction: {conviction}"
                         )
-                        _buttons = {
-                            "inline_keyboard": [[
-                                {"text": "✅ Took It", "callback_data": f"ack:{_alert_id}"},
-                                {"text": "❌ Skip", "callback_data": f"skip:{_alert_id}"},
-                                {"text": "🔴 Exit", "callback_data": f"exit:{_alert_id}"},
-                            ]]
-                        }
 
                         for uid in symbol_users[symbol]:
                             # Per-user position check: skip LONG if user already holds this symbol
@@ -721,6 +711,15 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 continue
                             user = db.get(User, uid)
                             if user and user.telegram_enabled and user.telegram_chat_id:
+                                # Each user's Telegram uses THEIR own alert_id for ACK/Skip/Exit buttons
+                                _user_alert_id = per_user_alert_ids.get(uid)
+                                _buttons = {
+                                    "inline_keyboard": [[
+                                        {"text": "✅ Took It", "callback_data": f"ack:{_user_alert_id}"},
+                                        {"text": "❌ Skip", "callback_data": f"skip:{_user_alert_id}"},
+                                        {"text": "🔴 Exit", "callback_data": f"exit:{_user_alert_id}"},
+                                    ]]
+                                }
                                 # Rate limit: check ai_scan_alerts_per_day (per-user in-memory counter)
                                 _send = True
                                 _tier_max = None
