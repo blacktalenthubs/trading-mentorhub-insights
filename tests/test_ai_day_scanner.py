@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 from analytics.ai_day_scanner import (
     parse_day_trade_response, build_day_trade_prompt,
     build_exit_prompt, parse_exit_response,
-    _user_wants_alert, _truncate_for_free,
+    _user_wants_alert, _truncate_for_free, _wait_fingerprint,
 )
 
 
@@ -686,6 +686,35 @@ class TestTruncateForFree:
         # Free always returns truncated=True so upgrade CTA appears; text is safe
         assert truncated is True
         assert "Low volume chop" in out
+
+
+class TestWaitReasonFingerprint:
+    """Reason-change detection replaces time-based cooldown for WAITs."""
+
+    def test_identical_reasons_same_fingerprint(self):
+        r = "Price pinned at VWAP with flat structure and weak volume."
+        assert _wait_fingerprint(r) == _wait_fingerprint(r)
+
+    def test_same_story_different_numbers_same_fingerprint(self):
+        """Price $2207 vs $2209 shouldn't refire — same structural story."""
+        a = "Price at $2207 near VWAP, volume 0.5x avg, flat structure"
+        b = "Price at $2209 near VWAP, volume 0.6x avg, flat structure"
+        assert _wait_fingerprint(a) == _wait_fingerprint(b)
+
+    def test_different_stories_different_fingerprints(self):
+        """Meaningfully different AI reasoning triggers a refire."""
+        a = "Price near VWAP, volume weak, structure flat"
+        b = "Price tested session high, rejected with volume spike"
+        assert _wait_fingerprint(a) != _wait_fingerprint(b)
+
+    def test_empty_reason_safe(self):
+        assert _wait_fingerprint("") == ""
+        assert _wait_fingerprint(None) == ""  # type: ignore
+
+    def test_fingerprint_strips_punctuation(self):
+        a = "Price near VWAP; low volume!"
+        b = "Price near VWAP, low volume."
+        assert _wait_fingerprint(a) == _wait_fingerprint(b)
 
 
 class TestExitCooldown:

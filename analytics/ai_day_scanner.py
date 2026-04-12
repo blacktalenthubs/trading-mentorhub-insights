@@ -27,6 +27,7 @@ _day_session: str = ""
 # Track last direction sent to Telegram per symbol — only notify on change
 _last_tg_direction: dict[str, str] = {}  # {symbol: "LONG" / "RESISTANCE" / "WAIT"}
 _last_tg_time: dict[str, float] = {}  # {symbol: timestamp of last Telegram send}
+_last_wait_reason_fp: dict[str, str] = {}  # {symbol: fingerprint of last WAIT reason}
 # Per-user rate limit tracking — resets on new session
 _user_delivered_count: dict[tuple[int, str], int] = {}  # (uid, session) -> LONG/SHORT/RESISTANCE/EXIT count
 _user_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about actionable cap
@@ -101,6 +102,23 @@ def _db_increment_count(db, user_id: int, feature: str, usage_date: str) -> int:
 
 
 _CONVICTION_RANK = {"low": 1, "medium": 2, "high": 3}
+
+
+def _wait_fingerprint(reason: str) -> str:
+    """Fingerprint a WAIT reason so we only dedup exact/near-identical repeats.
+
+    Strips digits + punctuation, lowercases, keeps first 80 chars.
+    "Price at $2207 near VWAP, volume 0.5x" and "Price at $2209 near VWAP,
+    volume 0.6x" collapse to the same fingerprint (same structural story).
+    "Price near VWAP, volume 0.5x" vs "Price tested session high, rejected"
+    → different fingerprints → both fire.
+    """
+    import re as _re
+    if not reason:
+        return ""
+    cleaned = _re.sub(r"[\d.$,;:!?%()\-—–]+", " ", reason.lower())
+    cleaned = _re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:80]
 
 
 def _truncate_for_free(reason: str, tier: str, max_len: int = 60) -> tuple[str, bool]:
@@ -488,6 +506,7 @@ def day_scan_cycle(sync_session_factory) -> int:
         _day_fired.clear()
         _last_tg_direction.clear()
         _last_tg_time.clear()
+        _last_wait_reason_fp.clear()
         _user_delivered_count.clear()
         _user_limit_notified.clear()
         _user_wait_count.clear()
@@ -571,21 +590,26 @@ def day_scan_cycle(sync_session_factory) -> int:
                     db.commit()
 
                     # Send WAIT to Telegram: direction changed + 30 min cooldown
+                    # Gate: fire WAIT whenever the AI has something new to say.
+                    # Dedup only EXACT repeats via reason fingerprint — time-based
+                    # cooldown removed since user explicitly opted in to updates.
                     _level_keywords = ["PDH", "PDL", "VWAP", "session low", "session high",
-                                       "50MA", "100MA", "200MA", "support", "resistance", "weekly"]
+                                       "20MA", "50MA", "100MA", "200MA", "EMA", "Daily",
+                                       "support", "resistance", "weekly", "higher low",
+                                       "lower high", "breakdown", "breakout"]
                     _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
-                    _prev_dir = _last_tg_direction.get(symbol)
-                    _last_sent = _last_tg_time.get(symbol, 0)
-                    _cooldown_age = time.time() - _last_sent
-                    _cooldown_ok = _cooldown_age > 1800  # 30 min
-                    _gate_passes = (_near_level and reason and (_prev_dir != "WAIT" or _cooldown_ok))
+                    _prev_fp = _last_wait_reason_fp.get(symbol, "")
+                    _cur_fp = _wait_fingerprint(reason or "")
+                    _reason_changed = (_cur_fp != _prev_fp)
+                    _gate_passes = bool(_near_level and reason and _reason_changed)
                     logger.info(
-                        "WAIT gate %s: near_level=%s reason_len=%d prev_dir=%s cooldown_age=%.0fs fires=%s",
-                        symbol, _near_level, len(reason or ""), _prev_dir, _cooldown_age, _gate_passes,
+                        "WAIT gate %s: near_level=%s reason_changed=%s fires=%s",
+                        symbol, _near_level, _reason_changed, _gate_passes,
                     )
                     if _gate_passes:
                         _last_tg_direction[symbol] = "WAIT"
                         _last_tg_time[symbol] = time.time()
+                        _last_wait_reason_fp[symbol] = _cur_fp
                         try:
                             from alerting.notifier import _send_telegram_to
                             _price_fmt = f"${result.get('price', 0):.2f}"
