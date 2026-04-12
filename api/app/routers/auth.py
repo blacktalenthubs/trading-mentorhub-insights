@@ -104,6 +104,10 @@ async def register(
         email=body.email.lower(),
         password_hash=_hash_password(body.password),
         display_name=body.display_name or body.email.split("@")[0],
+        attribution_source=(body.utm_source or "")[:100] or None,
+        attribution_medium=(body.utm_medium or "")[:100] or None,
+        attribution_campaign=(body.utm_campaign or "")[:200] or None,
+        attribution_referrer=(body.referrer or "")[:500] or None,
     )
     db.add(user)
     await db.flush()

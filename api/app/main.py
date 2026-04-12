@@ -103,6 +103,11 @@ async def lifespan(app: FastAPI):
                 content TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW()
             )""",
+            # Attribution columns — track signup source
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS attribution_source VARCHAR(100)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS attribution_medium VARCHAR(100)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS attribution_campaign VARCHAR(200)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS attribution_referrer VARCHAR(500)",
         ]:
             try:
                 await conn.execute(text(col_def))

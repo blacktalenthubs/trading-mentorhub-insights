@@ -11,6 +11,11 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     display_name: Optional[str] = None
+    # Attribution — captured from UTM / referrer on landing page
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    referrer: Optional[str] = None
 
 
 class LoginRequest(BaseModel):

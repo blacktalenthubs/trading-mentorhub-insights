@@ -30,10 +30,16 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
+      const { getAttribution } = await import("../lib/attribution");
+      const attr = getAttribution();
       const data = await api.post<AuthTokens>("/auth/register", {
         email,
         password,
         display_name: displayName || undefined,
+        utm_source: attr?.utm_source,
+        utm_medium: attr?.utm_medium,
+        utm_campaign: attr?.utm_campaign,
+        referrer: attr?.referrer,
       });
       setAuth(data.user, data.access_token);
       navigate("/onboarding", { replace: true });

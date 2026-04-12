@@ -31,6 +31,12 @@ class User(Base):
     referral_code: Mapped[Optional[str]] = mapped_column(String(20), unique=True, nullable=True)
     auto_analysis_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
 
+    # Attribution — captured at signup from UTM params
+    attribution_source: Mapped[Optional[str]] = mapped_column(String(100))    # twitter, tiktok, friend, ...
+    attribution_medium: Mapped[Optional[str]] = mapped_column(String(100))    # social, dm, cpc, organic, ...
+    attribution_campaign: Mapped[Optional[str]] = mapped_column(String(200))  # launch, eth_replay, ...
+    attribution_referrer: Mapped[Optional[str]] = mapped_column(String(500))  # document.referrer
+
     subscription: Mapped[Optional[Subscription]] = relationship(back_populates="user")
 
 

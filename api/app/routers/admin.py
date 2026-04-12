@@ -156,6 +156,53 @@ async def platform_stats(
     }
 
 
+@router.get("/attribution")
+async def signup_attribution(
+    days: int = 30,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Signups grouped by attribution source/medium/campaign for the last N days."""
+    from sqlalchemy import text
+
+    # By source
+    by_source = await db.execute(text(
+        f"SELECT COALESCE(attribution_source, 'direct') AS source, COUNT(*) AS count "
+        f"FROM users WHERE created_at >= NOW() - INTERVAL '{int(days)} days' "
+        f"GROUP BY source ORDER BY count DESC"
+    ))
+    sources = [{"source": r[0], "count": r[1]} for r in by_source.all()]
+
+    # By medium
+    by_medium = await db.execute(text(
+        f"SELECT COALESCE(attribution_medium, 'direct') AS medium, COUNT(*) AS count "
+        f"FROM users WHERE created_at >= NOW() - INTERVAL '{int(days)} days' "
+        f"GROUP BY medium ORDER BY count DESC"
+    ))
+    mediums = [{"medium": r[0], "count": r[1]} for r in by_medium.all()]
+
+    # By campaign (only non-null)
+    by_campaign = await db.execute(text(
+        f"SELECT attribution_campaign AS campaign, COUNT(*) AS count "
+        f"FROM users WHERE created_at >= NOW() - INTERVAL '{int(days)} days' "
+        f"AND attribution_campaign IS NOT NULL "
+        f"GROUP BY campaign ORDER BY count DESC LIMIT 20"
+    ))
+    campaigns = [{"campaign": r[0], "count": r[1]} for r in by_campaign.all()]
+
+    total = (await db.execute(text(
+        f"SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '{int(days)} days'"
+    ))).scalar() or 0
+
+    return {
+        "days": days,
+        "total_signups": total,
+        "by_source": sources,
+        "by_medium": mediums,
+        "by_campaign": campaigns,
+    }
+
+
 @router.put("/users/{user_id}/tier")
 async def update_user_tier(
     user_id: int,

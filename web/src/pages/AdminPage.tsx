@@ -37,6 +37,14 @@ interface PlatformStats {
   monthly_revenue_estimate: number;
 }
 
+interface AttributionStats {
+  days: number;
+  total_signups: number;
+  by_source: { source: string; count: number }[];
+  by_medium: { medium: string; count: number }[];
+  by_campaign: { campaign: string; count: number }[];
+}
+
 function StatCard({ label, value, icon, color }: {
   label: string; value: string | number; icon: React.ReactNode; color?: string;
 }) {
@@ -73,6 +81,7 @@ function TierBadge({ tier, trialDays, trialExpired }: { tier: string; trialDays?
 
 export default function AdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
+  const [attribution, setAttribution] = useState<AttributionStats | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -85,10 +94,12 @@ export default function AdminPage() {
     Promise.all([
       api.get<PlatformStats>("/admin/stats"),
       api.get<{ total: number; users: UserInfo[] }>("/admin/users"),
+      api.get<AttributionStats>("/admin/attribution?days=30"),
     ])
-      .then(([s, u]) => {
+      .then(([s, u, a]) => {
         setStats(s);
         setUsers(u.users);
+        setAttribution(a);
         setLoading(false);
       })
       .catch((err) => {
@@ -196,6 +207,63 @@ export default function AdminPage() {
             />
           </div>
         </>)}
+
+        {/* Attribution — where signups came from */}
+        {attribution && (
+          <section className="mb-8">
+            <h2 className="text-sm font-bold text-text-primary mb-3 flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-accent" />
+              Signup Attribution — last {attribution.days} days ({attribution.total_signups} signups)
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-3">By source</h3>
+                {attribution.by_source.length === 0 ? (
+                  <p className="text-xs text-text-faint">No signups yet</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {attribution.by_source.map((row) => (
+                      <li key={row.source} className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary">{row.source}</span>
+                        <span className="font-mono font-bold text-text-primary">{row.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-3">By medium</h3>
+                {attribution.by_medium.length === 0 ? (
+                  <p className="text-xs text-text-faint">No signups yet</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {attribution.by_medium.map((row) => (
+                      <li key={row.medium} className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary">{row.medium}</span>
+                        <span className="font-mono font-bold text-text-primary">{row.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-3">Top campaigns</h3>
+                {attribution.by_campaign.length === 0 ? (
+                  <p className="text-xs text-text-faint">No campaign-tagged signups yet</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {attribution.by_campaign.slice(0, 8).map((row) => (
+                      <li key={row.campaign} className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary truncate mr-2">{row.campaign}</span>
+                        <span className="font-mono font-bold text-text-primary shrink-0">{row.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* User search */}
         <div className="mb-4">
