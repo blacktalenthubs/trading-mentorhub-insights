@@ -316,10 +316,25 @@ async def usage_status(
     )
     usage_rows = {row[0]: row[1] for row in result.fetchall()}
 
+    # AI scan delivered count (in-memory counter from scanner worker)
+    try:
+        from analytics.ai_day_scanner import get_user_ai_scan_count
+        ai_scan_count = get_user_ai_scan_count(user.id, today)
+    except Exception:
+        ai_scan_count = 0
+
+    ai_scan_max = limits.get("ai_scan_alerts_per_day")
+    ai_scan_limit_reached = bool(
+        ai_scan_max is not None and ai_scan_count >= ai_scan_max
+    )
+
     return {
         "tier": tier,
         "trial_active": is_trial_active(user),
         "trial_days_left": trial_days_remaining(user),
         "limits": limits,
         "usage_today": usage_rows,
+        "ai_scan_alerts_today": ai_scan_count,
+        "ai_scan_alerts_max": ai_scan_max,
+        "ai_scan_limit_reached": ai_scan_limit_reached,
     }

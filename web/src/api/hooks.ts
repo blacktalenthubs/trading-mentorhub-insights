@@ -254,6 +254,25 @@ export function useAlertsToday() {
   });
 }
 
+export interface UsageStatus {
+  tier: string;
+  trial_active: boolean;
+  trial_days_left: number;
+  limits: Record<string, unknown>;
+  usage_today: Record<string, number>;
+  ai_scan_alerts_today: number;
+  ai_scan_alerts_max: number | null;
+  ai_scan_limit_reached: boolean;
+}
+
+export function useUsageStatus() {
+  return useQuery({
+    queryKey: ["usage-status"],
+    queryFn: () => api.get<UsageStatus>("/auth/usage"),
+    refetchInterval: 60_000, // 1 min
+  });
+}
+
 export function useAlertsHistory(days = 7) {
   return useQuery({
     queryKey: ["alerts-history", days],

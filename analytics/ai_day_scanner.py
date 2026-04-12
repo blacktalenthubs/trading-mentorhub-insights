@@ -27,12 +27,20 @@ _day_session: str = ""
 # Track last direction sent to Telegram per symbol — only notify on change
 _last_tg_direction: dict[str, str] = {}  # {symbol: "LONG" / "RESISTANCE" / "WAIT"}
 _last_tg_time: dict[str, float] = {}  # {symbol: timestamp of last Telegram send}
+# Per-user rate limit tracking — resets on new session
+_user_delivered_count: dict[tuple[int, str], int] = {}  # (uid, session) -> count
+_user_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about cap
 
 
 def _resolve_api_key() -> str:
     if ANTHROPIC_API_KEY:
         return ANTHROPIC_API_KEY
     return ""
+
+
+def get_user_ai_scan_count(user_id: int, session_date: str) -> int:
+    """Return how many AI scan alerts the user has received today (in-memory counter)."""
+    return _user_delivered_count.get((user_id, session_date), 0)
 
 
 def _level_bucket(price: float) -> float:
@@ -288,6 +296,8 @@ def day_scan_cycle(sync_session_factory) -> int:
         _day_fired.clear()
         _last_tg_direction.clear()
         _last_tg_time.clear()
+        _user_delivered_count.clear()
+        _user_limit_notified.clear()
         _day_session = session
 
     api_key = _resolve_api_key()
@@ -423,8 +433,31 @@ def day_scan_cycle(sync_session_factory) -> int:
                             )
                             for uid in symbol_users[symbol]:
                                 user = db.get(User, uid)
-                                if user and user.telegram_enabled and user.telegram_chat_id:
-                                    _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                if not (user and user.telegram_enabled and user.telegram_chat_id):
+                                    continue
+                                # Rate limit (per-user in-memory counter)
+                                try:
+                                    from api.app.tier import get_limits as _gl
+                                    from api.app.dependencies import get_user_tier as _gut
+                                    _tier_max_r = _gl(_gut(user)).get("ai_scan_alerts_per_day")
+                                    if _tier_max_r is not None:
+                                        _uid_key_r = (uid, session)
+                                        if _user_delivered_count.get(_uid_key_r, 0) >= _tier_max_r:
+                                            if _uid_key_r not in _user_limit_notified:
+                                                _send_telegram_to(
+                                                    f"📊 Daily AI scan limit reached ({_tier_max_r}/{_tier_max_r}).\n"
+                                                    f"You won't receive more AI scan alerts today.\n"
+                                                    f"Upgrade to Pro for unlimited alerts.\n"
+                                                    f"→ https://www.tradesignalwithai.com/billing",
+                                                    user.telegram_chat_id,
+                                                )
+                                                _user_limit_notified.add(_uid_key_r)
+                                            continue
+                                except Exception:
+                                    pass
+                                _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                _user_delivered_count[(uid, session)] = \
+                                    _user_delivered_count.get((uid, session), 0) + 1
                         except Exception:
                             logger.exception("AI day scan: Telegram failed for %s", symbol)
 
@@ -516,34 +549,36 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 continue
                             user = db.get(User, uid)
                             if user and user.telegram_enabled and user.telegram_chat_id:
-                                # Rate limit: check ai_scan_alerts_per_day
+                                # Rate limit: check ai_scan_alerts_per_day (per-user in-memory counter)
                                 _send = True
+                                _tier_max = None
                                 try:
                                     from api.app.tier import get_limits as _gl
                                     from api.app.dependencies import get_user_tier as _gut
                                     _tier = _gut(user)
-                                    _max = _gl(_tier).get("ai_scan_alerts_per_day")
-                                    if _max is not None:
-                                        _today = session
-                                        _cnt = db.execute(
-                                            select(func.count()).where(
-                                                Alert.user_id == uid,
-                                                Alert.alert_type.in_(["ai_day_long", "ai_resistance"]),
-                                                Alert.session_date == _today,
-                                            )
-                                        ).scalar() or 0
-                                        if _cnt > _max:
-                                            _send_telegram_to(
-                                                f"📊 Daily AI scan limit reached ({_max}/{_max}).\n"
-                                                f"Upgrade to Pro for unlimited AI alerts.\n"
-                                                f"→ https://www.tradesignalwithai.com/billing",
-                                                user.telegram_chat_id,
-                                            )
+                                    _tier_max = _gl(_tier).get("ai_scan_alerts_per_day")
+                                    if _tier_max is not None:
+                                        _uid_key = (uid, session)
+                                        _delivered = _user_delivered_count.get(_uid_key, 0)
+                                        if _delivered >= _tier_max:
+                                            # Only notify about the cap ONCE per day
+                                            if _uid_key not in _user_limit_notified:
+                                                _send_telegram_to(
+                                                    f"📊 Daily AI scan limit reached ({_tier_max}/{_tier_max}).\n"
+                                                    f"You won't receive more AI scan alerts today.\n"
+                                                    f"Upgrade to Pro for unlimited alerts.\n"
+                                                    f"→ https://www.tradesignalwithai.com/billing",
+                                                    user.telegram_chat_id,
+                                                )
+                                                _user_limit_notified.add(_uid_key)
                                             _send = False
                                 except Exception:
                                     pass  # skip limit on error
                                 if _send:
                                     _send_telegram_to(_tg_msg, user.telegram_chat_id, reply_markup=_buttons)
+                                    # Increment per-user counter
+                                    _user_delivered_count[(uid, session)] = \
+                                        _user_delivered_count.get((uid, session), 0) + 1
                                     logger.info("AI day scan %s: LONG at $%.2f → Telegram user %d", symbol, entry, uid)
                     except Exception:
                         logger.exception("AI day scan: Telegram failed for %s", symbol)

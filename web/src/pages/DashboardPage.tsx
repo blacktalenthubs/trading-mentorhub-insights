@@ -10,7 +10,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   useAlertsToday, useAlertsHistory, useSessionSummary, useAckAlert,
-  useOpenTrades, useCloseTrade, useIntraday, useMarketStatus,
+  useOpenTrades, useCloseTrade, useIntraday, useMarketStatus, useUsageStatus,
 } from "../api/hooks";
 import type { Alert } from "../types";
 import type { RealTrade } from "../api/hooks";
@@ -312,6 +312,7 @@ export default function DashboardPage() {
   const { data: summary } = useSessionSummary();
   const { data: todayAlerts } = useAlertsToday();
   const { data: openTrades } = useOpenTrades();
+  const { data: usage } = useUsageStatus();
   const [replayAlertId, setReplayAlertId] = useState<number | null>(null);
   const { visibleAlerts } = useFeatureGate();
 
@@ -354,6 +355,29 @@ export default function DashboardPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-[1600px] mx-auto w-full flex flex-col gap-7">
+
+          {/* ── AI Scan Limit Banner (free tier only) ── */}
+          {usage?.ai_scan_limit_reached && (
+            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-5 py-3 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Lock className="h-4 w-4 text-yellow-400 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-yellow-400">
+                    Daily AI scan limit reached ({usage.ai_scan_alerts_today}/{usage.ai_scan_alerts_max})
+                  </p>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    You won't receive more AI scan alerts today. Upgrade to Pro for unlimited alerts.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/billing"
+                className="bg-yellow-500 hover:bg-yellow-600 text-surface-0 text-xs font-bold px-4 py-2 rounded-lg transition-colors shrink-0"
+              >
+                Upgrade to Pro
+              </Link>
+            </div>
+          )}
 
           {/* ── SECTION 1: Priority Signals (Hero) ── */}
           {actionableAlerts.length > 0 && (
