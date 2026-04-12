@@ -576,8 +576,14 @@ def day_scan_cycle(sync_session_factory) -> int:
                     _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
                     _prev_dir = _last_tg_direction.get(symbol)
                     _last_sent = _last_tg_time.get(symbol, 0)
-                    _cooldown_ok = (time.time() - _last_sent) > 1800  # 30 min
-                    if _near_level and reason and (_prev_dir != "WAIT" or _cooldown_ok):
+                    _cooldown_age = time.time() - _last_sent
+                    _cooldown_ok = _cooldown_age > 1800  # 30 min
+                    _gate_passes = (_near_level and reason and (_prev_dir != "WAIT" or _cooldown_ok))
+                    logger.info(
+                        "WAIT gate %s: near_level=%s reason_len=%d prev_dir=%s cooldown_age=%.0fs fires=%s",
+                        symbol, _near_level, len(reason or ""), _prev_dir, _cooldown_age, _gate_passes,
+                    )
+                    if _gate_passes:
                         _last_tg_direction[symbol] = "WAIT"
                         _last_tg_time[symbol] = time.time()
                         try:
@@ -586,16 +592,28 @@ def day_scan_cycle(sync_session_factory) -> int:
                             for _uid in symbol_users[symbol]:
                                 # Skip WAIT for users already in a position on this symbol
                                 if user_open_longs.get((_uid, symbol)) or user_open_shorts.get((_uid, symbol)):
-                                    logger.debug(
-                                        "AI day scan %s: user %d holds position, skip WAIT",
-                                        symbol, _uid,
+                                    logger.info(
+                                        "WAIT skip uid=%d sym=%s reason=holds_position",
+                                        _uid, symbol,
                                     )
                                     continue
                                 user = db.get(User, _uid)
-                                if not (user and user.telegram_enabled and user.telegram_chat_id):
+                                if not user:
+                                    logger.info("WAIT skip uid=%d sym=%s reason=user_not_found", _uid, symbol)
+                                    continue
+                                if not user.telegram_enabled:
+                                    logger.info("WAIT skip uid=%d sym=%s reason=telegram_disabled", _uid, symbol)
+                                    continue
+                                if not user.telegram_chat_id:
+                                    logger.info("WAIT skip uid=%d sym=%s reason=no_chat_id", _uid, symbol)
                                     continue
                                 # Spec 36 — user preference filter (before rate limit)
                                 if not _user_wants_alert(user, "WAIT"):
+                                    logger.info(
+                                        "WAIT skip uid=%d sym=%s reason=user_pref wait_enabled=%s",
+                                        _uid, symbol,
+                                        getattr(user, "wait_alerts_enabled", "?"),
+                                    )
                                     continue
 
                                 # Resolve tier once for both gating and truncation
