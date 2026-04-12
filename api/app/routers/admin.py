@@ -203,6 +203,81 @@ async def signup_attribution(
     }
 
 
+@router.post("/backfill-ai-alerts")
+async def backfill_ai_alerts(
+    days: int = 7,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """One-time backfill: duplicate historical AI alerts for each user watching
+    the symbol, so they show up in each user's Trade Review + replay.
+
+    Problem context: before the per-user fix, AI alerts were recorded only for
+    _first_uid. Now we create one row per watcher. This endpoint backfills the
+    historical gap. Idempotent — skips if a row for (user_id, alert_type,
+    symbol, created_at) already exists.
+    """
+    from sqlalchemy import text
+
+    inserted_total = 0
+    # For each AI alert in the last N days, find all users watching that symbol
+    # and insert a duplicate row (preserving all fields except user_id + id).
+    result = await db.execute(text(f"""
+        WITH source AS (
+            SELECT a.id, a.symbol, a.alert_type, a.direction, a.price, a.entry,
+                   a.stop, a.target_1, a.target_2, a.confidence, a.message,
+                   a.score, a.session_date, a.created_at, a.user_id AS orig_uid
+            FROM alerts a
+            WHERE a.created_at >= NOW() - INTERVAL '{int(days)} days'
+              AND a.alert_type LIKE 'ai_%'
+        )
+        SELECT s.*, w.user_id AS watcher_uid
+        FROM source s
+        JOIN watchlist_items w ON w.symbol = s.symbol
+        WHERE w.user_id != s.orig_uid
+          AND NOT EXISTS (
+              SELECT 1 FROM alerts a2
+              WHERE a2.user_id = w.user_id
+                AND a2.symbol = s.symbol
+                AND a2.alert_type = s.alert_type
+                AND a2.created_at = s.created_at
+          )
+    """))
+    rows = result.all()
+
+    for r in rows:
+        await db.execute(text("""
+            INSERT INTO alerts (
+                user_id, symbol, alert_type, direction, price, entry,
+                stop, target_1, target_2, confidence, message, score,
+                session_date, created_at
+            ) VALUES (
+                :uid, :sym, :atype, :dir, :price, :entry,
+                :stop, :t1, :t2, :conf, :msg, :score,
+                :sd, :ca
+            )
+        """), {
+            "uid": r.watcher_uid,
+            "sym": r.symbol,
+            "atype": r.alert_type,
+            "dir": r.direction,
+            "price": r.price,
+            "entry": r.entry,
+            "stop": r.stop,
+            "t1": r.target_1,
+            "t2": r.target_2,
+            "conf": r.confidence,
+            "msg": r.message,
+            "score": r.score,
+            "sd": r.session_date,
+            "ca": r.created_at,
+        })
+        inserted_total += 1
+
+    await db.commit()
+    return {"inserted": inserted_total, "days": days}
+
+
 @router.put("/users/{user_id}/tier")
 async def update_user_tier(
     user_id: int,
