@@ -1,334 +1,436 @@
-# Platform Rebrand — AI-Driven Trading Intelligence
+# Platform Rebrand — AI Trading Education & Intelligence Platform
 
-**Status**: Draft
-**Created**: 2026-04-11
-**Author**: Claude (via /speckit.specify)
-**Priority**: High — landing page is the first impression, must reflect actual product value
+**Status**: Ready for Implementation
+**Updated**: 2026-04-11
+**Priority**: High — landing page must reflect actual product value for SEO and paid ads
 
 ## The Shift
 
-The platform started as **rule-based alerts** (78 rules scanning for PDL bounces, MA touches, breakouts). That's still running but:
+The platform evolved from rule-based alerts (78 rules) to an **AI-first trading education platform**. The AI scan now outperforms the rule engine — it catches setups rules miss, knows your active positions, and tells you when NOT to trade. The landing page must reflect this reality.
 
-1. Rules are fragile — 5 days of fixes broke the system
-2. AI scan catches setups rules miss (META $595 bounce, ETH VWAP hold)
-3. AI Coach gives better entries than 78 rules combined
-4. The real value is AI intelligence, not rule thresholds
+**Old positioning**: "Your chart analyst that never sleeps" — passive, tool-focused
+**New positioning**: "AI-powered trading strategies — learn, scan, trade, review" — active, education-focused
 
-**Old positioning**: "Real-time structural alerts" — price-based rules
-**New positioning**: "AI trading intelligence" — AI reads charts, identifies entries, manages risk
+## Platform Identity: 5 AI Pillars
 
-## Current Landing Page Problems
-
-### Says Things We Don't Deliver
-| Claimed Feature | Reality |
-|----------------|---------|
-| Options Flow Scanner | Not implemented |
-| Sector Rotation Tracker | Not implemented |
-| Catalyst Calendar | Not implemented |
-| Smart Watchlist Ranking (0-100) | Partially built |
-
-### Undersells What We Actually Have
-| Actual Capability | Current Marketing |
-|------------------|------------------|
-| AI Coach — reads any chart, gives entry/stop/target | "Ask about any chart" (buried) |
-| AI Scan — proactive 10-min scans, catches setups automatically | Not mentioned at all |
-| Cinematic trade replay — animated proof of winning trades | Barely mentioned |
-| AI CoPilot — structured trade plans with playbook | Listed but not highlighted |
-| Coinbase real-time crypto data | Not mentioned |
-| 24/7 crypto coverage | Not mentioned |
-
-### Wrong Emphasis
-The hero says "Your chart analyst that never sleeps" — that's passive. The AI doesn't just analyze, it **scans every 10 minutes and tells you when to buy**. The positioning should be active, not passive.
-
-## New Value Proposition
-
-### Tagline Options
-1. **"AI finds the trade. You decide."**
-2. **"Your AI trading analyst — scans, alerts, coaches."**
-3. **"Stop watching charts. Let AI find your entries."**
-4. **"AI-powered entry detection for day traders."**
-
-### Core Message (3 sentences)
-> Our AI scans your watchlist every 10 minutes, identifies when price hits a key support or resistance level, and sends you a complete trade plan — entry, stop, target. You take the ones you like, skip the rest. Every trade gets replayed and scored so you improve over time.
-
-### What Makes Us Different
-
-| Competitor Pattern | What They Do | What We Do |
-|-------------------|-------------|-----------|
-| Generic alerts | "SPY crossed $680" | "AI: VWAP HOLD — entry $2243, stop $2233 (session low), T1 $2250" |
-| Chart rooms | Guru calls, no transparency | Public track record, every alert scored, replays available |
-| Signal services | Follow blindly, no education | AI Coach explains WHY, teaches you to find your own |
-| Scanners | 100 alerts/day, figure it out | AI says WAIT when there's no setup — less noise, more signal |
-
-### The 4 Value Pillars
+The platform delivers value through 5 distinct AI capabilities. Each is a marketing pillar, SEO target, and feature showcase.
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                 AI TRADING INTELLIGENCE               │
-│                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────┐ │
-│  │  DETECT  │  │  DECIDE  │  │  EXECUTE │  │ LEARN│ │
-│  │          │  │          │  │          │  │      │ │
-│  │ AI scans │  │ AI Coach │  │ Telegram │  │Replay│ │
-│  │ every    │  │ answers  │  │ alerts   │  │Score │ │
-│  │ 10 min   │  │ "should  │  │ with     │  │Review│ │
-│  │ for key  │  │ I buy    │  │ entry/   │  │Track │ │
-│  │ level    │  │ here?"   │  │ stop/    │  │Record│ │
-│  │ setups   │  │          │  │ target   │  │      │ │
-│  └──────────┘  └──────────┘  └──────────┘  └──────┘ │
-└──────────────────────────────────────────────────────┘
+                    AI TRADING INTELLIGENCE PLATFORM
+
+  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+  │ AI COACH │  │AI COPILOT│  │ AI SCAN  │  │  TRADE   │  │ PATTERN  │
+  │          │  │          │  │          │  │  REVIEW  │  │ LIBRARY  │
+  │ Live     │  │ Deep     │  │ Auto     │  │          │  │          │
+  │ trading  │  │ chart    │  │ entry/   │  │ Replay   │  │ 14       │
+  │ guidance │  │ analysis │  │ exit     │  │ validate │  │ setups   │
+  │ any      │  │ multi-TF │  │ every    │  │ every    │  │ taught   │
+  │ question │  │ trade    │  │ 5 min    │  │ trade    │  │ with     │
+  │ any time │  │ plans    │  │ watchlist│  │ visually │  │ examples │
+  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘
 ```
 
-**DETECT**: AI scans your watchlist every 10 min. When price hits a key level (PDL, VWAP, MA, session low), the AI identifies the setup and confirmation. If there's no trade, it says WAIT — you don't get noise.
+### Pillar 1: AI Coach — Live Trading Guidance
+**SEO targets**: "AI trading coach", "AI trade analysis", "should I buy ETH"
+**What it does**: Real-time conversational AI that reads any chart and gives structured trade guidance. Entry, stop, target — every time. Knows your open positions, win rates, and market regime.
 
-**DECIDE**: Not sure about a setup? Ask the AI Coach. It reads the chart, tells you entry/stop/target, and explains why. It sees what you see, plus multi-timeframe context, volume, and historical win rates for that pattern.
+Live capabilities:
+- Reads 5-min + hourly OHLCV bars in real time
+- Computes VWAP from session bars (no hallucination)
+- Sees your active positions (won't tell you to buy what you already hold)
+- Provides structured output: CHART READ + ACTION (direction, entry, stop, T1, T2)
+- Aware of historical win rates per pattern per symbol
+- Available via web chat AND Telegram commands (/spy, /eth, /btc, etc.)
 
-**EXECUTE**: Complete trade plans sent to Telegram — entry, stop, T1, T2, conviction. One tap: Took It, Skip, or Exit. No chart-watching required.
+**Key differentiator**: Not generic ChatGPT market commentary. Sees YOUR chart, YOUR positions, YOUR win rates. Gives a specific trade plan, not opinions.
 
-**LEARN**: Every trade gets replayed (animated chart showing entry → outcome). Win rates tracked by pattern, time of day, symbol. Weekly edge reports show what works and what to avoid. You get better over time.
+### Pillar 2: AI CoPilot — Deep Chart Analysis & Education
+**SEO targets**: "AI chart analysis", "AI trade plan", "multi-timeframe analysis"
+**What it does**: Structured multi-timeframe chart analysis with full trade plans. Confluence scoring (0-10), playbook pattern matching, and educational explanations.
 
-## Landing Page Redesign
+Live capabilities:
+- Multi-timeframe analysis (5m → 1H → Daily → Weekly)
+- Confluence score (0-10) based on volume, MAs, RSI, trend alignment
+- Matches against 14 playbook patterns (PDL bounce, VWAP hold, MA bounce, etc.)
+- Trade plan output: SETUP, DIRECTION, ENTRY, STOP, T1, T2, CONFIDENCE, KEY_LEVELS
+- Pattern education: WHAT IS IT, WHY IT WORKS, HOW TO CONFIRM, RISK MANAGEMENT
+- Analysis history — review past AI analyses and their outcomes
+
+**Key differentiator**: Not just "buy/sell" — teaches you WHY the setup works. Over time you internalize the patterns and develop your own edge.
+
+### Pillar 3: AI Scan — Automated Entry/Exit Detection
+**SEO targets**: "AI trading signals", "automated trade alerts", "AI entry detection"
+**What it does**: Scans your entire watchlist every 5 minutes using Claude AI. Identifies entries at key levels, warns at resistance, and tells you when to WAIT.
+
+Live capabilities:
+- Scans every 5 minutes during market hours (24/7 for crypto)
+- Detects: PDL bounce, VWAP hold/reclaim, MA bounce, double bottom, PDH breakout, session low hold
+- Resistance warnings: "approaching PDH, tighten stop or take profits"
+- WAIT signals: "no setup confirmed, stay out" (unique — no other platform does this)
+- Position awareness: knows your active trades, won't send duplicate LONGs
+- Direction-change notifications: only alerts when the signal changes (LONG → WAIT → RESISTANCE)
+- Telegram delivery with inline Took/Skip/Exit buttons
+- Coinbase data for crypto (reliable daily candles, not dropped bars)
+
+**Key differentiator**: AI says WAIT when there's no trade. That's the edge — less noise, better entries. You get 3-5 quality setups per day, not 100 alerts to sort through.
+
+### Pillar 4: Trade Review — Validate Every Trade
+**SEO targets**: "trade replay", "trade journal AI", "trading performance review"
+**What it does**: Dedicated page for replaying any alert candle-by-candle. Cinematic animation showing setup → entry → price action → outcome.
+
+Live capabilities:
+- Full-screen animated replay of any alert (entry, stop, target lines on chart)
+- Cinematic phases: SETUP → APPROACH → ENTRY → MOVE → TARGET → RESULT
+- Filter by source (AI Scan vs Rules), action (Took/Skipped), date
+- Date navigation across last 30 days of trading sessions
+- Shareable replay links (/replay/:alertId — public, no login required)
+- Speed controls (1x, 2x, 5x)
+- Auto-generated after market close (4:40 PM ET)
+
+**Key differentiator**: Visual proof. Every trade becomes content you can share. Show your edge — or learn from losses. No other platform auto-generates cinematic replays.
+
+### Pillar 5: Pattern Library — Trading Education
+**SEO targets**: "trading patterns", "how to trade PDL bounce", "VWAP trading strategy"
+**What it does**: 14 trading patterns taught with difficulty ratings, interactive deep-dives, and live performance data.
+
+Live capabilities:
+- 14 patterns: PDL Bounce, PDL Reclaim, VWAP Hold, VWAP Reclaim, Double Bottom, MA Bounce, PDH Breakout, PDH Rejection, Double Top, VWAP Loss, Inside Day, Fib Bounce, Gap & Go, EMA Rejection
+- Difficulty levels: Beginner, Intermediate, Advanced
+- Click any pattern → deep-dive education: What Is It, How to Identify, Why It Works, When It Fails, Common Mistakes, Pro Tips
+- Live win rate data per pattern from production alerts
+- Categories: Support, Resistance, Breakout, Reversal, Momentum
+- Public access at /learn (SEO-friendly, no login required)
+
+**Key differentiator**: Education tied to real trading data. You don't just learn PDL bounce theory — you see its 81% win rate from your own signals.
+
+## Current Landing Page Audit
+
+### Features Marketed That DON'T EXIST (Must Remove)
+
+| Marketed Feature | Status | Action |
+|---|---|---|
+| Options Flow Scanner | Not built | REMOVE from features + pricing |
+| Sector Rotation Tracker | Not built | REMOVE from features + pricing |
+| Catalyst Calendar | Not built | REMOVE from features + pricing |
+| Backtesting engine (Premium) | Not built | REMOVE from pricing |
+| Paper trading simulator (Premium) | Partially built | REMOVE until complete |
+
+### Features That ARE LIVE But NOT Marketed (Must Add)
+
+| Live Feature | Why It Matters |
+|---|---|
+| AI Scan (every 5 min, 14 patterns) | Core differentiator — this IS the product |
+| AI position awareness | Knows your trades, won't duplicate alerts |
+| WAIT signals | Only platform that tells you NOT to trade |
+| Pattern Library (14 patterns, education) | SEO goldmine, educational positioning |
+| Trade Review page (dedicated replay hub) | Validates every trade visually |
+| Telegram commands (/spy /eth /btc) | Instant AI analysis from phone |
+| 24/7 crypto with Coinbase data | Unique — most platforms equity-only |
+| Direction-change notifications | Smart noise reduction |
+| Computed VWAP in Coach | Accurate data, not hallucinated |
+| Pre-market brief + Game plan | Daily AI trading preparation |
+| EOD Review + Weekly coaching | AI-driven improvement loop |
+| Confluence scoring (0-10) | Quantified trade quality |
+| Multi-timeframe analysis | Professional-grade context |
+
+### Copy That's WRONG (Must Fix)
+
+| Current Copy | Fix |
+|---|---|
+| "Scans every 3 min" | Now 5 min |
+| "AI Coach (2 queries/day)" for Free | Now 3/day |
+| Hero: "Your chart analyst that never sleeps" | Passive — rewrite to active AI positioning |
+| "Smart Watchlist Ranking (0-100)" | Oversold — simplify claim |
+
+## New Landing Page Structure
 
 ### Section 1: Hero
 ```
-AI FINDS THE TRADE. YOU DECIDE.
+AI-POWERED TRADING STRATEGIES
+THAT FIND THE TRADE FOR YOU.
 
-Your AI trading analyst scans the market every 10 minutes,
-identifies entries at key levels, and sends complete trade plans
-to your phone.
+Your AI trading analyst scans the market every 5 minutes,
+identifies entries at key levels, and delivers complete trade
+plans — entry, stop, target, conviction.
 
-[See Live Track Record]  [Start Free — 3 Day Pro Trial]
+You decide. You learn. You get better.
+
+[Start Free — 3 Day Pro Trial]  [See Live Track Record]
 ```
 
-**Background**: Dark, animated chart with AI scan overlay highlighting a support bounce entry.
+Background: Dark, animated chart with AI scan overlay highlighting a support bounce entry.
 
-### Section 2: How It Works (3 Steps)
+Stats bar below: [Win Rate: XX%] [Signals Tracked: XXX] [Patterns: 14] [24/7 Crypto]
+
+### Section 2: The 5 AI Pillars (Visual Cards)
+
+Each pillar gets a card with icon, headline, 3-bullet description, and a screenshot/animation.
+
+**Card 1: AI Coach**
 ```
-1. ADD YOUR WATCHLIST
+YOUR AI TRADING ANALYST — ON DEMAND
+
+Ask any question about any chart. Get a structured trade plan
+in seconds — not generic commentary.
+
+- "Should I buy ETH here?" → Entry $2245, Stop $2233, T1 $2275
+- Knows your open positions — won't tell you to buy what you hold
+- Available on web + Telegram (/spy, /eth, /btc commands)
+```
+
+**Card 2: AI CoPilot**
+```
+DEEP CHART ANALYSIS WITH EDUCATION
+
+Multi-timeframe analysis with confluence scoring.
+Learn WHY patterns work — not just WHERE to enter.
+
+- Analyzes 5m → 1H → Daily → Weekly for full context
+- Confluence score (0-10) quantifies trade quality
+- Pattern education: what, why, confirm, risk management
+```
+
+**Card 3: AI Scan**
+```
+AUTOMATED ENTRY/EXIT DETECTION — EVERY 5 MINUTES
+
+AI monitors your watchlist and fires when price hits
+a key level. When there's no trade, it says WAIT.
+
+- 14 patterns: PDL bounce, VWAP hold, MA bounce, breakouts
+- WAIT signals: AI tells you when NOT to trade (unique)
+- Position-aware: won't duplicate entries you've already taken
+```
+
+**Card 4: Trade Review**
+```
+REPLAY & VALIDATE EVERY TRADE
+
+Cinematic animated replay of every alert — entry to outcome.
+Share your wins. Learn from your losses.
+
+- Full-screen replay with entry/stop/target lines
+- Filter by AI vs Rules, Took vs Skipped, date
+- Shareable links — build your public track record
+```
+
+**Card 5: Pattern Library**
+```
+14 TRADING PATTERNS — TAUGHT WITH REAL DATA
+
+Learn support bounces, breakouts, reversals with
+difficulty ratings and live win rate data.
+
+- Beginner to Advanced patterns
+- Click any pattern → deep education: what, why, how, risk
+- Win rates from real production data — not theory
+```
+
+### Section 3: How It Works (3 Steps)
+```
+1. SET YOUR WATCHLIST
    SPY, AAPL, ETH, BTC — up to 25 symbols.
-   AI monitors all of them, 24/7 for crypto.
+   AI monitors all of them. 24/7 for crypto.
 
-2. AI SCANS EVERY 10 MINUTES
-   When price reaches a key level (support, resistance, VWAP),
-   the AI identifies the setup and sends you a trade plan.
-   Entry. Stop. Target. Conviction.
-   
+2. AI SCANS EVERY 5 MINUTES
+   When price hits a key level, AI identifies the setup
+   and sends a complete plan: Entry. Stop. Target. Conviction.
    When there's no trade, it says WAIT. No noise.
 
-3. YOU DECIDE
-   Took It → track your P&L automatically
+3. DECIDE, TRACK, IMPROVE
+   Took It → track P&L automatically
    Skip → see if you were right to pass
-   Exit → close when thesis breaks
+   Review → replay every trade, learn patterns, build edge
 ```
 
-### Section 3: AI Capabilities (Visual Cards)
-
-**Card 1: AI Scan**
+### Section 4: AI vs Manual Trading (Comparison)
 ```
-Every 10 minutes, our AI reads 5-min and hourly charts
-for each symbol on your watchlist.
-
-It identifies:
-• Session low bounces & double bottoms
-• PDL/PDH reclaims and breakouts
-• VWAP holds and reclaims
-• MA bounces at key moving averages
-• Resistance zones (for exits)
-
-When it finds a setup → you get a trade plan.
-When it doesn't → WAIT (you see this in the AI Scan feed).
-```
-[Show animated example of AI scan detecting PDL bounce]
-
-**Card 2: AI Coach**
-```
-Ask any question about any chart.
-
-"Should I buy ETH here?"
-→ CHART READ: ETH at VWAP support after pullback from PDH.
-  ACTION: LONG at $2243, Stop $2233 (session low), T1 $2250.
-  Conviction: MEDIUM.
-
-The Coach sees your open positions, your win rates,
-and the multi-timeframe picture. It doesn't chase —
-if price isn't at a key level, it tells you to wait.
-```
-[Show screenshot of Coach with ACTION block]
-
-**Card 3: Trade Replay**
-```
-Every trade becomes a 15-second animated replay.
-
-Watch price approach support → entry fires → candles build →
-target hit → result card with P&L.
-
-Share replays. Build your track record. 
-Prove your edge — or learn from your losses.
-```
-[Show embedded replay animation]
-
-**Card 4: Track Record**
-```
-We show everything. Even when it's ugly.
-
-• 90-day rolling win rate by pattern
-• AI Scan accuracy vs rule-based alerts
-• Per-symbol performance
-• Time-of-day analysis
-
-Public. Auditable. No cherry-picking.
-```
-[Live track record widget pulling from API]
-
-### Section 4: AI Scan vs Manual Trading
-
-```
-                    MANUAL           AI SCAN
-Watching charts     Hours/day        AI does it
-Missing setups      Constantly       Catches 24/7
-Entry timing        Emotional        At the level
-Stop placement      Arbitrary        Structural
-Noise level         100 alerts/day   3-5 setups/day
-Track record        "Trust me bro"   Public, auditable
-Learning            Trial & error    AI explains every trade
+                    MANUAL           AI PLATFORM
+Watching charts     Hours/day        AI scans every 5 min
+Missing setups      Constantly       Catches setups 24/7
+Entry timing        Emotional        At the structural level
+Stop placement      Arbitrary %      Below support structure
+Alert noise         100/day          3-5 quality setups
+Position tracking   Spreadsheet      Auto from Took/Skip
+Education           YouTube + trial  AI explains every trade
+Track record        "Trust me"       Public, auditable
 ```
 
 ### Section 5: Live Track Record (Real Data)
 ```
-LAST 30 DAYS — LIVE DATA
+LAST 90 DAYS — LIVE DATA — VERIFIED
 
-[Win Rate: 72%]  [Signals: 156]  [Wins: 112]  [Losses: 44]
+[Win Rate]  [Total Signals]  [Wins]  [Losses]
 
-TOP SETUPS:
-Session Low Bounce   87% WR (15/17)
-PDL Reclaim         81% WR (22/27)  
-VWAP Hold           76% WR (13/17)
-MA Bounce 50        73% WR (11/15)
-
-AI SCAN vs RULES:
-AI Scan:   78% WR — catches setups rules miss
-Rules:     71% WR — reliable but sometimes suppresses valid signals
+Pulled from /api/v1/intel/public-track-record
 ```
-[Pulled from /api/v1/intel/public-track-record]
 
-### Section 6: Pricing
+### Section 6: Daily AI Workflow
+```
+THE AI TRADING DAY
+
+  09:05 AM  │  AI Game Plan — top 3 focus symbols + edge
+  09:15 AM  │  Pre-Market Brief — market outlook + key levels
+  09:30 AM  │  AI Scan starts — every 5 min through close
+  ALL DAY   │  AI Coach available — ask about any chart
+  ALL DAY   │  Telegram alerts — Took / Skip / Exit
+  04:30 PM  │  EOD cleanup — close stale entries
+  04:35 PM  │  AI EOD Review — what worked, what didn't
+  04:40 PM  │  Trade Replay — auto-generated for every trade
+  FRIDAY    │  Weekly Edge Report — patterns, performance, coaching
+
+24/7 for crypto — AI never stops monitoring BTC, ETH
+```
+
+### Section 7: Pricing (Corrected)
 
 ```
 FREE                    PRO ($49/mo)              PREMIUM ($99/mo)
 ─────────               ──────────                ────────────────
 5 symbols               10 symbols                25 symbols
-AI Coach: 2/day         AI Coach: 20/day          AI Coach: unlimited
-AI Scan: view only      AI Scan + Telegram        AI Scan + Telegram
-Today's alerts          Full history (30d)         Full history
-                        Replay (10/day)           Replay (unlimited)
-                        Pre-market brief          Paper trading
-                        EOD review                Backtesting
-                                                  Weekly edge report
+AI Coach: 3/day         AI Coach: 50/day          AI Coach: unlimited
+AI Scan: 3 alerts       AI Scan: unlimited        AI Scan: unlimited
+Telegram: 3 cmds/day    Telegram: 50/day          Telegram: unlimited
+Today's alerts          30-day history            Full history
+1 replay/day            Unlimited replay          Unlimited replay
+Pattern Library         Pattern Library           Pattern Library
+                        Pre-market Brief          Pre-market Brief
+                        EOD Review                EOD Review
+                        Performance Analytics     Performance Analytics
+                                                  Weekly Edge Report
 ```
 
-### Section 7: Social Proof / Trust
-
+### Section 8: Social Proof / Trust
 ```
-"I was spending 3 hours before market open scanning charts.
-Now AI Scan sends me the setups at 9:31 AM."
+RADICAL TRANSPARENCY — WE SHOW EVERYTHING
 
-"The AI Coach told me to WAIT at $680 — rules fired a false
-PDL bounce. Coach was right. That's the difference."
+Public track record. Per-pattern win rates. Even the losses.
+Most signal services can't survive this level of honesty. We can.
 
-"Replay proved my winning streak wasn't luck. 8 PDL bounces
-in a row, all at the level, all with volume confirmation."
+[Win Rate]  [Win/Loss]  [Total Signals]
 ```
-[When we have real testimonials, replace with those]
 
-### Section 8: FAQ
+### Section 9: Signal Library Preview
+```
+LEARN TRADING PATTERNS — FREE
 
+14 setups taught with real data:
+PDL Bounce (Beginner) • VWAP Reclaim (Intermediate) •
+Inside Day Breakout (Advanced) • and 11 more
+
+[Explore Pattern Library →]
+```
+
+### Section 10: FAQ
 ```
 Q: Is this a signal service?
-A: No. We give you the analysis — entry, stop, target, reasoning.
-   You decide whether to take the trade. It's education + execution.
+A: No. We provide AI-powered analysis and education. Entry, stop,
+   target, reasoning — you decide whether to trade. We teach you
+   to find your own setups over time.
 
-Q: How is the AI different from ChatGPT?
-A: Our AI is trained on our specific trading playbook (PDL bounces,
-   VWAP holds, MA support, etc.), sees real-time OHLCV bars, knows
-   your open positions, and gives structured trade plans — not generic
-   market commentary.
-
-Q: Do you guarantee profits?
-A: No. Trading has risk. Our track record is public — you can see
-   exactly what works and what doesn't. We help you find better entries,
-   not guarantee outcomes.
+Q: How is this different from ChatGPT?
+A: Our AI is trained on a specific trading playbook (14 patterns),
+   sees real-time OHLCV bars, computes VWAP from live data, knows
+   your open positions, and gives structured trade plans.
 
 Q: What markets do you cover?
-A: US equities (SPY, AAPL, TSLA, etc.) + crypto (ETH, BTC) — 24/7
-   for crypto, market hours for equities.
+A: US equities (SPY, AAPL, TSLA, NVDA, etc.) + crypto (ETH, BTC)
+   with 24/7 coverage for crypto using Coinbase data.
+
+Q: Does the AI guarantee profits?
+A: No. Trading has risk. Our track record is public — see exactly
+   what works and what doesn't. We help you find better entries
+   and learn from every trade.
+
+Q: What is a WAIT signal?
+A: When AI scans your watchlist and finds no valid setup, it says
+   WAIT. This is a feature — saving you from bad entries in choppy
+   markets. Less noise = better signal quality.
 
 Q: Can I try before paying?
-A: Yes. Free tier forever (5 symbols, 2 AI queries/day). Pro trial
-   for 3 days with full features.
+A: Yes. Free tier forever (5 symbols, 3 AI queries/day). New accounts
+   get 3 days of full Pro access.
 ```
 
-## Features to REMOVE from Marketing
+### Section 11: Final CTA
+```
+STOP STARING AT CHARTS.
+LET AI FIND YOUR ENTRIES.
 
-| Feature | Action |
-|---------|--------|
-| Options Flow Scanner | Remove until built |
-| Sector Rotation Tracker | Remove until built |
-| Catalyst Calendar | Remove until built |
-| Smart Watchlist Ranking | Remove or simplify claim |
+Join traders who get AI-powered trade plans delivered to their
+phone — with the coaching to get better every trade.
 
-## Features to ADD to Marketing
+[Start Free — 3 Day Pro Trial]
+```
 
-| Feature | Why |
-|---------|-----|
-| AI Scan (proactive, every 10 min) | This is the core differentiator now |
-| 24/7 crypto coverage (Coinbase data) | Unique — most platforms are equity-only |
-| Structural stops (not arbitrary %) | Shows sophistication |
-| WAIT signals (AI says when NOT to trade) | Reduces noise — key selling point |
-| Cinematic trade replay | Visual proof, shareable, marketing content |
-| AI Coach structured output | Not just chat — entry/stop/target every time |
+## SEO Strategy
 
-## Technical Requirements for Landing Page
+### Primary Keywords (Landing Page)
+- "AI trading platform"
+- "AI trading signals"
+- "AI day trading alerts"
+- "AI trading coach"
+- "automated trading alerts"
 
-### Live Data Widgets
-- Track record: pull from `/api/v1/intel/public-track-record`
-- AI scan example: show recent ai_scan alert with chart
-- Replay embed: auto-playing replay of a recent winning trade
+### Long-tail Keywords (Pattern Library / Learn Pages)
+- "how to trade PDL bounce"
+- "VWAP reclaim trading strategy"
+- "double bottom day trading"
+- "MA bounce entry rules"
+- "PDH breakout strategy"
+- "inside day breakout trading"
 
-### No-Auth Required
-- Track record page: public
-- Replay page: public (`/replay/:alertId`)
-- Landing page: fully public
+### Content Strategy
+- Each of the 14 patterns = a dedicated SEO-optimized page at /learn/patterns/:id
+- Each learning category = SEO page at /learn/:categoryId
+- Blog potential: "AI caught this ETH setup that rules missed" (with replay embed)
+
+## Technical Requirements
+
+### Live Data Widgets (Landing Page)
+- Track record: `/api/v1/intel/public-track-record` (already built)
+- Market status: `/api/v1/market/status` (already built)
+
+### Public Pages (No Auth)
+- Landing page: / (already public)
+- Pattern Library: /learn (already public)
+- Trade Replay: /replay/:alertId (already public)
+- Track Record: needs new public page or landing page widget
 
 ### Performance
-- Page load <2 seconds
-- No heavy JavaScript frameworks
+- Page load < 2 seconds
 - Mobile-first responsive
 - Dark theme (matches product)
 
+## What to BUILD for the Landing Page
+
+| Item | Effort | Priority |
+|---|---|---|
+| Rewrite hero + all copy per this spec | Medium | P0 |
+| Remove 5 unbuilt features from page | Low | P0 |
+| Add 5 AI pillar cards | Medium | P0 |
+| Fix pricing table (remove unbuilt, add AI Scan) | Low | P0 |
+| Add "Daily AI Workflow" timeline section | Low | P1 |
+| Add "AI vs Manual" comparison table | Low | P1 |
+| Embed auto-playing trade replay | Medium | P1 |
+| Add Pattern Library preview section | Low | P1 |
+| Update meta tags for SEO | Low | P1 |
+
+## What NOT to Build
+
+- No new features — just market what's already live
+- No Options Flow, Sector Rotation, Catalyst Calendar
+- No new logo/brand identity
+- No blog system (Phase 2)
+- No A/B testing framework (Phase 2)
+
 ## Success Metrics
 
-- [ ] Landing page accurately reflects live product capabilities
-- [ ] No features marketed that don't exist
-- [ ] AI Scan highlighted as #1 differentiator
-- [ ] Live track record widget showing real data
-- [ ] Embedded trade replay auto-playing
-- [ ] Conversion: Free signup rate improves (measure A/B)
-- [ ] Time on page increases (engaging content)
-
-## Scope
-
-### In Scope
-- Landing page copy rewrite (all sections)
-- Value proposition restructuring around AI
-- Remove unbuilt features from marketing
-- Add AI Scan, Coach, Replay to hero features
-- Live data widgets (track record, replay)
-- Pricing table update to match actual tiers
-
-### Out of Scope
-- Building Options Flow, Sector Rotation, Catalyst Calendar
-- Changing pricing amounts
-- New logo/brand identity
-- Blog/content marketing
-- SEO optimization
-- Social media integration
+- [ ] Zero unbuilt features marketed on landing page
+- [ ] All 5 AI pillars prominently featured
+- [ ] Live track record widget visible above the fold
+- [ ] Pricing table matches actual tier limits
+- [ ] Pattern Library linked from landing page
+- [ ] Page loads in < 2 seconds
+- [ ] Mobile responsive (test on iPhone)
+- [ ] Meta description includes "AI trading" keywords
