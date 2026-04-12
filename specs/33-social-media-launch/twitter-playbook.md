@@ -11,6 +11,28 @@
 - **The AI is a teammate.** It scans while you work, teaches while you learn, remembers while you forget.
 - **Never mention internal details**: no "rule engine", no "78 rules", no migration stories, no infrastructure. The outside world sees one thing: AI.
 
+## Voice & Tone
+
+**Reference tweet (founder voice baseline):**
+> Leveraging AI to do the job of chart analysis real time and get notifications when setup is right to Long or short, works for day trade and swing trades strategies. #aitrade #tradecopilot #tradingwithai #aichartanalysis #TradePlan
+
+**Extract the pattern:**
+- **Direct, not editorial.** Short sentences. Sometimes fragments. No "In this post we'll explore…"
+- **Benefit-led openings.** "Leveraging AI to…", "No more watching charts…", "Get alerts when…"
+- **Trader's vocabulary.** Long, short, entry, stop, target, setup, bounce, rejection. Not "investment opportunity."
+- **Lowercase flow.** Capitalize tickers and proper nouns. Sentence-case the rest — don't Title Case Every Word.
+- **No corporate fluff.** "works for day trade and swing" > "ideal for discretionary day and swing traders."
+- **Hashtag stack at the end.** 4-6 relevant tags. Mix brand + SEO + tools (see below).
+
+**Standard hashtag pool** (pick 4-6 per post, rotate):
+- Brand: `#tradecopilot` `#tradingwithai`
+- SEO / discovery: `#aitrade` `#aichartanalysis` `#aitrading` `#daytradingsignals`
+- Category: `#tradingalerts` `#tradeplan` `#pricelevels` `#daytrade` `#swingtrade`
+- Asset-specific (when relevant): `#SPY` `#NVDA` `#ETH` `#BTC` `#crypto`
+- Strategy: `#vwap` `#pricelevels` `#patterntrading` `#priceaction`
+
+**Don't use:** `#ToTheMoon` `#Lambo` `#guru` `#financialfreedom` `#stockstobuy` — those attract the wrong crowd.
+
 ## The 10 Daily Slots
 
 Mapped to the trading day — each slot has its own vibe.
@@ -30,176 +52,140 @@ Mapped to the trading day — each slot has its own vibe.
 
 ## 10 Viral Hook Templates
 
-Focus: **trader's life got better because of AI**.
+Focus: **trader's life got better because of AI**. Voice: direct, casual, hashtag stack at the end.
 
-### Hook 1: The "Caught It While I Was Busy"
+### Hook 1: "Caught It While I Was Busy"
 ```
-9:42 AM: I was in a meeting.
-9:43 AM: AI saw PDL bounce on ETH.
-Pinged my phone with entry, stop, target.
-12:18 PM: +$240 when T1 hit.
+Was in a meeting, AI spotted a PDL bounce on ETH and pinged my phone. Entry, stop, target ready. T1 hit 2 hours later, +0.49%. Didn't touch a chart all morning. This is the point.
 
-Didn't touch a chart all morning.
-
-This is the point.
+#tradecopilot #tradingwithai #aitrade #daytradingsignals #ETH
 ```
-Strength: relatable, outcome-focused, visual (screenshot).
 
 ---
 
-### Hook 2: The "Saved Me From Myself"
+### Hook 2: "Saved Me From Myself"
 ```
-Was about to buy ETH on the dip.
+Was about to buy ETH on the dip. AI said WAIT — no higher low, volume too weak. 20 min later price dropped another 0.8%. Best trades are the ones you don't take.
 
-AI: "No higher low. Volume 0.4x. WAIT."
-
-20 minutes later, price dropped another 0.8%.
-
-Best trades are the ones you didn't take.
-
-AI > emotion.
+#tradecopilot #aitrade #tradingwithai #daytrade #priceaction
 ```
-Why it works: every trader has FOMO'd. This is cathartic.
 
 ---
 
 ### Hook 3: The Screenshot Drop
-Raw Telegram alert with zero commentary:
+Raw Telegram alert + short caption:
 ```
-AI SIGNAL — LONG NVDA $128.40
+No Discord chat to chase. No guru to trust. No chart to stare at all day. Just entry, stop, target, conviction — on your phone when you need it.
 
-No Discord chat to chase.
-No guru to trust.
-No chart to stare at all day.
-
-Just entry, stop, target, conviction.
-
-📱 On your phone when you need it.
+#tradecopilot #tradingwithai #aichartanalysis #tradingalerts
 ```
 
 ---
 
-### Hook 4: The Outcome Story
-Pair the alert with the result 2-4 hours later:
+### Hook 4: Alert → Outcome Story
 ```
-09:42 AM — AI: "LONG ETH @ $2,207"
+09:42 AM — AI: LONG ETH @ $2,207
 12:18 PM — T1 hit @ $2,218
 
-+0.49% in 2.5 hours.
-Stop never threatened.
-
-Setup: PDL bounce with higher low + volume.
++0.49% in 2.5 hours. Stop never threatened. Setup was PDL bounce with higher low + volume confirmation.
 
 Replay 👇
 [link]
+
+#tradecopilot #aitrade #tradingwithai #ETH #tradeplan
 ```
 
 ---
 
-### Hook 5: The Win-Rate Flex
-Weekly drop:
+### Hook 5: Win-Rate Flex (weekly)
 ```
 Last 7 days of AI signals:
-
 🟢 9 wins
 🔴 3 losses
 ⚪ 2 open
 
-75% win rate.
+75% win rate. Losses shown alongside wins — that's the whole point.
 
-Public track record — losses shown too:
 tradingwithai.ai
+
+#tradecopilot #aitrade #trackrecord #tradingwithai
 ```
 
 ---
 
-### Hook 6: The Loss Post-Mortem
-Converts skeptics harder than wins:
+### Hook 6: Loss Post-Mortem
 ```
-AI got this one wrong.
-
-LONG TSLA $242 → stopped at $240.
+AI got this one wrong. LONG TSLA $242 → stopped at $240.
 
 What it missed:
-- Volume was 0.7x, not enough conviction
+- Volume was too thin
 - Higher low wasn't clean
-- Market regime was choppy
+- Choppy regime
 
-Loss: -0.8%. Stop held. No revenge trade.
+Stop held. No revenge trade. Transparency is the product.
 
-Transparency is the product.
+#tradecopilot #aitrade #tradingwithai #riskmanagement
 ```
 
 ---
 
 ### Hook 7: Pattern Deep-Dive (thread)
+Tweet 1 (hook):
 ```
 1/ What is a "Prior Day Low Bounce"?
 
-Price dips below yesterday's low.
-Recovers above it with volume.
-
-= failed breakdown = trapped sellers = reversal fuel.
+Price dips below yesterday's low → recovers above it with volume = failed breakdown = trapped sellers = reversal fuel.
 
 🧵 How to spot it, when it works, when it fails 👇
+
+#tradecopilot #aichartanalysis #pricelevels #tradingwithai
 ```
-Tweets 2-4: examples, win rate, confirmation rules, stop placement. Close with link to /learn/patterns/prior_day_low_bounce.
+Follow-up tweets 2-5: identification, volume confirmation, stop placement, real example from /replay/:id.
 
 ---
 
-### Hook 8: The "Reduce Screen Time" Angle
+### Hook 8: Reduce Screen Time
 ```
-Day trader's old routine:
-• 6 AM: scan 50 charts
-• 9:30: watch 10 open simultaneously
-• 4 PM: wonder what you missed
-• 11 PM: regret
+Old routine: scan 50 charts at 6 AM, watch 10 open at once all day, wonder what you missed by 4 PM.
 
-New routine:
-• Add symbols to watchlist
-• AI pings when setups fire
-• Decide in 10 seconds
-• Go live your life
+New routine: add to watchlist, AI pings when setup fires, decide in 10 seconds, live your life.
 
 Trading shouldn't cost you your day.
+
+#tradecopilot #aitrade #tradingwithai #daytrade #swingtrade
 ```
 
 ---
 
-### Hook 9: "Here's What Changed"
-Teacher voice — explains how AI improves outcomes:
+### Hook 9: Same Trader, Different Outcome
 ```
-Before AI:
-- Chased breakouts at session high
-- Got stopped out by noise
-- Revenge traded after losses
+Before: chased breakouts, got stopped by noise, revenge-traded after losses.
 
-With AI guardrails:
-- Waits for higher low structure
-- Stops placed below support (not arbitrary %)
-- Says WAIT when chop kicks in
+With AI on the watchlist: waits for higher low + volume, places stops below structure, says WAIT in chop.
 
-Same chart. Different outcome. Same trader.
+Same chart. Same trader. Different outcome.
+
+#tradecopilot #aitrade #tradingwithai #priceaction
 ```
 
 ---
 
-### Hook 10: The "Friday Edge Report"
-Weekly share-worthy stat:
+### Hook 10: Friday Edge Report
 ```
 This week's AI edge:
 
-📊 27 signals delivered
+📊 27 signals
 ✅ 19 wins (70%)
 ❌ 8 losses
 
-Best pattern: PDL bounce (6/7, 86%)
-Best hour: 10:00-10:30 AM (5/5)
+Best pattern: PDL bounce (86%)
+Best hour: 10:00-10:30 AM
 
-Where the AI excels. Where it doesn't.
-Both matter.
+Where it excels. Where it doesn't. Both matter.
 
 tradingwithai.ai
+
+#tradecopilot #aitrade #tradingwithai #trackrecord
 ```
 
 ## Daily Writing Workflow (30 min)
@@ -267,81 +253,68 @@ Educational analysis — not a recommendation.
 | Engagement rate | 3%+ | same |
 | Followers/week | +20 | +100 |
 
-## Copy/Paste Templates
+## Copy/Paste Templates (founder voice — casual, hashtag stack)
 
 **Pre-market (#1):**
 ```
-AI game plan — [DATE]
+AI game plan for today. Watchlist: SPY, NVDA, META, ETH, BTC. Market read: [bullish/choppy/pullback]. Key level to watch: $[X] on [SYMBOL]. AI scans through the close — first alerts drop at open.
 
-Watchlist: SPY, NVDA, META, ETH, BTC
-
-Market read: [bullish / choppy / pullback]
-Key level to watch: [$X] on [SYMBOL]
-
-AI scans every few minutes through the close.
-First signals drop at open.
+#tradecopilot #aitrade #tradingwithai #tradeplan #daytrade
 ```
 
 **Live signal (#3):**
 ```
-AI SIGNAL just fired:
-
-LONG [SYMBOL] $[PRICE]
+AI SIGNAL — LONG [SYMBOL] $[PRICE]
 Entry $[E] · Stop $[S] · T1 $[T1]
-Setup: [e.g. PDL bounce, higher low + 1.3x volume]
-Conviction: [HIGH / MED / LOW]
+Setup: [PDL bounce / VWAP reclaim / etc]
+Conviction: [HIGH/MED/LOW]
 
-Outcome in a few hours 👀
+Outcome in a few hours.
+
+#tradecopilot #aitrade #tradingwithai #[SYMBOL] #tradingalerts
 ```
 
 **Discipline moment (#4):**
 ```
-[SYMBOL] just hit session low.
+[SYMBOL] hit session low. Twitter yelling BUY THE DIP. AI said WAIT — no higher low, volume too weak. 60 min later: [price dropped X%]. FOMO is expensive, discipline is free.
 
-Twitter: "BUY THE DIP 🚀"
-AI: "No higher low. Volume 0.4x. WAIT."
-
-60 min later: [what actually happened]
-
-FOMO is expensive. Discipline is free.
+#tradecopilot #aitrade #tradingwithai #priceaction #daytrade
 ```
 
 **"How AI helps" (#7):**
 ```
-What AI does while you're in a meeting:
+What AI does while you're in a meeting: watches 10 symbols, spots the bar where structure forms, checks volume, computes entry/stop/target, pings your phone. What you do: decide. That's the shift.
 
-- Watches 10 symbols at once
-- Spots the exact bar where higher low forms
-- Checks volume confirmation
-- Computes entry/stop/target
-- Pings your phone
-
-What you do:
-- Decide.
-
-That's the shift.
+#tradecopilot #aitrade #tradingwithai #aichartanalysis #tradeplan
 ```
 
 **EOD recap (#9):**
 ```
-Today's AI scorecard [DATE]:
-
-Signals: [N]
-Took: [X]
-Wins: [Y]  Losses: [Z]
-Best trade: [SYMBOL] [+X%]
+Today's AI scorecard:
+Signals: [N] · Took: [X]
+Wins: [Y] · Losses: [Z]
+Best trade: [SYMBOL] +[X%]
 
 Full track record (wins and losses):
 tradingwithai.ai
+
+#tradecopilot #aitrade #tradingwithai #trackrecord
 ```
 
 **Evening thread (#10):**
 ```
-1/ Best setup today was [SYMBOL] [PATTERN].
+1/ Best setup today was [SYMBOL] [PATTERN]. Here's what the AI saw and why it fired 🧵👇
 
-Here's what the AI saw 🧵👇
+#tradecopilot #aichartanalysis #tradingwithai #tradeplan
 ```
-Follow with 3-5 tweets walking through the replay. Close with link to /replay/:id.
+Tweets 2-5: walk through the replay — entry level, confirmation bars, volume, outcome. Close with `tradingwithai.ai/replay/[id]`.
+
+**Short-form founder-voice (your baseline style):**
+```
+Leveraging AI for real-time chart analysis + Telegram alerts the moment a setup fires. Works for day trade AND swing trade strategies. No more staring at screens all day.
+
+#aitrade #tradecopilot #tradingwithai #aichartanalysis #tradeplan
+```
 
 ## Tools
 
