@@ -88,8 +88,33 @@ The platform is ready for public rollout but has zero social presence. Competito
 
 ## Profile Setup Checklist
 
+### Canonical Domain
+Primary domain: **`www.tradingwithai.ai`** (apex `tradingwithai.ai` redirect tracked in `tickets/apex-domain-redirect.md`)
+
+### Short Links (Already Live)
+Server-side redirects that preserve UTM attribution. Share the clean URL; backend expands it.
+
+| Short URL | Expands to | Purpose |
+|---|---|---|
+| `www.tradingwithai.ai/tw` | `?utm_source=twitter&utm_medium=bio` | Twitter/X bio |
+| `www.tradingwithai.ai/tt` | `?utm_source=tiktok&utm_medium=bio` | TikTok bio |
+| `www.tradingwithai.ai/ig` | `?utm_source=instagram&utm_medium=bio` | Instagram bio |
+| `www.tradingwithai.ai/yt` | `?utm_source=youtube&utm_medium=bio` | YouTube bio (Phase 3) |
+| `www.tradingwithai.ai/li` | `?utm_source=linkedin&utm_medium=bio` | LinkedIn (out of scope) |
+| `www.tradingwithai.ai/dm` | `?utm_source=friend&utm_medium=dm` | Personal DMs |
+| `www.tradingwithai.ai/fr` | `?utm_source=friend&utm_medium=share` | Friend shares |
+| `www.tradingwithai.ai/launch` | `?utm_source=direct&utm_medium=campaign&utm_campaign=launch` | Launch push |
+
+To add a new short code (e.g. for a campaign), edit `SHORT_LINKS` in `api/app/main.py` and redeploy. Example:
+```python
+"eth":    "utm_source=twitter&utm_medium=post&utm_campaign=eth_replay",
+"pdl":    "utm_source=twitter&utm_medium=post&utm_campaign=pdl_education",
+```
+
+Attribution captured on first-touch lands, stored in localStorage 30 days, attached to the signup request, persisted on User record, visible at `/admin` → "Signup Attribution".
+
 ### Twitter/X
-- [ ] Handle: `@TradeCoPilot` (or best available)
+- [ ] Handle: `@tradecopilot` (or best available — `@tradecopilotai`, `@tradecopilothq` as fallbacks)
 - [ ] Display name: "TradeCoPilot — AI Trading"
 - [ ] Bio (160 chars):
   ```
@@ -97,12 +122,12 @@ The platform is ready for public rollout but has zero social presence. Competito
   ✦ AI scans every 5 min
   ✦ Complete trade plans
   ✦ Public track record
-  🔗 tradecopilot.ai
+  🔗 www.tradingwithai.ai/tw
   ```
 - [ ] Profile pic: Crosshair logo on dark background (400x400)
 - [ ] Banner: "AI TRADING PLATFORM" headline + chart visualization (1500x500)
 - [ ] Pinned tweet: Demo of AI scan finding a PDL bounce with outcome
-- [ ] Website link: landing page with `?utm_source=twitter&utm_medium=bio`
+- [ ] Website link: `www.tradingwithai.ai/tw`
 - [ ] Turn on Media monetization (future)
 
 ### TikTok
@@ -113,9 +138,10 @@ The platform is ready for public rollout but has zero social presence. Competito
   AI trading analyst 📊
   Scans every 5 min
   Wins + losses shown 🔽
+  www.tradingwithai.ai/tt
   ```
 - [ ] Profile pic: Same crosshair logo
-- [ ] Link in bio: landing page with `?utm_source=tiktok&utm_medium=bio`
+- [ ] Link in bio: `www.tradingwithai.ai/tt`
 - [ ] Category: Finance / Education
 - [ ] Enable comments, direct messages
 - [ ] Create 3 pinned playlists: "AI Scans", "Patterns Explained", "Trade Replays"
@@ -128,9 +154,10 @@ The platform is ready for public rollout but has zero social presence. Competito
   ✦ Daily AI setups
   ✦ Pattern education
   ✦ Public track record
+  www.tradingwithai.ai/ig
   ```
 - [ ] Profile pic: Same logo
-- [ ] Link in bio: landing page with `?utm_source=instagram&utm_medium=bio`
+- [ ] Link in bio: `www.tradingwithai.ai/ig`
 - [ ] Create 6 highlight covers: Signals, Patterns, Replays, Education, Wins, Losses
 
 ## Content Pillars (5 Types)
@@ -341,10 +368,13 @@ For Twitter: include in bio and pinned tweet rather than every post.
 - Acceptance: User can one-click share any alert or replay with branded graphic
 
 ### FR-4: Analytics & Attribution
-- UTM parameters on all social links
-- Landing page tracks source of trial signups
-- Weekly report: social-driven signups, top content, conversion rate
-- Acceptance: Dashboard shows social conversion funnel
+- [x] UTM parameters on all social links (via `SHORT_LINKS` in `api/app/main.py`)
+- [x] Landing page captures UTM + referrer via `web/src/lib/attribution.ts`
+- [x] Attribution persisted on User record (source, medium, campaign, referrer)
+- [x] Admin dashboard at `/admin` shows signup breakdown by source / medium / top campaigns
+- [ ] GA4 Measurement ID pasted into `web/index.html` (placeholder currently)
+- [ ] Weekly report: social-driven signups, top content, conversion rate (Phase 2)
+- Acceptance: Admin dashboard shows social conversion funnel after first signups roll in
 
 ### FR-5: Compliance Boilerplate
 - Standard disclaimer text in all profile bios
