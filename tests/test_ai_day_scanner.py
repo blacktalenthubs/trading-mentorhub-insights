@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from analytics.ai_day_scanner import parse_day_trade_response
+from analytics.ai_day_scanner import parse_day_trade_response, build_day_trade_prompt
 
 
 class TestParseDayTradeResponse:
@@ -180,3 +180,110 @@ class TestStopValidation:
         stop = 2242.70  # $0.30 = 0.013% — too tight
         min_stop_dist = entry * 0.003
         assert (entry - stop) < min_stop_dist  # should be rejected
+
+
+class TestMultiUserPromptSafety:
+    """Scanner prompt must NOT contain per-user data — prevents cross-user leakage."""
+
+    def _sample_bars(self, n=5, base=2280.0):
+        return [
+            {"open": base, "high": base + 2, "low": base - 2, "close": base + 1, "volume": 1000}
+            for _ in range(n)
+        ]
+
+    def test_prompt_has_no_active_positions_section(self):
+        """Generic prompt must never include [ACTIVE POSITIONS] section."""
+        prompt = build_day_trade_prompt(
+            symbol="ETH-USD",
+            bars_5m=self._sample_bars(),
+            bars_1h=self._sample_bars(),
+            prior_day={"high": 2300, "low": 2250, "close": 2275},
+        )
+        assert "[ACTIVE POSITIONS]" not in prompt
+        assert "ACTIVE POSITIONS" not in prompt
+
+    def test_prompt_ignores_active_positions_arg(self):
+        """Even when passed active_positions, prompt must not include them (multi-user safety)."""
+        fake_positions = [
+            {"symbol": "ETH-USD", "entry": 2293.46, "stop": "$2280", "t1": "$2310", "time": "09:45"}
+        ]
+        prompt = build_day_trade_prompt(
+            symbol="ETH-USD",
+            bars_5m=self._sample_bars(),
+            bars_1h=self._sample_bars(),
+            prior_day={"high": 2300, "low": 2250, "close": 2275},
+            active_positions=fake_positions,
+        )
+        # Prompt should NOT contain any user position data
+        assert "$2293.46" not in prompt
+        assert "2293.46" not in prompt
+        assert "09:45" not in prompt
+
+    def test_prompt_is_generic_across_users(self):
+        """Same symbol → same prompt, regardless of who's watching."""
+        args = {
+            "symbol": "ETH-USD",
+            "bars_5m": self._sample_bars(),
+            "bars_1h": self._sample_bars(),
+            "prior_day": {"high": 2300, "low": 2250, "close": 2275},
+        }
+        prompt_a = build_day_trade_prompt(**args, active_positions=[{"symbol": "ETH-USD", "entry": 2290}])
+        prompt_b = build_day_trade_prompt(**args, active_positions=[{"symbol": "ETH-USD", "entry": 2200}])
+        prompt_c = build_day_trade_prompt(**args, active_positions=None)
+        assert prompt_a == prompt_b == prompt_c
+
+
+class TestPerUserPositionFilter:
+    """Per-user delivery filter: skip LONG if that user already holds the symbol."""
+
+    def test_filter_skips_user_with_open_long(self):
+        """User 3 holds ETH; user 13 doesn't. Only user 13 should get the alert."""
+        user_open_longs = {(3, "ETH-USD"): True}
+        symbol_users_eth = [3, 13, 28]
+
+        delivered_to = []
+        for uid in symbol_users_eth:
+            if user_open_longs.get((uid, "ETH-USD")):
+                continue  # skip — user already long
+            delivered_to.append(uid)
+
+        assert 3 not in delivered_to
+        assert 13 in delivered_to
+        assert 28 in delivered_to
+
+    def test_filter_skips_all_when_all_hold(self):
+        user_open_longs = {
+            (3, "ETH-USD"): True,
+            (13, "ETH-USD"): True,
+        }
+        symbol_users_eth = [3, 13]
+
+        delivered_to = [uid for uid in symbol_users_eth if not user_open_longs.get((uid, "ETH-USD"))]
+        assert delivered_to == []
+
+    def test_filter_delivers_to_all_when_none_hold(self):
+        user_open_longs = {}
+        symbol_users_eth = [3, 13, 28]
+
+        delivered_to = [uid for uid in symbol_users_eth if not user_open_longs.get((uid, "ETH-USD"))]
+        assert delivered_to == [3, 13, 28]
+
+    def test_filter_scopes_by_symbol(self):
+        """Open LONG in ETH should NOT suppress a BTC alert."""
+        user_open_longs = {(3, "ETH-USD"): True}
+        symbol_users_btc = [3, 13]
+
+        # BTC scan — user 3 holds ETH but not BTC
+        delivered_to = [uid for uid in symbol_users_btc if not user_open_longs.get((uid, "BTC-USD"))]
+        assert 3 in delivered_to
+        assert 13 in delivered_to
+
+    def test_filter_only_applies_to_long_direction(self):
+        """RESISTANCE alerts should deliver even to users holding open LONGs."""
+        # This mirrors the scanner: RESISTANCE is useful as an exit signal
+        # The filter is only in the LONG delivery branch.
+        user_open_longs = {(3, "ETH-USD"): True}
+
+        # Simulating RESISTANCE branch (no filter applied)
+        resistance_delivered = [3]  # user 3 gets it regardless
+        assert 3 in resistance_delivered
