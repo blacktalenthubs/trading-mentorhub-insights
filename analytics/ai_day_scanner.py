@@ -331,23 +331,22 @@ def day_scan_cycle(sync_session_factory) -> int:
 
             logger.info("AI day scan: scanning %d symbols", len(symbols))
 
-            # Fetch active positions — alerts user "took" today, still active
+            # Fetch active positions — OPEN RealTrades (closed trades are excluded)
             active_positions = []
             try:
-                took_alerts = db.execute(
-                    select(Alert).where(
-                        Alert.session_date == session,
-                        Alert.user_action == "took",
-                        Alert.direction == "BUY",
+                from app.models.paper_trade import RealTrade
+                open_trades = db.execute(
+                    select(RealTrade).where(
+                        RealTrade.status == "open",
                     )
                 ).scalars().all()
-                for ta in took_alerts:
+                for ot in open_trades:
                     active_positions.append({
-                        "symbol": ta.symbol,
-                        "entry": ta.entry or ta.price,
-                        "stop": f"${ta.stop:.2f}" if ta.stop else "N/A",
-                        "t1": f"${ta.target_1:.2f}" if ta.target_1 else "N/A",
-                        "time": ta.created_at.strftime("%H:%M") if ta.created_at else "",
+                        "symbol": ot.symbol,
+                        "entry": ot.entry_price,
+                        "stop": f"${ot.stop_price:.2f}" if ot.stop_price else "N/A",
+                        "t1": f"${ot.target_price:.2f}" if ot.target_price else "N/A",
+                        "time": ot.created_at.strftime("%H:%M") if ot.created_at else "",
                     })
             except Exception:
                 logger.debug("AI day scan: could not fetch active positions")
