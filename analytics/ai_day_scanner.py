@@ -346,7 +346,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                         "entry": ot.entry_price,
                         "stop": f"${ot.stop_price:.2f}" if ot.stop_price else "N/A",
                         "t1": f"${ot.target_price:.2f}" if ot.target_price else "N/A",
-                        "time": ot.created_at.strftime("%H:%M") if ot.created_at else "",
+                        "time": ot.opened_at.strftime("%H:%M") if ot.opened_at else "",
                     })
             except Exception:
                 logger.debug("AI day scan: could not fetch active positions")

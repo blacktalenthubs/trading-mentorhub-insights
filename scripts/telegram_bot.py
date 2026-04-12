@@ -310,19 +310,29 @@ def _handle_exit(alert_id: int, chat_id: int) -> str:
     except Exception as e:
         logger.warning("Exit: failed to clear active entries for %s: %s", symbol, e)
 
-    # Close any open real trade
+    # Close ALL open real trades for this symbol (not just one)
     try:
         from alerting.real_trade_store import close_real_trade
         from db import get_db
         with get_db() as conn:
-            trade = conn.execute(
-                "SELECT id, entry_price FROM real_trades WHERE symbol=? AND status='open' ORDER BY opened_at DESC LIMIT 1",
+            open_trades = conn.execute(
+                "SELECT id, entry_price FROM real_trades WHERE symbol=? AND status='open' ORDER BY opened_at DESC",
                 (symbol,),
-            ).fetchone()
-        if trade:
-            pnl = close_real_trade(trade["id"], exit_price, notes="Exited via Telegram")
-            sign = "+" if pnl >= 0 else ""
-            return f"\U0001f6d1 Exited {symbol} @ ${exit_price:.2f} | P&L: {sign}${pnl:.2f}"
+            ).fetchall()
+        if open_trades:
+            total_pnl = 0.0
+            closed_count = 0
+            for ot in open_trades:
+                try:
+                    pnl = close_real_trade(ot["id"], exit_price, notes="Exited via Telegram")
+                    total_pnl += pnl
+                    closed_count += 1
+                except Exception as _e:
+                    logger.warning("Exit: failed to close trade %d: %s", ot["id"], _e)
+            sign = "+" if total_pnl >= 0 else ""
+            if closed_count > 1:
+                return f"\U0001f6d1 Exited {closed_count}x {symbol} @ ${exit_price:.2f} | Total P&L: {sign}${total_pnl:.2f}"
+            return f"\U0001f6d1 Exited {symbol} @ ${exit_price:.2f} | P&L: {sign}${total_pnl:.2f}"
     except Exception as e:
         logger.debug("Exit: no real trade to close for %s: %s", symbol, e)
 
