@@ -27,9 +27,6 @@ _day_session: str = ""
 # Track last direction sent to Telegram per symbol — only notify on change
 _last_tg_direction: dict[str, str] = {}  # {symbol: "LONG" / "RESISTANCE" / "WAIT"}
 _last_tg_time: dict[str, float] = {}  # {symbol: timestamp of last Telegram send}
-_last_wait_price: dict[str, float] = {}  # {symbol: price at last WAIT alert}
-_WAIT_COOLDOWN_SEC = 900  # 15 min (was 30) — keep AI present during long chop
-_WAIT_PRICE_MOVE_PCT = 0.004  # 0.4% price move overrides cooldown (structural change)
 # Per-user rate limit tracking — resets on new session
 _user_delivered_count: dict[tuple[int, str], int] = {}  # (uid, session) -> LONG/SHORT/RESISTANCE/EXIT count
 _user_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about actionable cap
@@ -491,7 +488,6 @@ def day_scan_cycle(sync_session_factory) -> int:
         _day_fired.clear()
         _last_tg_direction.clear()
         _last_tg_time.clear()
-        _last_wait_price.clear()
         _user_delivered_count.clear()
         _user_limit_notified.clear()
         _user_wait_count.clear()
@@ -574,35 +570,16 @@ def day_scan_cycle(sync_session_factory) -> int:
                     ))
                     db.commit()
 
-                    # Send WAIT to Telegram (AI Update) if any of these triggers:
-                    #   1. Direction changed from non-WAIT to WAIT (fresh context)
-                    #   2. Cooldown elapsed (15 min — keep AI present during long chop)
-                    #   3. Price moved >= 0.4% since last WAIT (structural change worth noting)
+                    # Send WAIT to Telegram: direction changed + 30 min cooldown
                     _level_keywords = ["PDH", "PDL", "VWAP", "session low", "session high",
-                                       "20MA", "50MA", "100MA", "200MA", "20 Daily", "50 Daily",
-                                       "100 Daily", "200 Daily", "EMA",
-                                       "support", "resistance", "weekly", "higher low",
-                                       "lower high", "breakdown", "breakout"]
+                                       "50MA", "100MA", "200MA", "support", "resistance", "weekly"]
                     _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
                     _prev_dir = _last_tg_direction.get(symbol)
                     _last_sent = _last_tg_time.get(symbol, 0)
-                    _cooldown_ok = (time.time() - _last_sent) > _WAIT_COOLDOWN_SEC
-                    _current_price = result.get("price", 0) or 0
-                    _prev_wait_price = _last_wait_price.get(symbol, 0)
-                    _price_moved = False
-                    if _prev_wait_price and _current_price:
-                        _price_moved = abs(_current_price - _prev_wait_price) / _prev_wait_price >= _WAIT_PRICE_MOVE_PCT
-                    _should_fire = (
-                        _near_level and reason and (
-                            _prev_dir != "WAIT"   # direction changed
-                            or _cooldown_ok       # timer elapsed
-                            or _price_moved       # structural price change
-                        )
-                    )
-                    if _should_fire:
+                    _cooldown_ok = (time.time() - _last_sent) > 1800  # 30 min
+                    if _near_level and reason and (_prev_dir != "WAIT" or _cooldown_ok):
                         _last_tg_direction[symbol] = "WAIT"
                         _last_tg_time[symbol] = time.time()
-                        _last_wait_price[symbol] = _current_price
                         try:
                             from alerting.notifier import _send_telegram_to
                             _price_fmt = f"${result.get('price', 0):.2f}"
