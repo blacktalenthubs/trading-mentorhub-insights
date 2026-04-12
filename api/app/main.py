@@ -473,13 +473,34 @@ def create_app() -> FastAPI:
         # Serve static assets (JS, CSS, images)
         app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="static")
 
-        # Catch-all: serve index.html for any non-API route (SPA client-side routing)
+        from fastapi.responses import RedirectResponse, JSONResponse
+
+        # Short-link redirects for social sharing — expand to full UTM URL.
+        # Usage: share tradingwithai.ai/tw (clean) → 302 redirect to /?utm_source=twitter&utm_medium=bio
+        SHORT_LINKS = {
+            # Platform bios
+            "tw":  "utm_source=twitter&utm_medium=bio",
+            "tt":  "utm_source=tiktok&utm_medium=bio",
+            "ig":  "utm_source=instagram&utm_medium=bio",
+            "yt":  "utm_source=youtube&utm_medium=bio",
+            "li":  "utm_source=linkedin&utm_medium=bio",
+            # Personal sharing
+            "dm":  "utm_source=friend&utm_medium=dm",
+            "fr":  "utm_source=friend&utm_medium=share",
+            # Campaigns — add more as needed
+            "launch": "utm_source=direct&utm_medium=campaign&utm_campaign=launch",
+        }
+
+        # Catch-all: serve index.html for any non-API route (SPA client-side routing).
+        # Also handles short-link redirects inline to avoid route conflicts.
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
             # Never intercept API routes — let FastAPI handle 404s
             if full_path.startswith("api/"):
-                from fastapi.responses import JSONResponse
                 return JSONResponse({"detail": "Not Found"}, status_code=404)
+            # Short-link redirect (only matches if path is a single segment with no file extension)
+            if full_path in SHORT_LINKS:
+                return RedirectResponse(url=f"/?{SHORT_LINKS[full_path]}", status_code=302)
             # If it's a file that exists in dist, serve it
             file_path = dist_dir / full_path
             if file_path.is_file():
