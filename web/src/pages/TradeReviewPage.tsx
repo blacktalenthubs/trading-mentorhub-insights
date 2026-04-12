@@ -118,7 +118,7 @@ export default function TradeReviewPage() {
         <div className="flex items-center gap-3 ml-auto text-[10px] text-text-muted">
           <span>{dateAlerts.length} total</span>
           {aiSignalCount > 0 && <span className="text-accent">{aiSignalCount} AI signals</span>}
-          {aiWaitCount > 0 && <span className="text-text-faint">{aiWaitCount} waits</span>}
+          {aiWaitCount > 0 && <span className="text-text-faint">{aiWaitCount} updates</span>}
           {ruleCount > 0 && <span>{ruleCount} rules</span>}
           {tookCount > 0 && <span className="text-bullish-text">{tookCount} took</span>}
           {skippedCount > 0 && <span>{skippedCount} skipped</span>}
@@ -178,8 +178,8 @@ export default function TradeReviewPage() {
           <p>No replayable alerts match your filters.</p>
           {aiWaitCount > 0 && aiSignalCount === 0 && (
             <p className="text-[11px] text-text-faint">
-              AI ran {aiWaitCount} scans today but found no actionable setups (all WAITs).
-              Waits aren't replayed — AI was disciplined, not broken.
+              AI delivered {aiWaitCount} market updates today but found no actionable setups.
+              Updates aren't replayed — AI was disciplined, not broken.
             </p>
           )}
         </div>

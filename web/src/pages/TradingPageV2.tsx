@@ -412,7 +412,7 @@ function AIScanFeedTab({
   if (aiAlerts.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-text-faint">No AI waits yet today</p>
+        <p className="text-xs text-text-faint">No AI updates yet today</p>
       </div>
     );
   }
@@ -448,7 +448,7 @@ function AIScanFeedTab({
           : isLong
             ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
             : "bg-orange-500/10 text-orange-400 border-orange-500/20";
-        const label = isWait ? "WAIT" : isLong ? "AI LONG" : "AI RESISTANCE";
+        const label = isWait ? "AI UPDATE" : isLong ? "AI LONG" : "AI RESISTANCE";
 
         return (
           <div
@@ -1359,7 +1359,7 @@ export default function TradingPageV2() {
               [
                 { key: "ai" as RightTab, label: "AI Coach", icon: Brain, badge: 0 },
                 { key: "signals" as RightTab, label: "AI Signals", icon: Zap, badge: alertCount },
-                { key: "aiscan" as RightTab, label: "AI Waits", icon: Eye, badge: 0 },
+                { key: "aiscan" as RightTab, label: "AI Updates", icon: Eye, badge: 0 },
               ]
             ).map(({ key, label, icon: Icon, badge }) => (
               <button
@@ -1438,7 +1438,7 @@ export default function TradingPageV2() {
             [
               { key: "ai" as RightTab, label: "AI", icon: Brain },
               { key: "signals" as RightTab, label: "Signals", icon: Zap },
-              { key: "aiscan" as RightTab, label: "Waits", icon: Eye },
+              { key: "aiscan" as RightTab, label: "Updates", icon: Eye },
             ] as const
           ).map(({ key, label, icon: Icon }) => (
             <button

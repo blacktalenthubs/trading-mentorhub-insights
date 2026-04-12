@@ -288,7 +288,7 @@ function AIAlertFilters() {
         </p>
       </div>
 
-      {/* WAIT alerts */}
+      {/* AI Updates */}
       <div className="mb-5 pb-5 border-b border-border-subtle/50">
         <label className="flex items-start gap-3 cursor-pointer">
           <input
@@ -298,10 +298,10 @@ function AIAlertFilters() {
             className="mt-0.5 rounded border-border-subtle"
           />
           <div className="flex-1">
-            <span className="text-xs font-semibold text-text-primary">Send WAIT alerts</span>
+            <span className="text-xs font-semibold text-text-primary">Send AI Updates</span>
             <p className="text-[10px] text-text-faint leading-tight mt-0.5">
-              See when the AI is staying out. Builds trust, but can be chatty in choppy markets.
-              WAITs always appear in the dashboard regardless of this setting.
+              Context between trades — what the AI is watching and why it's staying out of chop.
+              Chatty during sideways markets. Updates always appear in the dashboard regardless of this setting.
             </p>
           </div>
         </label>

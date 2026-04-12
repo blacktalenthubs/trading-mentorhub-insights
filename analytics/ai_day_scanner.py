@@ -535,7 +535,7 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                 # WAIT — no setup confirmed, record to DB for AI Scan feed
                 if not direction or direction == "WAIT":
-                    _wait_msg = f"AI: WAIT — {reason}" if reason else "AI: WAIT — no setup confirmed"
+                    _wait_msg = f"AI Update: {reason}" if reason else "AI Update: no setup confirmed"
                     for _uid in symbol_users[symbol]:
                       db.add(Alert(
                         user_id=_uid, symbol=symbol,
@@ -559,7 +559,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                         try:
                             from alerting.notifier import _send_telegram_to
                             _tg_msg = (
-                                f"<b>AI SIGNAL — {symbol} ${result.get('price', 0):.2f}</b>\n"
+                                f"<b>AI UPDATE — {symbol} ${result.get('price', 0):.2f}</b>\n"
                                 f"{reason}"
                             )
                             for _uid in symbol_users[symbol]:
@@ -586,7 +586,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                                         if _wcount >= _wmax:
                                             if _db_mark_notified(db, _uid, _FEATURE_WAIT_NOTIFIED, session):
                                                 _send_telegram_to(
-                                                    f"💤 Daily WAIT alert limit reached ({_wmax}/{_wmax}).\n"
+                                                    f"💤 Daily AI Updates limit reached ({_wmax}/{_wmax}).\n"
                                                     f"You still get actionable AI entries. "
                                                     f"Upgrade to Pro for unlimited AI transparency.\n"
                                                     f"→ https://www.tradingwithai.ai/billing",
