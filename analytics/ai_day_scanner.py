@@ -69,48 +69,80 @@ def build_day_trade_prompt(
         "You are a day trade analyst. Read the chart data below and decide:\n"
         "Is there a trade right now?\n\n"
         "WHAT TO LOOK FOR:\n"
-        "- Price bouncing off support (session low, PDL, VWAP, MA) → LONG\n"
-        "- Price rejecting at resistance (session high, PDH, MA above) → RESISTANCE\n"
+        "- Price bouncing off support (session low, PDL, VWAP, daily MA) → LONG\n"
+        "- Price rejecting at resistance (session high, PDH, daily MA above) with confirmed structure → SHORT\n"
+        "- Price approaching resistance but no confirmed rejection yet → RESISTANCE (notice)\n"
         "- Price between levels with no clear setup → WAIT\n\n"
+        "KEY LEVEL PRIORITY (use the dominant level as entry):\n"
+        "- Daily MAs (20/50/100/200) are the STRONGEST levels — if price within 0.3% of any daily MA,\n"
+        "  that MA is the entry level, regardless of session/PDL proximity.\n"
+        "- Next priority: PDH/PDL, then session highs/lows, then VWAP.\n\n"
         "LONG CONFIRMATION RULES (critical — avoid false bottoms):\n"
         "- Require HIGHER LOW structure: last bar's low must be ABOVE the prior swing low.\n"
         "  First touch of support with no higher low yet → WAIT (not LONG).\n"
         "- Require VOLUME > 1.0x average on the bounce bar, OR 2+ bars holding above the level.\n"
-        "- If price is just pinned at support with declining/flat structure → WAIT.\n"
-        "- Only fire LONG when the reversal STRUCTURE is confirmed, not on hope.\n\n"
+        "- If price is just pinned at support with declining/flat structure → WAIT.\n\n"
+        "SHORT CONFIRMATION RULES (mirror of LONG — critical, avoid false tops):\n"
+        "- Require LOWER HIGH structure: last bar's high must be BELOW the prior swing high.\n"
+        "  First touch of resistance with no lower high yet → RESISTANCE (notice, not SHORT).\n"
+        "- Require VOLUME > 1.0x average on the rejection bar, OR 2+ bars holding below the level.\n"
+        "- If price is just pinned at resistance with flat structure → WAIT.\n"
+        "- Only fire SHORT when the reversal STRUCTURE is confirmed, not on hope.\n\n"
         "OUTPUT (plain text, no markdown):\n\n"
-        "SETUP: [what you see — e.g. PDL bounce, VWAP reclaim, session low hold, MA rejection]\n"
-        "Direction: LONG / RESISTANCE / WAIT\n"
+        "SETUP: [what you see — e.g. PDL bounce, VWAP reclaim, 50MA rejection, PDH fail]\n"
+        "Direction: LONG / SHORT / RESISTANCE / WAIT\n"
         "Entry: $price (the key level, not current price)\n"
-        "Stop: $price (below the support that defines the trade)\n"
-        "T1: $price (next resistance above)\n"
-        "T2: $price (second resistance)\n"
+        "Stop: $price (LONG: below support; SHORT: above resistance)\n"
+        "T1: $price (LONG: next resistance above; SHORT: next support below)\n"
+        "T2: $price (LONG: second resistance; SHORT: second support)\n"
         "Conviction: HIGH / MEDIUM / LOW\n"
-        "Reason: 1 sentence — must mention the higher low or volume confirmation if LONG\n\n"
+        "Reason: 1 sentence — must mention higher low + volume for LONG, lower high + volume for SHORT\n\n"
         "RULES:\n"
         "- Be decisive, but respect the confirmation rules above.\n"
         "- Entry = the key level price, not current price.\n"
-        "- Stop = below the next structural support (where thesis breaks).\n"
-        "- If no higher low or no volume confirmation, say WAIT.\n"
+        "- Stop = structural level where thesis breaks (below support for LONG, above resistance for SHORT).\n"
+        "- LONG without higher low + volume → WAIT.\n"
+        "- SHORT without lower high + volume → RESISTANCE or WAIT (NOT a SHORT).\n"
         "- MAXIMUM 60 WORDS.\n"
-        "- PDH = yesterday's high. PDL = yesterday's low.\n"
+        "- PDH = yesterday's high. PDL = yesterday's low. Daily MAs are from the daily timeframe.\n"
     )
 
     parts = [prompt]
 
     # Key levels from prior day
     if prior_day:
+        # --- Prior day anchors ---
         levels = [f"\n[KEY LEVELS — {symbol}]"]
         for key, label in [
             ("high", "PDH(yesterday high)"),
             ("low", "PDL(yesterday low)"),
             ("close", "Prior Close"),
-            ("ma20", "20MA"), ("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA"),
-            ("ema20", "20EMA"), ("ema50", "50EMA"), ("ema100", "100EMA"), ("ema200", "200EMA"),
         ]:
             val = prior_day.get(key)
             if val and val > 0:
                 levels.append(f"{label}: ${val:.2f}")
+
+        # --- Daily MAs — strongest support/resistance on intraday charts ---
+        daily_ma_lines = []
+        for key, label in [
+            ("ma20", "20 Daily MA"), ("ma50", "50 Daily MA"),
+            ("ma100", "100 Daily MA"), ("ma200", "200 Daily MA"),
+            ("ema20", "20 Daily EMA"), ("ema50", "50 Daily EMA"),
+            ("ema100", "100 Daily EMA"), ("ema200", "200 Daily EMA"),
+        ]:
+            val = prior_day.get(key)
+            if val and val > 0:
+                daily_ma_lines.append(f"{label}: ${val:.2f}")
+        if daily_ma_lines:
+            levels.append("")
+            levels.append("[DAILY MAs — strong multi-day support/resistance]")
+            levels.extend(daily_ma_lines)
+            levels.append(
+                "If current price is within 0.3% of any daily MA, that MA is the "
+                "dominant level — use it as the LONG entry (bounce) or SHORT entry "
+                "(rejection) level."
+            )
+            levels.append("")
         rsi = prior_day.get("rsi14")
         if rsi:
             levels.append(f"RSI14: {rsi:.1f}")
@@ -200,7 +232,7 @@ def parse_day_trade_response(text: str) -> dict:
         result["setup_type"] = setup_match.group(1).strip()
 
     # Direction
-    dir_match = re.search(r"Direction:\s*(LONG|RESISTANCE|WAIT)", text, re.IGNORECASE)
+    dir_match = re.search(r"Direction:\s*(LONG|SHORT|RESISTANCE|WAIT)", text, re.IGNORECASE)
     if dir_match:
         result["direction"] = dir_match.group(1).upper()
 
@@ -334,23 +366,26 @@ def day_scan_cycle(sync_session_factory) -> int:
             logger.info("AI day scan: scanning %d symbols", len(symbols))
 
             # Per-user open-position index — checked at delivery time
-            # Maps (user_id, symbol) -> True if that user holds an open LONG
+            # Maps (user_id, symbol) -> True if that user holds an open LONG / SHORT
             from app.models.paper_trade import RealTrade
             user_open_longs: dict[tuple[int, str], bool] = {}
+            user_open_shorts: dict[tuple[int, str], bool] = {}
             try:
                 _all_uids = {uid for uids in symbol_users.values() for uid in uids}
                 if _all_uids:
                     open_trades = db.execute(
-                        select(RealTrade.user_id, RealTrade.symbol).where(
+                        select(RealTrade.user_id, RealTrade.symbol, RealTrade.direction).where(
                             RealTrade.status == "open",
-                            RealTrade.direction == "BUY",
                             RealTrade.user_id.in_(_all_uids),
                         )
                     ).all()
-                    for uid, sym in open_trades:
-                        user_open_longs[(uid, sym)] = True
+                    for uid, sym, direction in open_trades:
+                        if direction == "BUY":
+                            user_open_longs[(uid, sym)] = True
+                        elif direction in ("SHORT", "SELL"):
+                            user_open_shorts[(uid, sym)] = True
             except Exception:
-                logger.debug("AI day scan: could not build user_open_longs index")
+                logger.debug("AI day scan: could not build user_open_positions index")
 
             total_alerts = 0
 
@@ -469,6 +504,119 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                     logger.info("AI day scan %s: RESISTANCE at $%.2f", symbol, entry or 0)
                     continue
+
+                # SHORT entry — mirror of LONG at resistance (Spec 34)
+                if direction == "SHORT":
+                    if not entry or entry <= 0:
+                        continue
+
+                    # Dedup by (symbol, SHORT, level_bucket) — separate from LONG buckets
+                    _bucket_s = _level_bucket(entry)
+                    _short_dedup_key = (symbol, "SHORT", _bucket_s)
+                    _fired_set_s = _day_fired.get(session, set())
+                    if _short_dedup_key in _fired_set_s:
+                        logger.debug(
+                            "AI day scan %s: SHORT at bucket $%.2f already fired, skip",
+                            symbol, _bucket_s,
+                        )
+                        continue
+                    _fired_set_s.add(_short_dedup_key)
+                    _day_fired[session] = _fired_set_s
+
+                    score_s = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
+                    setup_label_s = setup_type or "AI short entry"
+                    message_s = f"{setup_label_s}: {reason}" if reason else setup_label_s
+
+                    _first_uid_s = symbol_users[symbol][0]
+                    alert_s = Alert(
+                        user_id=_first_uid_s, symbol=symbol,
+                        alert_type="ai_day_short",
+                        direction="SHORT",
+                        price=result.get("price", entry),
+                        entry=entry,
+                        stop=result.get("stop"),
+                        target_1=result.get("t1"),
+                        target_2=result.get("t2"),
+                        confidence=conviction.lower(),
+                        message=message_s,
+                        score=score_s,
+                        session_date=session,
+                    )
+                    db.add(alert_s)
+                    db.flush()
+                    total_alerts += 1
+                    _alert_id_s = alert_s.id
+                    db.commit()
+
+                    # Telegram — direction-change gate (SHORT distinct from LONG/RESISTANCE/WAIT)
+                    if _last_tg_direction.get(symbol) == "SHORT":
+                        logger.debug("AI day scan %s: SHORT already notified, skip Telegram", symbol)
+                    else:
+                        _last_tg_direction[symbol] = "SHORT"
+                        try:
+                            from alerting.notifier import _send_telegram_to
+                            import html as _html_s
+
+                            _stop_s = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
+                            _t1_s = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
+                            _t2_s = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
+                            _tg_msg_s = (
+                                f"<b>AI SCAN — SHORT {_html_s.escape(symbol)} ${entry:.2f}</b>\n"
+                                f"Entry ${entry:.2f} · Stop {_stop_s} · T1 {_t1_s} · T2 {_t2_s}\n"
+                                f"Setup: {_html_s.escape(setup_label_s)}\n"
+                                f"Conviction: {conviction}"
+                            )
+                            _buttons_s = {
+                                "inline_keyboard": [[
+                                    {"text": "✅ Took It", "callback_data": f"ack:{_alert_id_s}"},
+                                    {"text": "❌ Skip", "callback_data": f"skip:{_alert_id_s}"},
+                                    {"text": "🔴 Exit", "callback_data": f"exit:{_alert_id_s}"},
+                                ]]
+                            }
+
+                            for uid in symbol_users[symbol]:
+                                # Per-user position check: skip SHORT if user already holds SHORT
+                                if user_open_shorts.get((uid, symbol)):
+                                    logger.debug(
+                                        "AI day scan %s: user %d already holds SHORT, skip delivery",
+                                        symbol, uid,
+                                    )
+                                    continue
+                                user = db.get(User, uid)
+                                if user and user.telegram_enabled and user.telegram_chat_id:
+                                    # Rate limit check (same counter as LONG)
+                                    _send_s = True
+                                    try:
+                                        from api.app.tier import get_limits as _gl
+                                        from api.app.dependencies import get_user_tier as _gut
+                                        _tier_max_s = _gl(_gut(user)).get("ai_scan_alerts_per_day")
+                                        if _tier_max_s is not None:
+                                            _uid_key_s = (uid, session)
+                                            if _user_delivered_count.get(_uid_key_s, 0) >= _tier_max_s:
+                                                if _uid_key_s not in _user_limit_notified:
+                                                    _send_telegram_to(
+                                                        f"📊 Daily AI scan limit reached ({_tier_max_s}/{_tier_max_s}).\n"
+                                                        f"You won't receive more AI scan alerts today.\n"
+                                                        f"Upgrade to Pro for unlimited alerts.\n"
+                                                        f"→ https://www.tradesignalwithai.com/billing",
+                                                        user.telegram_chat_id,
+                                                    )
+                                                    _user_limit_notified.add(_uid_key_s)
+                                                _send_s = False
+                                    except Exception:
+                                        pass
+                                    if _send_s:
+                                        _send_telegram_to(_tg_msg_s, user.telegram_chat_id, reply_markup=_buttons_s)
+                                        _user_delivered_count[(uid, session)] = \
+                                            _user_delivered_count.get((uid, session), 0) + 1
+                                        logger.info(
+                                            "AI day scan %s: SHORT at $%.2f → Telegram user %d",
+                                            symbol, entry, uid,
+                                        )
+                        except Exception:
+                            logger.exception("AI day scan: SHORT Telegram failed for %s", symbol)
+
+                    continue  # done with this symbol; don't fall through to LONG block
 
                 # LONG entry
                 if not entry or entry <= 0:

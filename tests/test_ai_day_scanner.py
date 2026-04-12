@@ -287,3 +287,120 @@ class TestPerUserPositionFilter:
         # Simulating RESISTANCE branch (no filter applied)
         resistance_delivered = [3]  # user 3 gets it regardless
         assert 3 in resistance_delivered
+
+
+class TestDailyMAContext:
+    """Phase 1 (Spec 34) — prompt includes dedicated daily MA section."""
+
+    def _sample_bars(self, n=5, base=2280.0):
+        return [
+            {"open": base, "high": base + 2, "low": base - 2, "close": base + 1, "volume": 1000}
+            for _ in range(n)
+        ]
+
+    def test_prompt_includes_daily_ma_section(self):
+        prompt = build_day_trade_prompt(
+            symbol="SPY",
+            bars_5m=self._sample_bars(),
+            bars_1h=self._sample_bars(),
+            prior_day={
+                "high": 680, "low": 670, "close": 675,
+                "ma20": 674.0, "ma50": 672.5, "ma100": 668.0, "ma200": 660.0,
+            },
+        )
+        assert "[DAILY MAs" in prompt
+        assert "50 Daily MA: $672.50" in prompt
+        assert "200 Daily MA: $660.00" in prompt
+        assert "dominant level" in prompt.lower()
+
+    def test_prompt_omits_daily_mas_when_absent(self):
+        prompt = build_day_trade_prompt(
+            symbol="SPY",
+            bars_5m=self._sample_bars(),
+            bars_1h=self._sample_bars(),
+            prior_day={"high": 680, "low": 670, "close": 675},  # no MAs
+        )
+        assert "[DAILY MAs" not in prompt
+
+    def test_prompt_instructs_priority_on_daily_ma(self):
+        prompt = build_day_trade_prompt(
+            symbol="SPY",
+            bars_5m=self._sample_bars(),
+            bars_1h=self._sample_bars(),
+            prior_day={"ma50": 672.0},
+        )
+        assert "Daily MAs" in prompt or "daily MA" in prompt
+        # The rules section must mention priority
+        assert "KEY LEVEL PRIORITY" in prompt
+
+
+class TestShortDirection:
+    """Phase 2 (Spec 34) — SHORT as first-class direction."""
+
+    def test_parses_short_with_full_trade_plan(self):
+        text = """SETUP: PDH rejection
+Direction: SHORT
+Entry: $2330.56
+Stop: $2335.00
+T1: $2300.00
+T2: $2275.00
+Conviction: HIGH
+Reason: Lower high confirmed with 1.3x volume on rejection bar."""
+        result = parse_day_trade_response(text)
+        assert result["direction"] == "SHORT"
+        assert result["entry"] == 2330.56
+        assert result["stop"] == 2335.00
+        assert result["t1"] == 2300.00
+        assert result["t2"] == 2275.00
+        assert result["conviction"] == "HIGH"
+        assert "lower high" in result["reason"].lower()
+
+    def test_prompt_includes_short_confirmation_rules(self):
+        prompt = build_day_trade_prompt(
+            symbol="ETH-USD",
+            bars_5m=[{"open": 2280, "high": 2290, "low": 2278, "close": 2288, "volume": 1000}],
+            bars_1h=[],
+            prior_day={"high": 2300, "low": 2250},
+        )
+        assert "SHORT CONFIRMATION RULES" in prompt
+        assert "LOWER HIGH" in prompt
+        assert "SHORT / RESISTANCE / WAIT" in prompt or "LONG / SHORT" in prompt
+
+    def test_prompt_distinguishes_short_from_resistance(self):
+        prompt = build_day_trade_prompt(
+            symbol="ETH-USD",
+            bars_5m=[{"open": 2280, "high": 2290, "low": 2278, "close": 2288, "volume": 1000}],
+            bars_1h=[],
+            prior_day={"high": 2300},
+        )
+        # SHORT = confirmed rejection with entry/stop/T1/T2
+        # RESISTANCE = approaching, notice only
+        assert "approaching resistance but no confirmed rejection" in prompt.lower() \
+            or "RESISTANCE (notice)" in prompt
+
+
+class TestPerUserShortFilter:
+    """Per-user delivery filter for SHORT mirrors LONG filter."""
+
+    def test_skips_user_with_open_short(self):
+        user_open_shorts = {(3, "ETH-USD"): True}
+        symbol_users_eth = [3, 13, 28]
+
+        delivered = [uid for uid in symbol_users_eth if not user_open_shorts.get((uid, "ETH-USD"))]
+        assert 3 not in delivered
+        assert 13 in delivered
+        assert 28 in delivered
+
+    def test_long_and_short_filters_independent(self):
+        """User holding LONG should still get SHORT alerts (and vice versa)."""
+        user_open_longs = {(3, "ETH-USD"): True}
+        user_open_shorts: dict = {}  # empty
+        symbol_users_eth = [3]
+
+        # SHORT delivery: user 3 holds LONG but not SHORT → SHORT alert should deliver
+        short_delivered = [uid for uid in symbol_users_eth if not user_open_shorts.get((uid, "ETH-USD"))]
+        assert 3 in short_delivered
+
+        # LONG delivery: user 3 holds LONG → LONG alert suppressed
+        long_delivered = [uid for uid in symbol_users_eth if not user_open_longs.get((uid, "ETH-USD"))]
+        assert 3 not in long_delivered
