@@ -48,9 +48,14 @@ def build_day_trade_prompt(
     bars_5m: list[dict],
     bars_1h: list[dict],
     prior_day: dict | None,
-    active_positions: list[dict] | None = None,
+    active_positions: list[dict] | None = None,  # kept for API compat; not used in multi-user
 ) -> str:
-    """Build specialized day trade prompt with specific confirmation rules."""
+    """Build specialized day trade prompt with specific confirmation rules.
+
+    Generic prompt — no per-user context. Position-aware filtering happens
+    at delivery time (per-user) so one AI call scales to N users.
+    """
+    _ = active_positions  # unused in multi-user mode
 
     prompt = (
         "You are a day trade analyst. Read the chart data below and decide:\n"
@@ -73,8 +78,6 @@ def build_day_trade_prompt(
         "- Entry = the key level price, not current price.\n"
         "- Stop = below the next structural support (where thesis breaks).\n"
         "- If price is between levels with no bounce or rejection, say WAIT.\n"
-        "- If user is ALREADY LONG this symbol (see ACTIVE POSITIONS), do NOT send another LONG.\n"
-        "  Instead: send RESISTANCE if approaching resistance, or WAIT if holding fine.\n"
         "- MAXIMUM 60 WORDS.\n"
         "- PDH = yesterday's high. PDL = yesterday's low.\n"
     )
@@ -159,23 +162,6 @@ def build_day_trade_prompt(
                 f"C={b['close']:.2f} V={b.get('volume', 0):.0f}"
             )
         parts.append("\n".join(lines))
-
-    # Active positions — tell AI what the user is already in
-    if active_positions:
-        sym_positions = [p for p in active_positions if p.get("symbol") == symbol]
-        if sym_positions:
-            lines = ["\n[ACTIVE POSITIONS — user already holds these]"]
-            for p in sym_positions:
-                _entry_p = p.get("entry", 0)
-                _stop_p = p.get("stop", "N/A")
-                _t1_p = p.get("t1", "N/A")
-                _time_p = p.get("time", "")
-                lines.append(
-                    f"- {symbol} LONG took at ${_entry_p:.2f} "
-                    f"(stop={_stop_p}, T1={_t1_p}) {_time_p}"
-                )
-            lines.append("DO NOT send another LONG for this symbol. Focus on exit/resistance signals.")
-            parts.append("\n".join(lines))
 
     return "\n".join(parts)
 
@@ -331,33 +317,29 @@ def day_scan_cycle(sync_session_factory) -> int:
 
             logger.info("AI day scan: scanning %d symbols", len(symbols))
 
-            # Fetch active positions — OPEN RealTrades scoped to users watching these symbols
-            active_positions = []
+            # Per-user open-position index — checked at delivery time
+            # Maps (user_id, symbol) -> True if that user holds an open LONG
+            from app.models.paper_trade import RealTrade
+            user_open_longs: dict[tuple[int, str], bool] = {}
             try:
-                from app.models.paper_trade import RealTrade
                 _all_uids = {uid for uids in symbol_users.values() for uid in uids}
                 if _all_uids:
                     open_trades = db.execute(
-                        select(RealTrade).where(
+                        select(RealTrade.user_id, RealTrade.symbol).where(
                             RealTrade.status == "open",
+                            RealTrade.direction == "BUY",
                             RealTrade.user_id.in_(_all_uids),
                         )
-                    ).scalars().all()
-                    for ot in open_trades:
-                        active_positions.append({
-                            "symbol": ot.symbol,
-                            "entry": ot.entry_price,
-                            "stop": f"${ot.stop_price:.2f}" if ot.stop_price else "N/A",
-                            "t1": f"${ot.target_price:.2f}" if ot.target_price else "N/A",
-                            "time": ot.opened_at.strftime("%H:%M") if ot.opened_at else "",
-                        })
+                    ).all()
+                    for uid, sym in open_trades:
+                        user_open_longs[(uid, sym)] = True
             except Exception:
-                logger.debug("AI day scan: could not fetch active positions")
+                logger.debug("AI day scan: could not build user_open_longs index")
 
             total_alerts = 0
 
             for symbol in symbols:
-                result = scan_day_trade(symbol, api_key, active_positions)
+                result = scan_day_trade(symbol, api_key)
                 if not result:
                     continue
 
@@ -525,6 +507,13 @@ def day_scan_cycle(sync_session_factory) -> int:
                         }
 
                         for uid in symbol_users[symbol]:
+                            # Per-user position check: skip LONG if user already holds this symbol
+                            if user_open_longs.get((uid, symbol)):
+                                logger.debug(
+                                    "AI day scan %s: user %d already holds LONG, skip delivery",
+                                    symbol, uid,
+                                )
+                                continue
                             user = db.get(User, uid)
                             if user and user.telegram_enabled and user.telegram_chat_id:
                                 # Rate limit: check ai_scan_alerts_per_day
