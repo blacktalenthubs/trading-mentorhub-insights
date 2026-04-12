@@ -24,7 +24,7 @@ class NotificationPrefsResponse(BaseModel):
     quiet_hours_end: Optional[str] = None
     # Spec 36 — AI alert filters
     min_conviction: str = "medium"             # low | medium | high
-    wait_alerts_enabled: bool = False
+    wait_alerts_enabled: bool = True           # ON by default — users opt out in Settings
     alert_directions: str = "LONG,SHORT,RESISTANCE,EXIT"
     # Spec 36 — position sizing
     default_portfolio_size: float = 50000.0

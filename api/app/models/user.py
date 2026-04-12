@@ -40,8 +40,8 @@ class User(Base):
     # AI Alert Filters (Spec 36) — user-controlled alert volume
     min_conviction: Mapped[str] = mapped_column(String(10), server_default="medium", default="medium")
     # Values: "low" | "medium" | "high"  — filters Telegram delivery by signal conviction
-    wait_alerts_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
-    # Default OFF — cleaner signup experience; users opt in for full AI transparency
+    wait_alerts_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", default=True)
+    # Default ON — don't silently hide AI from users; let free tier turn it off if noisy
     alert_directions: Mapped[str] = mapped_column(
         String(100), server_default="LONG,SHORT,RESISTANCE,EXIT",
         default="LONG,SHORT,RESISTANCE,EXIT",

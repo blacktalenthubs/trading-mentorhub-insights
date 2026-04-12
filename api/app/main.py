@@ -110,10 +110,15 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS attribution_referrer VARCHAR(500)",
             # AI Alert Filters (Spec 36)
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS min_conviction VARCHAR(10) DEFAULT 'medium'",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS wait_alerts_enabled BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS wait_alerts_enabled BOOLEAN DEFAULT TRUE",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS alert_directions VARCHAR(100) DEFAULT 'LONG,SHORT,RESISTANCE,EXIT'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_portfolio_size REAL DEFAULT 50000",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_risk_pct REAL DEFAULT 1.0",
+            # Table to track one-shot data migrations so they don't re-run
+            """CREATE TABLE IF NOT EXISTS migration_flags (
+                flag_name VARCHAR(200) PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT NOW()
+            )""",
         ]:
             try:
                 await conn.execute(text(col_def))
@@ -136,6 +141,28 @@ async def lifespan(app: FastAPI):
                 logger.info("Migration: synced %d telegram_chat_ids from V1 to V2", result.rowcount)
         except Exception:
             pass  # V1 table may not exist in fresh installs
+
+        # One-shot backfill (Spec 36): the first rollout defaulted
+        # wait_alerts_enabled=FALSE for everyone. That silently muted existing
+        # users' AI Updates. Flip to TRUE — one time only — so existing users
+        # aren't surprised. New users keep the TRUE default; anyone who has
+        # explicitly set it (after this flag runs) won't be disturbed.
+        try:
+            flag = await conn.execute(text(
+                "SELECT 1 FROM migration_flags WHERE flag_name = 'spec36_wait_default_true'"
+            ))
+            if not flag.fetchone():
+                upd = await conn.execute(text(
+                    "UPDATE users SET wait_alerts_enabled = TRUE WHERE wait_alerts_enabled = FALSE"
+                ))
+                await conn.execute(text(
+                    "INSERT INTO migration_flags (flag_name) VALUES ('spec36_wait_default_true') "
+                    "ON CONFLICT (flag_name) DO NOTHING"
+                ))
+                if upd.rowcount:
+                    logger.info("Migration: flipped wait_alerts_enabled=TRUE for %d users", upd.rowcount)
+        except Exception:
+            logger.debug("Spec 36 backfill skipped", exc_info=True)
 
     logger.info("Database tables created/verified")
 
