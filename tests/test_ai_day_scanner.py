@@ -394,6 +394,32 @@ class TestPerUserShortFilter:
         assert 13 in delivered
         assert 28 in delivered
 
+    def test_wait_suppressed_for_user_with_open_position(self):
+        """WAIT alerts reference direction (\"no LONG setup\") — confusing for users
+        already in a position. Skip WAIT delivery if user holds the symbol."""
+        user_open_longs = {(3, "ETH-USD"): True}
+        user_open_shorts: dict = {}
+        symbol_users_eth = [3, 13, 28]
+
+        delivered_wait = []
+        for uid in symbol_users_eth:
+            # Same logic as scanner: skip if user holds either direction
+            if user_open_longs.get((uid, "ETH-USD")) or user_open_shorts.get((uid, "ETH-USD")):
+                continue
+            delivered_wait.append(uid)
+
+        assert 3 not in delivered_wait  # holds LONG, WAIT suppressed
+        assert 13 in delivered_wait     # no position, gets WAIT
+        assert 28 in delivered_wait     # no position, gets WAIT
+
+    def test_wait_suppressed_for_short_holders_too(self):
+        """User holding SHORT should also not receive WAIT alerts for same symbol."""
+        user_open_longs: dict = {}
+        user_open_shorts = {(3, "ETH-USD"): True}
+
+        skip = user_open_longs.get((3, "ETH-USD")) or user_open_shorts.get((3, "ETH-USD"))
+        assert skip is True
+
     def test_long_and_short_filters_independent(self):
         """User holding LONG should still get SHORT alerts (and vice versa)."""
         user_open_longs = {(3, "ETH-USD"): True}

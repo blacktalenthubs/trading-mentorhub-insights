@@ -439,6 +439,16 @@ def day_scan_cycle(sync_session_factory) -> int:
                                 f"{reason}"
                             )
                             for _uid in symbol_users[symbol]:
+                                # Skip WAIT for users already in a position on this symbol —
+                                # WAIT messages reference direction ("no LONG setup") which is
+                                # confusing noise when the user already holds one.
+                                # Exit management scan handles their position separately.
+                                if user_open_longs.get((_uid, symbol)) or user_open_shorts.get((_uid, symbol)):
+                                    logger.debug(
+                                        "AI day scan %s: user %d holds position, skip WAIT",
+                                        symbol, _uid,
+                                    )
+                                    continue
                                 user = db.get(User, _uid)
                                 if not (user and user.telegram_enabled and user.telegram_chat_id):
                                     continue
