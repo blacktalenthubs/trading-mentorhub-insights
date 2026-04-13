@@ -648,7 +648,21 @@ def _maybe_run_eod() -> None:
 
 
 def run_monitor():
-    """Start the APScheduler-based monitor loop."""
+    """Start the APScheduler-based monitor loop.
+
+    Respects RULE_ENGINE_ENABLED env var (Spec 34 deprecation flag).
+    If false, the V1 monitor exits cleanly without firing rule alerts —
+    AI scan in V2 (api/app/main.py) is the canonical alert source.
+    """
+    import os as _os
+    _rule_env = _os.environ.get("RULE_ENGINE_ENABLED", "true").strip().lower()
+    if _rule_env in ("false", "0", "no", "off"):
+        logger.warning(
+            "V1 monitor.run_monitor() called but RULE_ENGINE_ENABLED=false. "
+            "Exiting without firing rule alerts. AI scan handles signals."
+        )
+        return
+
     from apscheduler.schedulers.blocking import BlockingScheduler
 
     scheduler = BlockingScheduler()
