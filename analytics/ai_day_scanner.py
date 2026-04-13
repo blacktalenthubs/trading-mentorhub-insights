@@ -119,6 +119,55 @@ def _db_increment_count(db, user_id: int, feature: str, usage_date: str) -> int:
 _CONVICTION_RANK = {"low": 1, "medium": 2, "high": 3}
 
 
+def _db_last_wait_info(db, symbol: str, session_date: str) -> tuple[float, str]:
+    """Return (age_seconds, reason_fingerprint) of the most recent WAIT alert for
+    this symbol today, using the alerts table as source of truth.
+
+    Survives worker restarts — no in-memory state. Returns (huge, "") if none.
+    Must be called BEFORE inserting this cycle's WAIT rows so we read the prior one.
+    """
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        row = db.execute(
+            _t(
+                "SELECT created_at, message FROM alerts "
+                "WHERE symbol = :s AND alert_type = 'ai_scan_wait' "
+                "AND session_date = :d "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"s": symbol, "d": session_date},
+        ).fetchone()
+        if not row:
+            return (10**9, "")
+        ts = row[0]
+        msg = row[1] or ""
+        # Strip known prefixes before fingerprinting
+        reason = msg
+        for prefix in ("AI Update: ", "AI: WAIT — "):
+            if reason.startswith(prefix):
+                reason = reason[len(prefix):]
+                break
+        fp = _wait_fingerprint(reason)
+        # Compute age in seconds
+        if isinstance(ts, str):
+            try:
+                ts = _dt.fromisoformat(ts.replace("Z", "+00:00"))
+            except Exception:
+                return (10**9, fp)
+        now = _dt.utcnow()
+        try:
+            if ts.tzinfo is not None:
+                ts = ts.astimezone(_tz.utc).replace(tzinfo=None)
+        except Exception:
+            pass
+        age = (now - ts).total_seconds()
+        return (max(age, 0), fp)
+    except Exception:
+        logger.debug("last-wait lookup failed for %s", symbol)
+        return (10**9, "")
+
+
 # ---------------------------------------------------------------------------
 # Spec 35 — AI Auto-Pilot paper trades (system-level simulated account)
 # ---------------------------------------------------------------------------
