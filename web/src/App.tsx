@@ -25,6 +25,7 @@ import AICoPilotPage from "./pages/AICoPilotPage";
 import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import TradeReviewPage from "./pages/TradeReviewPage";
+import TrackRecordPage from "./pages/TrackRecordPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,6 +74,7 @@ export default function App() {
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />
               <Route path="/replay/:alertId" element={<ReplayPage />} />
+              <Route path="/track-record" element={<TrackRecordPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
