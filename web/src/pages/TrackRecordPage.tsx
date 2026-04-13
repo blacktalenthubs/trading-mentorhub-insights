@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import {
   TrendingUp, TrendingDown, Activity, Brain, Filter,
 } from "lucide-react";
+import { useAuthStore } from "../stores/auth";
 
 const API = "/api/v1/auto-trades";
 
@@ -183,6 +184,8 @@ export default function TrackRecordPage() {
   const [days, setDays] = useState(30);
   const { stats, recent, openPositions, equity, patterns, loading, error } =
     usePublicAutoTrades(days);
+  const user = useAuthStore((s) => s.user);
+  const isAuthed = !!user;
 
   const netPct = stats?.total_pnl_percent ?? 0;
   const netPctColor = netPct >= 0 ? "text-bullish-text" : "text-bearish-text";
@@ -200,9 +203,15 @@ export default function TrackRecordPage() {
               <span className="text-accent">Trade</span>CoPilot
             </span>
           </Link>
-          <Link to="/register" className="bg-bullish hover:bg-bullish/90 text-surface-0 text-xs font-bold px-4 py-2 rounded-lg transition-colors">
-            Start Free Trial
-          </Link>
+          {isAuthed ? (
+            <Link to="/dashboard" className="bg-accent hover:bg-accent-hover text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors">
+              Open Dashboard
+            </Link>
+          ) : (
+            <Link to="/register" className="bg-bullish hover:bg-bullish/90 text-surface-0 text-xs font-bold px-4 py-2 rounded-lg transition-colors">
+              Start Free Trial
+            </Link>
+          )}
         </div>
       </header>
 
@@ -431,19 +440,34 @@ export default function TrackRecordPage() {
               </div>
             </div>
 
-            {/* CTA */}
-            <div className="bg-surface-1 border border-accent/20 rounded-xl p-6 text-center">
-              <h3 className="text-lg font-bold text-text-primary">Want the AI watching your charts?</h3>
-              <p className="text-xs text-text-muted mt-2 max-w-md mx-auto">
-                The same AI fires actionable signals to your Telegram. Free forever with limits — 3-day Pro trial included.
-              </p>
-              <Link
-                to="/register"
-                className="inline-flex items-center gap-2 mt-4 bg-bullish hover:bg-bullish/90 text-surface-0 font-bold text-sm px-6 py-3 rounded-xl transition-colors"
-              >
-                Start Free Trial
-              </Link>
-            </div>
+            {/* CTA — different for logged-in vs anonymous */}
+            {isAuthed ? (
+              <div className="bg-surface-1 border border-accent/20 rounded-xl p-6 text-center">
+                <h3 className="text-lg font-bold text-text-primary">Want your own trades replayed like this?</h3>
+                <p className="text-xs text-text-muted mt-2 max-w-md mx-auto">
+                  Review every signal you've taken with full replay + AI narration.
+                </p>
+                <Link
+                  to="/review"
+                  className="inline-flex items-center gap-2 mt-4 bg-accent hover:bg-accent-hover text-white font-bold text-sm px-6 py-3 rounded-xl transition-colors"
+                >
+                  Open Trade Review
+                </Link>
+              </div>
+            ) : (
+              <div className="bg-surface-1 border border-accent/20 rounded-xl p-6 text-center">
+                <h3 className="text-lg font-bold text-text-primary">Want the AI watching your charts?</h3>
+                <p className="text-xs text-text-muted mt-2 max-w-md mx-auto">
+                  The same AI fires actionable signals to your Telegram. Free forever with limits — 3-day Pro trial included.
+                </p>
+                <Link
+                  to="/register"
+                  className="inline-flex items-center gap-2 mt-4 bg-bullish hover:bg-bullish/90 text-surface-0 font-bold text-sm px-6 py-3 rounded-xl transition-colors"
+                >
+                  Start Free Trial
+                </Link>
+              </div>
+            )}
           </>
         )}
       </div>
