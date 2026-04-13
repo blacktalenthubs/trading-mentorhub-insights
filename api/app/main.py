@@ -231,6 +231,42 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("AI day scan cycle failed")
 
+        # Spec 35 Phase 2 — AI Auto-Pilot paper trade monitor (1 min cadence)
+        def _auto_trade_monitor():
+            try:
+                from analytics.ai_day_scanner import auto_trade_monitor_cycle
+                closed = auto_trade_monitor_cycle(sync_session_factory)
+                if closed:
+                    logger.info("Auto-pilot monitor: closed %d trades", closed)
+            except Exception:
+                logger.exception("Auto-trade monitor cycle failed")
+
+        scheduler.add_job(
+            _auto_trade_monitor,
+            "interval",
+            minutes=1,
+            id="auto_trade_monitor",
+            replace_existing=True,
+        )
+
+        # EOD cleanup at 4:05 PM ET (20:05 UTC during EST, 21:05 UTC during EDT)
+        def _auto_trade_eod():
+            try:
+                from analytics.ai_day_scanner import auto_trade_eod_cleanup
+                closed = auto_trade_eod_cleanup(sync_session_factory)
+                if closed:
+                    logger.info("Auto-pilot EOD: closed %d equity trades", closed)
+            except Exception:
+                logger.exception("Auto-trade EOD cleanup failed")
+
+        scheduler.add_job(
+            _auto_trade_eod,
+            "cron",
+            hour=20, minute=5,  # 4:05 PM ET (EDT — runs 1hr earlier on EST, fine for our use)
+            id="auto_trade_eod",
+            replace_existing=True,
+        )
+
         scheduler.add_job(
             _ai_day_scan,
             "interval",

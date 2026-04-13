@@ -111,6 +111,188 @@ _CONVICTION_RANK = {"low": 1, "medium": 2, "high": 3}
 AUTO_TRADE_NOTIONAL = 10_000  # $10k fixed per signal for comparable P&L
 
 
+def _close_auto_trade(
+    db,
+    trade,
+    exit_price: float,
+    status: str,
+    exit_reason: str,
+) -> None:
+    """Close an open AIAutoTrade with the given exit price + status.
+
+    Computes P&L dollars, %, and R-multiple. Idempotent — callers should
+    confirm status=='open' before calling, but we guard anyway.
+    """
+    from datetime import datetime as _dt
+
+    if trade.status != "open":
+        return
+
+    entry = float(trade.entry_price)
+    exit_p = float(exit_price)
+    shares = float(trade.shares or 0)
+    is_long = trade.direction == "BUY"
+
+    # P&L
+    per_share_pnl = (exit_p - entry) if is_long else (entry - exit_p)
+    pnl_dollars = round(per_share_pnl * shares, 2)
+    pnl_pct = round((per_share_pnl / entry) * 100, 4) if entry > 0 else 0.0
+
+    # R-multiple — (exit - entry) / initial risk
+    r_mult = None
+    if trade.stop_price:
+        risk_per_share = abs(entry - float(trade.stop_price))
+        if risk_per_share > 0:
+            r_mult = round(per_share_pnl / risk_per_share, 2)
+
+    trade.status = status
+    trade.exit_price = exit_p
+    trade.closed_at = _dt.utcnow()
+    trade.exit_reason = exit_reason
+    trade.pnl_dollars = pnl_dollars
+    trade.pnl_percent = pnl_pct
+    trade.r_multiple = r_mult
+
+    logger.info(
+        "auto-pilot CLOSE: %s %s entry=$%.2f exit=$%.2f pnl=$%.2f (%+.2f%%) R=%.2f reason=%s",
+        trade.symbol, trade.direction, entry, exit_p, pnl_dollars, pnl_pct,
+        r_mult if r_mult is not None else 0.0, exit_reason,
+    )
+
+
+def auto_trade_monitor_cycle(sync_session_factory) -> int:
+    """Phase 2 — check every open AIAutoTrade for stop/target hits.
+
+    Runs on a scheduler (every minute). For each open trade:
+    - Fetch latest bar (uses yfinance fast_info or Coinbase spot)
+    - LONG: if price >= target_2 → close at T2; elif >= target_1 → close at T1;
+      elif <= stop → close at stop
+    - SHORT: inverted
+    - EOD for equities (4:00 PM ET): close remaining opens at last print
+
+    Returns number of trades closed this cycle.
+    """
+    try:
+        from sqlalchemy import select
+        from app.models.auto_trade import AIAutoTrade
+    except Exception:
+        logger.debug("auto-trade monitor: model import failed")
+        return 0
+
+    try:
+        import yfinance as yf  # noqa: F401
+    except Exception:
+        logger.debug("auto-trade monitor: yfinance unavailable, skipping")
+        return 0
+
+    closed = 0
+    with sync_session_factory() as db:
+        open_trades = db.execute(
+            select(AIAutoTrade).where(AIAutoTrade.status == "open")
+        ).scalars().all()
+
+        if not open_trades:
+            return 0
+
+        # Batch by symbol to minimize price lookups
+        symbols = {t.symbol for t in open_trades}
+        prices: dict[str, float] = {}
+        for sym in symbols:
+            try:
+                import yfinance as yf
+                fi = yf.Ticker(sym).fast_info
+                p = float(fi.last_price)
+                if p > 0:
+                    prices[sym] = p
+            except Exception:
+                logger.debug("auto-trade monitor: price fetch failed for %s", sym)
+
+        for t in open_trades:
+            price = prices.get(t.symbol)
+            if price is None:
+                continue
+
+            is_long = t.direction == "BUY"
+            stop = float(t.stop_price) if t.stop_price else None
+            t1 = float(t.target_1_price) if t.target_1_price else None
+            t2 = float(t.target_2_price) if t.target_2_price else None
+
+            # Stop-first rule: if both stop and target hit in same cycle, assume stop
+            hit_stop = False
+            hit_t1 = False
+            hit_t2 = False
+            if is_long:
+                if stop is not None and price <= stop:
+                    hit_stop = True
+                elif t2 is not None and price >= t2:
+                    hit_t2 = True
+                elif t1 is not None and price >= t1:
+                    hit_t1 = True
+            else:  # SHORT
+                if stop is not None and price >= stop:
+                    hit_stop = True
+                elif t2 is not None and price <= t2:
+                    hit_t2 = True
+                elif t1 is not None and price <= t1:
+                    hit_t1 = True
+
+            if hit_stop:
+                _close_auto_trade(db, t, stop, "closed_stop", "Stop loss hit")
+                closed += 1
+            elif hit_t2:
+                _close_auto_trade(db, t, t2, "closed_t2", "Target 2 hit")
+                closed += 1
+            elif hit_t1:
+                _close_auto_trade(db, t, t1, "closed_t1", "Target 1 hit")
+                closed += 1
+
+        if closed:
+            db.commit()
+
+    return closed
+
+
+def auto_trade_eod_cleanup(sync_session_factory) -> int:
+    """Close open equity positions at 4:00 PM ET each trading day.
+
+    Crypto positions stay open overnight (24/7 market). Only equity
+    trades hit this cleanup.
+    """
+    try:
+        from sqlalchemy import select
+        from app.models.auto_trade import AIAutoTrade
+    except Exception:
+        return 0
+
+    closed = 0
+    with sync_session_factory() as db:
+        open_equity = db.execute(
+            select(AIAutoTrade).where(
+                AIAutoTrade.status == "open",
+                AIAutoTrade.market == "equity",
+            )
+        ).scalars().all()
+
+        if not open_equity:
+            return 0
+
+        import yfinance as yf
+        for t in open_equity:
+            try:
+                fi = yf.Ticker(t.symbol).fast_info
+                last = float(fi.last_price)
+                if last > 0:
+                    _close_auto_trade(db, t, last, "closed_eod", "End of day (equity)")
+                    closed += 1
+            except Exception:
+                logger.debug("auto-trade eod: price fetch failed for %s", t.symbol)
+
+        if closed:
+            db.commit()
+
+    return closed
+
+
 def _open_auto_trade(
     db,
     symbol: str,

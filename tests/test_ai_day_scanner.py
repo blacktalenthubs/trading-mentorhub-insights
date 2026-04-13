@@ -6,6 +6,7 @@ from analytics.ai_day_scanner import (
     parse_day_trade_response, build_day_trade_prompt,
     build_exit_prompt, parse_exit_response,
     _user_wants_alert, _truncate_for_free, _wait_fingerprint,
+    _close_auto_trade, AUTO_TRADE_NOTIONAL,
 )
 
 
@@ -715,6 +716,81 @@ class TestWaitReasonFingerprint:
         a = "Price near VWAP; low volume!"
         b = "Price near VWAP, low volume."
         assert _wait_fingerprint(a) == _wait_fingerprint(b)
+
+
+class TestAutoPilotPnL:
+    """Spec 35 — auto-trade P&L math."""
+
+    class _FakeTrade:
+        """Minimal stand-in for AIAutoTrade (no DB needed)."""
+        def __init__(self, direction, entry, stop, shares):
+            self.direction = direction
+            self.entry_price = entry
+            self.stop_price = stop
+            self.shares = shares
+            self.symbol = "TEST"
+            self.status = "open"
+            self.exit_price = None
+            self.closed_at = None
+            self.exit_reason = None
+            self.pnl_dollars = None
+            self.pnl_percent = None
+            self.r_multiple = None
+
+    def test_long_win_at_t1(self):
+        t = self._FakeTrade("BUY", entry=2200, stop=2190, shares=4.545)
+        _close_auto_trade(None, t, exit_price=2220, status="closed_t1", exit_reason="T1 hit")
+        assert t.status == "closed_t1"
+        assert t.exit_price == 2220
+        # +$20/share × 4.545 shares = $90.9
+        assert abs(t.pnl_dollars - 90.9) < 0.5
+        # 20/2200 = 0.909%
+        assert abs(t.pnl_percent - 0.9091) < 0.01
+        # R = (2220-2200)/(2200-2190) = 20/10 = 2R
+        assert t.r_multiple == 2.0
+
+    def test_long_loss_at_stop(self):
+        t = self._FakeTrade("BUY", entry=2200, stop=2190, shares=4.545)
+        _close_auto_trade(None, t, exit_price=2190, status="closed_stop", exit_reason="Stop")
+        assert t.pnl_dollars < 0
+        assert t.r_multiple == -1.0  # -1R
+
+    def test_short_win(self):
+        """SHORT inverts the sign — price dropped = profit."""
+        t = self._FakeTrade("SHORT", entry=130, stop=132, shares=76.923)
+        _close_auto_trade(None, t, exit_price=128, status="closed_t1", exit_reason="T1")
+        # Short $130 → $128 = +$2/share × 76.923 = $153.85
+        assert t.pnl_dollars > 0
+        assert t.pnl_percent > 0
+        # R = (130-128)/(132-130) = 2/2 = 1R
+        assert t.r_multiple == 1.0
+
+    def test_short_loss_at_stop(self):
+        t = self._FakeTrade("SHORT", entry=130, stop=132, shares=76.923)
+        _close_auto_trade(None, t, exit_price=132, status="closed_stop", exit_reason="Stop")
+        assert t.pnl_dollars < 0
+        assert t.r_multiple == -1.0
+
+    def test_r_multiple_none_without_stop(self):
+        t = self._FakeTrade("BUY", entry=2200, stop=None, shares=4.545)
+        _close_auto_trade(None, t, exit_price=2220, status="closed_t1", exit_reason="T1")
+        assert t.r_multiple is None
+        assert t.pnl_dollars > 0  # P&L still computes
+
+    def test_close_is_idempotent(self):
+        """Already closed trade — calling again doesn't corrupt state."""
+        t = self._FakeTrade("BUY", entry=2200, stop=2190, shares=4.545)
+        _close_auto_trade(None, t, exit_price=2220, status="closed_t1", exit_reason="T1")
+        first_pnl = t.pnl_dollars
+        # Try to close again
+        _close_auto_trade(None, t, exit_price=2100, status="closed_stop", exit_reason="Stop")
+        assert t.pnl_dollars == first_pnl  # unchanged
+        assert t.status == "closed_t1"     # unchanged
+
+
+class TestAutoPilotSizing:
+    def test_notional_is_fixed_10k(self):
+        assert AUTO_TRADE_NOTIONAL == 10_000
 
 
 class TestExitCooldown:
