@@ -119,6 +119,8 @@ async def lifespan(app: FastAPI):
                 flag_name VARCHAR(200) PRIMARY KEY,
                 applied_at TIMESTAMP DEFAULT NOW()
             )""",
+            # Spec 35 — bump auto-trade setup_type column (AI returns long descriptions)
+            "ALTER TABLE ai_auto_trades ALTER COLUMN setup_type TYPE VARCHAR(500)",
         ]:
             try:
                 await conn.execute(text(col_def))

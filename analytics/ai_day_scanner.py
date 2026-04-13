@@ -397,12 +397,18 @@ def _open_auto_trade(
         shares = round(AUTO_TRADE_NOTIONAL / entry, 4) if entry > 0 else 0
         notional = round(shares * entry, 2)
 
+        # Truncate to fit DB column sizes (defensive — AI sometimes returns long strings)
+        _setup_trunc = (setup_type or "")[:100] if setup_type else None
+        _conviction_trunc = ((conviction or "").upper() or None)
+        if _conviction_trunc:
+            _conviction_trunc = _conviction_trunc[:20]
+
         trade = AIAutoTrade(
             alert_id=alert_id,
             symbol=symbol,
             direction=direction,
-            setup_type=setup_type,
-            conviction=(conviction or "").upper() or None,
+            setup_type=_setup_trunc,
+            conviction=_conviction_trunc,
             entry_price=entry,
             session_date=session,
             stop_price=stop,
@@ -421,6 +427,12 @@ def _open_auto_trade(
         )
     except Exception:
         logger.exception("auto-pilot: failed to open trade for %s %s", symbol, direction)
+        # CRITICAL: rollback so the failed flush doesn't poison the session
+        # for subsequent commits (alert delivery, Telegram sends, etc.)
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def _wait_fingerprint(reason: str) -> str:

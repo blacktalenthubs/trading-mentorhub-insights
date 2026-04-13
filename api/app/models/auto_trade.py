@@ -32,7 +32,8 @@ class AIAutoTrade(Base):
     direction: Mapped[str] = mapped_column(String(10), nullable=False)
     # "BUY" (long) or "SHORT"
 
-    setup_type: Mapped[Optional[str]] = mapped_column(String(100))
+    setup_type: Mapped[Optional[str]] = mapped_column(String(500))
+    # AI sometimes returns long descriptions — bumped from 100. Code also truncates defensively.
     conviction: Mapped[Optional[str]] = mapped_column(String(20))
     # HIGH / MEDIUM / LOW
 
