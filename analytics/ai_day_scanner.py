@@ -860,7 +860,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                     _prev_age, _prev_fp = _db_last_wait_info(db, symbol, session)
                     _cur_fp = _wait_fingerprint(reason or "")
                     _reason_changed = (_cur_fp != _prev_fp)
-                    _min_gap = 600 if _reason_changed else 1200  # 10 min / 20 min
+                    _min_gap = 300 if _reason_changed else 600  # 5 min / 10 min
                     _time_ok = _prev_age >= _min_gap
                     _gate_passes = bool(_near_level and reason and _time_ok)
                     logger.info(
