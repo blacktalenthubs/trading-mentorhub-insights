@@ -849,6 +849,26 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                 # WAIT — no setup confirmed, record to DB for AI Scan feed
                 if not direction or direction == "WAIT":
+                    # --- Gate check FIRST, using DB (survives restarts) ---
+                    # Queries the last ai_scan_wait row for this symbol today
+                    # BEFORE we insert this cycle's rows.
+                    _level_keywords = ["PDH", "PDL", "VWAP", "session low", "session high",
+                                       "20MA", "50MA", "100MA", "200MA", "EMA", "Daily",
+                                       "support", "resistance", "weekly", "higher low",
+                                       "lower high", "breakdown", "breakout"]
+                    _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
+                    _prev_age, _prev_fp = _db_last_wait_info(db, symbol, session)
+                    _cur_fp = _wait_fingerprint(reason or "")
+                    _reason_changed = (_cur_fp != _prev_fp)
+                    _min_gap = 600 if _reason_changed else 1200  # 10 min / 20 min
+                    _time_ok = _prev_age >= _min_gap
+                    _gate_passes = bool(_near_level and reason and _time_ok)
+                    logger.info(
+                        "WAIT gate %s: near_level=%s reason_changed=%s age=%.0fs need>=%ds fires=%s",
+                        symbol, _near_level, _reason_changed, _prev_age, _min_gap, _gate_passes,
+                    )
+
+                    # --- Always record to DB (dashboard feed needs this) ---
                     _wait_msg = f"AI Update: {reason}" if reason else "AI Update: no setup confirmed"
                     for _uid in symbol_users[symbol]:
                       db.add(Alert(
@@ -860,28 +880,7 @@ def day_scan_cycle(sync_session_factory) -> int:
                     ))
                     db.commit()
 
-                    # AI Update (WAIT) throttle — scales with watchlist noise:
-                    # - Reason changed: min 10 min between sends per symbol
-                    # - Reason unchanged: min 20 min between sends per symbol
-                    # LONG/SHORT/RESISTANCE bypass this (handled in their branches).
-                    _level_keywords = ["PDH", "PDL", "VWAP", "session low", "session high",
-                                       "20MA", "50MA", "100MA", "200MA", "EMA", "Daily",
-                                       "support", "resistance", "weekly", "higher low",
-                                       "lower high", "breakdown", "breakout"]
-                    _near_level = any(kw.lower() in (reason or "").lower() for kw in _level_keywords)
-                    _prev_fp = _last_wait_reason_fp.get(symbol, "")
-                    _cur_fp = _wait_fingerprint(reason or "")
-                    _reason_changed = (_cur_fp != _prev_fp)
-                    _last_sent = _last_tg_time.get(symbol, 0)
-                    _age = time.time() - _last_sent
-                    # First-ever WAIT for this symbol: _last_sent=0 → _age is huge → passes
-                    _min_gap = 600 if _reason_changed else 1200  # 10 min vs 20 min
-                    _time_ok = _age >= _min_gap
-                    _gate_passes = bool(_near_level and reason and _time_ok)
-                    logger.info(
-                        "WAIT gate %s: near_level=%s reason_changed=%s age=%.0fs need>=%ds fires=%s",
-                        symbol, _near_level, _reason_changed, _age, _min_gap, _gate_passes,
-                    )
+                    # --- Telegram delivery only if gate passes ---
                     if _gate_passes:
                         _last_tg_direction[symbol] = "WAIT"
                         _last_tg_time[symbol] = time.time()
