@@ -307,6 +307,83 @@ async def user_debug(
     }
 
 
+@router.get("/alert-debug")
+async def alert_debug(
+    alert_id: int,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return full details for a single alert by ID — diagnose missed Telegrams."""
+    from sqlalchemy import text
+
+    row = await db.execute(text("""
+        SELECT id, user_id, symbol, alert_type, direction, price, entry,
+               stop, target_1, target_2, confidence, score, message,
+               session_date, created_at, user_action
+        FROM alerts WHERE id = :id
+    """), {"id": alert_id})
+    a = row.fetchone()
+    if not a:
+        raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
+
+    # Look up corresponding auto-trade if there is one
+    auto_row = await db.execute(text("""
+        SELECT id, status, entry_price, stop_price, target_1_price, target_2_price,
+               shares, exit_price, exit_reason, pnl_dollars, pnl_percent, r_multiple,
+               opened_at, closed_at, setup_type, conviction
+        FROM ai_auto_trades WHERE alert_id = :id
+    """), {"id": alert_id})
+    auto = auto_row.fetchone()
+
+    # Look up the user
+    user_row = await db.execute(text(
+        "SELECT email, telegram_enabled, telegram_chat_id FROM users WHERE id = :uid"
+    ), {"uid": a[1]})
+    u = user_row.fetchone()
+
+    return {
+        "alert": {
+            "id": a[0],
+            "user_id": a[1],
+            "user_email": u[0] if u else None,
+            "user_telegram_enabled": bool(u[1]) if u else None,
+            "user_telegram_linked": bool(u[2]) if u else None,
+            "symbol": a[2],
+            "alert_type": a[3],
+            "direction": a[4],
+            "price": a[5],
+            "entry": a[6],
+            "stop": a[7],
+            "target_1": a[8],
+            "target_2": a[9],
+            "confidence": a[10],
+            "score": a[11],
+            "message": a[12],
+            "session_date": a[13],
+            "created_at": a[14].isoformat() if a[14] else None,
+            "user_action": a[15],
+        },
+        "auto_trade": {
+            "id": auto[0],
+            "status": auto[1],
+            "entry_price": auto[2],
+            "stop_price": auto[3],
+            "target_1_price": auto[4],
+            "target_2_price": auto[5],
+            "shares": auto[6],
+            "exit_price": auto[7],
+            "exit_reason": auto[8],
+            "pnl_dollars": auto[9],
+            "pnl_percent": auto[10],
+            "r_multiple": auto[11],
+            "opened_at": auto[12].isoformat() if auto[12] else None,
+            "closed_at": auto[13].isoformat() if auto[13] else None,
+            "setup_type": auto[14],
+            "conviction": auto[15],
+        } if auto else None,
+    }
+
+
 @router.post("/backfill-ai-alerts")
 async def backfill_ai_alerts(
     days: int = 7,
