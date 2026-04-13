@@ -307,6 +307,57 @@ async def user_debug(
     }
 
 
+@router.get("/recent-ai-alerts")
+async def recent_ai_alerts(
+    days: int = 1,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recent AI LONG/SHORT alerts (DEDUPED across users by alert_type+symbol+
+    minute) to show how many distinct AI signals fired. Default last 1 day."""
+    from sqlalchemy import text
+
+    # DEDUP across the per-user copies — group by (symbol, alert_type, created_at minute)
+    # so a signal fired to N users counts as ONE row.
+    result = await db.execute(text(f"""
+        SELECT
+            MIN(id) AS id,
+            symbol,
+            alert_type,
+            direction,
+            entry,
+            stop,
+            target_1,
+            target_2,
+            confidence,
+            message,
+            DATE_TRUNC('minute', created_at) AS minute,
+            COUNT(*) AS user_copies
+        FROM alerts
+        WHERE alert_type IN ('ai_day_long', 'ai_day_short')
+          AND created_at >= NOW() - INTERVAL '{int(days)} days'
+        GROUP BY symbol, alert_type, direction, entry, stop, target_1, target_2,
+                 confidence, message, DATE_TRUNC('minute', created_at)
+        ORDER BY minute DESC
+        LIMIT 200
+    """))
+    rows = result.fetchall()
+    return [{
+        "id": r[0],
+        "symbol": r[1],
+        "alert_type": r[2],
+        "direction": r[3],
+        "entry": r[4],
+        "stop": r[5],
+        "target_1": r[6],
+        "target_2": r[7],
+        "confidence": r[8],
+        "message": (r[9] or "")[:200],
+        "fired_at": r[10].isoformat() if r[10] else None,
+        "user_copies": r[11],
+    } for r in rows]
+
+
 @router.get("/alert-debug")
 async def alert_debug(
     alert_id: int,
