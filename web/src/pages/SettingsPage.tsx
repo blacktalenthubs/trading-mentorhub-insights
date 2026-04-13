@@ -21,7 +21,7 @@ import type { NotificationPrefs } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Brain, Filter,
+  Sun, Moon, Filter,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -537,68 +537,6 @@ function TradingSettings() {
   );
 }
 
-/* ── Auto AI Analysis Toggle ─────────────────────────────────────── */
-
-function AutoAnalysisToggle() {
-  const [enabled, setEnabled] = useState(false);
-  const [synced, setSynced] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api.get<{ enabled: boolean }>("/settings/auto-analysis")
-      .then((res) => {
-        setEnabled(res.enabled);
-        setSynced(true);
-      })
-      .catch(() => setSynced(true));
-  }, []);
-
-  async function toggle() {
-    const next = !enabled;
-    setEnabled(next);
-    setSaving(true);
-    try {
-      await api.put("/settings/auto-analysis", { enabled: next });
-      toast.success(next ? "Auto AI analysis enabled" : "Auto AI analysis disabled");
-    } catch {
-      setEnabled(!next); // revert
-      toast.error("Failed to update setting");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!synced) return null;
-
-  return (
-    <Section title="AI CoPilot" icon={<Brain className="h-4 w-4 text-accent" />}>
-      <div className="flex items-center justify-between">
-        <div className="flex-1 mr-4">
-          <p className="text-sm font-medium text-text-primary">Auto AI Analysis on Alerts</p>
-          <p className="text-xs text-text-muted mt-0.5">
-            When enabled, alerts include an AI Take with entry, stop, and target suggestions
-          </p>
-        </div>
-        <button
-          onClick={toggle}
-          disabled={saving}
-          className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${
-            enabled ? "bg-accent" : "bg-surface-4"
-          } ${saving ? "opacity-50" : ""}`}
-        >
-          <span
-            className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-              enabled ? "translate-x-6" : ""
-            }`}
-          />
-        </button>
-      </div>
-    </Section>
-  );
-}
-
-/* ── Main Settings Page ───────────────────────────────────────────── */
-
 /* ── Theme Toggle ────────────────────────────────────────────────── */
 
 function ThemeToggle() {
@@ -647,7 +585,6 @@ export default function SettingsPage() {
             <TelegramSetup />
             <NotificationChannels />
             <AIAlertFilters />
-            <AutoAnalysisToggle />
             <ThemeToggle />
           </div>
 
