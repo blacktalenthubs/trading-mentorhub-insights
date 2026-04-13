@@ -114,6 +114,10 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS alert_directions VARCHAR(100) DEFAULT 'LONG,SHORT,RESISTANCE,EXIT'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_portfolio_size REAL DEFAULT 50000",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_risk_pct REAL DEFAULT 1.0",
+            # Fix: auto_analysis_enabled was created as INTEGER on some prod DBs,
+            # but model defines it as Boolean. Convert to BOOLEAN so INSERTs succeed.
+            "ALTER TABLE users ALTER COLUMN auto_analysis_enabled TYPE BOOLEAN USING (auto_analysis_enabled::int::boolean)",
+            "ALTER TABLE users ALTER COLUMN auto_analysis_enabled SET DEFAULT FALSE",
             # Table to track one-shot data migrations so they don't re-run
             """CREATE TABLE IF NOT EXISTS migration_flags (
                 flag_name VARCHAR(200) PRIMARY KEY,
