@@ -20,3 +20,4 @@ from app.models.telegram_link import TelegramLinkToken  # noqa: F401
 from app.models.referral import Referral  # noqa: F401
 from app.models.password_reset import PasswordResetToken  # noqa: F401
 from app.models.chart_analysis import ChartAnalysis  # noqa: F401
+from app.models.auto_trade import AIAutoTrade  # noqa: F401

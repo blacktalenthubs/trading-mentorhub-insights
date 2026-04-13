@@ -104,6 +104,79 @@ def _db_increment_count(db, user_id: int, feature: str, usage_date: str) -> int:
 _CONVICTION_RANK = {"low": 1, "medium": 2, "high": 3}
 
 
+# ---------------------------------------------------------------------------
+# Spec 35 — AI Auto-Pilot paper trades (system-level simulated account)
+# ---------------------------------------------------------------------------
+
+AUTO_TRADE_NOTIONAL = 10_000  # $10k fixed per signal for comparable P&L
+
+
+def _open_auto_trade(
+    db,
+    symbol: str,
+    direction: str,  # "BUY" or "SHORT"
+    alert_id: int | None,
+    entry: float,
+    stop: float | None,
+    t1: float | None,
+    t2: float | None,
+    setup_type: str | None,
+    conviction: str | None,
+    session: str,
+    is_crypto: bool,
+) -> None:
+    """Open a simulated paper trade in the AI Auto-Pilot account.
+
+    Dedup: one open auto trade per (symbol, direction). Caller passes the
+    AI signal's levels verbatim — we don't second-guess the plan.
+    """
+    if not entry or entry <= 0:
+        return
+    try:
+        from sqlalchemy import select
+        from app.models.auto_trade import AIAutoTrade
+
+        # Dedup: only one open auto trade per (symbol, direction)
+        existing = db.execute(
+            select(AIAutoTrade.id).where(
+                AIAutoTrade.symbol == symbol,
+                AIAutoTrade.direction == direction,
+                AIAutoTrade.status == "open",
+            ).limit(1)
+        ).scalar_one_or_none()
+        if existing:
+            logger.debug("auto-pilot: %s %s already open, skip", symbol, direction)
+            return
+
+        shares = round(AUTO_TRADE_NOTIONAL / entry, 4) if entry > 0 else 0
+        notional = round(shares * entry, 2)
+
+        trade = AIAutoTrade(
+            alert_id=alert_id,
+            symbol=symbol,
+            direction=direction,
+            setup_type=setup_type,
+            conviction=(conviction or "").upper() or None,
+            entry_price=entry,
+            session_date=session,
+            stop_price=stop,
+            target_1_price=t1,
+            target_2_price=t2,
+            shares=shares,
+            notional_at_entry=notional,
+            status="open",
+            market="crypto" if is_crypto else "equity",
+        )
+        db.add(trade)
+        db.flush()
+        logger.info(
+            "auto-pilot OPEN: %s %s entry=$%.2f stop=$%.2f shares=%.4f trade_id=%d",
+            symbol, direction, entry, stop or 0, shares, trade.id,
+        )
+    except Exception:
+        logger.exception("auto-pilot: failed to open trade for %s %s", symbol, direction)
+
+
 def _wait_fingerprint(reason: str) -> str:
     """Fingerprint a WAIT reason so we only dedup exact/near-identical repeats.
 
@@ -525,6 +598,7 @@ def day_scan_cycle(sync_session_factory) -> int:
         from app.models.user import User
         from app.models.alert import Alert
         from analytics.market_hours import is_market_hours_for_symbol
+        from config import is_crypto_alert_symbol  # noqa: F401 used in auto-trade calls
 
         with sync_session_factory() as db:
             all_items = db.execute(
@@ -802,6 +876,22 @@ def day_scan_cycle(sync_session_factory) -> int:
                         total_alerts += 1
                     db.commit()
 
+                    # Spec 35 — auto-open paper trade in the AI Auto-Pilot account
+                    _auto_alert_id_s = next(iter(per_user_alert_ids_s.values()), None)
+                    _open_auto_trade(
+                        db=db, symbol=symbol, direction="SHORT",
+                        alert_id=_auto_alert_id_s,
+                        entry=entry,
+                        stop=result.get("stop"),
+                        t1=result.get("t1"),
+                        t2=result.get("t2"),
+                        setup_type=setup_type,
+                        conviction=conviction,
+                        session=session,
+                        is_crypto=is_crypto_alert_symbol(symbol),
+                    )
+                    db.commit()
+
                     # Telegram — direction-change gate (SHORT distinct from LONG/RESISTANCE/WAIT)
                     if _last_tg_direction.get(symbol) == "SHORT":
                         logger.debug("AI day scan %s: SHORT already notified, skip Telegram", symbol)
@@ -928,6 +1018,22 @@ def day_scan_cycle(sync_session_factory) -> int:
                     db.flush()
                     per_user_alert_ids[uid] = alert.id
                     total_alerts += 1
+                db.commit()
+
+                # Spec 35 — auto-open paper trade in the AI Auto-Pilot account
+                _auto_alert_id = next(iter(per_user_alert_ids.values()), None)
+                _open_auto_trade(
+                    db=db, symbol=symbol, direction="BUY",
+                    alert_id=_auto_alert_id,
+                    entry=entry,
+                    stop=result.get("stop"),
+                    t1=result.get("t1"),
+                    t2=result.get("t2"),
+                    setup_type=setup_type,
+                    conviction=conviction,
+                    session=session,
+                    is_crypto=is_crypto_alert_symbol(symbol),
+                )
                 db.commit()
 
                 # Telegram — only send if direction changed from last notification
