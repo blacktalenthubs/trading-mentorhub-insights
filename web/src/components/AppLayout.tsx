@@ -35,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/trading", label: "Trading", icon: Crosshair },
   { to: "/copilot", label: "AI CoPilot", icon: Brain },
   { to: "/review", label: "Review", icon: PlayCircle },
+  { to: "/track-record", label: "AI Auto-Pilot", icon: Sparkles },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight, badge: "0" },
   { to: "/settings", label: "Settings", icon: Settings },
 ];

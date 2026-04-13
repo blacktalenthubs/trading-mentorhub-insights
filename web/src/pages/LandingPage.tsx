@@ -68,7 +68,7 @@ function LandingNav() {
           <a href="#pillars" className="hover:text-text-primary transition-colors">AI Features</a>
           <a href="#pricing" className="hover:text-text-primary transition-colors">Pricing</a>
           <Link to="/learn" className="hover:text-text-primary transition-colors">Pattern Library</Link>
-          <a href="#track-record" className="hover:text-text-primary transition-colors">Track Record</a>
+          <Link to="/track-record" className="hover:text-text-primary transition-colors">Track Record</Link>
         </div>
 
         <div className="flex items-center gap-3">
@@ -745,6 +745,19 @@ function Trust({ track }: { track: TrackRecord | null }) {
               <p className="text-xs text-text-faint mt-1">{item.sub}</p>
             </div>
           ))}
+        </div>
+
+        <div className="mt-10">
+          <Link
+            to="/track-record"
+            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-hover text-white font-bold text-sm px-6 py-3 rounded-xl transition-colors"
+          >
+            See the AI's auto-pilot account — every trade, every P&L
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          <p className="mt-3 text-[11px] text-text-faint max-w-xl mx-auto">
+            The same AI trades its own signals in a simulated $10k account. Live equity curve, every win, every loss.
+          </p>
         </div>
       </div>
     </section>
