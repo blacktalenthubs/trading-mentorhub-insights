@@ -45,6 +45,21 @@ interface AttributionStats {
   by_campaign: { campaign: string; count: number }[];
 }
 
+interface AIAlertRow {
+  id: number;
+  symbol: string;
+  alert_type: string;
+  direction: string;
+  entry: number | null;
+  stop: number | null;
+  target_1: number | null;
+  target_2: number | null;
+  confidence: string | null;
+  message: string;
+  fired_at: string | null;
+  user_copies: number;
+}
+
 interface UserDebug {
   user: { id: number; email: string; telegram_enabled: boolean; telegram_chat_id: string | null };
   subscription: { tier: string; status: string; trial_ends_at: string | null } | null;
@@ -116,6 +131,22 @@ export default function AdminPage() {
       .then((d) => setDebugData(d))
       .catch((err) => setDebugError(err instanceof Error ? err.message : "Lookup failed"))
       .finally(() => setDebugLoading(false));
+  }
+
+  // AI Alerts Audit
+  const [aiAlertsDays, setAiAlertsDays] = useState(1);
+  const [aiAlerts, setAiAlerts] = useState<AIAlertRow[] | null>(null);
+  const [aiAlertsLoading, setAiAlertsLoading] = useState(false);
+  const [aiAlertsError, setAiAlertsError] = useState("");
+
+  function loadAIAlerts(days: number) {
+    setAiAlertsDays(days);
+    setAiAlertsLoading(true);
+    setAiAlertsError("");
+    api.get<AIAlertRow[]>(`/admin/recent-ai-alerts?days=${days}`)
+      .then(setAiAlerts)
+      .catch((err) => setAiAlertsError(err instanceof Error ? err.message : "Failed to load"))
+      .finally(() => setAiAlertsLoading(false));
   }
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -368,6 +399,105 @@ export default function AdminPage() {
                 </dl>
               </div>
             </div>
+          )}
+        </section>
+
+        {/* AI Alerts Audit — every distinct AI signal fired (deduped across users) */}
+        <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-text-primary flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-accent" />
+              AI Alerts Audit (LONG / SHORT)
+            </h2>
+            <div className="flex gap-1">
+              {[1, 3, 7, 30].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => loadAIAlerts(d)}
+                  className={`text-[10px] font-medium px-2.5 py-1 rounded ${
+                    aiAlertsDays === d && aiAlerts != null
+                      ? "bg-accent/15 text-accent border border-accent/30"
+                      : "bg-surface-2 text-text-muted hover:bg-surface-3 border border-transparent"
+                  }`}
+                >
+                  {d === 1 ? "Today" : `${d}d`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-text-muted mb-3">
+            Every distinct AI LONG/SHORT signal (deduped across per-user copies). Click an alert ID to inspect details + auto-trade status.
+          </p>
+
+          {aiAlertsLoading && <p className="text-xs text-text-faint">Loading…</p>}
+          {aiAlertsError && <p className="text-xs text-bearish-text">{aiAlertsError}</p>}
+
+          {aiAlerts && (
+            aiAlerts.length === 0 ? (
+              <p className="text-xs text-text-faint">No AI LONG/SHORT alerts in the selected window.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-text-faint">
+                    <tr className="border-b border-border-subtle/50">
+                      <th className="text-left py-2 pr-3">Time</th>
+                      <th className="text-left py-2 pr-3">Symbol</th>
+                      <th className="text-left py-2 pr-3">Dir</th>
+                      <th className="text-right py-2 pr-3">Entry</th>
+                      <th className="text-right py-2 pr-3">Stop</th>
+                      <th className="text-right py-2 pr-3">T1</th>
+                      <th className="text-right py-2 pr-3">T2</th>
+                      <th className="text-left py-2 pr-3">Conv</th>
+                      <th className="text-right py-2 pr-3">Users</th>
+                      <th className="text-right py-2">ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aiAlerts.map((a) => (
+                      <tr key={a.id} className="border-b border-border-subtle/20 hover:bg-surface-2/30">
+                        <td className="py-2 pr-3 text-text-faint text-[10px]">
+                          {a.fired_at ? new Date(a.fired_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                        </td>
+                        <td className="py-2 pr-3 font-bold text-text-primary">{a.symbol}</td>
+                        <td className="py-2 pr-3">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            a.direction === "BUY" ? "bg-bullish/10 text-bullish-text" : "bg-bearish/10 text-bearish-text"
+                          }`}>
+                            {a.direction === "BUY" ? "LONG" : "SHORT"}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3 text-right font-mono">${a.entry?.toFixed(2) ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right font-mono text-bearish-text">${a.stop?.toFixed(2) ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right font-mono text-bullish-text">${a.target_1?.toFixed(2) ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right font-mono text-bullish-text">${a.target_2?.toFixed(2) ?? "—"}</td>
+                        <td className="py-2 pr-3 text-text-muted">{a.confidence ?? "—"}</td>
+                        <td className="py-2 pr-3 text-right font-mono text-text-muted">{a.user_copies}</td>
+                        <td className="py-2 text-right">
+                          <a
+                            href={`/api/v1/admin/alert-debug?alert_id=${a.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-accent hover:text-accent-hover font-mono"
+                          >
+                            #{a.id} →
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[10px] text-text-faint mt-2">{aiAlerts.length} distinct signals</p>
+              </div>
+            )
+          )}
+
+          {!aiAlerts && !aiAlertsLoading && (
+            <button
+              onClick={() => loadAIAlerts(1)}
+              className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors"
+            >
+              Load today's AI alerts
+            </button>
           )}
         </section>
 
