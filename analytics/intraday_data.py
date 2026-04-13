@@ -111,6 +111,8 @@ def _fetch_alpaca_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -
     Returns empty DataFrame on failure or missing credentials.
     """
     import os
+    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
+        return pd.DataFrame()
     _key = os.environ.get("ALPACA_API_KEY", "")
     _secret = os.environ.get("ALPACA_SECRET_KEY", "")
     if not _key or not _secret:
