@@ -114,10 +114,6 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS alert_directions VARCHAR(100) DEFAULT 'LONG,SHORT,RESISTANCE,EXIT'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_portfolio_size REAL DEFAULT 50000",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_risk_pct REAL DEFAULT 1.0",
-            # Fix: auto_analysis_enabled was created as INTEGER on some prod DBs,
-            # but model defines it as Boolean. Convert to BOOLEAN so INSERTs succeed.
-            "ALTER TABLE users ALTER COLUMN auto_analysis_enabled TYPE BOOLEAN USING (auto_analysis_enabled::int::boolean)",
-            "ALTER TABLE users ALTER COLUMN auto_analysis_enabled SET DEFAULT FALSE",
             # Table to track one-shot data migrations so they don't re-run
             """CREATE TABLE IF NOT EXISTS migration_flags (
                 flag_name VARCHAR(200) PRIMARY KEY,
@@ -126,8 +122,36 @@ async def lifespan(app: FastAPI):
         ]:
             try:
                 await conn.execute(text(col_def))
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.warning("Migration step skipped: %s — %s", col_def[:80], _e)
+
+        # Fix: auto_analysis_enabled may exist as INTEGER on prod from older schema.
+        # Must drop default first, then alter type, then set new default.
+        # Run separately with explicit logging so we know if it succeeded.
+        try:
+            # Check current type
+            _type_check = await conn.execute(text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = 'auto_analysis_enabled'"
+            ))
+            _row = _type_check.fetchone()
+            _current_type = _row[0] if _row else None
+            logger.info("Migration: auto_analysis_enabled current type=%s", _current_type)
+            if _current_type and _current_type.lower() in ("integer", "smallint", "bigint"):
+                logger.info("Migration: converting auto_analysis_enabled INTEGER → BOOLEAN")
+                await conn.execute(text(
+                    "ALTER TABLE users ALTER COLUMN auto_analysis_enabled DROP DEFAULT"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE users ALTER COLUMN auto_analysis_enabled TYPE BOOLEAN "
+                    "USING (CASE WHEN auto_analysis_enabled = 0 THEN FALSE ELSE TRUE END)"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE users ALTER COLUMN auto_analysis_enabled SET DEFAULT FALSE"
+                ))
+                logger.info("Migration: auto_analysis_enabled converted to BOOLEAN successfully")
+        except Exception as _e:
+            logger.error("Migration FAILED for auto_analysis_enabled type fix: %s", _e, exc_info=True)
 
         # Migration: sync V1 telegram_chat_id to V2 users table
         # Users who linked Telegram before the V2 sync fix have chat_id in
