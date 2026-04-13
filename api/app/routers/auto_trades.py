@@ -20,6 +20,9 @@ from app.models.auto_trade import AIAutoTrade
 
 router = APIRouter()
 
+# Symbols excluded from the public report (kept private / noisy)
+EXCLUDED_SYMBOLS = ("BTC-USD",)
+
 
 # ── Response schemas ─────────────────────────────────────────────────
 
@@ -131,7 +134,9 @@ async def stats(
     """Aggregate stats for the last N days (default 30)."""
     cutoff = (date.today() - timedelta(days=days)).isoformat()
     result = await db.execute(
-        select(AIAutoTrade).where(AIAutoTrade.session_date >= cutoff)
+        select(AIAutoTrade)
+        .where(AIAutoTrade.session_date >= cutoff)
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
     )
     trades = list(result.scalars().all())
 
@@ -170,6 +175,7 @@ async def recent_closed(
     result = await db.execute(
         select(AIAutoTrade)
         .where(AIAutoTrade.status != "open")
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
         .order_by(AIAutoTrade.closed_at.desc())
         .limit(limit)
     )
@@ -182,6 +188,7 @@ async def open_positions(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(AIAutoTrade)
         .where(AIAutoTrade.status == "open")
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
         .order_by(AIAutoTrade.opened_at.desc())
     )
     return [_to_summary(t) for t in result.scalars().all()]
@@ -198,7 +205,8 @@ async def equity_curve(
         select(AIAutoTrade)
         .where(AIAutoTrade.session_date >= cutoff)
         .where(AIAutoTrade.status != "open")
-        .order_by(AIAutoTrade.closed_at.asc())
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
+        .order_by(AIAutoTrade.closed_at.asc())  # equity curve
     )
     closed = list(result.scalars().all())
 
@@ -235,6 +243,7 @@ async def by_pattern(
         select(AIAutoTrade)
         .where(AIAutoTrade.session_date >= cutoff)
         .where(AIAutoTrade.status != "open")
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
     )
     closed = list(result.scalars().all())
 
@@ -268,6 +277,7 @@ async def by_symbol(
         select(AIAutoTrade)
         .where(AIAutoTrade.session_date >= cutoff)
         .where(AIAutoTrade.status != "open")
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
     )
     closed = list(result.scalars().all())
 
@@ -288,6 +298,76 @@ async def by_symbol(
         ))
     rows.sort(key=lambda r: r.trades, reverse=True)
     return rows
+
+
+class PublicSignalRow(BaseModel):
+    """Public view of an AI signal with its auto-trade outcome (if closed)."""
+    id: int
+    symbol: str
+    alert_type: str
+    direction: str
+    entry: Optional[float] = None
+    stop: Optional[float] = None
+    target_1: Optional[float] = None
+    target_2: Optional[float] = None
+    confidence: Optional[str] = None
+    fired_at: Optional[str] = None
+    # Outcome from the matched auto-trade (if any)
+    auto_trade_status: Optional[str] = None  # "open" | "closed_t1" | "closed_t2" | "closed_stop" | "closed_eod"
+    exit_price: Optional[float] = None
+    pnl_percent: Optional[float] = None
+    r_multiple: Optional[float] = None
+
+
+@router.get("/all-ai-alerts", response_model=list[PublicSignalRow])
+async def all_ai_alerts(
+    days: int = Query(default=7, le=90),
+    db: AsyncSession = Depends(get_db),
+):
+    """Public — every distinct AI LONG/SHORT signal in the last N days,
+    deduped across per-user copies, joined with auto-trade outcomes.
+
+    No user data leaked. This is the marketing audit asset — anyone
+    can verify every signal AI fired and how it played out.
+    """
+    from sqlalchemy import text
+    result = await db.execute(text(f"""
+        WITH dedup_alerts AS (
+            SELECT MIN(id) AS id, symbol, alert_type, direction,
+                   entry, stop, target_1, target_2, confidence,
+                   DATE_TRUNC('minute', created_at) AS fired_at
+            FROM alerts
+            WHERE alert_type IN ('ai_day_long', 'ai_day_short')
+              AND symbol NOT IN ('BTC-USD')
+              AND created_at >= NOW() - INTERVAL '{int(days)} days'
+            GROUP BY symbol, alert_type, direction, entry, stop, target_1, target_2,
+                     confidence, DATE_TRUNC('minute', created_at)
+        )
+        SELECT a.id, a.symbol, a.alert_type, a.direction, a.entry, a.stop,
+               a.target_1, a.target_2, a.confidence, a.fired_at,
+               t.status, t.exit_price, t.pnl_percent, t.r_multiple
+        FROM dedup_alerts a
+        LEFT JOIN ai_auto_trades t ON t.alert_id = a.id
+        ORDER BY a.fired_at DESC
+        LIMIT 500
+    """))
+    rows = result.fetchall()
+    return [PublicSignalRow(
+        id=r[0],
+        symbol=r[1],
+        alert_type=r[2],
+        direction=r[3],
+        entry=r[4],
+        stop=r[5],
+        target_1=r[6],
+        target_2=r[7],
+        confidence=r[8],
+        fired_at=r[9].isoformat() if r[9] else None,
+        auto_trade_status=r[10],
+        exit_price=r[11],
+        pnl_percent=r[12],
+        r_multiple=r[13],
+    ) for r in rows]
 
 
 @router.get("/{trade_id}", response_model=AutoTradeSummary)

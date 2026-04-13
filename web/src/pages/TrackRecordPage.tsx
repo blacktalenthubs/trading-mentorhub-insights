@@ -68,12 +68,30 @@ interface PatternRow {
   avg_pnl_pct: number;
 }
 
+interface PublicSignalRow {
+  id: number;
+  symbol: string;
+  alert_type: string;
+  direction: string;
+  entry: number | null;
+  stop: number | null;
+  target_1: number | null;
+  target_2: number | null;
+  confidence: string | null;
+  fired_at: string | null;
+  auto_trade_status: string | null;
+  exit_price: number | null;
+  pnl_percent: number | null;
+  r_multiple: number | null;
+}
+
 function usePublicAutoTrades(days: number) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recent, setRecent] = useState<Trade[]>([]);
   const [openPositions, setOpenPositions] = useState<Trade[]>([]);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [patterns, setPatterns] = useState<PatternRow[]>([]);
+  const [allSignals, setAllSignals] = useState<PublicSignalRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -85,13 +103,15 @@ function usePublicAutoTrades(days: number) {
       fetch(`${API}/open`).then((r) => r.json()),
       fetch(`${API}/equity-curve?days=${days}`).then((r) => r.json()),
       fetch(`${API}/by-pattern?days=${days}`).then((r) => r.json()),
+      fetch(`${API}/all-ai-alerts?days=${Math.min(days, 30)}`).then((r) => r.json()),
     ])
-      .then(([s, r, o, e, p]) => {
+      .then(([s, r, o, e, p, sigs]) => {
         setStats(s);
         setRecent(r);
         setOpenPositions(o);
         setEquity(e);
         setPatterns(p);
+        setAllSignals(sigs);
         setLoading(false);
       })
       .catch((err) => {
@@ -100,7 +120,7 @@ function usePublicAutoTrades(days: number) {
       });
   }, [days]);
 
-  return { stats, recent, openPositions, equity, patterns, loading, error };
+  return { stats, recent, openPositions, equity, patterns, allSignals, loading, error };
 }
 
 function fmt(n: number | null | undefined, decimals = 2): string {
@@ -182,7 +202,7 @@ function EquitySparkline({ points }: { points: EquityPoint[] }) {
 
 export default function TrackRecordPage() {
   const [days, setDays] = useState(30);
-  const { stats, recent, openPositions, equity, patterns, loading, error } =
+  const { stats, recent, openPositions, equity, patterns, allSignals, loading, error } =
     usePublicAutoTrades(days);
   const user = useAuthStore((s) => s.user);
   const isAuthed = !!user;
@@ -374,6 +394,78 @@ export default function TrackRecordPage() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* All AI signals audit (full transparency) */}
+            {allSignals.length > 0 && (
+              <div className="bg-surface-1 border border-border-subtle rounded-xl p-5">
+                <h2 className="text-sm font-bold mb-1">Every AI signal — full audit ({allSignals.length})</h2>
+                <p className="text-[11px] text-text-faint mb-3">
+                  Every distinct LONG/SHORT signal AI fired in the window. Open positions show no outcome yet; closed ones show exit price + P&L.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-text-faint">
+                      <tr className="border-b border-border-subtle/50">
+                        <th className="text-left py-2 pr-3">Time</th>
+                        <th className="text-left py-2 pr-3">Symbol</th>
+                        <th className="text-left py-2 pr-3">Dir</th>
+                        <th className="text-right py-2 pr-3">Entry</th>
+                        <th className="text-right py-2 pr-3">Stop</th>
+                        <th className="text-right py-2 pr-3">T1</th>
+                        <th className="text-right py-2 pr-3">Status</th>
+                        <th className="text-right py-2 pr-3">Exit</th>
+                        <th className="text-right py-2 pr-3">P&L %</th>
+                        <th className="text-right py-2">R</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allSignals.map((sig) => {
+                        const isLong = sig.direction === "BUY";
+                        const closed = sig.auto_trade_status && sig.auto_trade_status !== "open";
+                        const win = (sig.pnl_percent ?? 0) > 0;
+                        const statusLabel =
+                          sig.auto_trade_status === "open" ? "Open" :
+                          sig.auto_trade_status === "closed_t1" ? "T1 hit" :
+                          sig.auto_trade_status === "closed_t2" ? "T2 hit" :
+                          sig.auto_trade_status === "closed_stop" ? "Stop" :
+                          sig.auto_trade_status === "closed_eod" ? "EOD" :
+                          sig.auto_trade_status === "closed_manual" ? "Closed" :
+                          "—";
+                        return (
+                          <tr key={sig.id} className="border-b border-border-subtle/20 hover:bg-surface-2/30">
+                            <td className="py-2 pr-3 text-text-faint text-[10px]">
+                              {sig.fired_at ? new Date(sig.fired_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                            </td>
+                            <td className="py-2 pr-3 font-bold">{sig.symbol}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                isLong ? "bg-bullish/10 text-bullish-text" : "bg-bearish/10 text-bearish-text"
+                              }`}>{isLong ? "LONG" : "SHORT"}</span>
+                            </td>
+                            <td className="py-2 pr-3 text-right font-mono">${fmt(sig.entry)}</td>
+                            <td className="py-2 pr-3 text-right font-mono text-bearish-text">{sig.stop != null ? `$${fmt(sig.stop)}` : "—"}</td>
+                            <td className="py-2 pr-3 text-right font-mono text-bullish-text">{sig.target_1 != null ? `$${fmt(sig.target_1)}` : "—"}</td>
+                            <td className={`py-2 pr-3 text-right text-[10px] font-medium ${
+                              !closed ? "text-text-faint" :
+                              statusLabel.includes("hit") ? "text-bullish-text" :
+                              statusLabel === "Stop" ? "text-bearish-text" :
+                              "text-text-muted"
+                            }`}>{statusLabel}</td>
+                            <td className="py-2 pr-3 text-right font-mono">{sig.exit_price != null ? `$${fmt(sig.exit_price)}` : "—"}</td>
+                            <td className={`py-2 pr-3 text-right font-mono font-bold ${
+                              !closed ? "text-text-faint" : win ? "text-bullish-text" : "text-bearish-text"
+                            }`}>{closed ? fmtPct(sig.pnl_percent) : "—"}</td>
+                            <td className={`py-2 text-right font-mono ${
+                              !closed ? "text-text-faint" : (sig.r_multiple ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text"
+                            }`}>{closed && sig.r_multiple != null ? `${sig.r_multiple.toFixed(1)}R` : "—"}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
