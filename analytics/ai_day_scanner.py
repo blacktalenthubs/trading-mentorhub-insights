@@ -1090,11 +1090,11 @@ def day_scan_cycle(sync_session_factory) -> int:
                     )
                     db.commit()
 
-                    # Telegram — direction-change gate (SHORT distinct from LONG/RESISTANCE/WAIT)
-                    if _last_tg_direction.get(symbol) == "SHORT":
-                        logger.debug("AI day scan %s: SHORT already notified, skip Telegram", symbol)
-                    else:
-                        _last_tg_direction[symbol] = "SHORT"
+                    # Telegram — ALWAYS deliver new SHORTs. Level dedup already
+                    # blocks same-price repeats; a new SHORT at a different level
+                    # is fresh info.
+                    _last_tg_direction[symbol] = "SHORT"
+                    if True:
                         try:
                             from alerting.notifier import _send_telegram_to
                             import html as _html_s
@@ -1231,11 +1231,11 @@ def day_scan_cycle(sync_session_factory) -> int:
                 )
                 db.commit()
 
-                # Telegram — only send if direction changed from last notification
-                if _last_tg_direction.get(symbol) == "LONG":
-                    logger.debug("AI day scan %s: LONG already notified, skip Telegram", symbol)
-                else:
-                    _last_tg_direction[symbol] = "LONG"
+                # Telegram — ALWAYS deliver new LONGs that passed level dedup.
+                # The _day_fired bucket already prevents same-price spam; a new
+                # LONG at a different level is meaningful info and must fire.
+                _last_tg_direction[symbol] = "LONG"
+                if True:
                     try:
                         from alerting.notifier import _send_telegram_to
                         import html as _html
