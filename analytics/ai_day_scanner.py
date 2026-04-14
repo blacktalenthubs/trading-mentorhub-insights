@@ -836,6 +836,36 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["price"] = current_price
         parsed["signal_source"] = "day_trade"
 
+        # Staleness gate: if price has already moved past the entry level,
+        # the bounce/rejection already played out — don't fire a stale alert.
+        # LONG: current > entry * 1.004 (0.4% above level) → bounce already happened.
+        # SHORT: current < entry * 0.996 (0.4% below level) → rejection done.
+        _dir = (parsed.get("direction") or "").upper()
+        _entry = parsed.get("entry") or 0
+        if _entry > 0 and current_price > 0:
+            if _dir == "LONG" and current_price > _entry * 1.004:
+                logger.info(
+                    "AI day scan %s: LONG stale — entry $%.2f, now $%.2f (+%.1f%%)",
+                    symbol, _entry, current_price,
+                    (current_price - _entry) / _entry * 100,
+                )
+                parsed["direction"] = "WAIT"
+                parsed["reason"] = (
+                    f"Entry level ${_entry:.2f} already tested and reclaimed — "
+                    f"price now ${current_price:.2f}. Await next pullback."
+                )
+            elif _dir == "SHORT" and current_price < _entry * 0.996:
+                logger.info(
+                    "AI day scan %s: SHORT stale — entry $%.2f, now $%.2f (%.1f%%)",
+                    symbol, _entry, current_price,
+                    (current_price - _entry) / _entry * 100,
+                )
+                parsed["direction"] = "WAIT"
+                parsed["reason"] = (
+                    f"Rejection at ${_entry:.2f} already played — "
+                    f"price now ${current_price:.2f}. Await next test."
+                )
+
         # SHORT policy:
         # - SPY: fire SHORT only if conviction is MEDIUM or HIGH (skip LOW)
         # - All other symbols: downgrade SHORT → RESISTANCE (notice, not action)
