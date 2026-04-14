@@ -358,17 +358,17 @@ async def cleanup_watchlists(
             if exists:
                 # Duplicate — delete the bad one rather than rename
                 await db.execute(text(
-                    "DELETE FROM watchlist_items WHERE id = :id"
+                    "DELETE FROM watchlist WHERE id = :id"
                 ), {"id": r["id"]})
                 r["action"] = "deleted (duplicate of canonical)"
             else:
                 await db.execute(text(
-                    "UPDATE watchlist_items SET symbol = :s WHERE id = :id"
+                    "UPDATE watchlist SET symbol = :s WHERE id = :id"
                 ), {"s": r["to"], "id": r["id"]})
                 r["action"] = "renamed"
         for d in deletes:
             await db.execute(text(
-                "DELETE FROM watchlist_items WHERE id = :id"
+                "DELETE FROM watchlist WHERE id = :id"
             ), {"id": d["id"]})
         await db.commit()
         applied = True
@@ -601,7 +601,7 @@ async def backfill_ai_alerts(
         )
         SELECT s.*, w.user_id AS watcher_uid
         FROM source s
-        JOIN watchlist_items w ON w.symbol = s.symbol
+        JOIN watchlist w ON w.symbol = s.symbol
         WHERE w.user_id != s.orig_uid
           AND NOT EXISTS (
               SELECT 1 FROM alerts a2
