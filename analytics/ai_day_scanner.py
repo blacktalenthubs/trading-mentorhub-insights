@@ -863,11 +863,14 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
                 )
 
                 if s_dir != _direction:
-                    # Sonnet disagrees — downgrade to WAIT (don't fire)
+                    # Sonnet disagrees — downgrade to WAIT (don't fire).
+                    # User-facing reason = Sonnet's reason (the more cautious view).
+                    # Internal disagreement stays in logs only.
                     parsed["direction"] = "WAIT"
                     parsed["reason"] = (
-                        f"Haiku {_direction} but Sonnet confirm={s_dir} — "
-                        f"{s_parsed.get('reason') or 'no confirm'}"
+                        s_parsed.get("reason")
+                        or parsed.get("reason")
+                        or "no confirmation yet"
                     )
                     parsed["sonnet_disagreed"] = True
                 else:
