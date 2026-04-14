@@ -905,6 +905,37 @@ def day_scan_cycle(sync_session_factory) -> int:
         _exit_notified.clear()
         _day_session = session
 
+        # Seed _day_fired from today's alerts so worker restarts don't refire.
+        # Rebuild the (symbol, LONG|SHORT|RESISTANCE, bucket) keys by mapping
+        # alert_type → dedup direction (what the firing code uses).
+        try:
+            from sqlalchemy import text as _t
+            _type_to_dir = {
+                "ai_day_long": "LONG",
+                "ai_day_short": "SHORT",
+                "ai_resistance": "RESISTANCE",
+                "ai_scan_resistance": "RESISTANCE",
+            }
+            with sync_session_factory() as _seed_db:
+                rows = _seed_db.execute(_t(
+                    "SELECT DISTINCT symbol, alert_type, entry FROM alerts "
+                    "WHERE session_date = :d "
+                    "AND alert_type IN ('ai_day_long', 'ai_day_short', "
+                    "                   'ai_resistance', 'ai_scan_resistance') "
+                    "AND entry IS NOT NULL"
+                ), {"d": session}).fetchall()
+                seeded = set()
+                for sym, atype, entry in rows:
+                    dedup_dir = _type_to_dir.get(atype)
+                    if not dedup_dir or not entry or entry <= 0:
+                        continue
+                    seeded.add((sym, dedup_dir, _level_bucket(entry)))
+                if seeded:
+                    _day_fired[session] = seeded
+                    logger.info("AI day scan: seeded dedup from DB — %d keys", len(seeded))
+        except Exception:
+            logger.warning("AI day scan: dedup seed failed", exc_info=True)
+
     api_key = _resolve_api_key()
     if not api_key:
         logger.warning("AI day scan: no API key, skipping")
