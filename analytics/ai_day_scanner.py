@@ -1040,11 +1040,20 @@ def day_scan_cycle(sync_session_factory) -> int:
                         try:
                             from alerting.notifier import _send_telegram_to
                             _price_fmt = f"${result.get('price', 0):.2f}"
+                            # Policy: AI UPDATES (WAIT) only deliver for
+                            #   (a) SPY or NVDA (always — market barometer),
+                            #   (b) symbols where this specific user holds a position.
+                            # Everything else: skip. Reduces WAIT noise across the
+                            # watchlist. DB row is still written above (dashboard).
+                            _is_priority_sym = symbol.upper() in {"SPY", "NVDA"}
                             for _uid in symbol_users[symbol]:
-                                # Skip WAIT for users already in a position on this symbol
-                                if user_open_longs.get((_uid, symbol)) or user_open_shorts.get((_uid, symbol)):
+                                _user_holds = (
+                                    user_open_longs.get((_uid, symbol))
+                                    or user_open_shorts.get((_uid, symbol))
+                                )
+                                if not _is_priority_sym and not _user_holds:
                                     logger.info(
-                                        "WAIT skip uid=%d sym=%s reason=holds_position",
+                                        "WAIT skip uid=%d sym=%s reason=not_priority_no_position",
                                         _uid, symbol,
                                     )
                                     continue
