@@ -48,6 +48,11 @@ class User(Base):
     )
     # Comma-separated: any subset of {LONG, SHORT, RESISTANCE, EXIT}
 
+    # Spec 38 — swing alerts (daily/weekly key levels)
+    swing_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean, server_default="1", default=True,
+    )
+
     # Position sizing (Spec 36 Option A) — used by Telegram Took It flow
     default_portfolio_size: Mapped[float] = mapped_column(
         Float, server_default="50000", default=50000.0,

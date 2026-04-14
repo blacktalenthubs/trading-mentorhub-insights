@@ -1,18 +1,17 @@
-"""AI Swing Trade Scanner — daily chart entry detection at key EMA/weekly levels.
+"""AI Swing Trade Scanner — Spec 38.
 
-Uses Claude Sonnet for deeper daily chart analysis. Runs 2x/day:
-- 9:05 AM ET (pre-market, before daily open)
-- 3:30 PM ET (pre-close, catch end-of-day setups)
+Separate pipeline from the day scanner. Operates on daily bars + prior-day
+levels (MAs, EMAs, weekly/monthly H/L, RSI). Fires LONG/SHORT/WAIT at
+durable key levels. Runs 2x/day (pre-market + post-close).
 
-Swing entry rules:
-- Daily EMA close above (20/50/100/200 EMA reclaim on daily close)
-- Weekly level hold (prior week low or multi-week support hold)
-- Trend continuation pullback (pullback to rising EMA in uptrend)
+Conviction ladder mirrors day scanner: prefer firing LOW at a key level
+over WAIT. Users decide.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from datetime import date
@@ -21,15 +20,77 @@ from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SONNET
 
 logger = logging.getLogger(__name__)
 
-# Dedup: one swing signal per symbol per direction per day
+# Big-cap universe — Phase 1 hardcoded.
+SWING_UNIVERSE: list[str] = [
+    "SPY", "QQQ", "IWM",
+    "AAPL", "MSFT", "GOOGL", "META", "NVDA", "AMZN",
+    "AMD", "TSLA", "PLTR", "AVGO", "NFLX", "COIN",
+]
+
+# Dedup: (symbol, direction, level_bucket) already fired this session
 _swing_fired: dict[str, set[tuple]] = {}
 _swing_session: str = ""
 
+# Persistent rate-limit feature keys (shared usage_limits table)
+_FEATURE_SWING = "ai_swing_telegram"
+_FEATURE_SWING_NOTIFIED = "ai_swing_cap_notified"
 
-def _resolve_api_key() -> str:
-    if ANTHROPIC_API_KEY:
-        return ANTHROPIC_API_KEY
-    return ""
+_CONVICTION_RANK = {"low": 1, "medium": 2, "high": 3}
+
+
+# ── Rate-limit helpers ───────────────────────────────────────────────
+
+
+def _db_get_count(db, user_id: int, feature: str, usage_date: str) -> int:
+    from sqlalchemy import text
+    try:
+        row = db.execute(
+            text(
+                "SELECT usage_count FROM usage_limits "
+                "WHERE user_id = :uid AND feature = :f AND usage_date = :d"
+            ),
+            {"uid": user_id, "f": feature, "d": usage_date},
+        ).fetchone()
+        return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
+def _db_increment_count(db, user_id: int, feature: str, usage_date: str) -> None:
+    from sqlalchemy import text
+    try:
+        db.execute(
+            text(
+                "INSERT INTO usage_limits (user_id, feature, usage_date, usage_count) "
+                "VALUES (:uid, :f, :d, 1) "
+                "ON CONFLICT (user_id, feature, usage_date) "
+                "DO UPDATE SET usage_count = usage_limits.usage_count + 1"
+            ),
+            {"uid": user_id, "f": feature, "d": usage_date},
+        )
+        db.commit()
+    except Exception:
+        logger.exception("swing usage_limits increment failed uid=%s", user_id)
+
+
+def _db_mark_notified(db, user_id: int, feature: str, usage_date: str) -> bool:
+    from sqlalchemy import text
+    try:
+        res = db.execute(
+            text(
+                "INSERT INTO usage_limits (user_id, feature, usage_date, usage_count) "
+                "VALUES (:uid, :f, :d, 1) "
+                "ON CONFLICT (user_id, feature, usage_date) DO NOTHING"
+            ),
+            {"uid": user_id, "f": feature, "d": usage_date},
+        )
+        db.commit()
+        return bool(getattr(res, "rowcount", 0))
+    except Exception:
+        return False
+
+
+# ── Prompt ───────────────────────────────────────────────────────────
 
 
 def build_swing_prompt(
@@ -37,337 +98,362 @@ def build_swing_prompt(
     daily_bars: list[dict],
     prior_day: dict | None,
 ) -> str:
-    """Build specialized swing trade prompt using daily chart data."""
-
+    """Build the swing prompt with daily + weekly + monthly context."""
     prompt = (
-        "You are a swing trade entry detector analyzing DAILY charts. "
-        "Your ONLY job: determine if a SWING LONG entry is confirmed based on daily closes.\n\n"
-        "SWING ENTRY RULES (fire LONG only if ONE is confirmed):\n\n"
-        "1. DAILY EMA CLOSE ABOVE: Price CLOSES above key daily EMA (20/50/100/200) after being below.\n"
-        "   Confirmation: daily candle CLOSE above the EMA (not just intraday wick).\n"
-        "   Entry = EMA level. Stop = below EMA or prior swing low.\n\n"
-        "2. WEEKLY LEVEL HOLD: Price tests prior week low or multi-week support and holds on daily close.\n"
-        "   Confirmation: daily close above the weekly level after testing it.\n"
-        "   Entry = weekly support level. Stop = below the weekly level.\n\n"
-        "3. TREND PULLBACK TO EMA: In uptrend (higher highs + higher lows on daily), "
-        "price pulls back to a rising EMA and daily close holds above.\n"
-        "   Confirmation: EMA is rising (today > 5 days ago) + daily close above EMA.\n"
-        "   Entry = rising EMA level. Stop = below prior swing low.\n\n"
-        "RESISTANCE WARNINGS:\n"
-        "- If price is approaching weekly high or key daily MA from below, output RESISTANCE.\n\n"
-        "OUTPUT FORMAT (plain text, no markdown):\n\n"
-        "SETUP: [rule name or RESISTANCE or NONE]\n"
-        "Direction: LONG / RESISTANCE / WAIT\n"
-        "Entry: $price\n"
-        "Stop: $price\n"
-        "T1: $price (next daily resistance)\n"
-        "T2: $price (second resistance or measured move)\n"
+        "You are a swing trade analyst. Read the daily chart data below.\n"
+        "Is there a multi-day swing trade right now?\n\n"
+        "PHILOSOPHY: At a durable key level (200MA, 100MA, weekly MA, monthly\n"
+        "pivot, RSI extreme), prefer firing LONG/SHORT with conviction scaled\n"
+        "to confirmation strength over WAIT. Swing trades live 3-10 days; the\n"
+        "user decides if they take it. The stop is trivial when entry is at\n"
+        "structure.\n\n"
+        "KEY LEVELS THAT WARRANT FIRING:\n"
+        "- 200 Daily MA/EMA test (within 2%)\n"
+        "- 100 Daily MA/EMA test (within 1.5%)\n"
+        "- 50 Daily MA/EMA test (within 1.5%) — trend pullback\n"
+        "- Prior-month high/low (within 2%)\n"
+        "- Prior-week high/low (within 2%)\n"
+        "- Daily RSI < 30 (oversold LONG) or > 70 at resistance (overbought SHORT)\n\n"
+        "LONG CONVICTION LADDER:\n"
+        "- HIGH: at level + bullish daily candle (hammer/engulfing/reclaim) + RSI < 40\n"
+        "- MEDIUM: at level + RSI < 50, no confirming candle yet\n"
+        "- LOW: at level, just touching, no structure yet\n\n"
+        "SHORT CONVICTION LADDER:\n"
+        "- HIGH: at resistance + bearish daily candle + RSI > 65\n"
+        "- MEDIUM: at resistance + RSI > 55\n"
+        "- LOW: at resistance, just arriving\n\n"
+        "WAIT only when: price mid-range (>3% from every level, no RSI extreme).\n\n"
+        "OUTPUT (plain text, no markdown):\n\n"
+        "SETUP: [e.g. 200MA bounce + RSI 28, monthly low reversal, weekly MA test]\n"
+        "Direction: LONG / SHORT / WAIT\n"
+        "Entry: $price (the level, not current)\n"
+        "Stop: $price (3-5% below support for LONG / above resistance for SHORT)\n"
+        "T1: $price (next structural target, typically 5-10%)\n"
+        "T2: $price (second target, typically 10-20%)\n"
         "Conviction: HIGH / MEDIUM / LOW\n"
-        "Reason: 1 sentence — what confirmed this swing entry\n\n"
-        "STRICT RULES:\n"
-        "- ONLY fire LONG if a daily CLOSE confirms the setup.\n"
-        "- Swing trades hold for days to weeks — use daily levels, not intraday.\n"
-        "- Entry = the key level (EMA, weekly support), NOT current price.\n"
-        "- T1 = next overhead daily resistance. T2 = second resistance.\n"
-        "- If no setup is confirmed on daily close, output WAIT.\n"
-        "- MAXIMUM 80 WORDS total.\n"
+        "Timeframe: e.g. '3-7 days' or '1-2 weeks'\n"
+        "Reason: 1 sentence — level + RSI + candle structure\n\n"
+        "RULES:\n"
+        "- Be decisive. At a durable level prefer LONG/SHORT LOW over WAIT.\n"
+        "- Entry = key level, not current price.\n"
+        "- MAXIMUM 70 WORDS.\n"
     )
 
-    parts = [prompt]
+    parts = [prompt, f"\n[SYMBOL: {symbol}]"]
+    if daily_bars:
+        parts.append(f"Current Price: ${daily_bars[-1]['close']:.2f}")
 
-    # Prior day levels + MAs
     if prior_day:
-        levels = [f"\n[DAILY LEVELS — {symbol}]"]
+        levels = ["\n[KEY LEVELS — daily]"]
         for key, label in [
-            ("high", "Yesterday High"),
-            ("low", "Yesterday Low"),
-            ("close", "Yesterday Close"),
-            ("ema20", "Daily 20EMA"), ("ema50", "Daily 50EMA"),
-            ("ema100", "Daily 100EMA"), ("ema200", "Daily 200EMA"),
-            ("ma20", "Daily 20MA"), ("ma50", "Daily 50MA"),
-            ("ma100", "Daily 100MA"), ("ma200", "Daily 200MA"),
+            ("ma20", "20 Daily MA"), ("ma50", "50 Daily MA"),
+            ("ma100", "100 Daily MA"), ("ma200", "200 Daily MA"),
+            ("ema20", "20 Daily EMA"), ("ema50", "50 Daily EMA"),
+            ("ema100", "100 Daily EMA"), ("ema200", "200 Daily EMA"),
         ]:
-            val = prior_day.get(key)
-            if val and val > 0:
-                levels.append(f"{label}: ${val:.2f}")
-
-        # Previous EMA values for trend detection (rising vs falling)
-        ema20_prev = prior_day.get("ema20_prev")
-        if ema20_prev and ema20_prev > 0:
-            levels.append(f"20EMA 5d ago: ${ema20_prev:.2f}")
-
-        # Weekly levels
-        pw_high = prior_day.get("prior_week_high")
-        pw_low = prior_day.get("prior_week_low")
-        if pw_high and pw_high > 0:
-            levels.append(f"Prior Week High: ${pw_high:.2f}")
-        if pw_low and pw_low > 0:
-            levels.append(f"Prior Week Low: ${pw_low:.2f}")
-
-        # Monthly levels
-        pm_high = prior_day.get("prior_month_high")
-        pm_low = prior_day.get("prior_month_low")
-        if pm_high and pm_high > 0:
-            levels.append(f"Prior Month High: ${pm_high:.2f}")
-        if pm_low and pm_low > 0:
-            levels.append(f"Prior Month Low: ${pm_low:.2f}")
-
+            v = prior_day.get(key)
+            if v and v > 0:
+                levels.append(f"{label}: ${v:.2f}")
         rsi = prior_day.get("rsi14")
-        if rsi:
-            levels.append(f"RSI14: {rsi:.1f}")
-
+        if rsi is not None:
+            levels.append(f"Daily RSI14: {rsi:.1f}")
+        for key, label in [
+            ("prior_week_high", "Prior Week High"),
+            ("prior_week_low", "Prior Week Low"),
+            ("prior_month_high", "Prior Month High"),
+            ("prior_month_low", "Prior Month Low"),
+        ]:
+            v = prior_day.get(key)
+            if v and v > 0:
+                levels.append(f"{label}: ${v:.2f}")
         parts.append("\n".join(levels))
 
-    # Daily bars (last 20 for trend context)
     if daily_bars:
-        lines = [f"\n[DAILY BARS — last {min(len(daily_bars), 20)} days]"]
-        for b in daily_bars[-20:]:
+        lines = [f"\n[DAILY BARS — last {min(len(daily_bars), 30)}]"]
+        for b in daily_bars[-30:]:
             lines.append(
-                f"O={b['open']:.2f} H={b['high']:.2f} L={b['low']:.2f} "
-                f"C={b['close']:.2f} V={b.get('volume', 0):.0f}"
+                f"{b.get('date', '')} O={b['open']:.2f} H={b['high']:.2f} "
+                f"L={b['low']:.2f} C={b['close']:.2f} V={b.get('volume', 0):.0f}"
             )
         parts.append("\n".join(lines))
 
     return "\n".join(parts)
 
 
+# ── Response parsing ─────────────────────────────────────────────────
+
+
 def parse_swing_response(text: str) -> dict:
-    """Parse structured swing trade signal from Claude response."""
     result = {
-        "setup_type": None,
-        "direction": None,
-        "entry": None,
-        "stop": None,
-        "t1": None,
-        "t2": None,
-        "conviction": None,
-        "reason": None,
+        "setup_type": None, "direction": None, "entry": None,
+        "stop": None, "t1": None, "t2": None,
+        "conviction": None, "timeframe": None, "reason": None,
         "raw": text,
     }
+    m = re.search(r"SETUP:\s*(.+?)(?:\n|$)", text)
+    if m:
+        result["setup_type"] = m.group(1).strip()[:200]
+    m = re.search(r"Direction:\s*(LONG|SHORT|WAIT)", text, re.IGNORECASE)
+    if m:
+        result["direction"] = m.group(1).upper()
 
-    setup_match = re.search(r"SETUP:\s*(.+?)(?:\n|$)", text)
-    if setup_match:
-        result["setup_type"] = setup_match.group(1).strip()
+    def _p(pat: str):
+        mm = re.search(pat, text)
+        return float(mm.group(1).replace(",", "")) if mm else None
 
-    dir_match = re.search(r"Direction:\s*(LONG|RESISTANCE|WAIT)", text, re.IGNORECASE)
-    if dir_match:
-        result["direction"] = dir_match.group(1).upper()
+    result["entry"] = _p(r"Entry:\s*\$?([\d,.]+)")
+    result["stop"] = _p(r"Stop:\s*\$?([\d,.]+)")
+    result["t1"] = _p(r"T1:\s*\$?([\d,.]+)")
+    result["t2"] = _p(r"T2:\s*\$?([\d,.]+)")
 
-    def _parse_price(pattern: str, txt: str) -> float | None:
-        m = re.search(pattern, txt)
-        if m:
-            return float(m.group(1).replace(",", ""))
-        return None
-
-    result["entry"] = _parse_price(r"Entry:\s*\$?([\d,.]+)", text)
-    result["stop"] = _parse_price(r"Stop:\s*\$?([\d,.]+)", text)
-    result["t1"] = _parse_price(r"T1:\s*\$?([\d,.]+)", text)
-    result["t2"] = _parse_price(r"T2:\s*\$?([\d,.]+)", text)
-
-    conv_match = re.search(r"Conviction:\s*(HIGH|MEDIUM|LOW)", text, re.IGNORECASE)
-    if conv_match:
-        result["conviction"] = conv_match.group(1).upper()
-
-    reason_match = re.search(r"Reason:\s*(.+?)(?:\n|$)", text)
-    if reason_match:
-        result["reason"] = reason_match.group(1).strip()
-
+    m = re.search(r"Conviction:\s*(HIGH|MEDIUM|LOW)", text, re.IGNORECASE)
+    if m:
+        result["conviction"] = m.group(1).upper()
+    m = re.search(r"Timeframe:\s*(.+?)(?:\n|$)", text)
+    if m:
+        result["timeframe"] = m.group(1).strip()[:50]
+    m = re.search(r"Reason:\s*(.+?)(?:\n|$)", text)
+    if m:
+        result["reason"] = m.group(1).strip()
     return result
 
 
-def scan_swing_trade(symbol: str, api_key: str) -> dict | None:
-    """Scan one symbol for swing trade entries using daily chart + Sonnet."""
+# ── Per-symbol scan ──────────────────────────────────────────────────
+
+
+def scan_swing(symbol: str, api_key: str) -> dict | None:
+    """Scan one symbol for a swing setup."""
     from analytics.intraday_data import fetch_prior_day
-    from config import is_crypto_alert_symbol
     import yfinance as yf
 
-    is_crypto = is_crypto_alert_symbol(symbol)
-
     try:
-        # Fetch daily bars (last 30 days for trend context)
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="3mo")
-        if hist.empty or len(hist) < 10:
-            logger.warning("AI swing scan: insufficient daily bars for %s", symbol)
+        hist = yf.Ticker(symbol).history(period="3mo", interval="1d")
+        if hist is None or hist.empty or len(hist) < 20:
+            logger.warning("swing: insufficient daily bars for %s", symbol)
             return None
 
         daily_bars = [
-            {"open": float(r["Open"]), "high": float(r["High"]),
-             "low": float(r["Low"]), "close": float(r["Close"]),
-             "volume": float(r["Volume"])}
-            for _, r in hist.tail(20).iterrows()
+            {
+                "date": idx.strftime("%Y-%m-%d"),
+                "open": float(r["Open"]), "high": float(r["High"]),
+                "low": float(r["Low"]), "close": float(r["Close"]),
+                "volume": float(r["Volume"]),
+            }
+            for idx, r in hist.tail(30).iterrows()
         ]
 
-        prior_day = fetch_prior_day(symbol, is_crypto=is_crypto)
-
+        prior_day = fetch_prior_day(symbol, is_crypto=False)
         prompt = build_swing_prompt(symbol, daily_bars, prior_day)
 
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
-
         system_with_cache = [
             {"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}
         ]
-
         start = time.time()
         response = client.messages.create(
-            model=CLAUDE_MODEL_SONNET,  # Sonnet for swing — needs more reasoning
+            model=CLAUDE_MODEL_SONNET,
             max_tokens=250,
             system=system_with_cache,
-            messages=[{"role": "user", "content": f"Analyze {symbol} daily chart for swing entry."}],
+            messages=[{"role": "user", "content": f"Swing scan {symbol} now."}],
             timeout=20.0,
         )
         elapsed = time.time() - start
-
         response_text = response.content[0].text.strip()
-        logger.info("AI swing scan %s: %.1fs, %d tokens — %s",
-                     symbol, elapsed, response.usage.input_tokens, response_text[:100])
+        logger.info("AI swing %s: %.1fs, %d tok — %s",
+                    symbol, elapsed, response.usage.input_tokens, response_text[:100])
 
         parsed = parse_swing_response(response_text)
         parsed["symbol"] = symbol
         parsed["price"] = float(hist.iloc[-1]["Close"])
-        parsed["signal_source"] = "swing_trade"
         return parsed
-
     except Exception:
-        logger.exception("AI swing scan failed for %s", symbol)
+        logger.exception("swing scan failed for %s", symbol)
         return None
 
 
+# ── Formatting + delivery ───────────────────────────────────────────
+
+
+def _format_swing_msg(result: dict) -> str:
+    sym = result["symbol"]
+    direction = result["direction"]
+    price = result["price"]
+    entry = result.get("entry") or price
+    stop = result.get("stop")
+    t1 = result.get("t1")
+    t2 = result.get("t2")
+    setup = result.get("setup_type") or ""
+    conviction = result.get("conviction") or "MEDIUM"
+    timeframe = result.get("timeframe") or "3-10 days"
+    reason = result.get("reason") or ""
+
+    lines = [f"AI SWING {direction} — {sym} ${price:.2f}"]
+    parts = [f"Entry ${entry:.2f}"]
+    if stop:
+        parts.append(f"Stop ${stop:.2f}")
+    if t1:
+        parts.append(f"T1 ${t1:.2f}")
+    if t2:
+        parts.append(f"T2 ${t2:.2f}")
+    lines.append(" · ".join(parts))
+    if setup:
+        lines.append(f"Setup: {setup}")
+    lines.append(f"Timeframe: {timeframe}")
+    lines.append(f"Conviction: {conviction}")
+    if reason:
+        lines.append(f"Reason: {reason}")
+    return "\n".join(lines)
+
+
+def _send_telegram(chat_id: str, body: str) -> bool:
+    import requests
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token or not chat_id:
+        return False
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data={"chat_id": chat_id, "text": body},
+            timeout=10,
+        )
+        return r.status_code == 200
+    except Exception:
+        logger.exception("swing telegram failed chat_id=%s", chat_id)
+        return False
+
+
+def _user_wants_swing(user, direction: str, conviction: str | None) -> bool:
+    if not getattr(user, "swing_alerts_enabled", True):
+        return False
+    min_rank = _CONVICTION_RANK.get(
+        (getattr(user, "min_conviction", None) or "medium").lower(), 2
+    )
+    sig_rank = _CONVICTION_RANK.get((conviction or "medium").lower(), 2)
+    if sig_rank < min_rank:
+        return False
+    dirs_csv = getattr(user, "alert_directions", None) or "LONG,SHORT,RESISTANCE,EXIT"
+    allowed = {d.strip().upper() for d in dirs_csv.split(",") if d.strip()}
+    return direction.upper() in allowed
+
+
+# ── Main cycle ───────────────────────────────────────────────────────
+
+
 def swing_scan_cycle(sync_session_factory) -> int:
-    """Swing trade scan cycle — runs 2x/day (pre-market + pre-close)."""
+    """Run one swing scan pass. Returns Telegram deliveries."""
     global _swing_fired, _swing_session
+
+    if os.environ.get("SWING_SCAN_ENABLED", "true").lower() in ("0", "false", "no"):
+        logger.info("swing scan: disabled via env")
+        return 0
 
     session = date.today().isoformat()
     if _swing_session != session:
         _swing_fired.clear()
         _swing_session = session
 
-    api_key = _resolve_api_key()
+    api_key = ANTHROPIC_API_KEY
     if not api_key:
-        logger.warning("AI swing scan: no API key, skipping")
+        logger.warning("swing scan: no Anthropic API key")
         return 0
 
+    from sqlalchemy import select
+    from app.models.alert import Alert
+    from app.models.user import User
+
     try:
-        from sqlalchemy import select
-        from app.models.watchlist import WatchlistItem
-        from app.models.user import User
-        from app.models.alert import Alert
+        from app.tier import get_limits
+    except Exception:
+        get_limits = None
 
-        with sync_session_factory() as db:
-            all_items = db.execute(
-                select(WatchlistItem.symbol, WatchlistItem.user_id)
-            ).all()
+    delivered = 0
+    with sync_session_factory() as db:
+        users = list(
+            db.execute(
+                select(User).where(User.telegram_enabled.is_(True))
+            ).scalars().all()
+        )
+        logger.info("swing scan: %d symbols, %d users", len(SWING_UNIVERSE), len(users))
 
-            symbol_users: dict[str, list[int]] = {}
-            for sym, uid in all_items:
-                symbol_users.setdefault(sym, []).append(uid)
+        for symbol in SWING_UNIVERSE:
+            result = scan_swing(symbol, api_key)
+            if not result:
+                continue
 
-            symbols = list(symbol_users.keys())
-            if not symbols:
-                return 0
+            direction = (result.get("direction") or "").upper()
+            conviction = (result.get("conviction") or "MEDIUM").upper()
+            entry = result.get("entry") or 0
 
-            logger.info("AI swing scan: scanning %d symbols", len(symbols))
-            total_alerts = 0
+            if direction not in ("LONG", "SHORT") or entry <= 0:
+                logger.info("swing %s: %s — %s", symbol, direction or "?",
+                            (result.get("reason") or "")[:80])
+                continue
 
-            for symbol in symbols:
-                result = scan_swing_trade(symbol, api_key)
-                if not result:
-                    continue
+            # Dedup — bucket by 1% of entry price (avoid same-level re-fires)
+            level_bucket = int(entry / max(entry * 0.01, 0.01))
+            fp = (symbol, direction, level_bucket, conviction)
+            if fp in _swing_fired.setdefault(symbol, set()):
+                logger.info("swing %s: dedup skip", symbol)
+                continue
+            _swing_fired[symbol].add(fp)
 
-                direction = result.get("direction")
-                setup_type = result.get("setup_type", "")
-                entry = result.get("entry", 0)
-                reason = result.get("reason", "")
-                conviction = result.get("conviction", "MEDIUM")
+            alert_type = f"ai_swing_{direction.lower()}"
+            body = _format_swing_msg(result)
+            score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
 
-                if not direction or direction == "WAIT":
-                    logger.info("AI swing scan %s: WAIT — %s", symbol, reason or "no setup")
-                    continue
+            for user in users:
+                uid = user.id
+                chat_id = user.telegram_chat_id or ""
 
-                # RESISTANCE warning
-                if direction == "RESISTANCE":
-                    _res_key = (symbol, "SWING_RESISTANCE")
-                    fired = _swing_fired.get(session, set())
-                    if _res_key in fired:
-                        continue
-                    fired.add(_res_key)
-                    _swing_fired[session] = fired
-
-                    _msg = f"SWING RESISTANCE {symbol} — {reason}" if reason else f"SWING RESISTANCE {symbol}"
-                    for uid in symbol_users[symbol]:
-                        db.add(Alert(
-                            user_id=uid, symbol=symbol,
-                            alert_type="ai_swing_resistance", direction="NOTICE",
-                            price=result.get("price", 0), entry=entry,
-                            message=_msg, score=0, session_date=session,
-                        ))
-                    db.commit()
-                    logger.info("AI swing scan %s: RESISTANCE", symbol)
-                    continue
-
-                # LONG entry
-                if not entry or entry <= 0:
-                    continue
-
-                # Dedup: one swing per symbol per day
-                dedup_key = (symbol, "SWING_LONG")
-                fired = _swing_fired.get(session, set())
-                if dedup_key in fired:
-                    continue
-                fired.add(dedup_key)
-                _swing_fired[session] = fired
-
-                score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
-                setup_label = setup_type or "Swing entry"
-                message = f"SWING: {setup_label} — {reason}" if reason else f"SWING: {setup_label}"
-
-                for uid in symbol_users[symbol]:
-                    alert = Alert(
-                        user_id=uid, symbol=symbol,
-                        alert_type="ai_swing_long",
-                        direction="BUY",
-                        price=result.get("price", entry),
+                try:
+                    db.add(Alert(
+                        user_id=uid,
+                        symbol=symbol,
+                        alert_type=alert_type,
+                        direction=direction,
+                        price=result.get("price", 0),
                         entry=entry,
                         stop=result.get("stop"),
                         target_1=result.get("t1"),
                         target_2=result.get("t2"),
                         confidence=conviction.lower(),
-                        message=message,
+                        message=body,
                         score=score,
                         session_date=session,
-                    )
-                    db.add(alert)
-                    total_alerts += 1
-
-                db.commit()
-
-                # Telegram
-                try:
-                    from alerting.notifier import _send_telegram_to
-                    import html as _html
-
-                    _stop = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
-                    _t1 = f"${result['t1']:.2f}" if result.get("t1") else "N/A"
-                    _t2 = f"${result['t2']:.2f}" if result.get("t2") else "N/A"
-                    _tg_msg = (
-                        f"<b>SWING LONG {_html.escape(symbol)} ${result.get('price', entry):.2f}</b>\n"
-                        f"Entry ${entry:.2f} · Stop {_stop} · T1 {_t1} · T2 {_t2}\n"
-                        f"Setup: {_html.escape(setup_label)}\n"
-                        f"Conviction: {conviction}"
-                    )
-
-                    for uid in symbol_users[symbol]:
-                        user = db.get(User, uid)
-                        if user and user.telegram_enabled and user.telegram_chat_id:
-                            _send_telegram_to(_tg_msg, user.telegram_chat_id)
-                            logger.info("AI swing scan %s: SWING LONG → Telegram user %d", symbol, uid)
+                        reason=result.get("reason"),
+                    ))
+                    db.commit()
                 except Exception:
-                    logger.exception("AI swing scan: Telegram failed for %s", symbol)
+                    db.rollback()
+                    logger.exception("swing alert insert failed uid=%s sym=%s", uid, symbol)
 
-            logger.info("AI swing scan complete: %d alerts from %d symbols", total_alerts, len(symbols))
-            return total_alerts
+                if not chat_id:
+                    continue
+                if not _user_wants_swing(user, direction, conviction):
+                    continue
 
-    except Exception:
-        logger.exception("AI swing scan cycle failed")
-        return 0
+                tier = "free"
+                sub = getattr(user, "subscription", None)
+                if sub:
+                    tier = getattr(sub, "tier", "free") or "free"
+                cap = None
+                if get_limits:
+                    cap = get_limits(tier).get("ai_swing_alerts_per_day")
+                if cap is not None:
+                    used = _db_get_count(db, uid, _FEATURE_SWING, session)
+                    if used >= cap:
+                        if _db_mark_notified(db, uid, _FEATURE_SWING_NOTIFIED, session):
+                            _send_telegram(
+                                chat_id,
+                                f"Daily swing-alert cap reached ({cap}). "
+                                f"Upgrade to Pro for unlimited swing alerts.",
+                            )
+                        continue
+
+                if _send_telegram(chat_id, body):
+                    _db_increment_count(db, uid, _FEATURE_SWING, session)
+                    delivered += 1
+
+    logger.info("swing scan complete: %d deliveries", delivered)
+    return delivered

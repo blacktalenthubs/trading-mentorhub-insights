@@ -114,6 +114,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS alert_directions VARCHAR(100) DEFAULT 'LONG,SHORT,RESISTANCE,EXIT'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_portfolio_size REAL DEFAULT 50000",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_risk_pct REAL DEFAULT 1.0",
+            # Spec 38 — swing alerts opt-in (default ON)
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS swing_alerts_enabled BOOLEAN DEFAULT TRUE",
             # Table to track one-shot data migrations so they don't re-run
             """CREATE TABLE IF NOT EXISTS migration_flags (
                 flag_name VARCHAR(200) PRIMARY KEY,
@@ -309,8 +311,35 @@ async def lifespan(app: FastAPI):
             id="ai_day_scan_initial",
         )
 
-        # AI Swing Scanner — DISABLED. Entry below current price is confusing.
-        # Re-enable after fixing entry-at-current-level issue.
+        # AI Swing Scanner (Spec 38) — daily/weekly key levels, 2x/day
+        def _ai_swing_scan():
+            try:
+                from analytics.ai_swing_scanner import swing_scan_cycle
+                fired = swing_scan_cycle(sync_session_factory)
+                logger.info("Swing scan: %d deliveries", fired)
+            except Exception:
+                logger.exception("Swing scan failed")
+
+        # Pre-market: 9:05 AM ET weekdays
+        scheduler.add_job(
+            _ai_swing_scan,
+            "cron",
+            hour=9, minute=5,
+            timezone="America/New_York",
+            day_of_week="mon-fri",
+            id="ai_swing_scan_premkt",
+            replace_existing=True,
+        )
+        # Post-close: 4:30 PM ET weekdays
+        scheduler.add_job(
+            _ai_swing_scan,
+            "cron",
+            hour=16, minute=30,
+            timezone="America/New_York",
+            day_of_week="mon-fri",
+            id="ai_swing_scan_postclose",
+            replace_existing=True,
+        )
 
         # Alert Sniper: Game Plan — 9:05 AM ET weekdays
         def _game_plan():
