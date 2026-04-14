@@ -159,8 +159,72 @@ def _fetch_alpaca_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -
 
         logger.info("Alpaca: fetched %d bars for %s (%s)", len(df), symbol, interval)
         return df
-    except Exception:
-        logger.warning("Alpaca fetch failed for %s — will fall back to yfinance", symbol, exc_info=True)
+    except Exception as e:
+        # Quiet warning — 401/timeout is noise; data falls back to yfinance.
+        logger.info("Alpaca equity fetch failed for %s: %s — falling back", symbol, str(e)[:80])
+        return pd.DataFrame()
+
+
+def _fetch_alpaca_crypto_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -> pd.DataFrame:
+    """Fetch crypto bars from Alpaca (free crypto feed).
+
+    Translates internal `BTC-USD` → Alpaca's `BTC/USD` format at the boundary.
+    Returns DataFrame with [Open, High, Low, Close, Volume], naive ET index.
+    Returns empty DataFrame on failure or missing credentials.
+    """
+    import os
+    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
+        return pd.DataFrame()
+    _key = os.environ.get("ALPACA_API_KEY", "")
+    _secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not _key or not _secret:
+        return pd.DataFrame()
+
+    # Internal canonical form is BTC-USD; Alpaca crypto uses BTC/USD
+    alpaca_symbol = symbol.replace("-USD", "/USD").upper()
+
+    try:
+        from alpaca.data.historical import CryptoHistoricalDataClient
+        from alpaca.data.requests import CryptoBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from datetime import datetime, timedelta
+
+        _interval_map = {
+            "1m": TimeFrame(1, TimeFrameUnit.Minute),
+            "5m": TimeFrame(5, TimeFrameUnit.Minute),
+            "15m": TimeFrame(15, TimeFrameUnit.Minute),
+            "1h": TimeFrame(1, TimeFrameUnit.Hour),
+        }
+        tf = _interval_map.get(interval)
+        if not tf:
+            return pd.DataFrame()
+
+        # Crypto data client is unauthenticated for market data, but passing
+        # keys does not hurt. Use keys for consistency.
+        client = CryptoHistoricalDataClient(_key, _secret)
+        req = CryptoBarsRequest(
+            symbol_or_symbols=alpaca_symbol,
+            timeframe=tf,
+            start=datetime.now() - timedelta(hours=hours_back),
+        )
+        bars = client.get_crypto_bars(req)
+        df = bars.df
+        if df.empty:
+            return pd.DataFrame()
+
+        df = df.reset_index(level="symbol", drop=True)
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(ET).tz_localize(None)
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+
+        logger.info("Alpaca crypto: fetched %d bars for %s (%s)", len(df), alpaca_symbol, interval)
+        return df
+    except Exception as e:
+        logger.info("Alpaca crypto fetch failed for %s: %s — falling back", alpaca_symbol, str(e)[:80])
         return pd.DataFrame()
 
 
@@ -273,14 +337,26 @@ _COINBASE_GRANULARITY: dict[str, int] = {
 
 
 def fetch_intraday_crypto(symbol: str, interval: str = "5m") -> pd.DataFrame:
-    """Fetch intraday bars for crypto — Coinbase first, yfinance fallback.
+    """Fetch intraday bars for crypto — Alpaca first, Coinbase fallback, yfinance last.
 
-    Coinbase provides real-time candles (sub-second latency) vs yfinance's
-    15-60 minute delay. Falls back to yfinance transparently on failure.
+    Alpaca provides real-time crypto data with no rate limits on the free tier.
+    Coinbase is the secondary source (reliable but rate-limited).
+    yfinance is the last resort (delayed but always reachable).
 
     Returns DataFrame with [Open, High, Low, Close, Volume], naive ET index.
     """
-    # Try Coinbase first (real-time)
+    # Try Alpaca first (real-time, no rate limits)
+    df = _fetch_alpaca_crypto_bars(symbol, interval=interval)
+    if not df.empty and len(df) >= 6:
+        today = pd.Timestamp.now().normalize()
+        today_bars = df[df.index.normalize() == today]
+        if len(today_bars) >= 6:
+            return today_bars
+        cutoff = pd.Timestamp.now() - pd.Timedelta(hours=24)
+        fallback = df[df.index >= cutoff]
+        return fallback if not fallback.empty else df.tail(6)
+
+    # Fallback to Coinbase
     granularity = _COINBASE_GRANULARITY.get(interval)
     if granularity:
         df = _fetch_coinbase_candles(symbol, granularity, num_candles=100)

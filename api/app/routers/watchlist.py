@@ -14,6 +14,7 @@ from app.tier import get_limits
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 from app.schemas.watchlist import AddSymbolRequest, BulkSetRequest, WatchlistItemResponse
+from app.services.symbol_resolver import resolve_symbol
 
 router = APIRouter()
 
@@ -40,7 +41,7 @@ async def add_symbol(
     tier = get_user_tier(user)
     limits = get_limits(tier)
     max_symbols = limits["watchlist_max"]
-    symbol = body.symbol.upper().strip()
+    raw_symbol = body.symbol.upper().strip()
 
     # Check limit per tier
     count_result = await db.execute(
@@ -57,7 +58,42 @@ async def add_symbol(
             },
         )
 
-    # Check duplicate
+    # Resolve user input → canonical symbol via Alpaca probe
+    resolved = resolve_symbol(raw_symbol)
+
+    if resolved.kind == "unknown":
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "symbol_not_found",
+                "input": raw_symbol,
+                "message": f"No data found for '{raw_symbol}'. Check spelling or try the full form (e.g. BCH-USD for crypto).",
+            },
+        )
+
+    if resolved.kind == "ambiguous":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "ambiguous_symbol",
+                "input": raw_symbol,
+                "message": f"'{raw_symbol}' matches both an equity and a crypto. Pick one.",
+                "options": [
+                    {
+                        "symbol": opt.symbol,
+                        "kind": opt.kind,
+                        "display_name": opt.display_name,
+                        "last_price": opt.last_price,
+                    }
+                    for opt in resolved.options
+                ],
+            },
+        )
+
+    # Single match — use canonical form (may differ from user input, e.g. BCH → BCH-USD)
+    symbol = resolved.canonical or raw_symbol
+
+    # Check duplicate against canonical form
     existing = await db.execute(
         select(WatchlistItem).where(
             WatchlistItem.user_id == user.id,
