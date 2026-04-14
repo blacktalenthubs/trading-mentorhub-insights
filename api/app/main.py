@@ -311,7 +311,10 @@ async def lifespan(app: FastAPI):
             id="ai_day_scan_initial",
         )
 
-        # AI Swing Scanner (Spec 38) — daily/weekly key levels, 2x/day
+        # AI Swing Scanner (Spec 38) — runs on 15-min interval during market hours.
+        # Fires only when price is actually AT a daily/weekly level right now,
+        # not at arbitrary pre-market/EOD cron times. Daily levels don't move
+        # fast enough to warrant tighter cadence.
         def _ai_swing_scan():
             try:
                 from analytics.ai_swing_scanner import swing_scan_cycle
@@ -320,24 +323,11 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Swing scan failed")
 
-        # Pre-market: 9:05 AM ET weekdays
         scheduler.add_job(
             _ai_swing_scan,
-            "cron",
-            hour=9, minute=5,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="ai_swing_scan_premkt",
-            replace_existing=True,
-        )
-        # Post-close: 4:30 PM ET weekdays
-        scheduler.add_job(
-            _ai_swing_scan,
-            "cron",
-            hour=16, minute=30,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="ai_swing_scan_postclose",
+            "interval",
+            minutes=15,
+            id="ai_swing_scan",
             replace_existing=True,
         )
 

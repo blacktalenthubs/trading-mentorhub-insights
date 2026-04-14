@@ -352,6 +352,17 @@ def swing_scan_cycle(sync_session_factory) -> int:
         logger.info("swing scan: disabled via env")
         return 0
 
+    # Only scan during market hours — swing entries need live price vs level.
+    # Skips weekends/holidays/after-hours for equities. Crypto symbols in
+    # watchlists still get scanned (they trade 24/7).
+    try:
+        from analytics.market_hours import is_market_hours
+        if not is_market_hours():
+            logger.debug("swing scan: market closed, skipping")
+            return 0
+    except Exception:
+        pass  # if helper unavailable, run anyway
+
     session = date.today().isoformat()
     if _swing_session != session:
         _swing_fired.clear()
