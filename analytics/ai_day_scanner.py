@@ -832,16 +832,20 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["price"] = current_price
         parsed["signal_source"] = "day_trade"
 
-        # Policy: SHORT signals only allowed on SPY (index short = market hedge).
-        # For individual stocks + crypto, SHORT has historically underperformed
-        # LONG — strip SHORT direction on non-SPY and downgrade to WAIT.
-        if parsed.get("direction") == "SHORT" and symbol.upper() != "SPY":
-            logger.info("AI day scan %s: SHORT suppressed (SPY-only policy)", symbol)
-            parsed["direction"] = "WAIT"
-            parsed["reason"] = (
-                "SHORT signal suppressed — we only act on SPY shorts. "
-                + (parsed.get("reason") or "")
-            ).strip()
+        # SHORT policy:
+        # - SPY: fire SHORT only if conviction is MEDIUM or HIGH (skip LOW)
+        # - All other symbols: downgrade SHORT → RESISTANCE (notice, not action)
+        if parsed.get("direction") == "SHORT":
+            conv = (parsed.get("conviction") or "MEDIUM").upper()
+            sym_upper = symbol.upper()
+            if sym_upper == "SPY":
+                if conv == "LOW":
+                    logger.info("AI day scan %s: SPY SHORT LOW suppressed (min MEDIUM)", symbol)
+                    parsed["direction"] = "RESISTANCE"
+            else:
+                # Non-SPY → RESISTANCE notice (user still sees the level, no SHORT action)
+                logger.info("AI day scan %s: SHORT → RESISTANCE (SPY-only policy)", symbol)
+                parsed["direction"] = "RESISTANCE"
 
         return parsed
 
