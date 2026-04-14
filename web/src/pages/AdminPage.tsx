@@ -152,6 +152,32 @@ export default function AdminPage() {
       .finally(() => setWatchlistsLoading(false));
   }
 
+  // Watchlist cleanup state
+  type CleanupDiff = {
+    dry_run: boolean;
+    applied: boolean;
+    total_rows: number;
+    unchanged: number;
+    rewrites: { id: number; user_id: number; from: string; to: string; action?: string }[];
+    deletes: { id: number; user_id: number; symbol: string; reason: string }[];
+  };
+  const [cleanup, setCleanup] = useState<CleanupDiff | null>(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupError, setCleanupError] = useState("");
+
+  function runCleanup(apply: boolean) {
+    if (apply && !confirm("Apply these changes? This modifies user watchlists.")) return;
+    setCleanupLoading(true);
+    setCleanupError("");
+    api.post<CleanupDiff>(`/admin/watchlists/cleanup?dry_run=${apply ? "false" : "true"}`, {})
+      .then((d) => {
+        setCleanup(d);
+        if (apply) loadWatchlists();  // refresh the main list
+      })
+      .catch((err) => setCleanupError(err instanceof Error ? err.message : "Failed"))
+      .finally(() => setCleanupLoading(false));
+  }
+
   // AI Alerts Audit
   const [aiAlertsDays, setAiAlertsDays] = useState(1);
   const [aiAlerts, setAiAlerts] = useState<AIAlertRow[] | null>(null);
@@ -354,14 +380,68 @@ export default function AdminPage() {
         <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold text-text-primary">User Watchlists</h2>
-            <button
-              onClick={loadWatchlists}
-              disabled={watchlistsLoading}
-              className="text-xs px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50"
-            >
-              {watchlistsLoading ? "Loading…" : watchlists ? "Refresh" : "Load"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => runCleanup(false)}
+                disabled={cleanupLoading}
+                className="text-xs px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 disabled:opacity-50"
+              >
+                {cleanupLoading ? "…" : "Preview Cleanup"}
+              </button>
+              {cleanup && !cleanup.applied && (cleanup.rewrites.length > 0 || cleanup.deletes.length > 0) && (
+                <button
+                  onClick={() => runCleanup(true)}
+                  disabled={cleanupLoading}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  Apply {cleanup.rewrites.length + cleanup.deletes.length} changes
+                </button>
+              )}
+              <button
+                onClick={loadWatchlists}
+                disabled={watchlistsLoading}
+                className="text-xs px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50"
+              >
+                {watchlistsLoading ? "Loading…" : watchlists ? "Refresh" : "Load"}
+              </button>
+            </div>
           </div>
+          {cleanupError && <p className="text-xs text-red-400 mb-2">{cleanupError}</p>}
+          {cleanup && (
+            <div className={`mb-4 p-3 rounded-lg text-xs ${cleanup.applied ? "bg-green-500/5 border border-green-500/30" : "bg-yellow-500/5 border border-yellow-500/30"}`}>
+              <div className="font-bold mb-1">
+                {cleanup.applied ? "✅ Changes applied" : "🔍 Dry-run preview"} —
+                {" "}{cleanup.rewrites.length} rewrite{cleanup.rewrites.length !== 1 ? "s" : ""},
+                {" "}{cleanup.deletes.length} delete{cleanup.deletes.length !== 1 ? "s" : ""},
+                {" "}{cleanup.unchanged} unchanged
+              </div>
+              {cleanup.rewrites.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-text-faint mb-1">Rewrites:</div>
+                  <ul className="space-y-0.5 font-mono">
+                    {cleanup.rewrites.map((r) => (
+                      <li key={r.id}>
+                        uid={r.user_id} · <span className="text-red-400">{r.from}</span> → <span className="text-green-400">{r.to}</span>
+                        {r.action && <span className="text-text-faint ml-2">({r.action})</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {cleanup.deletes.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-text-faint mb-1">Deletes:</div>
+                  <ul className="space-y-0.5 font-mono">
+                    {cleanup.deletes.map((d) => (
+                      <li key={d.id}>
+                        uid={d.user_id} · <span className="text-red-400">{d.symbol}</span> <span className="text-text-faint">— {d.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
           {watchlistsError && <p className="text-xs text-red-400 mb-2">{watchlistsError}</p>}
           {watchlists && (
             <div className="grid md:grid-cols-2 gap-4">
