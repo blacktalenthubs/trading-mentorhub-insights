@@ -1051,11 +1051,11 @@ def day_scan_cycle(sync_session_factory) -> int:
                             from alerting.notifier import _send_telegram_to
                             _price_fmt = f"${result.get('price', 0):.2f}"
                             # Policy: AI UPDATES (WAIT) only deliver for
-                            #   (a) SPY or NVDA (always — market barometer),
+                            #   (a) SPY / NVDA / ETH-USD (always — market + crypto barometers),
                             #   (b) symbols where this specific user holds a position.
-                            # Everything else: skip. Reduces WAIT noise across the
-                            # watchlist. DB row is still written above (dashboard).
-                            _is_priority_sym = symbol.upper() in {"SPY", "NVDA"}
+                            # Everything else: skip. DB row is still written above (dashboard).
+                            # Per-user opt-in still gated by wait_alerts_enabled below.
+                            _is_priority_sym = symbol.upper() in {"SPY", "NVDA", "ETH-USD"}
                             for _uid in symbol_users[symbol]:
                                 _user_holds = (
                                     user_open_longs.get((_uid, symbol))
