@@ -13,11 +13,12 @@ Uses Claude Haiku for fast, structured level detection.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from datetime import date
 
-from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MODEL_SONNET
 
 logger = logging.getLogger(__name__)
 
@@ -830,6 +831,57 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["symbol"] = symbol
         parsed["price"] = current_price
         parsed["signal_source"] = "day_trade"
+
+        # Sonnet second-opinion confirm ONLY for LONG/SHORT (actionable signals).
+        # Haiku does the first pass cheap; Sonnet re-checks before we fire.
+        # WAIT/RESISTANCE/None → skip (no user-facing actionable alert).
+        _direction = (parsed.get("direction") or "").upper()
+        if _direction in ("LONG", "SHORT") and os.environ.get(
+            "SONNET_CONFIRM_ENABLED", "true"
+        ).lower() not in ("0", "false", "no"):
+            try:
+                s_start = time.time()
+                s_response = client.messages.create(
+                    model=CLAUDE_MODEL_SONNET,
+                    max_tokens=200,
+                    system=system_with_cache,
+                    messages=[{
+                        "role": "user",
+                        "content": f"Scan {symbol} for day trade entry now.",
+                    }],
+                    timeout=20.0,
+                )
+                s_elapsed = time.time() - s_start
+                s_text = s_response.content[0].text.strip()
+                s_parsed = parse_day_trade_response(s_text)
+                s_dir = (s_parsed.get("direction") or "").upper()
+                s_conv = (s_parsed.get("conviction") or "MEDIUM").upper()
+                h_conv = (parsed.get("conviction") or "MEDIUM").upper()
+                logger.info(
+                    "Sonnet confirm %s: %.1fs Haiku=%s/%s Sonnet=%s/%s",
+                    symbol, s_elapsed, _direction, h_conv, s_dir, s_conv,
+                )
+
+                if s_dir != _direction:
+                    # Sonnet disagrees — downgrade to WAIT (don't fire)
+                    parsed["direction"] = "WAIT"
+                    parsed["reason"] = (
+                        f"Haiku {_direction} but Sonnet confirm={s_dir} — "
+                        f"{s_parsed.get('reason') or 'no confirm'}"
+                    )
+                    parsed["sonnet_disagreed"] = True
+                else:
+                    # Agreement — take the LOWER of the two convictions (conservative)
+                    rank = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
+                    final_conv = min(
+                        (h_conv, s_conv),
+                        key=lambda c: rank.get(c, 2),
+                    )
+                    parsed["conviction"] = final_conv
+                    parsed["sonnet_confirmed"] = True
+            except Exception:
+                logger.warning("Sonnet confirm failed for %s — using Haiku result", symbol, exc_info=True)
+
         return parsed
 
     except Exception:
