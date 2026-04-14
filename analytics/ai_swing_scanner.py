@@ -20,10 +20,8 @@ from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SONNET
 
 logger = logging.getLogger(__name__)
 
-# Max distance from current price for entry to be actionable.
-# Beyond this, the level is too far away — stop would be too wide / setup
-# is hypothetical. User asked us to skip these.
-MAX_ENTRY_DISTANCE_PCT = 3.0  # 3% — ~$70 on a $2300 ETH, ~$15 on $500 stock
+# Actionability is gated by the AI itself via the prompt's invalidation rule:
+# if the closest structural stop is too far from current price, AI outputs WAIT.
 
 # Dedup: (symbol, direction, level_bucket) already fired this session
 _swing_fired: dict[str, set[tuple]] = {}
@@ -121,6 +119,14 @@ def build_swing_prompt(
         "- MEDIUM: at resistance + RSI > 55\n"
         "- LOW: at resistance, just arriving\n\n"
         "WAIT only when: price mid-range (>3% from every level, no RSI extreme).\n\n"
+        "INVALIDATION GATE (critical — filters un-tradeable setups):\n"
+        "- Your Stop must be a REAL structural level (below key support for LONG,\n"
+        "  above resistance for SHORT) — NOT an arbitrary percent.\n"
+        "- If the closest structural invalidation is more than 5% from CURRENT price,\n"
+        "  the setup is NOT tradeable yet — output WAIT with reason\n"
+        "  'structural stop too far — await closer approach to level'.\n"
+        "- Ask yourself: 'if I enter now, where does the thesis die?' If that\n"
+        "  death-point is far away, the trade has no edge — skip it.\n\n"
         "OUTPUT (plain text, no markdown):\n\n"
         "SETUP: [e.g. 200MA bounce + RSI 28, monthly low reversal, weekly MA test]\n"
         "Direction: LONG / SHORT / WAIT\n"
@@ -402,18 +408,8 @@ def swing_scan_cycle(sync_session_factory) -> int:
                             (result.get("reason") or "")[:80])
                 continue
 
-            # Skip alerts where entry is too far from current price.
-            # Wide gaps mean the stop would be wide, the level is hypothetical,
-            # and the user can't act on it. Better to wait until price approaches.
-            current = result.get("price") or 0
-            if current > 0:
-                distance_pct = abs(current - entry) / current * 100
-                if distance_pct > MAX_ENTRY_DISTANCE_PCT:
-                    logger.info(
-                        "swing %s: skip — entry $%.2f is %.1f%% from price $%.2f (max %.1f%%)",
-                        symbol, entry, distance_pct, current, MAX_ENTRY_DISTANCE_PCT,
-                    )
-                    continue
+            # Actionability is enforced by the AI prompt's invalidation gate —
+            # setups where structural stop is too far from price are returned as WAIT.
 
             # Dedup — bucket by 1% of entry price (avoid same-level re-fires)
             level_bucket = int(entry / max(entry * 0.01, 0.01))
