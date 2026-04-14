@@ -133,6 +133,25 @@ export default function AdminPage() {
       .finally(() => setDebugLoading(false));
   }
 
+  // Watchlists overview
+  const [watchlists, setWatchlists] = useState<{
+    users: { user_id: number; email: string; display_name: string | null; tier: string; symbol_count: number; symbols: string[] }[];
+    symbol_popularity: { symbol: string; watchers: number }[];
+    total_users: number;
+    total_distinct_symbols: number;
+  } | null>(null);
+  const [watchlistsLoading, setWatchlistsLoading] = useState(false);
+  const [watchlistsError, setWatchlistsError] = useState("");
+
+  function loadWatchlists() {
+    setWatchlistsLoading(true);
+    setWatchlistsError("");
+    api.get<typeof watchlists>("/admin/watchlists")
+      .then((d) => setWatchlists(d))
+      .catch((err) => setWatchlistsError(err instanceof Error ? err.message : "Failed"))
+      .finally(() => setWatchlistsLoading(false));
+  }
+
   // AI Alerts Audit
   const [aiAlertsDays, setAiAlertsDays] = useState(1);
   const [aiAlerts, setAiAlerts] = useState<AIAlertRow[] | null>(null);
@@ -330,6 +349,66 @@ export default function AdminPage() {
             </div>
           </section>
         )}
+
+        {/* Watchlists — who watches what */}
+        <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-text-primary">User Watchlists</h2>
+            <button
+              onClick={loadWatchlists}
+              disabled={watchlistsLoading}
+              className="text-xs px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50"
+            >
+              {watchlistsLoading ? "Loading…" : watchlists ? "Refresh" : "Load"}
+            </button>
+          </div>
+          {watchlistsError && <p className="text-xs text-red-400 mb-2">{watchlistsError}</p>}
+          {watchlists && (
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">
+                  {watchlists.total_users} users · {watchlists.total_distinct_symbols} symbols
+                </h3>
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {watchlists.users.map((u) => (
+                    <div key={u.user_id} className="bg-surface-2 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-text-primary truncate mr-2">
+                          {u.email}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/10 text-accent shrink-0">
+                          {u.tier} · {u.symbol_count}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-text-muted">
+                        {u.symbols.length > 0 ? u.symbols.join(" · ") : "—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">
+                  Most-watched symbols
+                </h3>
+                <div className="max-h-96 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {watchlists.symbol_popularity.map((row) => (
+                        <tr key={row.symbol} className="border-b border-border-subtle/50">
+                          <td className="py-1.5 font-mono font-medium text-text-primary">{row.symbol}</td>
+                          <td className="py-1.5 text-right font-mono text-text-secondary">
+                            {row.watchers}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
 
         {/* User Debug — inspect tier + rate limit state for a specific account */}
         <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">

@@ -307,6 +307,66 @@ async def user_debug(
     }
 
 
+@router.get("/watchlists")
+async def all_watchlists(
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return every user's watchlist — for cross-user analysis.
+
+    Output: list of { user_id, email, display_name, tier, symbols[] } sorted
+    by most symbols first. Also includes a `symbol_popularity` map showing
+    how many users watch each symbol.
+    """
+    # Users + subscriptions
+    users_rows = (await db.execute(
+        select(User).options(selectinload(User.subscription))  # type: ignore
+    )).scalars().all()
+
+    # All watchlist rows in one query
+    wl_rows = (await db.execute(
+        select(WatchlistItem.user_id, WatchlistItem.symbol)
+    )).all()
+
+    user_symbols: dict[int, list[str]] = {}
+    popularity: dict[str, int] = {}
+    for uid, sym in wl_rows:
+        user_symbols.setdefault(uid, []).append(sym)
+        popularity[sym] = popularity.get(sym, 0) + 1
+
+    result = []
+    for u in users_rows:
+        tier = "free"
+        if u.subscription:
+            tier = u.subscription.tier or "free"
+        symbols = sorted(user_symbols.get(u.id, []))
+        result.append({
+            "user_id": u.id,
+            "email": u.email,
+            "display_name": u.display_name,
+            "tier": tier,
+            "symbol_count": len(symbols),
+            "symbols": symbols,
+        })
+
+    # Sort: users with most symbols first
+    result.sort(key=lambda r: r["symbol_count"], reverse=True)
+
+    # Popularity: most-watched first
+    pop_sorted = sorted(
+        [{"symbol": s, "watchers": c} for s, c in popularity.items()],
+        key=lambda r: r["watchers"],
+        reverse=True,
+    )
+
+    return {
+        "users": result,
+        "symbol_popularity": pop_sorted,
+        "total_users": len(result),
+        "total_distinct_symbols": len(popularity),
+    }
+
+
 @router.get("/recent-ai-alerts")
 async def recent_ai_alerts(
     days: int = 1,
