@@ -414,7 +414,11 @@ def swing_scan_cycle(sync_session_factory) -> int:
             conviction = (result.get("conviction") or "MEDIUM").upper()
             entry = result.get("entry") or 0
 
-            if direction not in ("LONG", "SHORT") or entry <= 0:
+            # Swings are LONG-only (user policy). SHORT signals are logged but not fired.
+            if direction == "SHORT":
+                logger.info("swing %s: SHORT suppressed (LONG-only policy)", symbol)
+                continue
+            if direction != "LONG" or entry <= 0:
                 logger.info("swing %s: %s — %s", symbol, direction or "?",
                             (result.get("reason") or "")[:80])
                 continue
