@@ -76,6 +76,10 @@ def get_user_ai_scan_count(user_id: int, session_date: str) -> int:
 
 # Feature keys used in the shared usage_limits table
 _FEATURE_SCAN = "ai_scan_telegram"        # LONG / SHORT / RESISTANCE / EXIT delivery
+
+# Loss-leader: alerts on these symbols bypass the daily cap so free users
+# can taste the platform on the most important tickers. Other alerts still count.
+_UNCAPPED_SYMBOLS = {"SPY", "NVDA"}
 _FEATURE_WAIT = "ai_wait_telegram"        # WAIT delivery
 _FEATURE_SCAN_NOTIFIED = "ai_scan_cap_notified"   # 1 = already told user about cap today
 _FEATURE_WAIT_NOTIFIED = "ai_wait_cap_notified"
@@ -1094,6 +1098,8 @@ def day_scan_cycle(sync_session_factory) -> int:
                                     from api.app.tier import get_limits as _gl
                                     from api.app.dependencies import get_user_tier as _gut
                                     _tier_max_r = _gl(_gut(user)).get("ai_scan_alerts_per_day")
+                                    if symbol.upper() in _UNCAPPED_SYMBOLS:
+                                        _tier_max_r = None
                                     if _tier_max_r is not None:
                                         if _db_get_count(db, uid, _FEATURE_SCAN, session) >= _tier_max_r:
                                             if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session):
@@ -1224,6 +1230,8 @@ def day_scan_cycle(sync_session_factory) -> int:
                                         from api.app.tier import get_limits as _gl
                                         from api.app.dependencies import get_user_tier as _gut
                                         _tier_max_s = _gl(_gut(user)).get("ai_scan_alerts_per_day")
+                                        if symbol.upper() in _UNCAPPED_SYMBOLS:
+                                            _tier_max_s = None
                                         if _tier_max_s is not None:
                                             if _db_get_count(db, uid, _FEATURE_SCAN, session) >= _tier_max_s:
                                                 if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session):
@@ -1367,6 +1375,8 @@ def day_scan_cycle(sync_session_factory) -> int:
                                     from api.app.dependencies import get_user_tier as _gut
                                     _tier = _gut(user)
                                     _tier_max = _gl(_tier).get("ai_scan_alerts_per_day")
+                                    if symbol.upper() in _UNCAPPED_SYMBOLS:
+                                        _tier_max = None
                                     if _tier_max is not None:
                                         _delivered = _db_get_count(db, uid, _FEATURE_SCAN, session)
                                         if _delivered >= _tier_max:
