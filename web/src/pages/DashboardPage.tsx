@@ -320,16 +320,33 @@ export default function DashboardPage() {
   const [daysBack, setDaysBack] = useState(0); // 0 = today, 1 = yesterday, etc.
   const { data: historyData } = useAlertsHistory(Math.max(daysBack + 1, 7));
 
+  // Asset class filter (persists in localStorage)
+  const [assetFilter, setAssetFilter] = useState<"all" | "stocks" | "crypto">(
+    () => (typeof window !== "undefined"
+      ? (localStorage.getItem("dash_asset_filter") as "all" | "stocks" | "crypto") || "all"
+      : "all")
+  );
+  function changeAssetFilter(next: "all" | "stocks" | "crypto") {
+    setAssetFilter(next);
+    try { localStorage.setItem("dash_asset_filter", next); } catch {}
+  }
+  const matchesAssetFilter = (a: Alert): boolean => {
+    if (assetFilter === "all") return true;
+    const isCrypto = a.symbol?.toUpperCase().endsWith("-USD");
+    return assetFilter === "crypto" ? !!isCrypto : !isCrypto;
+  };
+
   // Get the date label
   const viewDate = new Date();
   viewDate.setDate(viewDate.getDate() - daysBack);
   const dateLabel = daysBack === 0 ? "Today" : viewDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   const dateStr = viewDate.toISOString().slice(0, 10); // "YYYY-MM-DD"
 
-  // Select alerts for the viewed date
-  const alerts = daysBack === 0
+  // Select alerts for the viewed date, then apply asset filter
+  const alertsRaw = daysBack === 0
     ? todayAlerts
     : historyData?.filter((a) => a.created_at?.startsWith(dateStr));
+  const alerts = alertsRaw?.filter(matchesAssetFilter);
 
   // Split alerts: actionable (BUY/SHORT without user_action) vs history
   const actionableAlerts = (daysBack === 0
@@ -378,6 +395,24 @@ export default function DashboardPage() {
               </Link>
             </div>
           )}
+
+          {/* Asset class filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-text-faint font-medium">Filter:</span>
+            {(["all", "stocks", "crypto"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => changeAssetFilter(k)}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  assetFilter === k
+                    ? "bg-accent/15 text-accent border-accent/40"
+                    : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+                }`}
+              >
+                {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
+              </button>
+            ))}
+          </div>
 
           {/* ── SECTION 1: Priority Signals (Hero) ── */}
           {actionableAlerts.length > 0 && (

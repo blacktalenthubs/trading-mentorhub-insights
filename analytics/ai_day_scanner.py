@@ -846,35 +846,46 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["price"] = current_price
         parsed["signal_source"] = "day_trade"
 
-        # Staleness gate: if price has already moved past the entry level,
-        # the bounce/rejection already played out — don't fire a stale alert.
-        # LONG: current > entry * 1.004 (0.4% above level) → bounce already happened.
-        # SHORT: current < entry * 0.996 (0.4% below level) → rejection done.
+        # Staleness gate (progress-to-target): a setup is stale if price has
+        # traveled >50% of the distance from entry to T1 (the move already
+        # played out). Works for any volatility / R:R because it's self-scaled
+        # to the setup size. Falls back to no-gate if T1 missing.
+        #
+        # LONG:   progress = (current - entry) / (T1 - entry)
+        # SHORT:  progress = (entry - current) / (entry - T1)
+        #
+        # Progress threshold: 0.5 → stale (more than halfway to target).
         _dir = (parsed.get("direction") or "").upper()
         _entry = parsed.get("entry") or 0
-        if _entry > 0 and current_price > 0:
-            if _dir == "LONG" and current_price > _entry * 1.004:
-                logger.info(
-                    "AI day scan %s: LONG stale — entry $%.2f, now $%.2f (+%.1f%%)",
-                    symbol, _entry, current_price,
-                    (current_price - _entry) / _entry * 100,
-                )
-                parsed["direction"] = "WAIT"
-                parsed["reason"] = (
-                    f"Entry level ${_entry:.2f} already tested and reclaimed — "
-                    f"price now ${current_price:.2f}. Await next pullback."
-                )
-            elif _dir == "SHORT" and current_price < _entry * 0.996:
-                logger.info(
-                    "AI day scan %s: SHORT stale — entry $%.2f, now $%.2f (%.1f%%)",
-                    symbol, _entry, current_price,
-                    (current_price - _entry) / _entry * 100,
-                )
-                parsed["direction"] = "WAIT"
-                parsed["reason"] = (
-                    f"Rejection at ${_entry:.2f} already played — "
-                    f"price now ${current_price:.2f}. Await next test."
-                )
+        _t1 = parsed.get("t1") or 0
+        STALE_THRESHOLD = 0.5
+        if _entry > 0 and current_price > 0 and _t1 > 0:
+            if _dir == "LONG" and _t1 > _entry:
+                progress = (current_price - _entry) / (_t1 - _entry)
+                if progress > STALE_THRESHOLD:
+                    logger.info(
+                        "AI day scan %s: LONG stale — entry $%.2f, T1 $%.2f, now $%.2f (%.0f%% to T1)",
+                        symbol, _entry, _t1, current_price, progress * 100,
+                    )
+                    parsed["direction"] = "WAIT"
+                    parsed["reason"] = (
+                        f"Setup {progress*100:.0f}% to T1 — move already played. "
+                        f"Entry $${_entry:.2f}, T1 $${_t1:.2f}, now $${current_price:.2f}. "
+                        f"Await next setup."
+                    ).replace("$$", "$")
+            elif _dir == "SHORT" and _t1 < _entry:
+                progress = (_entry - current_price) / (_entry - _t1)
+                if progress > STALE_THRESHOLD:
+                    logger.info(
+                        "AI day scan %s: SHORT stale — entry $%.2f, T1 $%.2f, now $%.2f (%.0f%% to T1)",
+                        symbol, _entry, _t1, current_price, progress * 100,
+                    )
+                    parsed["direction"] = "WAIT"
+                    parsed["reason"] = (
+                        f"Setup {progress*100:.0f}% to T1 — move already played. "
+                        f"Entry $${_entry:.2f}, T1 $${_t1:.2f}, now $${current_price:.2f}. "
+                        f"Await next setup."
+                    ).replace("$$", "$")
 
         # SHORT policy:
         # - SPY: fire SHORT only if conviction is MEDIUM or HIGH (skip LOW)
