@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -383,3 +384,162 @@ async def get_trade(
     if not t:
         raise HTTPException(status_code=404, detail="Trade not found")
     return _to_summary(t)
+
+
+# ── Social cards (shareable P&L images for TikTok / IG / YouTube) ───────
+
+
+@router.get("/card/daily", response_class=HTMLResponse)
+async def daily_card(
+    day: Optional[str] = Query(default=None, description="YYYY-MM-DD (defaults to today)"),
+    w: int = Query(default=1080, description="Width px"),
+    h: int = Query(default=1920, description="Height px (9:16 = 1920)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-contained HTML card with today's AI trading stats — screenshot-ready
+    for TikTok (1080x1920), Instagram Reels, or YouTube Shorts.
+
+    Public. Safe to share. BTC excluded (matches public-report policy).
+    """
+    target_day = day or date.today().isoformat()
+
+    # Today's closed trades
+    closed_res = await db.execute(
+        select(AIAutoTrade)
+        .where(AIAutoTrade.session_date == target_day)
+        .where(AIAutoTrade.status != "open")
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
+    )
+    closed = list(closed_res.scalars().all())
+
+    open_res = await db.execute(
+        select(AIAutoTrade)
+        .where(AIAutoTrade.session_date == target_day)
+        .where(AIAutoTrade.status == "open")
+        .where(AIAutoTrade.symbol.notin_(EXCLUDED_SYMBOLS))
+    )
+    opens = list(open_res.scalars().all())
+
+    wins = [t for t in closed if (t.pnl_dollars or 0) > 0]
+    losses = [t for t in closed if (t.pnl_dollars or 0) <= 0 and t.status != "open"]
+    total_pnl = round(sum((t.pnl_dollars or 0) for t in closed), 2)
+    total_pnl_pct = round(sum((t.pnl_percent or 0) for t in closed), 2)
+    win_rate = round((len(wins) / len(closed) * 100), 1) if closed else 0.0
+
+    best = max(closed, key=lambda t: t.pnl_dollars or 0, default=None)
+    worst = min(closed, key=lambda t: t.pnl_dollars or 0, default=None)
+
+    # Formatted strings
+    pnl_color = "#22c55e" if total_pnl >= 0 else "#ef4444"
+    pnl_sign = "+" if total_pnl >= 0 else ""
+    pnl_dollars_s = f"{pnl_sign}${abs(total_pnl):,.2f}" if total_pnl < 0 else f"{pnl_sign}${total_pnl:,.2f}"
+    pnl_pct_s = f"{pnl_sign}{total_pnl_pct:.2f}%"
+
+    best_row = ""
+    if best and (best.pnl_dollars or 0) > 0:
+        best_row = (
+            f'<div class="trade-row best">'
+            f'<div class="sym">{best.symbol}</div>'
+            f'<div class="dir">{best.direction}</div>'
+            f'<div class="pnl">+${best.pnl_dollars:,.2f}</div>'
+            f'<div class="pct">+{best.pnl_percent or 0:.2f}%</div>'
+            f'</div>'
+        )
+
+    # Day label
+    try:
+        day_label = datetime.strptime(target_day, "%Y-%m-%d").strftime("%b %d, %Y").upper()
+    except Exception:
+        day_label = target_day
+
+    html = f"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width={w}"/>
+<title>AI Trading — {day_label}</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; }}
+  html, body {{ width: {w}px; height: {h}px; background: #0a0a0f; color: #fff; overflow: hidden; }}
+  .card {{
+    width: {w}px; height: {h}px;
+    padding: 90px 80px;
+    background: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 55%);
+    display: flex; flex-direction: column; justify-content: space-between;
+  }}
+  .brand {{ display: flex; align-items: center; gap: 20px; }}
+  .brand-dot {{ width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #22d3ee, #8b5cf6); }}
+  .brand-name {{ font-size: 42px; font-weight: 700; letter-spacing: -1px; }}
+  .brand-url {{ font-size: 26px; color: #9ca3af; margin-top: 4px; }}
+
+  .date-tag {{ font-size: 32px; letter-spacing: 4px; color: #9ca3af; margin-top: 30px; }}
+  .headline {{ font-size: 72px; font-weight: 800; line-height: 1.05; letter-spacing: -2px; margin-top: 40px; }}
+
+  .pnl-block {{ margin-top: 50px; }}
+  .pnl-label {{ font-size: 34px; color: #9ca3af; letter-spacing: 2px; }}
+  .pnl-amount {{ font-size: 180px; font-weight: 900; letter-spacing: -6px; line-height: 1; margin-top: 10px; color: {pnl_color}; }}
+  .pnl-pct {{ font-size: 54px; font-weight: 700; color: {pnl_color}; margin-top: 8px; }}
+
+  .stats {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 70px; }}
+  .stat {{ background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; padding: 30px; text-align: center; }}
+  .stat-value {{ font-size: 62px; font-weight: 800; letter-spacing: -2px; }}
+  .stat-label {{ font-size: 24px; color: #9ca3af; margin-top: 6px; letter-spacing: 1px; }}
+
+  .best-block {{ margin-top: 50px; }}
+  .best-title {{ font-size: 28px; color: #9ca3af; letter-spacing: 3px; margin-bottom: 20px; }}
+  .trade-row {{ display: flex; align-items: center; padding: 24px 30px; background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25); border-radius: 20px; gap: 20px; }}
+  .trade-row .sym {{ font-size: 42px; font-weight: 800; flex: 1; }}
+  .trade-row .dir {{ font-size: 26px; background: rgba(34,197,94,0.2); color: #22c55e; padding: 8px 18px; border-radius: 100px; font-weight: 700; }}
+  .trade-row .pnl {{ font-size: 44px; font-weight: 800; color: #22c55e; }}
+  .trade-row .pct {{ font-size: 28px; color: #22c55e; opacity: 0.8; }}
+
+  .footer {{ margin-top: auto; display: flex; justify-content: space-between; align-items: center; padding-top: 40px; border-top: 1px solid rgba(255,255,255,0.08); }}
+  .cta {{ font-size: 30px; color: #9ca3af; }}
+  .cta strong {{ color: #fff; }}
+  .handle {{ font-size: 26px; color: #22d3ee; font-weight: 600; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div>
+      <div class="brand">
+        <div class="brand-dot"></div>
+        <div>
+          <div class="brand-name">TradeCoPilot</div>
+          <div class="brand-url">tradingwithai.ai</div>
+        </div>
+      </div>
+      <div class="date-tag">{day_label}</div>
+      <div class="headline">AI Paper Trading<br/>Results</div>
+
+      <div class="pnl-block">
+        <div class="pnl-label">TODAY'S P&amp;L</div>
+        <div class="pnl-amount">{pnl_dollars_s}</div>
+        <div class="pnl-pct">{pnl_pct_s}</div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-value">{len(closed)}</div>
+          <div class="stat-label">CLOSED</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">{win_rate:.0f}%</div>
+          <div class="stat-label">WIN RATE</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">{len(opens)}</div>
+          <div class="stat-label">OPEN</div>
+        </div>
+      </div>
+
+      {"<div class='best-block'><div class='best-title'>BEST TRADE</div>" + best_row + "</div>" if best_row else ""}
+    </div>
+
+    <div class="footer">
+      <div class="cta">Live audit at <strong>tradingwithai.ai/track-record</strong></div>
+      <div class="handle">@tradewithai</div>
+    </div>
+  </div>
+</body></html>"""
+    return HTMLResponse(content=html)
