@@ -20,12 +20,10 @@ from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SONNET
 
 logger = logging.getLogger(__name__)
 
-# Big-cap universe — Phase 1 hardcoded.
-SWING_UNIVERSE: list[str] = [
-    "SPY", "QQQ", "IWM",
-    "AAPL", "MSFT", "GOOGL", "META", "NVDA", "AMZN",
-    "AMD", "TSLA", "PLTR", "AVGO", "NFLX", "COIN",
-]
+# Max distance from current price for entry to be actionable.
+# Beyond this, the level is too far away — stop would be too wide / setup
+# is hypothetical. User asked us to skip these.
+MAX_ENTRY_DISTANCE_PCT = 3.0  # 3% — ~$70 on a $2300 ETH, ~$15 on $500 stock
 
 # Dedup: (symbol, direction, level_bucket) already fired this session
 _swing_fired: dict[str, set[tuple]] = {}
@@ -361,6 +359,7 @@ def swing_scan_cycle(sync_session_factory) -> int:
     from sqlalchemy import select
     from app.models.alert import Alert
     from app.models.user import User
+    from app.models.watchlist import WatchlistItem
 
     try:
         from app.tier import get_limits
@@ -369,14 +368,27 @@ def swing_scan_cycle(sync_session_factory) -> int:
 
     delivered = 0
     with sync_session_factory() as db:
-        users = list(
-            db.execute(
-                select(User).where(User.telegram_enabled.is_(True))
-            ).scalars().all()
-        )
-        logger.info("swing scan: %d symbols, %d users", len(SWING_UNIVERSE), len(users))
+        # Build per-symbol → users-watching map from real watchlists.
+        # Only scan symbols at least one Telegram-enabled user is watching.
+        rows = db.execute(
+            select(WatchlistItem.symbol, WatchlistItem.user_id, User)
+            .join(User, User.id == WatchlistItem.user_id)
+            .where(User.telegram_enabled.is_(True))
+        ).all()
 
-        for symbol in SWING_UNIVERSE:
+        symbol_users: dict[str, list] = {}
+        for sym, _uid, user in rows:
+            symbol_users.setdefault(sym, []).append(user)
+
+        symbols = sorted(symbol_users.keys())
+        if not symbols:
+            logger.info("swing scan: no watchlist symbols, skipping")
+            return 0
+
+        logger.info("swing scan: %d watchlist symbols across %d user-rows",
+                    len(symbols), len(rows))
+
+        for symbol in symbols:
             result = scan_swing(symbol, api_key)
             if not result:
                 continue
@@ -390,6 +402,19 @@ def swing_scan_cycle(sync_session_factory) -> int:
                             (result.get("reason") or "")[:80])
                 continue
 
+            # Skip alerts where entry is too far from current price.
+            # Wide gaps mean the stop would be wide, the level is hypothetical,
+            # and the user can't act on it. Better to wait until price approaches.
+            current = result.get("price") or 0
+            if current > 0:
+                distance_pct = abs(current - entry) / current * 100
+                if distance_pct > MAX_ENTRY_DISTANCE_PCT:
+                    logger.info(
+                        "swing %s: skip — entry $%.2f is %.1f%% from price $%.2f (max %.1f%%)",
+                        symbol, entry, distance_pct, current, MAX_ENTRY_DISTANCE_PCT,
+                    )
+                    continue
+
             # Dedup — bucket by 1% of entry price (avoid same-level re-fires)
             level_bucket = int(entry / max(entry * 0.01, 0.01))
             fp = (symbol, direction, level_bucket, conviction)
@@ -402,7 +427,7 @@ def swing_scan_cycle(sync_session_factory) -> int:
             body = _format_swing_msg(result)
             score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
 
-            for user in users:
+            for user in symbol_users[symbol]:
                 uid = user.id
                 chat_id = user.telegram_chat_id or ""
 
