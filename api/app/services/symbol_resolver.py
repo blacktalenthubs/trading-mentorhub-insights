@@ -127,10 +127,14 @@ def resolve_symbol(user_input: str) -> ResolveResult:
     )
 
     if equity_opt and crypto_opt:
+        # Auto-pick crypto on collision — that's what users mean 99% of the time
+        # when typing short tickers like BCH, BNB, ADA, LINK, DOT, etc.
+        # Equity ADR lookups are a rare edge case; user can add explicit form
+        # if they really want the equity.
         return ResolveResult(
-            kind="ambiguous",
-            canonical=None,
-            options=[crypto_opt, equity_opt],  # crypto first (more common intent)
+            kind="crypto",
+            canonical=f"{raw}-USD",
+            options=[],
             resolved_from=raw,
         )
     if crypto_opt:

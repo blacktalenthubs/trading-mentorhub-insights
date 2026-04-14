@@ -307,6 +307,82 @@ async def user_debug(
     }
 
 
+@router.post("/watchlists/cleanup")
+async def cleanup_watchlists(
+    dry_run: bool = True,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-resolve every watchlist symbol through the Alpaca validator.
+
+    - Crypto-only match (e.g. SOL → SOL-USD): rewrite canonical form
+    - Unknown (e.g. APPL typo, XYZ garbage): delete row
+    - Equity-only / already canonical: no-op
+
+    Pass dry_run=false to apply changes. Default is dry_run=true so you can
+    inspect the diff first.
+    """
+    from sqlalchemy import text
+    from app.services.symbol_resolver import resolve_symbol
+
+    rows = (await db.execute(
+        select(WatchlistItem.id, WatchlistItem.user_id, WatchlistItem.symbol)
+    )).all()
+
+    rewrites: list[dict] = []  # {id, user_id, from, to}
+    deletes: list[dict] = []   # {id, user_id, symbol, reason}
+    noops = 0
+
+    for row in rows:
+        wid, uid, sym = row.id, row.user_id, row.symbol
+        res = resolve_symbol(sym)
+        if res.kind == "unknown":
+            deletes.append({"id": wid, "user_id": uid, "symbol": sym,
+                            "reason": "no data (delisted/typo)"})
+        elif res.canonical and res.canonical != sym:
+            rewrites.append({"id": wid, "user_id": uid,
+                             "from": sym, "to": res.canonical})
+        else:
+            noops += 1
+
+    applied = False
+    if not dry_run:
+        for r in rewrites:
+            # Check if canonical already exists for user (avoid unique collision)
+            exists = (await db.execute(
+                select(WatchlistItem).where(
+                    WatchlistItem.user_id == r["user_id"],
+                    WatchlistItem.symbol == r["to"],
+                )
+            )).scalar_one_or_none()
+            if exists:
+                # Duplicate — delete the bad one rather than rename
+                await db.execute(text(
+                    "DELETE FROM watchlist_items WHERE id = :id"
+                ), {"id": r["id"]})
+                r["action"] = "deleted (duplicate of canonical)"
+            else:
+                await db.execute(text(
+                    "UPDATE watchlist_items SET symbol = :s WHERE id = :id"
+                ), {"s": r["to"], "id": r["id"]})
+                r["action"] = "renamed"
+        for d in deletes:
+            await db.execute(text(
+                "DELETE FROM watchlist_items WHERE id = :id"
+            ), {"id": d["id"]})
+        await db.commit()
+        applied = True
+
+    return {
+        "dry_run": dry_run,
+        "applied": applied,
+        "total_rows": len(rows),
+        "rewrites": rewrites,
+        "deletes": deletes,
+        "unchanged": noops,
+    }
+
+
 @router.get("/watchlists")
 async def all_watchlists(
     admin: User = Depends(_require_admin),
