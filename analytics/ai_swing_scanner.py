@@ -423,6 +423,28 @@ def swing_scan_cycle(sync_session_factory) -> int:
                             (result.get("reason") or "")[:80])
                 continue
 
+            # Option B gates — fire only when price is AT or above the level.
+            current = result.get("price") or 0
+            if current > 0:
+                # Proximity gate: price must be within 1.5% of the entry level.
+                # Too far away = setup is hypothetical, not actionable yet.
+                distance_pct = abs(current - entry) / current * 100
+                if distance_pct > 1.5:
+                    logger.info(
+                        "swing %s: skip — entry $%.2f is %.2f%% from price $%.2f (proximity > 1.5%%)",
+                        symbol, entry, distance_pct, current,
+                    )
+                    continue
+                # Reclaim gate: for LONG, current price must be AT or above entry
+                # (allow 0.2% slack for level precision). If below, level is not
+                # reclaimed — price is still being rejected.
+                if current < entry * 0.998:
+                    logger.info(
+                        "swing %s: skip — current $%.2f below entry $%.2f (level not reclaimed)",
+                        symbol, current, entry,
+                    )
+                    continue
+
             # Actionability is enforced by the AI prompt's invalidation gate —
             # setups where structural stop is too far from price are returned as WAIT.
 
