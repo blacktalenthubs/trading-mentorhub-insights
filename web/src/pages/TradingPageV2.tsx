@@ -1375,32 +1375,35 @@ export default function TradingPageV2() {
       {/* ── RIGHT: Tabbed Sidebar (desktop) ── */}
       {showRightPanel && (
         <aside className="hidden lg:flex flex-col w-[320px] bg-surface-0 border-l border-border-subtle shrink-0">
-          {/* Tab bar */}
-          <div className="flex border-b border-border-subtle shrink-0 h-10">
+          {/* Tab bar — vertical icon+short-label stack, tooltip on hover */}
+          <div className="flex border-b border-border-subtle shrink-0 h-14 bg-surface-1/40">
             {(
               [
-                { key: "ai" as RightTab, label: "AI Coach", icon: Brain, badge: 0 },
-                { key: "best" as RightTab, label: "Best Setups", icon: Sparkles, badge: 0 },
-                { key: "signals" as RightTab, label: "AI Signals", icon: Zap, badge: alertCount },
-                { key: "aiscan" as RightTab, label: "AI Updates", icon: Eye, badge: 0 },
+                { key: "ai" as RightTab, label: "Coach", full: "AI Coach", icon: Brain, badge: 0 },
+                { key: "best" as RightTab, label: "Best", full: "Best Setups Today", icon: Sparkles, badge: 0 },
+                { key: "signals" as RightTab, label: "Signals", full: "AI Signals", icon: Zap, badge: alertCount },
+                { key: "aiscan" as RightTab, label: "Updates", full: "AI Updates", icon: Eye, badge: 0 },
               ]
-            ).map(({ key, label, icon: Icon, badge }) => (
+            ).map(({ key, label, full, icon: Icon, badge }) => (
               <button
                 key={key}
                 onClick={() => setRightTab(key)}
-                className={`flex-1 flex items-center justify-center gap-1.5 text-[11px] font-medium transition-colors relative ${
+                title={full}
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors relative px-1 ${
                   rightTab === key
-                    ? "text-accent"
-                    : "text-text-muted hover:text-text-secondary"
+                    ? "text-accent bg-accent/5"
+                    : "text-text-muted hover:text-text-secondary hover:bg-surface-2/40"
                 }`}
               >
-                <Icon className="h-3.5 w-3.5" />
-                <span className="hidden xl:inline">{label}</span>
-                {badge != null && badge > 0 && (
-                  <span className="text-[8px] font-bold min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-bearish/15 text-bearish-text ring-1 ring-inset ring-bearish/20 px-0.5">
-                    {badge}
-                  </span>
-                )}
+                <div className="flex items-center gap-1">
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  {badge != null && badge > 0 && (
+                    <span className="text-[8px] font-bold min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-bearish/15 text-bearish-text ring-1 ring-inset ring-bearish/20 px-0.5">
+                      {badge}
+                    </span>
+                  )}
+                </div>
+                <span className="whitespace-nowrap leading-none">{label}</span>
                 {rightTab === key && (
                   <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-accent rounded-t" />
                 )}
