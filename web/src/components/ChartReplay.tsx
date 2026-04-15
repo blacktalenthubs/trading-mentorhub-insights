@@ -180,13 +180,15 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       crosshair: { mode: 0 }, // No crosshair during replay
       rightPriceScale: {
         autoScale: true,
-        scaleMargins: { top: 0.15, bottom: 0.15 },
+        // Bigger margins so entry / stop / T1 / T2 lines all sit inside the
+        // visible price range (not cut off by candle-only auto-fit)
+        scaleMargins: { top: 0.22, bottom: 0.22 },
         borderVisible: false,
       },
       timeScale: {
         rightOffset: 2,
-        barSpacing: 14,  // wider bars so patterns are readable
-        minBarSpacing: 6,
+        barSpacing: 9,   // moderate — readable but not huge blocks
+        minBarSpacing: 4,
         borderVisible: false,
       },
     });
@@ -199,6 +201,33 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       wickDownColor: "#ef444480",
       wickUpColor: "#22c55e80",
     });
+
+    // Force price scale to include entry/stop/T1/T2 so level lines always render
+    try {
+      const a = data.alert;
+      const levels = [a.entry, a.stop, a.target_1, a.target_2].filter((x): x is number => !!x && x > 0);
+      if (levels.length > 0) {
+        series.applyOptions({
+          autoscaleInfoProvider: (original: any) => {
+            const r = original();
+            if (!r || !r.priceRange) return r;
+            const curMin = r.priceRange.minValue;
+            const curMax = r.priceRange.maxValue;
+            const lvlMin = Math.min(...levels);
+            const lvlMax = Math.max(...levels);
+            return {
+              ...r,
+              priceRange: {
+                minValue: Math.min(curMin, lvlMin),
+                maxValue: Math.max(curMax, lvlMax),
+              },
+            };
+          },
+        } as any);
+      }
+    } catch {
+      // autoscaleInfoProvider unavailable — ignore
+    }
 
     chartRef.current = chart;
     seriesRef.current = series;
