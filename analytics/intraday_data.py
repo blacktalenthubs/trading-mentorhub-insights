@@ -228,6 +228,51 @@ def _fetch_alpaca_crypto_bars(symbol: str, interval: str = "5m", hours_back: int
         return pd.DataFrame()
 
 
+def fetch_latest_price(symbol: str) -> float | None:
+    """Fetch the most recent TRADE price (real-time, not a 5-min bar close).
+
+    Alpaca's latest-trade endpoint returns the last executed trade — that's
+    what matches the user's live chart. The 5-min bar close can be 2-7 min
+    stale at any moment during the forming bar. Returns None on failure.
+
+    For crypto: uses Alpaca crypto latest bar endpoint.
+    For equities: uses Alpaca stock latest trade endpoint.
+    """
+    import os
+    import requests
+    key = os.environ.get("ALPACA_API_KEY", "")
+    secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not key or not secret:
+        return None
+    headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+
+    try:
+        if symbol.endswith("-USD"):
+            # Crypto — latest bar endpoint returns most recent bar's close
+            alpaca_sym = symbol.replace("-USD", "/USD").upper()
+            r = requests.get(
+                "https://data.alpaca.markets/v1beta3/crypto/us/latest/bars",
+                headers=headers, params={"symbols": alpaca_sym}, timeout=3,
+            )
+            if r.status_code != 200:
+                return None
+            bar = r.json().get("bars", {}).get(alpaca_sym)
+            return float(bar["c"]) if bar and "c" in bar else None
+        else:
+            # Equity — latest-trade is closest to "live price"
+            r = requests.get(
+                f"https://data.alpaca.markets/v2/stocks/{symbol}/trades/latest",
+                headers=headers, params={"feed": "iex"}, timeout=3,
+            )
+            if r.status_code != 200:
+                return None
+            trade = r.json().get("trade")
+            return float(trade["p"]) if trade and "p" in trade else None
+    except Exception as e:
+        logger.info("latest price fetch failed for %s: %s", symbol, str(e)[:80])
+        return None
+
+
 def fetch_intraday(symbol: str, period: str = "1d", interval: str = "5m") -> pd.DataFrame:
     """Fetch intraday bars for a symbol.
 

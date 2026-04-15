@@ -565,6 +565,7 @@ def build_day_trade_prompt(
     bars_1h: list[dict],
     prior_day: dict | None,
     active_positions: list[dict] | None = None,  # kept for API compat; not used in multi-user
+    live_price: float | None = None,
 ) -> str:
     """Build specialized day trade prompt with specific confirmation rules.
 
@@ -740,13 +741,28 @@ def build_day_trade_prompt(
         last_vol = bars_5m[-1].get("volume", 0)
         vol_ratio = last_vol / avg_vol if avg_vol > 0 else 1.0
 
+        # CRITICAL: use live_price (real-time last trade) for "current price"
+        # The 5-min bar close can be 2-7 minutes stale during forming bars.
+        # AI must evaluate LEVELS/STRUCTURE from bars but ANCHOR "where we
+        # are now" to the live price.
+        _now_price = live_price if (live_price and live_price > 0) else bars_5m[-1]['close']
+        _bar_close = bars_5m[-1]['close']
+        _live_note = ""
+        if live_price and abs(live_price - _bar_close) / _bar_close > 0.002:
+            _live_note = (
+                f"\n⚠ LIVE PRICE ${live_price:.2f} differs from last bar close "
+                f"${_bar_close:.2f} — use LIVE price for 'where are we now' "
+                f"decisions. The bar close is recent history."
+            )
         parts.append(
             f"\n[INTRADAY LEVELS]\n"
             f"Session High: ${session_high:.2f}\n"
             f"Session Low: ${session_low:.2f}\n"
             f"VWAP: ${vwap:.2f}\n"
-            f"Current Price: ${bars_5m[-1]['close']:.2f}\n"
+            f"Current Price (LIVE — real-time last trade): ${_now_price:.2f}\n"
+            f"Last 5-min bar close: ${_bar_close:.2f} (may be 2-5 min old)\n"
             f"Volume Ratio: {vol_ratio:.1f}x avg"
+            f"{_live_note}"
         )
 
     # 5-min bars (last 20)
@@ -834,7 +850,19 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         bars_1h_df = fetch_intraday(symbol, period="5d", interval="1h")
         prior_day = fetch_prior_day(symbol, is_crypto=is_crypto)
 
-        current_price = float(bars_5m_df.iloc[-1]["Close"])
+        # LIVE price — closest to what the user sees on their chart. Uses
+        # Alpaca latest-trade endpoint, not the stale 5-min bar close.
+        # Falls back to last-bar close if live fetch fails.
+        from analytics.intraday_data import fetch_latest_price
+        live_price = fetch_latest_price(symbol)
+        bar_close = float(bars_5m_df.iloc[-1]["Close"])
+        current_price = live_price if live_price else bar_close
+        if live_price and abs(live_price - bar_close) / bar_close > 0.003:
+            logger.info(
+                "%s live-vs-bar drift: live=$%.2f bar_close=$%.2f (%.2f%%)",
+                symbol, live_price, bar_close,
+                (live_price - bar_close) / bar_close * 100,
+            )
 
         bars_5m = [
             {"open": float(r["Open"]), "high": float(r["High"]),
@@ -851,7 +879,10 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
                 for _, r in bars_1h_df.tail(10).iterrows()
             ]
 
-        prompt = build_day_trade_prompt(symbol, bars_5m, bars_1h, prior_day, active_positions)
+        prompt = build_day_trade_prompt(
+            symbol, bars_5m, bars_1h, prior_day, active_positions,
+            live_price=live_price,
+        )
 
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
