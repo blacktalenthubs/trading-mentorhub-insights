@@ -1037,8 +1037,21 @@ def day_scan_cycle(sync_session_factory) -> int:
                 reason = result.get("reason", "")
                 conviction = result.get("conviction", "MEDIUM")
 
+                # Heartbeat: for priority symbols (SPY/NVDA/ETH-USD) + symbols where
+                # any watching user holds an open position, we ALWAYS run the WAIT
+                # emission block (AI UPDATE message) even when AI returned
+                # LONG/SHORT/RESISTANCE. The normal direction-specific handling
+                # still runs afterward to fire trade alerts on top of the heartbeat.
+                _priority_symbols = {"SPY", "NVDA", "ETH-USD"}
+                _anyone_holds = any(
+                    user_open_longs.get((uid, symbol)) or user_open_shorts.get((uid, symbol))
+                    for uid in symbol_users.get(symbol, [])
+                )
+                _heartbeat_symbol = (symbol.upper() in _priority_symbols) or _anyone_holds
+
                 # WAIT — no setup confirmed, record to DB for AI Scan feed
-                if not direction or direction == "WAIT":
+                # Also run for priority heartbeat (but fall through to trade handling after)
+                if (not direction) or (direction == "WAIT") or _heartbeat_symbol:
                     # --- Gate check FIRST, using DB (survives restarts) ---
                     # Queries the last ai_scan_wait row for this symbol today
                     # BEFORE we insert this cycle's rows.
@@ -1158,7 +1171,11 @@ def day_scan_cycle(sync_session_factory) -> int:
                             pass
 
                     logger.info("AI day scan %s: WAIT — %s", symbol, reason or "no setup")
-                    continue
+                    # Only skip further processing if direction was truly WAIT.
+                    # For priority-heartbeat with non-WAIT direction, fall through
+                    # to direction-specific trade alert handling (LONG/SHORT/RESISTANCE).
+                    if (not direction) or (direction == "WAIT"):
+                        continue
 
                 # RESISTANCE warning
                 if direction == "RESISTANCE":
