@@ -152,7 +152,8 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => {
         setData(d);
-        setVisibleCount(Math.max(1, d.alert_bar_index - 6));
+        // Start with ~20 bars of pre-entry context so chart has visual depth
+        setVisibleCount(Math.max(1, d.alert_bar_index - 20));
         setLoading(false);
         setTimeout(() => setPlaying(true), 2000);
       })
@@ -266,17 +267,54 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     const seen = new Set<number>();
     const deduped = visible.filter((v) => { if (seen.has(v.time)) return false; seen.add(v.time); return true; });
     seriesRef.current.setData(deduped);
-  }, [visibleCount, data]);
+
+    // Entry / exit markers on the candles themselves so user sees WHEN it happened
+    try {
+      const markers: any[] = [];
+      const alertIdx = data.alert_bar_index;
+      const outcomeIdx = data.outcome_bar_index;
+      if (alertIdx < visibleCount) {
+        const bar = data.bars[alertIdx];
+        if (bar) {
+          markers.push({
+            time: (new Date(bar.timestamp).getTime() / 1000) as any,
+            position: isBuy ? "belowBar" : "aboveBar",
+            color: "#3b82f6",
+            shape: isBuy ? "arrowUp" : "arrowDown",
+            text: `${isBuy ? "LONG" : "SHORT"} $${fmt(data.alert.entry)}`,
+          });
+        }
+      }
+      if (outcomeIdx != null && outcomeIdx > 0 && outcomeIdx < visibleCount) {
+        const bar = data.bars[outcomeIdx];
+        if (bar) {
+          const isWinOutcome = data.outcome?.includes("target");
+          markers.push({
+            time: (new Date(bar.timestamp).getTime() / 1000) as any,
+            position: isWinOutcome ? "aboveBar" : "belowBar",
+            color: isWinOutcome ? "#22c55e" : "#ef4444",
+            shape: isWinOutcome ? "arrowDown" : "arrowUp",
+            text: isWinOutcome ? `✓ EXIT $${fmt(data.outcome_price)}` : `✖ STOP $${fmt(data.outcome_price)}`,
+          });
+        }
+      }
+      (seriesRef.current as any).setMarkers?.(markers);
+    } catch {
+      // markers API differences — ignore
+    }
+  }, [visibleCount, data, isBuy]);
 
   // Animation loop
   useEffect(() => {
     if (!playing || !data) return;
-    // Slower pacing: entry/target moments get extra pause for clarity
-    const interval = phase === "entry" || phase === "target" ? 1500
-      : phase === "approach" ? 900
-      : phase === "setup" ? 1200
-      : phase === "result" ? 2000
-      : 600; // move phase
+    // Pacing at 1x = ~1 sec per bar on move phase (user can read each candle).
+    // Setup/approach phases held longer so user has time to read AI reason.
+    // Entry/target moments get extra pause for emphasis.
+    const interval = phase === "entry" || phase === "target" ? 2500
+      : phase === "approach" ? 1500
+      : phase === "setup" ? 2500  // 2.5s per setup bar — lets reason text read
+      : phase === "result" ? 3000
+      : 1000; // move phase — 1s per bar at 1x (real "human reading" speed)
     const timer = setInterval(() => {
       setVisibleCount((prev) => {
         if (prev >= data.bars.length) { setPlaying(false); return data.bars.length; }
@@ -326,20 +364,38 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       {/* ── Phase Overlays ── */}
       <div className="absolute inset-0 z-10 pointer-events-none">
 
-        {/* SETUP phase: show trade name prominently */}
+        {/* SETUP phase: show trade name prominently + AI reason */}
         {phase === "setup" && (
-          <div className="absolute top-12 left-8 animate-in fade-in slide-in-from-left duration-700">
-            <div className="text-4xl font-bold text-white tracking-tight">
+          <div className="absolute top-12 left-8 right-8 animate-in fade-in slide-in-from-left duration-700 max-w-2xl">
+            <div className="text-3xl font-bold text-white tracking-tight">
               {setupLabel.toUpperCase()}
             </div>
-            <div className="text-xl text-accent mt-2 font-mono">
+            <div className="text-lg text-accent mt-1 font-mono">
               {data.alert.symbol} — ${fmt(data.alert.price)}
             </div>
-            <div className="flex gap-4 mt-3 text-sm font-mono">
+            <div className="flex gap-4 mt-2 text-sm font-mono">
               <span className="text-blue-400">Entry ${fmt(data.alert.entry)}</span>
               <span className="text-red-400">Stop ${fmt(data.alert.stop)}</span>
               <span className="text-emerald-400">T1 ${fmt(data.alert.target_1)}</span>
             </div>
+            {data.alert.message && (
+              <div className="mt-3 text-[13px] text-text-secondary bg-[#0f1629]/80 border border-white/5 rounded-lg p-3 backdrop-blur-sm">
+                <span className="text-[10px] uppercase tracking-wider text-text-faint">AI Reason</span>
+                <div className="mt-1 leading-relaxed">{data.alert.message}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Persistent outcome tag (top right) — always shows while replay is in MOVE/TARGET */}
+        {(phase === "move" || phase === "target") && data.outcome && (
+          <div className="absolute top-6 left-8 text-[10px] uppercase tracking-widest text-text-faint">
+            Outcome: <span className={isWin ? "text-emerald-400" : "text-red-400"}>{outcomeLabel}</span>
+            {data.pnl_pct !== 0 && (
+              <span className="ml-2 font-mono">
+                ({data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%)
+              </span>
+            )}
           </div>
         )}
 
@@ -446,7 +502,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
                     {linkCopied ? "Copied!" : "Share Link"}
                   </button>
                   <button
-                    onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 6)); setPlaying(true); }}
+                    onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 20)); setPlaying(true); }}
                     className="text-xs bg-white/10 text-white px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors pointer-events-auto"
                   >
                     Replay
@@ -488,7 +544,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           {/* Left: playback controls */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 6)); setPlaying(false); }}
+              onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 20)); setPlaying(false); }}
               className="p-1.5 rounded hover:bg-white/5 text-gray-400 transition-colors"
             >
               <SkipBack className="h-4 w-4" />
