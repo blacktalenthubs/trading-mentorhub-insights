@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
-import type { IChartApi, ISeriesApi } from "lightweight-charts";
+import { createChart, CandlestickSeries, ColorType, createSeriesMarkers } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, ISeriesMarkersPluginApi } from "lightweight-charts";
 import { Play, Pause, SkipBack, SkipForward, X, Maximize2, Minimize2 } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 
@@ -87,6 +87,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<any> | null>(null);
 
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -183,7 +184,9 @@ export default function ChartReplay({ alertId, onClose }: Props) {
         borderVisible: false,
       },
       timeScale: {
-        rightOffset: 5,
+        rightOffset: 2,
+        barSpacing: 14,  // wider bars so patterns are readable
+        minBarSpacing: 6,
         borderVisible: false,
       },
     });
@@ -199,6 +202,12 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
     chartRef.current = chart;
     seriesRef.current = series;
+    // v5 markers API — attach plugin once, reuse for updates
+    try {
+      markersRef.current = createSeriesMarkers(series, []);
+    } catch {
+      markersRef.current = null;
+    }
 
     // Draw key level lines
     const a = data.alert;
@@ -268,8 +277,13 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     const deduped = visible.filter((v) => { if (seen.has(v.time)) return false; seen.add(v.time); return true; });
     seriesRef.current.setData(deduped);
 
-    // Entry / exit markers on the candles themselves so user sees WHEN it happened
+    // Auto-fit the visible bars to chart width so candles aren't clustered right
     try {
+      chartRef.current?.timeScale().fitContent();
+    } catch {}
+
+    // Entry / exit markers on candles (v5 API via plugin)
+    if (markersRef.current) {
       const markers: any[] = [];
       const alertIdx = data.alert_bar_index;
       const outcomeIdx = data.outcome_bar_index;
@@ -298,23 +312,22 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           });
         }
       }
-      (seriesRef.current as any).setMarkers?.(markers);
-    } catch {
-      // markers API differences — ignore
+      try {
+        markersRef.current.setMarkers(markers);
+      } catch {}
     }
   }, [visibleCount, data, isBuy]);
 
   // Animation loop
   useEffect(() => {
     if (!playing || !data) return;
-    // Pacing at 1x = ~1 sec per bar on move phase (user can read each candle).
-    // Setup/approach phases held longer so user has time to read AI reason.
-    // Entry/target moments get extra pause for emphasis.
-    const interval = phase === "entry" || phase === "target" ? 2500
-      : phase === "approach" ? 1500
-      : phase === "setup" ? 2500  // 2.5s per setup bar — lets reason text read
-      : phase === "result" ? 3000
-      : 1000; // move phase — 1s per bar at 1x (real "human reading" speed)
+    // Target total replay ~35s so viewer can follow candle-by-candle.
+    // Move phase dominates (10-20 bars) so it paces the story.
+    const interval = phase === "entry" || phase === "target" ? 3000  // 3s emphasis
+      : phase === "approach" ? 2000
+      : phase === "setup" ? 3500  // 3.5s per setup bar — reads AI reason clearly
+      : phase === "result" ? 4000
+      : 1400; // move phase — 1.4s per bar, candles build gradually
     const timer = setInterval(() => {
       setVisibleCount((prev) => {
         if (prev >= data.bars.length) { setPlaying(false); return data.bars.length; }
@@ -408,16 +421,11 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           </div>
         )}
 
-        {/* ENTRY phase: flash highlight */}
+        {/* ENTRY phase: compact top-center pill (does not block chart) */}
         {phase === "entry" && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="animate-in zoom-in duration-300 bg-accent/15 border-2 border-accent rounded-2xl px-8 py-5 backdrop-blur-sm">
-              <div className="text-2xl font-bold text-accent text-center">
-                {isBuy ? "ENTRY" : "SHORT ENTRY"}
-              </div>
-              <div className="text-lg font-mono text-accent/80 text-center mt-1">
-                ${fmt(data.alert.entry)} — {setupLabel}
-              </div>
+          <div className="absolute top-8 left-1/2 -translate-x-1/2 animate-in fade-in zoom-in duration-300 bg-accent/15 border border-accent/40 rounded-full px-6 py-2 backdrop-blur-sm">
+            <div className="text-sm font-bold text-accent text-center">
+              {isBuy ? "ENTRY" : "SHORT ENTRY"} · ${fmt(data.alert.entry)}
             </div>
           </div>
         )}
@@ -434,19 +442,13 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           </div>
         )}
 
-        {/* TARGET HIT phase: celebration */}
+        {/* TARGET HIT phase: compact top-center pill (does not block chart) */}
         {phase === "target" && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className={`animate-in zoom-in duration-500 ${isWin ? "bg-emerald-500/10" : "bg-red-500/10"} rounded-3xl px-12 py-8 backdrop-blur-sm border ${isWin ? "border-emerald-500/30" : "border-red-500/30"}`}>
-              <div className={`text-5xl font-bold text-center ${isWin ? "text-emerald-400" : "text-red-400"}`}>
-                {outcomeLabel}
-              </div>
-              <div className={`text-3xl font-mono text-center mt-3 ${isWin ? "text-emerald-400" : "text-red-400"}`}>
-                {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
-                <span className="text-lg ml-2">
-                  (${data.pnl_per_share >= 0 ? "+" : ""}{data.pnl_per_share}/share)
-                </span>
-              </div>
+          <div className={`absolute top-8 left-1/2 -translate-x-1/2 animate-in fade-in zoom-in duration-500 rounded-full px-6 py-2 backdrop-blur-sm border ${
+            isWin ? "bg-emerald-500/15 border-emerald-500/40" : "bg-red-500/15 border-red-500/40"
+          }`}>
+            <div className={`text-sm font-bold text-center ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+              {outcomeLabel} · {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
             </div>
           </div>
         )}
