@@ -29,6 +29,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import CandlestickChart from "../components/CandlestickChart";
+import BestSetupsCard from "../components/BestSetupsCard";
 import {
   Search,
   Target,
@@ -38,6 +39,7 @@ import {
   Loader2,
   SlidersHorizontal,
   Brain,
+  Sparkles,
   Zap,
   Eye,
   Send,
@@ -750,7 +752,7 @@ function BottomStrip({ signal: s }: { signal: SignalResult }) {
 
 /* ── Right Panel Tabs ─────────────────────────────────────────────── */
 
-type RightTab = "ai" | "signals" | "flow" | "aiscan";
+type RightTab = "ai" | "best" | "signals" | "flow" | "aiscan";
 
 /* ── Main TradingPage V2 ─────────────────────────────────────────── */
 
@@ -1378,6 +1380,7 @@ export default function TradingPageV2() {
             {(
               [
                 { key: "ai" as RightTab, label: "AI Coach", icon: Brain, badge: 0 },
+                { key: "best" as RightTab, label: "Best Setups", icon: Sparkles, badge: 0 },
                 { key: "signals" as RightTab, label: "AI Signals", icon: Zap, badge: alertCount },
                 { key: "aiscan" as RightTab, label: "AI Updates", icon: Eye, badge: 0 },
               ]
@@ -1430,6 +1433,9 @@ export default function TradingPageV2() {
                   </button>
                 ))}
               </div>
+            )}
+            {rightTab === "best" && (
+              <BestSetupsCard onSelectSymbol={selectSymbol} />
             )}
             {rightTab === "signals" && (
               <SignalFeedTab
