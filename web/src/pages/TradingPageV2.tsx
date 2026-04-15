@@ -796,6 +796,26 @@ export default function TradingPageV2() {
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [mobileTab, setMobileTab] = useState<RightTab>("ai");
 
+  // Asset class filter for AI Signals + AI Updates tabs (persists in localStorage)
+  type AssetFilter = "all" | "stocks" | "crypto";
+  const [assetFilter, setAssetFilter] = useState<AssetFilter>(
+    () => (typeof window !== "undefined"
+      ? (localStorage.getItem("trading_asset_filter") as AssetFilter) || "all"
+      : "all")
+  );
+  function changeAssetFilter(next: AssetFilter) {
+    setAssetFilter(next);
+    try { localStorage.setItem("trading_asset_filter", next); } catch {}
+  }
+  function filterAlertsByAsset<T extends { symbol?: string }>(alerts: T[] | undefined): T[] {
+    if (!alerts) return [];
+    if (assetFilter === "all") return alerts;
+    return alerts.filter((a) => {
+      const isCrypto = a.symbol?.toUpperCase().endsWith("-USD");
+      return assetFilter === "crypto" ? !!isCrypto : !isCrypto;
+    });
+  }
+
   /* ── Watchlist ── */
   const { data: watchlistItems } = useWatchlist();
   const addSymbol = useAddSymbol();
@@ -1394,16 +1414,33 @@ export default function TradingPageV2() {
                 timeframe={tf.label}
               />
             </div>
+            {(rightTab === "signals" || rightTab === "aiscan") && (
+              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-subtle shrink-0">
+                {(["all", "stocks", "crypto"] as const).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => changeAssetFilter(k)}
+                    className={`text-[10px] px-2.5 py-0.5 rounded-full border transition-colors ${
+                      assetFilter === k
+                        ? "bg-accent/15 text-accent border-accent/40"
+                        : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+                    }`}
+                  >
+                    {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
+                  </button>
+                ))}
+              </div>
+            )}
             {rightTab === "signals" && (
               <SignalFeedTab
-                alerts={todayAlerts}
+                alerts={filterAlertsByAsset(todayAlerts)}
                 alertsError={alertsError}
                 onSelectSymbol={selectSymbol}
               />
             )}
             {rightTab === "aiscan" && (
               <AIScanFeedTab
-                alerts={todayAlerts}
+                alerts={filterAlertsByAsset(todayAlerts)}
                 onSelectSymbol={selectSymbol}
               />
             )}
