@@ -10,13 +10,15 @@ from enum import IntEnum
 
 class Tier(IntEnum):
     FREE = 0
-    PRO = 1
-    PREMIUM = 2
+    COMP = 1    # comped (family/friends): full telegram, limited dashboard AI
+    PRO = 2
+    PREMIUM = 3
     ADMIN = 99
 
 
 TIER_MAP: dict[str, Tier] = {
     "free": Tier.FREE,
+    "comp": Tier.COMP,
     "pro": Tier.PRO,
     "premium": Tier.PREMIUM,
     "admin": Tier.ADMIN,
@@ -41,6 +43,27 @@ TIER_LIMITS: dict[str, dict] = {
         "weekly_review": False,
         "performance_analytics": False,
         "pre_trade_check": False,
+        "paper_trading": False,
+        "backtesting": False,
+    },
+    "comp": {
+        # Comped tier for family/friends — unlimited Telegram, limited dashboard AI
+        "watchlist_max": 10,
+        "ai_queries_per_day": 3,         # same as free — dashboard AI Coach limited
+        "ai_scan_alerts_per_day": None,  # unlimited Telegram
+        "ai_wait_alerts_per_day": None,  # unlimited
+        "ai_swing_alerts_per_day": None, # unlimited
+        "best_setups_per_day": 1,        # same as free — dashboard feature limited
+        "telegram_commands_per_day": 3,  # same as free — per-user AI cost control
+        "alert_history_days": 30,
+        "visible_alerts": None,          # full visibility in UI
+        "chart_replay_per_day": None,
+        "telegram_alerts": True,
+        "premarket_brief": True,
+        "eod_review": True,
+        "weekly_review": False,
+        "performance_analytics": True,
+        "pre_trade_check": True,
         "paper_trading": False,
         "backtesting": False,
     },

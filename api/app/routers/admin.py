@@ -655,7 +655,7 @@ async def update_user_tier(
 ):
     """Admin: change a user's subscription tier."""
     new_tier = body.get("tier", "").lower()
-    if new_tier not in ("free", "pro", "premium", "admin"):
+    if new_tier not in ("free", "comp", "pro", "premium", "admin"):
         raise HTTPException(400, f"Invalid tier: {new_tier}")
 
     from app.models.subscription import Subscription

@@ -117,7 +117,7 @@ function TierSelector({
       setSaving(false);
     }
   }
-  const options = ["free", "pro", "premium"];
+  const options = ["free", "comp", "pro", "premium"];
   // If currently trial, show it as current (read-only label) since trial isn't a real tier to save
   const value = options.includes(currentTier) ? currentTier : "free";
   return (
@@ -141,6 +141,7 @@ function TierBadge({ tier, trialDays, trialExpired }: { tier: string; trialDays?
     premium: "bg-purple/10 text-purple-text border-purple/20",
     admin: "bg-warning/10 text-warning-text border-warning/20",
     trial: "bg-bullish/10 text-bullish-text border-bullish/20",
+    comp: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
     free: "bg-surface-3 text-text-faint border-border-subtle",
     none: "bg-surface-3 text-text-faint border-border-subtle",
   };
