@@ -517,6 +517,28 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       {/* ── Chart Area ── */}
       <div ref={containerRef} className="flex-1 min-h-0" />
 
+      {/* Persistent outcome banner — always visible through replay, great for screenshots */}
+      {data.outcome && data.outcome !== "open" && (
+        <div className={`absolute bottom-[68px] left-4 z-20 rounded-lg px-4 py-2.5 backdrop-blur-md border ${
+          isWin ? "bg-emerald-500/15 border-emerald-500/30" : "bg-red-500/15 border-red-500/30"
+        }`}>
+          <div className={`flex items-center gap-3 text-sm font-bold ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+            <span>{isWin ? "✓" : "✖"}</span>
+            <span>{outcomeLabel}</span>
+            <span className="text-white/40">·</span>
+            <span className="font-mono">{duration}</span>
+            <span className="text-white/40">·</span>
+            <span className="font-mono">
+              {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
+            </span>
+            <span className="text-white/40">·</span>
+            <span className="font-mono text-xs">
+              {data.alert.symbol} {isBuy ? "LONG" : "SHORT"}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ── Controls Bar ── */}
       <div className="shrink-0 bg-[#0a0f1a] border-t border-white/5 px-6 py-3">
         {/* Progress bar */}
