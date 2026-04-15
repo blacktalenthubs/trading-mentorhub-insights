@@ -86,8 +86,9 @@ async def best_setups(
     from analytics.ai_best_setups import generate_best_setups
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from app.config import settings
+    from app.config import get_settings
 
+    settings = get_settings()
     sync_url = settings.DATABASE_URL
     for suffix in ("+asyncpg", "+psycopg2", "+psycopg"):
         sync_url = sync_url.replace(suffix, "")
