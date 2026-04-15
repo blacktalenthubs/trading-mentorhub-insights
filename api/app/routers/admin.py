@@ -658,7 +658,6 @@ async def update_user_tier(
     if new_tier not in ("free", "comp", "pro", "premium", "admin"):
         raise HTTPException(400, f"Invalid tier: {new_tier}")
 
-    from app.models.subscription import Subscription
     result = await db.execute(
         select(Subscription).where(Subscription.user_id == user_id)
     )
