@@ -906,9 +906,7 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
 
         # SHORT policy:
         # - SPY: fire SHORT only if conviction is MEDIUM or HIGH (skip LOW)
-        # - SPY LOW: downgrade to RESISTANCE (user sees level awareness)
-        # - All other symbols: downgrade SHORT → WAIT (AI UPDATE heartbeat will
-        #   deliver the rejection context as informational, no RESISTANCE trade alert)
+        # - All other symbols: downgrade SHORT → RESISTANCE (notice, not action)
         if parsed.get("direction") == "SHORT":
             conv = (parsed.get("conviction") or "MEDIUM").upper()
             sym_upper = symbol.upper()
@@ -917,9 +915,9 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
                     logger.info("AI day scan %s: SPY SHORT LOW suppressed (min MEDIUM)", symbol)
                     parsed["direction"] = "RESISTANCE"
             else:
-                # Non-SPY → WAIT (heartbeat will emit AI UPDATE with AI's reason)
-                logger.info("AI day scan %s: SHORT → WAIT (SPY-only policy)", symbol)
-                parsed["direction"] = "WAIT"
+                # Non-SPY → RESISTANCE notice (user still sees the level, no SHORT action)
+                logger.info("AI day scan %s: SHORT → RESISTANCE (SPY-only policy)", symbol)
+                parsed["direction"] = "RESISTANCE"
 
         return parsed
 
