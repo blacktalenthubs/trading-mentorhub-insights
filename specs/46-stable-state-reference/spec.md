@@ -239,6 +239,7 @@ FREE (0) → COMP (1) → PRO (2) → PREMIUM (3) → ADMIN (99)
 | `TELEGRAM_BOT_TOKEN` | unset | Required for delivery |
 | `TELEGRAM_CHAT_ID` | unset | Default admin chat |
 | `SWING_SCAN_ENABLED` | `true` | Swing scanner on/off |
+| `SCAN_USER_EMAIL` | unset | Cost-control: restrict day+swing scans to one user's watchlist. Unset = scan all users. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | unset | Admin auto-seed on boot |
 
 ---

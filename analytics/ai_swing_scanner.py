@@ -395,11 +395,19 @@ def swing_scan_cycle(sync_session_factory) -> int:
     with sync_session_factory() as db:
         # Build per-symbol → users-watching map from real watchlists.
         # Only scan symbols at least one Telegram-enabled user is watching.
-        rows = db.execute(
+        # Cost-control: SCAN_USER_EMAIL restricts to one user's watchlist.
+        import os as _os_scan
+        _scan_email = _os_scan.environ.get("SCAN_USER_EMAIL", "").strip().lower()
+        _q = (
             select(WatchlistItem.symbol, WatchlistItem.user_id, User)
             .join(User, User.id == WatchlistItem.user_id)
             .where(User.telegram_enabled.is_(True))
-        ).all()
+        )
+        if _scan_email:
+            _q = _q.where(User.email == _scan_email)
+        rows = db.execute(_q).all()
+        if _scan_email:
+            logger.info("swing scan: SCAN_USER_EMAIL=%s — %d rows", _scan_email, len(rows))
 
         symbol_users: dict[str, list] = {}
         for sym, _uid, user in rows:

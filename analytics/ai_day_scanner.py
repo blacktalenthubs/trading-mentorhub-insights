@@ -1035,9 +1035,34 @@ def day_scan_cycle(sync_session_factory) -> int:
         from config import is_crypto_alert_symbol  # noqa: F401 used in auto-trade calls
 
         with sync_session_factory() as db:
-            all_items = db.execute(
-                select(WatchlistItem.symbol, WatchlistItem.user_id)
-            ).all()
+            # Cost-control: SCAN_USER_EMAIL restricts scanning to one user's
+            # watchlist (not all users'). Unset = scan every user's watchlist
+            # (production default).
+            _scan_email = os.environ.get("SCAN_USER_EMAIL", "").strip().lower()
+            if _scan_email:
+                _uid_row = db.execute(
+                    select(User.id).where(User.email == _scan_email)
+                ).fetchone()
+                if _uid_row:
+                    _scan_uid = _uid_row[0]
+                    all_items = db.execute(
+                        select(WatchlistItem.symbol, WatchlistItem.user_id)
+                        .where(WatchlistItem.user_id == _scan_uid)
+                    ).all()
+                    logger.info(
+                        "AI day scan: SCAN_USER_EMAIL=%s (uid=%d) — %d watchlist rows",
+                        _scan_email, _scan_uid, len(all_items),
+                    )
+                else:
+                    logger.warning(
+                        "AI day scan: SCAN_USER_EMAIL=%s not found — no scan this cycle",
+                        _scan_email,
+                    )
+                    return 0
+            else:
+                all_items = db.execute(
+                    select(WatchlistItem.symbol, WatchlistItem.user_id)
+                ).all()
 
             symbol_users: dict[str, list[int]] = {}
             for sym, uid in all_items:
