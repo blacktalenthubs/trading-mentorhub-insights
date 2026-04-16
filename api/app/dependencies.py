@@ -134,6 +134,8 @@ async def require_ai_access(user: User = Depends(get_current_user)) -> User:
         status_code=status.HTTP_403_FORBIDDEN,
         detail={
             "error": "upgrade_required",
+            "required_tier": "pro",
+            "current_tier": get_user_tier(user),
             "message": "Upgrade to Pro or Premium to access AI features",
         },
     )
