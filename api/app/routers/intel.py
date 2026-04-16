@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.database import get_db as get_db_dep
-from app.dependencies import get_current_user, require_pro, require_premium, check_usage_limit, get_user_tier
+from app.dependencies import get_current_user, require_pro, require_premium, require_ai_access, check_usage_limit, get_user_tier
 from app.models.user import User
 
 from fastapi import HTTPException
@@ -151,7 +151,7 @@ async def scanner_context(
 # --- AI Streaming endpoints (SSE) ---
 
 
-@router.post("/coach")
+@router.post("/coach", dependencies=[Depends(require_ai_access)])
 async def coach_stream(
     body: CoachRequest,
     request: Request,
@@ -301,7 +301,7 @@ async def coach_stream(
 # --- Chart Analysis endpoint ---
 
 
-@router.post("/analyze-chart")
+@router.post("/analyze-chart", dependencies=[Depends(require_ai_access)])
 async def analyze_chart(
     body: AnalyzeChartRequest,
     request: Request,
@@ -540,7 +540,7 @@ async def pre_trade_check(
     return result
 
 
-@router.post("/position-check")
+@router.post("/position-check", dependencies=[Depends(require_ai_access)])
 async def position_check_stream(
     user: User = Depends(require_pro),
 ):
@@ -562,7 +562,7 @@ async def position_check_stream(
     return EventSourceResponse(event_generator())
 
 
-@router.post("/classify-pattern/{symbol}")
+@router.post("/classify-pattern/{symbol}", dependencies=[Depends(require_ai_access)])
 async def classify_pattern_stream(
     symbol: str,
     user: User = Depends(require_pro),
@@ -588,7 +588,7 @@ async def classify_pattern_stream(
 # --- Intelligence Briefings ---
 
 
-@router.get("/premarket")
+@router.get("/premarket", dependencies=[Depends(require_ai_access)])
 async def premarket_brief(
     user: User = Depends(require_pro),
 ):
@@ -607,7 +607,7 @@ async def premarket_brief(
         return {"brief": f"Brief generation failed: {exc}"}
 
 
-@router.get("/eod-recap")
+@router.get("/eod-recap", dependencies=[Depends(require_ai_access)])
 async def eod_recap(
     user: User = Depends(require_pro),
 ):
@@ -623,7 +623,7 @@ async def eod_recap(
 # --- Trade Replay Analyst ---
 
 
-@router.get("/trade-replay/{alert_id}")
+@router.get("/trade-replay/{alert_id}", dependencies=[Depends(require_ai_access)])
 async def trade_replay_analysis(
     alert_id: int,
     user: User = Depends(require_pro),

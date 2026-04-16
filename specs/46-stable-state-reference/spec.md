@@ -240,6 +240,7 @@ FREE (0) → COMP (1) → PRO (2) → PREMIUM (3) → ADMIN (99)
 | `TELEGRAM_CHAT_ID` | unset | Default admin chat |
 | `SWING_SCAN_ENABLED` | `true` | Swing scanner on/off |
 | `SCAN_USER_EMAIL` | unset | Cost-control: restrict day+swing scans to one user's watchlist. Unset = scan all users. |
+| `AI_ALLOWED_EMAILS` | unset | Hard whitelist for UI-triggered AI endpoints. Comma-separated emails. When set, only listed emails pass `require_ai_access`. Unset = tier defaults apply. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | unset | Admin auto-seed on boot |
 
 ---

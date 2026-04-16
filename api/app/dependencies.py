@@ -106,6 +106,42 @@ require_pro = require_tier("pro")
 require_premium = require_tier("premium")
 
 
+async def require_ai_access(user: User = Depends(get_current_user)) -> User:
+    """Hard gate on AI-triggered endpoints.
+
+    When the env var AI_ALLOWED_EMAILS is set (comma-separated list), only
+    users whose email matches are allowed to invoke AI features. Every
+    other user gets a 403 with upgrade prompt — including COMP, FREE,
+    and even PRO/PREMIUM unless explicitly whitelisted.
+
+    When the env var is unset, access falls through to the route's
+    existing tier requirement (e.g. require_pro). So removing the env var
+    restores normal tier-based access without redeploying.
+
+    Pre-launch use: restrict cost to a single developer email.
+    """
+    import os
+    raw = os.environ.get("AI_ALLOWED_EMAILS", "").strip()
+    if not raw:
+        return user  # no whitelist configured → let route's own gates decide
+
+    allowed = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    user_email = (user.email or "").strip().lower()
+    if user_email in allowed:
+        return user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": "ai_access_restricted",
+            "message": (
+                "AI features are in limited access during launch. "
+                "Upgrade to Pro or Premium when available."
+            ),
+        },
+    )
+
+
 async def check_usage_limit(
     user: User, feature: str, db: AsyncSession,
 ) -> int:
