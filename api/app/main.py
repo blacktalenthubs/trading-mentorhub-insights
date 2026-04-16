@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -331,44 +332,56 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
 
-        # Alert Sniper: Game Plan — 9:05 AM ET weekdays
-        def _game_plan():
-            try:
-                from analytics.game_plan import send_game_plans
-                count = send_game_plans(sync_session_factory)
-                logger.info("Game plans sent: %d users", count)
-            except Exception:
-                logger.exception("Game plan generation failed")
+        # Cost control (2026-04-16): game_plan, premarket_brief, daily_review
+        # are AI-backed scheduled jobs that burn Anthropic tokens daily without
+        # clear value in current usage. Gated behind AI_SCHEDULED_JOBS_ENABLED
+        # (default "false"). Set to "true" to restore.
+        _ai_jobs_on = os.environ.get("AI_SCHEDULED_JOBS_ENABLED", "false").lower() == "true"
 
-        scheduler.add_job(
-            _game_plan,
-            "cron",
-            hour=9, minute=5,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="game_plan",
-            replace_existing=True,
-        )
+        if _ai_jobs_on:
+            # Alert Sniper: Game Plan — 9:05 AM ET weekdays
+            def _game_plan():
+                try:
+                    from analytics.game_plan import send_game_plans
+                    count = send_game_plans(sync_session_factory)
+                    logger.info("Game plans sent: %d users", count)
+                except Exception:
+                    logger.exception("Game plan generation failed")
 
-        # Pre-market brief — runs once at 9:15 AM ET weekdays
-        def _premarket_brief():
-            try:
-                from analytics.premarket_brief import send_premarket_brief, send_ai_premarket_brief
-                send_premarket_brief()
-                send_ai_premarket_brief()
-                logger.info("Pre-market brief sent (data + AI)")
-            except Exception:
-                logger.exception("Pre-market brief failed")
+            scheduler.add_job(
+                _game_plan,
+                "cron",
+                hour=9, minute=5,
+                timezone="America/New_York",
+                day_of_week="mon-fri",
+                id="game_plan",
+                replace_existing=True,
+            )
 
-        scheduler.add_job(
-            _premarket_brief,
-            "cron",
-            hour=9, minute=15,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="premarket_brief",
-            replace_existing=True,
-        )
+            # Pre-market brief — runs once at 9:15 AM ET weekdays
+            def _premarket_brief():
+                try:
+                    from analytics.premarket_brief import send_premarket_brief, send_ai_premarket_brief
+                    send_premarket_brief()
+                    send_ai_premarket_brief()
+                    logger.info("Pre-market brief sent (data + AI)")
+                except Exception:
+                    logger.exception("Pre-market brief failed")
+
+            scheduler.add_job(
+                _premarket_brief,
+                "cron",
+                hour=9, minute=15,
+                timezone="America/New_York",
+                day_of_week="mon-fri",
+                id="premarket_brief",
+                replace_existing=True,
+            )
+        else:
+            logger.info(
+                "Scheduled AI jobs disabled (AI_SCHEDULED_JOBS_ENABLED=false): "
+                "game_plan, premarket_brief, daily_review"
+            )
 
         # EOD cleanup — close stale active entries at 4:30 PM ET
         def _eod_cleanup():
@@ -398,23 +411,25 @@ async def lifespan(app: FastAPI):
         )
 
         # Daily EOD review — 4:35 PM ET weekdays (after EOD cleanup)
-        def _daily_review():
-            try:
-                from analytics.weekly_review import send_daily_reviews
-                count = send_daily_reviews()
-                logger.info("Daily EOD reviews sent: %d", count)
-            except Exception:
-                logger.exception("Daily EOD review failed")
+        # Gated behind AI_SCHEDULED_JOBS_ENABLED (default false) — AI call.
+        if _ai_jobs_on:
+            def _daily_review():
+                try:
+                    from analytics.weekly_review import send_daily_reviews
+                    count = send_daily_reviews()
+                    logger.info("Daily EOD reviews sent: %d", count)
+                except Exception:
+                    logger.exception("Daily EOD review failed")
 
-        scheduler.add_job(
-            _daily_review,
-            "cron",
-            hour=16, minute=35,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="daily_review",
-            replace_existing=True,
-        )
+            scheduler.add_job(
+                _daily_review,
+                "cron",
+                hour=16, minute=35,
+                timezone="America/New_York",
+                day_of_week="mon-fri",
+                id="daily_review",
+                replace_existing=True,
+            )
 
         # Trade Replay + Auto-Journal — 4:40 PM ET weekdays
         def _trade_replay():
