@@ -133,11 +133,8 @@ async def require_ai_access(user: User = Depends(get_current_user)) -> User:
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail={
-            "error": "ai_access_restricted",
-            "message": (
-                "AI features are in limited access during launch. "
-                "Upgrade to Pro or Premium when available."
-            ),
+            "error": "upgrade_required",
+            "message": "Upgrade to Pro or Premium to access AI features",
         },
     )
 
