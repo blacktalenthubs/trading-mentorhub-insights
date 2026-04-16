@@ -4,6 +4,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "../stores/auth";
 import type { OHLCBar } from "../api/hooks";
@@ -49,6 +50,7 @@ async function loadMessagesFromAPI(): Promise<CoachMessage[]> {
 }
 
 export function useCoachStream() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const loadedRef = useRef(false);
 
@@ -129,7 +131,8 @@ export function useCoachStream() {
           throw new Error(`Daily limit reached (${detail.limit} queries). Upgrade your plan for unlimited access.`);
         }
         if (res.status === 403 && typeof detail === "object" && detail?.error === "upgrade_required") {
-          throw new Error(`${detail.required_tier?.charAt(0).toUpperCase()}${detail.required_tier?.slice(1)} subscription required.`);
+          navigate("/billing");
+          return;
         }
         throw new Error(typeof detail === "string" ? detail : detail?.message || "Coach request failed");
       }

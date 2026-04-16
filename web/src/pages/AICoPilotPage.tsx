@@ -1,7 +1,7 @@
 /** AI CoPilot — chart analysis with structured trade plans. */
 
 import { useState, useCallback, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "../stores/auth";
 import { useWatchlist, useOHLCV, useLivePrices } from "../api/hooks";
@@ -164,6 +164,7 @@ function SymbolPicker({
 /* ── Main Page ────────────────────────────────────────────────────── */
 
 export default function AICoPilotPage() {
+  const navigate = useNavigate();
   const { data: watchlist } = useWatchlist();
   const { data: pricesData } = useLivePrices();
   const prices = pricesData?.prices ?? {};
@@ -216,8 +217,17 @@ export default function AICoPilotPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        // Upgrade required (free/comp tier or AI whitelist denial) → route to billing
+        if (res.status === 403 && err.detail?.error === "upgrade_required") {
+          navigate("/billing");
+          return;
+        }
         if (res.status === 429) throw new Error("Daily analysis limit reached. Upgrade for more.");
-        throw new Error(typeof err.detail === "string" ? err.detail : "Analysis request failed");
+        const msg =
+          typeof err.detail === "string"
+            ? err.detail
+            : err.detail?.message || "Analysis request failed";
+        throw new Error(msg);
       }
 
       const reader = res.body?.getReader();
