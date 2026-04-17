@@ -61,7 +61,7 @@ _LONG_SETUP_SIGNALS = [
 
 # AI phrases that mean "not yet" — suppress override even if setup keywords match
 _WAIT_QUALIFIERS = [
-    "waiting for", "minimal confirmation", "no confirmation",
+    "waiting for", "awaiting", "minimal confirmation", "no confirmation",
     "without clear", "no clear",
 ]
 
@@ -168,7 +168,7 @@ def _format_htf_context(bias_4h: str, bias_1h: str) -> str:
 def _apply_wait_override(
     parsed: dict, symbol: str = "",
     prior_day: dict | None = None, bars_5m: list[dict] | None = None,
-    htf_bias_4h: str = "NEUTRAL",
+    htf_bias_4h: str = "NEUTRAL", htf_bias_1h: str = "NEUTRAL",
 ) -> dict:
     """Spec 44: detect when AI described a valid setup but returned WAIT.
 
@@ -219,14 +219,15 @@ def _apply_wait_override(
         )
 
     # Spec 45: MTF gate — block counter-trend WAIT overrides
+    # But allow when 1H agrees with the direction (intraday reversal)
     if _MTF_CONFLUENCE and parsed.get("_override") and htf_bias_4h != "NEUTRAL":
         new_dir = (parsed.get("direction") or "").upper()
-        if new_dir == "LONG" and htf_bias_4h == "BEAR":
-            logger.info("AI day scan %s: MTF gate blocked WAIT→LONG override (4H bias BEAR)", symbol)
+        if new_dir == "LONG" and htf_bias_4h == "BEAR" and htf_bias_1h != "BULL":
+            logger.info("AI day scan %s: MTF gate blocked WAIT→LONG override (4H=%s 1H=%s)", symbol, htf_bias_4h, htf_bias_1h)
             parsed["direction"] = "WAIT"
             parsed.pop("_override", None)
-        elif new_dir == "SHORT" and htf_bias_4h == "BULL":
-            logger.info("AI day scan %s: MTF gate blocked WAIT→SHORT override (4H bias BULL)", symbol)
+        elif new_dir == "SHORT" and htf_bias_4h == "BULL" and htf_bias_1h != "BEAR":
+            logger.info("AI day scan %s: MTF gate blocked WAIT→SHORT override (4H=%s 1H=%s)", symbol, htf_bias_4h, htf_bias_1h)
             parsed["direction"] = "WAIT"
             parsed.pop("_override", None)
 
@@ -1129,10 +1130,10 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["signal_source"] = "day_trade"
 
         # Spec 44: override WAIT when reason describes a valid setup
-        # Spec 45: pass 4H bias to gate counter-trend overrides
+        # Spec 45: pass HTF biases to gate counter-trend overrides
         _apply_wait_override(
             parsed, symbol, prior_day=prior_day, bars_5m=bars_5m,
-            htf_bias_4h=bias_4h,
+            htf_bias_4h=bias_4h, htf_bias_1h=bias_1h,
         )
 
         # Staleness gate (progress-to-target): a setup is stale if price has
