@@ -47,7 +47,7 @@ _MTF_CONFLUENCE = os.environ.get("MTF_CONFLUENCE_ENABLED", "true").lower() == "t
 
 # Setup keywords indicating AI identified a valid LONG setup
 _LONG_SETUP_SIGNALS = [
-    "reclaim", "bounce", "higher low", "holding above", "supports",
+    "reclaim", "bounc", "higher low", "holding above", "supports",
     "breakout", "flipped support", "bull", "held support", "reclaimed",
     "pullback", "intact", "buying opportunity", "support test",
     "holding vwap", "holding support",
@@ -55,8 +55,8 @@ _LONG_SETUP_SIGNALS = [
 
 # Setup keywords indicating AI identified a valid SHORT setup
 _SHORT_SETUP_SIGNALS = [
-    "rejection", "lower high", "failing", "breakdown", "lost vwap",
-    "bear", "rejected",
+    "reject", "lower high", "fail", "breakdown", "lost vwap",
+    "bear",
 ]
 
 
