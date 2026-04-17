@@ -7,6 +7,7 @@ Market data is deduplicated: same symbol across users = one yfinance fetch.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -73,18 +74,21 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         from datetime import datetime as _dt, timezone as _tz
         # Use naive UTC (Postgres stores TIMESTAMP WITHOUT TIME ZONE)
         _now = _dt.utcnow()
-        pro_users = db.execute(
-            select(User.id).join(Subscription).where(
-                Subscription.status == "active",
-                (
-                    Subscription.tier.in_(["pro", "premium", "admin"])
-                    | (
-                        (Subscription.trial_ends_at.isnot(None))
-                        & (Subscription.trial_ends_at > _now)
-                    )
-                ),
-            )
-        ).scalars().all()
+        _q = select(User.id).join(Subscription).where(
+            Subscription.status == "active",
+            (
+                Subscription.tier.in_(["pro", "premium", "admin"])
+                | (
+                    (Subscription.trial_ends_at.isnot(None))
+                    & (Subscription.trial_ends_at > _now)
+                )
+            ),
+        )
+        _allow_email = (os.environ.get("SCAN_USER_EMAIL") or "").strip().lower()
+        if _allow_email:
+            from sqlalchemy import func
+            _q = _q.where(func.lower(User.email) == _allow_email)
+        pro_users = db.execute(_q).scalars().all()
         logger.info("Pro/trial users: %s (now=%s)", pro_users, _now.isoformat())
 
         if not pro_users:
