@@ -989,6 +989,46 @@ class TestSpec44WaitOverride:
         assert p.get("stop") is None
         assert p.get("t1") is None
 
+    def test_override_buying_opportunity(self):
+        """'buying opportunity' triggers LONG override."""
+        p = self._make_parsed(
+            reason="100 Daily EMA confluence with RSI strength creating buying opportunity",
+            price=2356.71,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "MEDIUM"
+
+    def test_override_support_test(self):
+        """'support test' triggers LONG override."""
+        p = self._make_parsed(
+            reason="VWAP support test with RSI 61.6 showing strength",
+            price=2353.28,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "MEDIUM"
+
+    def test_override_holding_vwap(self):
+        """'holding vwap' triggers LONG override."""
+        p = self._make_parsed(
+            reason="Price holding VWAP/prior close confluence but no volume confirmation",
+            price=2355.16,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "MEDIUM"
+
+    def test_override_holding_support(self):
+        """'holding support' triggers LONG override."""
+        p = self._make_parsed(
+            reason="Price holding support at key level with RSI strength",
+            price=2350.00,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "MEDIUM"
+
 
 class TestExitCooldown:
     def test_exit_cooldown_logic(self):
