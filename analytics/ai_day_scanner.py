@@ -42,6 +42,9 @@ _EXIT_COOLDOWN_SEC = 1800  # 30 min
 # Spec 44: WAIT override — env flag for instant rollback
 _WAIT_OVERRIDE = os.environ.get("WAIT_OVERRIDE_ENABLED", "true").lower() == "true"
 
+# Spec 45: Multi-timeframe confluence — env flag for instant rollback
+_MTF_CONFLUENCE = os.environ.get("MTF_CONFLUENCE_ENABLED", "true").lower() == "true"
+
 # Setup keywords indicating AI identified a valid LONG setup
 _LONG_SETUP_SIGNALS = [
     "reclaim", "bounce", "higher low", "holding above", "supports",
@@ -93,9 +96,67 @@ def _compute_stop_t1(parsed: dict, prior_day: dict | None, bars_5m: list[dict] |
             parsed["t1"] = below[0]
 
 
+def _compute_htf_bias(bars: list[dict]) -> str:
+    """Spec 45: compute trend bias from higher-timeframe bars."""
+    if not bars or len(bars) < 5:
+        return "NEUTRAL"
+
+    closes = [b["close"] for b in bars]
+    span = min(20, len(closes))
+    alpha = 2 / (span + 1)
+    ema = closes[0]
+    for c in closes[1:]:
+        ema = alpha * c + (1 - alpha) * ema
+
+    current = closes[-1]
+    price_vs_ema = "above" if current > ema * 1.001 else ("below" if current < ema * 0.999 else "at")
+
+    lows = [b["low"] for b in bars[-3:]]
+    highs = [b["high"] for b in bars[-3:]]
+    higher_lows = lows[-1] > lows[0] and lows[-2] >= lows[0]
+    lower_highs = highs[-1] < highs[0] and highs[-2] <= highs[0]
+
+    bull_signals = (price_vs_ema == "above") + higher_lows
+    bear_signals = (price_vs_ema == "below") + lower_highs
+
+    if bull_signals >= 2:
+        return "BULL"
+    if bear_signals >= 2:
+        return "BEAR"
+    if bull_signals > bear_signals:
+        return "BULL"
+    if bear_signals > bull_signals:
+        return "BEAR"
+    return "NEUTRAL"
+
+
+def _format_htf_context(bias_4h: str, bias_1h: str) -> str:
+    """Spec 45: format HTF bias block for AI prompt injection."""
+    if bias_4h == "NEUTRAL" and bias_1h == "NEUTRAL":
+        return ""
+
+    if bias_4h == bias_1h == "BULL":
+        alignment = "ALIGNED BULL — favor LONG setups"
+    elif bias_4h == bias_1h == "BEAR":
+        alignment = "ALIGNED BEAR — favor SHORT / RESISTANCE"
+    elif bias_4h == "BEAR" and bias_1h != "BEAR":
+        alignment = "CONFLICTING — 4H bearish, be cautious with LONGs"
+    elif bias_4h == "BULL" and bias_1h != "BULL":
+        alignment = "CONFLICTING — 4H bullish, be cautious with SHORTs"
+    else:
+        alignment = "NEUTRAL — no strong multi-TF trend"
+
+    return (
+        f"[HIGHER TIMEFRAME BIAS]\n"
+        f"4H Trend: {bias_4h} | 1H Trend: {bias_1h}\n"
+        f"Alignment: {alignment}"
+    )
+
+
 def _apply_wait_override(
     parsed: dict, symbol: str = "",
     prior_day: dict | None = None, bars_5m: list[dict] | None = None,
+    htf_bias_4h: str = "NEUTRAL",
 ) -> dict:
     """Spec 44: detect when AI described a valid setup but returned WAIT.
 
@@ -140,6 +201,18 @@ def _apply_wait_override(
             symbol, parsed.get("entry", 0), parsed.get("stop") or 0, parsed.get("t1") or 0,
             (parsed.get("reason") or "")[:80],
         )
+
+    # Spec 45: MTF gate — block counter-trend WAIT overrides
+    if _MTF_CONFLUENCE and parsed.get("_override") and htf_bias_4h != "NEUTRAL":
+        new_dir = (parsed.get("direction") or "").upper()
+        if new_dir == "LONG" and htf_bias_4h == "BEAR":
+            logger.info("AI day scan %s: MTF gate blocked WAIT→LONG override (4H bias BEAR)", symbol)
+            parsed["direction"] = "WAIT"
+            parsed.pop("_override", None)
+        elif new_dir == "SHORT" and htf_bias_4h == "BULL":
+            logger.info("AI day scan %s: MTF gate blocked WAIT→SHORT override (4H bias BULL)", symbol)
+            parsed["direction"] = "WAIT"
+            parsed.pop("_override", None)
 
     return parsed
 
@@ -670,6 +743,7 @@ def build_day_trade_prompt(
     prior_day: dict | None,
     active_positions: list[dict] | None = None,  # kept for API compat; not used in multi-user
     live_price: float | None = None,
+    htf_context: str | None = None,
 ) -> str:
     """Build specialized day trade prompt with specific confirmation rules.
 
@@ -694,6 +768,8 @@ def build_day_trade_prompt(
         "confirmation strength) over WAIT. The user decides if they take it. Only use WAIT\n"
         "when price is mid-range with no nearby level. Missing a level is worse than firing\n"
         "LOW — the stop is trivial when the entry is at a structural level.\n\n"
+        "HIGHER TIMEFRAME: When 4H trend is BEAR, counter-trend LONGs need stronger\n"
+        "confirmation (prefer MEDIUM+ conviction). When aligned, be decisive.\n\n"
         "CONVICTION LADDER — rate by CONFLUENCE (count the confirmations):\n"
         "Confirmations for LONG:\n"
         "  (a) higher low structure on 5-min (last swing low ABOVE prior swing low)\n"
@@ -889,6 +965,9 @@ def build_day_trade_prompt(
             )
         parts.append("\n".join(lines))
 
+    if htf_context:
+        parts.append(f"\n{htf_context}")
+
     return "\n".join(parts)
 
 
@@ -952,6 +1031,11 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
             return None
 
         bars_1h_df = fetch_intraday(symbol, period="5d", interval="1h")
+        bars_4h_df = (
+            fetch_intraday_crypto(symbol, interval="4h")
+            if is_crypto
+            else fetch_intraday(symbol, period="10d", interval="4h")
+        )
         prior_day = fetch_prior_day(symbol, is_crypto=is_crypto)
 
         # LIVE price — closest to what the user sees on their chart. Uses
@@ -982,10 +1066,24 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
                  "volume": float(r["Volume"])}
                 for _, r in bars_1h_df.tail(10).iterrows()
             ]
+        bars_4h = []
+        if bars_4h_df is not None and not (hasattr(bars_4h_df, "empty") and bars_4h_df.empty):
+            bars_4h = [
+                {"open": float(r["Open"]), "high": float(r["High"]),
+                 "low": float(r["Low"]), "close": float(r["Close"]),
+                 "volume": float(r["Volume"])}
+                for _, r in bars_4h_df.tail(20).iterrows()
+            ]
+
+        # Spec 45: compute HTF bias
+        bias_4h = _compute_htf_bias(bars_4h) if _MTF_CONFLUENCE else "NEUTRAL"
+        bias_1h = _compute_htf_bias(bars_1h) if _MTF_CONFLUENCE else "NEUTRAL"
+        htf_context = _format_htf_context(bias_4h, bias_1h) if _MTF_CONFLUENCE else ""
 
         prompt = build_day_trade_prompt(
             symbol, bars_5m, bars_1h, prior_day, active_positions,
             live_price=live_price,
+            htf_context=htf_context or None,
         )
 
         import anthropic
@@ -1015,7 +1113,11 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["signal_source"] = "day_trade"
 
         # Spec 44: override WAIT when reason describes a valid setup
-        _apply_wait_override(parsed, symbol, prior_day=prior_day, bars_5m=bars_5m)
+        # Spec 45: pass 4H bias to gate counter-trend overrides
+        _apply_wait_override(
+            parsed, symbol, prior_day=prior_day, bars_5m=bars_5m,
+            htf_bias_4h=bias_4h,
+        )
 
         # Staleness gate (progress-to-target): a setup is stale if price has
         # traveled >50% of the distance from entry to T1 (the move already

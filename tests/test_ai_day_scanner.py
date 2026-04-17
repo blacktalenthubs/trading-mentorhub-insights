@@ -8,6 +8,7 @@ from analytics.ai_day_scanner import (
     _user_wants_alert, _truncate_for_free, _wait_fingerprint,
     _close_auto_trade, AUTO_TRADE_NOTIONAL,
     _apply_wait_override, _compute_stop_t1,
+    _compute_htf_bias, _format_htf_context,
 )
 
 
@@ -1028,6 +1029,132 @@ class TestSpec44WaitOverride:
         _apply_wait_override(p, "ETH-USD")
         assert p["direction"] == "LONG"
         assert p["conviction"] == "MEDIUM"
+
+
+class TestSpec45MTFConfluence:
+    """Spec 45: Multi-timeframe bias computation + post-parse gate."""
+
+    def _make_bars(self, closes, lows=None, highs=None):
+        """Build bar dicts from close prices."""
+        if lows is None:
+            lows = [c - 0.5 for c in closes]
+        if highs is None:
+            highs = [c + 0.5 for c in closes]
+        return [
+            {"open": c - 0.1, "high": h, "low": l, "close": c, "volume": 1000}
+            for c, h, l in zip(closes, highs, lows)
+        ]
+
+    def test_compute_htf_bias_bull(self):
+        """Price above EMA + higher lows → BULL."""
+        closes = [100 + i * 0.5 for i in range(10)]
+        bars = self._make_bars(closes)
+        assert _compute_htf_bias(bars) == "BULL"
+
+    def test_compute_htf_bias_bear(self):
+        """Price below EMA + lower highs → BEAR."""
+        closes = [120 - i * 0.5 for i in range(10)]
+        bars = self._make_bars(closes)
+        assert _compute_htf_bias(bars) == "BEAR"
+
+    def test_compute_htf_bias_neutral(self):
+        """Mixed signals → NEUTRAL."""
+        closes = [100, 101, 100, 101, 100, 101, 100, 101, 100, 101]
+        lows = [99, 99.5, 98.5, 99, 98, 99.5, 99, 98.5, 99, 98.5]
+        highs = [101, 102, 101, 102, 101, 102, 101, 102, 101, 101.5]
+        bars = self._make_bars(closes, lows=lows, highs=highs)
+        assert _compute_htf_bias(bars) == "NEUTRAL"
+
+    def test_compute_htf_bias_few_bars(self):
+        """< 5 bars → NEUTRAL (no crash)."""
+        bars = self._make_bars([100, 101, 102])
+        assert _compute_htf_bias(bars) == "NEUTRAL"
+        assert _compute_htf_bias([]) == "NEUTRAL"
+        assert _compute_htf_bias(None) == "NEUTRAL"
+
+    def test_format_htf_context_aligned_bull(self):
+        ctx = _format_htf_context("BULL", "BULL")
+        assert "ALIGNED BULL" in ctx
+        assert "4H Trend: BULL" in ctx
+
+    def test_format_htf_context_aligned_bear(self):
+        ctx = _format_htf_context("BEAR", "BEAR")
+        assert "ALIGNED BEAR" in ctx
+
+    def test_format_htf_context_conflicting(self):
+        ctx = _format_htf_context("BEAR", "BULL")
+        assert "CONFLICTING" in ctx
+
+    def test_format_htf_context_both_neutral_empty(self):
+        assert _format_htf_context("NEUTRAL", "NEUTRAL") == ""
+
+    def test_prompt_includes_htf_context(self):
+        bars = [{"open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1000}] * 5
+        prompt = build_day_trade_prompt(
+            symbol="SPY", bars_5m=bars, bars_1h=bars,
+            prior_day={"high": 105, "low": 95},
+            htf_context="[HIGHER TIMEFRAME BIAS]\n4H Trend: BULL | 1H Trend: BULL\nAlignment: ALIGNED BULL",
+        )
+        assert "[HIGHER TIMEFRAME BIAS]" in prompt
+        assert "ALIGNED BULL" in prompt
+
+    def test_prompt_excludes_htf_when_none(self):
+        bars = [{"open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1000}] * 5
+        prompt = build_day_trade_prompt(
+            symbol="SPY", bars_5m=bars, bars_1h=bars,
+            prior_day={"high": 105, "low": 95},
+        )
+        assert "[HIGHER TIMEFRAME BIAS]" not in prompt
+
+    def test_override_blocked_by_bear_4h(self):
+        """LONG override blocked when 4H bias is BEAR."""
+        p = {"direction": "WAIT", "reason": "VWAP reclaim with higher low structure",
+             "conviction": "MEDIUM", "price": 535.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BEAR")
+        assert p["direction"] == "WAIT"
+        assert p.get("_override") is None
+
+    def test_override_allowed_by_bull_4h(self):
+        """LONG override fires when 4H bias is BULL."""
+        p = {"direction": "WAIT", "reason": "VWAP reclaim with higher low structure",
+             "conviction": "MEDIUM", "price": 535.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BULL")
+        assert p["direction"] == "LONG"
+        assert p.get("_override") is True
+
+    def test_override_allowed_by_neutral_4h(self):
+        """LONG override fires when 4H bias is NEUTRAL (no gating)."""
+        p = {"direction": "WAIT", "reason": "bounce at PDL with higher low",
+             "conviction": "MEDIUM", "price": 535.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="NEUTRAL")
+        assert p["direction"] == "LONG"
+
+    def test_short_override_blocked_by_bull_4h(self):
+        """SHORT override blocked when 4H bias is BULL."""
+        p = {"direction": "WAIT", "reason": "PDH rejection with lower high forming",
+             "conviction": "MEDIUM", "price": 540.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BULL")
+        assert p["direction"] == "WAIT"
+
+    def test_ai_long_not_blocked(self):
+        """AI's own LONG (not override) is NOT gated by MTF."""
+        p = {"direction": "LONG", "reason": "bounce at support", "conviction": "HIGH",
+             "price": 535.0, "entry": 534.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BEAR")
+        assert p["direction"] == "LONG"
+
+    def test_mtf_disabled_env_flag(self):
+        """MTF gate inactive when disabled."""
+        import analytics.ai_day_scanner as mod
+        orig = mod._MTF_CONFLUENCE
+        try:
+            mod._MTF_CONFLUENCE = False
+            p = {"direction": "WAIT", "reason": "VWAP reclaim with higher low",
+                 "conviction": "MEDIUM", "price": 535.0}
+            _apply_wait_override(p, "SPY", htf_bias_4h="BEAR")
+            assert p["direction"] == "LONG"
+        finally:
+            mod._MTF_CONFLUENCE = orig
 
 
 class TestExitCooldown:
