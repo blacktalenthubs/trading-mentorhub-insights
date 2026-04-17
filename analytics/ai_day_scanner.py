@@ -46,6 +46,7 @@ _WAIT_OVERRIDE = os.environ.get("WAIT_OVERRIDE_ENABLED", "true").lower() == "tru
 _LONG_SETUP_SIGNALS = [
     "reclaim", "bounce", "higher low", "holding above", "supports",
     "breakout", "flipped support", "bull", "held support", "reclaimed",
+    "pullback", "intact",
 ]
 
 # Setup keywords indicating AI identified a valid SHORT setup
