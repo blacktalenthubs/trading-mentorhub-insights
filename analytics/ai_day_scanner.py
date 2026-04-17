@@ -35,6 +35,12 @@ _user_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already tol
 _user_wait_count: dict[tuple[int, str], int] = {}  # (uid, session) -> WAIT Telegram count
 _user_wait_limit_notified: set[tuple[int, str]] = set()  # (uid, session) already told about wait cap
 
+# Time-based dedup: suppress rapid-fire LONGs/SHORTs for the same symbol
+_last_long_time: dict[str, float] = {}   # {symbol: epoch of last LONG fire}
+_last_short_time: dict[str, float] = {}  # {symbol: epoch of last SHORT fire}
+_LONG_DEDUP_WINDOW = int(os.environ.get("LONG_DEDUP_WINDOW_SEC", "600"))
+_SHORT_DEDUP_WINDOW = int(os.environ.get("SHORT_DEDUP_WINDOW_SEC", "600"))
+
 # Exit scan cooldown — (trade_id, status) -> last_sent_ts. 30-min cooldown per pair.
 _exit_notified: dict[tuple[int, str], float] = {}
 _EXIT_COOLDOWN_SEC = 1800  # 30 min
@@ -55,7 +61,7 @@ _LONG_SETUP_SIGNALS = [
 
 # AI phrases that mean "not yet" — suppress override even if setup keywords match
 _WAIT_QUALIFIERS = [
-    "waiting for", "minimal confirmation", "no confirmation",
+    "waiting for", "awaiting", "minimal confirmation", "no confirmation",
     "without clear", "no clear",
 ]
 
@@ -162,7 +168,7 @@ def _format_htf_context(bias_4h: str, bias_1h: str) -> str:
 def _apply_wait_override(
     parsed: dict, symbol: str = "",
     prior_day: dict | None = None, bars_5m: list[dict] | None = None,
-    htf_bias_4h: str = "NEUTRAL",
+    htf_bias_4h: str = "NEUTRAL", htf_bias_1h: str = "NEUTRAL",
 ) -> dict:
     """Spec 44: detect when AI described a valid setup but returned WAIT.
 
@@ -213,14 +219,15 @@ def _apply_wait_override(
         )
 
     # Spec 45: MTF gate — block counter-trend WAIT overrides
+    # But allow when 1H agrees with the direction (intraday reversal)
     if _MTF_CONFLUENCE and parsed.get("_override") and htf_bias_4h != "NEUTRAL":
         new_dir = (parsed.get("direction") or "").upper()
-        if new_dir == "LONG" and htf_bias_4h == "BEAR":
-            logger.info("AI day scan %s: MTF gate blocked WAIT→LONG override (4H bias BEAR)", symbol)
+        if new_dir == "LONG" and htf_bias_4h == "BEAR" and htf_bias_1h != "BULL":
+            logger.info("AI day scan %s: MTF gate blocked WAIT→LONG override (4H=%s 1H=%s)", symbol, htf_bias_4h, htf_bias_1h)
             parsed["direction"] = "WAIT"
             parsed.pop("_override", None)
-        elif new_dir == "SHORT" and htf_bias_4h == "BULL":
-            logger.info("AI day scan %s: MTF gate blocked WAIT→SHORT override (4H bias BULL)", symbol)
+        elif new_dir == "SHORT" and htf_bias_4h == "BULL" and htf_bias_1h != "BEAR":
+            logger.info("AI day scan %s: MTF gate blocked WAIT→SHORT override (4H=%s 1H=%s)", symbol, htf_bias_4h, htf_bias_1h)
             parsed["direction"] = "WAIT"
             parsed.pop("_override", None)
 
@@ -1123,10 +1130,10 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["signal_source"] = "day_trade"
 
         # Spec 44: override WAIT when reason describes a valid setup
-        # Spec 45: pass 4H bias to gate counter-trend overrides
+        # Spec 45: pass HTF biases to gate counter-trend overrides
         _apply_wait_override(
             parsed, symbol, prior_day=prior_day, bars_5m=bars_5m,
-            htf_bias_4h=bias_4h,
+            htf_bias_4h=bias_4h, htf_bias_1h=bias_1h,
         )
 
         # Staleness gate (progress-to-target): a setup is stale if price has
@@ -1207,6 +1214,8 @@ def day_scan_cycle(sync_session_factory) -> int:
         _user_wait_count.clear()
         _user_wait_limit_notified.clear()
         _exit_notified.clear()
+        _last_long_time.clear()
+        _last_short_time.clear()
         _day_session = session
 
         # Seed _day_fired from today's alerts so worker restarts don't refire.
@@ -1237,6 +1246,30 @@ def day_scan_cycle(sync_session_factory) -> int:
                 if seeded:
                     _day_fired[session] = seeded
                     logger.info("AI day scan: seeded dedup from DB — %d keys", len(seeded))
+                if _LONG_DEDUP_WINDOW > 0 or _SHORT_DEDUP_WINDOW > 0:
+                    time_rows = _seed_db.execute(_t(
+                        "SELECT symbol, alert_type, MAX(created_at) AS last_ts "
+                        "FROM alerts WHERE session_date = :d "
+                        "AND alert_type IN ('ai_day_long', 'ai_day_short') "
+                        "GROUP BY symbol, alert_type"
+                    ), {"d": session}).fetchall()
+                    for sym, atype, last_ts in time_rows:
+                        if not last_ts:
+                            continue
+                        if hasattr(last_ts, "timestamp"):
+                            ts = last_ts.timestamp()
+                        else:
+                            from datetime import datetime as _dt
+                            ts = _dt.fromisoformat(str(last_ts)).timestamp()
+                        if atype == "ai_day_long":
+                            _last_long_time[sym] = ts
+                        elif atype == "ai_day_short":
+                            _last_short_time[sym] = ts
+                    if _last_long_time or _last_short_time:
+                        logger.info(
+                            "AI day scan: seeded time dedup — %d LONG, %d SHORT symbols",
+                            len(_last_long_time), len(_last_short_time),
+                        )
         except Exception:
             logger.warning("AI day scan: dedup seed failed", exc_info=True)
 
@@ -1558,6 +1591,17 @@ def day_scan_cycle(sync_session_factory) -> int:
                     _fired_set_s.add(_short_dedup_key)
                     _day_fired[session] = _fired_set_s
 
+                    if _SHORT_DEDUP_WINDOW > 0:
+                        _now_ts_s = time.time()
+                        _last_s = _last_short_time.get(symbol, 0)
+                        if _now_ts_s - _last_s < _SHORT_DEDUP_WINDOW:
+                            logger.info(
+                                "AI day scan %s: SHORT suppressed — last SHORT %.0fs ago (window=%ds)",
+                                symbol, _now_ts_s - _last_s, _SHORT_DEDUP_WINDOW,
+                            )
+                            continue
+                        _last_short_time[symbol] = _now_ts_s
+
                     score_s = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
                     setup_label_s = setup_type or "AI short entry"
                     message_s = f"{setup_label_s}: {reason}" if reason else setup_label_s
@@ -1697,8 +1741,16 @@ def day_scan_cycle(sync_session_factory) -> int:
                 _fired_set.add(_level_dedup_key)
                 _day_fired[session] = _fired_set
 
-                # Dedup via _day_fired (in-memory, already set above). DB message-based
-                # dedup removed — it blocked per-user recording and wasn't needed.
+                if _LONG_DEDUP_WINDOW > 0:
+                    _now_ts = time.time()
+                    _last = _last_long_time.get(symbol, 0)
+                    if _now_ts - _last < _LONG_DEDUP_WINDOW:
+                        logger.info(
+                            "AI day scan %s: LONG suppressed — last LONG %.0fs ago (window=%ds)",
+                            symbol, _now_ts - _last, _LONG_DEDUP_WINDOW,
+                        )
+                        continue
+                    _last_long_time[symbol] = _now_ts
 
                 score = {"HIGH": 85, "MEDIUM": 65, "LOW": 45}.get(conviction, 65)
                 setup_label = setup_type or "AI entry"
