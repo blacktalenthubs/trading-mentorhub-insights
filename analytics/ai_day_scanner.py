@@ -47,11 +47,14 @@ _MTF_CONFLUENCE = os.environ.get("MTF_CONFLUENCE_ENABLED", "true").lower() == "t
 
 # Setup keywords indicating AI identified a valid LONG setup
 _LONG_SETUP_SIGNALS = [
-    "reclaim", "bounc", "higher low", "holding above", "supports",
+    "reclaim", "bounc", "higher low", "holding above",
     "breakout", "flipped support", "bull", "held support",
     "pull", "intact", "buying opportunity", "support test",
     "holding vwap", "holding support",
 ]
+
+# AI phrases that mean "not yet" — suppress override even if setup keywords match
+_WAIT_QUALIFIERS = ["waiting for", "minimal confirmation", "no confirmation"]
 
 # Setup keywords indicating AI identified a valid SHORT setup
 _SHORT_SETUP_SIGNALS = [
@@ -174,8 +177,8 @@ def _apply_wait_override(
     if not reason_lower:
         return parsed
 
-    # "waiting for X confirmation" = AI explicitly says not yet
-    if "waiting for" in reason_lower:
+    # AI phrases that mean "not yet" — don't override
+    if any(q in reason_lower for q in _WAIT_QUALIFIERS):
         return parsed
 
     long_detected = any(kw in reason_lower for kw in _LONG_SETUP_SIGNALS)

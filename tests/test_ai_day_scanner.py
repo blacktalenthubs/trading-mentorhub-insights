@@ -1167,6 +1167,57 @@ class TestSpec44TelegramReplay:
         _apply_wait_override(p, "ETH-USD")
         assert p["direction"] == "WAIT"
 
+    # --- SPY messages from yesterday's session ---
+
+    def test_spy_vwap_support_minimal_confirmation_stays_wait(self):
+        p = self._make_parsed(
+            "Price at VWAP support but RSI overbought at 69.7 and extremely weak volume 0.1x - minimal confirmation strength.",
+            price=699.84,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+
+    def test_spy_pdh_rejection_fires_short(self):
+        p = self._make_parsed(
+            "Price rejected PDH $700.28, RSI overbought at 70.0, lower high structure forming after session high test - two confirmations present.",
+            price=700.63,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_spy_breakout_minimal_confirmation_stays_wait(self):
+        p = self._make_parsed(
+            "Session high break but weak volume 0.5x avg, RSI overbought at 70.3 — minimal confirmation for breakout.",
+            price=701.41,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+
+    def test_spy_supports_rejection_no_conflict(self):
+        """'supports rejection setup' — 'supports' here means confirms, not support level."""
+        p = self._make_parsed(
+            "PDH rejection with RSI 69.9 overbought and lower high structure confirmed - moderate volume 0.9x supports rejection setup.",
+            price=700.20,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_eth_vwap_reclaim_after_pullback_fires_long(self):
+        p = self._make_parsed(
+            "Price reclaimed VWAP at $2305.60 after pullback, RSI 58.2 showing strength, volume 1.2x avg supporting bounce.",
+            price=2309.01,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_eth_midrange_weak_volume_stays_wait(self):
+        p = self._make_parsed(
+            "Price mid-range between VWAP $2304.83 and 100 Daily EMA $2363.57, no clear structural setup forming with weak volume 0.1x avg.",
+            price=2309.95,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
 
 class TestSpec45MTFConfluence:
     """Spec 45: Multi-timeframe bias computation + post-parse gate."""
