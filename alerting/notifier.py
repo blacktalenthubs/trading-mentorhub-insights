@@ -299,6 +299,33 @@ def send_email(signal: AlertSignal) -> bool:
     return send_email_to(signal, ALERT_EMAIL_TO)
 
 
+# Sink gate: only send Telegram to the user specified by SCAN_USER_EMAIL.
+# Lazily resolved from email → chat_id on first call.  Empty set = no restriction.
+_ALLOWED_CHAT_IDS: set[str] | None = None
+
+
+def _allowed_chat_ids() -> set[str]:
+    global _ALLOWED_CHAT_IDS
+    if _ALLOWED_CHAT_IDS is not None:
+        return _ALLOWED_CHAT_IDS
+    email = (os.environ.get("SCAN_USER_EMAIL") or "").strip().lower()
+    if not email:
+        _ALLOWED_CHAT_IDS = set()
+        return _ALLOWED_CHAT_IDS
+    try:
+        from db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT telegram_chat_id FROM users WHERE LOWER(email) = ?",
+                (email,),
+            ).fetchone()
+        _ALLOWED_CHAT_IDS = {str(row["telegram_chat_id"])} if row and row["telegram_chat_id"] else set()
+    except Exception:
+        logger.warning("Failed to resolve SCAN_USER_EMAIL chat_id", exc_info=True)
+        _ALLOWED_CHAT_IDS = set()
+    return _ALLOWED_CHAT_IDS
+
+
 def _send_telegram_to(
     body: str, chat_id: str, reply_markup: dict | None = None, parse_mode: str | None = None,
 ) -> bool:
@@ -307,6 +334,11 @@ def _send_telegram_to(
     *reply_markup* — optional InlineKeyboardMarkup dict for interactive buttons.
     *parse_mode* — "HTML" or "Markdown". Auto-detected if body contains HTML tags.
     """
+    allow = _allowed_chat_ids()
+    if allow and str(chat_id) not in allow:
+        logger.info("Telegram blocked — chat_id %s not in SCAN_USER_EMAIL allowlist", chat_id)
+        return False
+
     if not TELEGRAM_BOT_TOKEN or not chat_id:
         logger.warning(
             "Telegram not configured — missing %s",

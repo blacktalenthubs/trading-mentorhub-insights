@@ -1369,30 +1369,42 @@ def get_pro_users_with_telegram() -> list[dict]:
 
     Each dict has: user_id, tier, telegram_chat_id.
     Checks both V2 users table and V1 notification_prefs table.
+    When SCAN_USER_EMAIL is set, only that user is returned.
     """
+    import os as _os
+    _allow = (_os.environ.get("SCAN_USER_EMAIL") or "").strip().lower()
+    _extra = ""
+    _extra_args: tuple = ()
+    if _allow:
+        _extra = " AND LOWER(u.email) = ?"
+        _extra_args = (_allow,)
+
     with get_db() as conn:
         # V2 path: telegram_chat_id on users table
         rows = conn.execute(
-            """SELECT u.id as user_id, s.tier, u.telegram_chat_id
+            f"""SELECT u.id as user_id, s.tier, u.telegram_chat_id
                FROM users u
                JOIN subscriptions s ON s.user_id = u.id
                WHERE s.tier IN ('pro', 'elite', 'admin')
                  AND u.telegram_enabled = ?
                  AND u.telegram_chat_id IS NOT NULL
-                 AND u.telegram_chat_id != ''""",
-            (True,),
+                 AND u.telegram_chat_id != ''{_extra}""",
+            (True,) + _extra_args,
         ).fetchall()
         if rows:
             return [dict(r) for r in rows]
 
         # V1 fallback: telegram_chat_id on notification_prefs table
+        _v1_extra = " AND LOWER(u.email) = ?" if _allow else ""
         rows = conn.execute(
-            """SELECT s.user_id, s.tier, n.telegram_chat_id
+            f"""SELECT s.user_id, s.tier, n.telegram_chat_id
                FROM subscriptions s
                JOIN user_notification_prefs n ON s.user_id = n.user_id
+               JOIN users u ON u.id = s.user_id
                WHERE s.tier IN ('pro', 'elite', 'admin')
                  AND n.telegram_enabled = 1
-                 AND n.telegram_chat_id != ''""",
+                 AND n.telegram_chat_id != ''{_v1_extra}""",
+            _extra_args,
         ).fetchall()
         return [dict(r) for r in rows]
 
