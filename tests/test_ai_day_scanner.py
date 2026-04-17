@@ -8,6 +8,7 @@ from analytics.ai_day_scanner import (
     _user_wants_alert, _truncate_for_free, _wait_fingerprint,
     _close_auto_trade, AUTO_TRADE_NOTIONAL,
     _apply_wait_override, _compute_stop_t1,
+    _compute_htf_bias, _format_htf_context,
 )
 
 
@@ -1028,6 +1029,388 @@ class TestSpec44WaitOverride:
         _apply_wait_override(p, "ETH-USD")
         assert p["direction"] == "LONG"
         assert p["conviction"] == "MEDIUM"
+
+
+class TestSpec44RealAILanguage:
+    """Test override keywords against actual AI output verb forms."""
+
+    def _make_parsed(self, reason, price=100.0):
+        return {"direction": "WAIT", "reason": reason, "conviction": "LOW", "price": price}
+
+    def test_bouncing_matches(self):
+        p = self._make_parsed("bouncing from session low area")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_bounced_matches(self):
+        p = self._make_parsed("price bounced off PDL with RSI strength")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_pulling_back_matches(self):
+        p = self._make_parsed("Price pulling back to VWAP after upmove from session low")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_pulled_back_matches(self):
+        p = self._make_parsed("pulled back to support at daily MA confluence")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_rejecting_matches(self):
+        p = self._make_parsed("price rejecting at PDH with lower high forming")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_failed_matches(self):
+        p = self._make_parsed("price failed at weekly high resistance, rolling over")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_reclaiming_matches(self):
+        p = self._make_parsed("price reclaiming VWAP with volume confirmation")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
+    def test_waiting_for_suppresses_override(self):
+        """'waiting for X confirmation' means AI says not yet — don't override."""
+        p = self._make_parsed(
+            "100 Daily EMA within 0.3%, but price below the MA and RSI neutral - waiting for actual bounce confirmation."
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+
+class TestSpec44TelegramReplay:
+    """Replay real AI UPDATE messages from Telegram to verify override behavior."""
+
+    def _make_parsed(self, reason, price=2350.0):
+        return {"direction": "WAIT", "reason": reason, "conviction": "LOW", "price": price}
+
+    def test_pullback_from_high_fires_long(self):
+        p = self._make_parsed(
+            "Price at VWAP after pullback from $2377 high, but weak structure and no volume confirmation.",
+            price=2353.91,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_holding_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price holding VWAP/prior close confluence but no volume confirmation or clear structure yet.",
+            price=2355.16,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_buying_opportunity_fires_long(self):
+        p = self._make_parsed(
+            "100 Daily EMA confluence with RSI strength at 61.7 and prior pullback from session high creating buying opportunity.",
+            price=2356.71,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_bouncing_from_session_low_fires_long(self):
+        p = self._make_parsed(
+            "Price at VWAP ($2349.96) with 100 Daily EMA ($2363.85) nearby resistance, RSI 61.3 shows momentum, bouncing from session low area.",
+            price=2349.59,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_pulling_back_to_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price pulling back to VWAP after upmove from session low, RSI at 61.4 shows momentum, but volume lacking confirmation at 5.8x.",
+            price=2347.60,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_reclaimed_vwap_higher_low_fires_long(self):
+        p = self._make_parsed(
+            "Price reclaimed VWAP after pullback from $2362 high, RSI 61.6 shows strength, higher low structure forming above session low.",
+            price=2354.52,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_midrange_no_setup_stays_wait(self):
+        p = self._make_parsed(
+            "Price at $2342 is mid-range between session low $2337 and VWAP $2355, no structural setup forming.",
+            price=2342.30,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_midrange_waiting_stays_wait(self):
+        p = self._make_parsed(
+            "Price mid-range between session low $2337.36 and 100 Daily EMA $2363.70 - no current structural setup forming, waiting for key level test.",
+            price=2341.54,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_waiting_for_bounce_stays_wait(self):
+        p = self._make_parsed(
+            "100 Daily EMA within 0.3% ($2344 vs $2364), but price below the MA and RSI neutral at 60.9 - waiting for actual bounce confirmation.",
+            price=2344.05,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_no_level_nearby_stays_wait(self):
+        p = self._make_parsed(
+            "Price at $2347 is mid-range between VWAP $2350 and session low $2337, no clear structural level within 0.3% for entry setup.",
+            price=2347.12,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    # --- SPY messages from yesterday's session ---
+
+    def test_spy_vwap_support_minimal_confirmation_stays_wait(self):
+        p = self._make_parsed(
+            "Price at VWAP support but RSI overbought at 69.7 and extremely weak volume 0.1x - minimal confirmation strength.",
+            price=699.84,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+
+    def test_spy_pdh_rejection_fires_short(self):
+        p = self._make_parsed(
+            "Price rejected PDH $700.28, RSI overbought at 70.0, lower high structure forming after session high test - two confirmations present.",
+            price=700.63,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_spy_breakout_minimal_confirmation_stays_wait(self):
+        p = self._make_parsed(
+            "Session high break but weak volume 0.5x avg, RSI overbought at 70.3 — minimal confirmation for breakout.",
+            price=701.41,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+
+    def test_spy_supports_rejection_no_conflict(self):
+        """'supports rejection setup' — 'supports' here means confirms, not support level."""
+        p = self._make_parsed(
+            "PDH rejection with RSI 69.9 overbought and lower high structure confirmed - moderate volume 0.9x supports rejection setup.",
+            price=700.20,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_eth_vwap_reclaim_after_pullback_fires_long(self):
+        p = self._make_parsed(
+            "Price reclaimed VWAP at $2305.60 after pullback, RSI 58.2 showing strength, volume 1.2x avg supporting bounce.",
+            price=2309.01,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_eth_midrange_weak_volume_stays_wait(self):
+        p = self._make_parsed(
+            "Price mid-range between VWAP $2304.83 and 100 Daily EMA $2363.57, no clear structural setup forming with weak volume 0.1x avg.",
+            price=2309.95,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    # --- Multi-symbol session replay (TSLA, NVDA, SPY, ETH) ---
+
+    def test_tsla_higher_low_at_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price near VWAP support with higher low structure forming, but volume only moderate at 1.7x avg.",
+            price=385.92,
+        )
+        _apply_wait_override(p, "TSLA")
+        assert p["direction"] == "LONG"
+
+    def test_spy_vwap_bounce_recovery_fires_long(self):
+        p = self._make_parsed(
+            "VWAP bounce with RSI 69.2 showing strength and volume 1.3x average on recovery from session low.",
+            price=699.29,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
+    def test_nvda_vwap_reclaim_higher_low_fires_long(self):
+        p = self._make_parsed(
+            "VWAP reclaim with higher low structure from $195.81 bounce, RSI at 67.5 showing strength, volume elevated at 1.1x average.",
+            price=197.50,
+        )
+        _apply_wait_override(p, "NVDA")
+        assert p["direction"] == "LONG"
+
+    def test_eth_without_clear_higher_low_stays_wait(self):
+        """'without clear higher low' — negation suppresses override."""
+        p = self._make_parsed(
+            "PDL/session low confluence but weak volume 0.4x and RSI mid-range without clear higher low structure confirmed yet.",
+            price=2297.70,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_tsla_50ma_vwap_confluence_fires_long(self):
+        p = self._make_parsed(
+            "Multi-level confluence at 50MA + VWAP, RSI neutral 54.7, strong volume 1.4x avg supporting bounce structure.",
+            price=385.64,
+        )
+        _apply_wait_override(p, "TSLA")
+        assert p["direction"] == "LONG"
+
+    def test_spy_pulled_back_to_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price pulled back to VWAP support after session high break, RSI showing strength at 68.9, volume elevated 1.5x confirming buyer interest at key level.",
+            price=699.04,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
+    def test_tsla_no_clear_higher_low_stays_wait(self):
+        """'no clear higher low' — negation suppresses override."""
+        p = self._make_parsed(
+            "Price at VWAP ($386.44) with 200 EMA nearby ($386.60), RSI neutral 54.9, decent volume 0.9x but no clear higher low structure yet.",
+            price=386.12,
+        )
+        _apply_wait_override(p, "TSLA")
+        assert p["direction"] == "WAIT"
+
+    def test_spy_pullback_from_session_high_fires_long(self):
+        p = self._make_parsed(
+            "Price at VWAP support after pullback from $701.30 session high, but weak volume confirmation and RSI near overbought at 69.6.",
+            price=699.75,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
+
+class TestSpec45MTFConfluence:
+    """Spec 45: Multi-timeframe bias computation + post-parse gate."""
+
+    def _make_bars(self, closes, lows=None, highs=None):
+        """Build bar dicts from close prices."""
+        if lows is None:
+            lows = [c - 0.5 for c in closes]
+        if highs is None:
+            highs = [c + 0.5 for c in closes]
+        return [
+            {"open": c - 0.1, "high": h, "low": l, "close": c, "volume": 1000}
+            for c, h, l in zip(closes, highs, lows)
+        ]
+
+    def test_compute_htf_bias_bull(self):
+        """Price above EMA + higher lows → BULL."""
+        closes = [100 + i * 0.5 for i in range(10)]
+        bars = self._make_bars(closes)
+        assert _compute_htf_bias(bars) == "BULL"
+
+    def test_compute_htf_bias_bear(self):
+        """Price below EMA + lower highs → BEAR."""
+        closes = [120 - i * 0.5 for i in range(10)]
+        bars = self._make_bars(closes)
+        assert _compute_htf_bias(bars) == "BEAR"
+
+    def test_compute_htf_bias_neutral(self):
+        """Mixed signals → NEUTRAL."""
+        closes = [100, 101, 100, 101, 100, 101, 100, 101, 100, 101]
+        lows = [99, 99.5, 98.5, 99, 98, 99.5, 99, 98.5, 99, 98.5]
+        highs = [101, 102, 101, 102, 101, 102, 101, 102, 101, 101.5]
+        bars = self._make_bars(closes, lows=lows, highs=highs)
+        assert _compute_htf_bias(bars) == "NEUTRAL"
+
+    def test_compute_htf_bias_few_bars(self):
+        """< 5 bars → NEUTRAL (no crash)."""
+        bars = self._make_bars([100, 101, 102])
+        assert _compute_htf_bias(bars) == "NEUTRAL"
+        assert _compute_htf_bias([]) == "NEUTRAL"
+        assert _compute_htf_bias(None) == "NEUTRAL"
+
+    def test_format_htf_context_aligned_bull(self):
+        ctx = _format_htf_context("BULL", "BULL")
+        assert "ALIGNED BULL" in ctx
+        assert "4H Trend: BULL" in ctx
+
+    def test_format_htf_context_aligned_bear(self):
+        ctx = _format_htf_context("BEAR", "BEAR")
+        assert "ALIGNED BEAR" in ctx
+
+    def test_format_htf_context_conflicting(self):
+        ctx = _format_htf_context("BEAR", "BULL")
+        assert "CONFLICTING" in ctx
+
+    def test_format_htf_context_both_neutral_empty(self):
+        assert _format_htf_context("NEUTRAL", "NEUTRAL") == ""
+
+    def test_prompt_includes_htf_context(self):
+        bars = [{"open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1000}] * 5
+        prompt = build_day_trade_prompt(
+            symbol="SPY", bars_5m=bars, bars_1h=bars,
+            prior_day={"high": 105, "low": 95},
+            htf_context="[HIGHER TIMEFRAME BIAS]\n4H Trend: BULL | 1H Trend: BULL\nAlignment: ALIGNED BULL",
+        )
+        assert "[HIGHER TIMEFRAME BIAS]" in prompt
+        assert "ALIGNED BULL" in prompt
+
+    def test_prompt_excludes_htf_when_none(self):
+        bars = [{"open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1000}] * 5
+        prompt = build_day_trade_prompt(
+            symbol="SPY", bars_5m=bars, bars_1h=bars,
+            prior_day={"high": 105, "low": 95},
+        )
+        assert "[HIGHER TIMEFRAME BIAS]" not in prompt
+
+    def test_override_blocked_by_bear_4h(self):
+        """LONG override blocked when 4H bias is BEAR."""
+        p = {"direction": "WAIT", "reason": "VWAP reclaim with higher low structure",
+             "conviction": "MEDIUM", "price": 535.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BEAR")
+        assert p["direction"] == "WAIT"
+        assert p.get("_override") is None
+
+    def test_override_allowed_by_bull_4h(self):
+        """LONG override fires when 4H bias is BULL."""
+        p = {"direction": "WAIT", "reason": "VWAP reclaim with higher low structure",
+             "conviction": "MEDIUM", "price": 535.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BULL")
+        assert p["direction"] == "LONG"
+        assert p.get("_override") is True
+
+    def test_override_allowed_by_neutral_4h(self):
+        """LONG override fires when 4H bias is NEUTRAL (no gating)."""
+        p = {"direction": "WAIT", "reason": "bounce at PDL with higher low",
+             "conviction": "MEDIUM", "price": 535.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="NEUTRAL")
+        assert p["direction"] == "LONG"
+
+    def test_short_override_blocked_by_bull_4h(self):
+        """SHORT override blocked when 4H bias is BULL."""
+        p = {"direction": "WAIT", "reason": "PDH rejection with lower high forming",
+             "conviction": "MEDIUM", "price": 540.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BULL")
+        assert p["direction"] == "WAIT"
+
+    def test_ai_long_not_blocked(self):
+        """AI's own LONG (not override) is NOT gated by MTF."""
+        p = {"direction": "LONG", "reason": "bounce at support", "conviction": "HIGH",
+             "price": 535.0, "entry": 534.0}
+        _apply_wait_override(p, "SPY", htf_bias_4h="BEAR")
+        assert p["direction"] == "LONG"
+
+    def test_mtf_disabled_env_flag(self):
+        """MTF gate inactive when disabled."""
+        import analytics.ai_day_scanner as mod
+        orig = mod._MTF_CONFLUENCE
+        try:
+            mod._MTF_CONFLUENCE = False
+            p = {"direction": "WAIT", "reason": "VWAP reclaim with higher low",
+                 "conviction": "MEDIUM", "price": 535.0}
+            _apply_wait_override(p, "SPY", htf_bias_4h="BEAR")
+            assert p["direction"] == "LONG"
+        finally:
+            mod._MTF_CONFLUENCE = orig
 
 
 class TestExitCooldown:
