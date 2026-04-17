@@ -7,6 +7,7 @@ from analytics.ai_day_scanner import (
     build_exit_prompt, parse_exit_response,
     _user_wants_alert, _truncate_for_free, _wait_fingerprint,
     _close_auto_trade, AUTO_TRADE_NOTIONAL,
+    _apply_wait_override,
 )
 
 
@@ -791,6 +792,93 @@ class TestAutoPilotPnL:
 class TestAutoPilotSizing:
     def test_notional_is_fixed_10k(self):
         assert AUTO_TRADE_NOTIONAL == 10_000
+
+
+class TestSpec44WaitOverride:
+    """Spec 44: enforce AI signal commitment — WAIT override gate."""
+
+    def _make_parsed(self, direction="WAIT", reason="", **kw):
+        return {"direction": direction, "reason": reason, "conviction": "MEDIUM", **kw}
+
+    def test_wait_with_vwap_reclaim_overrides_to_long(self):
+        """Real 2026-04-16 case: NVDA VWAP reclaim with higher-low → should be LONG."""
+        p = self._make_parsed(
+            reason="VWAP reclaim with higher low structure from $197.30, volume 1.2x average supports bounce"
+        )
+        _apply_wait_override(p, "NVDA")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "LOW"
+        assert p.get("_override") is True
+
+    def test_wait_with_bounce_overrides_to_long(self):
+        """PDL bounce described but AI said WAIT — override."""
+        p = self._make_parsed(
+            reason="PDL bounce at $197, RSI overbought at 68.5 limits upside conviction"
+        )
+        _apply_wait_override(p, "NVDA")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "LOW"
+
+    def test_wait_with_holding_above_overrides_to_long(self):
+        """Real 2026-04-16 case: SPY holding above key level."""
+        p = self._make_parsed(
+            reason="VWAP reclaim after pullback, RSI overbought at 70.2 but price holding above key level with average volume"
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "LOW"
+
+    def test_wait_midrange_no_override(self):
+        """Generic mid-range reason stays WAIT."""
+        p = self._make_parsed(reason="price mid-range between levels, no structure forming")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+        assert p.get("_override") is None
+
+    def test_wait_approaching_no_override(self):
+        """Approaching a level without setup keywords stays WAIT."""
+        p = self._make_parsed(reason="approaching PDH, RSI at 70, no confirmed structure")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+
+    def test_wait_with_rejection_overrides_to_short(self):
+        """SHORT setup described as WAIT → override to SHORT."""
+        p = self._make_parsed(reason="PDH rejection with lower high forming, volume spike on rejection bar")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+        assert p["conviction"] == "LOW"
+
+    def test_long_direction_no_override(self):
+        """Already LONG — gate does nothing."""
+        p = self._make_parsed(direction="LONG", reason="PDL bounce confirmed")
+        _apply_wait_override(p, "NVDA")
+        assert p["direction"] == "LONG"
+        assert p["conviction"] == "MEDIUM"  # unchanged
+        assert p.get("_override") is None
+
+    def test_empty_reason_no_override(self):
+        """Empty reason stays WAIT."""
+        p = self._make_parsed(reason="")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+
+    def test_conflicting_signals_no_override(self):
+        """Both LONG and SHORT signals in reason — don't guess, stay WAIT."""
+        p = self._make_parsed(reason="bounce off support but rejection at resistance with lower high")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "WAIT"
+
+    def test_override_preserves_entry_stop_t1(self):
+        """When AI hedged but included levels, override keeps them."""
+        p = self._make_parsed(
+            reason="VWAP reclaim with structure but RSI limits conviction",
+            entry=700.50, stop=698.00, t1=703.00, t2=705.00,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+        assert p["entry"] == 700.50
+        assert p["stop"] == 698.00
+        assert p["t1"] == 703.00
 
 
 class TestExitCooldown:
