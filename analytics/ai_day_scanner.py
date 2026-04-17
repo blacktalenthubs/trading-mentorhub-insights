@@ -39,6 +39,61 @@ _user_wait_limit_notified: set[tuple[int, str]] = set()  # (uid, session) alread
 _exit_notified: dict[tuple[int, str], float] = {}
 _EXIT_COOLDOWN_SEC = 1800  # 30 min
 
+# Spec 44: WAIT override — env flag for instant rollback
+_WAIT_OVERRIDE = os.environ.get("WAIT_OVERRIDE_ENABLED", "true").lower() == "true"
+
+# Setup keywords indicating AI identified a valid LONG setup
+_LONG_SETUP_SIGNALS = [
+    "reclaim", "bounce", "higher low", "holding above", "supports",
+    "breakout", "flipped support", "bull", "held support", "reclaimed",
+]
+
+# Setup keywords indicating AI identified a valid SHORT setup
+_SHORT_SETUP_SIGNALS = [
+    "rejection", "lower high", "failing", "breakdown", "lost vwap",
+    "bear", "rejected",
+]
+
+
+def _apply_wait_override(parsed: dict, symbol: str = "") -> dict:
+    """Spec 44: detect when AI described a valid setup but returned WAIT.
+
+    Override to LONG LOW (or SHORT LOW) so the alert fires. The AI reads
+    data correctly — it just won't commit. This gate enforces commitment.
+    """
+    if not _WAIT_OVERRIDE:
+        return parsed
+
+    direction = (parsed.get("direction") or "").upper()
+    if direction != "WAIT":
+        return parsed
+
+    reason_lower = (parsed.get("reason") or "").lower()
+    if not reason_lower:
+        return parsed
+
+    long_detected = any(kw in reason_lower for kw in _LONG_SETUP_SIGNALS)
+    short_detected = any(kw in reason_lower for kw in _SHORT_SETUP_SIGNALS)
+
+    if long_detected and not short_detected:
+        parsed["direction"] = "LONG"
+        parsed["conviction"] = "LOW"
+        parsed["_override"] = True
+        logger.info(
+            "AI day scan %s: WAIT→LONG override (reason: %s)",
+            symbol, (parsed.get("reason") or "")[:80],
+        )
+    elif short_detected and not long_detected:
+        parsed["direction"] = "SHORT"
+        parsed["conviction"] = "LOW"
+        parsed["_override"] = True
+        logger.info(
+            "AI day scan %s: WAIT→SHORT override (reason: %s)",
+            symbol, (parsed.get("reason") or "")[:80],
+        )
+
+    return parsed
+
 
 def _resolve_api_key() -> str:
     if ANTHROPIC_API_KEY:
@@ -909,6 +964,9 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["symbol"] = symbol
         parsed["price"] = current_price
         parsed["signal_source"] = "day_trade"
+
+        # Spec 44: override WAIT when reason describes a valid setup
+        _apply_wait_override(parsed, symbol)
 
         # Staleness gate (progress-to-target): a setup is stale if price has
         # traveled >50% of the distance from entry to T1 (the move already
