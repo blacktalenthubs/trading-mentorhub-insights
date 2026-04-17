@@ -803,30 +803,33 @@ class TestSpec44WaitOverride:
     def test_wait_with_vwap_reclaim_overrides_to_long(self):
         """Real 2026-04-16 case: NVDA VWAP reclaim with higher-low → should be LONG."""
         p = self._make_parsed(
-            reason="VWAP reclaim with higher low structure from $197.30, volume 1.2x average supports bounce"
+            reason="VWAP reclaim with higher low structure from $197.30, volume 1.2x average supports bounce",
+            price=197.30,
         )
         _apply_wait_override(p, "NVDA")
         assert p["direction"] == "LONG"
-        assert p["conviction"] == "LOW"
+        assert p["conviction"] == "MEDIUM"
         assert p.get("_override") is True
 
     def test_wait_with_bounce_overrides_to_long(self):
         """PDL bounce described but AI said WAIT — override."""
         p = self._make_parsed(
-            reason="PDL bounce at $197, RSI overbought at 68.5 limits upside conviction"
+            reason="PDL bounce at $197, RSI overbought at 68.5 limits upside conviction",
+            price=197.00,
         )
         _apply_wait_override(p, "NVDA")
         assert p["direction"] == "LONG"
-        assert p["conviction"] == "LOW"
+        assert p["conviction"] == "MEDIUM"
 
     def test_wait_with_holding_above_overrides_to_long(self):
         """Real 2026-04-16 case: SPY holding above key level."""
         p = self._make_parsed(
-            reason="VWAP reclaim after pullback, RSI overbought at 70.2 but price holding above key level with average volume"
+            reason="VWAP reclaim after pullback, RSI overbought at 70.2 but price holding above key level with average volume",
+            price=535.20,
         )
         _apply_wait_override(p, "SPY")
         assert p["direction"] == "LONG"
-        assert p["conviction"] == "LOW"
+        assert p["conviction"] == "MEDIUM"
 
     def test_wait_midrange_no_override(self):
         """Generic mid-range reason stays WAIT."""
@@ -843,10 +846,13 @@ class TestSpec44WaitOverride:
 
     def test_wait_with_rejection_overrides_to_short(self):
         """SHORT setup described as WAIT → override to SHORT."""
-        p = self._make_parsed(reason="PDH rejection with lower high forming, volume spike on rejection bar")
+        p = self._make_parsed(
+            reason="PDH rejection with lower high forming, volume spike on rejection bar",
+            price=540.00,
+        )
         _apply_wait_override(p, "SPY")
         assert p["direction"] == "SHORT"
-        assert p["conviction"] == "LOW"
+        assert p["conviction"] == "MEDIUM"
 
     def test_long_direction_no_override(self):
         """Already LONG — gate does nothing."""
@@ -872,13 +878,44 @@ class TestSpec44WaitOverride:
         """When AI hedged but included levels, override keeps them."""
         p = self._make_parsed(
             reason="VWAP reclaim with structure but RSI limits conviction",
-            entry=700.50, stop=698.00, t1=703.00, t2=705.00,
+            entry=700.50, stop=698.00, t1=703.00, t2=705.00, price=700.60,
         )
         _apply_wait_override(p, "SPY")
         assert p["direction"] == "LONG"
-        assert p["entry"] == 700.50
+        assert p["entry"] == 700.50  # preserved, not overwritten with price
         assert p["stop"] == 698.00
         assert p["t1"] == 703.00
+
+    def test_override_populates_entry_from_price(self):
+        """When AI said WAIT with no entry, override uses current price as entry."""
+        p = self._make_parsed(
+            reason="100 Daily MA bounce with higher low structure",
+            price=2322.00,
+        )
+        assert p.get("entry") is None  # AI didn't provide entry
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+        assert p["entry"] == 2322.00  # populated from current price
+
+    def test_override_populates_entry_for_short(self):
+        """SHORT override also populates entry from price."""
+        p = self._make_parsed(
+            reason="PDH rejection with confirmed lower high",
+            price=2340.00,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+        assert p["entry"] == 2340.00
+
+    def test_override_skips_when_entry_zero(self):
+        """Entry=0 should be treated as missing and populated from price."""
+        p = self._make_parsed(
+            reason="session high breakout with momentum",
+            entry=0, price=2336.23,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+        assert p["entry"] == 2336.23
 
 
 class TestExitCooldown:
