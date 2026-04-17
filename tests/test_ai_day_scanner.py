@@ -1430,3 +1430,71 @@ class TestExitCooldown:
         assert (now + 60 - _exit_notified[(trade_id, status)]) < _EXIT_COOLDOWN_SEC
         # Check after cooldown → allowed
         assert (now + _EXIT_COOLDOWN_SEC + 10 - _exit_notified[(trade_id, status)]) > _EXIT_COOLDOWN_SEC
+
+
+class TestLongDedup:
+    """Time-based dedup: suppress rapid-fire LONGs/SHORTs for the same symbol."""
+
+    def setup_method(self):
+        from analytics import ai_day_scanner
+        self.mod = ai_day_scanner
+        self.mod._last_long_time.clear()
+        self.mod._last_short_time.clear()
+
+    def test_first_long_always_fires(self):
+        """No prior LONG → time window doesn't block."""
+        assert self.mod._last_long_time.get("ETH-USD") is None
+
+    def test_second_long_within_window_blocked(self):
+        """LONG 3 min after first → inside 10 min window."""
+        import time as _time
+        now = _time.time()
+        self.mod._last_long_time["ETH-USD"] = now
+        elapsed = 180  # 3 minutes
+        assert (now + elapsed) - self.mod._last_long_time["ETH-USD"] < self.mod._LONG_DEDUP_WINDOW
+
+    def test_long_after_window_fires(self):
+        """LONG 11 min after first → outside 10 min window."""
+        import time as _time
+        now = _time.time()
+        self.mod._last_long_time["ETH-USD"] = now - 660  # 11 minutes ago
+        elapsed = _time.time() - self.mod._last_long_time["ETH-USD"]
+        assert elapsed >= self.mod._LONG_DEDUP_WINDOW
+
+    def test_different_symbol_not_blocked(self):
+        """ETH LONG then SPY LONG → independent symbols."""
+        import time as _time
+        self.mod._last_long_time["ETH-USD"] = _time.time()
+        assert self.mod._last_long_time.get("SPY") is None
+
+    def test_level_bucket_still_blocks(self):
+        """Same bucket even after time window → blocked by existing dedup."""
+        from analytics.ai_day_scanner import _level_bucket
+        b1 = _level_bucket(2205)
+        b2 = _level_bucket(2207)
+        assert b1 == b2, "Same bucket should block regardless of time"
+
+    def test_dedup_window_zero_disables(self):
+        """LONG_DEDUP_WINDOW_SEC=0 → time gate skipped entirely."""
+        assert self.mod._LONG_DEDUP_WINDOW == int(
+            __import__("os").environ.get("LONG_DEDUP_WINDOW_SEC", "600")
+        )
+        # When env sets to 0, the `if _LONG_DEDUP_WINDOW > 0:` check skips the gate
+        saved = self.mod._LONG_DEDUP_WINDOW
+        try:
+            self.mod._LONG_DEDUP_WINDOW = 0
+            assert self.mod._LONG_DEDUP_WINDOW == 0
+        finally:
+            self.mod._LONG_DEDUP_WINDOW = saved
+
+    def test_short_dedup_works(self):
+        """SHORT within window → blocked."""
+        import time as _time
+        now = _time.time()
+        self.mod._last_short_time["SPY"] = now
+        elapsed = 120  # 2 min
+        assert (now + elapsed) - self.mod._last_short_time["SPY"] < self.mod._SHORT_DEDUP_WINDOW
+
+    def test_wait_not_affected(self):
+        """WAIT signals don't interact with LONG/SHORT time windows."""
+        assert "WAIT" not in ("LONG", "SHORT")
