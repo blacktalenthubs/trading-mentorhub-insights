@@ -1031,6 +1031,48 @@ class TestSpec44WaitOverride:
         assert p["conviction"] == "MEDIUM"
 
 
+class TestSpec44RealAILanguage:
+    """Test override keywords against actual AI output verb forms."""
+
+    def _make_parsed(self, reason, price=100.0):
+        return {"direction": "WAIT", "reason": reason, "conviction": "LOW", "price": price}
+
+    def test_bouncing_matches(self):
+        p = self._make_parsed("bouncing from session low area")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_bounced_matches(self):
+        p = self._make_parsed("price bounced off PDL with RSI strength")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_pulling_back_matches(self):
+        p = self._make_parsed("Price pulling back to VWAP after upmove from session low")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_pulled_back_matches(self):
+        p = self._make_parsed("pulled back to support at daily MA confluence")
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_rejecting_matches(self):
+        p = self._make_parsed("price rejecting at PDH with lower high forming")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_failed_matches(self):
+        p = self._make_parsed("price failed at weekly high resistance, rolling over")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "SHORT"
+
+    def test_reclaiming_matches(self):
+        p = self._make_parsed("price reclaiming VWAP with volume confirmation")
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
+
 class TestSpec45MTFConfluence:
     """Spec 45: Multi-timeframe bias computation + post-parse gate."""
 
