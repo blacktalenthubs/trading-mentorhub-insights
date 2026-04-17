@@ -94,12 +94,54 @@ function StatCard({ label, value, icon, color }: {
   );
 }
 
+function TierSelector({
+  userId, currentTier, onChanged,
+}: {
+  userId: number;
+  currentTier: string;
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    e.stopPropagation();
+    const newTier = e.target.value;
+    if (newTier === currentTier || newTier === "trial") return;
+    if (!confirm(`Change user #${userId} to ${newTier.toUpperCase()}?`)) return;
+    setSaving(true);
+    try {
+      await api.put(`/admin/users/${userId}/tier`, { tier: newTier });
+      onChanged();
+    } catch (err) {
+      alert("Failed: " + (err instanceof Error ? err.message : "unknown"));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const options = ["free", "comp", "pro", "premium"];
+  // If currently trial, show it as current (read-only label) since trial isn't a real tier to save
+  const value = options.includes(currentTier) ? currentTier : "free";
+  return (
+    <select
+      value={value}
+      disabled={saving}
+      onClick={(e) => e.stopPropagation()}
+      onChange={handleChange}
+      className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-surface-0 border-border-subtle text-text-primary uppercase cursor-pointer hover:border-accent/40 disabled:opacity-50"
+    >
+      {options.map((t) => (
+        <option key={t} value={t}>{t.toUpperCase()}</option>
+      ))}
+    </select>
+  );
+}
+
 function TierBadge({ tier, trialDays, trialExpired }: { tier: string; trialDays?: number; trialExpired?: boolean }) {
   const styles: Record<string, string> = {
     pro: "bg-accent/10 text-accent border-accent/20",
     premium: "bg-purple/10 text-purple-text border-purple/20",
     admin: "bg-warning/10 text-warning-text border-warning/20",
     trial: "bg-bullish/10 text-bullish-text border-bullish/20",
+    comp: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
     free: "bg-surface-3 text-text-faint border-border-subtle",
     none: "bg-surface-3 text-text-faint border-border-subtle",
   };
@@ -710,7 +752,12 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-center"><TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} /></td>
+                    <td className="px-3 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} />
+                        <TierSelector userId={u.id} currentTier={u.tier} onChanged={fetchData} />
+                      </div>
+                    </td>
                     <td className="px-3 py-3 text-center">
                       {u.telegram_linked ? (
                         <span className="inline-flex items-center gap-1 text-[10px] text-bullish-text">

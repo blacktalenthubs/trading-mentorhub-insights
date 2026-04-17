@@ -389,6 +389,162 @@ async def get_trade(
 # ── Social cards (shareable P&L images for TikTok / IG / YouTube) ───────
 
 
+@router.get("/card/trade/{trade_id}", response_class=HTMLResponse)
+async def trade_card(
+    trade_id: int,
+    w: int = Query(default=1080),
+    h: int = Query(default=1920),
+    db: AsyncSession = Depends(get_db),
+):
+    """Per-trade shareable poster — screenshot-ready for TikTok/IG/YT.
+
+    Renders a 1080x1920 vertical card with entry, exit, P&L, setup, status.
+    """
+    result = await db.execute(
+        select(AIAutoTrade).where(AIAutoTrade.id == trade_id)
+    )
+    t = result.scalar_one_or_none()
+    if not t:
+        raise HTTPException(status_code=404, detail="Trade not found")
+
+    is_win = (t.pnl_dollars or 0) > 0
+    status_map = {
+        "closed_t1": "TARGET 1 HIT",
+        "closed_t2": "TARGET 2 HIT",
+        "closed_stop": "STOPPED OUT",
+        "closed_eod": "CLOSED EOD",
+        "open": "TRADE OPEN",
+    }
+    status_label = status_map.get(t.status, (t.status or "").upper().replace("_", " "))
+    direction_label = (t.direction or "LONG").upper()
+    pnl_color = "#22c55e" if is_win else "#ef4444"
+    pnl_sign = "+" if (t.pnl_dollars or 0) >= 0 else ""
+    pnl_dollars_s = (
+        f"{pnl_sign}${t.pnl_dollars:,.2f}" if t.pnl_dollars is not None else "Open"
+    )
+    pnl_pct_s = (
+        f"{pnl_sign}{t.pnl_percent:.2f}%" if t.pnl_percent is not None else ""
+    )
+
+    try:
+        date_label = t.opened_at.strftime("%b %d, %Y").upper()
+    except Exception:
+        date_label = t.session_date or ""
+
+    duration_s = ""
+    if t.closed_at and t.opened_at:
+        try:
+            mins = int((t.closed_at - t.opened_at).total_seconds() / 60)
+            duration_s = (
+                f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins} min"
+            )
+        except Exception:
+            pass
+
+    entry_s = f"${t.entry_price:,.2f}" if t.entry_price else "—"
+    stop_s = f"${t.stop_price:,.2f}" if t.stop_price else "—"
+    t1_s = f"${t.target_1_price:,.2f}" if t.target_1_price else "—"
+    exit_s = f"${t.exit_price:,.2f}" if t.exit_price else "Open"
+    setup_s = (t.setup_type or "AI Day Trade")[:80]
+
+    dir_color = "#22c55e" if direction_label == "LONG" else "#ef4444"
+    dir_bg = "rgba(34,197,94,0.15)" if direction_label == "LONG" else "rgba(239,68,68,0.15)"
+    dir_bord = "rgba(34,197,94,0.3)" if direction_label == "LONG" else "rgba(239,68,68,0.3)"
+    stat_bg = "rgba(34,197,94,0.1)" if is_win else "rgba(239,68,68,0.1)"
+    stat_bord = "rgba(34,197,94,0.25)" if is_win else "rgba(239,68,68,0.25)"
+    duration_tag = f" · {duration_s}" if duration_s else ""
+
+    html = f"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<title>{t.symbol} — {date_label}</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box;
+       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; }}
+  html, body {{ width: {w}px; height: {h}px; background: #0a0a0f; color: #fff; overflow: hidden; }}
+  .card {{
+    width: {w}px; height: {h}px;
+    padding: 90px 80px;
+    background: radial-gradient(ellipse at top, #1a1a2e 0%, #0a0a0f 55%);
+    display: flex; flex-direction: column; justify-content: space-between;
+  }}
+  .brand {{ display: flex; align-items: center; gap: 20px; }}
+  .brand-dot {{ width: 28px; height: 28px; border-radius: 50%;
+               background: linear-gradient(135deg, #22d3ee, #8b5cf6); }}
+  .brand-name {{ font-size: 42px; font-weight: 700; letter-spacing: -1px; }}
+  .brand-url {{ font-size: 26px; color: #9ca3af; margin-top: 4px; }}
+  .date-tag {{ font-size: 28px; letter-spacing: 4px; color: #9ca3af; margin-top: 30px; }}
+  .symbol-line {{ display: flex; align-items: baseline; gap: 24px; margin-top: 24px; }}
+  .symbol {{ font-size: 88px; font-weight: 900; letter-spacing: -3px; line-height: 1; }}
+  .direction-pill {{
+    font-size: 34px; font-weight: 700; padding: 10px 28px; border-radius: 100px;
+    background: {dir_bg}; color: {dir_color}; border: 1px solid {dir_bord};
+  }}
+  .setup {{ font-size: 30px; color: #9ca3af; margin-top: 18px; line-height: 1.35; }}
+  .pnl-block {{ margin-top: 50px; }}
+  .pnl-label {{ font-size: 28px; color: #9ca3af; letter-spacing: 2px; }}
+  .pnl-amount {{ font-size: 148px; font-weight: 900; letter-spacing: -5px;
+                 line-height: 1; margin-top: 8px; color: {pnl_color}; }}
+  .pnl-pct {{ font-size: 46px; font-weight: 700; color: {pnl_color}; margin-top: 6px; }}
+  .status-tag {{
+    display: inline-block; margin-top: 18px;
+    font-size: 24px; font-weight: 700; letter-spacing: 2px;
+    padding: 8px 20px; border-radius: 8px;
+    background: {stat_bg}; color: {pnl_color}; border: 1px solid {stat_bord};
+  }}
+  .levels {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 60px; }}
+  .level {{ background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+           border-radius: 20px; padding: 24px 28px; }}
+  .level-label {{ font-size: 22px; color: #9ca3af; letter-spacing: 1px; }}
+  .level-value {{ font-size: 48px; font-weight: 800; margin-top: 6px; font-family: ui-monospace, monospace; }}
+  .footer {{ margin-top: auto; display: flex; justify-content: space-between;
+            align-items: center; padding-top: 36px; border-top: 1px solid rgba(255,255,255,0.08); }}
+  .cta {{ font-size: 28px; color: #9ca3af; }}
+  .cta strong {{ color: #fff; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div>
+      <div class="brand">
+        <div class="brand-dot"></div>
+        <div>
+          <div class="brand-name">TradeCoPilot</div>
+          <div class="brand-url">tradingwithai.ai</div>
+        </div>
+      </div>
+      <div class="date-tag">{date_label}</div>
+
+      <div class="symbol-line">
+        <div class="symbol">{t.symbol}</div>
+        <div class="direction-pill">{direction_label}</div>
+      </div>
+      <div class="setup">{setup_s}</div>
+
+      <div class="pnl-block">
+        <div class="pnl-label">P&amp;L</div>
+        <div class="pnl-amount">{pnl_dollars_s}</div>
+        <div class="pnl-pct">{pnl_pct_s}</div>
+        <div class="status-tag">{status_label}{duration_tag}</div>
+      </div>
+
+      <div class="levels">
+        <div class="level"><div class="level-label">ENTRY</div><div class="level-value">{entry_s}</div></div>
+        <div class="level"><div class="level-label">EXIT</div><div class="level-value">{exit_s}</div></div>
+        <div class="level"><div class="level-label">STOP</div><div class="level-value">{stop_s}</div></div>
+        <div class="level"><div class="level-label">TARGET</div><div class="level-value">{t1_s}</div></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="cta">AI-generated trade. <strong>Not financial advice.</strong></div>
+      <div class="cta"><strong>tradingwithai.ai</strong></div>
+    </div>
+  </div>
+</body></html>"""
+    return HTMLResponse(content=html)
+
+
 @router.get("/card/daily", response_class=HTMLResponse)
 async def daily_card(
     day: Optional[str] = Query(default=None, description="YYYY-MM-DD (defaults to today)"),

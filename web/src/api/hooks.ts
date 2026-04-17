@@ -948,3 +948,42 @@ export function useTradeJournal(date?: string) {
     staleTime: 5 * 60_000,
   });
 }
+
+// --- AI Coach: Best Setups (Spec 40) ---
+
+export interface BestSetupPick {
+  symbol: string;
+  direction: string;
+  setup_type: string;
+  entry: number;
+  stop: number;
+  t1: number;
+  t2: number | null;
+  risk_per_share: number;
+  reward_per_share: number;
+  rr_ratio: number;
+  conviction: string;
+  confluence: string[];
+  why_now: string;
+  current_price: number;
+  distance_to_entry_pct: number;
+}
+
+export interface BestSetupsResponse {
+  generated_at: string;
+  watchlist_size: number;
+  setups_found: number;
+  picks: BestSetupPick[];
+  skipped: { symbol: string; reason: string }[];
+  error: string | null;
+}
+
+export function useBestSetups(enabled = false) {
+  return useQuery({
+    queryKey: ["best-setups"],
+    queryFn: () => api.get<BestSetupsResponse>("/ai/best-setups"),
+    enabled,
+    staleTime: 14 * 60_000,  // match server cache of 15 min
+    retry: false,
+  });
+}

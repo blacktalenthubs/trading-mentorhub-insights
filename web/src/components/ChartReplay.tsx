@@ -5,8 +5,8 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
-import type { IChartApi, ISeriesApi } from "lightweight-charts";
+import { createChart, CandlestickSeries, ColorType, createSeriesMarkers } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, ISeriesMarkersPluginApi } from "lightweight-charts";
 import { Play, Pause, SkipBack, SkipForward, X, Maximize2, Minimize2 } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 
@@ -87,6 +87,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<any> | null>(null);
 
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -152,7 +153,8 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => {
         setData(d);
-        setVisibleCount(Math.max(1, d.alert_bar_index - 6));
+        // Start with ~20 bars of pre-entry context so chart has visual depth
+        setVisibleCount(Math.max(1, d.alert_bar_index - 20));
         setLoading(false);
         setTimeout(() => setPlaying(true), 2000);
       })
@@ -178,11 +180,15 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       crosshair: { mode: 0 }, // No crosshair during replay
       rightPriceScale: {
         autoScale: true,
-        scaleMargins: { top: 0.15, bottom: 0.15 },
+        // Bigger margins so entry / stop / T1 / T2 lines all sit inside the
+        // visible price range (not cut off by candle-only auto-fit)
+        scaleMargins: { top: 0.22, bottom: 0.22 },
         borderVisible: false,
       },
       timeScale: {
-        rightOffset: 5,
+        rightOffset: 2,
+        barSpacing: 9,   // moderate — readable but not huge blocks
+        minBarSpacing: 4,
         borderVisible: false,
       },
     });
@@ -196,8 +202,41 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       wickUpColor: "#22c55e80",
     });
 
+    // Force price scale to include entry/stop/T1/T2 so level lines always render
+    try {
+      const a = data.alert;
+      const levels = [a.entry, a.stop, a.target_1, a.target_2].filter((x): x is number => !!x && x > 0);
+      if (levels.length > 0) {
+        series.applyOptions({
+          autoscaleInfoProvider: (original: any) => {
+            const r = original();
+            if (!r || !r.priceRange) return r;
+            const curMin = r.priceRange.minValue;
+            const curMax = r.priceRange.maxValue;
+            const lvlMin = Math.min(...levels);
+            const lvlMax = Math.max(...levels);
+            return {
+              ...r,
+              priceRange: {
+                minValue: Math.min(curMin, lvlMin),
+                maxValue: Math.max(curMax, lvlMax),
+              },
+            };
+          },
+        } as any);
+      }
+    } catch {
+      // autoscaleInfoProvider unavailable — ignore
+    }
+
     chartRef.current = chart;
     seriesRef.current = series;
+    // v5 markers API — attach plugin once, reuse for updates
+    try {
+      markersRef.current = createSeriesMarkers(series, []);
+    } catch {
+      markersRef.current = null;
+    }
 
     // Draw key level lines
     const a = data.alert;
@@ -266,17 +305,58 @@ export default function ChartReplay({ alertId, onClose }: Props) {
     const seen = new Set<number>();
     const deduped = visible.filter((v) => { if (seen.has(v.time)) return false; seen.add(v.time); return true; });
     seriesRef.current.setData(deduped);
-  }, [visibleCount, data]);
+
+    // Auto-fit the visible bars to chart width so candles aren't clustered right
+    try {
+      chartRef.current?.timeScale().fitContent();
+    } catch {}
+
+    // Entry / exit markers on candles (v5 API via plugin)
+    if (markersRef.current) {
+      const markers: any[] = [];
+      const alertIdx = data.alert_bar_index;
+      const outcomeIdx = data.outcome_bar_index;
+      if (alertIdx < visibleCount) {
+        const bar = data.bars[alertIdx];
+        if (bar) {
+          markers.push({
+            time: (new Date(bar.timestamp).getTime() / 1000) as any,
+            position: isBuy ? "belowBar" : "aboveBar",
+            color: "#3b82f6",
+            shape: isBuy ? "arrowUp" : "arrowDown",
+            text: `${isBuy ? "LONG" : "SHORT"} $${fmt(data.alert.entry)}`,
+          });
+        }
+      }
+      if (outcomeIdx != null && outcomeIdx > 0 && outcomeIdx < visibleCount) {
+        const bar = data.bars[outcomeIdx];
+        if (bar) {
+          const isWinOutcome = data.outcome?.includes("target");
+          markers.push({
+            time: (new Date(bar.timestamp).getTime() / 1000) as any,
+            position: isWinOutcome ? "aboveBar" : "belowBar",
+            color: isWinOutcome ? "#22c55e" : "#ef4444",
+            shape: isWinOutcome ? "arrowDown" : "arrowUp",
+            text: isWinOutcome ? `✓ EXIT $${fmt(data.outcome_price)}` : `✖ STOP $${fmt(data.outcome_price)}`,
+          });
+        }
+      }
+      try {
+        markersRef.current.setMarkers(markers);
+      } catch {}
+    }
+  }, [visibleCount, data, isBuy]);
 
   // Animation loop
   useEffect(() => {
     if (!playing || !data) return;
-    // Slower pacing: entry/target moments get extra pause for clarity
-    const interval = phase === "entry" || phase === "target" ? 1500
-      : phase === "approach" ? 900
-      : phase === "setup" ? 1200
-      : phase === "result" ? 2000
-      : 600; // move phase
+    // Target total replay ~35s so viewer can follow candle-by-candle.
+    // Move phase dominates (10-20 bars) so it paces the story.
+    const interval = phase === "entry" || phase === "target" ? 3000  // 3s emphasis
+      : phase === "approach" ? 2000
+      : phase === "setup" ? 3500  // 3.5s per setup bar — reads AI reason clearly
+      : phase === "result" ? 4000
+      : 1400; // move phase — 1.4s per bar, candles build gradually
     const timer = setInterval(() => {
       setVisibleCount((prev) => {
         if (prev >= data.bars.length) { setPlaying(false); return data.bars.length; }
@@ -326,20 +406,38 @@ export default function ChartReplay({ alertId, onClose }: Props) {
       {/* ── Phase Overlays ── */}
       <div className="absolute inset-0 z-10 pointer-events-none">
 
-        {/* SETUP phase: show trade name prominently */}
+        {/* SETUP phase: show trade name prominently + AI reason */}
         {phase === "setup" && (
-          <div className="absolute top-12 left-8 animate-in fade-in slide-in-from-left duration-700">
-            <div className="text-4xl font-bold text-white tracking-tight">
+          <div className="absolute top-12 left-8 right-8 animate-in fade-in slide-in-from-left duration-700 max-w-2xl">
+            <div className="text-3xl font-bold text-white tracking-tight">
               {setupLabel.toUpperCase()}
             </div>
-            <div className="text-xl text-accent mt-2 font-mono">
+            <div className="text-lg text-accent mt-1 font-mono">
               {data.alert.symbol} — ${fmt(data.alert.price)}
             </div>
-            <div className="flex gap-4 mt-3 text-sm font-mono">
+            <div className="flex gap-4 mt-2 text-sm font-mono">
               <span className="text-blue-400">Entry ${fmt(data.alert.entry)}</span>
               <span className="text-red-400">Stop ${fmt(data.alert.stop)}</span>
               <span className="text-emerald-400">T1 ${fmt(data.alert.target_1)}</span>
             </div>
+            {data.alert.message && (
+              <div className="mt-3 text-[13px] text-text-secondary bg-[#0f1629]/80 border border-white/5 rounded-lg p-3 backdrop-blur-sm">
+                <span className="text-[10px] uppercase tracking-wider text-text-faint">AI Reason</span>
+                <div className="mt-1 leading-relaxed">{data.alert.message}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Persistent outcome tag (top right) — always shows while replay is in MOVE/TARGET */}
+        {(phase === "move" || phase === "target") && data.outcome && (
+          <div className="absolute top-6 left-8 text-[10px] uppercase tracking-widest text-text-faint">
+            Outcome: <span className={isWin ? "text-emerald-400" : "text-red-400"}>{outcomeLabel}</span>
+            {data.pnl_pct !== 0 && (
+              <span className="ml-2 font-mono">
+                ({data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%)
+              </span>
+            )}
           </div>
         )}
 
@@ -352,16 +450,11 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           </div>
         )}
 
-        {/* ENTRY phase: flash highlight */}
+        {/* ENTRY phase: compact top-center pill (does not block chart) */}
         {phase === "entry" && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="animate-in zoom-in duration-300 bg-accent/15 border-2 border-accent rounded-2xl px-8 py-5 backdrop-blur-sm">
-              <div className="text-2xl font-bold text-accent text-center">
-                {isBuy ? "ENTRY" : "SHORT ENTRY"}
-              </div>
-              <div className="text-lg font-mono text-accent/80 text-center mt-1">
-                ${fmt(data.alert.entry)} — {setupLabel}
-              </div>
+          <div className="absolute top-8 left-1/2 -translate-x-1/2 animate-in fade-in zoom-in duration-300 bg-accent/15 border border-accent/40 rounded-full px-6 py-2 backdrop-blur-sm">
+            <div className="text-sm font-bold text-accent text-center">
+              {isBuy ? "ENTRY" : "SHORT ENTRY"} · ${fmt(data.alert.entry)}
             </div>
           </div>
         )}
@@ -378,19 +471,13 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           </div>
         )}
 
-        {/* TARGET HIT phase: celebration */}
+        {/* TARGET HIT phase: compact top-center pill (does not block chart) */}
         {phase === "target" && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className={`animate-in zoom-in duration-500 ${isWin ? "bg-emerald-500/10" : "bg-red-500/10"} rounded-3xl px-12 py-8 backdrop-blur-sm border ${isWin ? "border-emerald-500/30" : "border-red-500/30"}`}>
-              <div className={`text-5xl font-bold text-center ${isWin ? "text-emerald-400" : "text-red-400"}`}>
-                {outcomeLabel}
-              </div>
-              <div className={`text-3xl font-mono text-center mt-3 ${isWin ? "text-emerald-400" : "text-red-400"}`}>
-                {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
-                <span className="text-lg ml-2">
-                  (${data.pnl_per_share >= 0 ? "+" : ""}{data.pnl_per_share}/share)
-                </span>
-              </div>
+          <div className={`absolute top-8 left-1/2 -translate-x-1/2 animate-in fade-in zoom-in duration-500 rounded-full px-6 py-2 backdrop-blur-sm border ${
+            isWin ? "bg-emerald-500/15 border-emerald-500/40" : "bg-red-500/15 border-red-500/40"
+          }`}>
+            <div className={`text-sm font-bold text-center ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+              {outcomeLabel} · {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
             </div>
           </div>
         )}
@@ -446,7 +533,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
                     {linkCopied ? "Copied!" : "Share Link"}
                   </button>
                   <button
-                    onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 6)); setPlaying(true); }}
+                    onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 20)); setPlaying(true); }}
                     className="text-xs bg-white/10 text-white px-3 py-1.5 rounded-lg hover:bg-white/20 transition-colors pointer-events-auto"
                   >
                     Replay
@@ -460,6 +547,28 @@ export default function ChartReplay({ alertId, onClose }: Props) {
 
       {/* ── Chart Area ── */}
       <div ref={containerRef} className="flex-1 min-h-0" />
+
+      {/* Persistent outcome banner — always visible through replay, great for screenshots */}
+      {data.outcome && data.outcome !== "open" && (
+        <div className={`absolute bottom-[68px] left-4 z-20 rounded-lg px-4 py-2.5 backdrop-blur-md border ${
+          isWin ? "bg-emerald-500/15 border-emerald-500/30" : "bg-red-500/15 border-red-500/30"
+        }`}>
+          <div className={`flex items-center gap-3 text-sm font-bold ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+            <span>{isWin ? "✓" : "✖"}</span>
+            <span>{outcomeLabel}</span>
+            <span className="text-white/40">·</span>
+            <span className="font-mono">{duration}</span>
+            <span className="text-white/40">·</span>
+            <span className="font-mono">
+              {data.pnl_pct >= 0 ? "+" : ""}{data.pnl_pct}%
+            </span>
+            <span className="text-white/40">·</span>
+            <span className="font-mono text-xs">
+              {data.alert.symbol} {isBuy ? "LONG" : "SHORT"}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Controls Bar ── */}
       <div className="shrink-0 bg-[#0a0f1a] border-t border-white/5 px-6 py-3">
@@ -488,7 +597,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
           {/* Left: playback controls */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 6)); setPlaying(false); }}
+              onClick={() => { setVisibleCount(Math.max(1, data.alert_bar_index - 20)); setPlaying(false); }}
               className="p-1.5 rounded hover:bg-white/5 text-gray-400 transition-colors"
             >
               <SkipBack className="h-4 w-4" />

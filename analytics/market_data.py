@@ -5,27 +5,101 @@ Extracted from pages/9_Pre_Market_Planner.py for reuse across pages.
 
 from __future__ import annotations
 
+import logging
+import os
+
 import pandas as pd
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
+
+_PERIOD_DAYS = {
+    "1d": 1, "5d": 5, "1mo": 30, "3mo": 92, "6mo": 183,
+    "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "ytd": 365, "max": 3650,
+}
+
+_ALPACA_TF = {
+    "1m": ("Minute", 1), "2m": ("Minute", 2), "5m": ("Minute", 5),
+    "15m": ("Minute", 15), "30m": ("Minute", 30),
+    "60m": ("Hour", 1), "1h": ("Hour", 1),
+    "4h": ("Hour", 4), "1d": ("Day", 1), "1wk": ("Week", 1),
+}
+
+
+def _fetch_ohlc_alpaca(symbol: str, period: str, interval: str) -> pd.DataFrame:
+    """Fetch OHLC from Alpaca stocks API. Returns empty on any failure."""
+    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
+        return pd.DataFrame()
+    key = os.environ.get("ALPACA_API_KEY", "")
+    secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not key or not secret:
+        return pd.DataFrame()
+    tf_info = _ALPACA_TF.get(interval)
+    if not tf_info:
+        return pd.DataFrame()
+
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from datetime import datetime, timedelta
+
+        unit_str, amount = tf_info
+        unit = getattr(TimeFrameUnit, unit_str)
+        tf = TimeFrame(amount, unit)
+
+        days = _PERIOD_DAYS.get(period, 90)
+        client = StockHistoricalDataClient(key, secret)
+        req = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=tf,
+            start=datetime.now() - timedelta(days=days),
+            feed="iex",
+        )
+        bars = client.get_stock_bars(req)
+        df = bars.df
+        if df.empty:
+            return pd.DataFrame()
+
+        df = df.reset_index(level="symbol", drop=True)
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(None)
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        return df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    except Exception as e:
+        logger.info("Alpaca OHLC fetch failed for %s %s/%s: %s",
+                    symbol, period, interval, str(e)[:80])
+        return pd.DataFrame()
 
 
 def fetch_ohlc(
     symbol: str, period: str = "3mo", interval: str = "1d",
 ) -> pd.DataFrame:
-    """Fetch OHLC data — Coinbase for crypto, yfinance for equities.
+    """Fetch OHLC data — Alpaca primary, Coinbase crypto, yfinance fallback.
 
     Returns DataFrame with Open, High, Low, Close, Volume columns.
     Returns empty DataFrame on failure.
-    Note: No @st.cache_data here — caching is applied at the page level.
     """
-    # Route crypto through Coinbase for real-time data
     from config import is_crypto_alert_symbol
+
+    # Crypto — Coinbase primary (reliable), yfinance fallback
     if is_crypto_alert_symbol(symbol):
         df = _fetch_ohlc_coinbase(symbol, period, interval)
         if not df.empty:
             return df
-        # Fall through to yfinance on failure
+        # Fall through to yfinance
 
+    # Equity — Alpaca primary (Yahoo rate-limits Railway IPs constantly)
+    else:
+        df = _fetch_ohlc_alpaca(symbol, period, interval)
+        if not df.empty:
+            return df
+        # Fall through to yfinance
+
+    # yfinance last resort
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period=period, interval=interval)
