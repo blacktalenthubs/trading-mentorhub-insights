@@ -174,6 +174,10 @@ def _apply_wait_override(
     if not reason_lower:
         return parsed
 
+    # "waiting for X confirmation" = AI explicitly says not yet
+    if "waiting for" in reason_lower:
+        return parsed
+
     long_detected = any(kw in reason_lower for kw in _LONG_SETUP_SIGNALS)
     short_detected = any(kw in reason_lower for kw in _SHORT_SETUP_SIGNALS)
 

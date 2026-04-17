@@ -1072,6 +1072,101 @@ class TestSpec44RealAILanguage:
         _apply_wait_override(p, "SPY")
         assert p["direction"] == "LONG"
 
+    def test_waiting_for_suppresses_override(self):
+        """'waiting for X confirmation' means AI says not yet — don't override."""
+        p = self._make_parsed(
+            "100 Daily EMA within 0.3%, but price below the MA and RSI neutral - waiting for actual bounce confirmation."
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+
+class TestSpec44TelegramReplay:
+    """Replay real AI UPDATE messages from Telegram to verify override behavior."""
+
+    def _make_parsed(self, reason, price=2350.0):
+        return {"direction": "WAIT", "reason": reason, "conviction": "LOW", "price": price}
+
+    def test_pullback_from_high_fires_long(self):
+        p = self._make_parsed(
+            "Price at VWAP after pullback from $2377 high, but weak structure and no volume confirmation.",
+            price=2353.91,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_holding_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price holding VWAP/prior close confluence but no volume confirmation or clear structure yet.",
+            price=2355.16,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_buying_opportunity_fires_long(self):
+        p = self._make_parsed(
+            "100 Daily EMA confluence with RSI strength at 61.7 and prior pullback from session high creating buying opportunity.",
+            price=2356.71,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_bouncing_from_session_low_fires_long(self):
+        p = self._make_parsed(
+            "Price at VWAP ($2349.96) with 100 Daily EMA ($2363.85) nearby resistance, RSI 61.3 shows momentum, bouncing from session low area.",
+            price=2349.59,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_pulling_back_to_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price pulling back to VWAP after upmove from session low, RSI at 61.4 shows momentum, but volume lacking confirmation at 5.8x.",
+            price=2347.60,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_reclaimed_vwap_higher_low_fires_long(self):
+        p = self._make_parsed(
+            "Price reclaimed VWAP after pullback from $2362 high, RSI 61.6 shows strength, higher low structure forming above session low.",
+            price=2354.52,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "LONG"
+
+    def test_midrange_no_setup_stays_wait(self):
+        p = self._make_parsed(
+            "Price at $2342 is mid-range between session low $2337 and VWAP $2355, no structural setup forming.",
+            price=2342.30,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_midrange_waiting_stays_wait(self):
+        p = self._make_parsed(
+            "Price mid-range between session low $2337.36 and 100 Daily EMA $2363.70 - no current structural setup forming, waiting for key level test.",
+            price=2341.54,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_waiting_for_bounce_stays_wait(self):
+        p = self._make_parsed(
+            "100 Daily EMA within 0.3% ($2344 vs $2364), but price below the MA and RSI neutral at 60.9 - waiting for actual bounce confirmation.",
+            price=2344.05,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_no_level_nearby_stays_wait(self):
+        p = self._make_parsed(
+            "Price at $2347 is mid-range between VWAP $2350 and session low $2337, no clear structural level within 0.3% for entry setup.",
+            price=2347.12,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
 
 class TestSpec45MTFConfluence:
     """Spec 45: Multi-timeframe bias computation + post-parse gate."""
