@@ -55,10 +55,49 @@ _SHORT_SETUP_SIGNALS = [
 ]
 
 
-def _apply_wait_override(parsed: dict, symbol: str = "") -> dict:
+def _compute_stop_t1(parsed: dict, prior_day: dict | None, bars_5m: list[dict] | None) -> None:
+    """Fill in stop/T1 from structural levels when AI didn't provide them."""
+    entry = parsed.get("entry", 0)
+    direction = (parsed.get("direction") or "").upper()
+    if not entry or entry <= 0 or direction not in ("LONG", "SHORT"):
+        return
+
+    levels: list[float] = []
+    if prior_day:
+        for k in ("high", "low", "ma20", "ma50", "ma100", "ma200"):
+            v = prior_day.get(k)
+            if v and v > 0:
+                levels.append(float(v))
+    if bars_5m:
+        session_high = max(b["high"] for b in bars_5m)
+        session_low = min(b["low"] for b in bars_5m)
+        tp_vol = sum(((b["high"] + b["low"] + b["close"]) / 3) * b.get("volume", 1) for b in bars_5m)
+        vol = sum(b.get("volume", 1) for b in bars_5m)
+        vwap = tp_vol / vol if vol > 0 else bars_5m[-1]["close"]
+        levels.extend([session_high, session_low, vwap])
+
+    below = sorted([l for l in levels if l < entry * 0.999], reverse=True)
+    above = sorted([l for l in levels if l > entry * 1.001])
+
+    if direction == "LONG":
+        if not parsed.get("stop") and below:
+            parsed["stop"] = below[0]
+        if not parsed.get("t1") and above:
+            parsed["t1"] = above[0]
+    elif direction == "SHORT":
+        if not parsed.get("stop") and above:
+            parsed["stop"] = above[0]
+        if not parsed.get("t1") and below:
+            parsed["t1"] = below[0]
+
+
+def _apply_wait_override(
+    parsed: dict, symbol: str = "",
+    prior_day: dict | None = None, bars_5m: list[dict] | None = None,
+) -> dict:
     """Spec 44: detect when AI described a valid setup but returned WAIT.
 
-    Override to LONG LOW (or SHORT LOW) so the alert fires. The AI reads
+    Override to LONG MEDIUM (or SHORT MEDIUM) so the alert fires. The AI reads
     data correctly — it just won't commit. This gate enforces commitment.
     """
     if not _WAIT_OVERRIDE:
@@ -81,9 +120,11 @@ def _apply_wait_override(parsed: dict, symbol: str = "") -> dict:
         parsed["_override"] = True
         if not parsed.get("entry") or parsed.get("entry", 0) <= 0:
             parsed["entry"] = parsed.get("price", 0)
+        _compute_stop_t1(parsed, prior_day, bars_5m)
         logger.info(
-            "AI day scan %s: WAIT→LONG override (entry=$%.2f, reason: %s)",
-            symbol, parsed.get("entry", 0), (parsed.get("reason") or "")[:80],
+            "AI day scan %s: WAIT→LONG override (entry=$%.2f, stop=$%.2f, t1=$%.2f, reason: %s)",
+            symbol, parsed.get("entry", 0), parsed.get("stop") or 0, parsed.get("t1") or 0,
+            (parsed.get("reason") or "")[:80],
         )
     elif short_detected and not long_detected:
         parsed["direction"] = "SHORT"
@@ -91,9 +132,11 @@ def _apply_wait_override(parsed: dict, symbol: str = "") -> dict:
         parsed["_override"] = True
         if not parsed.get("entry") or parsed.get("entry", 0) <= 0:
             parsed["entry"] = parsed.get("price", 0)
+        _compute_stop_t1(parsed, prior_day, bars_5m)
         logger.info(
-            "AI day scan %s: WAIT→SHORT override (entry=$%.2f, reason: %s)",
-            symbol, parsed.get("entry", 0), (parsed.get("reason") or "")[:80],
+            "AI day scan %s: WAIT→SHORT override (entry=$%.2f, stop=$%.2f, t1=$%.2f, reason: %s)",
+            symbol, parsed.get("entry", 0), parsed.get("stop") or 0, parsed.get("t1") or 0,
+            (parsed.get("reason") or "")[:80],
         )
 
     return parsed
@@ -970,7 +1013,7 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         parsed["signal_source"] = "day_trade"
 
         # Spec 44: override WAIT when reason describes a valid setup
-        _apply_wait_override(parsed, symbol)
+        _apply_wait_override(parsed, symbol, prior_day=prior_day, bars_5m=bars_5m)
 
         # Staleness gate (progress-to-target): a setup is stale if price has
         # traveled >50% of the distance from entry to T1 (the move already

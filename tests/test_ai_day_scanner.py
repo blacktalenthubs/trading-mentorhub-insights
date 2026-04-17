@@ -7,7 +7,7 @@ from analytics.ai_day_scanner import (
     build_exit_prompt, parse_exit_response,
     _user_wants_alert, _truncate_for_free, _wait_fingerprint,
     _close_auto_trade, AUTO_TRADE_NOTIONAL,
-    _apply_wait_override,
+    _apply_wait_override, _compute_stop_t1,
 )
 
 
@@ -916,6 +916,78 @@ class TestSpec44WaitOverride:
         _apply_wait_override(p, "ETH-USD")
         assert p["direction"] == "LONG"
         assert p["entry"] == 2336.23
+
+    def test_override_computes_stop_from_pdl(self):
+        """Stop = highest support below entry (PDL)."""
+        p = self._make_parsed(
+            reason="100 Daily MA bounce with higher low structure",
+            price=2322.00,
+        )
+        prior_day = {"high": 2350.00, "low": 2310.00, "ma100": 2317.00}
+        bars_5m = [
+            {"open": 2315, "high": 2325, "low": 2308, "close": 2322, "volume": 100},
+            {"open": 2322, "high": 2328, "low": 2318, "close": 2322, "volume": 120},
+        ]
+        _apply_wait_override(p, "ETH-USD", prior_day=prior_day, bars_5m=bars_5m)
+        assert p["direction"] == "LONG"
+        assert p["entry"] == 2322.00
+        assert p["stop"] == 2317.00  # ma100, highest support below entry
+        assert p["t1"] == 2328.00  # session_high, lowest resistance above
+
+    def test_override_computes_t1_from_session_high(self):
+        """T1 = lowest resistance above entry."""
+        p = self._make_parsed(
+            reason="VWAP reclaim with higher low",
+            price=535.00,
+        )
+        prior_day = {"high": 540.00, "low": 530.00, "ma50": 532.00}
+        bars_5m = [
+            {"open": 533, "high": 538, "low": 531, "close": 535, "volume": 1000},
+        ]
+        _apply_wait_override(p, "SPY", prior_day=prior_day, bars_5m=bars_5m)
+        assert p["t1"] == 538.00  # session_high
+        assert p["stop"] == 532.00  # ma50
+
+    def test_override_does_not_overwrite_ai_stop_t1(self):
+        """If AI provided stop/T1, override keeps them."""
+        p = self._make_parsed(
+            reason="PDL bounce confirmed with structure",
+            price=2320.00, entry=2318.00, stop=2310.00, t1=2340.00,
+        )
+        prior_day = {"high": 2350.00, "low": 2305.00}
+        bars_5m = [
+            {"open": 2315, "high": 2325, "low": 2308, "close": 2320, "volume": 100},
+        ]
+        _apply_wait_override(p, "ETH-USD", prior_day=prior_day, bars_5m=bars_5m)
+        assert p["stop"] == 2310.00  # preserved from AI
+        assert p["t1"] == 2340.00  # preserved from AI
+
+    def test_override_short_stop_above_t1_below(self):
+        """SHORT: stop = nearest resistance above, T1 = nearest support below."""
+        p = self._make_parsed(
+            reason="PDH rejection with lower high forming",
+            price=2340.00,
+        )
+        prior_day = {"high": 2360.00, "low": 2310.00, "ma100": 2330.00}
+        bars_5m = [
+            {"open": 2345, "high": 2355, "low": 2320, "close": 2340, "volume": 100},
+        ]
+        _apply_wait_override(p, "SPY", prior_day=prior_day, bars_5m=bars_5m)
+        assert p["direction"] == "SHORT"
+        assert p["stop"] == 2355.00  # session_high, nearest resistance above
+        assert p["t1"] == 2330.00  # ma100, nearest support below
+
+    def test_override_no_levels_no_crash(self):
+        """No prior_day or bars_5m — stop/T1 remain None."""
+        p = self._make_parsed(
+            reason="bounce at support level",
+            price=100.00,
+        )
+        _apply_wait_override(p, "TEST")
+        assert p["direction"] == "LONG"
+        assert p["entry"] == 100.00
+        assert p.get("stop") is None
+        assert p.get("t1") is None
 
 
 class TestExitCooldown:
