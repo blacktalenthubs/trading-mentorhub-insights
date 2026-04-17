@@ -77,19 +77,23 @@ def _apply_wait_override(parsed: dict, symbol: str = "") -> dict:
 
     if long_detected and not short_detected:
         parsed["direction"] = "LONG"
-        parsed["conviction"] = "LOW"
+        parsed["conviction"] = "MEDIUM"
         parsed["_override"] = True
+        if not parsed.get("entry") or parsed.get("entry", 0) <= 0:
+            parsed["entry"] = parsed.get("price", 0)
         logger.info(
-            "AI day scan %s: WAIT→LONG override (reason: %s)",
-            symbol, (parsed.get("reason") or "")[:80],
+            "AI day scan %s: WAIT→LONG override (entry=$%.2f, reason: %s)",
+            symbol, parsed.get("entry", 0), (parsed.get("reason") or "")[:80],
         )
     elif short_detected and not long_detected:
         parsed["direction"] = "SHORT"
-        parsed["conviction"] = "LOW"
+        parsed["conviction"] = "MEDIUM"
         parsed["_override"] = True
+        if not parsed.get("entry") or parsed.get("entry", 0) <= 0:
+            parsed["entry"] = parsed.get("price", 0)
         logger.info(
-            "AI day scan %s: WAIT→SHORT override (reason: %s)",
-            symbol, (parsed.get("reason") or "")[:80],
+            "AI day scan %s: WAIT→SHORT override (entry=$%.2f, reason: %s)",
+            symbol, parsed.get("entry", 0), (parsed.get("reason") or "")[:80],
         )
 
     return parsed
@@ -1181,7 +1185,10 @@ def day_scan_cycle(sync_session_factory) -> int:
 
                 # WAIT — no setup confirmed, record to DB for AI Scan feed
                 # Also run for priority heartbeat (but fall through to trade handling after)
-                if (not direction) or (direction == "WAIT") or _heartbeat_symbol:
+                # Spec 44: skip WAIT block entirely for overridden results — they
+                # should fire as LONG/SHORT, not send a duplicate AI UPDATE first.
+                _is_override = result.get("_override", False)
+                if ((not direction) or (direction == "WAIT") or _heartbeat_symbol) and not _is_override:
                     # --- Gate check FIRST, using DB (survives restarts) ---
                     # Queries the last ai_scan_wait row for this symbol today
                     # BEFORE we insert this cycle's rows.
