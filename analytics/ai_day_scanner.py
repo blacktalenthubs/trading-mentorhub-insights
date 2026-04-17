@@ -54,7 +54,10 @@ _LONG_SETUP_SIGNALS = [
 ]
 
 # AI phrases that mean "not yet" — suppress override even if setup keywords match
-_WAIT_QUALIFIERS = ["waiting for", "minimal confirmation", "no confirmation"]
+_WAIT_QUALIFIERS = [
+    "waiting for", "minimal confirmation", "no confirmation",
+    "without clear", "no clear",
+]
 
 # Setup keywords indicating AI identified a valid SHORT setup
 _SHORT_SETUP_SIGNALS = [

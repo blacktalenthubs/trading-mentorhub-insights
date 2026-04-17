@@ -1218,6 +1218,74 @@ class TestSpec44TelegramReplay:
         _apply_wait_override(p, "ETH-USD")
         assert p["direction"] == "WAIT"
 
+    # --- Multi-symbol session replay (TSLA, NVDA, SPY, ETH) ---
+
+    def test_tsla_higher_low_at_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price near VWAP support with higher low structure forming, but volume only moderate at 1.7x avg.",
+            price=385.92,
+        )
+        _apply_wait_override(p, "TSLA")
+        assert p["direction"] == "LONG"
+
+    def test_spy_vwap_bounce_recovery_fires_long(self):
+        p = self._make_parsed(
+            "VWAP bounce with RSI 69.2 showing strength and volume 1.3x average on recovery from session low.",
+            price=699.29,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
+    def test_nvda_vwap_reclaim_higher_low_fires_long(self):
+        p = self._make_parsed(
+            "VWAP reclaim with higher low structure from $195.81 bounce, RSI at 67.5 showing strength, volume elevated at 1.1x average.",
+            price=197.50,
+        )
+        _apply_wait_override(p, "NVDA")
+        assert p["direction"] == "LONG"
+
+    def test_eth_without_clear_higher_low_stays_wait(self):
+        """'without clear higher low' — negation suppresses override."""
+        p = self._make_parsed(
+            "PDL/session low confluence but weak volume 0.4x and RSI mid-range without clear higher low structure confirmed yet.",
+            price=2297.70,
+        )
+        _apply_wait_override(p, "ETH-USD")
+        assert p["direction"] == "WAIT"
+
+    def test_tsla_50ma_vwap_confluence_fires_long(self):
+        p = self._make_parsed(
+            "Multi-level confluence at 50MA + VWAP, RSI neutral 54.7, strong volume 1.4x avg supporting bounce structure.",
+            price=385.64,
+        )
+        _apply_wait_override(p, "TSLA")
+        assert p["direction"] == "LONG"
+
+    def test_spy_pulled_back_to_vwap_fires_long(self):
+        p = self._make_parsed(
+            "Price pulled back to VWAP support after session high break, RSI showing strength at 68.9, volume elevated 1.5x confirming buyer interest at key level.",
+            price=699.04,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
+    def test_tsla_no_clear_higher_low_stays_wait(self):
+        """'no clear higher low' — negation suppresses override."""
+        p = self._make_parsed(
+            "Price at VWAP ($386.44) with 200 EMA nearby ($386.60), RSI neutral 54.9, decent volume 0.9x but no clear higher low structure yet.",
+            price=386.12,
+        )
+        _apply_wait_override(p, "TSLA")
+        assert p["direction"] == "WAIT"
+
+    def test_spy_pullback_from_session_high_fires_long(self):
+        p = self._make_parsed(
+            "Price at VWAP support after pullback from $701.30 session high, but weak volume confirmation and RSI near overbought at 69.6.",
+            price=699.75,
+        )
+        _apply_wait_override(p, "SPY")
+        assert p["direction"] == "LONG"
+
 
 class TestSpec45MTFConfluence:
     """Spec 45: Multi-timeframe bias computation + post-parse gate."""
