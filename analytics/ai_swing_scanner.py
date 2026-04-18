@@ -397,7 +397,7 @@ def swing_scan_cycle(sync_session_factory) -> int:
         # Only scan symbols at least one Telegram-enabled user is watching.
         # Cost-control: SCAN_USER_EMAIL restricts to one user's watchlist.
         import os as _os_scan
-        _scan_email = _os_scan.environ.get("SCAN_USER_EMAIL", "").strip().lower()
+        _scan_email = _os_scan.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com").strip().lower()
         _q = (
             select(WatchlistItem.symbol, WatchlistItem.user_id, User)
             .join(User, User.id == WatchlistItem.user_id)

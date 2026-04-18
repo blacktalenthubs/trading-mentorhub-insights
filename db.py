@@ -1372,7 +1372,7 @@ def get_pro_users_with_telegram() -> list[dict]:
     When SCAN_USER_EMAIL is set, only that user is returned.
     """
     import os as _os
-    _allow = (_os.environ.get("SCAN_USER_EMAIL") or "").strip().lower()
+    _allow = (_os.environ.get("SCAN_USER_EMAIL") or "vbolofinde@gmail.com").strip().lower()
     _extra = ""
     _extra_args: tuple = ()
     if _allow:
