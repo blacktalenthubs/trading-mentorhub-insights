@@ -1290,7 +1290,7 @@ def day_scan_cycle(sync_session_factory) -> int:
             # Cost-control: SCAN_USER_EMAIL restricts scanning to one user's
             # watchlist (not all users'). Unset = scan every user's watchlist
             # (production default).
-            _scan_email = os.environ.get("SCAN_USER_EMAIL", "").strip().lower()
+            _scan_email = os.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com").strip().lower()
             if _scan_email:
                 _uid_row = db.execute(
                     select(User.id).where(User.email == _scan_email)

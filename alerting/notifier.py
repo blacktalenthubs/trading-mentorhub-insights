@@ -308,7 +308,7 @@ def _allowed_chat_ids() -> set[str]:
     global _ALLOWED_CHAT_IDS
     if _ALLOWED_CHAT_IDS is not None:
         return _ALLOWED_CHAT_IDS
-    email = (os.environ.get("SCAN_USER_EMAIL") or "").strip().lower()
+    email = (os.environ.get("SCAN_USER_EMAIL") or "vbolofinde@gmail.com").strip().lower()
     if not email:
         _ALLOWED_CHAT_IDS = set()
         return _ALLOWED_CHAT_IDS
