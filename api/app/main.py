@@ -303,7 +303,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             _ai_day_scan,
             "interval",
-            minutes=5,
+            minutes=10,
             id="ai_day_scan",
             replace_existing=True,
         )
