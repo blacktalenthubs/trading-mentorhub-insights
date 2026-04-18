@@ -1112,7 +1112,7 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
 
         start = time.time()
         response = client.messages.create(
-            model=CLAUDE_MODEL_SONNET,
+            model=CLAUDE_MODEL,
             max_tokens=200,
             system=system_with_cache,
             messages=[{"role": "user", "content": f"Scan {symbol} for day trade entry now."}],
@@ -1320,7 +1320,22 @@ def day_scan_cycle(sync_session_factory) -> int:
             for sym, uid in all_items:
                 symbol_users.setdefault(sym, []).append(uid)
 
-            symbols = [s for s in symbol_users if is_market_hours_for_symbol(s)]
+            # Cost-control: crypto (24/7) only scanned during active hours.
+            # Skip crypto symbols outside 6 AM–10 PM ET — no one's watching at 3 AM.
+            from config import is_crypto_alert_symbol
+            from datetime import datetime as _dt
+            import pytz as _pytz
+            _et_hour = _dt.now(_pytz.timezone("America/New_York")).hour
+            _crypto_active = 6 <= _et_hour < 22
+
+            def _symbol_allowed(sym: str) -> bool:
+                if not is_market_hours_for_symbol(sym):
+                    return False
+                if is_crypto_alert_symbol(sym) and not _crypto_active:
+                    return False
+                return True
+
+            symbols = [s for s in symbol_users if _symbol_allowed(s)]
             if not symbols:
                 return 0
 
