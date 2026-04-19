@@ -257,7 +257,7 @@ _last_daily_regime_session: str = ""
 _DAILY_REGIME_LABELS = {
     "TRENDING": "TRENDING \u2014 SPY above 8 & 21 EMA. Portfolio mode: buy MA bounces, suppress shorts.",
     "CAUTIOUS": "CAUTIOUS \u2014 SPY below 8 EMA (above 21). Reduce exposure, tighter long criteria.",
-    "TACTICAL": "TACTICAL \u2014 SPY below 21 EMA. No swings, tactical trades only.",
+    "TACTICAL": "TACTICAL \u2014 SPY below 21 EMA. No swings/overnight. Trade around levels & MAs, both directions, intraday focus.",
 }
 
 

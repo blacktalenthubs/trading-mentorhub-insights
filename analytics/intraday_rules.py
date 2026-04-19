@@ -8071,10 +8071,7 @@ def evaluate_rules(
 
         elif _spy_daily_regime == "TACTICAL":
             for s in signals:
-                if s.direction == "BUY":
-                    s.score = max(0, s.score - REGIME_CAUTIOUS_SCORE_PENALTY)
-                    s.score_label = _score_label(s.score)
-                    s.message = (s.message or "") + " | SPY TACTICAL (below 21 EMA)"
+                s.message = (s.message or "") + " | SPY TACTICAL (below 21 EMA — intraday levels focus)"
 
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0

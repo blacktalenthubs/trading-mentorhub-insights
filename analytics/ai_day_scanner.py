@@ -1005,9 +1005,9 @@ def build_day_trade_prompt(
             ),
             "TACTICAL": (
                 "\n[MARKET REGIME: TACTICAL — SPY below 21 daily EMA]\n"
-                "Market broken down. No swing trades, no portfolio building.\n"
-                "Only short-term tactical trades. Prefer SHORT setups or WAIT.\n"
-                "LONG only on extreme oversold at critical institutional levels (200MA, monthly low)."
+                "No swing trades or overnight holds. Focus on intraday tactical trades.\n"
+                "Trade around key levels and MAs — BOTH long and short setups are valid.\n"
+                "Prioritize clean intraday setups at support/resistance with tight stops."
             ),
         }
         parts.append(_regime_guidance.get(spy_daily_regime, ""))
