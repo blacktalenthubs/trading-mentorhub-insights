@@ -592,6 +592,19 @@ export function useAlertsForDate(date: string) {
   });
 }
 
+export function useAIUpdatesForDate(date: string, symbols?: string[]) {
+  const symbolsParam = symbols && symbols.length > 0 ? symbols.join(",") : "";
+  return useQuery({
+    queryKey: ["ai-updates", date, symbolsParam],
+    queryFn: () => {
+      const qs = new URLSearchParams({ session_date: date });
+      if (symbolsParam) qs.set("symbols", symbolsParam);
+      return api.get<Alert[]>(`/diagnostics/ai-updates?${qs.toString()}`);
+    },
+    enabled: !!date,
+  });
+}
+
 // --- Performance Breakdown ---
 
 export function usePerformanceBreakdown() {

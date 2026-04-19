@@ -26,6 +26,7 @@ import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import TradeReviewPage from "./pages/TradeReviewPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
+import AIUpdatesPage from "./pages/AIUpdatesPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -97,6 +98,7 @@ export default function App() {
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
                 <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
                 <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
+                <Route path="ai-updates" element={<ErrorBoundary><AIUpdatesPage /></ErrorBoundary>} />
 
                 {/* Legacy redirects */}
                 <Route path="scanner" element={<Navigate to="/trading" replace />} />

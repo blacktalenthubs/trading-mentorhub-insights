@@ -568,7 +568,7 @@ def create_app() -> FastAPI:
         auth, watchlist, scanner, market, alerts,
         trades, charts, real_trades, paper_trading, backtest,
         push, settings, swing, intel, learn, billing, admin, referral,
-        performance, coach_history, auto_trades, ai_coach,
+        performance, coach_history, auto_trades, ai_coach, diagnostics,
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -592,6 +592,7 @@ def create_app() -> FastAPI:
     app.include_router(coach_history.router, prefix="/api/v1", tags=["coach"])
     app.include_router(auto_trades.router, prefix="/api/v1/auto-trades", tags=["auto-trades"])
     app.include_router(ai_coach.router, prefix="/api/v1/ai", tags=["ai-coach"])
+    app.include_router(diagnostics.router, prefix="/api/v1/diagnostics", tags=["diagnostics"])
 
     # --- Telegram webhook route (must be before SPA catch-all) ---
     import sys as _sys
