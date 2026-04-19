@@ -227,6 +227,18 @@ SPY_RSI_OVERBOUGHT = 70
 SPY_EMA_CONVERGENCE_PCT = 0.005   # 0.5% — EMAs within this spread = compressed
 SPY_MA_SUPPORT_PROXIMITY_PCT = 0.005  # 0.5% — SPY near its own 50/100/200 MA
 
+# ---------------------------------------------------------------------------
+# SPY Daily EMA Regime (8/21 EMA strategy)
+# ---------------------------------------------------------------------------
+# 3-state: TRENDING (above both), CAUTIOUS (below 8, above 21), TACTICAL (below 21)
+SPY_REGIME_EMA_SHORT = 8
+SPY_REGIME_EMA_LONG = 21
+SPY_REGIME_ENABLED = True
+
+REGIME_TRENDING_SUPPRESS_SHORTS = True
+REGIME_CAUTIOUS_SCORE_PENALTY = 15
+REGIME_TACTICAL_BLOCK_SWINGS = True
+
 # Per-symbol RSI thresholds
 SYM_RSI_OVERSOLD = 35     # RSI < 35 = crash risk, suppress BUY
 SYM_RSI_OVERBOUGHT = 70   # RSI > 70 = overbought, caution on BUY

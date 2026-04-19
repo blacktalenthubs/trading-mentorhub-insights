@@ -155,8 +155,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
         # Regime narrator: check for SPY regime shift (L3 parity)
         try:
-            from analytics.regime_narrator import check_regime_shift
+            from analytics.regime_narrator import check_regime_shift, check_daily_regime_shift
             check_regime_shift(spy_ctx)
+            check_daily_regime_shift(spy_ctx)
         except Exception:
             logger.debug("Regime narrator check failed", exc_info=True)
 

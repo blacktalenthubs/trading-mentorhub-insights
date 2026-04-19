@@ -371,6 +371,18 @@ def swing_scan_cycle(sync_session_factory) -> int:
     except Exception:
         pass  # if helper unavailable, run anyway
 
+    # Regime gate: block swing entries in TACTICAL mode (SPY below 21 EMA)
+    try:
+        from alert_config import SPY_REGIME_ENABLED, REGIME_TACTICAL_BLOCK_SWINGS
+        if SPY_REGIME_ENABLED and REGIME_TACTICAL_BLOCK_SWINGS:
+            from analytics.intraday_data import get_spy_context
+            _spy_ctx = get_spy_context()
+            if _spy_ctx and _spy_ctx.get("spy_daily_regime") == "TACTICAL":
+                logger.info("swing scan: TACTICAL regime (SPY below 21 EMA) — skipping")
+                return 0
+    except Exception:
+        pass
+
     session = date.today().isoformat()
     if _swing_session != session:
         _swing_fired.clear()
