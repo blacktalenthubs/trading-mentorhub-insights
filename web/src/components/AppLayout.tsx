@@ -20,6 +20,7 @@ import {
   PlayCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -37,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/review", label: "Review", icon: PlayCircle },
   { to: "/track-record", label: "AI Auto-Pilot", icon: Sparkles },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight, badge: "0" },
+  { to: "/ai-updates", label: "AI Updates", icon: FileText },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
