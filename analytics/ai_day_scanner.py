@@ -2060,9 +2060,26 @@ def exit_scan_cycle(sync_session_factory) -> int:
         from config import is_crypto_alert_symbol
 
         with sync_session_factory() as db:
-            open_trades = db.execute(
-                select(RealTrade).where(RealTrade.status == "open")
-            ).scalars().all()
+            _scan_email = os.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com").strip().lower()
+            _scan_uid: int | None = None
+            if _scan_email:
+                from app.models.user import User as _User
+                _uid_row = db.execute(
+                    select(_User.id).where(_User.email == _scan_email)
+                ).fetchone()
+                if _uid_row:
+                    _scan_uid = _uid_row[0]
+                else:
+                    logger.warning(
+                        "exit scan: SCAN_USER_EMAIL=%s not found — skipping cycle",
+                        _scan_email,
+                    )
+                    return 0
+
+            _q = select(RealTrade).where(RealTrade.status == "open")
+            if _scan_uid is not None:
+                _q = _q.where(RealTrade.user_id == _scan_uid)
+            open_trades = db.execute(_q).scalars().all()
 
             if not open_trades:
                 return 0
