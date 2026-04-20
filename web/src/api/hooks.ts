@@ -962,20 +962,18 @@ export function useTradeJournal(date?: string) {
   });
 }
 
-// --- AI Coach: Best Setups (Spec 40) ---
+// --- AI Coach: Best Setups ---
 
-export interface BestSetupPick {
+export interface EntryCandidate {
   symbol: string;
-  direction: string;
+  timeframe: "day" | "swing";
+  direction: "LONG" | "SHORT";
   setup_type: string;
   entry: number;
-  stop: number;
-  t1: number;
+  stop: number | null;
+  t1: number | null;
   t2: number | null;
-  risk_per_share: number;
-  reward_per_share: number;
-  rr_ratio: number;
-  conviction: string;
+  conviction: "HIGH" | "MEDIUM" | "LOW";
   confluence: string[];
   why_now: string;
   current_price: number;
@@ -985,8 +983,8 @@ export interface BestSetupPick {
 export interface BestSetupsResponse {
   generated_at: string;
   watchlist_size: number;
-  setups_found: number;
-  picks: BestSetupPick[];
+  day_trade_picks: EntryCandidate[];
+  swing_trade_picks: EntryCandidate[];
   skipped: { symbol: string; reason: string }[];
   error: string | null;
 }

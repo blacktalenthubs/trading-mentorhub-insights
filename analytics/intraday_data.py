@@ -1500,6 +1500,7 @@ def get_spy_context() -> dict:
         "spy_rsi14": None, "spy_ema20": 0.0, "spy_ema50": 0.0,
         "spy_ema_spread_pct": 0.0, "spy_at_ma_support": None,
         "spy_ema_regime": "CHOPPY",
+        "spy_ema8": 0.0, "spy_ema21": 0.0, "spy_daily_regime": None,
     }
     try:
         spy = yf.Ticker("SPY")
@@ -1524,6 +1525,12 @@ def get_spy_context() -> dict:
 
         # EMA spread: (ema20 - ema50) / price * 100
         spy_ema_spread_pct = (spy_ema20 - spy_ema50) / close * 100 if close > 0 else 0.0
+
+        # EMA8/21 for daily regime classification
+        from alert_config import SPY_REGIME_EMA_SHORT, SPY_REGIME_EMA_LONG
+        spy_ema8 = hist["Close"].ewm(span=SPY_REGIME_EMA_SHORT, adjust=False).mean().iloc[-1]
+        spy_ema21 = hist["Close"].ewm(span=SPY_REGIME_EMA_LONG, adjust=False).mean().iloc[-1]
+        spy_daily_regime = classify_spy_ema_regime(close, spy_ema8, spy_ema21)
 
         # SPY MA-level detection: is SPY near its own 50/100/200 SMA?
         spy_at_ma_support = None
@@ -1653,6 +1660,9 @@ def get_spy_context() -> dict:
             "spy_ema_spread_pct": round(spy_ema_spread_pct, 2),
             "spy_at_ma_support": spy_at_ma_support,
             "spy_ema_regime": spy_ema_regime,
+            "spy_ema8": round(spy_ema8, 2),
+            "spy_ema21": round(spy_ema21, 2),
+            "spy_daily_regime": spy_daily_regime,
         }
     except Exception:
         return _default
@@ -1670,6 +1680,18 @@ def classify_market_regime(close: float, ma5: float, ma20: float, ma50: float) -
     if close < ma5 and close < ma20 and close < ma50:
         return "TRENDING_DOWN"
     return "CHOPPY"
+
+
+def classify_spy_ema_regime(close: float, ema8: float, ema21: float) -> str:
+    """Classify SPY regime using 8/21 daily EMA.
+
+    Returns one of: TRENDING, CAUTIOUS, TACTICAL.
+    """
+    if close > ema8 and close > ema21:
+        return "TRENDING"
+    if close < ema8 and close > ema21:
+        return "CAUTIOUS"
+    return "TACTICAL"
 
 
 def compute_vwap(bars: pd.DataFrame) -> pd.Series:

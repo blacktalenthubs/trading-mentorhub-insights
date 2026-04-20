@@ -246,3 +246,62 @@ def check_regime_shift(spy_ctx: dict | None) -> bool:
         _narrations_today += 1
         _last_narration_time = datetime.now(ET)
         return True
+
+
+# ---------------------------------------------------------------------------
+# Daily EMA regime shift tracker (8/21 EMA: TRENDING / CAUTIOUS / TACTICAL)
+# ---------------------------------------------------------------------------
+_last_daily_regime: str | None = None
+_last_daily_regime_session: str = ""
+
+_DAILY_REGIME_LABELS = {
+    "TRENDING": "TRENDING \u2014 SPY above 8 & 21 EMA. Portfolio mode: buy MA bounces, suppress shorts.",
+    "CAUTIOUS": "CAUTIOUS \u2014 SPY below 8 EMA (above 21). Reduce exposure, tighter long criteria.",
+    "TACTICAL": "TACTICAL \u2014 SPY below 21 EMA. No swings/overnight. Trade around levels & MAs, both directions, intraday focus.",
+}
+
+
+def check_daily_regime_shift(spy_ctx: dict | None) -> bool:
+    """Check for SPY daily EMA regime change and notify if shifted."""
+    global _last_daily_regime, _last_daily_regime_session
+
+    from alert_config import SPY_REGIME_ENABLED
+    if not SPY_REGIME_ENABLED:
+        return False
+
+    if spy_ctx is None:
+        return False
+
+    session = today_session()
+    new_regime = spy_ctx.get("spy_daily_regime", "TACTICAL")
+
+    if _last_daily_regime_session != session:
+        _last_daily_regime = None
+        _last_daily_regime_session = session
+
+    if _last_daily_regime is None:
+        _last_daily_regime = new_regime
+        return False
+
+    if new_regime == _last_daily_regime:
+        return False
+
+    prev = _last_daily_regime
+    _last_daily_regime = new_regime
+
+    logger.info("SPY daily regime shift: %s \u2192 %s", prev, new_regime)
+
+    now_et = datetime.now(ET)
+    time_str = now_et.strftime("%I:%M %p ET")
+    ema8 = spy_ctx.get("spy_ema8", 0)
+    ema21 = spy_ctx.get("spy_ema21", 0)
+    close = spy_ctx.get("close", 0)
+    label = _DAILY_REGIME_LABELS.get(new_regime, new_regime)
+
+    msg = (
+        f"DAILY REGIME SHIFT \u2014 {time_str}\n"
+        f"{prev} \u2192 {new_regime}\n\n"
+        f"{label}\n\n"
+        f"SPY {close:.2f} | 8 EMA {ema8:.2f} | 21 EMA {ema21:.2f}"
+    )
+    return _send_to_pro_users(msg)

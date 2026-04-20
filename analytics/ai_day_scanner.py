@@ -764,6 +764,7 @@ def build_day_trade_prompt(
     active_positions: list[dict] | None = None,  # kept for API compat; not used in multi-user
     live_price: float | None = None,
     htf_context: str | None = None,
+    spy_daily_regime: str | None = None,
 ) -> str:
     """Build specialized day trade prompt with specific confirmation rules.
 
@@ -988,6 +989,29 @@ def build_day_trade_prompt(
     if htf_context:
         parts.append(f"\n{htf_context}")
 
+    if spy_daily_regime:
+        _regime_guidance = {
+            "TRENDING": (
+                "\n[MARKET REGIME: TRENDING — SPY above 8 & 21 daily EMA]\n"
+                "Strong upside momentum. Focus on LONG setups at key MA bounces.\n"
+                "Do NOT fire SHORT — counter-trend shorts lose in trending markets.\n"
+                "Only output SHORT if rejection at MULTI-DAY structural level with HIGH conviction."
+            ),
+            "CAUTIOUS": (
+                "\n[MARKET REGIME: CAUTIOUS — SPY below 8 EMA, above 21 EMA]\n"
+                "Market pulling back. Reduce LONG conviction by one notch.\n"
+                "Only fire LONG at strongest levels (100/200 MA, multi-day double bottom).\n"
+                "SHORT setups at resistance are now valid."
+            ),
+            "TACTICAL": (
+                "\n[MARKET REGIME: TACTICAL — SPY below 21 daily EMA]\n"
+                "No swing trades or overnight holds. Focus on intraday tactical trades.\n"
+                "Trade around key levels and MAs — BOTH long and short setups are valid.\n"
+                "Prioritize clean intraday setups at support/resistance with tight stops."
+            ),
+        }
+        parts.append(_regime_guidance.get(spy_daily_regime, ""))
+
     return "\n".join(parts)
 
 
@@ -1037,7 +1061,8 @@ def parse_day_trade_response(text: str) -> dict:
     return result
 
 
-def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | None = None) -> dict | None:
+def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | None = None,
+                   spy_daily_regime: str | None = None) -> dict | None:
     """Scan one symbol for day trade entries using specialized prompt."""
     from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day
     from config import is_crypto_alert_symbol
@@ -1104,6 +1129,7 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
             symbol, bars_5m, bars_1h, prior_day, active_positions,
             live_price=live_price,
             htf_context=htf_context or None,
+            spy_daily_regime=spy_daily_regime,
         )
 
         import anthropic
@@ -1180,20 +1206,23 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
                         f"Await next setup."
                     ).replace("$$", "$")
 
-        # SHORT policy:
-        # - SPY: fire SHORT only if conviction is MEDIUM or HIGH (skip LOW)
-        # - All other symbols: downgrade SHORT → RESISTANCE (notice, not action)
+        # SHORT policy (regime-aware):
+        # TRENDING: suppress all SHORTs (counter-trend loses)
+        # CAUTIOUS/TACTICAL: allow SHORTs, but LOW conviction → RESISTANCE
         if parsed.get("direction") == "SHORT":
             conv = (parsed.get("conviction") or "MEDIUM").upper()
             sym_upper = symbol.upper()
-            if sym_upper == "SPY":
+            if spy_daily_regime == "TRENDING":
+                parsed["direction"] = "RESISTANCE"
+                logger.info("AI day scan %s: SHORT → RESISTANCE (TRENDING regime)", symbol)
+            elif sym_upper == "SPY":
                 if conv == "LOW":
                     logger.info("AI day scan %s: SPY SHORT LOW suppressed (min MEDIUM)", symbol)
                     parsed["direction"] = "RESISTANCE"
             else:
-                # Non-SPY → RESISTANCE notice (user still sees the level, no SHORT action)
-                logger.info("AI day scan %s: SHORT → RESISTANCE (SPY-only policy)", symbol)
-                parsed["direction"] = "RESISTANCE"
+                if conv == "LOW":
+                    parsed["direction"] = "RESISTANCE"
+                    logger.info("AI day scan %s: SHORT LOW → RESISTANCE", symbol)
 
         return parsed
 
@@ -1350,7 +1379,18 @@ def day_scan_cycle(sync_session_factory) -> int:
             if any(is_crypto_alert_symbol(s) for s in symbols):
                 _last_crypto_scan = _now_ts
 
-            logger.info("AI day scan: scanning %d symbols", len(symbols))
+            # Fetch SPY daily regime for AI prompt context
+            _spy_daily_regime = None
+            try:
+                from analytics.intraday_data import get_spy_context as _get_spy_ctx
+                _spy_daily_ctx = _get_spy_ctx()
+                _spy_daily_regime = _spy_daily_ctx.get("spy_daily_regime") if _spy_daily_ctx else None
+            except Exception:
+                pass
+            logger.info(
+                "AI day scan: scanning %d symbols (regime=%s)",
+                len(symbols), _spy_daily_regime or "UNKNOWN",
+            )
 
             # Per-user open-position index — checked at delivery time
             # Maps (user_id, symbol) -> True if that user holds an open LONG / SHORT
@@ -1377,7 +1417,7 @@ def day_scan_cycle(sync_session_factory) -> int:
             total_alerts = 0
 
             for symbol in symbols:
-                result = scan_day_trade(symbol, api_key)
+                result = scan_day_trade(symbol, api_key, spy_daily_regime=_spy_daily_regime)
                 if not result:
                     continue
 

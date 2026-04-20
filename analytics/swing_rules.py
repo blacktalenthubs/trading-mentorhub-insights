@@ -41,12 +41,17 @@ logger = logging.getLogger("swing_rules")
 # ---------------------------------------------------------------------------
 
 def check_spy_regime(spy_context: dict) -> bool:
-    """Return True if SPY close > EMA20 (swing trading enabled).
+    """Return True if SPY regime allows swing trading.
 
+    TRENDING and CAUTIOUS: swings allowed.
+    TACTICAL (SPY below 21 EMA): swings blocked.
     When ``SWING_REGIME_GATE`` is False the gate is always open.
     """
     if not SWING_REGIME_GATE:
         return True
+    from alert_config import SPY_REGIME_ENABLED
+    if SPY_REGIME_ENABLED:
+        return spy_context.get("spy_daily_regime", "TACTICAL") != "TACTICAL"
     ema20 = spy_context.get("spy_ema20", 0.0)
     close = spy_context.get("close", 0.0)
     if not ema20 or not close:

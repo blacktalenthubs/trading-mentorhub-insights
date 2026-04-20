@@ -1,8 +1,13 @@
-"""AI Coach — Best Setups of the Day (Spec 40).
+"""AI Coach — Best Setups of the Day.
 
-One call, one ranked list of tradeable setups across the user's watchlist.
-AI decides what qualifies; code validates R:R, geometry, staleness, and the
-SPY-only SHORT policy.
+On-demand scanner: user clicks "Analyze my watchlist" and gets two ranked
+lists of symbols currently NEAR key entry levels:
+  - day_trade_picks  (intraday levels: VWAP, session H/L, PDH/PDL, prior close)
+  - swing_trade_picks (daily levels: 20/50/100/200 MA+EMA, weekly/monthly H/L)
+
+No R:R math — the goal is to surface symbols positioned at meaningful levels
+right now. Proximity gate: entry must be within 2% of current price.
+SHORT picks are allowed on SPY only (consistent with the rest of the system).
 """
 
 from __future__ import annotations
@@ -22,27 +27,25 @@ from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SONNET
 logger = logging.getLogger(__name__)
 
 MAX_SYMBOLS = 25
-MIN_RR = 1.5
-STALE_THRESHOLD = 0.5            # rejected if progress to T1 >= 50%
-MAX_ENTRY_OUTLIER_PCT = 5.0      # reject if entry > 5% from current price
+MAX_PROXIMITY_PCT = 2.0  # entry must be within 2% of current price
+
+_CONVICTION_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────
 
 
 @dataclass
-class BestSetup:
+class EntryCandidate:
     symbol: str
-    direction: str
+    timeframe: str              # "day" or "swing"
+    direction: str              # LONG / SHORT
     setup_type: str
     entry: float
-    stop: float
-    t1: float
+    stop: Optional[float]
+    t1: Optional[float]
     t2: Optional[float]
-    risk_per_share: float
-    reward_per_share: float
-    rr_ratio: float
-    conviction: str
+    conviction: str             # HIGH / MEDIUM / LOW
     confluence: list[str]
     why_now: str
     current_price: float
@@ -53,79 +56,55 @@ class BestSetup:
 class BestSetupsResult:
     generated_at: str
     watchlist_size: int
-    setups_found: int
-    picks: list[dict]
+    day_trade_picks: list[dict] = field(default_factory=list)
+    swing_trade_picks: list[dict] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)
     error: Optional[str] = None
-
-
-# ── R:R math ─────────────────────────────────────────────────────────
-
-
-def _compute_rr(entry: float, stop: float, t1: float) -> float:
-    """Risk-to-reward ratio. Always positive."""
-    risk = abs(entry - stop)
-    if risk <= 0:
-        raise ValueError("zero risk (entry == stop)")
-    reward = abs(t1 - entry)
-    return reward / risk
 
 
 # ── Validation ───────────────────────────────────────────────────────
 
 
-def _validate_pick(pick: dict, current_price: float, symbol: str) -> tuple[bool, Optional[str]]:
-    """Apply geometry, R:R, staleness, SPY-SHORT, outlier rules.
+def _coerce_optional_float(v) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
+
+
+def _validate_pick(
+    pick: dict, current_price: float, symbol: str, timeframe: str
+) -> tuple[bool, Optional[str]]:
+    """Lightweight validation: direction, SHORT-SPY-only, entry proximity.
 
     Returns (ok, skip_reason).
     """
     direction = (pick.get("direction") or "").upper()
-    try:
-        entry = float(pick.get("entry") or 0)
-        stop = float(pick.get("stop") or 0)
-        t1 = float(pick.get("t1") or 0)
-    except (TypeError, ValueError):
-        return False, "entry/stop/t1 not numeric"
-
-    if entry <= 0 or stop <= 0 or t1 <= 0:
-        return False, "missing entry/stop/t1"
-
-    # Directional geometry
-    if direction == "LONG":
-        if not (stop < entry < t1):
-            return False, f"bad LONG geometry: stop<entry<t1 expected ({stop}/{entry}/{t1})"
-    elif direction == "SHORT":
-        if not (stop > entry > t1):
-            return False, f"bad SHORT geometry: stop>entry>t1 expected"
-        if symbol.upper() != "SPY":
-            return False, "SHORT only allowed on SPY"
-    else:
+    if direction not in ("LONG", "SHORT"):
         return False, f"unknown direction: {direction}"
 
-    # R:R
-    try:
-        rr = _compute_rr(entry, stop, t1)
-    except ValueError as e:
-        return False, str(e)
-    if rr < MIN_RR:
-        return False, f"R:R {rr:.2f} below {MIN_RR}"
+    if direction == "SHORT" and symbol.upper() != "SPY":
+        return False, "SHORT only allowed on SPY"
 
-    # Outlier check (AI hallucinated a price far from current)
-    if current_price > 0:
-        distance_pct = abs(entry - current_price) / current_price * 100
-        if distance_pct > MAX_ENTRY_OUTLIER_PCT:
-            return False, f"entry {distance_pct:.1f}% from current — outlier"
-
-    # Staleness: progress to T1
     try:
-        if direction == "LONG":
-            progress = (current_price - entry) / (t1 - entry)
-        else:
-            progress = (entry - current_price) / (entry - t1)
-    except ZeroDivisionError:
-        progress = 0
-    if progress > STALE_THRESHOLD:
-        return False, f"stale: {int(progress*100)}% to T1"
+        entry = float(pick.get("entry") or 0)
+    except (TypeError, ValueError):
+        return False, "entry not numeric"
+    if entry <= 0:
+        return False, "missing entry"
+
+    if current_price <= 0:
+        return False, "no current price"
+
+    distance_pct = abs(entry - current_price) / current_price * 100
+    if distance_pct > MAX_PROXIMITY_PCT:
+        return False, f"entry {distance_pct:.1f}% from price (>{MAX_PROXIMITY_PCT}%)"
+
+    if timeframe not in ("day", "swing"):
+        return False, f"unknown timeframe: {timeframe}"
 
     return True, None
 
@@ -133,29 +112,30 @@ def _validate_pick(pick: dict, current_price: float, symbol: str) -> tuple[bool,
 # ── Response parser ──────────────────────────────────────────────────
 
 
-def _parse_ai_response(text: str) -> list[dict]:
-    """Tolerant JSON array parser. Returns [] on malformed response."""
+def _parse_ai_response(text: str) -> tuple[list[dict], list[dict]]:
+    """Parse JSON object with day_trade_picks + swing_trade_picks arrays."""
     if not text:
-        return []
-    # Strip markdown code fences if present
+        return [], []
     text = re.sub(r"^```(?:json)?\s*", "", text.strip())
     text = re.sub(r"\s*```$", "", text.strip())
-    # Find the first [ and last ]
-    start = text.find("[")
-    end = text.rfind("]")
+    start = text.find("{")
+    end = text.rfind("}")
     if start < 0 or end < 0 or end <= start:
-        logger.warning("best_setups: no JSON array found in response")
-        return []
+        logger.warning("best_setups: no JSON object found in response")
+        return [], []
     snippet = text[start : end + 1]
     try:
-        arr = json.loads(snippet)
-    except Exception as e:
-        logger.warning("best_setups: JSON parse failed: %s", e)
-        return []
-    if not isinstance(arr, list):
-        return []
-    # Only keep dict entries with at least symbol
-    return [p for p in arr if isinstance(p, dict) and p.get("symbol")]
+        obj = json.loads(snippet)
+    except json.JSONDecodeError:
+        logger.warning("best_setups: JSON decode failed")
+        return [], []
+    day = obj.get("day_trade_picks") or []
+    swing = obj.get("swing_trade_picks") or []
+    if not isinstance(day, list):
+        day = []
+    if not isinstance(swing, list):
+        swing = []
+    return day, swing
 
 
 # ── Prompt builder ───────────────────────────────────────────────────
@@ -164,44 +144,47 @@ def _parse_ai_response(text: str) -> list[dict]:
 def _build_batch_prompt(symbols_data: list[dict]) -> str:
     """Build a single Sonnet prompt with all symbols' data."""
     prompt = (
-        "You are a swing/day trade analyst ranking the best setups across a user's\n"
-        "watchlist for the upcoming session.\n\n"
-        "Your job: for each symbol, decide if there is a TRADEABLE setup right now\n"
-        "at a durable key level. Skip symbols with no clear setup. Rank the winners\n"
-        "by risk-to-reward.\n\n"
-        "You have FULL discretion on what qualifies. Read the data per symbol (MAs,\n"
-        "PDH/PDL, weekly/monthly levels, VWAP, RSI, recent 5-min bars) and identify\n"
-        "the best setup — if any. Label it in your own words.\n\n"
-        "STRONG SETUP CUES:\n"
-        "- Price at durable key level (daily MA, weekly high/low, monthly pivot, PDH/PDL)\n"
-        "- Multi-level confluence (price at 2+ levels simultaneously)\n"
-        "- RSI extreme at support (<30) or resistance (>70)\n"
-        "- Flipped support/resistance (just-broken level being retested)\n"
-        "- Higher-low structure at support / lower-high at resistance\n\n"
-        "NOT A SETUP:\n"
-        "- Price mid-range with no structural level nearby\n"
-        "- Level more than 1% away from current price\n"
-        "- No confluence, no structure\n\n"
-        "SHORT policy: only recommend SHORT on SPY. Skip SHORT setups for other symbols.\n\n"
-        "MINIMUM risk/reward: (T1-entry)/(entry-stop) >= 1.5 for LONG, mirror for SHORT.\n"
-        "If you can't identify a setup with R:R >= 1.5 at a real level, skip it.\n\n"
-        "OUTPUT — strict JSON array, one object per qualifying setup:\n"
-        "[\n"
-        "  {\n"
-        "    \"symbol\": \"<str>\",\n"
-        "    \"direction\": \"LONG\" | \"SHORT\",\n"
-        "    \"setup_type\": \"<free-text label, ~5-10 words>\",\n"
-        "    \"entry\": <number>,\n"
-        "    \"stop\": <number>,\n"
-        "    \"t1\": <number>,\n"
-        "    \"t2\": <number or null>,\n"
-        "    \"conviction\": \"HIGH\" | \"MEDIUM\" | \"LOW\",\n"
-        "    \"confluence\": [\"<level1>\", \"<level2>\"],\n"
-        "    \"why_now\": \"<1 sentence>\"\n"
-        "  }\n"
-        "]\n"
-        "Return [] if no symbols have qualifying setups. Order by R:R desc.\n"
-        "Output ONLY the JSON array. No prose, no code fences.\n\n"
+        "You are a trading analyst scanning a watchlist for symbols NEAR KEY\n"
+        "ENTRY LEVELS right now. For each symbol, decide if price is within 2%\n"
+        "of a meaningful level and output up to two picks per symbol:\n"
+        "  - one day_trade pick (intraday levels)\n"
+        "  - one swing_trade pick (daily levels)\n\n"
+        "DAY TRADE LEVELS (intraday):\n"
+        "- Session VWAP\n"
+        "- Session high / low\n"
+        "- Prior day high / low (PDH / PDL)\n"
+        "- Prior close\n\n"
+        "SWING TRADE LEVELS (daily):\n"
+        "- 20 / 50 / 100 / 200 day MA\n"
+        "- 20 / 50 / 100 / 200 day EMA\n"
+        "- Weekly high / low\n"
+        "- Monthly high / low\n\n"
+        "SKIP symbols that are mid-range (no level within 2% of current price).\n"
+        "SHORT policy: only recommend SHORT on SPY. Skip SHORT for other symbols.\n"
+        "Setups should be LONG bounces at support, or (SPY only) SHORT rejections at resistance.\n\n"
+        "OUTPUT — strict JSON object with two arrays:\n"
+        "{\n"
+        '  "day_trade_picks": [\n'
+        "    {\n"
+        '      "symbol": "<str>",\n'
+        '      "direction": "LONG" | "SHORT",\n'
+        '      "setup_type": "<free-text, 3-8 words: e.g. VWAP bounce, PDH reclaim>",\n'
+        '      "entry": <number within 2% of current price>,\n'
+        '      "stop": <number or null>,\n'
+        '      "t1": <number or null>,\n'
+        '      "t2": <number or null>,\n'
+        '      "conviction": "HIGH" | "MEDIUM" | "LOW",\n'
+        '      "confluence": ["<level1>", "<level2>"],\n'
+        '      "why_now": "<1 short sentence>"\n'
+        "    }\n"
+        "  ],\n"
+        '  "swing_trade_picks": [ <same shape> ]\n'
+        "}\n"
+        "- entry MUST be within 2% of current price\n"
+        "- stop/t1/t2 optional — include only when obvious, else null\n"
+        "- rank each array: HIGH conviction first, then closest-to-entry first\n"
+        "- return empty arrays if no symbols qualify\n"
+        "- output ONLY the JSON object. No prose, no code fences.\n\n"
         "[WATCHLIST DATA]\n"
     )
 
@@ -213,19 +196,25 @@ def _build_batch_prompt(symbols_data: list[dict]) -> str:
 
         parts = [f"\n--- {sym} ---", f"Current price: ${price:.2f}"]
 
-        # Daily anchors
-        levels_inline = []
-        for key, label in [
-            ("high", "PDH"), ("low", "PDL"), ("close", "Prior Close"),
-        ]:
+        # Intraday anchors
+        intraday = []
+        vwap = d.get("vwap")
+        if vwap:
+            intraday.append(f"VWAP ${vwap:.2f}")
+        sh = d.get("session_high")
+        sl = d.get("session_low")
+        if sh:
+            intraday.append(f"SessHi ${sh:.2f}")
+        if sl:
+            intraday.append(f"SessLo ${sl:.2f}")
+        for key, label in [("high", "PDH"), ("low", "PDL"), ("close", "PrevClose")]:
             v = pd_.get(key)
             if v:
-                levels_inline.append(f"{label} ${v:.2f}")
+                intraday.append(f"{label} ${v:.2f}")
+        if intraday:
+            parts.append("Intraday: " + " · ".join(intraday))
 
-        if levels_inline:
-            parts.append(" · ".join(levels_inline))
-
-        # MAs
+        # Daily MAs/EMAs
         ma_parts = []
         for key, label in [
             ("ma20", "20MA"), ("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA"),
@@ -248,7 +237,7 @@ def _build_batch_prompt(symbols_data: list[dict]) -> str:
             if v:
                 wm.append(f"{label} ${v:.2f}")
         if wm:
-            parts.append(" · ".join(wm))
+            parts.append("Weekly/Monthly: " + " · ".join(wm))
 
         rsi = pd_.get("rsi14")
         if rsi is not None:
@@ -258,7 +247,8 @@ def _build_batch_prompt(symbols_data: list[dict]) -> str:
             parts.append(f"Last {min(len(bars), 10)} × 5m bars:")
             for b in bars[-10:]:
                 parts.append(
-                    f"  O={b['open']:.2f} H={b['high']:.2f} L={b['low']:.2f} C={b['close']:.2f} V={b.get('volume',0):.0f}"
+                    f"  O={b['open']:.2f} H={b['high']:.2f} L={b['low']:.2f} "
+                    f"C={b['close']:.2f} V={b.get('volume', 0):.0f}"
                 )
 
         prompt += "\n".join(parts) + "\n"
@@ -270,7 +260,7 @@ def _build_batch_prompt(symbols_data: list[dict]) -> str:
 
 
 def _fetch_symbol_data(symbol: str) -> Optional[dict]:
-    """Fetch current price + prior_day + last 10 × 5m bars. None on failure."""
+    """Fetch current price + prior_day + last 10 × 5m bars + session VWAP/H/L."""
     from analytics.intraday_data import fetch_prior_day, fetch_intraday, fetch_intraday_crypto
     from config import is_crypto_alert_symbol
 
@@ -292,11 +282,28 @@ def _fetch_symbol_data(symbol: str) -> Optional[dict]:
             }
             for _, r in bars_df.tail(10).iterrows()
         ]
+
+        # Session stats from today's full 5m bar set (not just last 10)
+        session_high = float(bars_df["High"].max()) if len(bars_df) > 0 else None
+        session_low = float(bars_df["Low"].min()) if len(bars_df) > 0 else None
+        vwap: Optional[float] = None
+        try:
+            tp = (bars_df["High"] + bars_df["Low"] + bars_df["Close"]) / 3.0
+            vol = bars_df["Volume"]
+            total_vol = float(vol.sum())
+            if total_vol > 0:
+                vwap = float((tp * vol).sum() / total_vol)
+        except Exception:
+            vwap = None
+
         return {
             "symbol": symbol,
             "current_price": current_price,
             "prior_day": prior or {},
             "bars_5m": bars,
+            "session_high": session_high,
+            "session_low": session_low,
+            "vwap": vwap,
         }
     except Exception:
         logger.exception("best_setups: fetch failed for %s", symbol)
@@ -320,7 +327,6 @@ def _call_sonnet(prompt: str, api_key: str) -> str:
     elapsed = time.time() - start
     tokens_in = response.usage.input_tokens
     tokens_out = response.usage.output_tokens
-    # Rough Sonnet 4 cost: $3/M in, $15/M out
     cost = (tokens_in * 3 + tokens_out * 15) / 1_000_000
     logger.info(
         "best_setups sonnet: %.1fs tokens=%d/%d cost=$%.4f",
@@ -358,6 +364,52 @@ def _watchlist_hash(symbols: list[str]) -> str:
     return hashlib.md5(sorted_s.encode()).hexdigest()[:12]
 
 
+# ── Pick enrichment ──────────────────────────────────────────────────
+
+
+def _enrich_picks(
+    raw: list[dict],
+    timeframe: str,
+    price_by_symbol: dict[str, float],
+    failed: list[dict],
+) -> list[dict]:
+    """Validate + normalize raw AI picks for one timeframe."""
+    out: list[dict] = []
+    for p in raw:
+        sym = (p.get("symbol") or "").upper()
+        cur = price_by_symbol.get(sym)
+        if cur is None:
+            failed.append({"symbol": sym, "reason": "not in fetched data"})
+            continue
+        ok, reason = _validate_pick(p, cur, sym, timeframe)
+        if not ok:
+            failed.append({"symbol": sym, "reason": f"[{timeframe}] {reason}"})
+            continue
+        entry = float(p["entry"])
+        enriched = asdict(EntryCandidate(
+            symbol=sym,
+            timeframe=timeframe,
+            direction=(p.get("direction") or "").upper(),
+            setup_type=(p.get("setup_type") or "")[:120],
+            entry=entry,
+            stop=_coerce_optional_float(p.get("stop")),
+            t1=_coerce_optional_float(p.get("t1")),
+            t2=_coerce_optional_float(p.get("t2")),
+            conviction=(p.get("conviction") or "MEDIUM").upper(),
+            confluence=list(p.get("confluence") or [])[:5],
+            why_now=(p.get("why_now") or "")[:300],
+            current_price=cur,
+            distance_to_entry_pct=round(abs(entry - cur) / cur * 100, 2),
+        ))
+        out.append(enriched)
+
+    out.sort(key=lambda x: (
+        _CONVICTION_ORDER.get(x["conviction"], 3),
+        x["distance_to_entry_pct"],
+    ))
+    return out
+
+
 # ── Main orchestrator ────────────────────────────────────────────────
 
 
@@ -366,7 +418,7 @@ def generate_best_setups(user_id: int, sync_session_factory) -> BestSetupsResult
     if os.environ.get("BEST_SETUPS_ENABLED", "true").lower() in ("false", "0", "no"):
         return BestSetupsResult(
             generated_at=datetime.now().isoformat(),
-            watchlist_size=0, setups_found=0, picks=[],
+            watchlist_size=0,
             error="feature disabled",
         )
 
@@ -374,7 +426,7 @@ def generate_best_setups(user_id: int, sync_session_factory) -> BestSetupsResult
     if not api_key:
         return BestSetupsResult(
             generated_at=datetime.now().isoformat(),
-            watchlist_size=0, setups_found=0, picks=[],
+            watchlist_size=0,
             error="no anthropic key",
         )
 
@@ -402,8 +454,7 @@ def generate_best_setups(user_id: int, sync_session_factory) -> BestSetupsResult
     if not symbols:
         result = BestSetupsResult(
             generated_at=datetime.now().isoformat(),
-            watchlist_size=0, setups_found=0, picks=[],
-            skipped=[],
+            watchlist_size=0,
         )
         _cache_set(user_id, wl_hash, result)
         return result
@@ -427,8 +478,8 @@ def generate_best_setups(user_id: int, sync_session_factory) -> BestSetupsResult
     if not fetched:
         result = BestSetupsResult(
             generated_at=datetime.now().isoformat(),
-            watchlist_size=len(symbols), setups_found=0,
-            picks=[], skipped=failed,
+            watchlist_size=len(symbols),
+            skipped=failed,
             error="no data for any symbol",
         )
         _cache_set(user_id, wl_hash, result)
@@ -442,68 +493,31 @@ def generate_best_setups(user_id: int, sync_session_factory) -> BestSetupsResult
         ai_text = _call_sonnet(prompt, api_key)
     except Exception as e:
         logger.exception("best_setups: sonnet call failed")
-        result = BestSetupsResult(
+        return BestSetupsResult(
             generated_at=datetime.now().isoformat(),
-            watchlist_size=len(symbols), setups_found=0,
-            picks=[], skipped=failed,
+            watchlist_size=len(symbols),
+            skipped=failed,
             error=f"AI call failed: {str(e)[:80]}",
         )
-        return result
 
-    # 5. Parse
-    raw_picks = _parse_ai_response(ai_text)
+    # 5. Parse → two arrays
+    raw_day, raw_swing = _parse_ai_response(ai_text)
 
     # 6. Validate + enrich
     price_by_symbol = {d["symbol"]: d["current_price"] for d in fetched}
-    valid_picks: list[dict] = []
-    for p in raw_picks:
-        sym = p.get("symbol", "").upper()
-        cur = price_by_symbol.get(sym)
-        if cur is None:
-            failed.append({"symbol": sym, "reason": "not in fetched data"})
-            continue
-        ok, reason = _validate_pick(p, cur, sym)
-        if not ok:
-            failed.append({"symbol": sym, "reason": reason or "validation failed"})
-            continue
-        entry = float(p["entry"])
-        stop = float(p["stop"])
-        t1 = float(p["t1"])
-        rr = _compute_rr(entry, stop, t1)
-        t2 = p.get("t2")
-        try:
-            t2 = float(t2) if t2 is not None else None
-        except (TypeError, ValueError):
-            t2 = None
-        enriched = asdict(BestSetup(
-            symbol=sym,
-            direction=(p.get("direction") or "").upper(),
-            setup_type=(p.get("setup_type") or "")[:120],
-            entry=entry, stop=stop, t1=t1, t2=t2,
-            risk_per_share=round(abs(entry - stop), 2),
-            reward_per_share=round(abs(t1 - entry), 2),
-            rr_ratio=round(rr, 2),
-            conviction=(p.get("conviction") or "MEDIUM").upper(),
-            confluence=list(p.get("confluence") or [])[:5],
-            why_now=(p.get("why_now") or "")[:300],
-            current_price=cur,
-            distance_to_entry_pct=round(abs(entry - cur) / cur * 100, 2) if cur else 0.0,
-        ))
-        valid_picks.append(enriched)
-
-    # 7. Sort by R:R desc
-    valid_picks.sort(key=lambda x: x["rr_ratio"], reverse=True)
+    day_picks = _enrich_picks(raw_day, "day", price_by_symbol, failed)
+    swing_picks = _enrich_picks(raw_swing, "swing", price_by_symbol, failed)
 
     result = BestSetupsResult(
         generated_at=datetime.now().isoformat(),
         watchlist_size=len(symbols),
-        setups_found=len(valid_picks),
-        picks=valid_picks,
+        day_trade_picks=day_picks,
+        swing_trade_picks=swing_picks,
         skipped=failed,
     )
     _cache_set(user_id, wl_hash, result)
     logger.info(
-        "best_setups: user=%d wl=%d picks=%d skipped=%d",
-        user_id, len(symbols), len(valid_picks), len(failed),
+        "best_setups: user=%d wl=%d day=%d swing=%d skipped=%d",
+        user_id, len(symbols), len(day_picks), len(swing_picks), len(failed),
     )
     return result

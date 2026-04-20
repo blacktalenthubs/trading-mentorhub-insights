@@ -8047,6 +8047,32 @@ def evaluate_rules(
                     symbol, s.alert_type.value, _adx,
                 )
 
+    # --- SPY Daily EMA Regime Gate ---
+    from alert_config import SPY_REGIME_ENABLED, REGIME_TRENDING_SUPPRESS_SHORTS, REGIME_CAUTIOUS_SCORE_PENALTY
+    _spy_daily_regime = spy.get("spy_daily_regime") if spy else None
+
+    if SPY_REGIME_ENABLED and _spy_daily_regime and not is_crypto:
+        if _spy_daily_regime == "TRENDING" and REGIME_TRENDING_SUPPRESS_SHORTS:
+            pre_regime = signals[:]
+            signals = [s for s in signals if s.direction != "SHORT"]
+            for s in pre_regime:
+                if s not in signals:
+                    logger.info(
+                        "%s: REGIME TRENDING suppressed SHORT %s",
+                        symbol, s.alert_type.value,
+                    )
+
+        elif _spy_daily_regime == "CAUTIOUS":
+            for s in signals:
+                if s.direction == "BUY":
+                    s.score = max(0, s.score - REGIME_CAUTIOUS_SCORE_PENALTY)
+                    s.score_label = _score_label(s.score)
+                    s.message = (s.message or "") + " | SPY CAUTIOUS (below 8 EMA)"
+
+        elif _spy_daily_regime == "TACTICAL":
+            for s in signals:
+                s.message = (s.message or "") + " | SPY TACTICAL (below 21 EMA — intraday levels focus)"
+
     # --- Noise filter: drop low-volume BUY signals ---
     vol_ratio = bar_vol / avg_vol if avg_vol > 0 else 1.0
     pre_noise = signals[:]
