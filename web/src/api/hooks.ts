@@ -998,3 +998,37 @@ export function useBestSetups(enabled = false) {
     retry: false,
   });
 }
+
+export interface PinAlertPayload {
+  symbol: string;
+  timeframe: "day" | "swing";
+  direction: "LONG" | "SHORT";
+  setup_type: string;
+  entry: number;
+  stop: number | null;
+  t1: number | null;
+  t2: number | null;
+  conviction: string;
+  why_now: string;
+  current_price: number;
+}
+
+export function usePinBestSetupAlert() {
+  return useMutation({
+    mutationFn: (payload: PinAlertPayload) =>
+      api.post<{ ok: boolean; alert_id: number; telegram_sent: boolean }>(
+        "/ai/best-setups/alert",
+        payload,
+      ),
+    onSuccess: (data) => {
+      if (data.telegram_sent) {
+        toast.success("Alert sent to Telegram");
+      } else {
+        toast.info("Alert recorded (Telegram not enabled)");
+      }
+    },
+    onError: (err: { message?: string; detail?: { message?: string } }) => {
+      toast.error(err.detail?.message || err.message || "Failed to send alert");
+    },
+  });
+}

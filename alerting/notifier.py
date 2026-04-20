@@ -86,6 +86,30 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             f"{_notice_msg}"
         )
 
+    # Best Setups (user-pinned) — distinct format so users tell them apart from scanner alerts
+    if signal.alert_type.value in ("best_setup_day", "best_setup_swing"):
+        _sym = _html.escape(signal.symbol)
+        _tf = "Day trade" if signal.alert_type.value == "best_setup_day" else "Swing trade"
+        _dir = "LONG" if signal.direction == "BUY" else "SHORT"
+        parts = [f"<b>\U0001f4cc BEST SETUP (you pinned) \u2014 {_sym} ${signal.price:.2f}</b>"]
+        parts.append(f"{_tf} \u00b7 {_dir}")
+        _levels = []
+        if signal.entry is not None:
+            _levels.append(f"Entry ${signal.entry:.2f}")
+        if signal.stop is not None:
+            _levels.append(f"Stop ${signal.stop:.2f}")
+        if signal.target_1 is not None:
+            _levels.append(f"T1 ${signal.target_1:.2f}")
+        if signal.target_2 is not None:
+            _levels.append(f"T2 ${signal.target_2:.2f}")
+        if _levels:
+            parts.append(" \u00b7 ".join(_levels))
+        if signal.message:
+            parts.append(signal.message)
+        if signal.confidence:
+            parts.append(f"Conviction: {signal.confidence.upper()}")
+        return "\n".join(parts)[:4000]
+
     # SWING alerts — check BEFORE SELL filter (swing exits have direction "SELL")
     if signal.alert_type.value.startswith("swing_"):
         import html as _html_swing

@@ -1,4 +1,4 @@
-"""AI Coach endpoints — Spec 40: Best Setups of the Day."""
+"""AI Coach endpoints — Best Setups of the Day + user-pinned Telegram alerts."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ import asyncio
 import logging
 import os
 from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -111,3 +113,101 @@ async def best_setups(
         "skipped": result.skipped,
         "error": result.error,
     }
+
+
+class PinAlertRequest(BaseModel):
+    symbol: str
+    timeframe: str = Field(..., pattern="^(day|swing)$")
+    direction: str = Field(..., pattern="^(LONG|SHORT)$")
+    setup_type: str = ""
+    entry: float
+    stop: Optional[float] = None
+    t1: Optional[float] = None
+    t2: Optional[float] = None
+    conviction: str = "MEDIUM"
+    why_now: str = ""
+    current_price: float
+
+
+def _fire_pinned_alert(user_id: int, payload: PinAlertRequest) -> dict:
+    """Sync: record alert + send Telegram with Took/Skip/Exit buttons."""
+    from analytics.intraday_rules import AlertSignal, AlertType
+    from alerting.alert_store import record_alert
+    from alerting.notifier import notify_user
+    from db import get_db as get_sync_db
+
+    alert_type = (
+        AlertType.BEST_SETUP_DAY if payload.timeframe == "day"
+        else AlertType.BEST_SETUP_SWING
+    )
+    direction = "BUY" if payload.direction == "LONG" else "SHORT"
+    message = payload.setup_type
+    if payload.why_now:
+        message = f"{message} — {payload.why_now}" if message else payload.why_now
+
+    signal = AlertSignal(
+        symbol=payload.symbol.upper(),
+        alert_type=alert_type,
+        direction=direction,
+        price=payload.current_price,
+        entry=payload.entry,
+        stop=payload.stop,
+        target_1=payload.t1,
+        target_2=payload.t2,
+        confidence=payload.conviction,
+        message=message[:500],
+    )
+
+    alert_id = record_alert(signal, user_id=user_id)
+
+    # Load user prefs for notify_user
+    with get_sync_db() as conn:
+        row = conn.execute(
+            "SELECT telegram_enabled, telegram_chat_id, email_enabled, "
+            "notification_email FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+    if not row:
+        return {"ok": False, "alert_id": alert_id, "reason": "user not found"}
+
+    prefs = {
+        "telegram_enabled": bool(row["telegram_enabled"]),
+        "telegram_chat_id": row["telegram_chat_id"] or "",
+        "email_enabled": bool(row["email_enabled"]),
+        "notification_email": row["notification_email"] or "",
+    }
+
+    email_sent, telegram_sent = notify_user(signal, prefs, alert_id=alert_id)
+    return {
+        "ok": True,
+        "alert_id": alert_id,
+        "telegram_sent": telegram_sent,
+        "email_sent": email_sent,
+    }
+
+
+@router.post("/best-setups/alert")
+async def pin_best_setup_alert(
+    payload: PinAlertRequest,
+    user: User = Depends(get_current_user),
+):
+    """Fire a user-pinned Best Setup as an alert (Telegram with Took/Skip/Exit buttons).
+
+    Reuses the existing alert pipeline — same delivery, same callback handling.
+    Alert is distinguished from scanner alerts by alert_type=best_setup_day/swing
+    and a "BEST SETUP (you pinned)" Telegram header.
+    """
+    if os.environ.get("BEST_SETUPS_ENABLED", "true").lower() in ("false", "0", "no"):
+        raise HTTPException(503, detail="Feature disabled")
+
+    try:
+        result = await asyncio.to_thread(_fire_pinned_alert, user.id, payload)
+    except Exception as e:
+        logger.exception("pin_best_setup_alert: failed")
+        raise HTTPException(500, detail=f"Failed to send alert: {str(e)[:80]}")
+
+    if not result.get("ok"):
+        raise HTTPException(400, detail=result.get("reason") or "alert failed")
+
+    return result

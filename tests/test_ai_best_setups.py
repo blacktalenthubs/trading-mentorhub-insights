@@ -122,3 +122,68 @@ class TestEnrichPicks:
         out = _enrich_picks(raw, "day", prices, failed)
         assert out[0]["distance_to_entry_pct"] == pytest.approx(0.99, abs=0.01)
         assert out[0]["timeframe"] == "day"
+
+
+class TestPinnedAlertFormatting:
+    """Verify best_setup alerts have a distinct Telegram format vs scanner alerts."""
+
+    def _make_signal(self, alert_type_val: str, direction: str = "BUY"):
+        from analytics.intraday_rules import AlertSignal, AlertType
+        return AlertSignal(
+            symbol="TSLA",
+            alert_type=AlertType(alert_type_val),
+            direction=direction,
+            price=400.62,
+            entry=399.50,
+            stop=396.00,
+            target_1=405.00,
+            target_2=410.00,
+            confidence="HIGH",
+            message="200MA bounce play — Price near critical 200MA support",
+        )
+
+    def test_best_setup_day_has_pinned_header(self):
+        from alerting.notifier import _format_sms_body
+        body = _format_sms_body(self._make_signal("best_setup_day"))
+        assert body is not None
+        assert "BEST SETUP" in body
+        assert "you pinned" in body
+        assert "Day trade" in body
+        assert "TSLA" in body
+
+    def test_best_setup_swing_has_pinned_header(self):
+        from alerting.notifier import _format_sms_body
+        body = _format_sms_body(self._make_signal("best_setup_swing"))
+        assert body is not None
+        assert "BEST SETUP" in body
+        assert "Swing trade" in body
+
+    def test_best_setup_includes_levels(self):
+        from alerting.notifier import _format_sms_body
+        body = _format_sms_body(self._make_signal("best_setup_day"))
+        assert "Entry $399.50" in body
+        assert "Stop $396.00" in body
+        assert "T1 $405.00" in body
+        assert "T2 $410.00" in body
+
+    def test_best_setup_short_direction_rendered(self):
+        from alerting.notifier import _format_sms_body
+        body = _format_sms_body(self._make_signal("best_setup_day", direction="SHORT"))
+        assert "SHORT" in body
+
+    def test_scanner_alert_does_not_get_pinned_header(self):
+        from analytics.intraday_rules import AlertSignal, AlertType
+        from alerting.notifier import _format_sms_body
+        sig = AlertSignal(
+            symbol="TSLA",
+            alert_type=AlertType.MA_BOUNCE_20,
+            direction="BUY",
+            price=400.62,
+            entry=399.50,
+            stop=396.00,
+            target_1=405.00,
+            confidence="HIGH",
+            message="20MA bounce",
+        )
+        body = _format_sms_body(sig)
+        assert body is None or "BEST SETUP" not in body

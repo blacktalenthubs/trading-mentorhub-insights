@@ -121,6 +121,14 @@ export default function AlertsPage() {
                 </Badge>
                 <span className="font-medium text-text-primary">{a.symbol}</span>
                 <span className="text-sm text-text-muted">{a.alert_type}</span>
+                {(a.alert_type === "best_setup_day" || a.alert_type === "best_setup_swing") && (
+                  <span
+                    title="You pinned this setup from Best Setups"
+                    className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-accent/15 text-accent border border-accent/25"
+                  >
+                    Pinned
+                  </span>
+                )}
                 <span className="text-xs text-text-faint">{a.confidence}</span>
               </div>
               <div className="flex items-center gap-3 sm:text-right">
