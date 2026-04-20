@@ -103,12 +103,11 @@ async def best_setups(
     if cap is not None and not result.error:
         await _increment_usage(db, user.id, session_date)
 
-    # Convert dataclass to plain dict for JSON serialization
     return {
         "generated_at": result.generated_at,
         "watchlist_size": result.watchlist_size,
-        "setups_found": result.setups_found,
-        "picks": result.picks,
+        "day_trade_picks": result.day_trade_picks,
+        "swing_trade_picks": result.swing_trade_picks,
         "skipped": result.skipped,
         "error": result.error,
     }
