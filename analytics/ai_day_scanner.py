@@ -17,6 +17,7 @@ import os
 import re
 import time
 from datetime import date
+from typing import Optional
 
 from alert_config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MODEL_SONNET
 
@@ -1231,8 +1232,17 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
         return None
 
 
-def day_scan_cycle(sync_session_factory) -> int:
-    """Main day trade scan cycle — runs every 3 min during market hours."""
+def day_scan_cycle(
+    sync_session_factory,
+    symbols_filter: Optional[set[str]] = None,
+    exclude_symbols: Optional[set[str]] = None,
+) -> int:
+    """Main day trade scan cycle — runs every 3 min during market hours.
+
+    symbols_filter: if set, scan only these symbols (e.g. {"SPY"}).
+    exclude_symbols: if set, skip these symbols (e.g. {"SPY"} when a
+        separate faster job is scanning SPY).
+    """
     global _day_fired, _day_session
 
     session = date.today().isoformat()
@@ -1373,6 +1383,12 @@ def day_scan_cycle(sync_session_factory) -> int:
                 return True
 
             symbols = [s for s in symbol_users if _symbol_allowed(s)]
+            if symbols_filter:
+                _sf = {s.upper() for s in symbols_filter}
+                symbols = [s for s in symbols if s.upper() in _sf]
+            if exclude_symbols:
+                _ex = {s.upper() for s in exclude_symbols}
+                symbols = [s for s in symbols if s.upper() not in _ex]
             if not symbols:
                 return 0
 

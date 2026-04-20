@@ -255,14 +255,30 @@ async def lifespan(app: FastAPI):
 
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
+        # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
+        # AI_DAY_SCAN_MIN (default 15). Set SPY_FAST_SCAN_MIN=0 to disable
+        # the fast SPY pass and scan SPY with everything else.
+        _spy_fast_min = int(os.environ.get("SPY_FAST_SCAN_MIN", "5"))
+        _day_scan_min = int(os.environ.get("AI_DAY_SCAN_MIN", "15"))
+        _spy_fast_enabled = _spy_fast_min > 0
+
         def _ai_day_scan():
             try:
                 from analytics.ai_day_scanner import day_scan_cycle, exit_scan_cycle
-                entries = day_scan_cycle(sync_session_factory)
+                _exclude = {"SPY"} if _spy_fast_enabled else None
+                entries = day_scan_cycle(sync_session_factory, exclude_symbols=_exclude)
                 exits = exit_scan_cycle(sync_session_factory)
                 logger.info("AI scan cycle: %d entries, %d exit signals", entries, exits)
             except Exception:
                 logger.exception("AI day scan cycle failed")
+
+        def _ai_spy_fast_scan():
+            try:
+                from analytics.ai_day_scanner import day_scan_cycle
+                entries = day_scan_cycle(sync_session_factory, symbols_filter={"SPY"})
+                logger.info("AI SPY fast scan: %d entries", entries)
+            except Exception:
+                logger.exception("AI SPY fast scan failed")
 
         # Spec 35 Phase 2 — AI Auto-Pilot paper trade monitor (1 min cadence)
         def _auto_trade_monitor():
@@ -303,7 +319,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             _ai_day_scan,
             "interval",
-            minutes=10,
+            minutes=_day_scan_min,
             id="ai_day_scan",
             replace_existing=True,
         )
@@ -311,6 +327,28 @@ async def lifespan(app: FastAPI):
             _ai_day_scan,
             id="ai_day_scan_initial",
         )
+
+        if _spy_fast_enabled:
+            scheduler.add_job(
+                _ai_spy_fast_scan,
+                "interval",
+                minutes=_spy_fast_min,
+                id="ai_spy_fast_scan",
+                replace_existing=True,
+            )
+            scheduler.add_job(
+                _ai_spy_fast_scan,
+                id="ai_spy_fast_scan_initial",
+            )
+            logger.info(
+                "AI day scan split: SPY every %d min, others every %d min",
+                _spy_fast_min, _day_scan_min,
+            )
+        else:
+            logger.info(
+                "AI day scan: all symbols every %d min (SPY_FAST_SCAN_MIN=0)",
+                _day_scan_min,
+            )
 
         # AI Swing Scanner (Spec 38) — runs on 15-min interval during market hours.
         # Fires only when price is actually AT a daily/weekly level right now,
