@@ -991,8 +991,21 @@ def build_day_trade_prompt(
         parts.append(f"\n{htf_context}")
 
     if spy_daily_regime:
+        _is_spy = symbol.upper() == "SPY"
+        _trending_spy_carve_out = (
+            "\n[MARKET REGIME: TRENDING — SPY above 8 & 21 daily EMA]\n"
+            "Strong upside momentum on the broader market.\n"
+            "This IS SPY — intraday shorts on structural rejection ARE VALID.\n"
+            "Fire SHORT with HIGH conviction ONLY on one of:\n"
+            "  - PDH rejection (tested, lower high forming)\n"
+            "  - PDL breakdown with volume >= 1.5x avg\n"
+            "  - VWAP loss with volume >= 1.5x avg\n"
+            "  - Key MA/EMA rejection from below (20/50/100/200 MA or EMA)\n"
+            "No volume / weak structure → MEDIUM or LOW (will be filtered).\n"
+            "Still fire LONG at support bounces as usual."
+        )
         _regime_guidance = {
-            "TRENDING": (
+            "TRENDING": _trending_spy_carve_out if _is_spy else (
                 "\n[MARKET REGIME: TRENDING — SPY above 8 & 21 daily EMA]\n"
                 "Strong upside momentum. Focus on LONG setups at key MA bounces.\n"
                 "Do NOT fire SHORT — counter-trend shorts lose in trending markets.\n"
@@ -1208,14 +1221,22 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
                     ).replace("$$", "$")
 
         # SHORT policy (regime-aware):
-        # TRENDING: suppress all SHORTs (counter-trend loses)
+        # TRENDING: suppress all SHORTs EXCEPT SPY HIGH-conviction (intraday
+        #   key-level breaks override daily bull bias — PDH rejection, PDL/VWAP
+        #   breakdown on volume, MA/EMA rejection). SPY LOW/MEDIUM → RESISTANCE.
         # CAUTIOUS/TACTICAL: allow SHORTs, but LOW conviction → RESISTANCE
         if parsed.get("direction") == "SHORT":
             conv = (parsed.get("conviction") or "MEDIUM").upper()
             sym_upper = symbol.upper()
             if spy_daily_regime == "TRENDING":
-                parsed["direction"] = "RESISTANCE"
-                logger.info("AI day scan %s: SHORT → RESISTANCE (TRENDING regime)", symbol)
+                if sym_upper == "SPY" and conv == "HIGH":
+                    logger.info("AI day scan SPY: HIGH SHORT allowed in TRENDING (intraday key-level break)")
+                else:
+                    parsed["direction"] = "RESISTANCE"
+                    logger.info(
+                        "AI day scan %s: SHORT → RESISTANCE (TRENDING regime, conv=%s)",
+                        symbol, conv,
+                    )
             elif sym_upper == "SPY":
                 if conv == "LOW":
                     logger.info("AI day scan %s: SPY SHORT LOW suppressed (min MEDIUM)", symbol)
