@@ -1,7 +1,8 @@
 /** Best Setups — on-demand proximity-based entry finder (day + swing). */
 
-import { useBestSetups, type EntryCandidate } from "../api/hooks";
-import { Sparkles, RefreshCw, ArrowUp, ArrowDown, Zap, Calendar } from "lucide-react";
+import { useBestSetups, usePinBestSetupAlert, type EntryCandidate } from "../api/hooks";
+import { toast } from "./Toast";
+import { Sparkles, RefreshCw, ArrowUp, ArrowDown, Zap, Calendar, Bell, Copy, BarChart3 } from "lucide-react";
 import { useState } from "react";
 
 export default function BestSetupsCard({
@@ -145,6 +146,44 @@ function PickCard({
 }) {
   const isLong = pick.direction === "LONG";
   const fmt = (v: number | null) => (v != null ? `$${v.toFixed(2)}` : "—");
+  const pinAlert = usePinBestSetupAlert();
+
+  function handleCopy(e: React.MouseEvent) {
+    e.stopPropagation();
+    const parts = [
+      `${pick.symbol} ${pick.direction}`,
+      `Entry $${pick.entry.toFixed(2)}`,
+      pick.stop != null ? `Stop $${pick.stop.toFixed(2)}` : null,
+      pick.t1 != null ? `T1 $${pick.t1.toFixed(2)}` : null,
+      pick.t2 != null ? `T2 $${pick.t2.toFixed(2)}` : null,
+    ].filter(Boolean);
+    navigator.clipboard.writeText(parts.join(" · ")).then(
+      () => toast.success("Copied to clipboard"),
+      () => toast.error("Copy failed"),
+    );
+  }
+
+  function handlePinAlert(e: React.MouseEvent) {
+    e.stopPropagation();
+    pinAlert.mutate({
+      symbol: pick.symbol,
+      timeframe: pick.timeframe,
+      direction: pick.direction,
+      setup_type: pick.setup_type,
+      entry: pick.entry,
+      stop: pick.stop,
+      t1: pick.t1,
+      t2: pick.t2,
+      conviction: pick.conviction,
+      why_now: pick.why_now,
+      current_price: pick.current_price,
+    });
+  }
+
+  function handleChart(e: React.MouseEvent) {
+    e.stopPropagation();
+    onSelectSymbol?.(pick.symbol);
+  }
 
   return (
     <div
@@ -221,6 +260,34 @@ function PickCard({
           ))}
         </div>
       )}
+
+      <div className="mt-2 pt-2 border-t border-border-subtle/50 flex items-center gap-1">
+        <button
+          onClick={handlePinAlert}
+          disabled={pinAlert.isPending}
+          className="flex-1 text-[10px] px-2 py-1 rounded bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+          title="Send this setup to Telegram with Took/Skip/Exit buttons"
+        >
+          <Bell className="h-3 w-3" />
+          {pinAlert.isPending ? "Sending…" : "Alert"}
+        </button>
+        <button
+          onClick={handleChart}
+          className="flex-1 text-[10px] px-2 py-1 rounded bg-surface-2 text-text-secondary hover:bg-surface-3 transition-colors flex items-center justify-center gap-1"
+          title="Open symbol in main chart"
+        >
+          <BarChart3 className="h-3 w-3" />
+          Chart
+        </button>
+        <button
+          onClick={handleCopy}
+          className="flex-1 text-[10px] px-2 py-1 rounded bg-surface-2 text-text-secondary hover:bg-surface-3 transition-colors flex items-center justify-center gap-1"
+          title="Copy setup levels to clipboard"
+        >
+          <Copy className="h-3 w-3" />
+          Copy
+        </button>
+      </div>
     </div>
   );
 }

@@ -283,6 +283,9 @@ class AlertType(str, Enum):
     EMA_RECLAIM_200 = "ema_reclaim_200"
     # Informational — inside day forming (today's range within yesterday's)
     INSIDE_DAY_FORMING = "inside_day_forming"
+    # User-pinned Best Setups picks (fired via "Alert" button on dashboard)
+    BEST_SETUP_DAY = "best_setup_day"
+    BEST_SETUP_SWING = "best_setup_swing"
 
 
 @dataclass
