@@ -218,7 +218,7 @@ def _build_batch_prompt(symbols_data: list[dict]) -> str:
         ma_parts = []
         for key, label in [
             ("ma20", "20MA"), ("ma50", "50MA"), ("ma100", "100MA"), ("ma200", "200MA"),
-            ("ema20", "20EMA"), ("ema50", "50EMA"),
+            ("ema8", "8EMA"), ("ema20", "20EMA"), ("ema50", "50EMA"),
             ("ema100", "100EMA"), ("ema200", "200EMA"),
         ]:
             v = pd_.get(key)
