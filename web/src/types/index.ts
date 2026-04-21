@@ -254,6 +254,17 @@ export interface NotificationPrefs {
   default_risk_pct?: number;
 }
 
+// Per-alert-type channel routing.
+export type AlertChannel = "telegram" | "email" | "both" | "off";
+
+export interface NotificationRouting {
+  ai_update: AlertChannel;
+  ai_resistance: AlertChannel;
+  ai_long: AlertChannel;
+  ai_short: AlertChannel;
+  ai_exit: AlertChannel;
+}
+
 export interface AlertCategoryItem {
   category_id: string;
   name: string;
