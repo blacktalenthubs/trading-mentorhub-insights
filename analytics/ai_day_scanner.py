@@ -908,7 +908,8 @@ def build_day_trade_prompt(
         for key, label in [
             ("ma20", "20 Daily MA"), ("ma50", "50 Daily MA"),
             ("ma100", "100 Daily MA"), ("ma200", "200 Daily MA"),
-            ("ema20", "20 Daily EMA"), ("ema50", "50 Daily EMA"),
+            ("ema8", "8 Daily EMA"), ("ema20", "20 Daily EMA"),
+            ("ema50", "50 Daily EMA"),
             ("ema100", "100 Daily EMA"), ("ema200", "200 Daily EMA"),
         ]:
             val = prior_day.get(key)
