@@ -525,6 +525,84 @@ def _build_trade_buttons(signal: AlertSignal, alert_id: int | None) -> dict | No
     return None
 
 
+# ---------------------------------------------------------------------------
+# Per-alert-type channel routing (AI scanner alerts)
+# ---------------------------------------------------------------------------
+# User can configure each AI alert type to go to Telegram, Email, Both, or Off.
+# Valid alert types: ai_update, ai_resistance, ai_long, ai_short, ai_exit
+# Valid channels: "telegram" | "email" | "both" | "off"
+# If notification_routing is NULL or missing a key, fall back to Telegram
+# (legacy behavior — preserves today's default).
+
+_AI_ALERT_TYPES = {"ai_update", "ai_resistance", "ai_long", "ai_short", "ai_exit"}
+
+
+def resolve_ai_channels(user, alert_type: str) -> tuple[bool, bool]:
+    """Resolve (send_telegram, send_email) for a given user + alert type.
+
+    Reads user.notification_routing (JSON) if present. Unknown / missing →
+    Telegram-only (legacy default). Respects telegram_enabled / email_enabled
+    master switches and presence of chat_id / email.
+    """
+    import json
+
+    raw = getattr(user, "notification_routing", None)
+    channel = "telegram"  # legacy default
+    if raw:
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(data, dict):
+                val = data.get(alert_type)
+                if val in ("telegram", "email", "both", "off"):
+                    channel = val
+        except Exception:
+            logger.warning("notification_routing parse failed for user; using default")
+
+    want_tg = channel in ("telegram", "both")
+    want_email = channel in ("email", "both")
+
+    # Respect master switches + presence of destination
+    tg_ok = bool(
+        want_tg
+        and getattr(user, "telegram_enabled", True)
+        and getattr(user, "telegram_chat_id", None)
+    )
+    email_ok = bool(want_email and getattr(user, "email", None))
+
+    return tg_ok, email_ok
+
+
+def send_ai_alert(
+    user,
+    alert_type: str,
+    subject: str,
+    body_html: str,
+    telegram_kwargs: dict | None = None,
+) -> tuple[bool, bool]:
+    """Deliver an AI scanner alert according to user routing preferences.
+
+    *body_html* — Telegram-flavored HTML. Email uses a tag-stripped version.
+    *telegram_kwargs* — extra kwargs passed to _send_telegram_to (reply_markup, parse_mode).
+    Returns (telegram_sent, email_sent).
+    """
+    import re
+
+    tg_ok, email_ok = resolve_ai_channels(user, alert_type)
+
+    tg_sent = False
+    email_sent = False
+
+    if tg_ok:
+        kwargs = telegram_kwargs or {}
+        tg_sent = _send_telegram_to(body_html, user.telegram_chat_id, **kwargs)
+
+    if email_ok:
+        plain = re.sub(r"<[^>]+>", "", body_html)
+        email_sent = send_plain_email(user.email, subject, plain)
+
+    return tg_sent, email_sent
+
+
 def _send_auto_analysis(symbol: str, chat_id: str) -> None:
     """Background thread: generate AI Take and send as follow-up Telegram message.
 

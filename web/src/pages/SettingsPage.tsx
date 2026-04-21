@@ -12,12 +12,14 @@ import {
   useChangePassword,
   useNotificationPrefs,
   useUpdateNotificationPrefs,
+  useNotificationRouting,
+  useUpdateNotificationRouting,
   useTelegramStatus,
   useTelegramLink,
   useTelegramUnlink,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
-import type { NotificationPrefs } from "../types";
+import type { NotificationPrefs, NotificationRouting, AlertChannel } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
@@ -196,6 +198,100 @@ function NotificationChannels() {
         )}
         {updateNotifs.isSuccess && !dirty && (
           <span className="text-[10px] text-bullish-text flex items-center gap-1"><Check className="h-3 w-3" /> Saved</span>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/* ── Channel Routing (per alert type) ─────────────────────────────
+ *  Pick where each AI alert type goes: Telegram, Email, Both, or Off.
+ *  Default for new users is Telegram for every type (legacy behavior).
+ */
+
+const CHANNEL_OPTIONS: AlertChannel[] = ["telegram", "email", "both", "off"];
+
+const ROUTING_ROWS: { key: keyof NotificationRouting; label: string; sub: string }[] = [
+  { key: "ai_update",     label: "AI Updates",        sub: "Context / WAIT commentary" },
+  { key: "ai_long",       label: "LONG Entries",      sub: "New long setups" },
+  { key: "ai_short",      label: "SHORT Entries",     sub: "SPY structural rejections" },
+  { key: "ai_resistance", label: "Resistance Notices", sub: "Tighten-stop warnings" },
+  { key: "ai_exit",       label: "Exit Signals",      sub: "EXIT_NOW / TAKE_PROFITS" },
+];
+
+function channelLabel(c: AlertChannel): string {
+  switch (c) {
+    case "telegram": return "Telegram";
+    case "email":    return "Email";
+    case "both":     return "Both";
+    case "off":      return "Off";
+  }
+}
+
+function ChannelRouting() {
+  const { data } = useNotificationRouting();
+  const update = useUpdateNotificationRouting();
+  const [routing, setRouting] = useState<NotificationRouting | null>(null);
+
+  useEffect(() => {
+    if (data && !routing) setRouting(data);
+  }, [data, routing]);
+
+  if (!routing) return null;
+
+  const dirty = data && (
+    ROUTING_ROWS.some(({ key }) => routing[key] !== data[key])
+  );
+
+  function setChannel(key: keyof NotificationRouting, c: AlertChannel) {
+    setRouting((prev) => (prev ? { ...prev, [key]: c } : prev));
+  }
+
+  function save() {
+    if (!routing) return;
+    update.mutate(routing, {
+      onSuccess: () => toast.success("Alert routing saved"),
+    });
+  }
+
+  return (
+    <Section title="Alert Channel Routing" icon={<Send className="h-4 w-4 text-accent" />}>
+      <p className="text-xs text-text-faint mb-4">
+        Choose where each AI alert type is delivered. Email uses your account address ({/* read-only */}).
+      </p>
+
+      <div className="space-y-3">
+        {ROUTING_ROWS.map(({ key, label, sub }) => (
+          <div key={key} className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-text-primary">{label}</div>
+              <div className="text-[10px] text-text-faint leading-tight">{sub}</div>
+            </div>
+            <select
+              value={routing[key]}
+              onChange={(e) => setChannel(key, e.target.value as AlertChannel)}
+              className="text-xs bg-surface-3 border border-border-subtle rounded-md px-2 py-1 text-text-primary focus:border-accent focus:outline-none"
+            >
+              {CHANNEL_OPTIONS.map((c) => (
+                <option key={c} value={c}>{channelLabel(c)}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3 mt-4">
+        <button
+          onClick={save}
+          disabled={!dirty || update.isPending}
+          className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
+        >
+          {update.isPending ? "Saving..." : "Save Routing"}
+        </button>
+        {update.isSuccess && !dirty && (
+          <span className="text-[10px] text-bullish-text flex items-center gap-1">
+            <Check className="h-3 w-3" /> Saved
+          </span>
         )}
       </div>
     </Section>
@@ -584,6 +680,7 @@ export default function SettingsPage() {
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
+            <ChannelRouting />
             <AIAlertFilters />
             <ThemeToggle />
           </div>

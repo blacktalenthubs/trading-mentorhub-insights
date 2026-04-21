@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 
@@ -63,3 +63,23 @@ class AlertPrefsResponse(BaseModel):
 class UpdateAlertPrefsRequest(BaseModel):
     categories: dict[str, bool]  # {category_id: enabled}
     min_score: int = 0
+
+
+# --- Per-alert-type channel routing ---
+
+
+class NotificationRoutingResponse(BaseModel):
+    """Returned by GET /settings/notification-routing.
+
+    Values per alert type: "telegram" | "email" | "both" | "off".
+    Defaults apply when the user has never set a preference.
+    """
+    ai_update: str = "telegram"
+    ai_resistance: str = "telegram"
+    ai_long: str = "telegram"
+    ai_short: str = "telegram"
+    ai_exit: str = "telegram"
+
+
+class UpdateNotificationRoutingRequest(BaseModel):
+    routing: Dict[str, str]  # {alert_type: channel}

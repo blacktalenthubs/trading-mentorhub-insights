@@ -15,8 +15,10 @@ from app.schemas.settings import (
     AlertPrefsResponse,
     ChangePasswordRequest,
     NotificationPrefsResponse,
+    NotificationRoutingResponse,
     UpdateAlertPrefsRequest,
     UpdateNotificationPrefsRequest,
+    UpdateNotificationRoutingRequest,
     UpdateProfileRequest,
 )
 
@@ -132,6 +134,72 @@ async def update_notification_prefs(
 
     await db.flush()
     return _build_notification_response(user)
+
+
+# --- Per-Alert-Type Channel Routing ---
+
+
+_VALID_ROUTING_CHANNELS = {"telegram", "email", "both", "off"}
+_VALID_ROUTING_ALERT_TYPES = {
+    "ai_update", "ai_resistance", "ai_long", "ai_short", "ai_exit",
+}
+
+
+def _build_routing_response(user: User) -> NotificationRoutingResponse:
+    import json
+
+    raw = getattr(user, "notification_routing", None)
+    data: dict = {}
+    if raw:
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict):
+                data = parsed
+        except Exception:
+            data = {}
+
+    return NotificationRoutingResponse(
+        ai_update=data.get("ai_update", "telegram"),
+        ai_resistance=data.get("ai_resistance", "telegram"),
+        ai_long=data.get("ai_long", "telegram"),
+        ai_short=data.get("ai_short", "telegram"),
+        ai_exit=data.get("ai_exit", "telegram"),
+    )
+
+
+@router.get("/notification-routing", response_model=NotificationRoutingResponse)
+async def get_notification_routing(
+    user: User = Depends(get_current_user),
+):
+    return _build_routing_response(user)
+
+
+@router.put("/notification-routing", response_model=NotificationRoutingResponse)
+async def update_notification_routing(
+    body: UpdateNotificationRoutingRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    import json
+
+    cleaned: dict[str, str] = {}
+    for alert_type, channel in (body.routing or {}).items():
+        if alert_type not in _VALID_ROUTING_ALERT_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown alert type: {alert_type}",
+            )
+        ch = (channel or "").strip().lower()
+        if ch not in _VALID_ROUTING_CHANNELS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"channel must be one of {sorted(_VALID_ROUTING_CHANNELS)}",
+            )
+        cleaned[alert_type] = ch
+
+    user.notification_routing = json.dumps(cleaned) if cleaned else None
+    await db.flush()
+    return _build_routing_response(user)
 
 
 # --- Alert Category Preferences ---

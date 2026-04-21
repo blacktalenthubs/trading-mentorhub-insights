@@ -1541,7 +1541,11 @@ def day_scan_cycle(
                         _last_tg_time[symbol] = time.time()
                         _last_wait_reason_fp[symbol] = _cur_fp
                         try:
-                            from alerting.notifier import _send_telegram_to
+                            from alerting.notifier import (
+                                _send_telegram_to,
+                                resolve_ai_channels,
+                                send_ai_alert,
+                            )
                             _price_fmt = f"${result.get('price', 0):.2f}"
                             # Policy: AI UPDATES (WAIT) only deliver for
                             #   (a) SPY / NVDA / ETH-USD (always — market + crypto barometers),
@@ -1564,11 +1568,10 @@ def day_scan_cycle(
                                 if not user:
                                     logger.info("WAIT skip uid=%d sym=%s reason=user_not_found", _uid, symbol)
                                     continue
-                                if not user.telegram_enabled:
-                                    logger.info("WAIT skip uid=%d sym=%s reason=telegram_disabled", _uid, symbol)
-                                    continue
-                                if not user.telegram_chat_id:
-                                    logger.info("WAIT skip uid=%d sym=%s reason=no_chat_id", _uid, symbol)
+                                # Resolve routing — skip if user has no channel for ai_update
+                                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_update")
+                                if not (_tg_ok or _email_ok):
+                                    logger.info("WAIT skip uid=%d sym=%s reason=no_channel", _uid, symbol)
                                     continue
                                 # Spec 36 — user preference filter (before rate limit)
                                 if not _user_wants_alert(user, "WAIT"):
@@ -1593,7 +1596,7 @@ def day_scan_cycle(
                                 if _wmax is not None:
                                     _wcount = _db_get_count(db, _uid, _FEATURE_WAIT, session)
                                     if _wcount >= _wmax:
-                                        if _db_mark_notified(db, _uid, _FEATURE_WAIT_NOTIFIED, session):
+                                        if _db_mark_notified(db, _uid, _FEATURE_WAIT_NOTIFIED, session) and _tg_ok:
                                             _send_telegram_to(
                                                 f"💤 Daily AI Updates limit reached ({_wmax}/{_wmax}).\n"
                                                 f"You still get actionable AI entries. "
@@ -1617,7 +1620,8 @@ def day_scan_cycle(
                                         f"<b>AI UPDATE — {symbol} {_price_fmt}</b>\n"
                                         f"{_reason_out}"
                                     )
-                                _send_telegram_to(_user_tg, user.telegram_chat_id)
+                                _subj = f"AI UPDATE — {symbol} {_price_fmt}"
+                                send_ai_alert(user, "ai_update", _subj, _user_tg)
                                 _db_increment_count(db, _uid, _FEATURE_WAIT, session)
                         except Exception:
                             pass
@@ -1657,15 +1661,23 @@ def day_scan_cycle(
                         _last_tg_direction[symbol] = "RESISTANCE"
                         _last_tg_time[symbol] = time.time()
                         try:
-                            from alerting.notifier import _send_telegram_to
+                            from alerting.notifier import (
+                                _send_telegram_to,
+                                resolve_ai_channels,
+                                send_ai_alert,
+                            )
                             _tg_msg = (
                                 f"<b>AI SIGNAL — RESISTANCE {symbol} ${entry:.2f}</b>\n"
                                 f"{reason}\n"
                                 f"Action: tighten stop / take profits / watch for rejection"
                             )
+                            _subj_r = f"AI SIGNAL — RESISTANCE {symbol} ${entry:.2f}"
                             for uid in symbol_users[symbol]:
                                 user = db.get(User, uid)
-                                if not (user and user.telegram_enabled and user.telegram_chat_id):
+                                if not user:
+                                    continue
+                                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_resistance")
+                                if not (_tg_ok or _email_ok):
                                     continue
                                 # Spec 36 — preference filter
                                 if not _user_wants_alert(user, "RESISTANCE", conviction):
@@ -1679,7 +1691,7 @@ def day_scan_cycle(
                                         _tier_max_r = None
                                     if _tier_max_r is not None:
                                         if _db_get_count(db, uid, _FEATURE_SCAN, session) >= _tier_max_r:
-                                            if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session):
+                                            if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session) and _tg_ok:
                                                 _send_telegram_to(
                                                     f"📊 Daily AI scan limit reached ({_tier_max_r}/{_tier_max_r}).\n"
                                                     f"You won't receive more AI scan alerts today.\n"
@@ -1690,7 +1702,7 @@ def day_scan_cycle(
                                             continue
                                 except Exception:
                                     pass
-                                _send_telegram_to(_tg_msg, user.telegram_chat_id)
+                                send_ai_alert(user, "ai_resistance", _subj_r, _tg_msg)
                                 _db_increment_count(db, uid, _FEATURE_SCAN, session)
                         except Exception:
                             logger.exception("AI day scan: Telegram failed for %s", symbol)
@@ -1777,7 +1789,11 @@ def day_scan_cycle(
                     _last_tg_direction[symbol] = "SHORT"
                     if True:
                         try:
-                            from alerting.notifier import _send_telegram_to
+                            from alerting.notifier import (
+                                _send_telegram_to,
+                                resolve_ai_channels,
+                                send_ai_alert,
+                            )
                             import html as _html_s
 
                             _stop_s = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
@@ -1789,6 +1805,7 @@ def day_scan_cycle(
                                 f"Setup: {_html_s.escape(setup_label_s)}\n"
                                 f"Conviction: {conviction}"
                             )
+                            _subj_s = f"AI SIGNAL — SHORT {symbol} ${entry:.2f}"
 
                             for uid in symbol_users[symbol]:
                                 # Per-user position check: skip SHORT if user already holds SHORT
@@ -1799,47 +1816,54 @@ def day_scan_cycle(
                                     )
                                     continue
                                 user = db.get(User, uid)
-                                if user and user.telegram_enabled and user.telegram_chat_id:
-                                    # Spec 36 — preference filter (SHORT)
-                                    if not _user_wants_alert(user, "SHORT", conviction):
-                                        continue
-                                    # Per-user alert_id for buttons
-                                    _user_alert_id_s = per_user_alert_ids_s.get(uid)
-                                    _buttons_s = {
-                                        "inline_keyboard": [[
-                                            {"text": "✅ Took It", "callback_data": f"ack:{_user_alert_id_s}"},
-                                            {"text": "❌ Skip", "callback_data": f"skip:{_user_alert_id_s}"},
-                                            {"text": "🔴 Exit", "callback_data": f"exit:{_user_alert_id_s}"},
-                                        ]]
-                                    }
-                                    # Rate limit check (DB-backed)
-                                    _send_s = True
-                                    try:
-                                        from api.app.tier import get_limits as _gl
-                                        from api.app.dependencies import get_user_tier as _gut
-                                        _tier_max_s = _gl(_gut(user)).get("ai_scan_alerts_per_day")
-                                        if symbol.upper() in _UNCAPPED_SYMBOLS:
-                                            _tier_max_s = None
-                                        if _tier_max_s is not None:
-                                            if _db_get_count(db, uid, _FEATURE_SCAN, session) >= _tier_max_s:
-                                                if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session):
-                                                    _send_telegram_to(
-                                                        f"📊 Daily AI scan limit reached ({_tier_max_s}/{_tier_max_s}).\n"
-                                                        f"You won't receive more AI scan alerts today.\n"
-                                                        f"Upgrade to Pro for unlimited alerts.\n"
-                                                        f"→ https://www.tradingwithai.ai/billing",
-                                                        user.telegram_chat_id,
-                                                    )
-                                                _send_s = False
-                                    except Exception:
-                                        pass
-                                    if _send_s:
-                                        _send_telegram_to(_tg_msg_s, user.telegram_chat_id, reply_markup=_buttons_s)
-                                        _db_increment_count(db, uid, _FEATURE_SCAN, session)
-                                        logger.info(
-                                            "AI day scan %s: SHORT at $%.2f → Telegram user %d",
-                                            symbol, entry, uid,
-                                        )
+                                if not user:
+                                    continue
+                                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_short")
+                                if not (_tg_ok or _email_ok):
+                                    continue
+                                # Spec 36 — preference filter (SHORT)
+                                if not _user_wants_alert(user, "SHORT", conviction):
+                                    continue
+                                # Per-user alert_id for buttons (Telegram only)
+                                _user_alert_id_s = per_user_alert_ids_s.get(uid)
+                                _buttons_s = {
+                                    "inline_keyboard": [[
+                                        {"text": "✅ Took It", "callback_data": f"ack:{_user_alert_id_s}"},
+                                        {"text": "❌ Skip", "callback_data": f"skip:{_user_alert_id_s}"},
+                                        {"text": "🔴 Exit", "callback_data": f"exit:{_user_alert_id_s}"},
+                                    ]]
+                                }
+                                # Rate limit check (DB-backed)
+                                _send_s = True
+                                try:
+                                    from api.app.tier import get_limits as _gl
+                                    from api.app.dependencies import get_user_tier as _gut
+                                    _tier_max_s = _gl(_gut(user)).get("ai_scan_alerts_per_day")
+                                    if symbol.upper() in _UNCAPPED_SYMBOLS:
+                                        _tier_max_s = None
+                                    if _tier_max_s is not None:
+                                        if _db_get_count(db, uid, _FEATURE_SCAN, session) >= _tier_max_s:
+                                            if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session) and _tg_ok:
+                                                _send_telegram_to(
+                                                    f"📊 Daily AI scan limit reached ({_tier_max_s}/{_tier_max_s}).\n"
+                                                    f"You won't receive more AI scan alerts today.\n"
+                                                    f"Upgrade to Pro for unlimited alerts.\n"
+                                                    f"→ https://www.tradingwithai.ai/billing",
+                                                    user.telegram_chat_id,
+                                                )
+                                            _send_s = False
+                                except Exception:
+                                    pass
+                                if _send_s:
+                                    send_ai_alert(
+                                        user, "ai_short", _subj_s, _tg_msg_s,
+                                        telegram_kwargs={"reply_markup": _buttons_s},
+                                    )
+                                    _db_increment_count(db, uid, _FEATURE_SCAN, session)
+                                    logger.info(
+                                        "AI day scan %s: SHORT at $%.2f → user %d (tg=%s email=%s)",
+                                        symbol, entry, uid, _tg_ok, _email_ok,
+                                    )
                         except Exception:
                             logger.exception("AI day scan: SHORT Telegram failed for %s", symbol)
 
@@ -1928,7 +1952,11 @@ def day_scan_cycle(
                 _last_tg_direction[symbol] = "LONG"
                 if True:
                     try:
-                        from alerting.notifier import _send_telegram_to
+                        from alerting.notifier import (
+                            _send_telegram_to,
+                            resolve_ai_channels,
+                            send_ai_alert,
+                        )
                         import html as _html
 
                         _stop = f"${result['stop']:.2f}" if result.get("stop") else "N/A"
@@ -1940,6 +1968,7 @@ def day_scan_cycle(
                             f"Setup: {_html.escape(setup_label)}\n"
                             f"Conviction: {conviction}"
                         )
+                        _subj_l = f"AI SIGNAL — LONG {symbol} ${entry:.2f}"
 
                         for uid in symbol_users[symbol]:
                             # Per-user position check: skip LONG if user already holds this symbol
@@ -1950,48 +1979,58 @@ def day_scan_cycle(
                                 )
                                 continue
                             user = db.get(User, uid)
-                            if user and user.telegram_enabled and user.telegram_chat_id:
-                                # Spec 36 — preference filter (LONG)
-                                if not _user_wants_alert(user, "LONG", conviction):
-                                    continue
-                                # Each user's Telegram uses THEIR own alert_id for ACK/Skip/Exit buttons
-                                _user_alert_id = per_user_alert_ids.get(uid)
-                                _buttons = {
-                                    "inline_keyboard": [[
-                                        {"text": "✅ Took It", "callback_data": f"ack:{_user_alert_id}"},
-                                        {"text": "❌ Skip", "callback_data": f"skip:{_user_alert_id}"},
-                                        {"text": "🔴 Exit", "callback_data": f"exit:{_user_alert_id}"},
-                                    ]]
-                                }
-                                # Rate limit: check ai_scan_alerts_per_day (per-user in-memory counter)
-                                _send = True
-                                _tier_max = None
-                                try:
-                                    from api.app.tier import get_limits as _gl
-                                    from api.app.dependencies import get_user_tier as _gut
-                                    _tier = _gut(user)
-                                    _tier_max = _gl(_tier).get("ai_scan_alerts_per_day")
-                                    if symbol.upper() in _UNCAPPED_SYMBOLS:
-                                        _tier_max = None
-                                    if _tier_max is not None:
-                                        _delivered = _db_get_count(db, uid, _FEATURE_SCAN, session)
-                                        if _delivered >= _tier_max:
-                                            # One cap notification per day (DB-tracked)
-                                            if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session):
-                                                _send_telegram_to(
-                                                    f"📊 Daily AI scan limit reached ({_tier_max}/{_tier_max}).\n"
-                                                    f"You won't receive more AI scan alerts today.\n"
-                                                    f"Upgrade to Pro for unlimited alerts.\n"
-                                                    f"→ https://www.tradingwithai.ai/billing",
-                                                    user.telegram_chat_id,
-                                                )
-                                            _send = False
-                                except Exception:
-                                    pass  # skip limit on error
-                                if _send:
-                                    _send_telegram_to(_tg_msg, user.telegram_chat_id, reply_markup=_buttons)
-                                    _db_increment_count(db, uid, _FEATURE_SCAN, session)
-                                    logger.info("AI day scan %s: LONG at $%.2f → Telegram user %d", symbol, entry, uid)
+                            if not user:
+                                continue
+                            _tg_ok, _email_ok = resolve_ai_channels(user, "ai_long")
+                            if not (_tg_ok or _email_ok):
+                                continue
+                            # Spec 36 — preference filter (LONG)
+                            if not _user_wants_alert(user, "LONG", conviction):
+                                continue
+                            # Each user's Telegram uses THEIR own alert_id for ACK/Skip/Exit buttons
+                            _user_alert_id = per_user_alert_ids.get(uid)
+                            _buttons = {
+                                "inline_keyboard": [[
+                                    {"text": "✅ Took It", "callback_data": f"ack:{_user_alert_id}"},
+                                    {"text": "❌ Skip", "callback_data": f"skip:{_user_alert_id}"},
+                                    {"text": "🔴 Exit", "callback_data": f"exit:{_user_alert_id}"},
+                                ]]
+                            }
+                            # Rate limit: check ai_scan_alerts_per_day (per-user in-memory counter)
+                            _send = True
+                            _tier_max = None
+                            try:
+                                from api.app.tier import get_limits as _gl
+                                from api.app.dependencies import get_user_tier as _gut
+                                _tier = _gut(user)
+                                _tier_max = _gl(_tier).get("ai_scan_alerts_per_day")
+                                if symbol.upper() in _UNCAPPED_SYMBOLS:
+                                    _tier_max = None
+                                if _tier_max is not None:
+                                    _delivered = _db_get_count(db, uid, _FEATURE_SCAN, session)
+                                    if _delivered >= _tier_max:
+                                        # One cap notification per day (DB-tracked)
+                                        if _db_mark_notified(db, uid, _FEATURE_SCAN_NOTIFIED, session) and _tg_ok:
+                                            _send_telegram_to(
+                                                f"📊 Daily AI scan limit reached ({_tier_max}/{_tier_max}).\n"
+                                                f"You won't receive more AI scan alerts today.\n"
+                                                f"Upgrade to Pro for unlimited alerts.\n"
+                                                f"→ https://www.tradingwithai.ai/billing",
+                                                user.telegram_chat_id,
+                                            )
+                                        _send = False
+                            except Exception:
+                                pass  # skip limit on error
+                            if _send:
+                                send_ai_alert(
+                                    user, "ai_long", _subj_l, _tg_msg,
+                                    telegram_kwargs={"reply_markup": _buttons},
+                                )
+                                _db_increment_count(db, uid, _FEATURE_SCAN, session)
+                                logger.info(
+                                    "AI day scan %s: LONG at $%.2f → user %d (tg=%s email=%s)",
+                                    symbol, entry, uid, _tg_ok, _email_ok,
+                                )
                     except Exception:
                         logger.exception("AI day scan: Telegram failed for %s", symbol)
 
@@ -2260,7 +2299,15 @@ def exit_scan_cycle(sync_session_factory) -> int:
                 db.commit()
 
                 user = db.get(User, trade.user_id)
-                if not (user and user.telegram_enabled and user.telegram_chat_id):
+                if not user:
+                    continue
+                from alerting.notifier import (
+                    _send_telegram_to,
+                    resolve_ai_channels,
+                    send_ai_alert,
+                )
+                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_exit")
+                if not (_tg_ok or _email_ok):
                     continue
 
                 # Spec 36 — user preference filter (EXIT signals)
@@ -2273,8 +2320,7 @@ def exit_scan_cycle(sync_session_factory) -> int:
                     _tier_max = _gl(_gut(user)).get("ai_scan_alerts_per_day")
                     if _tier_max is not None:
                         if _db_get_count(db, trade.user_id, _FEATURE_SCAN, session) >= _tier_max:
-                            if _db_mark_notified(db, trade.user_id, _FEATURE_SCAN_NOTIFIED, session):
-                                from alerting.notifier import _send_telegram_to
+                            if _db_mark_notified(db, trade.user_id, _FEATURE_SCAN_NOTIFIED, session) and _tg_ok:
                                 _send_telegram_to(
                                     f"📊 Daily AI scan limit reached ({_tier_max}/{_tier_max}).\n"
                                     f"Upgrade to Pro for unlimited alerts.\n"
@@ -2285,16 +2331,17 @@ def exit_scan_cycle(sync_session_factory) -> int:
                 except Exception:
                     pass
 
-                from alerting.notifier import _send_telegram_to
                 import html as _html
 
                 if status == "EXIT_NOW":
                     header = f"🔴 AI EXIT NOW — {_html.escape(sym)}"
+                    subj = f"AI EXIT NOW — {sym}"
                     buttons = {"inline_keyboard": [[
                         {"text": "🛑 Exit Trade", "callback_data": f"exit:{_alert_id}"},
                     ]]}
                 else:  # TAKE_PROFITS
                     header = f"🎯 AI TAKE PROFITS — {_html.escape(sym)}"
+                    subj = f"AI TAKE PROFITS — {sym}"
                     buttons = {"inline_keyboard": [[
                         {"text": "🛑 Exit Trade", "callback_data": f"exit:{_alert_id}"},
                         {"text": "✋ Keep Holding", "callback_data": f"hold:{_alert_id}"},
@@ -2307,15 +2354,18 @@ def exit_scan_cycle(sync_session_factory) -> int:
                 )
 
                 try:
-                    _send_telegram_to(tg_msg, user.telegram_chat_id, reply_markup=buttons)
+                    send_ai_alert(
+                        user, "ai_exit", subj, tg_msg,
+                        telegram_kwargs={"reply_markup": buttons},
+                    )
                     _db_increment_count(db, trade.user_id, _FEATURE_SCAN, session)
                     total_sent += 1
                     logger.info(
-                        "Exit scan %s trade %d: %s → Telegram user %d",
-                        sym, trade.id, status, trade.user_id,
+                        "Exit scan %s trade %d: %s → user %d (tg=%s email=%s)",
+                        sym, trade.id, status, trade.user_id, _tg_ok, _email_ok,
                     )
                 except Exception:
-                    logger.exception("Exit scan: Telegram failed for %s trade %d", sym, trade.id)
+                    logger.exception("Exit scan: delivery failed for %s trade %d", sym, trade.id)
 
             logger.info("Exit scan complete: %d exit signals sent", total_sent)
             return total_sent

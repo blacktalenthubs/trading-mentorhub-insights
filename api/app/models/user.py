@@ -53,6 +53,12 @@ class User(Base):
         Boolean, server_default="1", default=True,
     )
 
+    # Per-alert-type channel routing — JSON dict, e.g.
+    # {"ai_update": "email", "ai_long": "telegram", "ai_exit": "both"}
+    # Values: "telegram" | "email" | "both" | "off".
+    # NULL / missing key → fall back to legacy telegram_enabled behavior.
+    notification_routing: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     # Position sizing (Spec 36 Option A) — used by Telegram Took It flow
     default_portfolio_size: Mapped[float] = mapped_column(
         Float, server_default="50000", default=50000.0,

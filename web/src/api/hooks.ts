@@ -8,6 +8,7 @@ import type {
   OptionsTrade, OptionsTradeStats, EquityPoint,
   SpyRegime, SwingCategory, SwingTrade,
   WinRateData, SetupAnalysis, MTFContext, NotificationPrefs,
+  NotificationRouting,
   PerformanceBreakdown,
 } from "../types";
 
@@ -734,6 +735,24 @@ export function useUpdateNotificationPrefs() {
     mutationFn: (body: NotificationPrefs) =>
       api.put<NotificationPrefs>("/settings/notifications", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notification-prefs"] }),
+  });
+}
+
+// --- Per-Alert-Type Channel Routing ---
+
+export function useNotificationRouting() {
+  return useQuery({
+    queryKey: ["notification-routing"],
+    queryFn: () => api.get<NotificationRouting>("/settings/notification-routing"),
+  });
+}
+
+export function useUpdateNotificationRouting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (routing: NotificationRouting) =>
+      api.put<NotificationRouting>("/settings/notification-routing", { routing }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notification-routing"] }),
   });
 }
 
