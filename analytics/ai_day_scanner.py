@@ -1129,11 +1129,15 @@ def scan_day_trade(symbol: str, api_key: str, active_positions: list[dict] | Non
                 (live_price - bar_close) / bar_close * 100,
             )
 
+        # Full session 5-min bars so session VWAP / high / low / volume are
+        # computed over the whole session, not just the last 100 minutes.
+        # build_day_trade_prompt renders only the tail(20) for price-action
+        # context; metrics still see every bar.
         bars_5m = [
             {"open": float(r["Open"]), "high": float(r["High"]),
              "low": float(r["Low"]), "close": float(r["Close"]),
              "volume": float(r["Volume"])}
-            for _, r in bars_5m_df.tail(20).iterrows()
+            for _, r in bars_5m_df.iterrows()
         ]
         bars_1h = []
         if bars_1h_df is not None and not (hasattr(bars_1h_df, "empty") and bars_1h_df.empty):
@@ -2192,11 +2196,13 @@ def exit_scan_cycle(sync_session_factory) -> int:
                     bars_df = fetch_intraday_crypto(sym) if is_crypto else fetch_intraday(sym)
                     if bars_df is None or bars_df.empty:
                         continue
+                    # Full session — exit prompt computes session VWAP / high /
+                    # low; the prompt renders only the tail(20) for context.
                     bars_5m = [
                         {"open": float(r["Open"]), "high": float(r["High"]),
                          "low": float(r["Low"]), "close": float(r["Close"]),
                          "volume": float(r["Volume"])}
-                        for _, r in bars_df.tail(20).iterrows()
+                        for _, r in bars_df.iterrows()
                     ]
                 except Exception:
                     continue
