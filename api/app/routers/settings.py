@@ -158,12 +158,15 @@ def _build_routing_response(user: User) -> NotificationRoutingResponse:
         except Exception:
             data = {}
 
+    tus = getattr(user, "telegram_update_symbols", None) or "SPY"
+
     return NotificationRoutingResponse(
         ai_update=data.get("ai_update", "telegram"),
         ai_resistance=data.get("ai_resistance", "telegram"),
         ai_long=data.get("ai_long", "telegram"),
         ai_short=data.get("ai_short", "telegram"),
         ai_exit=data.get("ai_exit", "telegram"),
+        telegram_update_symbols=tus,
     )
 
 
@@ -198,6 +201,15 @@ async def update_notification_routing(
         cleaned[alert_type] = ch
 
     user.notification_routing = json.dumps(cleaned) if cleaned else None
+
+    if body.telegram_update_symbols is not None:
+        syms = ",".join(
+            s.strip().upper()
+            for s in body.telegram_update_symbols.split(",")
+            if s.strip()
+        )
+        user.telegram_update_symbols = syms or None
+
     await db.flush()
     return _build_routing_response(user)
 

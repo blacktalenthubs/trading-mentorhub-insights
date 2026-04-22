@@ -1570,7 +1570,7 @@ def day_scan_cycle(
                                     logger.info("WAIT skip uid=%d sym=%s reason=user_not_found", _uid, symbol)
                                     continue
                                 # Resolve routing — skip if user has no channel for ai_update
-                                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_update")
+                                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_update", symbol)
                                 if not (_tg_ok or _email_ok):
                                     logger.info("WAIT skip uid=%d sym=%s reason=no_channel", _uid, symbol)
                                     continue
@@ -1677,7 +1677,7 @@ def day_scan_cycle(
                                 user = db.get(User, uid)
                                 if not user:
                                     continue
-                                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_resistance")
+                                _tg_ok, _email_ok = resolve_ai_channels(user, "ai_resistance", symbol)
                                 if not (_tg_ok or _email_ok):
                                     continue
                                 # Spec 36 — preference filter

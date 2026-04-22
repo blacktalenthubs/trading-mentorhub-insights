@@ -119,6 +119,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS swing_alerts_enabled BOOLEAN DEFAULT TRUE",
             # Per-alert-type channel routing (JSON blob) — NULL = legacy telegram-only behavior
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_routing VARCHAR(500)",
+            # Per-symbol Telegram override for AI Updates (default SPY)
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_update_symbols VARCHAR(500) DEFAULT 'SPY'",
             # Table to track one-shot data migrations so they don't re-run
             """CREATE TABLE IF NOT EXISTS migration_flags (
                 flag_name VARCHAR(200) PRIMARY KEY,

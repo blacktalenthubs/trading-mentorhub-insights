@@ -263,6 +263,7 @@ export interface NotificationRouting {
   ai_long: AlertChannel;
   ai_short: AlertChannel;
   ai_exit: AlertChannel;
+  telegram_update_symbols: string;
 }
 
 export interface AlertCategoryItem {

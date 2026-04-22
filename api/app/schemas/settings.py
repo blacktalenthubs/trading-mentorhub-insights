@@ -79,7 +79,11 @@ class NotificationRoutingResponse(BaseModel):
     ai_long: str = "telegram"
     ai_short: str = "telegram"
     ai_exit: str = "telegram"
+    # Per-symbol Telegram override — comma-separated symbols whose AI Updates
+    # always go to Telegram regardless of ai_update routing.
+    telegram_update_symbols: str = "SPY"
 
 
 class UpdateNotificationRoutingRequest(BaseModel):
     routing: Dict[str, str]  # {alert_type: channel}
+    telegram_update_symbols: Optional[str] = None  # comma-separated symbols
