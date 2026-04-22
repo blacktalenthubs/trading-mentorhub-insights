@@ -537,12 +537,19 @@ def _build_trade_buttons(signal: AlertSignal, alert_id: int | None) -> dict | No
 _AI_ALERT_TYPES = {"ai_update", "ai_resistance", "ai_long", "ai_short", "ai_exit"}
 
 
-def resolve_ai_channels(user, alert_type: str) -> tuple[bool, bool]:
+def resolve_ai_channels(
+    user, alert_type: str, symbol: str | None = None,
+) -> tuple[bool, bool]:
     """Resolve (send_telegram, send_email) for a given user + alert type.
 
     Reads user.notification_routing (JSON) if present. Unknown / missing →
     Telegram-only (legacy default). Respects telegram_enabled / email_enabled
     master switches and presence of chat_id / email.
+
+    *symbol* — when provided and the alert is an AI update (ai_update or
+    ai_resistance), checks user.telegram_update_symbols for a per-symbol
+    Telegram override.  E.g. general routing is "email" but SPY is in the
+    override list → force Telegram on for SPY.
     """
     import json
 
@@ -560,6 +567,16 @@ def resolve_ai_channels(user, alert_type: str) -> tuple[bool, bool]:
 
     want_tg = channel in ("telegram", "both")
     want_email = channel in ("email", "both")
+
+    # Per-symbol Telegram override for AI updates: if the symbol is in the
+    # user's telegram_update_symbols list, force Telegram delivery on.
+    if symbol and alert_type in ("ai_update", "ai_resistance"):
+        tg_override_raw = getattr(user, "telegram_update_symbols", None) or ""
+        tg_override_syms = {
+            s.strip().upper() for s in tg_override_raw.split(",") if s.strip()
+        }
+        if symbol.upper() in tg_override_syms:
+            want_tg = True
 
     # Respect master switches + presence of destination
     tg_ok = bool(

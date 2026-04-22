@@ -240,7 +240,8 @@ function ChannelRouting() {
   if (!routing) return null;
 
   const dirty = data && (
-    ROUTING_ROWS.some(({ key }) => routing[key] !== data[key])
+    ROUTING_ROWS.some(({ key }) => routing[key] !== data[key]) ||
+    (routing.telegram_update_symbols || "") !== (data.telegram_update_symbols || "")
   );
 
   function setChannel(key: keyof NotificationRouting, c: AlertChannel) {
@@ -278,6 +279,28 @@ function ChannelRouting() {
             </select>
           </div>
         ))}
+      </div>
+
+      {/* Per-symbol Telegram override for AI Updates */}
+      <div className="mt-4 pt-4 border-t border-border-subtle/50">
+        <label className="text-xs font-semibold text-text-primary block mb-1">
+          Always send AI Updates to Telegram for
+        </label>
+        <input
+          type="text"
+          value={routing.telegram_update_symbols || ""}
+          onChange={(e) =>
+            setRouting((prev) =>
+              prev ? { ...prev, telegram_update_symbols: e.target.value.toUpperCase() } : prev
+            )
+          }
+          placeholder="SPY, NVDA, QQQ"
+          className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:outline-none"
+        />
+        <p className="text-[10px] text-text-faint mt-1">
+          Comma-separated symbols. These symbols always get Telegram delivery for
+          AI Updates, even when the general AI Updates routing is set to Email or Off.
+        </p>
       </div>
 
       <div className="flex items-center gap-3 mt-4">

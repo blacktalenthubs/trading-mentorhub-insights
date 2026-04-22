@@ -59,6 +59,13 @@ class User(Base):
     # NULL / missing key → fall back to legacy telegram_enabled behavior.
     notification_routing: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    # Per-symbol Telegram override for AI Updates — comma-separated symbols
+    # whose AI Updates always go to Telegram regardless of general routing.
+    # Default "SPY" — market barometer. Set to "" to disable override.
+    telegram_update_symbols: Mapped[Optional[str]] = mapped_column(
+        String(500), server_default="SPY", default="SPY",
+    )
+
     # Position sizing (Spec 36 Option A) — used by Telegram Took It flow
     default_portfolio_size: Mapped[float] = mapped_column(
         Float, server_default="50000", default=50000.0,
