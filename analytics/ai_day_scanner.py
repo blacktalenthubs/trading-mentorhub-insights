@@ -1425,7 +1425,7 @@ def day_scan_cycle(
                     return False
                 if is_crypto_alert_symbol(sym):
                     if sym.upper() in _priority_filter:
-                        return _crypto_active
+                        return True
                     if not _crypto_active or not _crypto_due:
                         return False
                 return True
