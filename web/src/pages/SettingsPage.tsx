@@ -232,10 +232,14 @@ function ChannelRouting() {
   const { data } = useNotificationRouting();
   const update = useUpdateNotificationRouting();
   const [routing, setRouting] = useState<NotificationRouting | null>(null);
+  const [synced, setSynced] = useState(false);
 
   useEffect(() => {
-    if (data && !routing) setRouting(data);
-  }, [data, routing]);
+    if (data && !synced) {
+      setRouting(data);
+      setSynced(true);
+    }
+  }, [data, synced]);
 
   if (!routing) return null;
 
@@ -251,7 +255,10 @@ function ChannelRouting() {
   function save() {
     if (!routing) return;
     update.mutate(routing, {
-      onSuccess: () => toast.success("Alert routing saved"),
+      onSuccess: (saved) => {
+        setRouting(saved);
+        toast.success("Alert routing saved");
+      },
     });
   }
 
