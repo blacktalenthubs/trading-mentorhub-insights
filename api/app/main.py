@@ -262,27 +262,48 @@ async def lifespan(app: FastAPI):
         # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
         # AI_DAY_SCAN_MIN (default 15). Set SPY_FAST_SCAN_MIN=0 to disable
         # the fast SPY pass and scan SPY with everything else.
-        _spy_fast_min = int(os.environ.get("SPY_FAST_SCAN_MIN", "5"))
+        _fast_scan_min = int(os.environ.get("SPY_FAST_SCAN_MIN", "5"))
         _day_scan_min = int(os.environ.get("AI_DAY_SCAN_MIN", "15"))
-        _spy_fast_enabled = _spy_fast_min > 0
+        _fast_scan_enabled = _fast_scan_min > 0
+
+        def _resolve_priority_symbols() -> set[str]:
+            """Union of all users' telegram_update_symbols — these get the fast cadence."""
+            try:
+                with sync_session_factory() as sess:
+                    from app.models.user import User as _U
+                    rows = sess.query(_U.telegram_update_symbols).filter(
+                        _U.telegram_update_symbols.isnot(None),
+                        _U.telegram_update_symbols != "",
+                    ).all()
+                    syms: set[str] = set()
+                    for (raw,) in rows:
+                        for s in (raw or "").split(","):
+                            s = s.strip().upper()
+                            if s:
+                                syms.add(s)
+                    return syms or {"SPY"}
+            except Exception:
+                logger.debug("Failed to resolve priority symbols, defaulting to SPY", exc_info=True)
+                return {"SPY"}
 
         def _ai_day_scan():
             try:
                 from analytics.ai_day_scanner import day_scan_cycle, exit_scan_cycle
-                _exclude = {"SPY"} if _spy_fast_enabled else None
+                _exclude = _resolve_priority_symbols() if _fast_scan_enabled else None
                 entries = day_scan_cycle(sync_session_factory, exclude_symbols=_exclude)
                 exits = exit_scan_cycle(sync_session_factory)
                 logger.info("AI scan cycle: %d entries, %d exit signals", entries, exits)
             except Exception:
                 logger.exception("AI day scan cycle failed")
 
-        def _ai_spy_fast_scan():
+        def _ai_priority_fast_scan():
             try:
                 from analytics.ai_day_scanner import day_scan_cycle
-                entries = day_scan_cycle(sync_session_factory, symbols_filter={"SPY"})
-                logger.info("AI SPY fast scan: %d entries", entries)
+                _syms = _resolve_priority_symbols()
+                entries = day_scan_cycle(sync_session_factory, symbols_filter=_syms)
+                logger.info("AI priority fast scan (%s): %d entries", ",".join(sorted(_syms)), entries)
             except Exception:
-                logger.exception("AI SPY fast scan failed")
+                logger.exception("AI priority fast scan failed")
 
         # Spec 35 Phase 2 — AI Auto-Pilot paper trade monitor (1 min cadence)
         def _auto_trade_monitor():
@@ -332,21 +353,21 @@ async def lifespan(app: FastAPI):
             id="ai_day_scan_initial",
         )
 
-        if _spy_fast_enabled:
+        if _fast_scan_enabled:
             scheduler.add_job(
-                _ai_spy_fast_scan,
+                _ai_priority_fast_scan,
                 "interval",
-                minutes=_spy_fast_min,
-                id="ai_spy_fast_scan",
+                minutes=_fast_scan_min,
+                id="ai_priority_fast_scan",
                 replace_existing=True,
             )
             scheduler.add_job(
-                _ai_spy_fast_scan,
-                id="ai_spy_fast_scan_initial",
+                _ai_priority_fast_scan,
+                id="ai_priority_fast_scan_initial",
             )
             logger.info(
-                "AI day scan split: SPY every %d min, others every %d min",
-                _spy_fast_min, _day_scan_min,
+                "AI day scan split: priority symbols every %d min, others every %d min",
+                _fast_scan_min, _day_scan_min,
             )
         else:
             logger.info(
