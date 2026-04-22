@@ -1418,10 +1418,14 @@ def day_scan_cycle(
             _now_ts = time.time()
             _crypto_due = (_now_ts - _last_crypto_scan) >= _CRYPTO_SCAN_INTERVAL
 
+            _priority_filter = {s.upper() for s in symbols_filter} if symbols_filter else set()
+
             def _symbol_allowed(sym: str) -> bool:
                 if not is_market_hours_for_symbol(sym):
                     return False
                 if is_crypto_alert_symbol(sym):
+                    if sym.upper() in _priority_filter:
+                        return _crypto_active
                     if not _crypto_active or not _crypto_due:
                         return False
                 return True
