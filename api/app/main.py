@@ -266,134 +266,145 @@ async def lifespan(app: FastAPI):
         _day_scan_min = int(os.environ.get("AI_DAY_SCAN_MIN", "15"))
         _fast_scan_enabled = _fast_scan_min > 0
 
-        def _resolve_priority_symbols() -> set[str]:
-            """Union of all users' telegram_update_symbols — these get the fast cadence."""
-            try:
-                with sync_session_factory() as sess:
-                    from app.models.user import User as _U
-                    rows = sess.query(_U.telegram_update_symbols).filter(
-                        _U.telegram_update_symbols.isnot(None),
-                        _U.telegram_update_symbols != "",
-                    ).all()
-                    syms: set[str] = set()
-                    for (raw,) in rows:
-                        for s in (raw or "").split(","):
-                            s = s.strip().upper()
-                            if s:
-                                syms.add(s)
-                    return syms or {"SPY"}
-            except Exception:
-                logger.debug("Failed to resolve priority symbols, defaulting to SPY", exc_info=True)
-                return {"SPY"}
+        # Master switch for all AI-powered scheduled scans (day, swing, auto-trade).
+        # Set AI_SCAN_ENABLED=false to run rule-based alerts only (zero Anthropic cost).
+        # On-demand AI endpoints (best setups, position advisor, etc.) still work.
+        _ai_scan_env = os.environ.get("AI_SCAN_ENABLED", "true").strip().lower()
+        _ai_scan_enabled = _ai_scan_env not in ("false", "0", "no", "off")
 
-        def _ai_day_scan():
-            try:
-                from analytics.ai_day_scanner import day_scan_cycle, exit_scan_cycle
-                _exclude = _resolve_priority_symbols() if _fast_scan_enabled else None
-                entries = day_scan_cycle(sync_session_factory, exclude_symbols=_exclude)
-                exits = exit_scan_cycle(sync_session_factory)
-                logger.info("AI scan cycle: %d entries, %d exit signals", entries, exits)
-            except Exception:
-                logger.exception("AI day scan cycle failed")
+        if _ai_scan_enabled:
+            def _resolve_priority_symbols() -> set[str]:
+                """Union of all users' telegram_update_symbols — these get the fast cadence."""
+                try:
+                    with sync_session_factory() as sess:
+                        from app.models.user import User as _U
+                        rows = sess.query(_U.telegram_update_symbols).filter(
+                            _U.telegram_update_symbols.isnot(None),
+                            _U.telegram_update_symbols != "",
+                        ).all()
+                        syms: set[str] = set()
+                        for (raw,) in rows:
+                            for s in (raw or "").split(","):
+                                s = s.strip().upper()
+                                if s:
+                                    syms.add(s)
+                        return syms or {"SPY"}
+                except Exception:
+                    logger.debug("Failed to resolve priority symbols, defaulting to SPY", exc_info=True)
+                    return {"SPY"}
 
-        def _ai_priority_fast_scan():
-            try:
-                from analytics.ai_day_scanner import day_scan_cycle
-                _syms = _resolve_priority_symbols()
-                entries = day_scan_cycle(sync_session_factory, symbols_filter=_syms)
-                logger.info("AI priority fast scan (%s): %d entries", ",".join(sorted(_syms)), entries)
-            except Exception:
-                logger.exception("AI priority fast scan failed")
+            def _ai_day_scan():
+                try:
+                    from analytics.ai_day_scanner import day_scan_cycle, exit_scan_cycle
+                    _exclude = _resolve_priority_symbols() if _fast_scan_enabled else None
+                    entries = day_scan_cycle(sync_session_factory, exclude_symbols=_exclude)
+                    exits = exit_scan_cycle(sync_session_factory)
+                    logger.info("AI scan cycle: %d entries, %d exit signals", entries, exits)
+                except Exception:
+                    logger.exception("AI day scan cycle failed")
 
-        # Spec 35 Phase 2 — AI Auto-Pilot paper trade monitor (1 min cadence)
-        def _auto_trade_monitor():
-            try:
-                from analytics.ai_day_scanner import auto_trade_monitor_cycle
-                closed = auto_trade_monitor_cycle(sync_session_factory)
-                if closed:
-                    logger.info("Auto-pilot monitor: closed %d trades", closed)
-            except Exception:
-                logger.exception("Auto-trade monitor cycle failed")
+            def _ai_priority_fast_scan():
+                try:
+                    from analytics.ai_day_scanner import day_scan_cycle
+                    _syms = _resolve_priority_symbols()
+                    entries = day_scan_cycle(sync_session_factory, symbols_filter=_syms)
+                    logger.info("AI priority fast scan (%s): %d entries", ",".join(sorted(_syms)), entries)
+                except Exception:
+                    logger.exception("AI priority fast scan failed")
 
-        scheduler.add_job(
-            _auto_trade_monitor,
-            "interval",
-            minutes=1,
-            id="auto_trade_monitor",
-            replace_existing=True,
-        )
+            # Spec 35 Phase 2 — AI Auto-Pilot paper trade monitor (1 min cadence)
+            def _auto_trade_monitor():
+                try:
+                    from analytics.ai_day_scanner import auto_trade_monitor_cycle
+                    closed = auto_trade_monitor_cycle(sync_session_factory)
+                    if closed:
+                        logger.info("Auto-pilot monitor: closed %d trades", closed)
+                except Exception:
+                    logger.exception("Auto-trade monitor cycle failed")
 
-        # EOD cleanup at 4:05 PM ET (20:05 UTC during EST, 21:05 UTC during EDT)
-        def _auto_trade_eod():
-            try:
-                from analytics.ai_day_scanner import auto_trade_eod_cleanup
-                closed = auto_trade_eod_cleanup(sync_session_factory)
-                if closed:
-                    logger.info("Auto-pilot EOD: closed %d equity trades", closed)
-            except Exception:
-                logger.exception("Auto-trade EOD cleanup failed")
-
-        scheduler.add_job(
-            _auto_trade_eod,
-            "cron",
-            hour=20, minute=5,  # 4:05 PM ET (EDT — runs 1hr earlier on EST, fine for our use)
-            id="auto_trade_eod",
-            replace_existing=True,
-        )
-
-        scheduler.add_job(
-            _ai_day_scan,
-            "interval",
-            minutes=_day_scan_min,
-            id="ai_day_scan",
-            replace_existing=True,
-        )
-        scheduler.add_job(
-            _ai_day_scan,
-            id="ai_day_scan_initial",
-        )
-
-        if _fast_scan_enabled:
             scheduler.add_job(
-                _ai_priority_fast_scan,
+                _auto_trade_monitor,
                 "interval",
-                minutes=_fast_scan_min,
-                id="ai_priority_fast_scan",
+                minutes=1,
+                id="auto_trade_monitor",
+                replace_existing=True,
+            )
+
+            # EOD cleanup at 4:05 PM ET (20:05 UTC during EST, 21:05 UTC during EDT)
+            def _auto_trade_eod():
+                try:
+                    from analytics.ai_day_scanner import auto_trade_eod_cleanup
+                    closed = auto_trade_eod_cleanup(sync_session_factory)
+                    if closed:
+                        logger.info("Auto-pilot EOD: closed %d equity trades", closed)
+                except Exception:
+                    logger.exception("Auto-trade EOD cleanup failed")
+
+            scheduler.add_job(
+                _auto_trade_eod,
+                "cron",
+                hour=20, minute=5,  # 4:05 PM ET (EDT — runs 1hr earlier on EST, fine for our use)
+                id="auto_trade_eod",
+                replace_existing=True,
+            )
+
+            scheduler.add_job(
+                _ai_day_scan,
+                "interval",
+                minutes=_day_scan_min,
+                id="ai_day_scan",
                 replace_existing=True,
             )
             scheduler.add_job(
-                _ai_priority_fast_scan,
-                id="ai_priority_fast_scan_initial",
+                _ai_day_scan,
+                id="ai_day_scan_initial",
             )
-            logger.info(
-                "AI day scan split: priority symbols every %d min, others every %d min",
-                _fast_scan_min, _day_scan_min,
+
+            if _fast_scan_enabled:
+                scheduler.add_job(
+                    _ai_priority_fast_scan,
+                    "interval",
+                    minutes=_fast_scan_min,
+                    id="ai_priority_fast_scan",
+                    replace_existing=True,
+                )
+                scheduler.add_job(
+                    _ai_priority_fast_scan,
+                    id="ai_priority_fast_scan_initial",
+                )
+                logger.info(
+                    "AI day scan split: priority symbols every %d min, others every %d min",
+                    _fast_scan_min, _day_scan_min,
+                )
+            else:
+                logger.info(
+                    "AI day scan: all symbols every %d min (SPY_FAST_SCAN_MIN=0)",
+                    _day_scan_min,
+                )
+
+            # AI Swing Scanner (Spec 38) — runs on 15-min interval during market hours.
+            # Fires only when price is actually AT a daily/weekly level right now,
+            # not at arbitrary pre-market/EOD cron times. Daily levels don't move
+            # fast enough to warrant tighter cadence.
+            def _ai_swing_scan():
+                try:
+                    from analytics.ai_swing_scanner import swing_scan_cycle
+                    fired = swing_scan_cycle(sync_session_factory)
+                    logger.info("Swing scan: %d deliveries", fired)
+                except Exception:
+                    logger.exception("Swing scan failed")
+
+            scheduler.add_job(
+                _ai_swing_scan,
+                "interval",
+                minutes=15,
+                id="ai_swing_scan",
+                replace_existing=True,
             )
         else:
             logger.info(
-                "AI day scan: all symbols every %d min (SPY_FAST_SCAN_MIN=0)",
-                _day_scan_min,
+                "AI scans DISABLED (AI_SCAN_ENABLED=false) — rule-based alerts only"
             )
-
-        # AI Swing Scanner (Spec 38) — runs on 15-min interval during market hours.
-        # Fires only when price is actually AT a daily/weekly level right now,
-        # not at arbitrary pre-market/EOD cron times. Daily levels don't move
-        # fast enough to warrant tighter cadence.
-        def _ai_swing_scan():
-            try:
-                from analytics.ai_swing_scanner import swing_scan_cycle
-                fired = swing_scan_cycle(sync_session_factory)
-                logger.info("Swing scan: %d deliveries", fired)
-            except Exception:
-                logger.exception("Swing scan failed")
-
-        scheduler.add_job(
-            _ai_swing_scan,
-            "interval",
-            minutes=15,
-            id="ai_swing_scan",
-            replace_existing=True,
-        )
 
         # Cost control (2026-04-16): game_plan, premarket_brief, daily_review
         # are AI-backed scheduled jobs that burn Anthropic tokens daily without
