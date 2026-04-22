@@ -750,8 +750,13 @@ export function useNotificationRouting() {
 export function useUpdateNotificationRouting() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (routing: NotificationRouting) =>
-      api.put<NotificationRouting>("/settings/notification-routing", { routing }),
+    mutationFn: (data: NotificationRouting) => {
+      const { telegram_update_symbols, ...routing } = data;
+      return api.put<NotificationRouting>("/settings/notification-routing", {
+        routing,
+        telegram_update_symbols,
+      });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notification-routing"] }),
   });
 }

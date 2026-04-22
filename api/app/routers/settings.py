@@ -188,10 +188,7 @@ async def update_notification_routing(
     cleaned: dict[str, str] = {}
     for alert_type, channel in (body.routing or {}).items():
         if alert_type not in _VALID_ROUTING_ALERT_TYPES:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Unknown alert type: {alert_type}",
-            )
+            continue  # skip unknown keys gracefully
         ch = (channel or "").strip().lower()
         if ch not in _VALID_ROUTING_CHANNELS:
             raise HTTPException(
