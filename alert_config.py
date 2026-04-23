@@ -115,6 +115,23 @@ HOURLY_RES_REJECTION_MIN_BARS = 12          # 60 min into session minimum
 HOURLY_RES_REJECTION_STOP_OFFSET_PCT = 0.003  # 0.3% above resistance for stop
 
 # Support Breakdown: volume must be >= this multiple of average
+# ---------------------------------------------------------------------------
+# Phase 1 (2026-04-22): N-bar confirmation + staleness guard for ALL breakout
+# and breakdown rules. Prevents single-bar spike alerts (the 13:31 AMD
+# inside_day_breakout at +1.8% above level case) from firing.
+#
+# BREAKOUT_CONFIRM_BARS     — require this many consecutive 5-min closes
+#                             on the correct side of the level. 2 = 10 min.
+# BREAKOUT_INTRABAR_TOLERANCE_PCT — during those N bars, the opposing wick
+#                             (low for breakout, high for breakdown) may not
+#                             round-trip past the level by more than this %.
+# BREAKOUT_STALENESS_PCT    — if the last close is more than this far past
+#                             the level, skip (price already ran away).
+# ---------------------------------------------------------------------------
+BREAKOUT_CONFIRM_BARS = 2
+BREAKOUT_INTRABAR_TOLERANCE_PCT = 0.002   # 0.2%
+BREAKOUT_STALENESS_PCT = 0.010             # 1.0%
+
 BREAKDOWN_VOLUME_RATIO = 1.5
 
 # Support Breakdown: close must be in lower N% of bar range to confirm conviction
@@ -568,8 +585,11 @@ ENABLED_RULES: set[str] = {
     "morning_low_retest",
     # "first_hour_high_breakout",      # DISABLED: 0% win rate in bearish regime, chases momentum
     # BUY — inside day (volatility compression → expansion)
-    "inside_day_breakout",
-    "inside_day_reclaim",
+    # Phase 1 (2026-04-22): disabled — fragile on gap-ups (AMD 04-22 misfire),
+    # and PDH/PDL + daily-MA rules cover the same structural setups with
+    # better confirmation. Kept in code, removed from ENABLED_RULES.
+    # "inside_day_breakout",
+    # "inside_day_reclaim",
     # BUY — support structure
     "session_low_double_bottom",
     "multi_day_double_bottom",
@@ -597,7 +617,7 @@ ENABLED_RULES: set[str] = {
     "resistance_prior_low",
     "weekly_high_resistance",
     "monthly_high_resistance",
-    "inside_day_breakdown",
+    # "inside_day_breakdown",  # Phase 1 (2026-04-22): disabled with inside_day_breakout
     "support_breakdown",
     "prior_day_low_breakdown",
     "prior_day_low_resistance",
@@ -619,7 +639,7 @@ ENABLED_RULES: set[str] = {
     "auto_stop_out",
     # ── NOTICE — informational only ─────────────────────────────────────────
     # "first_hour_summary",            # DISABLED: noise, 5 alerts/day with no value
-    "inside_day_forming",
+    # "inside_day_forming",  # Phase 1 (2026-04-22): disabled with inside-day family
     # ── DISABLED — noise alerts removed ─────────────────────────────────────
     # "ma_approach",                  # NOISE: price always near some MA
     # "ma_resistance",               # NOISE: use as filter, not alert

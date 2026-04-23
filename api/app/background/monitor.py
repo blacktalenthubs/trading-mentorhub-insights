@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
 
@@ -36,6 +36,16 @@ _spy_inside_day_notified: bool = False
 
 # Per-alert-type cooldown: prevent same alert type from firing rapidly
 _direction_lock: Dict[tuple, "datetime"] = {}  # {(symbol, alert_type): datetime}
+
+# Phase 1 (2026-04-22) — Level-based dedup. Tracks entry levels across
+# alert types so 3 different rules at the same PDH (AAPL 04-22 $272.30 —
+# weekly_high_breakout, pdh_retest_hold, prior_day_high_breakout) collapse
+# into a single alert. Keyed by (symbol, direction); stores list of
+# (entry_price, timestamp) tuples. Pruned to last LEVEL_DEDUP_WINDOW_MIN
+# minutes whenever consulted.
+_level_lock: Dict[tuple, list] = {}  # {(symbol, direction): [(entry, datetime), ...]}
+LEVEL_DEDUP_WINDOW_MIN = 30
+LEVEL_DEDUP_TOLERANCE_PCT = 0.005  # 0.5%
 
 
 def poll_all_users(sync_session_factory) -> int:
@@ -67,6 +77,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     if _last_buy_session != session_date:
         _last_buy_notify.clear()
         _spy_inside_day_notified = False
+        _level_lock.clear()
         _last_buy_session = session_date
 
     with sync_session_factory() as db:
@@ -518,6 +529,35 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             _elapsed = (datetime.utcnow() - _locked_time).total_seconds()
                             if _elapsed < 600:  # 10 min cooldown per alert type
                                 continue
+
+                    # Phase 1 (2026-04-22) — Level-based dedup.
+                    # Collapse alerts from different rules that reference the same
+                    # entry level within LEVEL_DEDUP_TOLERANCE_PCT inside the last
+                    # LEVEL_DEDUP_WINDOW_MIN minutes. Fixes AAPL 04-22 case where
+                    # weekly_high_breakout + pdh_retest_hold + prior_day_high_breakout
+                    # all fired at $272.30 within 96 min.
+                    if signal.direction in ("BUY", "SHORT") and signal.entry and signal.entry > 0:
+                        _level_key = (symbol, signal.direction)
+                        _now_ld = datetime.utcnow()
+                        _window = _level_lock.get(_level_key, [])
+                        _cutoff = _now_ld - timedelta(minutes=LEVEL_DEDUP_WINDOW_MIN)
+                        _window = [(lv, ts) for (lv, ts) in _window if ts >= _cutoff]
+                        _duplicate = False
+                        for (_prev_entry, _prev_ts) in _window:
+                            if _prev_entry <= 0:
+                                continue
+                            if abs(signal.entry - _prev_entry) / _prev_entry <= LEVEL_DEDUP_TOLERANCE_PCT:
+                                _duplicate = True
+                                break
+                        if _duplicate:
+                            logger.info(
+                                "LEVEL DEDUP: user=%d %s %s entry=$%.2f — suppressed (matches recent alert)",
+                                user_id, symbol, signal.alert_type.value, float(signal.entry),
+                            )
+                            continue
+                        # Record this fire in the lock (pruned window + new entry)
+                        _window.append((float(signal.entry), _now_ld))
+                        _level_lock[_level_key] = _window
 
                     # Generate AI narrative for education context
                     _narrative = ""
