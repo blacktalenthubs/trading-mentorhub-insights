@@ -258,6 +258,10 @@ async def lifespan(app: FastAPI):
         # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
         # AI_DAY_SCAN_MIN (default 15). Set SPY_FAST_SCAN_MIN=0 to disable
         # the fast SPY pass and scan SPY with everything else.
+        # Set AI_SCAN_ENABLED=false to kill all AI scans (day, SPY fast, swing)
+        # and run rule-based alerts only.
+        _ai_env = _os.environ.get("AI_SCAN_ENABLED", "true").strip().lower()
+        AI_SCAN_ENABLED = _ai_env not in ("false", "0", "no", "off")
         _spy_fast_min = int(os.environ.get("SPY_FAST_SCAN_MIN", "5"))
         _day_scan_min = int(os.environ.get("AI_DAY_SCAN_MIN", "15"))
         _spy_fast_enabled = _spy_fast_min > 0
@@ -316,38 +320,44 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
 
-        scheduler.add_job(
-            _ai_day_scan,
-            "interval",
-            minutes=_day_scan_min,
-            id="ai_day_scan",
-            replace_existing=True,
-        )
-        scheduler.add_job(
-            _ai_day_scan,
-            id="ai_day_scan_initial",
-        )
-
-        if _spy_fast_enabled:
+        if AI_SCAN_ENABLED:
             scheduler.add_job(
-                _ai_spy_fast_scan,
+                _ai_day_scan,
                 "interval",
-                minutes=_spy_fast_min,
-                id="ai_spy_fast_scan",
+                minutes=_day_scan_min,
+                id="ai_day_scan",
                 replace_existing=True,
             )
             scheduler.add_job(
-                _ai_spy_fast_scan,
-                id="ai_spy_fast_scan_initial",
+                _ai_day_scan,
+                id="ai_day_scan_initial",
             )
-            logger.info(
-                "AI day scan split: SPY every %d min, others every %d min",
-                _spy_fast_min, _day_scan_min,
-            )
+
+            if _spy_fast_enabled:
+                scheduler.add_job(
+                    _ai_spy_fast_scan,
+                    "interval",
+                    minutes=_spy_fast_min,
+                    id="ai_spy_fast_scan",
+                    replace_existing=True,
+                )
+                scheduler.add_job(
+                    _ai_spy_fast_scan,
+                    id="ai_spy_fast_scan_initial",
+                )
+                logger.info(
+                    "AI day scan split: SPY every %d min, others every %d min",
+                    _spy_fast_min, _day_scan_min,
+                )
+            else:
+                logger.info(
+                    "AI day scan: all symbols every %d min (SPY_FAST_SCAN_MIN=0)",
+                    _day_scan_min,
+                )
         else:
-            logger.info(
-                "AI day scan: all symbols every %d min (SPY_FAST_SCAN_MIN=0)",
-                _day_scan_min,
+            logger.warning(
+                "AI scan DISABLED (AI_SCAN_ENABLED=false). "
+                "Rule-based alerts only."
             )
 
         # AI Swing Scanner (Spec 38) — runs on 15-min interval during market hours.
@@ -362,13 +372,14 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Swing scan failed")
 
-        scheduler.add_job(
-            _ai_swing_scan,
-            "interval",
-            minutes=15,
-            id="ai_swing_scan",
-            replace_existing=True,
-        )
+        if AI_SCAN_ENABLED:
+            scheduler.add_job(
+                _ai_swing_scan,
+                "interval",
+                minutes=15,
+                id="ai_swing_scan",
+                replace_existing=True,
+            )
 
         # Cost control (2026-04-16): game_plan, premarket_brief, daily_review
         # are AI-backed scheduled jobs that burn Anthropic tokens daily without
