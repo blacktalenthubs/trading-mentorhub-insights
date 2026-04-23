@@ -382,17 +382,20 @@ class TestMABounceLookback:
     def test_nvda_real_scenario_ma200_bounce(self):
         """NVDA 2026-03-09: Open 176.83, Low 175.56, bounced to 182.65.
         MA200=176.37. Bounce touched in early bars, price ran to 179.8 (~1.9%).
-        Should fire within 2% max distance."""
+        Should fire within 2% max distance with last bar volume >= prior avg
+        (Phase 2 bounce-volume check requires at least 1.0x avg for HIGH).
+        """
         ma200 = 176.37
         bars = _bars([
             # Early morning: price near/below MA200
-            {"Open": 176.83, "High": 177.50, "Low": 175.56, "Close": 176.00, "Volume": 8000},
-            {"Open": 176.00, "High": 177.80, "Low": 175.80, "Close": 177.50, "Volume": 7000},
+            {"Open": 176.83, "High": 177.50, "Low": 175.56, "Close": 176.00, "Volume": 4000},
+            {"Open": 176.00, "High": 177.80, "Low": 175.80, "Close": 177.50, "Volume": 3500},
             # Recovery bars
-            {"Open": 177.50, "High": 178.50, "Low": 177.00, "Close": 178.20, "Volume": 5000},
-            {"Open": 178.20, "High": 179.00, "Low": 177.80, "Close": 178.80, "Volume": 4500},
-            {"Open": 178.80, "High": 179.50, "Low": 178.30, "Close": 179.20, "Volume": 4000},
-            {"Open": 179.20, "High": 180.00, "Low": 178.80, "Close": 179.80, "Volume": 3800},
+            {"Open": 177.50, "High": 178.50, "Low": 177.00, "Close": 178.20, "Volume": 3000},
+            {"Open": 178.20, "High": 179.00, "Low": 177.80, "Close": 178.80, "Volume": 3200},
+            {"Open": 178.80, "High": 179.50, "Low": 178.30, "Close": 179.20, "Volume": 3300},
+            # Last bar volume > prior avg (3400 > 3400 avg)
+            {"Open": 179.20, "High": 180.00, "Low": 178.80, "Close": 179.80, "Volume": 4500},
         ])
         sig = check_ma_bounce_200("NVDA", bars, ma200=ma200, prior_close=173.0)
         assert sig is not None

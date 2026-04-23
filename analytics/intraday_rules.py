@@ -29,6 +29,8 @@ from alert_config import (
     BREAKOUT_CONFIRM_BARS,
     BREAKOUT_INTRABAR_TOLERANCE_PCT,
     BREAKOUT_STALENESS_PCT,
+    MA_BOUNCE_MIN_VOL_RATIO,
+    MA_BOUNCE_MIN_VOL_RATIO_SKIP,
     BUY_ZONE_PROXIMITY_PCT,
     CONFLUENCE_BAND_PCT,
     CONSOLIDATION_MAX_BOOST,
@@ -435,6 +437,62 @@ def _confirm_breakdown_below(
 
 
 # ---------------------------------------------------------------------------
+# Phase 2 (2026-04-23): Volume confirmation on MA/EMA bounces.
+# Bounces on low volume fail ~2x more often than ones on >=1.0x avg volume.
+# Return an advisory verdict; bounce rules skip on 'skip' and demote HIGH
+# → MEDIUM on 'demote'.
+# ---------------------------------------------------------------------------
+
+def _is_before_vwap_reliable_time(bars: pd.DataFrame) -> bool:
+    """Phase 2 (2026-04-23): return True if current session bar is before
+    10:00 ET — window where VWAP is still noisy and not yet anchored.
+    Same reliability heuristic the AI scanner applied in its prompt.
+
+    Uses the last bar's timestamp (bars.index is ET-naive per
+    intraday_data fetchers). Crypto never time-gates (24/7 trading).
+    Fail-open when timestamp can't be parsed.
+    """
+    if bars is None or bars.empty:
+        return False
+    try:
+        last_ts = bars.index[-1]
+        # Only applies to regular equity session. If ts has no .time() method
+        # (unexpected data type) fail-open.
+        if not hasattr(last_ts, "time"):
+            return False
+        t = last_ts.time()
+        return t.hour < 10  # all bars before 10:00 ET
+    except Exception:
+        return False
+
+
+def _bounce_volume_verdict(bars: pd.DataFrame) -> str:
+    """Return 'pass', 'demote', or 'skip' based on last bar volume vs recent avg.
+
+    - >= MA_BOUNCE_MIN_VOL_RATIO (1.0x) → 'pass' (no change)
+    - >= MA_BOUNCE_MIN_VOL_RATIO_SKIP (0.5x) but below → 'demote'
+    - below MA_BOUNCE_MIN_VOL_RATIO_SKIP → 'skip'
+    Fail-open on missing data (< 3 bars or zero avg volume returns 'pass').
+    """
+    if bars is None or len(bars) < 3:
+        return "pass"
+    try:
+        last_vol = float(bars.iloc[-1]["Volume"])
+        prior_bars = bars.iloc[:-1]
+        avg_vol = float(prior_bars["Volume"].mean()) if not prior_bars.empty else 0.0
+    except Exception:
+        return "pass"
+    if avg_vol <= 0:
+        return "pass"
+    ratio = last_vol / avg_vol
+    if ratio < MA_BOUNCE_MIN_VOL_RATIO_SKIP:
+        return "skip"
+    if ratio < MA_BOUNCE_MIN_VOL_RATIO:
+        return "demote"
+    return "pass"
+
+
+# ---------------------------------------------------------------------------
 # BUY Rule 1: MA Bounce 20MA
 # ---------------------------------------------------------------------------
 
@@ -537,11 +595,20 @@ def check_ma_bounce_20(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation — skip below 0.5x, demote below 1.0x
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     entry = round(ma20, 2)
     stop = round(ma20 * (1 - MA_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
+
+    _conf = "high" if proximity <= 0.001 else "medium"
+    if _vol == "demote":
+        _conf = "medium"
 
     return AlertSignal(
         symbol=symbol,
@@ -552,7 +619,7 @@ def check_ma_bounce_20(
         stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
-        confidence="high" if proximity <= 0.001 else "medium",
+        confidence=_conf,
         message=(
             f"MA bounce 20MA — price pulled back to ${ma20:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
@@ -593,6 +660,11 @@ def check_ma_bounce_50(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     entry = round(ma50, 2)
     stop = round(ma50 * (1 - MA_STOP_OFFSET_PCT), 2)
     risk = entry - stop
@@ -603,6 +675,8 @@ def check_ma_bounce_50(
         confidence = "medium"
     else:
         confidence = "high" if proximity <= 0.001 else "medium"
+    if _vol == "demote":
+        confidence = "medium"
 
     msg = (
         f"MA bounce 50MA — price pulled back to ${ma50:.2f} "
@@ -656,6 +730,11 @@ def check_ma_bounce_100(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     entry = round(ma100, 2)
     stop = round(ma100 * (1 - MA100_STOP_OFFSET_PCT), 2)
     risk = entry - stop
@@ -671,7 +750,7 @@ def check_ma_bounce_100(
         stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
-        confidence="high",
+        confidence="medium" if _vol == "demote" else "high",
         message=(
             f"MA bounce 100MA — price pulled back to ${ma100:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
@@ -710,6 +789,11 @@ def check_ma_bounce_200(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     entry = round(ma200, 2)
     stop = round(ma200 * (1 - MA200_STOP_OFFSET_PCT), 2)
     risk = entry - stop
@@ -725,7 +809,7 @@ def check_ma_bounce_200(
         stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
-        confidence="high",
+        confidence="medium" if _vol == "demote" else "high",
         message=(
             f"MA bounce 200MA — price pulled back to ${ma200:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
@@ -2586,11 +2670,20 @@ def check_ema_bounce_20(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     entry = round(ema20, 2)
     stop = round(ema20 * (1 - MA_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
+
+    _conf = "high" if proximity <= 0.001 else "medium"
+    if _vol == "demote":
+        _conf = "medium"
 
     return AlertSignal(
         symbol=symbol,
@@ -2601,7 +2694,7 @@ def check_ema_bounce_20(
         stop=stop,
         target_1=round(entry + risk, 2),
         target_2=round(entry + 2 * risk, 2),
-        confidence="high" if proximity <= 0.001 else "medium",
+        confidence=_conf,
         message=(
             f"EMA bounce 20 — price pulled back to ${ema20:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
@@ -2643,6 +2736,11 @@ def check_ema_bounce_50(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     entry = round(ema50, 2)
     stop = round(ema50 * (1 - MA_STOP_OFFSET_PCT), 2)
     risk = entry - stop
@@ -2653,6 +2751,8 @@ def check_ema_bounce_50(
         confidence = "medium"
     else:
         confidence = "high" if proximity <= 0.001 else "medium"
+    if _vol == "demote":
+        confidence = "medium"
 
     msg = (
         f"EMA bounce 50 — price pulled back to ${ema50:.2f} "
@@ -2708,6 +2808,11 @@ def check_ema_bounce_100(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     counter_trend = prior_close is not None and prior_close <= ema100
 
     entry = round(ema100, 2)
@@ -2720,6 +2825,8 @@ def check_ema_bounce_100(
         confidence = "medium"
     else:
         confidence = "high" if proximity <= 0.002 else "medium"
+    if _vol == "demote":
+        confidence = "medium"
 
     msg = (
         f"EMA bounce 100 — price pulled back to ${ema100:.2f} "
@@ -2775,6 +2882,11 @@ def check_ema_bounce_200(
     if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
     counter_trend = prior_close is not None and prior_close <= ema200
 
     entry = round(ema200, 2)
@@ -2787,6 +2899,8 @@ def check_ema_bounce_200(
         confidence = "medium"
     else:
         confidence = "high" if proximity <= 0.004 else "medium"
+    if _vol == "demote":
+        confidence = "medium"
 
     msg = (
         f"EMA bounce 200 — price pulled back to ${ema200:.2f} "
@@ -3245,6 +3359,12 @@ def check_vwap_reclaim(
     if len(bars) < VWAP_RECLAIM_MIN_BARS_AFTER_LOW + 1:
         return None
 
+    # Phase 2 (2026-04-23): skip VWAP-based alerts before 10:00 ET.
+    # VWAP is unreliable in the first 30 min — insufficient volume anchor
+    # produces false reclaim/bounce signals that reverse quickly.
+    if "-USD" not in symbol and _is_before_vwap_reliable_time(bars):
+        return None
+
     last_bar = bars.iloc[-1]
     current_vwap = vwap_series.iloc[-1]
     if current_vwap <= 0:
@@ -3327,6 +3447,10 @@ def check_vwap_bounce(
     if bars.empty or vwap_series.empty:
         return None
     if len(bars) < VWAP_BOUNCE_MIN_BARS:
+        return None
+
+    # Phase 2 (2026-04-23): skip VWAP-based alerts before 10:00 ET (equities).
+    if "-USD" not in symbol and _is_before_vwap_reliable_time(bars):
         return None
 
     last_bar = bars.iloc[-1]
