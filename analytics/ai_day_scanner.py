@@ -239,6 +239,9 @@ def _apply_wait_override(
 
 
 def _resolve_api_key() -> str:
+    from alert_config import ANTHROPIC_ENABLED
+    if not ANTHROPIC_ENABLED:
+        return ""
     if ANTHROPIC_API_KEY:
         return ANTHROPIC_API_KEY
     return ""

@@ -113,7 +113,13 @@ def _build_user_prompt(signal: AlertSignal) -> str:
 
 
 def _resolve_api_key() -> str:
-    """Return Anthropic API key: per-user DB key first, then env var."""
+    """Return Anthropic API key: per-user DB key first, then env var.
+
+    Returns "" if ANTHROPIC_ENABLED=false (master kill switch).
+    """
+    from alert_config import ANTHROPIC_ENABLED
+    if not ANTHROPIC_ENABLED:
+        return ""
     if ANTHROPIC_API_KEY:
         return ANTHROPIC_API_KEY
     try:

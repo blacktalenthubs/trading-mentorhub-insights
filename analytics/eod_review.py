@@ -43,7 +43,13 @@ Rules:
 
 
 def _resolve_api_key() -> str:
-    """Return Anthropic API key: env var first, then DB fallback."""
+    """Return Anthropic API key: env var first, then DB fallback.
+
+    Returns "" if ANTHROPIC_ENABLED=false (master kill switch).
+    """
+    from alert_config import ANTHROPIC_ENABLED
+    if not ANTHROPIC_ENABLED:
+        return ""
     if ANTHROPIC_API_KEY:
         return ANTHROPIC_API_KEY
     try:
