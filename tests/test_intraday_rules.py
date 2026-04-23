@@ -618,9 +618,12 @@ class TestPriorDayLowBounce:
 
 class TestPriorDayHighBreakout:
     def test_fires_on_close_above_prior_high_with_volume(self):
+        # Phase 1 (2026-04-22): requires N consecutive bars above level.
+        # Bar 1 opens below PDH (avoids gap-up guard), then 2 confirming bars above.
         bars = _bars([
-            {"Open": 100, "High": 101, "Low": 99.5, "Close": 100, "Volume": 800},
-            {"Open": 100.5, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1500},
+            {"Open": 100.5, "High": 100.9, "Low": 100.3, "Close": 100.8, "Volume": 800},
+            {"Open": 100.9, "High": 101.5, "Low": 100.9, "Close": 101.3, "Volume": 1200},
+            {"Open": 101.3, "High": 102.0, "Low": 101.1, "Close": 101.5, "Volume": 1500},
         ])
         sig = check_prior_day_high_breakout("NVDA", bars, prior_day_high=101.0,
                                              bar_volume=1500, avg_volume=1000)
@@ -631,12 +634,44 @@ class TestPriorDayHighBreakout:
 
     def test_medium_confidence_on_moderate_volume(self):
         bars = _bars([
-            {"Open": 100, "High": 102, "Low": 100, "Close": 101.5, "Volume": 1300},
+            {"Open": 100.5, "High": 100.9, "Low": 100.3, "Close": 100.8, "Volume": 800},
+            {"Open": 100.9, "High": 101.4, "Low": 100.9, "Close": 101.3, "Volume": 1200},
+            {"Open": 101.3, "High": 102, "Low": 101.1, "Close": 101.5, "Volume": 1300},
         ])
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
                                              bar_volume=1300, avg_volume=1000)
         assert sig is not None
         assert sig.confidence == "medium"  # vol 1.3x (< 1.5)
+
+    def test_no_fire_on_single_bar_breakout(self):
+        """Phase 1: single bar breakout without confirmation must NOT fire."""
+        bars = _bars([
+            {"Open": 100, "High": 100.8, "Low": 99.5, "Close": 100.5, "Volume": 800},
+            {"Open": 100.5, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is None  # only 1 bar closed above, N=2 required
+
+    def test_no_fire_on_runaway_bar_past_level(self):
+        """Phase 1: staleness guard — bar closed >1% above level should not fire."""
+        bars = _bars([
+            {"Open": 100.9, "High": 102.5, "Low": 100.9, "Close": 102.2, "Volume": 1500},  # +1.2% above
+            {"Open": 102.2, "High": 103.5, "Low": 102.0, "Close": 103.2, "Volume": 1600},  # +2.2% above
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1600, avg_volume=1000)
+        assert sig is None
+
+    def test_no_fire_when_confirmation_bar_wicks_past_tolerance(self):
+        """Phase 1: if any confirmation bar dips >0.2% below level, skip."""
+        bars = _bars([
+            {"Open": 100.9, "High": 101.5, "Low": 100.3, "Close": 101.3, "Volume": 1500},  # low 0.7% below floor
+            {"Open": 101.3, "High": 102.0, "Low": 101.1, "Close": 101.5, "Volume": 1500},
+        ])
+        sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
+                                             bar_volume=1500, avg_volume=1000)
+        assert sig is None
 
     def test_no_fire_when_close_below_prior_high(self):
         bars = _bars([
@@ -669,7 +704,9 @@ class TestPriorDayHighBreakout:
 
     def test_targets_are_1r_and_2r(self):
         bars = _bars([
-            {"Open": 100, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1500},
+            {"Open": 100.5, "High": 100.9, "Low": 100.3, "Close": 100.8, "Volume": 800},
+            {"Open": 100.9, "High": 101.5, "Low": 100.9, "Close": 101.3, "Volume": 1500},
+            {"Open": 101.3, "High": 102, "Low": 101.2, "Close": 101.5, "Volume": 1500},
         ])
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
                                              bar_volume=1500, avg_volume=1000)
@@ -681,7 +718,9 @@ class TestPriorDayHighBreakout:
 
     def test_stop_at_breakout_bar_low(self):
         bars = _bars([
-            {"Open": 100, "High": 102, "Low": 100.5, "Close": 101.5, "Volume": 1500},
+            {"Open": 100.5, "High": 100.9, "Low": 100.3, "Close": 100.8, "Volume": 800},
+            {"Open": 100.9, "High": 101.5, "Low": 100.9, "Close": 101.3, "Volume": 1500},
+            {"Open": 101.3, "High": 102, "Low": 101.2, "Close": 101.5, "Volume": 1500},
         ])
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
                                              bar_volume=1500, avg_volume=1000)
@@ -691,7 +730,9 @@ class TestPriorDayHighBreakout:
 
     def test_message_includes_volume_ratio(self):
         bars = _bars([
-            {"Open": 100, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1800},
+            {"Open": 100.5, "High": 100.9, "Low": 100.3, "Close": 100.8, "Volume": 800},
+            {"Open": 100.9, "High": 101.5, "Low": 100.9, "Close": 101.3, "Volume": 1800},
+            {"Open": 101.3, "High": 102, "Low": 101.2, "Close": 101.5, "Volume": 1800},
         ])
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
                                              bar_volume=1800, avg_volume=1000)
@@ -699,10 +740,12 @@ class TestPriorDayHighBreakout:
         assert "1.8x" in sig.message
 
     def test_no_fire_when_risk_is_zero(self):
-        # Bar low == prior high → risk = 0, should return None
+        # Bar 2 and 3 both low == prior high → risk = 0 on gap-up path
         # With the gap-up fallback, this now uses 0.5% buffer stop
         bars = _bars([
-            {"Open": 101, "High": 102, "Low": 101.0, "Close": 101.5, "Volume": 1500},
+            {"Open": 100.5, "High": 100.9, "Low": 100.3, "Close": 100.8, "Volume": 800},
+            {"Open": 101.0, "High": 101.4, "Low": 101.0, "Close": 101.3, "Volume": 1500},
+            {"Open": 101.3, "High": 102, "Low": 101.0, "Close": 101.5, "Volume": 1500},
         ])
         sig = check_prior_day_high_breakout("AAPL", bars, prior_day_high=101.0,
                                              bar_volume=1500, avg_volume=1000)
@@ -751,10 +794,11 @@ class TestPriorDayHighBreakout:
         assert sig.stop < sig.entry
 
     def test_equity_pdh_breakout_unchanged(self):
-        """Normal equity approach from below — existing behavior preserved."""
+        """Normal equity approach from below — existing behavior preserved (with N-bar confirm)."""
         bars = _bars([
             {"Open": 100, "High": 101, "Low": 99.5, "Close": 100, "Volume": 800},
-            {"Open": 100.5, "High": 102, "Low": 100.2, "Close": 101.5, "Volume": 1500},
+            {"Open": 100.5, "High": 101.4, "Low": 100.9, "Close": 101.3, "Volume": 1200},
+            {"Open": 101.3, "High": 102, "Low": 101.2, "Close": 101.5, "Volume": 1500},
         ])
         sig = check_prior_day_high_breakout("NVDA", bars, prior_day_high=101.0,
                                              bar_volume=1500, avg_volume=1000)
@@ -3688,11 +3732,21 @@ class TestEnabledRules:
             "parent_high": 102.0, "parent_low": 98.0,
         }
 
-    def test_inside_day_breakout_enabled_but_no_fire_below_high(self):
-        """inside_day_breakout is enabled but doesn't fire when close < inside high."""
+    def test_inside_day_breakout_disabled_phase1(self):
+        """Phase 1 (2026-04-22): inside_day_breakout is removed from ENABLED_RULES.
+
+        Original test asserted inside_day_breakout was enabled. After real-world
+        evidence (AMD 04-22 stale misfire, gap-up invalidation), the inside-day
+        family was disabled in favor of PDH/PDL rules. The function still exists
+        but is never reached by evaluate_rules().
+        """
         from alert_config import ENABLED_RULES
-        assert "inside_day_breakout" in ENABLED_RULES
-        bars = self._make_bars()  # close=100.3 < inside high=101.0
+        assert "inside_day_breakout" not in ENABLED_RULES
+        assert "inside_day_reclaim" not in ENABLED_RULES
+        assert "inside_day_breakdown" not in ENABLED_RULES
+        assert "inside_day_forming" not in ENABLED_RULES
+        # Even with a valid inside-day setup, no signal should fire.
+        bars = self._make_bars()
         prior = self._make_prior()
         signals = evaluate_rules("AAPL", bars, prior)
         types = {s.alert_type for s in signals}
@@ -7296,9 +7350,12 @@ class TestMonthlyHighBreakout:
         return {"prior_month_high": pm_high, "prior_month_low": pm_low}
 
     def test_fires_on_close_above_with_volume(self):
+        # Phase 1: requires N=2 consecutive bars above monthly high.
+        # Bar 2 Low must stay <= pm_high so risk > 0 (rule fires normally).
         prior = self._prior()
         bars = pd.DataFrame([
-            {"Open": 199.0, "High": 202.0, "Low": 198.5, "Close": 201.0, "Volume": 2000},
+            {"Open": 199.0, "High": 200.3, "Low": 199.7, "Close": 200.2, "Volume": 1500},
+            {"Open": 200.2, "High": 202.0, "Low": 199.8, "Close": 201.0, "Volume": 2000},
         ])
         sig = check_monthly_high_breakout("SPY", bars, prior, 2000, 1000)
         assert sig is not None

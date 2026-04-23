@@ -26,6 +26,9 @@ from alert_config import (
     BOUNCE_ALERT_TYPES,
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
+    BREAKOUT_CONFIRM_BARS,
+    BREAKOUT_INTRABAR_TOLERANCE_PCT,
+    BREAKOUT_STALENESS_PCT,
     BUY_ZONE_PROXIMITY_PCT,
     CONFLUENCE_BAND_PCT,
     CONSOLIDATION_MAX_BOOST,
@@ -351,6 +354,84 @@ def _cap_risk(
     if entry - stop > max_risk:
         return round(entry - max_risk, 2)
     return stop
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 (2026-04-22): Breakout / breakdown confirmation helpers.
+# Every `*_breakout` rule calls _confirm_breakout_above(); every `*_breakdown`
+# rule calls _confirm_breakdown_below(). These enforce:
+#   1. N consecutive bars on the correct side of the level (prevents
+#      single-bar spikes from firing — AMD 04-22 inside_day_breakout case).
+#   2. Intra-bar tolerance — opposing wick can't round-trip past the level
+#      by more than BREAKOUT_INTRABAR_TOLERANCE_PCT during those N bars.
+#   3. Staleness guard — skip if price has already run BREAKOUT_STALENESS_PCT
+#      past the level (alert is too late to be actionable).
+# ---------------------------------------------------------------------------
+
+def _confirm_breakout_above(
+    bars: pd.DataFrame,
+    level: float,
+    n_bars: int | None = None,
+    tolerance_pct: float | None = None,
+    staleness_pct: float | None = None,
+) -> bool:
+    """Return True iff last N bars confirm a clean breakout above `level`.
+
+    Confirmation requires:
+      - At least N bars available.
+      - All last N bars close strictly above `level`.
+      - None of those bars' lows dip more than `tolerance_pct` below `level`.
+      - Last bar close is within `staleness_pct` of `level` (not runaway).
+    """
+    if level is None or level <= 0 or bars is None or bars.empty:
+        return False
+    n = n_bars if n_bars is not None else BREAKOUT_CONFIRM_BARS
+    tol = tolerance_pct if tolerance_pct is not None else BREAKOUT_INTRABAR_TOLERANCE_PCT
+    stale = staleness_pct if staleness_pct is not None else BREAKOUT_STALENESS_PCT
+    if len(bars) < n:
+        return False
+    recent = bars.tail(n)
+    if not (recent["Close"] > level).all():
+        return False
+    floor = level * (1.0 - tol)
+    if (recent["Low"] < floor).any():
+        return False
+    last_close = float(recent.iloc[-1]["Close"])
+    if (last_close - level) / level > stale:
+        return False
+    return True
+
+
+def _confirm_breakdown_below(
+    bars: pd.DataFrame,
+    level: float,
+    n_bars: int | None = None,
+    tolerance_pct: float | None = None,
+    staleness_pct: float | None = None,
+) -> bool:
+    """Return True iff last N bars confirm a clean breakdown below `level`.
+
+    Mirror of `_confirm_breakout_above`. Requires N bars closing below level,
+    highs staying within tolerance above level, and last close not already
+    staleness_pct below level.
+    """
+    if level is None or level <= 0 or bars is None or bars.empty:
+        return False
+    n = n_bars if n_bars is not None else BREAKOUT_CONFIRM_BARS
+    tol = tolerance_pct if tolerance_pct is not None else BREAKOUT_INTRABAR_TOLERANCE_PCT
+    stale = staleness_pct if staleness_pct is not None else BREAKOUT_STALENESS_PCT
+    if len(bars) < n:
+        return False
+    recent = bars.tail(n)
+    if not (recent["Close"] < level).all():
+        return False
+    ceiling = level * (1.0 + tol)
+    if (recent["High"] > ceiling).any():
+        return False
+    last_close = float(recent.iloc[-1]["Close"])
+    if (level - last_close) / level > stale:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -918,6 +999,10 @@ def check_prior_day_low_breakdown(
     if distance_pct > PDL_BREAKDOWN_MAX_DISTANCE_PCT:
         return None
 
+    # Phase 1 note (2026-04-22): intentionally NO N-bar confirmation here.
+    # PDL breakdown is treated as an exit-facing signal downstream (users
+    # holding longs need the warning immediately, not 10 min later).
+
     confidence = "high" if vol_ratio >= 1.5 else "medium"
 
     return AlertSignal(
@@ -1032,6 +1117,14 @@ def check_prior_day_high_breakout(
     # A barely-above close ($0.14 on PLTR) is a wick/rejection, not a breakout.
     breakout_margin = prior_day_high * 0.0015
     if last_bar["Close"] < prior_day_high + breakout_margin:
+        return None
+
+    # Phase 1 (2026-04-22): require N consecutive bars above PDH + staleness
+    # guard. Prevents single-bar spike alerts and stale re-fires. Crypto uses
+    # a looser staleness threshold because 24/7 markets routinely gap up more
+    # than 1% overnight without an intraday retest opportunity.
+    _pdh_stale = 0.03 if symbol.endswith("-USD") else BREAKOUT_STALENESS_PCT
+    if not _confirm_breakout_above(bars, prior_day_high, staleness_pct=_pdh_stale):
         return None
 
     # Skip if equity gapped above PDH — no intraday breakout to trade.
@@ -1830,10 +1923,17 @@ def check_weekly_high_breakout(
     if last_bar["Close"] <= pw_high:
         return None
 
-    # Skip if price already ran too far past weekly high (stale breakout)
+    # Skip if price already ran too far past weekly high (stale breakout).
+    # Kept original per-asset thresholds; the universal BREAKOUT_STALENESS_PCT
+    # would widen equity to 1.0%, so keep the tighter existing values.
     _distance = (last_bar["Close"] - pw_high) / pw_high
     _max_dist = 0.008 if symbol.endswith("-USD") else 0.015  # 0.8% crypto, 1.5% equity
     if _distance > _max_dist:
+        return None
+
+    # Phase 1 (2026-04-22): require N consecutive bars above weekly high with
+    # intrabar tolerance. Staleness covered by _distance check above.
+    if not _confirm_breakout_above(bars, pw_high, staleness_pct=_max_dist):
         return None
 
     # Scan lookback bars above weekly high for best volume
@@ -2163,6 +2263,11 @@ def check_monthly_high_breakout(
         return None
     last_bar = bars.iloc[-1]
     if last_bar["Close"] <= pm_high:
+        return None
+
+    # Phase 1 (2026-04-22): require N consecutive bars above monthly high
+    # + staleness guard. Same universal thresholds as PDH breakout.
+    if not _confirm_breakout_above(bars, pm_high):
         return None
 
     # Scan lookback bars above monthly high for best volume
