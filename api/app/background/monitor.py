@@ -21,11 +21,24 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from alert_config import COOLDOWN_MINUTES  # noqa: E402
+from analytics.htf_bias import (  # noqa: E402
+    HTFBias,
+    compute_htf_bias,
+    confluence_score,
+    should_gate_long,
+    should_gate_short,
+)
 from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day, get_spy_context  # noqa: E402
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules  # noqa: E402
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
 logger = logging.getLogger("monitor")
+
+# Phase 2 (2026-04-23) — HTF bias gate env flag. Default on; set to "false"
+# on Railway to bypass 1h/4h trend gating without a redeploy if it's blocking
+# trades we wanted.
+import os as _os_htf  # noqa: E402
+_HTF_BIAS_GATE_ENABLED = _os_htf.environ.get("HTF_BIAS_GATE_ENABLED", "true").strip().lower() not in ("false", "0", "no", "off")
 
 # Burst cooldown: prevent rapid BUY notification spam (in-memory, resets on restart)
 _last_buy_notify: Dict[str, "datetime"] = {}  # {symbol: datetime}
@@ -136,10 +149,28 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
         intraday_cache: dict[str, object] = {}
         prior_day_cache: dict[str, object] = {}
+        htf_bias_cache: dict[str, object] = {}
         for symbol in active_symbols:
             _crypto = _is_crypto_sym(symbol)
             intraday_cache[symbol] = fetch_intraday_crypto(symbol) if _crypto else fetch_intraday(symbol)
             prior_day_cache[symbol] = fetch_prior_day(symbol, is_crypto=_crypto)
+
+            # Phase 2 (2026-04-23) — HTF bias: fetch 1h + 4h bars once per symbol
+            # per poll and compute BULL/BEAR/NEUTRAL per timeframe. Cached here so
+            # every user evaluating this symbol shares the result.
+            if _HTF_BIAS_GATE_ENABLED:
+                try:
+                    _bars_1h = fetch_intraday(symbol, period="5d", interval="1h")
+                    if _crypto:
+                        _bars_4h = fetch_intraday_crypto(symbol, interval="4h")
+                    else:
+                        _bars_4h = fetch_intraday(symbol, period="10d", interval="4h")
+                    htf_bias_cache[symbol] = compute_htf_bias(_bars_1h, _bars_4h)
+                except Exception:
+                    logger.debug("HTF bias fetch failed for %s — defaulting NEUTRAL", symbol, exc_info=True)
+                    htf_bias_cache[symbol] = HTFBias()  # NEUTRAL / NEUTRAL
+            else:
+                htf_bias_cache[symbol] = HTFBias()
 
             # Warm the API cache so user requests hit cache instead of yfinance
             if intraday_cache[symbol] is not None and not (
@@ -424,6 +455,30 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         fired_today=fired_today,
                         is_crypto=_is_crypto,
                     )
+
+                    # Phase 2 (2026-04-23) — HTF bias gate: drop counter-trend
+                    # LONG/SHORT entries, and stamp _confluence_score on every
+                    # surviving signal so the Telegram 🟢/🟡 emoji lights up.
+                    _bias = htf_bias_cache.get(symbol) or HTFBias()
+                    _kept_signals = []
+                    for _sig in signals:
+                        _dir = (_sig.direction or "").upper()
+                        if _HTF_BIAS_GATE_ENABLED:
+                            if _dir in ("BUY", "LONG") and should_gate_long(_bias):
+                                logger.info(
+                                    "HTF GATE: %s %s suppressed — 4H=%s 1H=%s",
+                                    symbol, _sig.alert_type.value, _bias.htf_4h, _bias.htf_1h,
+                                )
+                                continue
+                            if _dir == "SHORT" and should_gate_short(_bias):
+                                logger.info(
+                                    "HTF GATE: %s %s suppressed — 4H=%s 1H=%s",
+                                    symbol, _sig.alert_type.value, _bias.htf_4h, _bias.htf_1h,
+                                )
+                                continue
+                        _sig._confluence_score = confluence_score(_dir, _bias)
+                        _kept_signals.append(_sig)
+                    signals = _kept_signals
                 except Exception:
                     logger.exception("Error evaluating %s for user %d", symbol, user_id)
                     continue
@@ -630,6 +685,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         message=_clean_msg,
                         narrative=_narrative,
                         score=int(signal.score) if signal.score else 0,
+                        # Phase 2 — persist the 0-3 HTF confluence so the dashboard
+                        # and future analytics can see how many timeframes agreed.
+                        confluence_score=int(getattr(signal, "_confluence_score", 0)) or 0,
                         session_date=_sym_session,
                     )
                     db.add(alert)

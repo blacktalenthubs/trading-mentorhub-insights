@@ -116,6 +116,16 @@ HOURLY_RES_REJECTION_STOP_OFFSET_PCT = 0.003  # 0.3% above resistance for stop
 
 # Support Breakdown: volume must be >= this multiple of average
 # ---------------------------------------------------------------------------
+# Phase 2 (2026-04-23): volume confirmation on MA/EMA bounces.
+# Low-volume bounces are ~2x more likely to fail than >=1.0x avg bounces.
+# MA_BOUNCE_MIN_VOL_RATIO        — threshold: below → demote HIGH → MEDIUM
+# MA_BOUNCE_MIN_VOL_RATIO_SKIP   — threshold: below → skip entirely (too weak)
+# Computed as: last_bar.Volume / mean(prior bars' Volume in the sample).
+# ---------------------------------------------------------------------------
+MA_BOUNCE_MIN_VOL_RATIO = 1.0
+MA_BOUNCE_MIN_VOL_RATIO_SKIP = 0.5
+
+# ---------------------------------------------------------------------------
 # Phase 1 (2026-04-22): N-bar confirmation + staleness guard for ALL breakout
 # and breakdown rules. Prevents single-bar spike alerts (the 13:31 AMD
 # inside_day_breakout at +1.8% above level case) from firing.
