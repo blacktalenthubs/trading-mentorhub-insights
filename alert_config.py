@@ -799,6 +799,11 @@ PAPER_TRADE_MIN_SCORE = int(_get_secret("PAPER_TRADE_MIN_SCORE", "70"))
 
 # Claude AI Trade Narrator
 ANTHROPIC_API_KEY = _get_secret("ANTHROPIC_API_KEY")
+# Master kill switch for ALL Anthropic calls (narratives, scans, coach, intel,
+# position advisor, eod/premarket/weekly reviews, etc.). Set to "false" to run
+# rule-based alerts with zero Anthropic cost. Every _resolve_api_key() returns
+# "" when disabled, and every caller already handles empty key gracefully.
+ANTHROPIC_ENABLED = _get_secret("ANTHROPIC_ENABLED", "true").lower() == "true"
 CLAUDE_NARRATIVE_ENABLED = _get_secret("CLAUDE_NARRATIVE_ENABLED", "true").lower() == "true"
 CLAUDE_MODEL = _get_secret("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 CLAUDE_MODEL_SONNET = _get_secret("CLAUDE_MODEL_SONNET", "claude-sonnet-4-20250514")
