@@ -301,6 +301,11 @@ class AlertType(str, Enum):
     EMA_RECLAIM_200 = "ema_reclaim_200"
     # Informational — inside day forming (today's range within yesterday's)
     INSIDE_DAY_FORMING = "inside_day_forming"
+    # Phase 5a (2026-04-25) — generic catch-all for TradingView webhook ingest.
+    # The specific Pine Script rule (e.g. "rsi_div_bullish_daily") rides in the
+    # AlertSignal.message and the alerts table's alert_type column gets the
+    # full string `tv_<rule>`. This single enum is for dedup-key continuity.
+    TV_WEBHOOK = "tv_webhook"
     # User-pinned Best Setups picks (fired via "Alert" button on dashboard)
     BEST_SETUP_DAY = "best_setup_day"
     BEST_SETUP_SWING = "best_setup_swing"

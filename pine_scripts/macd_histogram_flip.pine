@@ -1,0 +1,56 @@
+// @version=5
+//
+// MACD(12, 26, 9) histogram zero-cross — momentum shift detector.
+//
+// USAGE
+//   1. Pine Editor → paste → Save → Add to chart
+//   2. Create TWO alerts:
+//      a) Condition = "MACD Histogram Bull Cross" (BUY)
+//      b) Condition = "MACD Histogram Bear Cross" (SHORT)
+//      Trigger for both = Once Per Bar Close
+//   3. Notifications: Webhook URL = https://YOUR-RAILWAY/tv/webhook
+//   4. JSON body for the BUY alert (note direction: "BUY"):
+//
+// {
+//   "symbol": "{{ticker}}",
+//   "exchange": "{{exchange}}",
+//   "interval": "{{interval}}",
+//   "price": "{{close}}",
+//   "high": "{{high}}",
+//   "low": "{{low}}",
+//   "volume": "{{volume}}",
+//   "rule": "macd_hist_bull_cross",
+//   "direction": "BUY",
+//   "fired_at": "{{timenow}}"
+// }
+//
+//   For the SHORT alert, change "rule" to "macd_hist_bear_cross"
+//   and "direction" to "SHORT".
+//
+indicator("MACD Histogram Flip", overlay = false)
+
+fast_len   = input.int(12, "Fast EMA")
+slow_len   = input.int(26, "Slow EMA")
+signal_len = input.int(9,  "Signal EMA")
+
+[macd_line, signal_line, hist] = ta.macd(close, fast_len, slow_len, signal_len)
+
+bull_cross = ta.crossover(hist, 0)
+bear_cross = ta.crossunder(hist, 0)
+
+plot(hist, "MACD Histogram",
+     style = plot.style_columns,
+     color = hist >= 0 ? color.green : color.red)
+hline(0, "Zero", color = color.gray)
+
+plotshape(bull_cross, title = "Bull Cross",
+          location = location.bottom, color = color.green,
+          style = shape.triangleup, size = size.small)
+plotshape(bear_cross, title = "Bear Cross",
+          location = location.top, color = color.red,
+          style = shape.triangledown, size = size.small)
+
+alertcondition(bull_cross, title = "MACD Histogram Bull Cross",
+               message = "MACD histogram bullish cross on {{ticker}} {{interval}}")
+alertcondition(bear_cross, title = "MACD Histogram Bear Cross",
+               message = "MACD histogram bearish cross on {{ticker}} {{interval}}")
