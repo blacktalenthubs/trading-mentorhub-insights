@@ -218,9 +218,11 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     # 4. Stamp confluence score (Phase 2).
     sig._confluence_score = confluence_score(direction, bias)
 
-    # 5. Persist + notify per user. We replicate the per-user fan-out the poll
-    # loop does — every Pro/Premium user with this symbol on watchlist gets
-    # the alert routed through their preferences.
+    # 5. Persist + notify per user. Mirrors the per-user fan-out in
+    # api/app/background/monitor.py — each user gets their own Alert row
+    # AND their own Telegram delivery via user.telegram_chat_id (the
+    # broadcast `notify()` doesn't work because TELEGRAM_CHAT_ID env var
+    # isn't set on Railway in favor of per-user IDs in the DB).
     persisted = 0
     notified = 0
     session_date = date.today().isoformat()
@@ -234,6 +236,10 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
             logger.info("TV webhook: no users watching %s", sig.symbol)
             return {"dispatched": False, "reason": "no_subscribers"}
 
+        # Persist all alerts in one transaction; collect (user, alert) pairs
+        # for the notification fan-out which happens AFTER commit so we
+        # don't hold the DB connection during network I/O.
+        pairs: list[tuple[Any, Alert]] = []
         for user in users:
             # Per-user level dedup against alerts table.
             if await _level_already_alerted(
@@ -263,23 +269,45 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
                 session_date=session_date,
             )
             db.add(alert)
+            pairs.append((user, alert))
             persisted += 1
 
         await db.commit()
 
-    # 6. Telegram delivery — invoke notifier on the per-user alerts. We pull
-    # out of the DB transaction first to avoid holding the connection during
-    # network I/O.
-    try:
-        from alerting.notifier import notify
-        from alerting.alert_store import AlertSignal as ALSig
-
-        # Convert internal AlertSignal → notifier's expected shape if needed.
-        # The dataclass should already match; notify() reads attributes.
-        notify(sig)
-        notified = persisted  # one notify call covers the broadcast
-    except Exception:
-        logger.exception("TV webhook: notify() failed for %s", sig.symbol)
+    # 6. Per-user Telegram + email delivery via notify_user (mirrors
+    # monitor.py:857). Each user with telegram_enabled + telegram_chat_id
+    # gets a dedicated Telegram message with their own chat_id.
+    if pairs:
+        try:
+            from alerting.notifier import notify_user
+            for user, alert in pairs:
+                # Skip users with Telegram disabled or no chat_id (matches
+                # monitor.py behavior — log SKIP for visibility).
+                if not getattr(user, "telegram_chat_id", None):
+                    logger.info("TV NOTIFY SKIP: user=%d — telegram_chat_id empty", user.id)
+                    continue
+                if not getattr(user, "telegram_enabled", True):
+                    logger.info("TV NOTIFY SKIP: user=%d — telegram_enabled=False", user.id)
+                    continue
+                prefs = {
+                    "telegram_enabled": True,
+                    "telegram_chat_id": user.telegram_chat_id,
+                    "email_enabled": getattr(user, "email_enabled", False),
+                    "notification_email": getattr(user, "email", None),
+                }
+                try:
+                    email_ok, tg_ok = notify_user(sig, prefs, alert_id=alert.id)
+                    if tg_ok:
+                        notified += 1
+                    logger.info(
+                        "TV NOTIFY: user=%d %s tg=%s email=%s",
+                        user.id, sig.symbol, tg_ok, email_ok,
+                    )
+                except Exception:
+                    logger.warning("TV notify_user FAILED for user=%d %s",
+                                   user.id, sig.symbol, exc_info=True)
+        except Exception:
+            logger.exception("TV webhook: notify fan-out failed for %s", sig.symbol)
 
     logger.info(
         "TV webhook done: symbol=%s persisted=%d notified=%d "
