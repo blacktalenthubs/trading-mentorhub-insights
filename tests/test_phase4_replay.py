@@ -102,29 +102,35 @@ class TestAaoiReplay:
     """AAOI 04-24: ema_bounce_8 at 10:20 → drove from $146.61 to $164.87 high."""
 
     def test_ema_bounce_targets_use_structure(self):
+        """Phase 4a + ATR-cap fix: T1/T2 should land at structural levels
+        (PDH, prior-week high, etc.), not run past them on volatile names.
+        """
         atr, prior = _atr14_from_yf("AAOI")
-        # ema_bounce_8 fixture: entry at EMA8 estimate ~$146.61, stop = ema * 0.995
-        # We don't have EMA8 from prior_day in this test — use a known-good fixture
         entry = 146.61
-        stop = 145.88  # EMA8 × 0.995
+        stop = 145.88  # EMA8 × 0.995, risk = $0.73
         t1, t2 = _targets_for_long(entry=entry, stop=stop, prior_day=prior)
-
-        # T2 should be at least 2×ATR above entry (ATR floor) when ATR > risk.
-        if prior.get("atr_daily") and prior["atr_daily"] > (entry - stop):
-            assert (t2 - entry) >= prior["atr_daily"] * 0.99 * 2 - 0.5, \
-                f"T2 ${t2:.2f} below 2×ATR floor (atr ${prior['atr_daily']:.2f})"
 
         # T2 must be above T1
         assert t2 > t1
 
-        # T1 must be at least 1×ATR above entry (or the nearest structural beyond).
-        # Note: with high-ATR symbols, targets can land BEYOND prior-week high —
-        # that's by design (ATR floor prevents tiny targets even when structure
-        # is right next door). Don't assert structural cap as upper bound.
+        # With ATR cap at 3R=$2.19, T1 floor is $148.80. Should land at the
+        # nearest structural level >= floor (PDH or prior-month high).
         if prior.get("atr_daily"):
-            min_t1_distance = min(prior["atr_daily"], entry - stop)
-            assert (t1 - entry) >= min_t1_distance * 0.99, \
-                f"T1 ${t1:.2f} below 1×ATR/risk floor"
+            risk = entry - stop
+            capped_atr = min(prior["atr_daily"], 3.0 * risk)
+            t1_floor = entry + max(risk, capped_atr)
+            assert (t1 - entry) >= (t1_floor - entry) * 0.99, \
+                f"T1 ${t1:.2f} below capped floor ${t1_floor:.2f}"
+
+        # T1 should land at or near a real structural level (PDH/week/month).
+        candidates = []
+        for k in ("high", "prior_week_high", "prior_month_high"):
+            if prior.get(k) and prior[k] > entry:
+                candidates.append(prior[k])
+        if candidates:
+            # T1 should be at one of these candidates (within $0.50)
+            assert any(abs(t1 - c) < 0.50 for c in candidates), \
+                f"T1 ${t1:.2f} should match a structural candidate {candidates}"
 
     def test_capture_improvement_aaoi(self):
         atr, prior = _atr14_from_yf("AAOI")

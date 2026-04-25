@@ -105,23 +105,27 @@ class TestResistanceLadderShort:
 
 class TestComputeTargetsLong:
     def test_atr_floor_when_ladder_far_below_atr(self):
-        """Risk $1, ATR $5, no ladder → T1 floor $5 above entry."""
+        """Risk $1, ATR $5 → ATR caps at 3R=$3 → T1 floor $3 above entry."""
         t1, t2 = _compute_targets(
             entry=100, stop=99, atr_daily=5, ladder=[], direction="LONG"
         )
-        assert t1 == 105.0  # entry + max(1*1, 1*5)
-        assert t2 == 110.0
+        # ATR_CAP_RISK_MULT (3.0) limits ATR contribution: min(5, 3*1) = 3
+        # T1_floor = entry + max(risk=1, capped_atr=3) = $103
+        # T2_floor = entry + max(2*1, 2*3) = $106
+        assert t1 == 103.0
+        assert t2 == 106.0
 
     def test_structural_cap_kicks_in_when_resistance_below_atr_floor(self):
-        """ATR floor $5; ladder has $103 (under floor) and $107 (over floor).
-        T1 takes nearest >= floor → $107. NOT $103."""
+        """ATR=$5 caps at 3R=$3 → T1 floor $103. Ladder $103 now meets floor."""
         t1, t2 = _compute_targets(
             entry=100, stop=99, atr_daily=5,
             ladder=[(103, "EMA50"), (107, "PDH"), (115, "prior_week_high")],
             direction="LONG",
         )
-        assert t1 == 107.0  # PDH cap
-        assert t2 == 115.0  # prior_week_high cap
+        # T1 = first ladder >= floor $103 → $103 (EMA50)
+        # T2 = first ladder > $103 AND >= floor $106 → $107 (PDH)
+        assert t1 == 103.0
+        assert t2 == 107.0
 
     def test_structural_cap_takes_nearest_when_above_floor(self):
         """ATR floor $1; ladder has $103 (over floor) and $115."""
@@ -167,24 +171,28 @@ class TestComputeTargetsLong:
 
 class TestComputeTargetsShort:
     def test_short_atr_floor_below_entry(self):
+        """SHORT risk=$1, ATR=$5 → cap at 3R=$3 → T1 floor $97."""
         t1, t2 = _compute_targets(
             entry=100, stop=101, atr_daily=5, ladder=[], direction="SHORT"
         )
-        assert t1 == 95.0
-        assert t2 == 90.0
+        # capped_atr = min(5, 3*1) = 3
+        # T1 = entry - max(1, 3) = $97
+        # T2 = entry - max(2, 6) = $94
+        assert t1 == 97.0
+        assert t2 == 94.0
 
     def test_short_structural_cap(self):
-        """SHORT entry $100. ATR $5 → T1 floor $95.
-        Ladder has support at $97 (below floor — too close), $93 (good)."""
+        """SHORT ATR=$5 caps at 3R=$3 → T1 floor $97.
+        Ladder support at $97 now meets floor."""
         t1, t2 = _compute_targets(
             entry=100, stop=101, atr_daily=5,
             ladder=[(97, "EMA50"), (93, "PDL"), (88, "prior_week_low")],
             direction="SHORT",
         )
-        # First support <= 95 = $93 (skipping $97 which is above floor)
-        assert t1 == 93.0
-        # Next support < $93 AND <= T2 floor $90 = $88
-        assert t2 == 88.0
+        # T1 = first support <= $97 → $97 (EMA50)
+        # T2 = first support < $97 AND <= floor $94 → $93 (PDL)
+        assert t1 == 97.0
+        assert t2 == 93.0
 
 
 # -----------------------------------------------------------------------------
@@ -229,14 +237,17 @@ class TestTargetsForLongWrapper:
 
     def test_aaoi_ema8_today(self):
         """AAOI 04-24 ema_bounce_8: entry $146.61, stop $145.88 (risk $0.73).
-        ATR ~$7. T1 floor = $146.61 + max($0.73, $7) = $153.61.
+        ATR ~$7. With ATR_CAP_RISK_MULT=3.0, ATR caps at 3R=$2.19.
 
-        Ladder: PDH $153.20, prior_week_high $161.47. PDH ($153.20) is JUST
-        below floor ($153.61) — skipped. T1 = prior_week_high $161.47.
-        No level above $161.47 in ladder; T2 falls back to floor + min-gap
-        clamp ($161.47 + 0.5*$0.73 ≈ $161.84).
+        T1 floor = $146.61 + max($0.73, $2.19) = $148.80.
+        Ladder: PDH $153.20, prior_week_high $161.47.
+        T1 = first ladder >= $148.80 → PDH $153.20 (the structural sellers).
+        T2 floor = $146.61 + 2*$2.19 = $151.00; first ladder > $153.20 AND
+        >= $151 → prior_week_high $161.47.
 
-        Today AAOI ran to $164.87 high → T1 captured $14.86.
+        Captures $6.59 to T1 + $14.86 to T2. Today AAOI ran to $164.87 →
+        both T1 and T2 hit. Matches the trader's mental model of "sellers
+        at PDH first, then weekly high."
         """
         prior_day = {
             "high": 153.20,
@@ -244,10 +255,8 @@ class TestTargetsForLongWrapper:
             "atr_daily": 7.0,
         }
         t1, t2 = _targets_for_long(entry=146.61, stop=145.88, prior_day=prior_day)
-        assert t1 == 161.47
-        # T2 = T1 + min_gap = $161.47 + 0.5*$0.73 = $161.84
-        assert t2 > t1
-        assert t2 == pytest.approx(161.84, abs=0.01)
+        assert t1 == 153.20
+        assert t2 == 161.47
 
 
 class TestTargetsForShortWrapper:
@@ -261,6 +270,68 @@ class TestTargetsForShortWrapper:
         t1, t2 = _targets_for_short(entry=100, stop=101, prior_day=prior_day)
         assert t1 == 95.0
         assert t2 == 90.0
+
+
+class TestAtrCapAtThreeR:
+    """Phase 4a fix (2026-04-25): ATR floor capped at 3× risk.
+
+    Without the cap, ETH 04-25 alert (risk $2.76, ATR $99.95) would push
+    T1 floor to $2,419 — past every near-term level. With cap, ATR
+    contribution clamps at $8.28, T1 floor lands at $2,327.72, ladder
+    picks PDH around $2,337 — actionable intraday target.
+    """
+
+    def test_eth_volatile_crypto_with_tight_stop(self):
+        """ETH-USD 04-25 prior_day_low_reclaim: tight stop, very high ATR.
+
+        Without cap: T1 = $2,427 (prior-week high) — way out of range.
+        With cap (3R=$8.28): T1 = PDH $2,337.27, T2 = prior-month high $2,384.47.
+        """
+        prior_day = {
+            "high": 2337.27,
+            "prior_week_high": 2427.28,
+            "prior_month_high": 2384.47,
+            "atr_daily": 99.95,
+        }
+        emas = {"EMA8": 2327.29, "EMA21": 2276.97, "EMA200": 2429.82}
+        t1, t2 = _targets_for_long(
+            entry=2319.44, stop=2316.68, prior_day=prior_day, emas_above=emas
+        )
+        # 3R cap = 3 * $2.76 = $8.28
+        # T1_floor = $2319.44 + max($2.76, $8.28) = $2,327.72
+        # T1 = first ladder >= $2,327.72 → EMA8 $2327.29? No, $2327.29 < $2327.72
+        # → next is PDH $2,337.27
+        assert t1 == 2337.27  # PDH
+        # T2_floor = $2319.44 + 2*$8.28 = $2,335.99
+        # T2 = first ladder > $2,337.27 AND >= $2,335.99 → prior_month_high $2,384.47
+        assert t2 == 2384.47
+
+    def test_atr_cap_inactive_when_atr_already_below_3r(self):
+        """When ATR < 3R, cap doesn't kick in — behavior unchanged."""
+        prior_day = {"high": 105, "prior_week_high": 110, "atr_daily": 2}
+        # risk = 1, ATR = 2, 3R = 3 → ATR ($2) < cap ($3) → uncapped
+        # T1_floor = 100 + max(1, 2) = 102. Ladder $105 >= floor → T1 = $105.
+        t1, t2 = _targets_for_long(entry=100, stop=99, prior_day=prior_day)
+        assert t1 == 105.0
+        assert t2 == 110.0
+
+    def test_atr_cap_normal_equity_unaffected(self):
+        """META-style trade: risk $6.60, ATR $14.63 → 3R = $19.80.
+        ATR ($14.63) < cap ($19.80), so ATR is NOT clipped.
+        Same output as before the cap was added.
+        """
+        prior_day = {
+            "high": 669.56,
+            "prior_week_high": 691.52,
+            "prior_month_high": 672.19,
+            "atr_daily": 14.63,
+        }
+        t1, t2 = _targets_for_long(entry=656.38, stop=649.78, prior_day=prior_day)
+        # T1 floor = entry + max(6.60, 14.63) = $671.01
+        # First ladder >= $671.01 → prior_month_high $672.19
+        assert t1 == 672.19
+        # T2 floor = $685.64; first > $672.19 AND >= $685.64 → prior_week_high $691.52
+        assert t2 == 691.52
 
 
 class TestStructuralTargetsFlagDisabled:

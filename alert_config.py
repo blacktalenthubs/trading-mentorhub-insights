@@ -151,6 +151,12 @@ STRUCTURAL_LADDER_DEDUPE_PCT = 0.003  # 0.3%
 # ATR period used for the floor. Reuses existing ATR_PERIOD (14).
 # ATR multiplier for the T1 floor; T2 uses 2x this.
 STRUCTURAL_T1_ATR_MULT = 1.0
+# Cap the ATR floor at this multiple of risk. Without the cap, volatile names
+# (ETH ATR $99.95, risk $2.76 → T1 floor $2419) push targets way past
+# near-term structure and never hit. The cap makes ATR a reasonable floor
+# instead of a runaway override of structural sellers.
+# Set to a large number (e.g. 100) to effectively disable.
+ATR_CAP_RISK_MULT = 3.0
 
 # ---------------------------------------------------------------------------
 # Phase 1 (2026-04-22): N-bar confirmation + staleness guard for ALL breakout

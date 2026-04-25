@@ -35,6 +35,7 @@ from alert_config import (
     STRUCTURAL_TARGET_T2_MIN_GAP_R,
     STRUCTURAL_LADDER_DEDUPE_PCT,
     STRUCTURAL_T1_ATR_MULT,
+    ATR_CAP_RISK_MULT,
     BUY_ZONE_PROXIMITY_PCT,
     CONFLUENCE_BAND_PCT,
     CONSOLIDATION_MAX_BOOST,
@@ -636,7 +637,13 @@ def _compute_targets(
         # Defensive; caller should have short-circuited already.
         return (round(entry, 2), round(entry, 2))
 
-    atr_val = atr_daily if atr_daily and atr_daily > 0 else risk
+    raw_atr = atr_daily if atr_daily and atr_daily > 0 else risk
+    # Phase 4a fix (2026-04-25): cap the ATR floor at ATR_CAP_RISK_MULT × risk.
+    # Without the cap, volatile names with tight stops (ETH 04-25: ATR $99.95
+    # vs risk $2.76) push T1 floor past near-term structure → targets that
+    # never hit. The cap keeps ATR as a sensible floor without overriding
+    # structural sellers when stops are tight.
+    atr_val = min(raw_atr, ATR_CAP_RISK_MULT * risk) if raw_atr > 0 else risk
 
     if is_long:
         t1_floor = entry + max(risk, STRUCTURAL_T1_ATR_MULT * atr_val)
