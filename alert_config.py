@@ -558,104 +558,139 @@ DIVERGENCE_MIN_SWING_SIZE = 0.02   # 2% minimum swing size
 #           informational noise (gap fill), choppy-day noise (intraday bounce).
 # ---------------------------------------------------------------------------
 ENABLED_RULES: set[str] = {
-    # ── Tier 1: Highest-probability setups ──────────────────────────────────
-    # BUY — MA/EMA support bounce (candle filter applied in rules)
-    "ma_bounce_20",
-    "ma_bounce_50",
-    "ma_bounce_100",
-    "ma_bounce_200",
+    # ============================================================================
+    # Phase 3a (2026-04-23 evening) — aggressive rule reduction.
+    # Trader's directive: focus on EMA (8/21/50/100/200) + PDH/PDL + multi-day
+    # supports. Everything else is noise. Keeps disabled entries as comments
+    # for traceability and easy re-enable.
+    # See: /Users/mentorhub/.claude/plans/go-over-the-code-inherited-hopcroft.md
+    # ============================================================================
+
+    # ── LONG: EMA support bounces (only EMA — MAs disabled in Phase 3a) ─────
     "ema_bounce_20",
     "ema_bounce_50",
     "ema_bounce_100",
     "ema_bounce_200",
-    # BUY — daily high/low (institutional levels)
+    # NOTE: ema_bounce_8 + ema_bounce_21 to be added in Phase 3b
+    # DISABLED Phase 3a:
+    # "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200"
+    #   — EMAs preferred; MA values within ~0.05% of EMAs but heavier tail.
+
+    # ── LONG: EMA reclaims (close back above from below) ────────────────────
+    "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
+    # NOTE: ema_reclaim_8 + ema_reclaim_21 to be added in Phase 3b
+
+    # ── LONG: prior-day high/low (institutional levels) ─────────────────────
     "prior_day_low_reclaim",
     "prior_day_low_bounce",
     "prior_day_high_breakout",
-    # "pdh_test",                     # NOISE: downgraded — test is not a setup, break is
     "pdh_retest_hold",
-    # BUY — weekly high/low
+
+    # ── LONG: multi-day support structure ───────────────────────────────────
+    "multi_day_double_bottom",
+    # DISABLED Phase 3a:
+    # "session_low_double_bottom"  — overlaps with multi_day version + PDL
+    # "planned_level_touch"        — vague level definition
+    # "session_low_bounce_vwap"    — overlaps with vwap_bounce + double bottom
+    # "morning_low_retest"         — overlaps with PDL bounce most days
+    # "session_low_reversal"       — overlaps with double bottom
+
+    # ── Weekly/monthly levels — kept enabled but rewritten to NOTICE ────────
+    # See NOTICE_ONLY_RULES below. Rule fires, monitor.py downgrades to NOTICE
+    # and clears entry/stop/T1/T2 so they're heads-up only, never tradeable.
     "weekly_level_touch",
     "weekly_high_breakout",
-    # "weekly_high_test",             # NOISE: downgraded — test without break
     "weekly_low_test",
-    "weekly_low_breakdown",
-    # BUY — monthly high/low + monthly EMA
+    "weekly_high_resistance",
     "monthly_level_touch",
     "monthly_high_breakout",
-    # "monthly_high_test",            # NOISE: downgraded — test without break
     "monthly_low_test",
-    "monthly_low_breakdown",
     "monthly_ema_touch",
-    # BUY — VWAP
-    "vwap_reclaim",                    # RE-ENABLED: key level — VWAP reclaim is the regime inflection point
-    "vwap_bounce",                     # RE-ENABLED: pullback to VWAP that holds
-    # BUY — opening range (Crabel methodology)
-    # "opening_low_base",              # DISABLED: redundant with morning_low_retest, 0% win rate
-    "morning_low_retest",
-    # "first_hour_high_breakout",      # DISABLED: 0% win rate in bearish regime, chases momentum
-    # BUY — inside day (volatility compression → expansion)
-    # Phase 1 (2026-04-22): disabled — fragile on gap-ups (AMD 04-22 misfire),
-    # and PDH/PDL + daily-MA rules cover the same structural setups with
-    # better confirmation. Kept in code, removed from ENABLED_RULES.
-    # "inside_day_breakout",
-    # "inside_day_reclaim",
-    # BUY — support structure
-    "session_low_double_bottom",
-    "multi_day_double_bottom",
-    "planned_level_touch",
-    # "intraday_support_bounce",       # DISABLED: redundant with double bottom + PDL, 0% win rate
-    "session_low_bounce_vwap",
-    # BUY — EMA reclaims only (consolidated from 8 → 4, EMA preferred)
-    "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
-    # "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",  # CONSOLIDATED: use EMA only
-    # ── Tier 1: Professional rules ──────────────────────────────────────────
-    "bb_squeeze_breakout",
-    # "macd_histogram_flip",  # PAUSED — low trust, needs more evaluation data
-    "gap_and_go",
-    "fib_retracement_bounce",
-    # BUY — session low reversal (candle + volume at the low itself)
-    "session_low_reversal",
-    # SHORT — session patterns
-    "vwap_loss",
-    "session_low_breakdown",
-    "morning_low_breakdown",
+    "monthly_high_resistance",
+
+    # ── SHORT: PDH-family rejections ────────────────────────────────────────
     "pdh_failed_breakout",
-    # ── SELL / SHORT — exits & breakdowns ───────────────────────────────────
     "resistance_prior_high",
     "pdh_rejection",
-    "resistance_prior_low",
-    "weekly_high_resistance",
-    "monthly_high_resistance",
-    # "inside_day_breakdown",  # Phase 1 (2026-04-22): disabled with inside_day_breakout
-    "support_breakdown",
+
+    # ── SHORT: PDL-family breakdowns ────────────────────────────────────────
     "prior_day_low_breakdown",
     "prior_day_low_resistance",
-    "spy_short_entry",
-    "consol_breakout_long",
-    "consol_breakout_short",
-    "consol_15m_breakout_long",
-    "consol_15m_breakout_short",
-    # SHORT — MA/EMA rejection, hourly resistance rejection, double top, intraday EMA
+
+    # ── SHORT: EMA rejection (only the cleanest single rule) ────────────────
     "ema_rejection_short",
-    "hourly_resistance_rejection_short",
-    "session_high_double_top",
-    "intraday_ema_rejection_short",
-    # "ema_loss_short",  # disabled — too noisy during evaluation
-    # ── Trade management — exit alerts (critical) ───────────────────────────
+    # DISABLED Phase 3a:
+    # "intraday_ema_rejection_short"        — overlap, lower trust
+    # "hourly_resistance_rejection_short"   — hourly rejections too noisy
+    # "session_high_double_top"             — drop session-high structure
+
+    # ── DISABLED Phase 3a — short side ──────────────────────────────────────
+    # "support_breakdown"                   — drop "loss of support" entirely
+    # "vwap_loss"                           — VWAP unreliable per trader
+    # "session_low_breakdown"               — drop intraday-low-breakdown family
+    # "morning_low_breakdown"               — same
+    # "weekly_low_breakdown"                — drop (use weekly NOTICE only)
+    # "monthly_low_breakdown"               — drop (use monthly NOTICE only)
+    # "consol_breakout_short"               — pattern-based, not level-based
+    # "consol_15m_breakout_short"           — same
+    # "spy_short_entry"                     — regime-based; rely on structural
+
+    # ── DISABLED Phase 3a — VWAP entries ────────────────────────────────────
+    # "vwap_reclaim"   — VWAP unreliable per trader's prior feedback
+    # "vwap_bounce"    — same
+
+    # ── DISABLED Phase 3a — pattern/volatility setups ───────────────────────
+    # "bb_squeeze_breakout"
+    # "gap_and_go"
+    # "fib_retracement_bounce"
+    # "consol_breakout_long"
+    # "consol_15m_breakout_long"
+
+    # ── DISABLED Phase 1 (2026-04-22) — inside-day family ───────────────────
+    # "inside_day_breakout"
+    # "inside_day_forming"
+    # "inside_day_breakdown"
+
+    # ── DISABLED earlier — noise alerts ─────────────────────────────────────
+    # "ma_approach", "ma_resistance", "ema_resistance"
+    # "hourly_consolidation", "session_high_retracement"
+    # "first_hour_summary", "first_hour_high_breakout"
+    # "opening_low_base", "intraday_support_bounce"
+    # "ma_reclaim_*"  (consolidated to EMA)
+    # "ema_loss_short", "macd_histogram_flip"
+    # "pdh_test", "weekly_high_test", "monthly_high_test"
+    # "resistance_prior_low"
+
+    # ── Trade management — exit alerts (always on) ──────────────────────────
     "target_1_hit",
     "target_2_hit",
     "stop_loss_hit",
     "auto_stop_out",
-    # ── NOTICE — informational only ─────────────────────────────────────────
-    # "first_hour_summary",            # DISABLED: noise, 5 alerts/day with no value
-    # "inside_day_forming",  # Phase 1 (2026-04-22): disabled with inside-day family
-    # ── DISABLED — noise alerts removed ─────────────────────────────────────
-    # "ma_approach",                  # NOISE: price always near some MA
-    # "ma_resistance",               # NOISE: use as filter, not alert
-    # "ema_resistance",              # NOISE: use as filter, not alert
-    # "hourly_consolidation",        # NOISE: 40% of hours are tight range
-    # "session_high_retracement",    # NOISE: describes normal intraday action
+}
+
+
+# ============================================================================
+# Phase 3a (2026-04-23) — NOTICE_ONLY_RULES.
+# Rule still fires in evaluate_rules(), but monitor.py rewrites the resulting
+# AlertSignal so:
+#   - direction = "NOTICE"
+#   - entry / stop / target_1 / target_2 = None (not actionable)
+# These are weekly/monthly heads-ups for context only — never tradeable on
+# their own. Trader uses them for confluence with intraday EMA/PDH/PDL setups.
+#
+# Behind env flag NOTICE_ONLY_RULES_ENABLED (default true) so this can be
+# disabled on Railway without redeploy if these alerts misbehave.
+# ============================================================================
+NOTICE_ONLY_RULES: set[str] = {
+    "weekly_level_touch",
+    "weekly_high_breakout",
+    "weekly_low_test",
+    "weekly_high_resistance",
+    "monthly_level_touch",
+    "monthly_high_breakout",
+    "monthly_low_test",
+    "monthly_ema_touch",
+    "monthly_high_resistance",
 }
 
 # ---------------------------------------------------------------------------
