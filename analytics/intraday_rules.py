@@ -31,6 +31,10 @@ from alert_config import (
     BREAKOUT_STALENESS_PCT,
     MA_BOUNCE_MIN_VOL_RATIO,
     MA_BOUNCE_MIN_VOL_RATIO_SKIP,
+    STRUCTURAL_TARGETS_ENABLED,
+    STRUCTURAL_TARGET_T2_MIN_GAP_R,
+    STRUCTURAL_LADDER_DEDUPE_PCT,
+    STRUCTURAL_T1_ATR_MULT,
     BUY_ZONE_PROXIMITY_PCT,
     CONFLUENCE_BAND_PCT,
     CONSOLIDATION_MAX_BOOST,
@@ -502,6 +506,243 @@ def _bounce_volume_verdict(bars: pd.DataFrame) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Phase 4a (2026-04-24): Structural / ATR hybrid targets.
+#
+# The old target logic was `T1 = entry + 1*risk, T2 = entry + 2*risk`. That
+# shrinks to pennies on tight-stop bounces and leaves the bulk of the move
+# uncaptured on trend days. Phase 4 replaces it with a hybrid:
+#
+#   T1_floor = entry + max(1*risk, 1*ATR_daily)
+#   T2_floor = entry + max(2*risk, 2*ATR_daily)
+#   T1 = first resistance >= T1_floor, else T1_floor
+#   T2 = first resistance > T1 AND >= T2_floor, else T2_floor
+#
+# Resistance ladder = PDH, prior-week high, prior-month high, daily EMAs
+# above entry, (today's session high if breakout already happened).
+# Dedupe within STRUCTURAL_LADDER_DEDUPE_PCT (0.3%). SHORTs mirror.
+#
+# Behind STRUCTURAL_TARGETS_ENABLED flag so we can revert on Railway
+# without a deploy if targets land in places that don't match price action.
+# ---------------------------------------------------------------------------
+
+
+def _resistance_ladder(
+    prior_day: dict | None,
+    current_price: float,
+    emas: dict[str, float | None] | None = None,
+    direction: str = "LONG",
+    session_high: float | None = None,
+    session_low: float | None = None,
+    breakout_triggered: bool = False,
+) -> list[tuple[float, str]]:
+    """Return ordered list of structural levels for target capping.
+
+    For LONG (direction="LONG"): resistance ladder *above* current_price,
+        sorted ascending (nearest first).
+    For SHORT (direction="SHORT"): support ladder *below* current_price,
+        sorted descending (nearest first).
+
+    Sources (LONG):
+        - PDH (`prior_day["high"]`)
+        - Prior-week high (`prior_day["prior_week_high"]`)
+        - Prior-month high (`prior_day["prior_month_high"]`)
+        - Daily EMAs (EMA21/50/100/200) above current_price
+        - Today's session high — only if breakout_triggered=True
+    SHORT mirrors with PDL, prior-week/month low, EMAs below, session low.
+
+    Dedupe: levels within STRUCTURAL_LADDER_DEDUPE_PCT (0.3%) keep only
+    the nearest. Keeps first 4 candidates so T1 and T2 have room.
+    """
+    if prior_day is None or current_price <= 0:
+        return []
+
+    is_long = (direction or "LONG").upper() in ("LONG", "BUY")
+
+    candidates: list[tuple[float, str]] = []
+
+    def _add(level: float | None, label: str) -> None:
+        if level is None or level <= 0:
+            return
+        if is_long and level > current_price:
+            candidates.append((float(level), label))
+        elif (not is_long) and level < current_price:
+            candidates.append((float(level), label))
+
+    # Session highs / lows only count when a breakout/breakdown fired — we
+    # don't want to cap at today's running high when price is still climbing
+    # to set it.
+    if breakout_triggered:
+        if is_long:
+            _add(session_high, "session_high")
+        else:
+            _add(session_low, "session_low")
+
+    if is_long:
+        _add(prior_day.get("high"), "PDH")
+        _add(prior_day.get("prior_week_high"), "prior_week_high")
+        _add(prior_day.get("prior_month_high"), "prior_month_high")
+    else:
+        _add(prior_day.get("low"), "PDL")
+        _add(prior_day.get("prior_week_low"), "prior_week_low")
+        _add(prior_day.get("prior_month_low"), "prior_month_low")
+
+    # Daily EMAs that sit on the far side of entry.
+    for label, value in (emas or {}).items():
+        _add(value, label)
+
+    # Sort nearest first.
+    if is_long:
+        candidates.sort(key=lambda pair: pair[0])
+    else:
+        candidates.sort(key=lambda pair: pair[0], reverse=True)
+
+    # Dedupe within STRUCTURAL_LADDER_DEDUPE_PCT.
+    deduped: list[tuple[float, str]] = []
+    for price, label in candidates:
+        if not deduped:
+            deduped.append((price, label))
+            continue
+        last_price = deduped[-1][0]
+        if abs(price - last_price) / last_price <= STRUCTURAL_LADDER_DEDUPE_PCT:
+            continue  # same level, skip
+        deduped.append((price, label))
+
+    return deduped[:4]
+
+
+def _compute_targets(
+    entry: float,
+    stop: float,
+    atr_daily: float | None,
+    ladder: list[tuple[float, str]],
+    direction: str = "LONG",
+) -> tuple[float, float]:
+    """Hybrid structural / ATR targets — returns (T1, T2) for a signal.
+
+    LONG:
+        T1_floor = entry + max(1*risk, 1*ATR)
+        T2_floor = entry + max(2*risk, 2*ATR)
+        T1 = first resistance >= T1_floor, else T1_floor
+        T2 = first resistance > T1 AND >= T2_floor, else T2_floor
+        T2 = max(T2, T1 + 0.5*risk)  # force min gap
+    SHORT mirrors (entry - max, support ladder, T2 = min gap below T1).
+
+    Fail-open: when ATR is None or ladder is empty, reduces to %-based
+    targets that match the old behavior. Never raises.
+    """
+    is_long = (direction or "LONG").upper() in ("LONG", "BUY")
+    risk = abs(entry - stop)
+    if risk <= 0:
+        # Defensive; caller should have short-circuited already.
+        return (round(entry, 2), round(entry, 2))
+
+    atr_val = atr_daily if atr_daily and atr_daily > 0 else risk
+
+    if is_long:
+        t1_floor = entry + max(risk, STRUCTURAL_T1_ATR_MULT * atr_val)
+        t2_floor = entry + max(2 * risk, 2 * STRUCTURAL_T1_ATR_MULT * atr_val)
+    else:
+        t1_floor = entry - max(risk, STRUCTURAL_T1_ATR_MULT * atr_val)
+        t2_floor = entry - max(2 * risk, 2 * STRUCTURAL_T1_ATR_MULT * atr_val)
+
+    # Pick T1: nearest ladder level that's >= floor (LONG) or <= floor (SHORT).
+    t1 = t1_floor
+    for price, _ in ladder:
+        if is_long and price >= t1_floor:
+            t1 = price
+            break
+        if (not is_long) and price <= t1_floor:
+            t1 = price
+            break
+
+    # Pick T2: next ladder level beyond T1 that's also >= floor.
+    t2 = t2_floor
+    for price, _ in ladder:
+        if is_long:
+            if price > t1 and price >= t2_floor:
+                t2 = price
+                break
+        else:
+            if price < t1 and price <= t2_floor:
+                t2 = price
+                break
+
+    # Guarantee min gap between T1 and T2 (avoid stacked structural levels
+    # producing T2 = T1 + $0.10).
+    min_gap = STRUCTURAL_TARGET_T2_MIN_GAP_R * risk
+    if is_long:
+        t2 = max(t2, t1 + min_gap)
+    else:
+        t2 = min(t2, t1 - min_gap)
+
+    return (round(t1, 2), round(t2, 2))
+
+
+def _targets_for_long(
+    entry: float,
+    stop: float,
+    prior_day: dict | None,
+    emas_above: dict[str, float | None] | None = None,
+    session_high: float | None = None,
+    breakout_triggered: bool = False,
+) -> tuple[float, float]:
+    """Convenience wrapper — builds the LONG ladder + computes T1/T2.
+
+    Rules call this instead of hardcoded `entry + N*risk`. Falls back to
+    %-based targets when STRUCTURAL_TARGETS_ENABLED is false or when the
+    ladder / ATR data are unavailable.
+    """
+    risk = entry - stop
+    if risk <= 0:
+        return (round(entry, 2), round(entry, 2))
+    if not STRUCTURAL_TARGETS_ENABLED:
+        return (round(entry + risk, 2), round(entry + 2 * risk, 2))
+    if prior_day is None:
+        return (round(entry + risk, 2), round(entry + 2 * risk, 2))
+    atr_daily = prior_day.get("atr_daily")
+    ladder = _resistance_ladder(
+        prior_day,
+        entry,
+        emas_above,
+        direction="LONG",
+        session_high=session_high,
+        breakout_triggered=breakout_triggered,
+    )
+    return _compute_targets(entry, stop, atr_daily, ladder, "LONG")
+
+
+def _targets_for_short(
+    entry: float,
+    stop: float,
+    prior_day: dict | None,
+    emas_below: dict[str, float | None] | None = None,
+    session_low: float | None = None,
+    breakdown_triggered: bool = False,
+) -> tuple[float, float]:
+    """Convenience wrapper — builds the SHORT support ladder + T1/T2.
+
+    Same fallback behavior as _targets_for_long.
+    """
+    risk = stop - entry
+    if risk <= 0:
+        return (round(entry, 2), round(entry, 2))
+    if not STRUCTURAL_TARGETS_ENABLED:
+        return (round(entry - risk, 2), round(entry - 2 * risk, 2))
+    if prior_day is None:
+        return (round(entry - risk, 2), round(entry - 2 * risk, 2))
+    atr_daily = prior_day.get("atr_daily")
+    ladder = _resistance_ladder(
+        prior_day,
+        entry,
+        emas_below,
+        direction="SHORT",
+        session_low=session_low,
+        breakout_triggered=breakdown_triggered,
+    )
+    return _compute_targets(entry, stop, atr_daily, ladder, "SHORT")
+
+
+# ---------------------------------------------------------------------------
 # BUY Rule 1: MA Bounce 20MA
 # ---------------------------------------------------------------------------
 
@@ -893,6 +1134,12 @@ def check_prior_day_low_reclaim(
     bars: pd.DataFrame,
     prior_day_low: float,
     today_open: float = 0,
+    prior_day: dict | None = None,
+    ema8: float | None = None,
+    ema21: float | None = None,
+    ema50: float | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price dips below prior day low then reclaims above it.
 
@@ -966,6 +1213,10 @@ def check_prior_day_low_reclaim(
         "%s: PDL reclaim FIRED — entry=%.2f stop=%.2f price=%.2f pdl=%.2f",
         symbol, entry, stop, last_bar["Close"], prior_day_low,
     )
+    # Phase 4a — structural targets
+    emas_above = {"EMA8": ema8, "EMA21": ema21, "EMA50": ema50, "EMA100": ema100, "EMA200": ema200}
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=emas_above)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PRIOR_DAY_LOW_RECLAIM,
@@ -973,8 +1224,8 @@ def check_prior_day_low_reclaim(
         price=last_bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence="high",
         message=(
             f"Prior day low reclaim — dipped to ${intraday_low:.2f}, "
@@ -992,6 +1243,12 @@ def check_prior_day_low_bounce(
     symbol: str,
     bars: pd.DataFrame,
     prior_day_low: float,
+    prior_day: dict | None = None,
+    ema8: float | None = None,
+    ema21: float | None = None,
+    ema50: float | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price approaches prior day low and bounces/holds above it.
 
@@ -1037,6 +1294,10 @@ def check_prior_day_low_bounce(
     if risk <= 0:
         return None
 
+    # Phase 4a — structural targets
+    emas_above = {"EMA8": ema8, "EMA21": ema21, "EMA50": ema50, "EMA100": ema100, "EMA200": ema200}
+    t1, t2 = _targets_for_long(round(entry, 2), round(stop, 2), prior_day, emas_above=emas_above)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PRIOR_DAY_LOW_BOUNCE,
@@ -1044,8 +1305,8 @@ def check_prior_day_low_bounce(
         price=last_bar["Close"],
         entry=round(entry, 2),
         stop=round(stop, 2),
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence="high",
         message=(
             f"Prior day low bounce — held above ${prior_day_low:.2f}, "
@@ -1190,6 +1451,9 @@ def check_prior_day_high_breakout(
     prior_day_high: float,
     bar_volume: float,
     avg_volume: float,
+    prior_day: dict | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price breaks above prior day high with volume confirmation.
 
@@ -1258,6 +1522,15 @@ def check_prior_day_high_breakout(
         if risk <= 0:
             return None
 
+    # Phase 4a — structural targets (breakout already happened, session_high=PDH for the ladder)
+    emas_above = {"EMA100": ema100, "EMA200": ema200}
+    t1, t2 = _targets_for_long(
+        entry, stop, prior_day,
+        emas_above=emas_above,
+        session_high=float(bars["High"].max()),
+        breakout_triggered=True,
+    )
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PRIOR_DAY_HIGH_BREAKOUT,
@@ -1265,8 +1538,8 @@ def check_prior_day_high_breakout(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence="high" if vol_ratio >= 1.5 else "medium",
         message=(
             f"Prior day high breakout — closed above ${prior_day_high:.2f} "
@@ -1336,6 +1609,9 @@ def check_pdh_retest_hold(
     symbol: str,
     bars: pd.DataFrame,
     prior_day_high: float,
+    prior_day: dict | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price broke above prior day high, pulled back to retest PDH, and holds.
 
@@ -1388,6 +1664,15 @@ def check_pdh_retest_hold(
     if risk <= 0:
         return None
 
+    # Phase 4a — structural targets (PDH breakout already happened; session high included)
+    emas_above = {"EMA100": ema100, "EMA200": ema200}
+    t1, t2 = _targets_for_long(
+        entry, stop, prior_day,
+        emas_above=emas_above,
+        session_high=float(bars["High"].max()),
+        breakout_triggered=True,
+    )
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PDH_RETEST_HOLD,
@@ -1395,8 +1680,8 @@ def check_pdh_retest_hold(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence="high",
         message=(
             f"PDH retest & hold — broke above ${prior_day_high:.2f}, "
@@ -1760,6 +2045,12 @@ def check_pdh_failed_breakout(
     symbol: str,
     bars: pd.DataFrame,
     prior_day_high: float,
+    prior_day: dict | None = None,
+    ema8: float | None = None,
+    ema21: float | None = None,
+    ema50: float | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price broke above PDH earlier in the session, then failed back below.
 
@@ -1806,8 +2097,14 @@ def check_pdh_failed_breakout(
     if risk <= 0:
         return None
 
-    target_1 = round(entry - risk, 2)
-    target_2 = round(entry - 2 * risk, 2)
+    # Phase 4a — structural targets (SHORT: support ladder below entry)
+    emas_below = {"EMA8": ema8, "EMA21": ema21, "EMA50": ema50, "EMA100": ema100, "EMA200": ema200}
+    target_1, target_2 = _targets_for_short(
+        entry, stop, prior_day,
+        emas_below=emas_below,
+        session_low=float(bars["Low"].min()),
+        breakdown_triggered=True,
+    )
 
     confidence = "high" if bars_since_breakout >= 6 else "medium"
 
@@ -2721,6 +3018,9 @@ def check_ema_bounce_21(
     bars: pd.DataFrame,
     ema21: float | None,
     ema50: float | None,
+    prior_day: dict | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA21 and bounces — bullish in uptrend.
 
@@ -2729,6 +3029,10 @@ def check_ema_bounce_21(
     last-bar close above the EMA, max-distance staleness guard, volume check.
 
     Trend filter: EMA21 > EMA50 (uptrend on the medium-term frame).
+
+    Phase 4a targets: if prior_day is passed, T1/T2 cap at structural
+    resistance (PDH, weekly/monthly high, EMAs above entry) with an ATR
+    floor. Falls back to %-based when prior_day is None (backwards compat).
     """
     if ema21 is None or ema50 is None:
         return None
@@ -2766,6 +3070,10 @@ def check_ema_bounce_21(
     if _vol == "demote":
         _conf = "medium"
 
+    # Phase 4a — structural targets (falls back to %-based if prior_day None).
+    emas_above = {"EMA50": ema50, "EMA100": ema100, "EMA200": ema200}
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=emas_above)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_21,
@@ -2773,8 +3081,8 @@ def check_ema_bounce_21(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence=_conf,
         message=(
             f"EMA bounce 21 — price pulled back to ${ema21:.2f} "
@@ -2793,6 +3101,10 @@ def check_ema_bounce_8(
     bars: pd.DataFrame,
     ema8: float | None,
     ema21: float | None,
+    prior_day: dict | None = None,
+    ema50: float | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA8 and bounces — fast-trend continuation.
 
@@ -2802,6 +3114,9 @@ def check_ema_bounce_8(
 
     Same proximity / hold / staleness / volume mechanics as the other bounces.
     Tighter stops since EMA8 sits closer to price.
+
+    Phase 4a targets: structural cap via _targets_for_long when prior_day is
+    supplied; %-based fallback otherwise.
     """
     if ema8 is None or ema21 is None:
         return None
@@ -2839,6 +3154,10 @@ def check_ema_bounce_8(
     if _vol == "demote":
         _conf = "medium"
 
+    # Phase 4a — structural targets
+    emas_above = {"EMA21": ema21, "EMA50": ema50, "EMA100": ema100, "EMA200": ema200}
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=emas_above)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_8,
@@ -2846,8 +3165,8 @@ def check_ema_bounce_8(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence=_conf,
         message=(
             f"EMA bounce 8 — price pulled back to ${ema8:.2f} "
@@ -2867,10 +3186,14 @@ def check_ema_bounce_50(
     ema50: float | None,
     ema20: float | None,
     prior_close: float | None,
+    prior_day: dict | None = None,
+    ema100: float | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA50 and bounces — deeper pullback buy.
 
     Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near EMA50.
+    Phase 4a: structural targets when prior_day is passed.
     """
     if ema50 is None or ema50 <= 0:
         return None
@@ -2915,6 +3238,10 @@ def check_ema_bounce_50(
     if counter_trend:
         msg += " (counter-trend)"
 
+    # Phase 4a — structural targets
+    emas_above = {"EMA100": ema100, "EMA200": ema200}
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=emas_above)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_50,
@@ -2922,8 +3249,8 @@ def check_ema_bounce_50(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence=confidence,
         message=msg,
     )
@@ -2939,11 +3266,14 @@ def check_ema_bounce_100(
     bars: pd.DataFrame,
     ema100: float | None,
     prior_close: float | None,
+    prior_day: dict | None = None,
+    ema200: float | None = None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA100 and bounces — intermediate institutional level.
 
     Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near EMA100.
     Uses MA100 thresholds (wider proximity/stop for institutional level).
+    Phase 4a: structural targets.
     """
     if ema100 is None or ema100 <= 0:
         return None
@@ -2989,6 +3319,10 @@ def check_ema_bounce_100(
     if counter_trend:
         msg += " (counter-trend)"
 
+    # Phase 4a — structural targets
+    emas_above = {"EMA200": ema200}
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=emas_above)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_100,
@@ -2996,8 +3330,8 @@ def check_ema_bounce_100(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence=confidence,
         message=msg,
     )
@@ -3013,11 +3347,13 @@ def check_ema_bounce_200(
     bars: pd.DataFrame,
     ema200: float | None,
     prior_close: float | None,
+    prior_day: dict | None = None,
 ) -> AlertSignal | None:
     """Price pulls back to EMA200 and bounces — major institutional level.
 
     Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near EMA200.
     Uses MA200 thresholds (widest proximity/stop for long-term level).
+    Phase 4a: structural targets.
     """
     if ema200 is None or ema200 <= 0:
         return None
@@ -3063,6 +3399,9 @@ def check_ema_bounce_200(
     if counter_trend:
         msg += " (counter-trend)"
 
+    # Phase 4a — structural targets (no EMAs above EMA200 typically)
+    t1, t2 = _targets_for_long(entry, stop, prior_day)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.EMA_BOUNCE_200,
@@ -3070,8 +3409,8 @@ def check_ema_bounce_200(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence=confidence,
         message=msg,
     )
@@ -4078,8 +4417,17 @@ def check_ema_rejection_short(
         if risk <= 0:
             continue
 
-        target_1 = round(entry - risk, 2)
-        target_2 = round(entry - 2 * risk, 2)
+        # Phase 4a — structural targets: support ladder below entry.
+        # Pull lower EMAs from prior_day so the ladder can include them.
+        emas_below: dict[str, float | None] = {
+            lbl: prior_day.get(k) for k, lbl in [
+                ("ema8", "EMA8"), ("ema21", "EMA21"), ("ema50", "EMA50"),
+                ("ema100", "EMA100"), ("ema200", "EMA200"),
+            ]
+        }
+        target_1, target_2 = _targets_for_short(
+            entry, stop, prior_day, emas_below=emas_below,
+        )
 
         return AlertSignal(
             symbol=symbol,
@@ -4907,6 +5255,8 @@ def check_ma_ema_reclaim(
     prior_close: float | None,
     alert_type: "AlertType",
     ma_label: str,
+    prior_day: dict | None = None,
+    other_emas: dict[str, float | None] | None = None,
 ) -> AlertSignal | None:
     """Price crosses above a key daily MA/EMA from below.
 
@@ -4947,6 +5297,10 @@ def check_ma_ema_reclaim(
 
     confidence = "high" if distance <= 0.005 else "medium"
 
+    # Phase 4a — structural targets. Include higher EMAs (if supplied) that
+    # sit above the reclaimed level as additional resistance candidates.
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=other_emas)
+
     return AlertSignal(
         symbol=symbol,
         alert_type=alert_type,
@@ -4954,8 +5308,8 @@ def check_ma_ema_reclaim(
         price=last_bar["Close"],
         entry=entry,
         stop=stop,
-        target_1=round(entry + risk, 2),
-        target_2=round(entry + 2 * risk, 2),
+        target_1=t1,
+        target_2=t2,
         confidence=confidence,
         message=(
             f"{ma_label} reclaim — prior close ${prior_close:.2f} was below "
@@ -5494,8 +5848,8 @@ def check_multi_day_double_bottom(
     if risk <= 0:
         return None
 
-    target_1 = round(entry + risk, 2)
-    target_2 = round(entry + 2 * risk, 2)
+    # Phase 4a — structural targets. prior_day already available in signature.
+    target_1, target_2 = _targets_for_long(round(entry, 2), stop, prior_day)
 
     # Confidence: high for 3+ touches or volume exhaustion; medium for 2 touches
     vol_ratio = bar_volume / avg_volume if avg_volume > 0 else 1.0
@@ -7493,7 +7847,10 @@ def evaluate_rules(
         # Phase 3b — EMA8 (fast pullback) and EMA21 (medium-trend) added.
         # EMA20 retained for backwards compat but disabled in ENABLED_RULES.
         if AlertType.EMA_BOUNCE_8.value in ENABLED_RULES:
-            sig = check_ema_bounce_8(symbol, intraday_bars, ema8, ema21)
+            sig = check_ema_bounce_8(
+                symbol, intraday_bars, ema8, ema21,
+                prior_day=prior_day, ema50=ema50, ema100=ema100, ema200=ema200,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -7502,7 +7859,10 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.EMA_BOUNCE_21.value in ENABLED_RULES:
-            sig = check_ema_bounce_21(symbol, intraday_bars, ema21, ema50)
+            sig = check_ema_bounce_21(
+                symbol, intraday_bars, ema21, ema50,
+                prior_day=prior_day, ema100=ema100, ema200=ema200,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -7520,7 +7880,10 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.EMA_BOUNCE_50.value in ENABLED_RULES:
-            sig = check_ema_bounce_50(symbol, intraday_bars, ema50, ema20, prior_close)
+            sig = check_ema_bounce_50(
+                symbol, intraday_bars, ema50, ema20, prior_close,
+                prior_day=prior_day, ema100=ema100, ema200=ema200,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -7529,7 +7892,10 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.EMA_BOUNCE_100.value in ENABLED_RULES:
-            sig = check_ema_bounce_100(symbol, intraday_bars, ema100, prior_close)
+            sig = check_ema_bounce_100(
+                symbol, intraday_bars, ema100, prior_close,
+                prior_day=prior_day, ema200=ema200,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -7538,7 +7904,10 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.EMA_BOUNCE_200.value in ENABLED_RULES:
-            sig = check_ema_bounce_200(symbol, intraday_bars, ema200, prior_close)
+            sig = check_ema_bounce_200(
+                symbol, intraday_bars, ema200, prior_close,
+                prior_day=prior_day,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -7567,7 +7936,11 @@ def evaluate_rules(
                         break  # only one approach notice per poll
 
         if AlertType.PRIOR_DAY_LOW_RECLAIM.value in ENABLED_RULES:
-            sig = check_prior_day_low_reclaim(symbol, intraday_bars, prior_low, today_open=today_open)
+            sig = check_prior_day_low_reclaim(
+                symbol, intraday_bars, prior_low, today_open=today_open,
+                prior_day=prior_day, ema8=ema8, ema21=ema21, ema50=ema50,
+                ema100=ema100, ema200=ema200,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 # Gap down days boost PDL reclaim confidence
@@ -7580,7 +7953,11 @@ def evaluate_rules(
                 signals.append(sig)
 
         if AlertType.PRIOR_DAY_LOW_BOUNCE.value in ENABLED_RULES:
-            sig = check_prior_day_low_bounce(symbol, intraday_bars, prior_low)
+            sig = check_prior_day_low_bounce(
+                symbol, intraday_bars, prior_low,
+                prior_day=prior_day, ema8=ema8, ema21=ema21, ema50=ema50,
+                ema100=ema100, ema200=ema200,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -7592,6 +7969,7 @@ def evaluate_rules(
         if AlertType.PRIOR_DAY_HIGH_BREAKOUT.value in ENABLED_RULES:
             sig = check_prior_day_high_breakout(
                 symbol, intraday_bars, prior_high, bar_vol, avg_vol,
+                prior_day=prior_day, ema100=ema100, ema200=ema200,
             )
             if sig:
                 sig.message += f" ({phase})"
@@ -7600,7 +7978,10 @@ def evaluate_rules(
 
         # --- Prior Day High Retest & Hold ---
         if AlertType.PDH_RETEST_HOLD.value in ENABLED_RULES:
-            sig = check_pdh_retest_hold(symbol, intraday_bars, prior_high)
+            sig = check_pdh_retest_hold(
+                symbol, intraday_bars, prior_high,
+                prior_day=prior_day, ema100=ema100, ema200=ema200,
+            )
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:
@@ -7858,8 +8239,16 @@ def evaluate_rules(
         ]
         for _at, _ma, _label in _reclaim_pairs:
             if _at.value in ENABLED_RULES and _ma:
+                # Phase 4a — pass prior_day + EMAs above the reclaimed level so
+                # _targets_for_long can build a structural ladder. The full set
+                # of EMAs is fine here; the helper filters by "above entry".
+                _other_emas = {
+                    "EMA8": ema8, "EMA21": ema21, "EMA50": ema50,
+                    "EMA100": ema100, "EMA200": ema200,
+                }
                 sig = check_ma_ema_reclaim(
                     symbol, intraday_bars, _ma, prior_close, _at, _label,
+                    prior_day=prior_day, other_emas=_other_emas,
                 )
                 if sig:
                     sig.message += f" ({phase})"
@@ -8006,7 +8395,12 @@ def evaluate_rules(
 
     # --- PDH Failed Breakout (SHORT) ---
     if AlertType.PDH_FAILED_BREAKOUT.value in ENABLED_RULES:
-        sig = check_pdh_failed_breakout(symbol, intraday_bars, prior_high)
+        sig = check_pdh_failed_breakout(
+            symbol, intraday_bars, prior_high,
+            prior_day=prior_day,
+            ema8=ema8, ema21=ema21, ema50=ema50,
+            ema100=ema100, ema200=ema200,
+        )
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
