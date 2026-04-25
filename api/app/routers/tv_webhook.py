@@ -299,15 +299,24 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
 async def _users_watching(db, symbol: str):
     """Return list of users whose watchlist contains the symbol.
 
-    Reuses the same logic the poll loop applies — Pro/Premium/Admin tier with
-    active subscription/trial. Implementation detail: keeping it simple here,
-    the per-user flow is meant to mirror what monitor.py does.
+    Watchlist is a separate table (`watchlist` → WatchlistItem) joined to
+    users via user_id. This mirrors the rule-engine poll loop in
+    api/app/background/monitor.py which also joins through WatchlistItem.
+
+    Production note: not gating by tier/subscription here; the poll loop
+    does that filtering. For TV ingest in v1 we deliver to anyone watching
+    the symbol — fits the "TV is additive" philosophy. Add tier gating if
+    we see TV alerts going to free users we want to exclude.
     """
     from app.models.user import User
-    # Minimal: return all users with a non-empty watchlist matching symbol.
-    # Production poll loop has more elaborate tier/subscription gating; this
-    # function is a single seam to add the same later.
-    stmt = select(User).where(User.watchlist.contains(symbol))
+    from app.models.watchlist import WatchlistItem
+
+    stmt = (
+        select(User)
+        .join(WatchlistItem, WatchlistItem.user_id == User.id)
+        .where(WatchlistItem.symbol == symbol)
+        .distinct()
+    )
     result = await db.execute(stmt)
     return result.scalars().all()
 

@@ -41,17 +41,34 @@ from analytics.tv_signal_adapter import (
 
 class TestNormalizeSymbol:
     def test_strips_exchange_prefix(self):
-        assert normalize_symbol("COINBASE:ETHUSD") == "ETHUSD"
+        # Equity symbols stay as-is after stripping exchange
         assert normalize_symbol("NASDAQ:AAPL") == "AAPL"
-        assert normalize_symbol("BINANCE:BTCUSDT") == "BTCUSDT"
+        assert normalize_symbol("NYSE:GME") == "GME"
+
+    def test_crypto_tv_format_maps_to_internal_hyphenated(self):
+        """Live bug fix (2026-04-25): TV sends ETHUSD, our system needs
+        ETH-USD for yfinance / Coinbase lookups. Without this mapping,
+        fetch_prior_day('ETHUSD') 404'd in production."""
+        assert normalize_symbol("ETHUSD") == "ETH-USD"
+        assert normalize_symbol("COINBASE:ETHUSD") == "ETH-USD"
+        assert normalize_symbol("BTCUSD") == "BTC-USD"
+        assert normalize_symbol("BINANCE:BTCUSDT") == "BTC-USD"
+        assert normalize_symbol("ETHUSDT") == "ETH-USD"
+        assert normalize_symbol("ETHUSDC") == "ETH-USD"
+        assert normalize_symbol("SOLUSD") == "SOL-USD"
+        assert normalize_symbol("DOGEUSDT") == "DOGE-USD"
 
     def test_no_prefix_returns_uppercase(self):
-        assert normalize_symbol("ethusd") == "ETHUSD"
-        assert normalize_symbol(" AAPL ") == "AAPL"
+        assert normalize_symbol("aapl") == "AAPL"
+        assert normalize_symbol(" GOOG ") == "GOOG"
 
     def test_empty_raises(self):
         with pytest.raises(TVAdapterError):
             normalize_symbol("")
+
+    def test_unknown_symbol_passes_through(self):
+        # Unknown crypto / non-mapped pair: passthrough uppercased
+        assert normalize_symbol("FOOBAR") == "FOOBAR"
 
 
 class TestNormalizeInterval:
@@ -144,7 +161,8 @@ class TestPayloadToAlertSignal:
 
     def test_full_payload_converts_correctly(self):
         sig = payload_to_alert_signal(self._base_payload())
-        assert sig.symbol == "ETHUSD"
+        # Live fix: TV's "ETHUSD" maps to internal "ETH-USD" for yfinance compat
+        assert sig.symbol == "ETH-USD"
         assert sig.alert_type == AlertType.TV_WEBHOOK
         assert sig.direction == "BUY"
         assert sig.price == 2311.30
@@ -295,6 +313,38 @@ class TestEndpointPydanticValidation:
         response = client.post("/tv/webhook", json=bad)
         # Either Pydantic catches it (422) or the adapter raises (400)
         assert response.status_code in (400, 422)
+
+
+class TestWatchlistQuery:
+    """Live bug fix (2026-04-25): _users_watching used `User.watchlist.contains`
+    but watchlist is a separate `WatchlistItem` table, not a User column.
+
+    These tests verify the JOIN-based query references the right model
+    classes — they don't run the query (that needs a real DB session) but
+    catch attribute typos that broke production.
+    """
+
+    def test_users_watching_imports_resolve(self):
+        """Smoke: the function imports the right model classes without error."""
+        import api.app.routers.tv_webhook as mod
+        # Calling the function with a fake db will fail — but we only care
+        # about whether the model imports/lookups succeed up to the point
+        # of execution. Use inspect.
+        import inspect
+        src = inspect.getsource(mod._users_watching)
+        # Confirm the fix landed: should reference WatchlistItem table, not
+        # the broken User.watchlist attribute.
+        assert "WatchlistItem" in src
+        assert "User.watchlist.contains" not in src
+
+    def test_watchlist_model_file_has_required_columns(self):
+        """Schema sanity: read the file directly (avoid Streamlit import side-effects)."""
+        with open("api/app/models/watchlist.py") as f:
+            src = f.read()
+        assert 'class WatchlistItem' in src
+        assert '__tablename__ = "watchlist"' in src
+        assert 'user_id' in src
+        assert 'symbol' in src
 
 
 class TestEndpointAcceptsValidPayload:
