@@ -20,7 +20,7 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from alert_config import COOLDOWN_MINUTES  # noqa: E402
+from alert_config import COOLDOWN_MINUTES, NOTICE_ONLY_RULES  # noqa: E402
 from analytics.htf_bias import (  # noqa: E402
     HTFBias,
     compute_htf_bias,
@@ -39,6 +39,11 @@ logger = logging.getLogger("monitor")
 # trades we wanted.
 import os as _os_htf  # noqa: E402
 _HTF_BIAS_GATE_ENABLED = _os_htf.environ.get("HTF_BIAS_GATE_ENABLED", "true").strip().lower() not in ("false", "0", "no", "off")
+
+# Phase 3a (2026-04-23 evening) — NOTICE-only rule rewriter env flag. Default
+# on; set to "false" on Railway to let weekly/monthly rules fire as full
+# LONG/SHORT actionable alerts again (current behaviour without the gate).
+_NOTICE_ONLY_RULES_ENABLED = _os_htf.environ.get("NOTICE_ONLY_RULES_ENABLED", "true").strip().lower() not in ("false", "0", "no", "off")
 
 # Burst cooldown: prevent rapid BUY notification spam (in-memory, resets on restart)
 _last_buy_notify: Dict[str, "datetime"] = {}  # {symbol: datetime}
@@ -459,11 +464,28 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # Phase 2 (2026-04-23) — HTF bias gate: drop counter-trend
                     # LONG/SHORT entries, and stamp _confluence_score on every
                     # surviving signal so the Telegram 🟢/🟡 emoji lights up.
+                    #
+                    # Phase 3a (2026-04-23 evening) — NOTICE rewrite: weekly/
+                    # monthly level rules in NOTICE_ONLY_RULES are downgraded to
+                    # NOTICE direction and have entry/stop/T1/T2 cleared. They
+                    # remain heads-up only — never tradeable on their own. The
+                    # HTF gate skips NOTICE alerts (we don't want to suppress
+                    # informational level touches based on intraday trend).
                     _bias = htf_bias_cache.get(symbol) or HTFBias()
                     _kept_signals = []
                     for _sig in signals:
+                        # Phase 3a — rewrite weekly/monthly rules to NOTICE first
+                        # so the HTF gate sees the final direction.
+                        _alert_type_str = _sig.alert_type.value
+                        if _NOTICE_ONLY_RULES_ENABLED and _alert_type_str in NOTICE_ONLY_RULES:
+                            _sig.direction = "NOTICE"
+                            _sig.entry = None
+                            _sig.stop = None
+                            _sig.target_1 = None
+                            _sig.target_2 = None
+
                         _dir = (_sig.direction or "").upper()
-                        if _HTF_BIAS_GATE_ENABLED:
+                        if _HTF_BIAS_GATE_ENABLED and _dir != "NOTICE":
                             if _dir in ("BUY", "LONG") and should_gate_long(_bias):
                                 logger.info(
                                     "HTF GATE: %s %s suppressed — 4H=%s 1H=%s",
