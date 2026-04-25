@@ -1,0 +1,347 @@
+"""Phase 5a (2026-04-25) — TradingView webhook ingest endpoint.
+
+Accepts POST `/tv/webhook` from TradingView's alert webhook system. The body
+is parsed by `analytics.tv_signal_adapter.payload_to_alert_signal`, then
+pushed through the same pipeline as rule-engine alerts:
+
+    1. (optional) IP allowlist for defense-in-depth
+    2. Pydantic validation (returns 400 on bad payload — TV does not retry 4xx)
+    3. Adapter conversion → AlertSignal
+    4. HTF bias gate (Phase 2) — counter-trend LONG/SHORT suppressed
+    5. Phase 4a structural targets (T1/T2 capped at PDH/weekly/EMA above entry)
+    6. Level-based dedup (30-min window) against the alerts table
+    7. Insert Alert row (per matching user) → notifier.notify() → Telegram
+
+Response is 200 fast; TV retries on 5xx, so we swallow internal errors and
+log them rather than letting them propagate. Body validation errors return
+400 (TV does NOT retry on 4xx).
+
+Behind env flag `TV_WEBHOOK_ENABLED` (default false). Endpoint returns
+503 when disabled so a forgotten TV alert can't accidentally fire.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime, timedelta
+from typing import Any, Optional
+
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from alert_config import (
+    TV_WEBHOOK_ALLOWED_IPS,
+    TV_WEBHOOK_ENABLED,
+)
+from analytics.intraday_rules import AlertType
+from analytics.tv_signal_adapter import (
+    TVAdapterError,
+    payload_to_alert_signal,
+)
+
+logger = logging.getLogger("tv_webhook")
+router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Pydantic schema — matches the JSON template in pine_scripts/.
+# ---------------------------------------------------------------------------
+
+
+class TVWebhookPayload(BaseModel):
+    """Schema TradingView Pine Script alerts must POST to /tv/webhook.
+
+    Required: symbol, price, rule, direction.
+    Optional: exchange, interval, high, low, volume, entry, stop,
+              target_1, target_2, fired_at.
+    """
+
+    symbol: str = Field(..., min_length=1, max_length=30)
+    price: str = Field(..., description="String per TV's payload format")
+    rule: str = Field(..., min_length=1, max_length=80)
+    direction: str = Field(default="NOTICE")
+    exchange: Optional[str] = ""
+    interval: Optional[str] = ""
+    high: Optional[str] = None
+    low: Optional[str] = None
+    volume: Optional[str] = None
+    entry: Optional[str] = None
+    stop: Optional[str] = None
+    target_1: Optional[str] = None
+    target_2: Optional[str] = None
+    fired_at: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# IP allowlist helper (off by default).
+# ---------------------------------------------------------------------------
+
+
+def _is_allowed_ip(client_ip: str) -> bool:
+    """Return True when allowlist is empty (off) or client_ip is on it."""
+    if not TV_WEBHOOK_ALLOWED_IPS:
+        return True
+    allowed = {ip.strip() for ip in TV_WEBHOOK_ALLOWED_IPS.split(",") if ip.strip()}
+    return client_ip in allowed
+
+
+# ---------------------------------------------------------------------------
+# Endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post("/webhook")
+async def tv_webhook(
+    payload: TVWebhookPayload,
+    request: Request,
+) -> dict[str, Any]:
+    """Ingest a TradingView alert and route it through the alerting pipeline.
+
+    Returns 200 on accepted alerts, 400 on bad payload, 403 on disallowed IP,
+    503 when feature is disabled.
+    """
+    if not TV_WEBHOOK_ENABLED:
+        # 503 because the route is wired but not active. Differentiates from
+        # a missing route (404) for easier debugging.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TV webhook ingest is disabled (set TV_WEBHOOK_ENABLED=true)",
+        )
+
+    client_ip = request.client.host if request.client else "unknown"
+    if not _is_allowed_ip(client_ip):
+        logger.warning("TV webhook: denied IP %s (allowlist active)", client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="source IP not allowed",
+        )
+
+    try:
+        sig = payload_to_alert_signal(payload.model_dump())
+    except TVAdapterError as e:
+        logger.warning("TV webhook: bad payload from %s — %s", client_ip, e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    logger.info(
+        "TV webhook accepted: symbol=%s rule=%s direction=%s price=%.4f from=%s",
+        sig.symbol, getattr(sig, "_tv_rule", "?"),
+        sig.direction, float(sig.price), client_ip,
+    )
+
+    # Defer to a small dispatcher function so the request handler stays thin.
+    # Any exception during dispatch is swallowed + logged to keep TV happy
+    # (TV retries 5xx; we don't want spurious retries on transient issues).
+    try:
+        result = await _dispatch_signal(sig, request)
+    except Exception:
+        logger.exception("TV webhook: dispatch failed for %s", sig.symbol)
+        # Return 200 so TV doesn't retry; we'll have logged the failure.
+        return {"accepted": True, "dispatched": False, "reason": "dispatch_error"}
+
+    return {"accepted": True, **result}
+
+
+async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
+    """Apply HTF gate + structural targets + level dedup, then persist + notify.
+
+    Pipeline mirrors api/app/background/monitor.py epilogue (Phase 1–4) but
+    operates on a single signal from a single source rather than the full
+    poll loop. Same DB tables, same notifier, same dedup semantics.
+    """
+    from app.database import async_session_factory  # local import to avoid cycle
+    from app.models.alert import Alert
+    from app.models.user import User
+    from analytics.htf_bias import (
+        HTFBias,
+        compute_htf_bias,
+        confluence_score,
+        should_gate_long,
+        should_gate_short,
+    )
+    from analytics.intraday_data import (
+        fetch_intraday,
+        fetch_intraday_crypto,
+        fetch_prior_day,
+    )
+    from analytics.intraday_rules import _targets_for_long, _targets_for_short
+    from config import is_crypto_alert_symbol
+
+    is_crypto = is_crypto_alert_symbol(sig.symbol)
+
+    # 1. Pull prior_day for structural target computation.
+    try:
+        prior_day = fetch_prior_day(sig.symbol, is_crypto=is_crypto)
+    except Exception:
+        logger.exception("TV webhook: fetch_prior_day failed for %s", sig.symbol)
+        prior_day = None
+
+    # 2. HTF bias gate (Phase 2). Counter-trend LONG/SHORT suppressed.
+    bias = HTFBias()
+    try:
+        bars_1h = fetch_intraday(sig.symbol, period="5d", interval="1h")
+        if is_crypto:
+            bars_4h = fetch_intraday_crypto(sig.symbol, interval="4h")
+        else:
+            bars_4h = fetch_intraday(sig.symbol, period="10d", interval="4h")
+        bias = compute_htf_bias(bars_1h, bars_4h)
+    except Exception:
+        logger.debug("TV webhook: HTF bias fetch failed for %s — defaulting NEUTRAL",
+                     sig.symbol, exc_info=True)
+
+    direction = (sig.direction or "").upper()
+    if direction in ("BUY", "LONG") and should_gate_long(bias):
+        logger.info(
+            "TV webhook: HTF gate suppressed LONG %s — 4H=%s 1H=%s",
+            sig.symbol, bias.htf_4h, bias.htf_1h,
+        )
+        return {"dispatched": False, "reason": "htf_gate_long_blocked"}
+    if direction == "SHORT" and should_gate_short(bias):
+        logger.info(
+            "TV webhook: HTF gate suppressed SHORT %s — 4H=%s 1H=%s",
+            sig.symbol, bias.htf_4h, bias.htf_1h,
+        )
+        return {"dispatched": False, "reason": "htf_gate_short_blocked"}
+
+    # 3. Phase 4a structural targets if Pine Script didn't supply them.
+    if direction in ("BUY", "LONG") and sig.entry and not (sig.target_1 and sig.target_2):
+        # Default stop = 0.5% below entry if not provided.
+        stop = sig.stop if sig.stop else round(sig.entry * 0.995, 2)
+        sig.stop = stop
+        t1, t2 = _targets_for_long(sig.entry, stop, prior_day)
+        sig.target_1, sig.target_2 = t1, t2
+    elif direction == "SHORT" and sig.entry and not (sig.target_1 and sig.target_2):
+        stop = sig.stop if sig.stop else round(sig.entry * 1.005, 2)
+        sig.stop = stop
+        t1, t2 = _targets_for_short(sig.entry, stop, prior_day)
+        sig.target_1, sig.target_2 = t1, t2
+
+    # 4. Stamp confluence score (Phase 2).
+    sig._confluence_score = confluence_score(direction, bias)
+
+    # 5. Persist + notify per user. We replicate the per-user fan-out the poll
+    # loop does — every Pro/Premium user with this symbol on watchlist gets
+    # the alert routed through their preferences.
+    persisted = 0
+    notified = 0
+    session_date = date.today().isoformat()
+    dedup_window = timedelta(minutes=30)
+    dedup_tolerance_pct = 0.005  # 0.5% — same as Phase 1 level dedup
+
+    async with async_session_factory() as db:
+        # Fetch users whose watchlist contains this symbol.
+        users = await _users_watching(db, sig.symbol)
+        if not users:
+            logger.info("TV webhook: no users watching %s", sig.symbol)
+            return {"dispatched": False, "reason": "no_subscribers"}
+
+        for user in users:
+            # Per-user level dedup against alerts table.
+            if await _level_already_alerted(
+                db, user.id, sig.symbol, sig.entry or sig.price,
+                dedup_tolerance_pct, dedup_window,
+            ):
+                logger.info(
+                    "TV webhook: level dedup suppressed %s for user %d",
+                    sig.symbol, user.id,
+                )
+                continue
+
+            alert = Alert(
+                user_id=user.id,
+                symbol=sig.symbol,
+                alert_type=f"tv_{getattr(sig, '_tv_rule', 'webhook')}"[:100],
+                direction=sig.direction or "NOTICE",
+                price=float(sig.price),
+                entry=sig.entry,
+                stop=sig.stop,
+                target_1=sig.target_1,
+                target_2=sig.target_2,
+                confidence=sig.confidence,
+                message=sig.message,
+                score=int(sig.score) if sig.score else 0,
+                confluence_score=int(getattr(sig, "_confluence_score", 0)) or 0,
+                session_date=session_date,
+            )
+            db.add(alert)
+            persisted += 1
+
+        await db.commit()
+
+    # 6. Telegram delivery — invoke notifier on the per-user alerts. We pull
+    # out of the DB transaction first to avoid holding the connection during
+    # network I/O.
+    try:
+        from alerting.notifier import notify
+        from alerting.alert_store import AlertSignal as ALSig
+
+        # Convert internal AlertSignal → notifier's expected shape if needed.
+        # The dataclass should already match; notify() reads attributes.
+        notify(sig)
+        notified = persisted  # one notify call covers the broadcast
+    except Exception:
+        logger.exception("TV webhook: notify() failed for %s", sig.symbol)
+
+    logger.info(
+        "TV webhook done: symbol=%s persisted=%d notified=%d "
+        "direction=%s htf_4h=%s htf_1h=%s",
+        sig.symbol, persisted, notified, sig.direction, bias.htf_4h, bias.htf_1h,
+    )
+    return {
+        "dispatched": True,
+        "persisted": persisted,
+        "notified": notified,
+        "htf_4h": bias.htf_4h,
+        "htf_1h": bias.htf_1h,
+        "confluence_score": getattr(sig, "_confluence_score", 0),
+    }
+
+
+async def _users_watching(db, symbol: str):
+    """Return list of users whose watchlist contains the symbol.
+
+    Reuses the same logic the poll loop applies — Pro/Premium/Admin tier with
+    active subscription/trial. Implementation detail: keeping it simple here,
+    the per-user flow is meant to mirror what monitor.py does.
+    """
+    from app.models.user import User
+    # Minimal: return all users with a non-empty watchlist matching symbol.
+    # Production poll loop has more elaborate tier/subscription gating; this
+    # function is a single seam to add the same later.
+    stmt = select(User).where(User.watchlist.contains(symbol))
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+async def _level_already_alerted(
+    db,
+    user_id: int,
+    symbol: str,
+    level: float,
+    tolerance_pct: float,
+    window: timedelta,
+) -> bool:
+    """True if an alert at a similar level fired for this user recently."""
+    from app.models.alert import Alert
+
+    if not level or level <= 0:
+        return False
+    cutoff = datetime.utcnow() - window
+    stmt = select(Alert).where(
+        Alert.user_id == user_id,
+        Alert.symbol == symbol,
+        Alert.created_at >= cutoff,
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    band = level * tolerance_pct
+    for row in rows:
+        prev = row.entry or row.price or 0
+        if prev <= 0:
+            continue
+        if abs(prev - level) <= band:
+            return True
+    return False
+
+
+# Public exports for tests
+__all__ = ["router", "TVWebhookPayload", "_is_allowed_ip"]

@@ -153,6 +153,27 @@ STRUCTURAL_LADDER_DEDUPE_PCT = 0.003  # 0.3%
 STRUCTURAL_T1_ATR_MULT = 1.0
 
 # ---------------------------------------------------------------------------
+# Phase 5a (2026-04-25): TradingView webhook ingest.
+#
+# Accepts POST /tv/webhook from TradingView's alert webhook system. The
+# payload (validated against analytics/tv_signal_adapter.py) is converted
+# into our internal AlertSignal shape and pushed through the existing
+# pipeline: HTF gate (Phase 2) → structural targets (Phase 4a) → notifier.
+#
+# TV's webhook servers POST from a known IP range; allowlist below is an
+# optional defense-in-depth measure (off by default; webhook URLs are
+# already secret-by-obscurity since TV doesn't publish them).
+#
+# Flag default is `false` until the route is rolled out; once tested in
+# prod, flip to `true`.
+# ---------------------------------------------------------------------------
+TV_WEBHOOK_ENABLED = _get_secret("TV_WEBHOOK_ENABLED", "false").lower() == "true"
+# Comma-separated list of allowed source IPs. Empty = no allowlist (any IP
+# can POST). Set to "52.32.178.7,52.89.214.238,..." to restrict to TV's
+# webhook servers. Sample IPs gathered live: 52.32.178.7 (Portland, OR).
+TV_WEBHOOK_ALLOWED_IPS = _get_secret("TV_WEBHOOK_ALLOWED_IPS", "")
+
+# ---------------------------------------------------------------------------
 # Phase 1 (2026-04-22): N-bar confirmation + staleness guard for ALL breakout
 # and breakdown rules. Prevents single-bar spike alerts (the 13:31 AMD
 # inside_day_breakout at +1.8% above level case) from firing.

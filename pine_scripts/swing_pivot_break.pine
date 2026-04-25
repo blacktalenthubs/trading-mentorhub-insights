@@ -1,0 +1,63 @@
+// @version=5
+//
+// Swing pivot break — fires when price closes above the most recent N-bar
+// pivot HIGH (BUY) or below the most recent N-bar pivot LOW (SHORT).
+//
+// Pine's ta.pivothigh / ta.pivotlow with confirmed lookback gives clean
+// structural breaks without needing the full Python port (~200 LOC).
+//
+// USAGE
+//   1. Pine Editor → paste → Save → Add to chart
+//   2. Create TWO alerts (BUY + SHORT) with Once Per Bar Close.
+//   3. Notifications: Webhook URL = https://YOUR-RAILWAY/tv/webhook
+//   4. JSON body for the BUY alert:
+//
+// {
+//   "symbol": "{{ticker}}",
+//   "exchange": "{{exchange}}",
+//   "interval": "{{interval}}",
+//   "price": "{{close}}",
+//   "high": "{{high}}",
+//   "low": "{{low}}",
+//   "volume": "{{volume}}",
+//   "rule": "swing_pivot_high_break",
+//   "direction": "BUY",
+//   "fired_at": "{{timenow}}"
+// }
+//
+//   For SHORT change rule → "swing_pivot_low_break", direction → "SHORT".
+//
+indicator("Swing Pivot Break", overlay = true)
+
+pivot_lookback = input.int(5, "Pivot lookback (bars left+right)")
+
+ph = ta.pivothigh(high, pivot_lookback, pivot_lookback)
+pl = ta.pivotlow(low, pivot_lookback, pivot_lookback)
+
+// Track most recent confirmed pivot high / low.
+var float last_pivot_high = na
+var float last_pivot_low  = na
+
+if not na(ph)
+    last_pivot_high := ph
+if not na(pl)
+    last_pivot_low  := pl
+
+// Plot pivots for visual reference
+plotshape(ph, title = "Pivot High",
+          location = location.abovebar, color = color.red,
+          style = shape.triangledown, size = size.tiny)
+plotshape(pl, title = "Pivot Low",
+          location = location.belowbar, color = color.green,
+          style = shape.triangleup, size = size.tiny)
+
+high_break = not na(last_pivot_high) and close > last_pivot_high and close[1] <= last_pivot_high
+low_break  = not na(last_pivot_low) and close < last_pivot_low and close[1] >= last_pivot_low
+
+bgcolor(high_break ? color.new(color.green, 80) : na, title = "High break")
+bgcolor(low_break ? color.new(color.red, 80) : na, title = "Low break")
+
+alertcondition(high_break, title = "Swing Pivot High Break",
+               message = "Closed above pivot high on {{ticker}} {{interval}}")
+alertcondition(low_break, title = "Swing Pivot Low Break",
+               message = "Closed below pivot low on {{ticker}} {{interval}}")

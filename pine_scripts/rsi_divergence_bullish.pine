@@ -1,0 +1,64 @@
+// @version=5
+//
+// RSI(14) bullish divergence — fires when price makes a lower low but RSI
+// makes a HIGHER low. Classic oversold-reversal pattern.
+//
+// USAGE
+//   1. Add this script to a chart (Pine Editor → Save → Add to chart)
+//   2. Create alert: Condition = "RSI Bullish Divergence", Trigger = Once Per Bar Close
+//   3. Notifications: Webhook URL = https://YOUR-RAILWAY/tv/webhook
+//   4. Message field — paste this JSON template:
+//
+// {
+//   "symbol": "{{ticker}}",
+//   "exchange": "{{exchange}}",
+//   "interval": "{{interval}}",
+//   "price": "{{close}}",
+//   "high": "{{high}}",
+//   "low": "{{low}}",
+//   "volume": "{{volume}}",
+//   "rule": "rsi_div_bullish",
+//   "direction": "BUY",
+//   "fired_at": "{{timenow}}"
+// }
+//
+indicator("RSI Bullish Divergence", overlay = false)
+
+rsi_len    = input.int(14,  "RSI length")
+pivot_left = input.int(5,   "Pivot lookback (bars)")
+pivot_right = input.int(5,  "Pivot confirm (bars)")
+range_max  = input.int(60,  "Max bars between pivots")
+range_min  = input.int(5,   "Min bars between pivots")
+
+rsi_val = ta.rsi(close, rsi_len)
+plot(rsi_val, "RSI", color = color.purple)
+hline(30, "Oversold", color = color.gray)
+hline(70, "Overbought", color = color.gray)
+
+// Find pivot lows on RSI
+pl_rsi = ta.pivotlow(rsi_val, pivot_left, pivot_right)
+pl_price = ta.pivotlow(low, pivot_left, pivot_right)
+
+// Track the previous RSI/price pivot lows to detect divergence
+var float prev_rsi_pivot   = na
+var float prev_price_pivot = na
+var int   prev_pivot_bar   = na
+
+bull_div = false
+if not na(pl_rsi) and not na(pl_price)
+    if not na(prev_rsi_pivot) and not na(prev_price_pivot)
+        bars_between = bar_index - prev_pivot_bar
+        in_range = bars_between >= range_min and bars_between <= range_max
+        // Bullish divergence: price LOWER low + RSI HIGHER low
+        if in_range and pl_price < prev_price_pivot and pl_rsi > prev_rsi_pivot
+            bull_div := true
+    prev_rsi_pivot   := pl_rsi
+    prev_price_pivot := pl_price
+    prev_pivot_bar   := bar_index
+
+plotshape(bull_div, title = "Bullish Divergence",
+          location = location.bottom, color = color.green,
+          style = shape.triangleup, size = size.small)
+
+alertcondition(bull_div, title = "RSI Bullish Divergence",
+               message = "RSI bullish divergence on {{ticker}} {{interval}}")
