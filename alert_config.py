@@ -126,6 +126,33 @@ MA_BOUNCE_MIN_VOL_RATIO = 1.0
 MA_BOUNCE_MIN_VOL_RATIO_SKIP = 0.5
 
 # ---------------------------------------------------------------------------
+# Phase 4a (2026-04-24 evening): Structural / ATR hybrid targets.
+#
+# Replaces the mechanical `T1 = entry + 1*risk, T2 = entry + 2*risk` with
+# a hybrid that maxes an ATR floor against R-multiples and caps by the
+# nearest structural resistance (PDH, prior-week high, prior-month high,
+# daily EMAs above price, 60-day high). SHORTs mirror with support ladder.
+#
+# Evidence from 04-24: risk-based T2 captured $1.46 on AAOI when the stock
+# moved +$22 from EMA8 entry. Structural T2 (prior-week high $161) would
+# have captured $14 (~10x more).
+#
+# See full spec + historical-replay test plan in
+# /Users/mentorhub/.claude/plans/go-over-the-code-inherited-hopcroft.md
+# ---------------------------------------------------------------------------
+STRUCTURAL_TARGETS_ENABLED = _get_secret("STRUCTURAL_TARGETS_ENABLED", "true").lower() == "true"
+# Minimum gap between T1 and T2 as a multiple of risk. Prevents T2 from
+# landing only pennies above T1 when structural caps stack close together.
+STRUCTURAL_TARGET_T2_MIN_GAP_R = 0.5
+# Proximity (% of level) below which two ladder entries are considered the
+# same. Prevents a PDH at $669.50 and a prior-week high at $669.60 from
+# burning both T1 and T2 slots on the same price.
+STRUCTURAL_LADDER_DEDUPE_PCT = 0.003  # 0.3%
+# ATR period used for the floor. Reuses existing ATR_PERIOD (14).
+# ATR multiplier for the T1 floor; T2 uses 2x this.
+STRUCTURAL_T1_ATR_MULT = 1.0
+
+# ---------------------------------------------------------------------------
 # Phase 1 (2026-04-22): N-bar confirmation + staleness guard for ALL breakout
 # and breakdown rules. Prevents single-bar spike alerts (the 13:31 AMD
 # inside_day_breakout at +1.8% above level case) from firing.

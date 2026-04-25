@@ -945,6 +945,14 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
                 hist["EMA100"] = hist["Close"].ewm(span=100, adjust=False).mean()
                 hist["EMA200"] = hist["Close"].ewm(span=200, adjust=False).mean()
+                # Phase 4a (2026-04-24) — daily ATR(14) for the structural-target helper.
+                # True range per bar = max(high-low, |high-prev_close|, |low-prev_close|)
+                _tr = pd.concat([
+                    hist["High"] - hist["Low"],
+                    (hist["High"] - hist["Close"].shift()).abs(),
+                    (hist["Low"] - hist["Close"].shift()).abs(),
+                ], axis=1).max(axis=1)
+                hist["ATR14"] = _tr.rolling(14).mean()
 
                 if last_bar_date >= today:
                     last = hist.iloc[-2]
@@ -1031,6 +1039,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "ema20": ema20, "ema20_prev": prev.get("EMA20"),
                     "ema21": ema21, "ema21_prev": prev.get("EMA21"),
                     "ema50": ema50, "ema100": ema100, "ema200": ema200,
+                    # Phase 4a — daily ATR(14) for structural-target floor.
+                    "atr_daily": float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None,
                     "pattern": pattern, "direction": direction,
                     "is_inside": is_inside,
                     "parent_high": prev["High"], "parent_low": prev["Low"],
@@ -1075,6 +1085,13 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
         hist["EMA100"] = hist["Close"].ewm(span=100, adjust=False).mean()
         hist["EMA200"] = hist["Close"].ewm(span=200, adjust=False).mean()
+        # Phase 4a (2026-04-24) — daily ATR(14) for structural-target floor.
+        _tr_eq = pd.concat([
+            hist["High"] - hist["Low"],
+            (hist["High"] - hist["Close"].shift()).abs(),
+            (hist["Low"] - hist["Close"].shift()).abs(),
+        ], axis=1).max(axis=1)
+        hist["ATR14"] = _tr_eq.rolling(14).mean()
 
         # Date-aware selection: if last bar is today, it's partial
         if is_crypto:
@@ -1240,6 +1257,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "ema21": ema21,
             "ema21_prev": ema21_prev,
             "ema50": ema50,
+            # Phase 4a — daily ATR(14) for structural-target floor.
+            "atr_daily": float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None,
             "ema100": ema100,
             "ema200": ema200,
             "pattern": pattern,
