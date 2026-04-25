@@ -67,12 +67,38 @@ class TVAdapterError(ValueError):
     """Raised when a TV payload cannot be converted into an AlertSignal."""
 
 
+# TradingView's crypto tickers (e.g. "ETHUSD" from Coinbase, "ETHUSDT" from
+# Binance) → our internal yfinance/Coinbase format (e.g. "ETH-USD"). Without
+# this mapping, downstream calls like `fetch_prior_day("ETHUSD")` hit
+# yfinance which returns 404 because Yahoo only knows "ETH-USD".
+#
+# Live evidence (2026-04-25): TV alert sent symbol="ETHUSD", our pipeline
+# tried `yfinance.Ticker("ETHUSD")` which 404'd. Fix: canonicalize at the
+# adapter boundary so the rest of the system sees the same symbols whether
+# the alert came from TV or the rule engine.
+CRYPTO_TV_TO_INTERNAL: dict[str, str] = {
+    "ETHUSD": "ETH-USD",
+    "ETHUSDT": "ETH-USD",
+    "ETHUSDC": "ETH-USD",
+    "BTCUSD": "BTC-USD",
+    "BTCUSDT": "BTC-USD",
+    "BTCUSDC": "BTC-USD",
+    "SOLUSD": "SOL-USD",
+    "SOLUSDT": "SOL-USD",
+    "DOGEUSD": "DOGE-USD",
+    "DOGEUSDT": "DOGE-USD",
+    "ADAUSD": "ADA-USD",
+    "XRPUSD": "XRP-USD",
+}
+
+
 def normalize_symbol(symbol: str, exchange: str = "") -> str:
-    """Strip exchange prefix from TV ticker if present.
+    """Strip exchange prefix from TV ticker; map crypto to internal format.
 
     Examples:
-        normalize_symbol("COINBASE:ETHUSD") -> "ETHUSD"
-        normalize_symbol("ETHUSD", "COINBASE") -> "ETHUSD"
+        normalize_symbol("COINBASE:ETHUSD") -> "ETH-USD"
+        normalize_symbol("ETHUSD") -> "ETH-USD"
+        normalize_symbol("BINANCE:BTCUSDT") -> "BTC-USD"
         normalize_symbol("NASDAQ:AAPL") -> "AAPL"
     """
     if not symbol:
@@ -80,6 +106,9 @@ def normalize_symbol(symbol: str, exchange: str = "") -> str:
     sym = symbol.strip().upper()
     if ":" in sym:
         sym = sym.split(":", 1)[1]
+    # Crypto: map TV's no-hyphen format to our internal hyphenated format
+    if sym in CRYPTO_TV_TO_INTERNAL:
+        return CRYPTO_TV_TO_INTERNAL[sym]
     return sym
 
 
