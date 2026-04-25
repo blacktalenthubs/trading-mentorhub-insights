@@ -216,6 +216,12 @@ class AlertType(str, Enum):
     MONTHLY_LOW_TEST = "monthly_low_test"
     MONTHLY_LOW_BREAKDOWN = "monthly_low_breakdown"
     MONTHLY_EMA_TOUCH = "monthly_ema_touch"
+    # Phase 3b (2026-04-23 evening) — EMA8 / EMA21 added per trader directive.
+    # Final EMA set: 8 / 21 / 50 / 100 / 200. EMA_BOUNCE_20 / EMA_RECLAIM_20
+    # remain as enum values for DB-historical-row compatibility but are no
+    # longer in ENABLED_RULES — they don't fire.
+    EMA_BOUNCE_8 = "ema_bounce_8"
+    EMA_BOUNCE_21 = "ema_bounce_21"
     EMA_BOUNCE_20 = "ema_bounce_20"
     EMA_BOUNCE_50 = "ema_bounce_50"
     EMA_BOUNCE_100 = "ema_bounce_100"
@@ -282,6 +288,9 @@ class AlertType(str, Enum):
     MA_RECLAIM_50 = "ma_reclaim_50"
     MA_RECLAIM_100 = "ma_reclaim_100"
     MA_RECLAIM_200 = "ma_reclaim_200"
+    # Phase 3b — EMA8 / EMA21 reclaim variants (final set 8/21/50/100/200).
+    EMA_RECLAIM_8 = "ema_reclaim_8"
+    EMA_RECLAIM_21 = "ema_reclaim_21"
     EMA_RECLAIM_20 = "ema_reclaim_20"
     EMA_RECLAIM_50 = "ema_reclaim_50"
     EMA_RECLAIM_100 = "ema_reclaim_100"
@@ -2697,6 +2706,151 @@ def check_ema_bounce_20(
         confidence=_conf,
         message=(
             f"EMA bounce 20 — price pulled back to ${ema20:.2f} "
+            f"and closed above at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: EMA Bounce 21 (Phase 3b — primary medium-trend EMA, replaces EMA20)
+# ---------------------------------------------------------------------------
+
+
+def check_ema_bounce_21(
+    symbol: str,
+    bars: pd.DataFrame,
+    ema21: float | None,
+    ema50: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to EMA21 and bounces — bullish in uptrend.
+
+    Trader's preferred medium-trend EMA (replaces EMA20 in Phase 3b). Same
+    mechanics as the EMA20 rule: proximity touch within MA_BOUNCE_LOOKBACK_BARS,
+    last-bar close above the EMA, max-distance staleness guard, volume check.
+
+    Trend filter: EMA21 > EMA50 (uptrend on the medium-term frame).
+    """
+    if ema21 is None or ema50 is None:
+        return None
+    if ema21 <= 0 or ema50 <= 0:
+        return None
+    if ema21 <= ema50:
+        return None  # not in uptrend
+    if bars.empty:
+        return None
+
+    proximity = _find_ma_bounce_touch(bars, ema21, MA_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ema21:
+        return None  # didn't bounce above
+
+    distance = (last_bar["Close"] - ema21) / ema21
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
+        return None
+
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
+    entry = round(ema21, 2)
+    stop = round(ema21 * (1 - MA_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    _conf = "high" if proximity <= 0.001 else "medium"
+    if _vol == "demote":
+        _conf = "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_BOUNCE_21,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=_conf,
+        message=(
+            f"EMA bounce 21 — price pulled back to ${ema21:.2f} "
+            f"and closed above at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule: EMA Bounce 8 (Phase 3b — fast trend pullback, day-trader staple)
+# ---------------------------------------------------------------------------
+
+
+def check_ema_bounce_8(
+    symbol: str,
+    bars: pd.DataFrame,
+    ema8: float | None,
+    ema21: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to EMA8 and bounces — fast-trend continuation.
+
+    EMA8 is a tight day-trade pullback — used when price is riding a strong
+    intraday trend and just barely touches the fast EMA before continuing.
+    Trend filter: EMA8 > EMA21 (faster EMA above the medium-trend EMA).
+
+    Same proximity / hold / staleness / volume mechanics as the other bounces.
+    Tighter stops since EMA8 sits closer to price.
+    """
+    if ema8 is None or ema21 is None:
+        return None
+    if ema8 <= 0 or ema21 <= 0:
+        return None
+    if ema8 <= ema21:
+        return None  # not in fast uptrend
+    if bars.empty:
+        return None
+
+    proximity = _find_ma_bounce_touch(bars, ema8, MA_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ema8:
+        return None  # didn't bounce above
+
+    distance = (last_bar["Close"] - ema8) / ema8
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
+        return None
+
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
+    entry = round(ema8, 2)
+    stop = round(ema8 * (1 - MA_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    _conf = "high" if proximity <= 0.001 else "medium"
+    if _vol == "demote":
+        _conf = "medium"
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_BOUNCE_8,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence=_conf,
+        message=(
+            f"EMA bounce 8 — price pulled back to ${ema8:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
         ),
     )
@@ -7138,6 +7292,9 @@ def evaluate_rules(
     ma100 = prior_day.get("ma100")
     ma200 = prior_day.get("ma200")
     ema20 = prior_day.get("ema20")
+    # Phase 3b — EMA8 / EMA21 (final EMA set 8/21/50/100/200).
+    ema8 = prior_day.get("ema8")
+    ema21 = prior_day.get("ema21")
     ema50 = prior_day.get("ema50")
     ema100 = prior_day.get("ema100")
     ema200 = prior_day.get("ema200")
@@ -7333,6 +7490,26 @@ def evaluate_rules(
             signals.append(sig)
 
         # --- EMA Bounces ---
+        # Phase 3b — EMA8 (fast pullback) and EMA21 (medium-trend) added.
+        # EMA20 retained for backwards compat but disabled in ENABLED_RULES.
+        if AlertType.EMA_BOUNCE_8.value in ENABLED_RULES:
+            sig = check_ema_bounce_8(symbol, intraday_bars, ema8, ema21)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        if AlertType.EMA_BOUNCE_21.value in ENABLED_RULES:
+            sig = check_ema_bounce_21(symbol, intraday_bars, ema21, ema50)
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
         if AlertType.EMA_BOUNCE_20.value in ENABLED_RULES:
             sig = check_ema_bounce_20(symbol, intraday_bars, ema20, ema50)
             if sig:
@@ -7665,11 +7842,15 @@ def evaluate_rules(
                 signals.append(sig)
 
         # --- MA/EMA Reclaim ---
+        # Phase 3b — EMA8 / EMA21 reclaims added (final EMA set 8/21/50/100/200).
+        # EMA20 reclaim kept here for backwards compat but disabled in ENABLED_RULES.
         _reclaim_pairs = [
             (AlertType.MA_RECLAIM_20, ma20, "20MA"),
             (AlertType.MA_RECLAIM_50, ma50, "50MA"),
             (AlertType.MA_RECLAIM_100, ma100, "100MA"),
             (AlertType.MA_RECLAIM_200, ma200, "200MA"),
+            (AlertType.EMA_RECLAIM_8, ema8, "EMA8"),
+            (AlertType.EMA_RECLAIM_21, ema21, "EMA21"),
             (AlertType.EMA_RECLAIM_20, ema20, "EMA20"),
             (AlertType.EMA_RECLAIM_50, ema50, "EMA50"),
             (AlertType.EMA_RECLAIM_100, ema100, "EMA100"),

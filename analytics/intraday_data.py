@@ -940,6 +940,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 hist["EMA8"] = hist["Close"].ewm(span=8, adjust=False).mean()
                 hist["EMA10"] = hist["Close"].ewm(span=10, adjust=False).mean()
                 hist["EMA20"] = hist["Close"].ewm(span=20, adjust=False).mean()
+                # Phase 3b (2026-04-23) — EMA21 for the new ema_bounce_21 / ema_reclaim_21 rules.
+                hist["EMA21"] = hist["Close"].ewm(span=21, adjust=False).mean()
                 hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
                 hist["EMA100"] = hist["Close"].ewm(span=100, adjust=False).mean()
                 hist["EMA200"] = hist["Close"].ewm(span=200, adjust=False).mean()
@@ -965,6 +967,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 ema8 = last["EMA8"] if pd.notna(last.get("EMA8")) else None
                 ema10 = last["EMA10"] if pd.notna(last.get("EMA10")) else None
                 ema20 = last["EMA20"] if pd.notna(last.get("EMA20")) else None
+                ema21 = last["EMA21"] if pd.notna(last.get("EMA21")) else None
                 ema50 = last["EMA50"] if pd.notna(last.get("EMA50")) else None
                 ema100 = last["EMA100"] if pd.notna(last.get("EMA100")) else None
                 ema200 = last["EMA200"] if pd.notna(last.get("EMA200")) else None
@@ -1026,6 +1029,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),
                     "ema10": ema10, "ema10_prev": prev.get("EMA10"),
                     "ema20": ema20, "ema20_prev": prev.get("EMA20"),
+                    "ema21": ema21, "ema21_prev": prev.get("EMA21"),
                     "ema50": ema50, "ema100": ema100, "ema200": ema200,
                     "pattern": pattern, "direction": direction,
                     "is_inside": is_inside,
@@ -1066,6 +1070,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         hist["EMA8"] = hist["Close"].ewm(span=8, adjust=False).mean()
         hist["EMA10"] = hist["Close"].ewm(span=10, adjust=False).mean()
         hist["EMA20"] = hist["Close"].ewm(span=20, adjust=False).mean()
+        # Phase 3b (2026-04-23) — EMA21 for the new ema_bounce_21 / ema_reclaim_21 rules.
+        hist["EMA21"] = hist["Close"].ewm(span=21, adjust=False).mean()
         hist["EMA50"] = hist["Close"].ewm(span=50, adjust=False).mean()
         hist["EMA100"] = hist["Close"].ewm(span=100, adjust=False).mean()
         hist["EMA200"] = hist["Close"].ewm(span=200, adjust=False).mean()
@@ -1189,6 +1195,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         ema10_prev = prev["EMA10"] if pd.notna(prev["EMA10"]) else None
         ema20 = last["EMA20"] if pd.notna(last["EMA20"]) else None
         ema20_prev = prev["EMA20"] if pd.notna(prev["EMA20"]) else None
+        ema21 = last["EMA21"] if pd.notna(last["EMA21"]) else None
+        ema21_prev = prev["EMA21"] if pd.notna(prev["EMA21"]) else None
         ema50 = last["EMA50"] if pd.notna(last["EMA50"]) else None
         ema100 = last["EMA100"] if pd.notna(last["EMA100"]) else None
         ema200 = last["EMA200"] if pd.notna(last["EMA200"]) else None
@@ -1229,6 +1237,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "ema10_prev": ema10_prev,
             "ema20": ema20,
             "ema20_prev": ema20_prev,
+            "ema21": ema21,
+            "ema21_prev": ema21_prev,
             "ema50": ema50,
             "ema100": ema100,
             "ema200": ema200,
