@@ -566,19 +566,27 @@ ENABLED_RULES: set[str] = {
     # See: /Users/mentorhub/.claude/plans/go-over-the-code-inherited-hopcroft.md
     # ============================================================================
 
-    # ── LONG: EMA support bounces (only EMA — MAs disabled in Phase 3a) ─────
-    "ema_bounce_20",
+    # ── LONG: EMA support bounces (final set 8/21/50/100/200) ───────────────
+    # Phase 3b (2026-04-23 evening): added EMA8 (fast pullback) + EMA21
+    # (medium-trend, replaces EMA20). Function check_ema_bounce_20 + AlertType
+    # EMA_BOUNCE_20 retained for DB-historical compat but no longer fire.
+    "ema_bounce_8",
+    "ema_bounce_21",
     "ema_bounce_50",
     "ema_bounce_100",
     "ema_bounce_200",
-    # NOTE: ema_bounce_8 + ema_bounce_21 to be added in Phase 3b
+    # DISABLED Phase 3b:
+    # "ema_bounce_20"  — superseded by ema_bounce_21 (1-period diff)
     # DISABLED Phase 3a:
     # "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200"
     #   — EMAs preferred; MA values within ~0.05% of EMAs but heavier tail.
 
-    # ── LONG: EMA reclaims (close back above from below) ────────────────────
-    "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
-    # NOTE: ema_reclaim_8 + ema_reclaim_21 to be added in Phase 3b
+    # ── LONG: EMA reclaims (final set 8/21/50/100/200) ──────────────────────
+    "ema_reclaim_8",
+    "ema_reclaim_21",
+    "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
+    # DISABLED Phase 3b:
+    # "ema_reclaim_20"  — superseded by ema_reclaim_21
 
     # ── LONG: prior-day high/low (institutional levels) ─────────────────────
     "prior_day_low_reclaim",
@@ -703,6 +711,8 @@ ALERT_CATEGORIES: dict[str, dict] = {
         "description": "BUY alerts at support levels (MA/EMA bounces, PDL reclaim, double bottoms, fib bounce)",
         "alert_types": {
             "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+            # Phase 3b — EMA8 + EMA21 added; final EMA set 8/21/50/100/200.
+            "ema_bounce_8", "ema_bounce_21",
             "ema_bounce_20", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
             "prior_day_low_reclaim", "prior_day_low_bounce",
             "inside_day_reclaim",
@@ -713,6 +723,8 @@ ALERT_CATEGORIES: dict[str, dict] = {
             "session_low_bounce_vwap", "session_low_reversal",
             "planned_level_touch", "weekly_level_touch", "monthly_level_touch",
             "intraday_support_bounce",
+            # Phase 3b — EMA8 + EMA21 reclaim variants.
+            "ema_reclaim_8", "ema_reclaim_21",
             "ema_reclaim_20", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
             "ma_reclaim_20", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
             "pdh_retest_hold",
