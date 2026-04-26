@@ -4401,9 +4401,10 @@ def check_ema_rejection_short(
 
     # Check each key MA for rejection.
     # Phase 5b (2026-04-25): added EMA8 + EMA21 to mirror the bounce-side
-    # coverage from Phase 3b. Now `ema_rejection_short` fires across the
-    # full EMA ladder (8/21/50/100/200) when price tests a level from
-    # below and gets rejected.
+    # coverage from Phase 3b. Phase 5c (2026-04-26): added SMA100 alongside
+    # existing SMA50/SMA200 — completes the SMA50/100/200 ladder per trader's
+    # observation that SMA and EMA at 50+ lookbacks are distinct levels
+    # (e.g. PLTR SMA50 $144.35 vs EMA50 $147.36, both acting as S/R).
     _ma_levels = [
         ("EMA8", prior_day.get("ema8", 0)),
         ("EMA21", prior_day.get("ema21", 0)),
@@ -4411,6 +4412,7 @@ def check_ema_rejection_short(
         ("EMA50", prior_day.get("ema50", 0)),
         ("MA50", prior_day.get("ma50", 0)),
         ("EMA100", prior_day.get("ema100", 0)),
+        ("MA100", prior_day.get("ma100", 0)),
         ("EMA200", prior_day.get("ema200", 0)),
         ("MA200", prior_day.get("ma200", 0)),
     ]
@@ -4518,21 +4520,27 @@ def check_ema_overhead_resistance(
     last_close = float(last_bar["Close"])
     last_high = float(last_bar["High"])
 
-    # All daily EMAs ordered fastest to slowest. Phase 3b set 8/21/50/100/200
-    # as the canonical ladder; mirror it here.
-    _ema_levels = [
+    # All daily moving averages ordered fastest to slowest.
+    # Phase 3b set EMA 8/21/50/100/200. Phase 5c (2026-04-26) added SMA
+    # 50/100/200 — at these lookbacks SMA and EMA diverge by 2-5% on
+    # volatile names and act as distinct S/R levels (e.g. PLTR daily
+    # SMA50 $144.35 vs EMA50 $147.36, both providing actionable resistance).
+    _ma_levels = [
         ("EMA8", prior_day.get("ema8", 0)),
         ("EMA21", prior_day.get("ema21", 0)),
         ("EMA50", prior_day.get("ema50", 0)),
+        ("MA50", prior_day.get("ma50", 0)),
         ("EMA100", prior_day.get("ema100", 0)),
+        ("MA100", prior_day.get("ma100", 0)),
         ("EMA200", prior_day.get("ema200", 0)),
+        ("MA200", prior_day.get("ma200", 0)),
     ]
 
-    # Filter to EMAs that sit ABOVE the close (overhead) within proximity.
+    # Filter to MAs that sit ABOVE the close (overhead) within proximity.
     # Then pick the nearest (smallest distance above close) so we surface
     # the most immediately-relevant resistance, not all of them.
     candidates: list[tuple[str, float, float]] = []
-    for name, val in _ema_levels:
+    for name, val in _ma_levels:
         if not val or val <= 0:
             continue
         # Must be ABOVE close (overhead)
@@ -4552,9 +4560,9 @@ def check_ema_overhead_resistance(
     if not candidates:
         return None
 
-    # Pick the nearest overhead (lowest EMA above close)
+    # Pick the nearest overhead MA (lowest above close)
     candidates.sort(key=lambda c: c[2])  # ascending by distance
-    name, ema_val, dist_pct = candidates[0]
+    name, ma_val, dist_pct = candidates[0]
 
     return AlertSignal(
         symbol=symbol,
@@ -4563,7 +4571,7 @@ def check_ema_overhead_resistance(
         price=last_close,
         confidence="medium",
         message=(
-            f"{name} ${ema_val:.2f} acting as overhead resistance — "
+            f"{name} ${ma_val:.2f} acting as overhead resistance — "
             f"price ${last_close:.2f} ({dist_pct * 100:+.2f}% below). "
             f"Bar high ${last_high:.2f} tested level."
         ),

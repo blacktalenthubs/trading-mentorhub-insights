@@ -108,6 +108,22 @@ class TestEmaRejectionShortExtended:
         assert sig is not None
         assert "EMA100" in sig.message
 
+    def test_fires_on_ma100_rejection(self):
+        """Phase 5c: SMA100 added to rejection ladder (alongside SMA50/200)."""
+        MA100 = 100.0
+        bars = _make_bars_with_high_at(MA100)
+        # All EMAs and other SMAs below close → only MA100 qualifies
+        prior_day = {
+            "ema8": 70, "ema21": 75, "ema50": 80,
+            "ma50": 78,
+            "ema100": 92, "ma100": MA100,
+            "ema200": 130, "ma200": 135,
+        }
+        sig = check_ema_rejection_short("PLTR", bars, prior_day)
+        assert sig is not None
+        # Leading "MA100" token confirms SMA100 (not EMA100) was selected
+        assert sig.message.startswith("MA100 ")
+
 
 # -----------------------------------------------------------------------------
 # Fix B — new ema_overhead_resistance NOTICE rule
@@ -193,6 +209,98 @@ class TestEmaOverheadResistance:
     def test_empty_bars_returns_none(self):
         prior_day = {"ema8": 100, "ema21": 95, "ema50": 90}
         assert check_ema_overhead_resistance("COIN", pd.DataFrame(), prior_day) is None
+
+
+class TestEmaOverheadResistanceSmaLadder:
+    """Phase 5c — SMA50/100/200 added to overhead-resistance ladder.
+
+    SMA at 50+ lookbacks diverges from EMA by 2-5%, so each is a distinct
+    actionable resistance level (e.g. PLTR daily SMA50 $144.35 vs EMA50
+    $147.36 — both got tested and rejected on different days).
+    """
+
+    def _bars_high_at(self, level: float, close_pct_below: float = 0.005):
+        last_close = level * (1 - close_pct_below)
+        return _bars_index_et([
+            {"Open": last_close - 0.5, "High": level * 0.9999,
+             "Low": last_close - 1.0, "Close": last_close, "Volume": 1000},
+        ])
+
+    def test_fires_on_ma50_overhead(self):
+        """Bar tests SMA50 from below — NOTICE fires with MA50 label."""
+        bars = self._bars_high_at(100.0)
+        # Only SMA50 qualifies; all EMAs and other SMAs out of range
+        prior_day = {
+            "ema8": 95, "ema21": 92, "ema50": 105,  # EMAs not in proximity
+            "ma50": 100.0,                            # SMA50 is the resistance
+            "ema100": 110, "ma100": 112,
+            "ema200": 130, "ma200": 135,
+        }
+        sig = check_ema_overhead_resistance("PLTR", bars, prior_day)
+        assert sig is not None
+        assert sig.alert_type == AlertType.EMA_OVERHEAD_RESISTANCE
+        assert sig.direction == "NOTICE"
+        # Leading "MA50 " token (not "EMA50 ") confirms SMA50 was selected
+        assert sig.message.startswith("MA50 ")
+
+    def test_fires_on_ma200_overhead(self):
+        """Bar tests SMA200 from below — NOTICE fires with MA200 label."""
+        bars = self._bars_high_at(100.0)
+        prior_day = {
+            "ema8": 95, "ema21": 92, "ema50": 90,
+            "ma50": 88,
+            "ema100": 110, "ma100": 112,    # out of 1% proximity
+            "ema200": 130, "ma200": 100.0,  # only SMA200 qualifies
+        }
+        sig = check_ema_overhead_resistance("PLTR", bars, prior_day)
+        assert sig is not None
+        assert sig.message.startswith("MA200 ")
+
+    def test_picks_nearest_when_ema_and_sma_both_overhead(self):
+        """EMA50 closer than SMA50 → EMA50 wins; both should be considered."""
+        # Close at $99.50, EMA50 at $100, SMA50 at $100.30
+        bars = _bars_index_et([
+            {"Open": 99.4, "High": 99.99, "Low": 99.0,
+             "Close": 99.50, "Volume": 1000},
+        ])
+        prior_day = {
+            "ema8": 95, "ema21": 92,
+            "ema50": 100.0,    # 0.50% above close — closer
+            "ma50": 100.30,    # 0.80% above close — farther
+            "ema100": 110, "ma100": 115,
+            "ema200": 130, "ma200": 135,
+        }
+        sig = check_ema_overhead_resistance("PLTR", bars, prior_day)
+        assert sig is not None
+        # EMA50 is nearest → wins. Use the leading-token form to disambiguate
+        # since "MA50" is a substring of "EMA50".
+        assert sig.message.startswith("EMA50 ")
+
+    def test_pltr_today_ma50_overhead(self):
+        """PLTR snapshot (2026-04-26): close $143.09, SMA50 $144.35, EMA50 $147.36.
+
+        Both SMA50 and EMA50 above close. SMA50 is closer (0.88% vs 2.99%) →
+        the NOTICE should fire on MA50, the more immediately-actionable level.
+        """
+        # Bar that wicks to test SMA50 area
+        bars = _bars_index_et([
+            {"Open": 142.50, "High": 144.30, "Low": 142.00,
+             "Close": 143.09, "Volume": 1000},
+        ])
+        prior_day = {
+            "ema8": 142.10, "ema21": 142.50,
+            "ema50": 147.36,   # 2.99% above — out of 1% proximity
+            "ma50": 144.35,    # 0.88% above — within proximity ✓
+            "ema100": 150.20, "ma100": 152.10,
+            "ema200": 160.00, "ma200": 165.00,
+        }
+        sig = check_ema_overhead_resistance("PLTR", bars, prior_day)
+        assert sig is not None
+        # SMA50 is closer; message should start with "MA50 " (not "EMA50 ")
+        assert sig.message.startswith("MA50 ")
+        assert sig.direction == "NOTICE"
+        # No actionable fields on a NOTICE
+        assert sig.entry is None and sig.stop is None
 
 
 class TestEmaOverheadResistanceCoinSnapshot:
