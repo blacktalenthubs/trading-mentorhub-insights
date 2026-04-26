@@ -1,0 +1,143 @@
+// @version=5
+//
+// Prior Day High / Prior Day Low — 6 trigger conditions:
+//   • PDH break (BREAK+, LONG)  — close crosses above PDH
+//   • PDL reclaim (RECLAIM, LONG) — close crosses back above PDL
+//   • PDH rejection (REJECT, SHORT) — bar tags PDH but closes back below
+//   • PDL break (BREAK-, SHORT) — close crosses below PDL
+//   • PDL sweep+reclaim (SWEEP+, high-conviction LONG)
+//   • PDH sweep+reversal (SWEEP-, high-conviction SHORT)
+//
+// v2 changes (vs v1):
+//   • Alerts fire LIVE on first tick crossing (freq_once_per_bar) — was
+//     bar-close before, made signals 30-60min late for day trading
+//   • Each rule has a distinct color + label (was: same green for two LONGs)
+//   • Larger labels with explicit text (BREAK+/RECLAIM/REJECT/BREAK-)
+//   • Sweep window default = 5 bars (was 3 — too tight for equities)
+//   • Sweep composites suppress raw bg colors on the same bar (priority)
+//
+indicator("Prior Day Levels (PDH/PDL)", overlay = true)
+
+show_lines        = input.bool(true,  "Show PDH/PDL lines")
+show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
+show_sweep        = input.bool(true,  "Show SWEEP composite markers")
+sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
+
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+
+plot(show_lines ? pdh : na, title = "PDH",
+     color = color.new(color.green, 0), style = plot.style_linebr, linewidth = 2)
+plot(show_lines ? pdl : na, title = "PDL",
+     color = color.new(color.red, 0),   style = plot.style_linebr, linewidth = 2)
+
+pdh_break     = close > pdh and close[1] <= pdh
+pdh_rejection = high >= pdh and close < pdh and high[1] < pdh
+pdl_break     = close < pdl and close[1] >= pdl
+pdl_reclaim   = close > pdl and close[1] <= pdl
+
+var int pdl_break_bar = na
+var int pdh_break_bar = na
+if pdl_break
+    pdl_break_bar := bar_index
+if pdh_break
+    pdh_break_bar := bar_index
+
+pdh_failed = close < pdh and close[1] > pdh
+
+bars_since_pdl_break = na(pdl_break_bar) ? 9999 : bar_index - pdl_break_bar
+bars_since_pdh_break = na(pdh_break_bar) ? 9999 : bar_index - pdh_break_bar
+
+sweep_reclaim_long   = pdl_reclaim and bars_since_pdl_break <= sweep_window_bars
+sweep_reversal_short = pdh_failed  and bars_since_pdh_break <= sweep_window_bars
+
+// Sweep composites suppress raw bg colors on the same bar so the lime/fuchsia
+// stands out instead of being washed by the underlying aqua/red.
+sweep_active = sweep_reclaim_long or sweep_reversal_short
+
+bgcolor((not sweep_active) and pdh_break     ? color.new(color.green,   75) : na, title = "PDH break bg")
+bgcolor((not sweep_active) and pdl_reclaim   ? color.new(color.aqua,    75) : na, title = "PDL reclaim bg")
+bgcolor((not sweep_active) and pdh_rejection ? color.new(color.orange,  70) : na, title = "PDH rejection bg")
+bgcolor((not sweep_active) and pdl_break     ? color.new(color.red,     75) : na, title = "PDL break bg")
+bgcolor(sweep_reclaim_long   ? color.new(color.lime,    40) : na, title = "Sweep LONG bg")
+bgcolor(sweep_reversal_short ? color.new(color.fuchsia, 40) : na, title = "Sweep SHORT bg")
+
+// Per-rule labels — distinct color, larger size for legibility
+plotshape(show_signals and pdh_break,
+          title = "BREAK+ LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.normal, text = "BREAK+", textcolor = color.white)
+plotshape(show_signals and pdl_reclaim and not sweep_reclaim_long,
+          title = "RECLAIM LONG", location = location.belowbar,
+          color = color.new(color.aqua, 0), style = shape.triangleup,
+          size = size.normal, text = "RECLAIM", textcolor = color.black)
+plotshape(show_signals and pdh_rejection,
+          title = "REJECT SHORT", location = location.abovebar,
+          color = color.new(color.orange, 0), style = shape.triangledown,
+          size = size.normal, text = "REJECT", textcolor = color.white)
+plotshape(show_signals and pdl_break and not sweep_reversal_short,
+          title = "BREAK- SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.normal, text = "BREAK-", textcolor = color.white)
+
+// Sweep composites — large diamonds, override raw label on same bar
+plotshape(show_sweep and sweep_reclaim_long,
+          title = "SWEEP+ HC LONG", location = location.belowbar,
+          color = color.new(color.lime, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP+", textcolor = color.black)
+plotshape(show_sweep and sweep_reversal_short,
+          title = "SWEEP- HC SHORT", location = location.abovebar,
+          color = color.new(color.fuchsia, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP-", textcolor = color.white)
+
+build_payload(string rule, string direction,
+              float entry_p, float stop_p, float t1_p, float t2_p) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+// freq_once_per_bar = fires on first intra-bar tick where condition is true.
+// Day-trade-friendly. Trade-off: ~10-15% phantom fires on volatile names that
+// fail the level intra-bar (mitigated by stop placement at the level itself).
+if pdh_break
+    risk = close - pdh
+    alert(build_payload("pdh_break", "BUY",
+          close, pdh, close + risk * 2, close + risk * 3),
+          alert.freq_once_per_bar)
+if pdh_rejection
+    risk = high - close
+    alert(build_payload("pdh_rejection", "SHORT",
+          close, high, close - risk * 2, pdl),
+          alert.freq_once_per_bar)
+if pdl_break
+    risk = pdl - close
+    alert(build_payload("pdl_break", "SHORT",
+          close, pdl, close - risk * 2, close - risk * 3),
+          alert.freq_once_per_bar)
+if pdl_reclaim
+    risk = close - low
+    alert(build_payload("pdl_reclaim", "BUY",
+          close, low, close + risk * 2, pdh),
+          alert.freq_once_per_bar)
+
+if sweep_reclaim_long
+    risk = close - low
+    alert(build_payload("pdl_sweep_reclaim", "BUY",
+          close, low, close + risk * 2, pdh),
+          alert.freq_once_per_bar)
+if sweep_reversal_short
+    risk = high - close
+    alert(build_payload("pdh_sweep_reversal", "SHORT",
+          close, high, close - risk * 2, pdl),
+          alert.freq_once_per_bar)

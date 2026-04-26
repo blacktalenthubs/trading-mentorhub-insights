@@ -1,0 +1,69 @@
+// @version=5
+//
+// Daily EMA/MA Bias Score — visual confluence scorecard for swing/day bias.
+//
+// Per rules.json ema_confluence_scorecard:
+//   • +1 if 8 EMA above 21 EMA  (stack: top stacked bullish)
+//   • +1 if 21 EMA above 50 EMA
+//   • +1 if 50 EMA above 100 EMA
+//   • +1 if 100 EMA above 200 EMA
+//   • +1 if price above 8 EMA
+//   • +1 if price above 50 SMA  (institutional level)
+//   • +1 if price above 200 SMA (long-term trend)
+//
+// Score 5–7  → BULL bias    → take longs only
+// Score 3–4  → NEUTRAL      → setups OK with extra confluence
+// Score 0–2  → BEAR bias    → take shorts only
+//
+// Pulls daily values via request.security so it works on any timeframe chart.
+//
+indicator("Daily EMA Bias Score", overlay = true, shorttitle = "Daily Bias")
+
+show_emas      = input.bool(true, "Show daily EMA lines on chart")
+show_sma       = input.bool(true, "Show daily 50/200 SMA lines")
+show_score     = input.bool(true, "Show bias score badge (top-right)")
+
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8),   lookahead = barmerge.lookahead_off)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21),  lookahead = barmerge.lookahead_off)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50),  lookahead = barmerge.lookahead_off)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100), lookahead = barmerge.lookahead_off)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200), lookahead = barmerge.lookahead_off)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50),  lookahead = barmerge.lookahead_off)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200), lookahead = barmerge.lookahead_off)
+
+stack_8_above_21    = ema8   > ema21  ? 1 : 0
+stack_21_above_50   = ema21  > ema50  ? 1 : 0
+stack_50_above_100  = ema50  > ema100 ? 1 : 0
+stack_100_above_200 = ema100 > ema200 ? 1 : 0
+price_above_8ema    = close  > ema8   ? 1 : 0
+price_above_50sma   = close  > sma50  ? 1 : 0
+price_above_200sma  = close  > sma200 ? 1 : 0
+
+bias_score = stack_8_above_21 + stack_21_above_50 + stack_50_above_100 + stack_100_above_200 + price_above_8ema + price_above_50sma + price_above_200sma
+
+bias_text = bias_score >= 6 ? "A+ BULL" : bias_score == 5 ? "BULL" : bias_score == 4 ? "NEUTRAL+" : bias_score == 3 ? "NEUTRAL-" : bias_score == 2 ? "BEAR" : "A+ BEAR"
+
+bias_color = bias_score >= 6 ? color.lime : bias_score == 5 ? color.green : bias_score == 4 ? color.gray : bias_score == 3 ? color.gray : bias_score == 2 ? color.orange : color.red
+
+plot(show_emas ? ema8   : na, "Daily EMA 8",   color = color.new(color.yellow, 30), linewidth = 1)
+plot(show_emas ? ema21  : na, "Daily EMA 21",  color = color.new(color.orange, 30), linewidth = 1)
+plot(show_emas ? ema50  : na, "Daily EMA 50",  color = color.new(color.fuchsia, 30), linewidth = 2)
+plot(show_emas ? ema100 : na, "Daily EMA 100", color = color.new(color.aqua, 30),    linewidth = 2)
+plot(show_emas ? ema200 : na, "Daily EMA 200", color = color.new(color.white, 30),   linewidth = 3)
+plot(show_sma  ? sma50  : na, "Daily SMA 50",  color = color.new(color.blue, 30),    linewidth = 1, style = plot.style_circles)
+plot(show_sma  ? sma200 : na, "Daily SMA 200", color = color.new(color.red, 30),     linewidth = 1, style = plot.style_circles)
+
+var label score_label = na
+if show_score and barstate.islast
+    label.delete(score_label)
+    score_label := label.new(bar_index + 5, high, bias_text + "\nScore: " + str.tostring(bias_score) + "/7", style = label.style_label_left, color = bias_color, textcolor = color.black, size = size.normal)
+
+plot(bias_score, "Bias Score (0-7)", color = color.new(color.purple, 100), display = display.data_window)
+
+bias_now_bull    = bias_score >= 5 and bias_score[1] < 5
+bias_now_bear    = bias_score <= 2 and bias_score[1] > 2
+bias_now_neutral = (bias_score == 3 or bias_score == 4) and (bias_score[1] >= 5 or bias_score[1] <= 2)
+
+alertcondition(bias_now_bull,    title = "Daily bias turned BULL",    message = "{{ticker}} daily bias turned BULL (score 5+)")
+alertcondition(bias_now_bear,    title = "Daily bias turned BEAR",    message = "{{ticker}} daily bias turned BEAR (score 2-)")
+alertcondition(bias_now_neutral, title = "Daily bias turned NEUTRAL", message = "{{ticker}} daily bias entered NEUTRAL zone")
