@@ -306,6 +306,11 @@ class AlertType(str, Enum):
     # AlertSignal.message and the alerts table's alert_type column gets the
     # full string `tv_<rule>`. This single enum is for dedup-key continuity.
     TV_WEBHOOK = "tv_webhook"
+    # Phase 5b (2026-04-25 evening) — heads-up NOTICE that a daily EMA is
+    # acting as overhead resistance. Fires when price is BELOW an EMA within
+    # a wider proximity (no rejection candle required — pure context). Not a
+    # tradable signal; use it to know an EMA is approaching as resistance.
+    EMA_OVERHEAD_RESISTANCE = "ema_overhead_resistance"
     # User-pinned Best Setups picks (fired via "Alert" button on dashboard)
     BEST_SETUP_DAY = "best_setup_day"
     BEST_SETUP_SWING = "best_setup_swing"
@@ -4394,8 +4399,14 @@ def check_ema_rejection_short(
     if (last_close - last_low) / bar_range > 0.4:
         return None
 
-    # Check each key MA for rejection
+    # Check each key MA for rejection.
+    # Phase 5b (2026-04-25): added EMA8 + EMA21 to mirror the bounce-side
+    # coverage from Phase 3b. Now `ema_rejection_short` fires across the
+    # full EMA ladder (8/21/50/100/200) when price tests a level from
+    # below and gets rejected.
     _ma_levels = [
+        ("EMA8", prior_day.get("ema8", 0)),
+        ("EMA21", prior_day.get("ema21", 0)),
         ("EMA20", prior_day.get("ema20", 0)),
         ("EMA50", prior_day.get("ema50", 0)),
         ("MA50", prior_day.get("ma50", 0)),
@@ -4452,6 +4463,111 @@ def check_ema_rejection_short(
         )
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b (2026-04-25 evening) — EMA overhead resistance NOTICE.
+#
+# Trader feedback: "if ema8 is acting as resistance, we should get resistance
+# notice?" — and they're right. Existing rules cover bounces (price hits EMA
+# from above and rebounds = support) and reclaims (price was below, closes
+# back above) but nothing fires when price is just trading BELOW an EMA
+# without a confirmed rejection candle yet.
+#
+# This NOTICE-only rule fires when:
+#   - Price (last close) is BELOW an EMA
+#   - Bar's high tested within EMA_OVERHEAD_PROXIMITY_PCT of the EMA
+#   - Distance below the EMA is meaningful (not basically at it)
+#
+# Fires per EMA per session-day-and-bucket, deduped by the level-based
+# dedup in monitor.py (Phase 1) so it stays quiet on a sideways tape.
+#
+# Use case: COIN trading at $199.77 with EMA100 at $211.21 → NOTICE fires
+# when price rallies into EMA100 area. Trader knows resistance is
+# overhead before the rejection candle confirms.
+# ---------------------------------------------------------------------------
+
+# How close (% above current close) an EMA must be to count as "overhead"
+# resistance worth a heads-up. 1.0% is loose enough to fire early, tight
+# enough to stay relevant (an EMA 5% away isn't actionable resistance).
+EMA_OVERHEAD_PROXIMITY_PCT = 0.010  # 1.0%
+# Bar's high must reach within this % of the EMA for the alert to fire.
+# Without this, we'd alert on every bar that happens to be below an EMA.
+EMA_OVERHEAD_TEST_PROXIMITY_PCT = 0.005  # 0.5%
+
+
+def check_ema_overhead_resistance(
+    symbol: str,
+    bars: pd.DataFrame,
+    prior_day: dict | None,
+) -> AlertSignal | None:
+    """Heads-up NOTICE when a daily EMA sits as overhead resistance.
+
+    Fires when the most recent bar's high tested within proximity of an EMA
+    (from below) and the close stayed below that EMA. Different from
+    `ema_rejection_short` — that requires a rejection candle pattern (close
+    in lower 40% of bar range); this is just "an EMA is overhead, watch it."
+
+    Returns the NEAREST (lowest) overhead EMA so we don't spam multiple
+    NOTICEs on the same chart for every EMA.
+    """
+    if bars.empty or not prior_day:
+        return None
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+    last_high = float(last_bar["High"])
+
+    # All daily EMAs ordered fastest to slowest. Phase 3b set 8/21/50/100/200
+    # as the canonical ladder; mirror it here.
+    _ema_levels = [
+        ("EMA8", prior_day.get("ema8", 0)),
+        ("EMA21", prior_day.get("ema21", 0)),
+        ("EMA50", prior_day.get("ema50", 0)),
+        ("EMA100", prior_day.get("ema100", 0)),
+        ("EMA200", prior_day.get("ema200", 0)),
+    ]
+
+    # Filter to EMAs that sit ABOVE the close (overhead) within proximity.
+    # Then pick the nearest (smallest distance above close) so we surface
+    # the most immediately-relevant resistance, not all of them.
+    candidates: list[tuple[str, float, float]] = []
+    for name, val in _ema_levels:
+        if not val or val <= 0:
+            continue
+        # Must be ABOVE close (overhead)
+        if val <= last_close:
+            continue
+        # Must be within proximity (not 5% away)
+        distance_above_close = (val - last_close) / val
+        if distance_above_close > EMA_OVERHEAD_PROXIMITY_PCT:
+            continue
+        # Bar's high must have tested within proximity of EMA from below
+        # (avoid alerting on every bar that's below an EMA but not testing it)
+        high_distance = (val - last_high) / val
+        if high_distance > EMA_OVERHEAD_TEST_PROXIMITY_PCT:
+            continue
+        candidates.append((name, float(val), distance_above_close))
+
+    if not candidates:
+        return None
+
+    # Pick the nearest overhead (lowest EMA above close)
+    candidates.sort(key=lambda c: c[2])  # ascending by distance
+    name, ema_val, dist_pct = candidates[0]
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.EMA_OVERHEAD_RESISTANCE,
+        direction="NOTICE",
+        price=last_close,
+        confidence="medium",
+        message=(
+            f"{name} ${ema_val:.2f} acting as overhead resistance — "
+            f"price ${last_close:.2f} ({dist_pct * 100:+.2f}% below). "
+            f"Bar high ${last_high:.2f} tested level."
+        ),
+    )
 
 
 def check_ema_loss_short(
@@ -8172,6 +8288,13 @@ def evaluate_rules(
             if sig:
                 sig.message += f" ({phase})"
                 sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- EMA Overhead Resistance NOTICE (Phase 5b — heads-up) ---
+        if AlertType.EMA_OVERHEAD_RESISTANCE.value in ENABLED_RULES:
+            sig = check_ema_overhead_resistance(symbol, intraday_bars, prior_day)
+            if sig:
+                sig.message += f" ({phase})"
                 signals.append(sig)
 
         # --- EMA Loss SHORT (was above MA, closed below) ---

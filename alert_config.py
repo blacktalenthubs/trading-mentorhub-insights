@@ -675,6 +675,8 @@ ENABLED_RULES: set[str] = {
 
     # ── SHORT: EMA rejection (only the cleanest single rule) ────────────────
     "ema_rejection_short",
+    # ── NOTICE: EMA acting as overhead resistance (Phase 5b heads-up) ───────
+    "ema_overhead_resistance",
     # DISABLED Phase 3a:
     # "intraday_ema_rejection_short"        — overlap, lower trust
     # "hourly_resistance_rejection_short"   — hourly rejections too noisy
@@ -828,6 +830,8 @@ ALERT_CATEGORIES: dict[str, dict] = {
             "weekly_high_resistance", "weekly_high_test",
             "monthly_high_resistance", "monthly_high_test",
             "resistance_prior_low",
+            # Phase 5b — heads-up NOTICE that a daily EMA is overhead
+            "ema_overhead_resistance",
         },
     },
     "support_warnings": {
