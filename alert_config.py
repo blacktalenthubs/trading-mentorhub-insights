@@ -625,9 +625,17 @@ ENABLED_RULES: set[str] = {
     "ema_bounce_200",
     # DISABLED Phase 3b:
     # "ema_bounce_20"  — superseded by ema_bounce_21 (1-period diff)
-    # DISABLED Phase 3a:
-    # "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200"
-    #   — EMAs preferred; MA values within ~0.05% of EMAs but heavier tail.
+
+    # ── LONG: SMA support bounces (50/100/200) ──────────────────────────────
+    # Phase 5c (2026-04-26): re-enabled per trader. Phase 3a wrongly assumed
+    # SMA ≈ EMA — true at fast lookbacks (8/21) but FALSE at 50/200 where SMA
+    # lags EMA by 2-5% on volatile names. Evidence: PLTR SMA50 $144.35 vs
+    # EMA50 $147.36 = $3.01 spread (2.1%), both acting as distinct S/R levels.
+    "ma_bounce_50",
+    "ma_bounce_100",
+    "ma_bounce_200",
+    # Still disabled (near-duplicate of ema_bounce_21):
+    # "ma_bounce_20"
 
     # ── LONG: EMA reclaims (final set 8/21/50/100/200) ──────────────────────
     "ema_reclaim_8",
@@ -635,6 +643,12 @@ ENABLED_RULES: set[str] = {
     "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
     # DISABLED Phase 3b:
     # "ema_reclaim_20"  — superseded by ema_reclaim_21
+
+    # ── LONG: SMA reclaims (50/100/200) — Phase 5c, same rationale as bounces
+    "ma_reclaim_50",
+    "ma_reclaim_100",
+    "ma_reclaim_200",
+    # Still disabled: "ma_reclaim_20"
 
     # ── LONG: prior-day high/low (institutional levels) ─────────────────────
     "prior_day_low_reclaim",
@@ -714,7 +728,8 @@ ENABLED_RULES: set[str] = {
     # "hourly_consolidation", "session_high_retracement"
     # "first_hour_summary", "first_hour_high_breakout"
     # "opening_low_base", "intraday_support_bounce"
-    # "ma_reclaim_*"  (consolidated to EMA)
+    # "ma_reclaim_20"  — near-duplicate of ema_reclaim_21
+    # (ma_reclaim_50/100/200 re-enabled in Phase 5c above)
     # "ema_loss_short", "macd_histogram_flip"
     # "pdh_test", "weekly_high_test", "monthly_high_test"
     # "resistance_prior_low"
