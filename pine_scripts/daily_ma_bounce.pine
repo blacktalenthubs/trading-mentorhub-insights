@@ -1,0 +1,92 @@
+// @version=5
+//
+// Daily MA Bounce / Rejection — visual-only marker indicator.
+//
+// Tracks 8 daily moving-average levels:
+//   • EMAs:  8, 21, 50, 100, 200
+//   • SMAs:  50, 100, 200
+//
+// Daily values are pulled via request.security so the indicator works on any
+// intraday timeframe (drop on 1H or 15m and you'll see the daily MA lines as
+// horizontal-ish levels — they evolve slightly intraday as the developing
+// daily candle's close changes, but are stable compared to intraday MAs).
+//
+// Detection per MA:
+//   • bounce_long  — low wicked the MA (within ATR*tol), close above MA,
+//                    candle is green (close > open). LONG signal.
+//   • reject_short — high tagged the MA from below, close back below,
+//                    candle is red (close < open). SHORT signal.
+//
+// V1: visual only — labels + bgcolor. NO alert() calls. Add alerts after
+// observing live behavior to validate signal quality and tolerance settings.
+//
+indicator("Daily MA Bounce", overlay = true, max_labels_count = 500)
+
+show_lines    = input.bool(true,  "Show daily MA lines")
+show_markers  = input.bool(true,  "Show BOUNCE/REJECT markers")
+tolerance_atr = input.float(0.3,  "Tolerance (× ATR14)", minval = 0.05, maxval = 2.0, step = 0.05)
+
+// Pull daily MAs. lookahead_off avoids future-bias on historical bars.
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8),   lookahead = barmerge.lookahead_off)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21),  lookahead = barmerge.lookahead_off)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50),  lookahead = barmerge.lookahead_off)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100), lookahead = barmerge.lookahead_off)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200), lookahead = barmerge.lookahead_off)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50),  lookahead = barmerge.lookahead_off)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100), lookahead = barmerge.lookahead_off)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200), lookahead = barmerge.lookahead_off)
+
+// Plot all 8 levels with distinct colors.
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(#FFEB3B, 30), linewidth = 1)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(#FF9800, 30), linewidth = 1)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#E91E63, 10), linewidth = 2)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#00BCD4, 10), linewidth = 2)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(#FFFFFF, 0),  linewidth = 3)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#2196F3, 30), linewidth = 1, style = plot.style_circles)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#9C27B0, 30), linewidth = 1, style = plot.style_circles)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(#F44336, 0),  linewidth = 2, style = plot.style_circles)
+
+// Tolerance — ATR-buffered, computed from previous bar for stability.
+atr14 = nz(ta.atr(14)[1], close * 0.005)
+tol   = atr14 * tolerance_atr
+
+// Per-MA bounce / rejection detection.
+bounce_long(float ma) =>
+    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+
+reject_short(float ma) =>
+    not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
+
+b_e8   = bounce_long(ema8)
+b_e21  = bounce_long(ema21)
+b_e50  = bounce_long(ema50)
+b_e100 = bounce_long(ema100)
+b_e200 = bounce_long(ema200)
+b_s50  = bounce_long(sma50)
+b_s100 = bounce_long(sma100)
+b_s200 = bounce_long(sma200)
+
+r_e8   = reject_short(ema8)
+r_e21  = reject_short(ema21)
+r_e50  = reject_short(ema50)
+r_e100 = reject_short(ema100)
+r_e200 = reject_short(ema200)
+r_s50  = reject_short(sma50)
+r_s100 = reject_short(sma100)
+r_s200 = reject_short(sma200)
+
+any_long  = b_e8 or b_e21 or b_e50 or b_e100 or b_e200 or b_s50 or b_s100 or b_s200
+any_short = r_e8 or r_e21 or r_e50 or r_e100 or r_e200 or r_s50 or r_s100 or r_s200
+
+// Build dynamic label text showing which MA(s) fired.
+long_tag = (b_e8 ? "8E " : "") + (b_e21 ? "21E " : "") + (b_e50 ? "50E " : "") + (b_e100 ? "100E " : "") + (b_e200 ? "200E " : "") + (b_s50 ? "50S " : "") + (b_s100 ? "100S " : "") + (b_s200 ? "200S " : "")
+
+short_tag = (r_e8 ? "8E " : "") + (r_e21 ? "21E " : "") + (r_e50 ? "50E " : "") + (r_e100 ? "100E " : "") + (r_e200 ? "200E " : "") + (r_s50 ? "50S " : "") + (r_s100 ? "100S " : "") + (r_s200 ? "200S " : "")
+
+if show_markers and any_long
+    label.new(bar_index, low, "BOUNCE\n" + long_tag, style = label.style_label_up, color = color.new(color.green, 20), textcolor = color.white, size = size.small)
+if show_markers and any_short
+    label.new(bar_index, high, "REJECT\n" + short_tag, style = label.style_label_down, color = color.new(color.red, 20), textcolor = color.white, size = size.small)
+
+bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
+bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")

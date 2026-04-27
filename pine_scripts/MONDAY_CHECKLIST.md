@@ -21,9 +21,11 @@ If TV isn't running with CDP enabled, restart via Claude:
 
 Verify with `tv_health_check`. Should show `cdp_connected: true`.
 
-## 2. 8:05 ET — Add Daily Bias indicator (one-time, all charts)
+## 2. 8:05 ET — Add Daily Bias + Daily MA Bounce indicators (one-time)
 
-This wasn't auto-added (TV's pine_new overwrote PDH/PDL slot). Manual paste:
+Two scripts to add as **separate** Pine slots (not overwriting the PDH/PDL one).
+
+### 2a. Daily EMA Bias Score
 
 1. Open Pine Editor in TV (bottom panel → "Pine")
 2. Click **the small ▼ next to "Save"** at top of editor → **"New blank indicator"**
@@ -36,6 +38,14 @@ This wasn't auto-added (TV's pine_new overwrote PDH/PDL slot). Manual paste:
    - You can drag the indicator off the indicator panel onto another chart's pane to copy faster
 
 Result: each chart shows daily EMA stack + a colored badge (A+ BULL / BULL / NEUTRAL / BEAR / A+ BEAR / score 0-7).
+
+### 2b. Daily MA Bounce (visual-only V1)
+
+Same procedure with `pine_scripts/daily_ma_bounce.pine`. New blank indicator → paste → save → add to chart.
+
+You'll see 8 horizontal-ish daily MA lines (8/21/50/100/200 EMA + 50/100/200 SMA) plus historical BOUNCE/REJECT labels showing where price bounced off each level today and prior days.
+
+**No alerts wired** — this is observation-only this week. After watching the signals fire during live trading, we'll add `alert()` calls for the MA bounces that prove tradeable.
 
 ## 3. 8:15 ET — Create TV alerts (the actual "deploy")
 
