@@ -155,8 +155,6 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         HTFBias,
         compute_htf_bias,
         confluence_score,
-        should_gate_long,
-        should_gate_short,
     )
     from analytics.intraday_data import (
         fetch_intraday,
@@ -175,7 +173,11 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         logger.exception("TV webhook: fetch_prior_day failed for %s", sig.symbol)
         prior_day = None
 
-    # 2. HTF bias gate (Phase 2). Counter-trend LONG/SHORT suppressed.
+    # 2. HTF bias COMPUTATION ONLY — used to tag the alert with a confluence
+    # score so the user can see how aligned the signal is with HTF trend.
+    # Gate checks REMOVED: TradingView signals are an independent source from
+    # the rule-engine scanner and should not be filtered by gates designed
+    # for the scanner. The user trusts what TV emits; we just deliver.
     bias = HTFBias()
     try:
         bars_1h = fetch_intraday(sig.symbol, period="5d", interval="1h")
@@ -189,18 +191,6 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
                      sig.symbol, exc_info=True)
 
     direction = (sig.direction or "").upper()
-    if direction in ("BUY", "LONG") and should_gate_long(bias):
-        logger.info(
-            "TV webhook: HTF gate suppressed LONG %s — 4H=%s 1H=%s",
-            sig.symbol, bias.htf_4h, bias.htf_1h,
-        )
-        return {"dispatched": False, "reason": "htf_gate_long_blocked"}
-    if direction == "SHORT" and should_gate_short(bias):
-        logger.info(
-            "TV webhook: HTF gate suppressed SHORT %s — 4H=%s 1H=%s",
-            sig.symbol, bias.htf_4h, bias.htf_1h,
-        )
-        return {"dispatched": False, "reason": "htf_gate_short_blocked"}
 
     # 3. Phase 4a structural targets if Pine Script didn't supply them.
     if direction in ("BUY", "LONG") and sig.entry and not (sig.target_1 and sig.target_2):
