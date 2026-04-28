@@ -1,15 +1,20 @@
 // @version=5
 //
-// Daily MA Bounce / Rejection — visual-only marker indicator.
+// Daily MA Bounce / Rejection (5 EMA variant) — visual-only marker indicator.
+//
+// Same logic as Daily MA Bounce, but uses 5 EMA instead of 8 EMA as the
+// fastest level. 5 EMA is more sensitive — fires more bounces in choppy
+// price action, hugs price closer in trends. Use alongside the 8 EMA
+// version (not as a replacement) to compare which fast EMA your style
+// prefers per symbol.
 //
 // Tracks 8 daily moving-average levels:
-//   • EMAs:  8, 21, 50, 100, 200
+//   • EMAs:  5, 21, 50, 100, 200
 //   • SMAs:  50, 100, 200
 //
 // Daily values are pulled via request.security so the indicator works on any
 // intraday timeframe (drop on 1H or 15m and you'll see the daily MA lines as
-// horizontal-ish levels — they evolve slightly intraday as the developing
-// daily candle's close changes, but are stable compared to intraday MAs).
+// stable horizontal levels — they update once per day at the daily close).
 //
 // Detection per MA:
 //   • bounce_long  — low wicked the MA (within ATR*tol), close above MA,
@@ -17,10 +22,9 @@
 //   • reject_short — high tagged the MA from below, close back below,
 //                    candle is red (close < open). SHORT signal.
 //
-// V1: visual only — labels + bgcolor. NO alert() calls. Add alerts after
-// observing live behavior to validate signal quality and tolerance settings.
+// V1: visual only — labels + bgcolor. NO alert() calls.
 //
-indicator("Daily MA Bounce", overlay = true, max_labels_count = 500)
+indicator("Daily MA Bounce (5 EMA)", overlay = true, max_labels_count = 500)
 
 show_lines    = input.bool(true,  "Show daily MA lines")
 show_markers  = input.bool(true,  "Show BOUNCE/REJECT markers")
@@ -29,17 +33,10 @@ label_size_in = input.string("tiny", "Marker label size", options = ["tiny", "sm
 
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
 
-// Pull daily MAs using the [1] offset + lookahead_on pattern. This is the
-// standard professional approach: each intraday bar sees YESTERDAY's daily-
-// close MA value (stable, no future bias, line stays horizontal across the
-// session). The line updates once per day at the daily close — perfect for
-// using these as "levels" rather than fast-tracking trend lines.
-//
-// Tradeoff: today's developing daily MA isn't reflected until tomorrow.
-// For 50/100/200 MAs that's negligible (slow movers). For 8/21 EMA the live
-// value can drift up to ~1% intraday but the level still serves as "where
-// price needs to defend" reference.
-ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+// Pull daily MAs using the [1] offset + lookahead_on pattern. Each intraday
+// bar sees YESTERDAY's daily-close MA value (stable horizontal line, no
+// future bias). Lines update once per day at the daily close.
+ema5   = request.security(syminfo.tickerid, "D", ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on)
 ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
 ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
 ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
@@ -49,7 +46,7 @@ sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahea
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
 // Plot all 8 levels with distinct colors.
-plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(#FFEB3B, 30), linewidth = 1)
+plot(show_lines ? ema5   : na, "EMA 5 (D)",   color = color.new(#FFEB3B, 30), linewidth = 1)
 plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(#FF9800, 30), linewidth = 1)
 plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#E91E63, 10), linewidth = 2)
 plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#00BCD4, 10), linewidth = 2)
@@ -69,7 +66,7 @@ bounce_long(float ma) =>
 reject_short(float ma) =>
     not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
 
-b_e8   = bounce_long(ema8)
+b_e5   = bounce_long(ema5)
 b_e21  = bounce_long(ema21)
 b_e50  = bounce_long(ema50)
 b_e100 = bounce_long(ema100)
@@ -78,7 +75,7 @@ b_s50  = bounce_long(sma50)
 b_s100 = bounce_long(sma100)
 b_s200 = bounce_long(sma200)
 
-r_e8   = reject_short(ema8)
+r_e5   = reject_short(ema5)
 r_e21  = reject_short(ema21)
 r_e50  = reject_short(ema50)
 r_e100 = reject_short(ema100)
@@ -87,13 +84,13 @@ r_s50  = reject_short(sma50)
 r_s100 = reject_short(sma100)
 r_s200 = reject_short(sma200)
 
-any_long  = b_e8 or b_e21 or b_e50 or b_e100 or b_e200 or b_s50 or b_s100 or b_s200
-any_short = r_e8 or r_e21 or r_e50 or r_e100 or r_e200 or r_s50 or r_s100 or r_s200
+any_long  = b_e5 or b_e21 or b_e50 or b_e100 or b_e200 or b_s50 or b_s100 or b_s200
+any_short = r_e5 or r_e21 or r_e50 or r_e100 or r_e200 or r_s50 or r_s100 or r_s200
 
 // Build dynamic label text showing which MA(s) fired.
-long_tag = (b_e8 ? "8E " : "") + (b_e21 ? "21E " : "") + (b_e50 ? "50E " : "") + (b_e100 ? "100E " : "") + (b_e200 ? "200E " : "") + (b_s50 ? "50S " : "") + (b_s100 ? "100S " : "") + (b_s200 ? "200S " : "")
+long_tag = (b_e5 ? "5E " : "") + (b_e21 ? "21E " : "") + (b_e50 ? "50E " : "") + (b_e100 ? "100E " : "") + (b_e200 ? "200E " : "") + (b_s50 ? "50S " : "") + (b_s100 ? "100S " : "") + (b_s200 ? "200S " : "")
 
-short_tag = (r_e8 ? "8E " : "") + (r_e21 ? "21E " : "") + (r_e50 ? "50E " : "") + (r_e100 ? "100E " : "") + (r_e200 ? "200E " : "") + (r_s50 ? "50S " : "") + (r_s100 ? "100S " : "") + (r_s200 ? "200S " : "")
+short_tag = (r_e5 ? "5E " : "") + (r_e21 ? "21E " : "") + (r_e50 ? "50E " : "") + (r_e100 ? "100E " : "") + (r_e200 ? "200E " : "") + (r_s50 ? "50S " : "") + (r_s100 ? "100S " : "") + (r_s200 ? "200S " : "")
 
 // Triangles always visible regardless of zoom; labels carry the MA tag.
 plotshape(show_markers and any_long,
