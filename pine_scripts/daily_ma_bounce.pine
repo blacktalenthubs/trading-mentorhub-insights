@@ -164,19 +164,19 @@ plotshape(overhead_notice, title = "Overhead NOTICE",  location = location.above
 // JSON payload for the existing /tv/webhook → Telegram pipeline. Same shape as
 // prior_day_levels.pine so the webhook handler can route uniformly.
 build_ma_payload(string rule, string direction, string ma_tag) =>
-    '{"symbol": "' + syminfo.ticker +
-    '", "exchange": "' + syminfo.prefix +
-    '", "interval": "' + timeframe.period +
-    '", "price": "' + str.tostring(close, "#.####") +
-    '", "high": "'  + str.tostring(high,  "#.####") +
-    '", "low": "'   + str.tostring(low,   "#.####") +
-    '", "volume": "' + str.tostring(volume, "#") +
-    '", "rule": "' + rule +
-    '", "direction": "' + direction +
-    '", "ma_tag": "' + str.replace_all(ma_tag, " ", "") +
-    '", "pdh": "' + str.tostring(pdh, "#.####") +
-    '", "pdl": "' + str.tostring(pdl, "#.####") +
-    '", "fired_at": "' + str.tostring(time) + '"}'
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","pdh":"' + str.tostring(pdh, format.mintick)
+      + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if fire_alerts and ma_long_at_pdl
     alert(build_ma_payload("ma_pdl_confluence_long",  "BUY",    long_tag),  alert.freq_once_per_bar)
