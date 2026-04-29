@@ -513,28 +513,35 @@ async def lifespan(app: FastAPI):
                     )
                 logger.info("Registered 6 cron jobs for 65-min candle close notifications")
 
-            # ETH 4h candle closes (UTC): 6/day at 00, 04, 08, 12, 16, 20
-            _ETH_4H_CANDLE_HOURS_UTC = [0, 4, 8, 12, 16, 20]
-
-            def _notify_eth_candle_close(idx: int, hour_utc: int) -> None:
+            # ETH candle close pings — TEMPORARILY in 65-min test mode for
+            # rapid pipeline validation. Plus an immediate fire on startup so
+            # the user sees one Telegram within seconds of redeploy. Revert
+            # to the 4h cron schedule once validated (see git history).
+            def _notify_eth_candle_close() -> None:
+                from datetime import datetime, timezone as _tz
+                now_utc = datetime.now(_tz.utc).strftime("%H:%M UTC")
                 _send_telegram(
-                    f"<b>ETH 4h candle {idx}/6 closed</b>\n"
-                    f"Time: {hour_utc:02d}:00 UTC\n"
-                    f"Check the chart."
+                    f"<b>ETH 65-min ping (test mode)</b>\n"
+                    f"Time: {now_utc}\n"
+                    f"Switch back to 4h schedule once verified."
                 )
 
             if ETH_CANDLE_NOTIFICATIONS_ENABLED:
-                _utc_tz = _pytz.timezone("UTC")
-                for idx, hour_utc in enumerate(_ETH_4H_CANDLE_HOURS_UTC, start=1):
-                    scheduler.add_job(
-                        _notify_eth_candle_close,
-                        CronTrigger(hour=hour_utc, minute=0, timezone=_utc_tz),
-                        args=[idx, hour_utc],
-                        id=f"eth_4h_candle_close_{idx}",
-                        misfire_grace_time=30,
-                        replace_existing=True,
-                    )
-                logger.info("Registered 6 cron jobs for ETH 4h candle close notifications")
+                # Immediate one-shot fire on startup — validates pipeline now.
+                scheduler.add_job(
+                    _notify_eth_candle_close,
+                    id="eth_candle_close_initial",
+                )
+                # Recurring 65-min interval.
+                scheduler.add_job(
+                    _notify_eth_candle_close,
+                    "interval",
+                    minutes=65,
+                    id="eth_65min_interval",
+                    misfire_grace_time=30,
+                    replace_existing=True,
+                )
+                logger.info("Registered ETH 65-min candle-close ping (TEST MODE — startup fire + every 65 min)")
         except Exception:
             logger.exception("Failed to register candle-close notification jobs")
 
