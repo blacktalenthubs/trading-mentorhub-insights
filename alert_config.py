@@ -41,6 +41,12 @@ CANDLE_65_NOTIFICATIONS_ENABLED = _get_secret(
     "CANDLE_65_NOTIFICATIONS_ENABLED", "true"
 ).lower() == "true"
 
+# ETH 4h candle close notifications: 6 candles per UTC day at 00, 04, 08, 12, 16, 20 UTC
+# Fires 24/7 (no market-hours guard, no quiet-hours window)
+ETH_CANDLE_NOTIFICATIONS_ENABLED = _get_secret(
+    "ETH_CANDLE_NOTIFICATIONS_ENABLED", "true"
+).lower() == "true"
+
 # ---------------------------------------------------------------------------
 # Rule thresholds
 # ---------------------------------------------------------------------------
