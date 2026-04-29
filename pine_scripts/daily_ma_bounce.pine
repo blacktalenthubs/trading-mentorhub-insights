@@ -125,19 +125,21 @@ bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
 bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
 
 // =====================================================================
-// CONFLUENCE ALERTS — fire only when MA bounce/rejection coincides with
-// PDH/PDL (high conviction) or when slow MAs above price reject (notice).
-// Solo MA touches do NOT alert — too noisy. Confluence is the edge.
+// MA BOUNCE / REJECTION ALERTS — fire on any MA bounce or rejection.
+// PDH/PDL is METADATA on the payload (at_pdh / at_pdl flags), not a gate.
+// Webhook/Telegram side can highlight confluence cases separately.
 //
-// Three signal types:
-//   LONG    — any MA bounce + low touched PDL (within ATR tol)  → BUY
-//   SHORT   — any MA rejection + high touched PDH (within ATR tol) → SHORT
-//   NOTICE  — 100E/200E/100S/200S rejection (overhead resistance,
-//             not at PDH) → informational, do NOT auto-trade on it
+// Two signal types:
+//   LONG  — any MA bounce (8E/21E/50E/100E/200E/50S/100S/200S) → BUY
+//   SHORT — any MA rejection at any MA level                    → SHORT
+//
+// 8 EMA matters: short-term momentum gauge. If price loses 8 EMA, watch
+// 21 EMA; if it loses 21, watch 50, etc. Each MA is its own conviction
+// tier — let the alert fire and let the trader decide tier importance.
 // =====================================================================
 
-conf_tol_atr = input.float(0.5,  "Confluence tolerance (× ATR14) for PDH/PDL", minval = 0.1, maxval = 2.0, step = 0.1)
-fire_alerts  = input.bool(true,  "Fire alerts on confluence (LONG / SHORT / NOTICE)")
+fire_alerts  = input.bool(true,  "Fire MA bounce/rejection alerts to webhook")
+conf_tol_atr = input.float(0.5,  "PDH/PDL confluence tag tolerance (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
@@ -146,21 +148,17 @@ conf_buffer = atr14 * conf_tol_atr
 near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
 near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
 
-ma_long_at_pdl  = any_long  and near_pdl
-ma_short_at_pdh = any_short and near_pdh
-overhead_notice = (r_e100 or r_e200 or r_s100 or r_s200) and not ma_short_at_pdh
-
-// Visual confluence markers — gold diamond for LONG confluence, purple for SHORT,
-// gray circle for overhead resistance NOTICE.
-plotshape(ma_long_at_pdl,  title = "LONG confluence",  location = location.belowbar,
+// Visual confluence markers — gold diamond when LONG bounce coincides with PDL,
+// purple when SHORT rejection coincides with PDH. These are visual only — the
+// alerts fire on every bounce/rejection regardless.
+plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.belowbar,
           color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
-plotshape(ma_short_at_pdh, title = "SHORT confluence", location = location.abovebar,
+plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
           color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
-plotshape(overhead_notice, title = "Overhead NOTICE",  location = location.abovebar,
-          color = color.new(color.gray, 30),  style = shape.circle,  size = size.tiny)
 
-// JSON payload for /tv/webhook → Telegram. Same shape as prior_day_levels.pine.
-build_ma_payload(string rule, string direction, string ma_tag) =>
+// JSON payload for /tv/webhook → Telegram. Includes at_pdl / at_pdh confluence
+// flags so the Telegram template can highlight high-conviction setups.
+build_ma_payload(string rule, string direction, string ma_tag, bool at_pdl_v, bool at_pdh_v) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
       + '","interval":"' + timeframe.period
@@ -173,11 +171,11 @@ build_ma_payload(string rule, string direction, string ma_tag) =>
       + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
       + '","pdh":"' + str.tostring(pdh, format.mintick)
       + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
+      + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
-if fire_alerts and ma_long_at_pdl
-    alert(build_ma_payload("ma_pdl_confluence_long",  "BUY",    long_tag),  alert.freq_once_per_bar)
-if fire_alerts and ma_short_at_pdh
-    alert(build_ma_payload("ma_pdh_confluence_short", "SHORT",  short_tag), alert.freq_once_per_bar)
-if fire_alerts and overhead_notice
-    alert(build_ma_payload("ma_overhead_notice",      "NOTICE", short_tag), alert.freq_once_per_bar)
+if fire_alerts and any_long
+    alert(build_ma_payload("ma_bounce_long",     "BUY",   long_tag,  near_pdl, false),    alert.freq_once_per_bar)
+if fire_alerts and any_short
+    alert(build_ma_payload("ma_rejection_short", "SHORT", short_tag, false,    near_pdh), alert.freq_once_per_bar)
