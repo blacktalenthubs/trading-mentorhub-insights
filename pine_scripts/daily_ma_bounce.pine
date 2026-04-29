@@ -1,6 +1,6 @@
 // @version=5
 //
-// Daily MA Bounce / Rejection — visual-only marker indicator.
+// Daily MA Bounce / Rejection — visual + confluence alerts.
 //
 // Tracks 8 daily moving-average levels:
 //   • EMAs:  8, 21, 50, 100, 200
@@ -19,8 +19,7 @@
 //
 // V2: visual + confluence alerts. Fires alerts ONLY when MA bounce/rejection
 // coincides with PDH/PDL (high conviction). Solo MA touches stay visual-only —
-// too noisy to alert on. Confluence is the edge (validated live: SPY SWEEP+
-// at 8 EMA, NVDA 8 EMA bounce at PDL reclaim, META 8 EMA + PDL bounce).
+// too noisy to alert on.
 //
 indicator("Daily MA Bounce", overlay = true, max_labels_count = 500)
 
@@ -31,40 +30,24 @@ label_size_in = input.string("tiny", "Marker label size", options = ["tiny", "sm
 
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
 
-// Pull daily MAs with a HYBRID pattern:
-//   • Historical bars → yesterday's daily-close MA value (stable horizontal
-//     line, no future bias). Each intraday bar in day X sees day X-1's MA.
-//   • Last bar (live) → today's developing daily-close MA value. Matches
-//     TV's native daily EMA/SMA so the on-chart value agrees with the
-//     daily chart's MA cross-check.
+// Pull daily MAs using the [1] offset + lookahead_on pattern. This is the
+// standard professional approach: each intraday bar sees YESTERDAY's daily-
+// close MA value (stable, no future bias, line stays horizontal across the
+// session). The line updates once per day at the daily close — perfect for
+// using these as "levels" rather than fast-tracking trend lines.
 //
-// Each MA pulls TWO values per day: the live one (no offset) and the
-// previous day's close (with [1]). barstate.islast picks which to show.
-ema8_live   = request.security(syminfo.tickerid, "D", ta.ema(close, 8),    lookahead = barmerge.lookahead_on)
-ema8_prev   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1], lookahead = barmerge.lookahead_on)
-ema21_live  = request.security(syminfo.tickerid, "D", ta.ema(close, 21),    lookahead = barmerge.lookahead_on)
-ema21_prev  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)
-ema50_live  = request.security(syminfo.tickerid, "D", ta.ema(close, 50),    lookahead = barmerge.lookahead_on)
-ema50_prev  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1], lookahead = barmerge.lookahead_on)
-ema100_live = request.security(syminfo.tickerid, "D", ta.ema(close, 100),    lookahead = barmerge.lookahead_on)
-ema100_prev = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
-ema200_live = request.security(syminfo.tickerid, "D", ta.ema(close, 200),    lookahead = barmerge.lookahead_on)
-ema200_prev = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
-sma50_live  = request.security(syminfo.tickerid, "D", ta.sma(close, 50),    lookahead = barmerge.lookahead_on)
-sma50_prev  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1], lookahead = barmerge.lookahead_on)
-sma100_live = request.security(syminfo.tickerid, "D", ta.sma(close, 100),    lookahead = barmerge.lookahead_on)
-sma100_prev = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
-sma200_live = request.security(syminfo.tickerid, "D", ta.sma(close, 200),    lookahead = barmerge.lookahead_on)
-sma200_prev = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
-
-ema8   = barstate.islast ? ema8_live   : ema8_prev
-ema21  = barstate.islast ? ema21_live  : ema21_prev
-ema50  = barstate.islast ? ema50_live  : ema50_prev
-ema100 = barstate.islast ? ema100_live : ema100_prev
-ema200 = barstate.islast ? ema200_live : ema200_prev
-sma50  = barstate.islast ? sma50_live  : sma50_prev
-sma100 = barstate.islast ? sma100_live : sma100_prev
-sma200 = barstate.islast ? sma200_live : sma200_prev
+// Tradeoff: today's developing daily MA isn't reflected until tomorrow.
+// For 50/100/200 MAs that's negligible (slow movers). For 8/21 EMA the live
+// value can drift up to ~1% intraday but the level still serves as "where
+// price needs to defend" reference.
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
 // Plot all 8 levels with distinct colors.
 plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(#FFEB3B, 30), linewidth = 1)
@@ -168,8 +151,7 @@ ma_short_at_pdh = any_short and near_pdh
 overhead_notice = (r_e100 or r_e200 or r_s100 or r_s200) and not ma_short_at_pdh
 
 // Visual confluence markers — gold diamond for LONG confluence, purple for SHORT,
-// gray diamond for overhead resistance NOTICE. Lets you spot the high-conviction
-// bars at a glance without waiting for the alert.
+// gray circle for overhead resistance NOTICE.
 plotshape(ma_long_at_pdl,  title = "LONG confluence",  location = location.belowbar,
           color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
 plotshape(ma_short_at_pdh, title = "SHORT confluence", location = location.abovebar,
@@ -177,8 +159,7 @@ plotshape(ma_short_at_pdh, title = "SHORT confluence", location = location.above
 plotshape(overhead_notice, title = "Overhead NOTICE",  location = location.abovebar,
           color = color.new(color.gray, 30),  style = shape.circle,  size = size.tiny)
 
-// JSON payload for the existing /tv/webhook → Telegram pipeline. Same shape as
-// prior_day_levels.pine so the webhook handler can route uniformly.
+// JSON payload for /tv/webhook → Telegram. Same shape as prior_day_levels.pine.
 build_ma_payload(string rule, string direction, string ma_tag) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
