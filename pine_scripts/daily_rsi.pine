@@ -25,13 +25,13 @@ os_level      = input.float(30, "Oversold level",   minval = 5,  maxval = 50, st
 fire_alerts   = input.bool(true, "Fire alerts on regime crossings")
 show_badge    = input.bool(true, "Show RSI status badge")
 
-// Daily RSI. If user puts this on a daily chart, ta.rsi(close, 14) IS the
-// daily RSI. If on an intraday chart, request.security pulls daily RSI.
-// The [1] offset + lookahead_on pattern keeps the value stable across
-// intraday bars (yesterday's daily-close RSI), updating once per daily close.
-rsi_d = timeframe.period == "D" ?
-     ta.rsi(close, rsi_length) :
-     request.security(syminfo.tickerid, "D", ta.rsi(close, rsi_length)[1], lookahead = barmerge.lookahead_on)
+// Daily RSI — ALWAYS pulled from the daily timeframe regardless of the
+// chart's current TF. Uses lookahead_on with NO offset so the value matches
+// what you'd see on the daily chart RIGHT NOW (today's developing daily
+// RSI). Switching from D → 1H → 15m on the same symbol shows the same
+// value, which is the whole point: this is "the daily RSI as a sticky
+// reference," not a per-timeframe RSI.
+rsi_d = request.security(syminfo.tickerid, "D", ta.rsi(close, rsi_length), lookahead = barmerge.lookahead_on)
 
 // Plot RSI line + zone bands.
 plot(rsi_d, "Daily RSI", color = color.new(color.purple, 0), linewidth = 2)
@@ -90,10 +90,10 @@ build_rsi_payload(string rule, string direction, float rsi_v) =>
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if fire_alerts and ob_entered
-    alert(build_rsi_payload("daily_rsi_overbought_entered", "NOTICE", rsi_d), alert.freq_once_per_bar)
+    alert(build_rsi_payload("daily_rsi_overbought_entered", "NOTICE", rsi_d), alert.freq_once_per_bar_close)
 if fire_alerts and os_entered
-    alert(build_rsi_payload("daily_rsi_oversold_entered",   "NOTICE", rsi_d), alert.freq_once_per_bar)
+    alert(build_rsi_payload("daily_rsi_oversold_entered",   "NOTICE", rsi_d), alert.freq_once_per_bar_close)
 if fire_alerts and ob_exited
-    alert(build_rsi_payload("daily_rsi_overbought_exited",  "SHORT",  rsi_d), alert.freq_once_per_bar)
+    alert(build_rsi_payload("daily_rsi_overbought_exited",  "SHORT",  rsi_d), alert.freq_once_per_bar_close)
 if fire_alerts and os_exited
-    alert(build_rsi_payload("daily_rsi_oversold_exited",    "BUY",    rsi_d), alert.freq_once_per_bar)
+    alert(build_rsi_payload("daily_rsi_oversold_exited",    "BUY",    rsi_d), alert.freq_once_per_bar_close)
