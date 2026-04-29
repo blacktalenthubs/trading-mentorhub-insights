@@ -35,6 +35,12 @@ MARKET_OPEN_MINUTE = 30
 MARKET_CLOSE_HOUR = 16
 MARKET_CLOSE_MINUTE = 0
 
+# 65-min candle close notifications: 6 candles per RTH session
+# Closes at 10:35, 11:40, 12:45, 13:50, 14:55, 16:00 ET
+CANDLE_65_NOTIFICATIONS_ENABLED = _get_secret(
+    "CANDLE_65_NOTIFICATIONS_ENABLED", "true"
+).lower() == "true"
+
 # ---------------------------------------------------------------------------
 # Rule thresholds
 # ---------------------------------------------------------------------------
