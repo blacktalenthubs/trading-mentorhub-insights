@@ -26,12 +26,15 @@
 //
 indicator("Daily MA Bounce (5 EMA)", overlay = true, max_labels_count = 500)
 
-show_lines    = input.bool(true,  "Show daily MA lines")
-show_markers  = input.bool(true,  "Show BOUNCE/REJECT markers")
-tolerance_atr = input.float(0.3,  "Tolerance (× ATR14)", minval = 0.05, maxval = 2.0, step = 0.05)
-label_size_in = input.string("tiny", "Marker label size", options = ["tiny", "small", "normal", "large"])
+show_lines        = input.bool(true,  "Show daily MA lines")
+show_markers      = input.bool(true,  "Show BOUNCE/REJECT markers")
+show_price_labels = input.bool(false, "Show MA values in right price scale (declutter when off)")
+tolerance_atr     = input.float(0.3,  "Tolerance (× ATR14)", minval = 0.05, maxval = 2.0, step = 0.05)
+label_size_in     = input.string("tiny", "Marker label size", options = ["tiny", "small", "normal", "large"])
 
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
+
+ma_disp = show_price_labels ? display.all : (display.pane + display.status_line + display.data_window)
 
 // Pull daily MAs using the [1] offset + lookahead_on pattern. Each intraday
 // bar sees YESTERDAY's daily-close MA value (stable horizontal line, no
@@ -46,14 +49,14 @@ sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahea
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
 // Plot all 8 levels with distinct colors.
-plot(show_lines ? ema5   : na, "EMA 5 (D)",   color = color.new(#FFEB3B, 30), linewidth = 1)
-plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(#FF9800, 30), linewidth = 1)
-plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#E91E63, 10), linewidth = 2)
-plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#00BCD4, 10), linewidth = 2)
-plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(#FFFFFF, 0),  linewidth = 3)
-plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#2196F3, 30), linewidth = 1, style = plot.style_circles)
-plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#9C27B0, 30), linewidth = 1, style = plot.style_circles)
-plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(#F44336, 0),  linewidth = 2, style = plot.style_circles)
+plot(show_lines ? ema5   : na, "EMA 5 (D)",   color = color.new(#FFEB3B, 30), linewidth = 1, display = ma_disp)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(#FF9800, 30), linewidth = 1, display = ma_disp)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#E91E63, 10), linewidth = 2, display = ma_disp)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#00BCD4, 10), linewidth = 2, display = ma_disp)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(#FFFFFF, 0),  linewidth = 3, display = ma_disp)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#2196F3, 30), linewidth = 1, style = plot.style_circles, display = ma_disp)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#9C27B0, 30), linewidth = 1, style = plot.style_circles, display = ma_disp)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(#F44336, 0),  linewidth = 2, style = plot.style_circles, display = ma_disp)
 
 // Tolerance — ATR-buffered, computed from previous bar for stability.
 atr14 = nz(ta.atr(14)[1], close * 0.005)
