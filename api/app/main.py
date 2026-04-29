@@ -505,43 +505,46 @@ async def lifespan(app: FastAPI):
                 replace_existing=True,
             )
 
-        # Trade Replay + Auto-Journal — 4:40 PM ET weekdays
-        def _trade_replay():
-            try:
-                from analytics.trade_replay import generate_replays
-                count = generate_replays(sync_session_factory)
-                logger.info("Trade replay: %d journal entries created", count)
-            except Exception:
-                logger.exception("Trade replay failed")
+        # Trade Replay + Auto-Journal — 4:40 PM ET weekdays. Calls Anthropic
+        # for journal narrative — gated behind AI_SCAN_ENABLED so the TV-only
+        # shutdown path doesn't keep burning tokens here.
+        if _ai_scan_enabled:
+            def _trade_replay():
+                try:
+                    from analytics.trade_replay import generate_replays
+                    count = generate_replays(sync_session_factory)
+                    logger.info("Trade replay: %d journal entries created", count)
+                except Exception:
+                    logger.exception("Trade replay failed")
 
-        scheduler.add_job(
-            _trade_replay,
-            "cron",
-            hour=16, minute=40,
-            timezone="America/New_York",
-            day_of_week="mon-fri",
-            id="trade_replay",
-            replace_existing=True,
-        )
+            scheduler.add_job(
+                _trade_replay,
+                "cron",
+                hour=16, minute=40,
+                timezone="America/New_York",
+                day_of_week="mon-fri",
+                id="trade_replay",
+                replace_existing=True,
+            )
 
-        # Weekly coaching review — Friday 5 PM ET
-        def _weekly_review():
-            try:
-                from analytics.weekly_review import send_weekly_reviews
-                count = send_weekly_reviews()
-                logger.info("Weekly reviews sent: %d", count)
-            except Exception:
-                logger.exception("Weekly review failed")
+            # Weekly coaching review — Friday 5 PM ET. Anthropic-backed.
+            def _weekly_review():
+                try:
+                    from analytics.weekly_review import send_weekly_reviews
+                    count = send_weekly_reviews()
+                    logger.info("Weekly reviews sent: %d", count)
+                except Exception:
+                    logger.exception("Weekly review failed")
 
-        scheduler.add_job(
-            _weekly_review,
-            "cron",
-            hour=17, minute=0,
-            timezone="America/New_York",
-            day_of_week="fri",
-            id="weekly_review",
-            replace_existing=True,
-        )
+            scheduler.add_job(
+                _weekly_review,
+                "cron",
+                hour=17, minute=0,
+                timezone="America/New_York",
+                day_of_week="fri",
+                id="weekly_review",
+                replace_existing=True,
+            )
 
         scheduler.start()
         logger.info("Background monitor started (3-min poll + EOD/premarket/weekly jobs)")
