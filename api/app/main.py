@@ -457,6 +457,87 @@ async def lifespan(app: FastAPI):
                 "game_plan, premarket_brief, daily_review"
             )
 
+        # =============================================================
+        # Candle close heads-ups (NOT gated by AI/rule flags — these are
+        # plain Telegram pings to remind the trader to review charts at
+        # candle boundaries, useful even when V1 polling is disabled).
+        #
+        # Originally added in monitor.py but Railway only deploys
+        # api/app/main.py via Procfile, so they were dead code there.
+        # =============================================================
+        try:
+            import sys as _sys
+            from pathlib import Path as _Path
+            _root = str(_Path(__file__).resolve().parents[2])
+            if _root not in _sys.path:
+                _sys.path.insert(0, _root)
+
+            from alert_config import (
+                CANDLE_65_NOTIFICATIONS_ENABLED,
+                ETH_CANDLE_NOTIFICATIONS_ENABLED,
+            )
+            from alerting.notifier import _send_telegram
+            from analytics.market_hours import is_market_hours
+            from apscheduler.triggers.cron import CronTrigger
+            import pytz as _pytz
+
+            # 65-min RTH candle closes: 6 per session
+            _CANDLE_65_CLOSES = [
+                (1, 10, 35),
+                (2, 11, 40),
+                (3, 12, 45),
+                (4, 13, 50),
+                (5, 14, 55),
+                (6, 16, 0),
+            ]
+
+            def _notify_candle_close(idx: int, hour: int, minute: int) -> None:
+                if not is_market_hours():
+                    return
+                _send_telegram(
+                    f"<b>65-min candle {idx}/6 closed</b>\n"
+                    f"Time: {hour:02d}:{minute:02d} ET\n"
+                    f"Check your charts."
+                )
+
+            if CANDLE_65_NOTIFICATIONS_ENABLED:
+                _et_tz = _pytz.timezone("America/New_York")
+                for idx, hour, minute in _CANDLE_65_CLOSES:
+                    scheduler.add_job(
+                        _notify_candle_close,
+                        CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=_et_tz),
+                        args=[idx, hour, minute],
+                        id=f"candle_65_close_{idx}",
+                        misfire_grace_time=30,
+                        replace_existing=True,
+                    )
+                logger.info("Registered 6 cron jobs for 65-min candle close notifications")
+
+            # ETH 4h candle closes (UTC): 6/day at 00, 04, 08, 12, 16, 20
+            _ETH_4H_CANDLE_HOURS_UTC = [0, 4, 8, 12, 16, 20]
+
+            def _notify_eth_candle_close(idx: int, hour_utc: int) -> None:
+                _send_telegram(
+                    f"<b>ETH 4h candle {idx}/6 closed</b>\n"
+                    f"Time: {hour_utc:02d}:00 UTC\n"
+                    f"Check the chart."
+                )
+
+            if ETH_CANDLE_NOTIFICATIONS_ENABLED:
+                _utc_tz = _pytz.timezone("UTC")
+                for idx, hour_utc in enumerate(_ETH_4H_CANDLE_HOURS_UTC, start=1):
+                    scheduler.add_job(
+                        _notify_eth_candle_close,
+                        CronTrigger(hour=hour_utc, minute=0, timezone=_utc_tz),
+                        args=[idx, hour_utc],
+                        id=f"eth_4h_candle_close_{idx}",
+                        misfire_grace_time=30,
+                        replace_existing=True,
+                    )
+                logger.info("Registered 6 cron jobs for ETH 4h candle close notifications")
+        except Exception:
+            logger.exception("Failed to register candle-close notification jobs")
+
         # EOD cleanup — close stale active entries at 4:30 PM ET
         def _eod_cleanup():
             try:
