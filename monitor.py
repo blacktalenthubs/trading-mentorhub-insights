@@ -21,6 +21,7 @@ from alert_config import (
     AI_CONVICTION_ENABLED,
     AI_CONVICTION_SUPPRESS_BELOW,
     BUY_BURST_COOLDOWN_MINUTES,
+    CANDLE_65_NOTIFICATIONS_ENABLED,
     COOLDOWN_MINUTES,
     CRYPTO_TELEGRAM_END_HOUR,
     CRYPTO_TELEGRAM_START_HOUR,
@@ -50,7 +51,7 @@ from alerting.alert_store import (
     was_alert_fired,
 )
 from alerting.narrator import generate_narrative
-from alerting.notifier import notify, send_email, send_sms
+from alerting.notifier import _send_telegram, notify, send_email, send_sms
 from alerting.paper_trader import (
     close_position as paper_close_position,
     is_enabled as paper_trading_enabled,
@@ -647,6 +648,29 @@ def _maybe_run_eod() -> None:
         logger.exception("Weekly journal failed")
 
 
+CANDLE_65_CLOSES = [
+    (1, 10, 35),
+    (2, 11, 40),
+    (3, 12, 45),
+    (4, 13, 50),
+    (5, 14, 55),
+    (6, 16, 0),
+]
+
+
+def _notify_candle_close(idx: int, hour: int, minute: int) -> None:
+    if not CANDLE_65_NOTIFICATIONS_ENABLED:
+        return
+    if not is_market_hours():
+        return
+    body = (
+        f"<b>65-min candle {idx}/6 closed</b>\n"
+        f"Time: {hour:02d}:{minute:02d} ET\n"
+        f"Check your charts."
+    )
+    _send_telegram(body)
+
+
 def run_monitor():
     """Start the APScheduler-based monitor loop.
 
@@ -739,6 +763,21 @@ def run_monitor():
         logger.exception("Initial poll failed — scheduler will handle retries")
 
     scheduler.add_job(scheduled_poll, "interval", minutes=POLL_INTERVAL_MINUTES)
+
+    if CANDLE_65_NOTIFICATIONS_ENABLED:
+        from apscheduler.triggers.cron import CronTrigger
+        import pytz as _pytz
+        et_tz = _pytz.timezone("America/New_York")
+        for idx, hour, minute in CANDLE_65_CLOSES:
+            scheduler.add_job(
+                _notify_candle_close,
+                CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=et_tz),
+                args=[idx, hour, minute],
+                id=f"candle_65_close_{idx}",
+                misfire_grace_time=30,
+                replace_existing=True,
+            )
+        logger.info("Registered 6 cron jobs for 65-min candle close notifications")
 
     try:
         scheduler.start()
