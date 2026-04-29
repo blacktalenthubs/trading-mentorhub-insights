@@ -25,6 +25,7 @@ from alert_config import (
     COOLDOWN_MINUTES,
     CRYPTO_TELEGRAM_END_HOUR,
     CRYPTO_TELEGRAM_START_HOUR,
+    ETH_CANDLE_NOTIFICATIONS_ENABLED,
     POLL_INTERVAL_MINUTES,
 )
 
@@ -671,6 +672,20 @@ def _notify_candle_close(idx: int, hour: int, minute: int) -> None:
     _send_telegram(body)
 
 
+ETH_4H_CANDLE_HOURS_UTC = [0, 4, 8, 12, 16, 20]
+
+
+def _notify_eth_candle_close(idx: int, hour_utc: int) -> None:
+    if not ETH_CANDLE_NOTIFICATIONS_ENABLED:
+        return
+    body = (
+        f"<b>ETH 4h candle {idx}/6 closed</b>\n"
+        f"Time: {hour_utc:02d}:00 UTC\n"
+        f"Check the chart."
+    )
+    _send_telegram(body)
+
+
 def run_monitor():
     """Start the APScheduler-based monitor loop.
 
@@ -778,6 +793,21 @@ def run_monitor():
                 replace_existing=True,
             )
         logger.info("Registered 6 cron jobs for 65-min candle close notifications")
+
+    if ETH_CANDLE_NOTIFICATIONS_ENABLED:
+        from apscheduler.triggers.cron import CronTrigger
+        import pytz as _pytz
+        utc_tz = _pytz.timezone("UTC")
+        for idx, hour_utc in enumerate(ETH_4H_CANDLE_HOURS_UTC, start=1):
+            scheduler.add_job(
+                _notify_eth_candle_close,
+                CronTrigger(hour=hour_utc, minute=0, timezone=utc_tz),
+                args=[idx, hour_utc],
+                id=f"eth_4h_candle_close_{idx}",
+                misfire_grace_time=30,
+                replace_existing=True,
+            )
+        logger.info("Registered 6 cron jobs for ETH 4h candle close notifications")
 
     try:
         scheduler.start()
