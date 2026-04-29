@@ -1,6 +1,6 @@
 // @version=5
 //
-// Daily MA Bounce / Rejection — visual-only marker indicator.
+// Daily MA Bounce / Rejection — visual + confluence alerts.
 //
 // Tracks 8 daily moving-average levels:
 //   • EMAs:  8, 21, 50, 100, 200
@@ -17,8 +17,9 @@
 //   • reject_short — high tagged the MA from below, close back below,
 //                    candle is red (close < open). SHORT signal.
 //
-// V1: visual only — labels + bgcolor. NO alert() calls. Add alerts after
-// observing live behavior to validate signal quality and tolerance settings.
+// V2: visual + confluence alerts. Fires alerts ONLY when MA bounce/rejection
+// coincides with PDH/PDL (high conviction). Solo MA touches stay visual-only —
+// too noisy to alert on.
 //
 indicator("Daily MA Bounce", overlay = true, max_labels_count = 500)
 
@@ -48,15 +49,17 @@ sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahea
 sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// Plot all 8 levels with distinct colors.
-plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(#FFEB3B, 30), linewidth = 1)
-plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(#FF9800, 30), linewidth = 1)
-plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#E91E63, 10), linewidth = 2)
-plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#00BCD4, 10), linewidth = 2)
-plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(#FFFFFF, 0),  linewidth = 3)
-plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#2196F3, 30), linewidth = 1, style = plot.style_circles)
-plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#9C27B0, 30), linewidth = 1, style = plot.style_circles)
-plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(#F44336, 0),  linewidth = 2, style = plot.style_circles)
+// Plot all 8 levels — bold lines, user-spec colors:
+//   EMAs (solid): 8=red, 21=green, 50=deep blue, 100=deep yellow, 200=black
+//   SMAs (broken/dotted, same color as matching EMA tier): 50/100/200
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    0), linewidth = 3)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles)
 
 // Tolerance — ATR-buffered, computed from previous bar for stability.
 atr14 = nz(ta.atr(14)[1], close * 0.005)
@@ -122,3 +125,59 @@ if show_markers and any_short
 
 bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
 bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
+
+// =====================================================================
+// MA BOUNCE / REJECTION ALERTS — fire on any MA bounce or rejection.
+// PDH/PDL is METADATA on the payload (at_pdh / at_pdl flags), not a gate.
+// Webhook/Telegram side can highlight confluence cases separately.
+//
+// Two signal types:
+//   LONG  — any MA bounce (8E/21E/50E/100E/200E/50S/100S/200S) → BUY
+//   SHORT — any MA rejection at any MA level                    → SHORT
+//
+// 8 EMA matters: short-term momentum gauge. If price loses 8 EMA, watch
+// 21 EMA; if it loses 21, watch 50, etc. Each MA is its own conviction
+// tier — let the alert fire and let the trader decide tier importance.
+// =====================================================================
+
+fire_alerts  = input.bool(true,  "Fire MA bounce/rejection alerts to webhook")
+conf_tol_atr = input.float(0.5,  "PDH/PDL confluence tag tolerance (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+conf_buffer = atr14 * conf_tol_atr
+near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
+near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
+
+// Visual confluence markers — gold diamond when LONG bounce coincides with PDL,
+// purple when SHORT rejection coincides with PDH. These are visual only — the
+// alerts fire on every bounce/rejection regardless.
+plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.belowbar,
+          color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
+plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
+          color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
+
+// JSON payload for /tv/webhook → Telegram. Includes at_pdl / at_pdh confluence
+// flags so the Telegram template can highlight high-conviction setups.
+build_ma_payload(string rule, string direction, string ma_tag, bool at_pdl_v, bool at_pdh_v) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","pdh":"' + str.tostring(pdh, format.mintick)
+      + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
+      + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if fire_alerts and any_long
+    alert(build_ma_payload("ma_bounce_long",     "BUY",   long_tag,  near_pdl, false),    alert.freq_once_per_bar)
+if fire_alerts and any_short
+    alert(build_ma_payload("ma_rejection_short", "SHORT", short_tag, false,    near_pdh), alert.freq_once_per_bar)

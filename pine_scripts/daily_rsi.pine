@@ -1,0 +1,99 @@
+// @version=5
+//
+// Daily RSI — overbought / oversold alert + visual indicator.
+//
+// Designed to be added on the DAILY timeframe. Tracks the standard 14-period
+// RSI on daily closes and fires alerts on regime transitions:
+//
+//   • RSI crosses ABOVE 70  → "overbought_entered"  (top zone, fade longs)
+//   • RSI crosses BELOW 30  → "oversold_entered"   (bottom zone, value buy)
+//   • RSI crosses BELOW 70  → "overbought_exited"  (bearish reversal start)
+//   • RSI crosses ABOVE 30  → "oversold_exited"    (bullish reversal start)
+//
+// All four fire as NOTICE direction by default — informational, not auto-trade
+// signals. They tell you when the daily momentum regime shifts so you can
+// reassess your bias on the swing timeframe.
+//
+// Webhook deduplication (30-min window, ±0.5% level) prevents repeat Telegram
+// messages if the same RSI threshold is being tested multiple times.
+//
+indicator("Daily RSI", overlay = false, max_labels_count = 100)
+
+rsi_length    = input.int(14,   "RSI length", minval = 2, maxval = 50)
+ob_level      = input.float(70, "Overbought level", minval = 50, maxval = 95, step = 1)
+os_level      = input.float(30, "Oversold level",   minval = 5,  maxval = 50, step = 1)
+fire_alerts   = input.bool(true, "Fire alerts on regime crossings")
+show_badge    = input.bool(true, "Show RSI status badge")
+
+// Daily RSI — ALWAYS pulled from the daily timeframe regardless of the
+// chart's current TF. Uses lookahead_on with NO offset so the value matches
+// what you'd see on the daily chart RIGHT NOW (today's developing daily
+// RSI). Switching from D → 1H → 15m on the same symbol shows the same
+// value, which is the whole point: this is "the daily RSI as a sticky
+// reference," not a per-timeframe RSI.
+rsi_d = request.security(syminfo.tickerid, "D", ta.rsi(close, rsi_length), lookahead = barmerge.lookahead_on)
+
+// Plot RSI line + zone bands.
+plot(rsi_d, "Daily RSI", color = color.new(color.purple, 0), linewidth = 2)
+hline(ob_level, "Overbought", color = color.new(color.red, 30),   linestyle = hline.style_dashed)
+hline(50,        "Mid",        color = color.new(color.gray, 60),  linestyle = hline.style_dotted)
+hline(os_level, "Oversold",    color = color.new(color.green, 30), linestyle = hline.style_dashed)
+
+// Shaded zones for OB / OS regions — easy visual.
+fill(hline(100, display = display.none), hline(ob_level, display = display.none), color = color.new(color.red, 90),   title = "OB zone")
+fill(hline(os_level, display = display.none), hline(0, display = display.none),  color = color.new(color.green, 90), title = "OS zone")
+
+// Status badge — top-right corner shows the live daily RSI value with a
+// colored background tier.
+badge_color(float r) =>
+    na(r) ? color.gray :
+     r >= ob_level ? color.new(color.red,    20) :
+     r <= os_level ? color.new(color.green,  20) :
+     r >= 50       ? color.new(color.green,  60) :
+                     color.new(color.red,    60)
+
+badge_label(float r) =>
+    na(r) ? "RSI —" :
+     r >= ob_level ? "OB " + str.tostring(r, "#.#") :
+     r <= os_level ? "OS " + str.tostring(r, "#.#") :
+                     "RSI " + str.tostring(r, "#.#")
+
+var table rsi_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
+if show_badge and barstate.islast
+    table.cell(rsi_t, 0, 0, badge_label(rsi_d), text_color = color.white, bgcolor = badge_color(rsi_d), text_size = size.normal)
+
+// Crossing detection — fire once per crossing event.
+ob_entered  = ta.crossover(rsi_d,  ob_level)
+ob_exited   = ta.crossunder(rsi_d, ob_level)
+os_entered  = ta.crossunder(rsi_d, os_level)
+os_exited   = ta.crossover(rsi_d,  os_level)
+
+// Visual transition markers on the RSI panel.
+plotshape(ob_entered, title = "OB entered",  location = location.top,    color = color.new(color.red,    0), style = shape.triangledown, size = size.small)
+plotshape(os_entered, title = "OS entered",  location = location.bottom, color = color.new(color.green,  0), style = shape.triangleup,   size = size.small)
+plotshape(ob_exited,  title = "OB exited",   location = location.top,    color = color.new(color.orange, 0), style = shape.circle,       size = size.tiny)
+plotshape(os_exited,  title = "OS exited",   location = location.bottom, color = color.new(color.orange, 0), style = shape.circle,       size = size.tiny)
+
+// JSON payload for /tv/webhook → Telegram. Same shape as the other Pine
+// scripts so the webhook handler routes uniformly.
+build_rsi_payload(string rule, string direction, float rsi_v) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","rsi":"' + str.tostring(rsi_v, "#.##")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if fire_alerts and ob_entered
+    alert(build_rsi_payload("daily_rsi_overbought_entered", "NOTICE", rsi_d), alert.freq_once_per_bar_close)
+if fire_alerts and os_entered
+    alert(build_rsi_payload("daily_rsi_oversold_entered",   "NOTICE", rsi_d), alert.freq_once_per_bar_close)
+if fire_alerts and ob_exited
+    alert(build_rsi_payload("daily_rsi_overbought_exited",  "SHORT",  rsi_d), alert.freq_once_per_bar_close)
+if fire_alerts and os_exited
+    alert(build_rsi_payload("daily_rsi_oversold_exited",    "BUY",    rsi_d), alert.freq_once_per_bar_close)
