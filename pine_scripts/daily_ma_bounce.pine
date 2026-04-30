@@ -49,17 +49,18 @@ sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahea
 sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// Plot all 8 levels — bold lines, user-spec colors:
-//   EMAs (solid): 8=red, 21=green, 50=deep blue, 100=deep yellow, 200=black
-//   SMAs (broken/dotted, same color as matching EMA tier): 50/100/200
-plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    0), linewidth = 3)
-plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
-plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
-plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
-plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3)
-plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles)
-plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles)
-plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles)
+// Plot all 8 levels — moderate width + 30% transparency so candles show
+// through when MAs cluster. Colors: EMAs (solid) 8=red, 21=green, 50=deep
+// blue, 100=deep yellow, 200=black. SMAs (dotted, same color as matching
+// EMA tier).
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    30), linewidth = 2)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  30), linewidth = 2)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      30), linewidth = 2)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      30), linewidth = 2)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  30), linewidth = 2)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      30), linewidth = 2, style = plot.style_circles)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      30), linewidth = 2, style = plot.style_circles)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  30), linewidth = 2, style = plot.style_circles)
 
 // Tolerance — ATR-buffered, computed from previous bar for stability.
 atr14 = nz(ta.atr(14)[1], close * 0.005)
@@ -122,9 +123,6 @@ if show_markers and any_short
               textcolor = color.white,
               size = label_size,
               yloc = yloc.abovebar)
-
-bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
-bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
 
 // =====================================================================
 // MA BOUNCE / REJECTION ALERTS — fire on any MA bounce or rejection.
