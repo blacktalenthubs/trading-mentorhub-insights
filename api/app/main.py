@@ -476,10 +476,51 @@ async def lifespan(app: FastAPI):
                 CANDLE_65_NOTIFICATIONS_ENABLED,
                 ETH_CANDLE_NOTIFICATIONS_ENABLED,
             )
-            from alerting.notifier import _send_telegram
+            from alerting.notifier import _send_telegram, _send_telegram_to
             from analytics.market_hours import is_market_hours
             from apscheduler.triggers.cron import CronTrigger
             import pytz as _pytz
+
+            logger.info(
+                "Candle pings config: CANDLE_65=%s ETH_CANDLE=%s",
+                CANDLE_65_NOTIFICATIONS_ENABLED, ETH_CANDLE_NOTIFICATIONS_ENABLED,
+            )
+
+            # Broadcast helper — queries users table for all chat_ids and
+            # sends to each (mirrors how the TV webhook fans out). Falls
+            # back to legacy TELEGRAM_CHAT_ID broadcast if DB query yields
+            # nothing. Logs aggressively so Railway logs show exactly
+            # what's happening at each step.
+            def _broadcast_telegram(body: str, label: str) -> int:
+                logger.info("CANDLE PING FIRE: %s — broadcasting to users", label)
+                sent = 0
+                tried = 0
+                try:
+                    from sqlalchemy import text
+                    with sync_session_factory() as db:
+                        rows = db.execute(text(
+                            "SELECT telegram_chat_id FROM users "
+                            "WHERE telegram_chat_id IS NOT NULL "
+                            "AND telegram_chat_id != ''"
+                        )).fetchall()
+                    chat_ids = [r[0] for r in rows]
+                    logger.info("CANDLE PING %s: %d users with chat_id", label, len(chat_ids))
+                    for cid in chat_ids:
+                        tried += 1
+                        ok = _send_telegram_to(body, cid)
+                        if ok:
+                            sent += 1
+                        else:
+                            logger.warning("CANDLE PING %s: send to chat_id=%s failed", label, cid)
+                    logger.info("CANDLE PING %s: sent=%d/%d", label, sent, tried)
+                    if sent == 0:
+                        # Fallback to legacy broadcast in case of DB issue
+                        logger.warning("CANDLE PING %s: per-user broadcast sent 0 — trying legacy", label)
+                        if _send_telegram(body):
+                            sent = 1
+                except Exception:
+                    logger.exception("CANDLE PING %s: broadcast exception", label)
+                return sent
 
             # 65-min RTH candle closes: 6 per session
             _CANDLE_65_CLOSES = [
@@ -493,11 +534,13 @@ async def lifespan(app: FastAPI):
 
             def _notify_candle_close(idx: int, hour: int, minute: int) -> None:
                 if not is_market_hours():
+                    logger.info("CANDLE PING SKIP: 65-min #%d outside market hours", idx)
                     return
-                _send_telegram(
+                _broadcast_telegram(
                     f"<b>65-min candle {idx}/6 closed</b>\n"
                     f"Time: {hour:02d}:{minute:02d} ET\n"
-                    f"Check your charts."
+                    f"Check your charts.",
+                    f"65min#{idx}",
                 )
 
             if CANDLE_65_NOTIFICATIONS_ENABLED:
@@ -520,10 +563,11 @@ async def lifespan(app: FastAPI):
             def _notify_eth_candle_close() -> None:
                 from datetime import datetime, timezone as _tz
                 now_utc = datetime.now(_tz.utc).strftime("%H:%M UTC")
-                _send_telegram(
+                _broadcast_telegram(
                     f"<b>ETH 65-min ping (test mode)</b>\n"
                     f"Time: {now_utc}\n"
-                    f"Switch back to 4h schedule once verified."
+                    f"Switch back to 4h schedule once verified.",
+                    "ETH-test",
                 )
 
             if ETH_CANDLE_NOTIFICATIONS_ENABLED:
