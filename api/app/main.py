@@ -576,16 +576,17 @@ async def lifespan(app: FastAPI):
                     _notify_eth_candle_close,
                     id="eth_candle_close_initial",
                 )
-                # Recurring 65-min interval.
+                # Recurring 5-min interval (TEST MODE — fast validation cycle).
+                # Revert to minutes=240 (4h) once you trust the pipeline.
                 scheduler.add_job(
                     _notify_eth_candle_close,
                     "interval",
-                    minutes=65,
-                    id="eth_65min_interval",
+                    minutes=5,
+                    id="eth_test_interval",
                     misfire_grace_time=30,
                     replace_existing=True,
                 )
-                logger.info("Registered ETH 65-min candle-close ping (TEST MODE — startup fire + every 65 min)")
+                logger.info("Registered ETH candle-close ping (TEST MODE — startup fire + every 5 min)")
         except Exception:
             logger.exception("Failed to register candle-close notification jobs")
 
