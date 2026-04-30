@@ -588,22 +588,7 @@ async def lifespan(app: FastAPI):
                     f"ETH4h#{idx}",
                 )
 
-            def _notify_eth_startup_fire() -> None:
-                from datetime import datetime, timezone as _tz
-                now_utc = datetime.now(_tz.utc).strftime("%H:%M UTC")
-                _broadcast_telegram(
-                    f"<b>ETH ping pipeline alive</b>\n"
-                    f"Boot time: {now_utc}\n"
-                    f"4h candle pings: 00, 04, 08, 12, 16, 20 UTC.",
-                    "ETH-boot",
-                )
-
             if ETH_CANDLE_NOTIFICATIONS_ENABLED:
-                # Startup sanity ping — fires once when Railway redeploys.
-                scheduler.add_job(
-                    _notify_eth_startup_fire,
-                    id="eth_startup_fire",
-                )
                 # 6 cron jobs at real 4h UTC candle close boundaries.
                 # Validated against actual Coinbase ETH-USD candle closes
                 # via 5-min cron alignment test (PR #66) — fires within
@@ -618,7 +603,7 @@ async def lifespan(app: FastAPI):
                         misfire_grace_time=30,
                         replace_existing=True,
                     )
-                logger.info("Registered ETH 4h candle pings (startup fire + 6 UTC cron jobs)")
+                logger.info("Registered ETH 4h candle pings (6 UTC cron jobs)")
         except Exception:
             logger.exception("Failed to register candle-close notification jobs")
 
