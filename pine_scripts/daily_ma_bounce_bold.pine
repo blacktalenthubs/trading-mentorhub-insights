@@ -1,0 +1,147 @@
+// @version=5
+//
+// Daily MA Bounce / Rejection — BOLD variant (linewidth=3, opaque,
+// with bounce/reject backgrounds). Side-by-side comparison version
+// against the slim/translucent main `daily_ma_bounce.pine`.
+//
+// Tracks 8 daily moving-average levels:
+//   • EMAs:  8, 21, 50, 100, 200
+//   • SMAs:  50, 100, 200
+//
+// Indicator name is "Daily MA Bounce (Bold)" so TV treats it as a
+// separate script slot — paste both into different chart panels and
+// toggle visibility to compare.
+//
+indicator("Daily MA Bounce (Bold)", overlay = true, max_labels_count = 500)
+
+show_lines        = input.bool(true,  "Show daily MA lines")
+show_markers      = input.bool(true,  "Show BOUNCE/REJECT markers")
+show_price_labels = input.bool(false, "Show MA values in right price scale (declutter when off)")
+tolerance_atr     = input.float(0.3,  "Tolerance (× ATR14)", minval = 0.05, maxval = 2.0, step = 0.05)
+label_size_in     = input.string("tiny", "Marker label size", options = ["tiny", "small", "normal", "large"])
+
+label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
+
+// Display config — when show_price_labels is OFF, suppress the right-edge
+// price scale labels (they stack up and crowd the chart when 4+ MAs cluster
+// within $1). Lines still draw, hover values still show in status line.
+ma_disp = show_price_labels ? display.all : (display.pane + display.status_line + display.data_window)
+
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+// BOLD plot: linewidth=3, fully opaque (transparency=0), with bgcolor tints.
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, display = ma_disp)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles, display = ma_disp)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles, display = ma_disp)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles, display = ma_disp)
+
+atr14 = nz(ta.atr(14)[1], close * 0.005)
+tol   = atr14 * tolerance_atr
+
+bounce_long(float ma) =>
+    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+
+reject_short(float ma) =>
+    not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
+
+b_e8   = bounce_long(ema8)
+b_e21  = bounce_long(ema21)
+b_e50  = bounce_long(ema50)
+b_e100 = bounce_long(ema100)
+b_e200 = bounce_long(ema200)
+b_s50  = bounce_long(sma50)
+b_s100 = bounce_long(sma100)
+b_s200 = bounce_long(sma200)
+
+r_e8   = reject_short(ema8)
+r_e21  = reject_short(ema21)
+r_e50  = reject_short(ema50)
+r_e100 = reject_short(ema100)
+r_e200 = reject_short(ema200)
+r_s50  = reject_short(sma50)
+r_s100 = reject_short(sma100)
+r_s200 = reject_short(sma200)
+
+any_long  = b_e8 or b_e21 or b_e50 or b_e100 or b_e200 or b_s50 or b_s100 or b_s200
+any_short = r_e8 or r_e21 or r_e50 or r_e100 or r_e200 or r_s50 or r_s100 or r_s200
+
+long_tag = (b_e8 ? "8E " : "") + (b_e21 ? "21E " : "") + (b_e50 ? "50E " : "") + (b_e100 ? "100E " : "") + (b_e200 ? "200E " : "") + (b_s50 ? "50S " : "") + (b_s100 ? "100S " : "") + (b_s200 ? "200S " : "")
+
+short_tag = (r_e8 ? "8E " : "") + (r_e21 ? "21E " : "") + (r_e50 ? "50E " : "") + (r_e100 ? "100E " : "") + (r_e200 ? "200E " : "") + (r_s50 ? "50S " : "") + (r_s100 ? "100S " : "") + (r_s200 ? "200S " : "")
+
+plotshape(show_markers and any_long,
+          title = "Bounce LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.tiny)
+plotshape(show_markers and any_short,
+          title = "Reject SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.tiny)
+
+if show_markers and any_long
+    label.new(bar_index, low, long_tag,
+              style = label.style_label_up,
+              color = color.new(color.green, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.belowbar)
+if show_markers and any_short
+    label.new(bar_index, high, short_tag,
+              style = label.style_label_down,
+              color = color.new(color.red, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.abovebar)
+
+// BOLD-only: full-bar background tints when bounce/reject fires.
+bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
+bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
+
+// Same confluence alerts + visual diamonds as the main script.
+fire_alerts  = input.bool(true,  "Fire MA bounce/rejection alerts to webhook")
+conf_tol_atr = input.float(0.5,  "PDH/PDL confluence tag tolerance (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+conf_buffer = atr14 * conf_tol_atr
+near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
+near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
+
+plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.belowbar,
+          color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
+plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
+          color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
+
+build_ma_payload(string rule, string direction, string ma_tag, bool at_pdl_v, bool at_pdh_v) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","pdh":"' + str.tostring(pdh, format.mintick)
+      + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
+      + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if fire_alerts and any_long
+    alert(build_ma_payload("ma_bounce_long",     "BUY",   long_tag,  near_pdl, false),    alert.freq_once_per_bar)
+if fire_alerts and any_short
+    alert(build_ma_payload("ma_rejection_short", "SHORT", short_tag, false,    near_pdh), alert.freq_once_per_bar)
