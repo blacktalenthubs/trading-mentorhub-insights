@@ -598,30 +598,17 @@ async def lifespan(app: FastAPI):
                     "ETH-boot",
                 )
 
-            # 5-MIN TEST MODE: fires every 5 min on UTC boundaries (00, 05,
-            # 10, 15, ...) to validate that cron schedule matches actual
-            # Coinbase ETH-USD 5-min candle closes. Each ping should land
-            # within ~1-2s of a TV 5-min bar close. Compare timestamps with
-            # the 5-min chart on TV. Revert this 5-min block once validated;
-            # the 4h schedule above is the prod cadence.
-            def _notify_eth_5min_test() -> None:
-                from datetime import datetime, timezone as _tz
-                now_utc = datetime.now(_tz.utc).strftime("%H:%M:%S UTC")
-                _broadcast_telegram(
-                    f"<b>ETH 5-min candle close (test)</b>\n"
-                    f"Cron fired: {now_utc}\n"
-                    f"Compare to TV ETH-USD 5min bar close timestamp.",
-                    "ETH-5m-test",
-                )
-
             if ETH_CANDLE_NOTIFICATIONS_ENABLED:
                 # Startup sanity ping — fires once when Railway redeploys.
                 scheduler.add_job(
                     _notify_eth_startup_fire,
                     id="eth_startup_fire",
                 )
-                _utc_tz = _pytz.timezone("UTC")
                 # 6 cron jobs at real 4h UTC candle close boundaries.
+                # Validated against actual Coinbase ETH-USD candle closes
+                # via 5-min cron alignment test (PR #66) — fires within
+                # 1-2s of the real bar close.
+                _utc_tz = _pytz.timezone("UTC")
                 for idx, hour_utc in _ETH_4H_SCHEDULE:
                     scheduler.add_job(
                         _notify_eth_candle_close,
@@ -631,15 +618,7 @@ async def lifespan(app: FastAPI):
                         misfire_grace_time=30,
                         replace_existing=True,
                     )
-                # 5-min test cron — fires every 5 min on UTC boundaries.
-                scheduler.add_job(
-                    _notify_eth_5min_test,
-                    CronTrigger(minute="*/5", timezone=_utc_tz),
-                    id="eth_5min_close_test",
-                    misfire_grace_time=10,
-                    replace_existing=True,
-                )
-                logger.info("Registered ETH pings (startup + 6 4h cron + 5-min test cron)")
+                logger.info("Registered ETH 4h candle pings (startup fire + 6 UTC cron jobs)")
         except Exception:
             logger.exception("Failed to register candle-close notification jobs")
 
