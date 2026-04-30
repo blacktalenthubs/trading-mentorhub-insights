@@ -567,37 +567,55 @@ async def lifespan(app: FastAPI):
                     )
                 logger.info("Registered 5 cron jobs for 65-min candle ping schedule")
 
-            # ETH candle close pings — TEMPORARILY in 65-min test mode for
-            # rapid pipeline validation. Plus an immediate fire on startup so
-            # the user sees one Telegram within seconds of redeploy. Revert
-            # to the 4h cron schedule once validated (see git history).
-            def _notify_eth_candle_close() -> None:
+            # ETH 4h candle closes (UTC, 24/7): 6/day at 00, 04, 08, 12, 16, 20.
+            # No "final candle" framing since crypto trades continuously.
+            # Plus a startup fire on every Railway redeploy as a sanity check
+            # that the pipeline is healthy.
+            _ETH_4H_SCHEDULE = [
+                (1, 0),
+                (2, 4),
+                (3, 8),
+                (4, 12),
+                (5, 16),
+                (6, 20),
+            ]
+
+            def _notify_eth_candle_close(idx: int, hour_utc: int) -> None:
+                _broadcast_telegram(
+                    f"<b>ETH 4h candle {idx}/6 closed</b>\n"
+                    f"Time: {hour_utc:02d}:00 UTC\n"
+                    f"Check the chart.",
+                    f"ETH4h#{idx}",
+                )
+
+            def _notify_eth_startup_fire() -> None:
                 from datetime import datetime, timezone as _tz
                 now_utc = datetime.now(_tz.utc).strftime("%H:%M UTC")
                 _broadcast_telegram(
-                    f"<b>ETH 65-min ping (test mode)</b>\n"
-                    f"Time: {now_utc}\n"
-                    f"Switch back to 4h schedule once verified.",
-                    "ETH-test",
+                    f"<b>ETH ping pipeline alive</b>\n"
+                    f"Boot time: {now_utc}\n"
+                    f"4h candle pings: 00, 04, 08, 12, 16, 20 UTC.",
+                    "ETH-boot",
                 )
 
             if ETH_CANDLE_NOTIFICATIONS_ENABLED:
-                # Immediate one-shot fire on startup — validates pipeline now.
+                # Startup sanity ping — fires once when Railway redeploys.
                 scheduler.add_job(
-                    _notify_eth_candle_close,
-                    id="eth_candle_close_initial",
+                    _notify_eth_startup_fire,
+                    id="eth_startup_fire",
                 )
-                # Recurring 5-min interval (TEST MODE — fast validation cycle).
-                # Revert to minutes=240 (4h) once you trust the pipeline.
-                scheduler.add_job(
-                    _notify_eth_candle_close,
-                    "interval",
-                    minutes=5,
-                    id="eth_test_interval",
-                    misfire_grace_time=30,
-                    replace_existing=True,
-                )
-                logger.info("Registered ETH candle-close ping (TEST MODE — startup fire + every 5 min)")
+                # 6 cron jobs at real 4h UTC candle close boundaries.
+                _utc_tz = _pytz.timezone("UTC")
+                for idx, hour_utc in _ETH_4H_SCHEDULE:
+                    scheduler.add_job(
+                        _notify_eth_candle_close,
+                        CronTrigger(hour=hour_utc, minute=0, timezone=_utc_tz),
+                        args=[idx, hour_utc],
+                        id=f"eth_4h_close_{idx}",
+                        misfire_grace_time=30,
+                        replace_existing=True,
+                    )
+                logger.info("Registered ETH 4h candle pings (startup fire + 6 UTC cron jobs)")
         except Exception:
             logger.exception("Failed to register candle-close notification jobs")
 
