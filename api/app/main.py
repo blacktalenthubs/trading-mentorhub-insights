@@ -522,39 +522,50 @@ async def lifespan(app: FastAPI):
                     logger.exception("CANDLE PING %s: broadcast exception", label)
                 return sent
 
-            # 65-min RTH candle closes: 6 per session
-            _CANDLE_65_CLOSES = [
-                (1, 10, 35),
-                (2, 11, 40),
-                (3, 12, 45),
-                (4, 13, 50),
-                (5, 14, 55),
-                (6, 16, 0),
+            # 65-min RTH candle pings: 5 per session.
+            # - Candles 1-4: ping on each close.
+            # - Candle 5: ping at 14:55 (its close = start of final candle 6).
+            #   The 14:55 ping signals "FINAL HOUR starting" since 6 closes at
+            #   16:00 with the market — no separate close ping needed.
+            # Tuple: (idx, hour, minute, is_final_hour_starting)
+            _CANDLE_65_SCHEDULE = [
+                (1, 10, 35, False),
+                (2, 11, 40, False),
+                (3, 12, 45, False),
+                (4, 13, 50, False),
+                (5, 14, 55, True),  # final hour starting
             ]
 
-            def _notify_candle_close(idx: int, hour: int, minute: int) -> None:
+            def _notify_candle_close(idx: int, hour: int, minute: int, is_final: bool) -> None:
                 if not is_market_hours():
                     logger.info("CANDLE PING SKIP: 65-min #%d outside market hours", idx)
                     return
-                _broadcast_telegram(
-                    f"<b>65-min candle {idx}/6 closed</b>\n"
-                    f"Time: {hour:02d}:{minute:02d} ET\n"
-                    f"Check your charts.",
-                    f"65min#{idx}",
-                )
+                if is_final:
+                    body = (
+                        f"<b>65-min candle 5 closed — FINAL HOUR starting</b>\n"
+                        f"Time: {hour:02d}:{minute:02d} ET → 16:00 ET market close\n"
+                        f"Last 65-min candle in session."
+                    )
+                else:
+                    body = (
+                        f"<b>65-min candle {idx} closed</b>\n"
+                        f"Time: {hour:02d}:{minute:02d} ET\n"
+                        f"Check your charts."
+                    )
+                _broadcast_telegram(body, f"65min#{idx}")
 
             if CANDLE_65_NOTIFICATIONS_ENABLED:
                 _et_tz = _pytz.timezone("America/New_York")
-                for idx, hour, minute in _CANDLE_65_CLOSES:
+                for idx, hour, minute, is_final in _CANDLE_65_SCHEDULE:
                     scheduler.add_job(
                         _notify_candle_close,
                         CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=_et_tz),
-                        args=[idx, hour, minute],
+                        args=[idx, hour, minute, is_final],
                         id=f"candle_65_close_{idx}",
                         misfire_grace_time=30,
                         replace_existing=True,
                     )
-                logger.info("Registered 6 cron jobs for 65-min candle close notifications")
+                logger.info("Registered 5 cron jobs for 65-min candle ping schedule")
 
             # ETH candle close pings — TEMPORARILY in 65-min test mode for
             # rapid pipeline validation. Plus an immediate fire on startup so
