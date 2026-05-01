@@ -99,7 +99,7 @@ else if is_stage1
     stage_bg   := color.new(color.gray, 30)
 else if is_stage3
     stage_text := "STAGE 3: TOPPING"
-    stage_bg   := color.new(color.yellow, 30)
+    stage_bg   := color.new(color.orange, 10)
 
 // Stage badge — top-right corner.
 var table stage_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
