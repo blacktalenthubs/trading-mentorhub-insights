@@ -1,0 +1,139 @@
+// @version=5
+//
+// Position Trade MA Levels — daily SMAs 50, 100, 150, 200 for long-term
+// position trading decisions.
+//
+// Tracks 4 daily simple moving averages:
+//   • 50 SMA  — short-term trend reference (weeks)
+//   • 100 SMA — medium-term trend
+//   • 150 SMA — medium-to-long position support
+//   • 200 SMA — major long-term trend (the "bull/bear line")
+//
+// Detection per MA (mirrors daily_ma_bounce.pine):
+//   • bounce_long  — low wicked the SMA (within ATR*tol), close above it,
+//                    candle is green. POSITION ENTRY signal.
+//   • reject_short — high tagged the SMA from below, close back below,
+//                    candle is red. POSITION EXIT / SHORT signal.
+//
+// Add to a DAILY chart for true position trading. Will also work on any
+// intraday TF (daily SMA values pulled via request.security).
+//
+// Alert rules (routed via /tv/webhook → Telegram):
+//   • position_ma_bounce_long  (BUY)   — long-term entry at SMA support
+//   • position_ma_rejection_short (SHORT) — long-term exit / counter-trend
+//
+indicator("Position Trade MAs (SMA 50/100/150/200)", overlay = true, max_labels_count = 500)
+
+show_lines        = input.bool(true,  "Show daily SMA lines")
+show_markers      = input.bool(true,  "Show BOUNCE/REJECT markers")
+show_price_labels = input.bool(false, "Show MA values in right price scale (declutter when off)")
+tolerance_atr     = input.float(0.5,  "Tolerance (× ATR14)", minval = 0.1, maxval = 3.0, step = 0.1)
+label_size_in     = input.string("small", "Marker label size", options = ["tiny", "small", "normal", "large"])
+fire_alerts       = input.bool(true,  "Fire bounce/rejection alerts to webhook")
+
+label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
+
+// Display config — when show_price_labels is OFF, suppress right-edge labels
+// to keep the price scale uncluttered.
+ma_disp = show_price_labels ? display.all : (display.pane + display.status_line + display.data_window)
+
+// Pull daily SMAs with [1] offset + lookahead_on for stable horizontal lines
+// (yesterday's daily-close value, no future bias).
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma150 = request.security(syminfo.tickerid, "D", ta.sma(close, 150)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+// Plot the 4 SMA levels — distinct colors for at-a-glance identification.
+//   50  = green     (short-term, "is the trend healthy?")
+//   100 = blue      (medium-term, "still trending?")
+//   150 = orange    (medium-to-long support)
+//   200 = black     (the major level — bull/bear line)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(color.green,   20), linewidth = 2, display = ma_disp)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#1565C0,       20), linewidth = 2, display = ma_disp)
+plot(show_lines ? sma150 : na, "SMA 150 (D)", color = color.new(#F57F17,       20), linewidth = 2, display = ma_disp)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,    0), linewidth = 3, display = ma_disp)
+
+// Tolerance — ATR-buffered, computed from previous bar for stability.
+// Default 0.5x ATR (wider than intraday) since position trades expect more
+// noise around the level before committing to a setup.
+atr14 = nz(ta.atr(14)[1], close * 0.005)
+tol   = atr14 * tolerance_atr
+
+// Per-MA bounce / rejection detection. Same logic as daily_ma_bounce.pine.
+bounce_long(float ma) =>
+    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+
+reject_short(float ma) =>
+    not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
+
+b_50  = bounce_long(sma50)
+b_100 = bounce_long(sma100)
+b_150 = bounce_long(sma150)
+b_200 = bounce_long(sma200)
+
+r_50  = reject_short(sma50)
+r_100 = reject_short(sma100)
+r_150 = reject_short(sma150)
+r_200 = reject_short(sma200)
+
+any_long  = b_50 or b_100 or b_150 or b_200
+any_short = r_50 or r_100 or r_150 or r_200
+
+// Build dynamic label text showing which SMA(s) fired.
+long_tag  = (b_50 ? "50 "  : "") + (b_100 ? "100 " : "") + (b_150 ? "150 " : "") + (b_200 ? "200 " : "")
+short_tag = (r_50 ? "50 "  : "") + (r_100 ? "100 " : "") + (r_150 ? "150 " : "") + (r_200 ? "200 " : "")
+
+// Triangle markers always visible; labels carry the SMA tag.
+plotshape(show_markers and any_long,
+          title = "Bounce LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.small)
+plotshape(show_markers and any_short,
+          title = "Reject SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.small)
+
+if show_markers and any_long
+    label.new(bar_index, low, long_tag,
+              style = label.style_label_up,
+              color = color.new(color.green, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.belowbar)
+if show_markers and any_short
+    label.new(bar_index, high, short_tag,
+              style = label.style_label_down,
+              color = color.new(color.red, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.abovebar)
+
+// =====================================================================
+// POSITION-TRADE ALERTS
+// Fire on any SMA bounce or rejection. Use alert.freq_once_per_bar_close
+// so daily-chart users get exactly one alert per day (when the daily bar
+// closes). Intraday users get one per intraday bar close.
+// =====================================================================
+
+build_payload(string rule, string direction, string ma_tag) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","sma50":"' + str.tostring(sma50, format.mintick)
+      + '","sma100":"' + str.tostring(sma100, format.mintick)
+      + '","sma150":"' + str.tostring(sma150, format.mintick)
+      + '","sma200":"' + str.tostring(sma200, format.mintick)
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if fire_alerts and any_long
+    alert(build_payload("position_ma_bounce_long",     "BUY",   long_tag),  alert.freq_once_per_bar_close)
+if fire_alerts and any_short
+    alert(build_payload("position_ma_rejection_short", "SHORT", short_tag), alert.freq_once_per_bar_close)
