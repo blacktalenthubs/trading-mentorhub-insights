@@ -1,7 +1,7 @@
 """Import all models so Alembic and SQLAlchemy can discover them."""
 
 from app.models.user import User, Subscription  # noqa: F401
-from app.models.watchlist import WatchlistItem  # noqa: F401
+from app.models.watchlist import WatchlistGroup, WatchlistItem  # noqa: F401
 from app.models.alert import Alert, ActiveEntry, Cooldown  # noqa: F401
 from app.models.trade import (  # noqa: F401
     Trade1099,

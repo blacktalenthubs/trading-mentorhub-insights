@@ -616,13 +616,26 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_chart_levels_symbol ON chart_levels(symbol);
 
+            CREATE TABLE IF NOT EXISTS watchlist_group (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                name TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                color TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_watchlist_group_user ON watchlist_group(user_id);
+
             CREATE TABLE IF NOT EXISTS watchlist (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER REFERENCES users(id),
                 symbol TEXT NOT NULL,
+                group_id INTEGER REFERENCES watchlist_group(id) ON DELETE SET NULL,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, symbol)
             );
+            CREATE INDEX IF NOT EXISTS idx_watchlist_group_id ON watchlist(group_id);
 
             CREATE TABLE IF NOT EXISTS user_notification_prefs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -757,6 +770,7 @@ def init_db():
         _migrate_real_trades_swing()
     _migrate_per_user_entries_cooldowns()
     _migrate_ensure_default_watchlist()
+    _migrate_watchlist_group_id()
     _migrate_add_score_v2()
     _migrate_add_ai_review()
     _migrate_add_ai_conviction()
@@ -809,6 +823,15 @@ def _migrate_add_alert_score():
     """Add score column to alerts table if missing (handles DB upgrades)."""
     with get_db() as conn:
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN score INTEGER DEFAULT 0")
+
+
+def _migrate_watchlist_group_id():
+    """Add group_id column to watchlist for category grouping (May 2026)."""
+    with get_db() as conn:
+        _safe_add_column(
+            conn,
+            "ALTER TABLE watchlist ADD COLUMN group_id INTEGER REFERENCES watchlist_group(id)",
+        )
 
 
 def _migrate_watchlist_user_id():
