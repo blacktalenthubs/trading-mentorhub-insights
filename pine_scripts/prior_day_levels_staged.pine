@@ -172,6 +172,11 @@ plotshape(show_sweep and sweep_reversal_short,
 // =====================================================================
 // Alert payload — adds stage / vwap_slope_pct / above_vwap
 // =====================================================================
+// JSON-safe stage: collapse multi-line badge text to single line for the
+// payload. Pine's "\n" produces a LITERAL newline character; embedding that
+// inside a JSON string value would break the parser (422 Unprocessable).
+stage_json = str.replace_all(stage_text, "\n", " — ")
+
 build_payload(string rule, string direction,
               float entry_p, float stop_p, float t1_p, float t2_p) =>
     '{"symbol":"' + syminfo.ticker
@@ -187,7 +192,7 @@ build_payload(string rule, string direction,
       + '","target_2":"' + str.tostring(t2_p, format.mintick)
       + '","rule":"' + rule
       + '","direction":"' + direction
-      + '","stage":"' + stage_text
+      + '","stage":"' + stage_json
       + '","vwap":"' + str.tostring(vwap_v, format.mintick)
       + '","vwap_slope_pct":"' + str.tostring(vwap_slope_pct, "#.##")
       + '","above_vwap":"' + (above_vwap ? "true" : "false")

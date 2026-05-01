@@ -112,9 +112,11 @@ def _format_tv_body(signal: AlertSignal) -> str | None:
     dir_label = "LONG" if direction in ("BUY", "LONG") else ("SHORT" if direction == "SHORT" else direction)
     rule = getattr(signal, "_tv_rule", "") or "tv_alert"
     stage_raw = getattr(signal, "_tv_stage", "") or ""
-    # Stage text from Pine has 3 lines (name / trigger / action). Take line 1
-    # for the badge — clean and short for Telegram.
-    stage_first = stage_raw.split("\n")[0].strip() if stage_raw else ""
+    # Stage text from Pine carries 3 segments (name / trigger / action) joined
+    # by " — " (newer Pine) or "\n" (older Pine — broken JSON, kept for compat).
+    # Take just the badge name for clean Telegram display.
+    import re as _re
+    stage_first = _re.split(r"\n| — ", stage_raw, maxsplit=1)[0].strip() if stage_raw else ""
 
     alignment_tag, conviction_label, conviction_score = _tv_alignment(direction, rule, stage_first)
 
