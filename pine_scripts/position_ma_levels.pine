@@ -80,18 +80,26 @@ is_stage4 = stack_bearish and sma200_falling
 is_stage1 = not is_stage2 and not is_stage4 and not na(sma200) and close <  sma200 and (sma200_flat or sma200_falling)
 is_stage3 = not is_stage2 and not is_stage4 and not na(sma200) and close >= sma200 and (sma200_flat or sma200_rising)
 
-stage_text = na(sma200) ? "INSUFFICIENT DATA" :
-              is_stage2 ? "STAGE 2 ✓ ADVANCING" :
-              is_stage4 ? "STAGE 4 ✗ DECLINING" :
-              is_stage1 ? "STAGE 1 ⏸ BASING" :
-              is_stage3 ? "STAGE 3 ⏸ TOPPING" :
-                          "TRANSITIONING ⚠"
-
-stage_bg = is_stage2 ? color.new(color.green,  10) :
-            is_stage4 ? color.new(color.red,    10) :
-            is_stage1 ? color.new(color.gray,   30) :
-            is_stage3 ? color.new(color.yellow, 30) :
-                        color.new(color.purple, 30)
+// Stage label — if/else block (Pine v5 doesn't like deeply-chained
+// multi-line ternaries; this is the safer pattern). ASCII-only to avoid
+// any unicode round-trip issues across editors.
+string stage_text = "TRANSITIONING"
+color  stage_bg   = color.new(color.purple, 30)
+if na(sma200)
+    stage_text := "INSUFFICIENT DATA"
+    stage_bg   := color.new(color.gray, 30)
+else if is_stage2
+    stage_text := "STAGE 2: ADVANCING"
+    stage_bg   := color.new(color.green, 10)
+else if is_stage4
+    stage_text := "STAGE 4: DECLINING"
+    stage_bg   := color.new(color.red, 10)
+else if is_stage1
+    stage_text := "STAGE 1: BASING"
+    stage_bg   := color.new(color.gray, 30)
+else if is_stage3
+    stage_text := "STAGE 3: TOPPING"
+    stage_bg   := color.new(color.yellow, 30)
 
 // Stage badge — top-right corner.
 var table stage_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
