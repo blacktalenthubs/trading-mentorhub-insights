@@ -256,6 +256,13 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     sig._tv_volume = volume  # type: ignore[attr-defined]
     sig._tv_interval = interval_label  # type: ignore[attr-defined]
     sig._tv_fired_at = fired_at  # type: ignore[attr-defined]
+    # Staged indicator extras (Pine emits these for stage-aware Telegram).
+    sig._tv_stage = (payload.get("stage") or "").strip()  # type: ignore[attr-defined]
+    sig._tv_vwap = _to_float_optional(payload.get("vwap"))  # type: ignore[attr-defined]
+    sig._tv_vwap_slope_pct = _to_float_optional(payload.get("vwap_slope_pct"))  # type: ignore[attr-defined]
+    _above_vwap_raw = (payload.get("above_vwap") or "").strip().lower()
+    sig._tv_above_vwap = _above_vwap_raw == "true" if _above_vwap_raw else None  # type: ignore[attr-defined]
+    sig._tv_ma_tag = (payload.get("ma_tag") or "").strip()  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig

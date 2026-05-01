@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intraday Stage Trading — Study Guide</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --surface: #161b22;
+    --surface-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --green-dim: #1f3a23;
+    --red: #f85149;
+    --red-dim: #3a1f20;
+    --orange: #d29922;
+    --orange-dim: #3a2e0f;
+    --purple: #a371f7;
+    --purple-dim: #2a1f3d;
+    --gray: #6e7681;
+    --gray-dim: #2a2f37;
+    --lime: #56d364;
+    --fuchsia: #db61a2;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --surface-2: #ffffff;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-dim: #656d76;
+      --accent: #0969da;
+      --green: #1a7f37;
+      --green-dim: #dafbe1;
+      --red: #cf222e;
+      --red-dim: #ffebe9;
+      --orange: #9a6700;
+      --orange-dim: #fff8c5;
+      --purple: #8250df;
+      --purple-dim: #f0e7ff;
+      --gray: #59636e;
+      --gray-dim: #eaeef2;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 48px 0 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 24px 0 8px;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 1.1rem;
+    margin-top: 8px;
+  }
+
+  p { margin-bottom: 12px; }
+
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: var(--accent);
+  }
+
+  .mental-model {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    padding: 20px 24px;
+    border-radius: 6px;
+    margin-bottom: 24px;
+  }
+
+  .mental-model p { font-size: 1.05rem; }
+
+  .stage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    margin-top: 16px;
+  }
+
+  .stage-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    border-top: 4px solid var(--gray);
+  }
+  .stage-card.s2 { border-top-color: var(--green); }
+  .stage-card.s3 { border-top-color: var(--orange); }
+  .stage-card.s4 { border-top-color: var(--red); }
+  .stage-card.s1 { border-top-color: var(--gray); }
+  .stage-card.tr { border-top-color: var(--purple); }
+
+  .stage-card .label {
+    display: inline-block;
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+  .label.s2 { background: var(--green-dim); color: var(--green); }
+  .label.s3 { background: var(--orange-dim); color: var(--orange); }
+  .label.s4 { background: var(--red-dim); color: var(--red); }
+  .label.s1 { background: var(--gray-dim); color: var(--text); }
+  .label.tr { background: var(--purple-dim); color: var(--purple); }
+
+  .stage-card h3 { margin-top: 0; }
+
+  .stage-card .triggers {
+    background: var(--surface-2);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    border-left: 2px solid var(--accent);
+  }
+
+  .stage-card .actions {
+    list-style: none;
+    margin-top: 8px;
+  }
+  .stage-card .actions li {
+    padding: 4px 0 4px 22px;
+    position: relative;
+  }
+  .stage-card .actions li.do::before {
+    content: "DO";
+    position: absolute; left: 0;
+    color: var(--green);
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    line-height: 1.7;
+  }
+  .stage-card .actions li.dont::before {
+    content: "X";
+    position: absolute; left: 0;
+    color: var(--red);
+    font-weight: 700;
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .stage-card .example {
+    background: var(--surface-2);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-top: 14px;
+    font-size: 0.92rem;
+    border-left: 2px solid var(--text-dim);
+  }
+  .stage-card .example strong { color: var(--accent); }
+
+  .sweep-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 16px;
+  }
+  @media (max-width: 700px) {
+    .sweep-grid { grid-template-columns: 1fr; }
+  }
+
+  .sweep-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .sweep-card.long  { border-left: 3px solid var(--lime); }
+  .sweep-card.short { border-left: 3px solid var(--fuchsia); }
+
+  .sweep-card .marker {
+    display: inline-block;
+    font-size: 1.3rem;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .sweep-card.long .marker  { color: var(--lime); }
+  .sweep-card.short .marker { color: var(--fuchsia); }
+
+  .sweep-card ol {
+    margin-left: 18px;
+    margin-top: 8px;
+  }
+  .sweep-card ol li { margin-bottom: 6px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 0.95rem;
+    background: var(--surface);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--surface-2);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+  tr:last-child td { border-bottom: none; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .badge.long  { background: var(--green-dim); color: var(--green); }
+  .badge.short { background: var(--red-dim); color: var(--red); }
+  .badge.skip  { background: var(--gray-dim); color: var(--text-dim); }
+  .badge.hot   { background: var(--orange-dim); color: var(--orange); }
+
+  .flow {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.88rem;
+    line-height: 1.7;
+    overflow-x: auto;
+    margin-top: 16px;
+    white-space: pre;
+  }
+
+  .checklist {
+    list-style: none;
+    margin-top: 12px;
+  }
+  .checklist li {
+    padding: 8px 0 8px 28px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+  .checklist li::before {
+    content: "[ ]";
+    position: absolute;
+    left: 0;
+    font-family: "SF Mono", Menlo, monospace;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .checklist li:last-child { border-bottom: none; }
+
+  .takeaway {
+    background: linear-gradient(135deg, var(--surface), var(--surface-2));
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--orange);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin-top: 16px;
+  }
+  .takeaway strong { color: var(--orange); }
+
+  @media print {
+    body { max-width: 100%; padding: 16px; color: #000; background: #fff; }
+    .stage-card, .sweep-card, .flow, table { break-inside: avoid; }
+    a { color: #000; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Intraday Stage Trading</h1>
+  <p class="subtitle">PDH / PDL + VWAP slope — a study guide for tomorrow's session</p>
+</header>
+
+<section class="mental-model">
+  <p><strong>The core idea:</strong> price action at PDH/PDL only matters in context. The <strong>stage</strong> tells you which signals to take and which to skip. Right signal in the wrong stage = a losing trade. Right signal in the right stage = your edge.</p>
+</section>
+
+<h2>The Mental Model</h2>
+<p>Three pieces define every stage:</p>
+<ol style="margin-left: 24px; margin-bottom: 16px;">
+  <li><strong>Position</strong> — where price sits relative to PDH and PDL (above / inside / below)</li>
+  <li><strong>VWAP slope</strong> — rising / flat / falling over the last 20 bars</li>
+  <li><strong>Price vs VWAP</strong> — above or below</li>
+</ol>
+<p>Combine these three and you get the stage. The badge does this automatically — your job is to read the badge and obey.</p>
+
+<h2>The 6 States</h2>
+<div class="stage-grid">
+
+  <article class="stage-card s2">
+    <span class="label s2">Stage 2 — Advancing</span>
+    <h3>Trend Long</h3>
+    <div class="triggers">
+      close &gt; PDH<br>
+      AND VWAP rising (&gt; +0.1%)<br>
+      AND price &gt; VWAP
+    </div>
+    <ul class="actions">
+      <li class="do">Take BREAK+ longs above PDH</li>
+      <li class="do">Take RECLAIM longs at PDH</li>
+      <li class="do">Take SWEEP+ diamonds (any stage)</li>
+      <li class="do">Buy pullbacks to PDH or VWAP</li>
+      <li class="dont">Don't short — fighting trend</li>
+      <li class="dont">Don't take REJECT triangles</li>
+    </ul>
+    <div class="example">
+      <strong>Example:</strong> TSLA broke PDH 376 with rising VWAP, ran to 382. The pullback to PDH = buy zone. Stop below VWAP.
+    </div>
+  </article>
+
+  <article class="stage-card s4">
+    <span class="label s4">Stage 4 — Declining</span>
+    <h3>Trend Short</h3>
+    <div class="triggers">
+      close &lt; PDL<br>
+      AND VWAP falling (&lt; -0.1%)<br>
+      AND price &lt; VWAP
+    </div>
+    <ul class="actions">
+      <li class="do">Take BREAK- shorts below PDL</li>
+      <li class="do">Take REJECT shorts at PDL</li>
+      <li class="do">Take SWEEP- diamonds (any stage)</li>
+      <li class="do">Short pops to VWAP (acts as resistance)</li>
+      <li class="dont">Don't long — fighting trend</li>
+      <li class="dont">Don't take RECLAIM triangles</li>
+    </ul>
+    <div class="example">
+      <strong>Example:</strong> NVDA cliff candle dumped 210 to 200. VWAP rolling. Each bounce to VWAP 201.50 = continuation short.
+    </div>
+  </article>
+
+  <article class="stage-card s3">
+    <span class="label s3">Stage 3 — Topping</span>
+    <h3>Distribution / Caution</h3>
+    <div class="triggers">
+      close &gt; PDH<br>
+      AND VWAP flat OR falling<br>
+      (Stage 2 momentum has died)
+    </div>
+    <ul class="actions">
+      <li class="do">Trim or exit longs</li>
+      <li class="do">Take REJECT shorts at PDH (counter-trend fade)</li>
+      <li class="do">Take SWEEP- diamonds aggressively</li>
+      <li class="dont">No new longs — risk of trap</li>
+      <li class="dont">Don't take BREAK+ — likely fade</li>
+    </ul>
+    <div class="example">
+      <strong>Example:</strong> Price held above PDH for 4-5 bars but VWAP went flat then rolled. This is the warning shot before Stage 4 flips on.
+    </div>
+  </article>
+
+  <article class="stage-card s1">
+    <span class="label s1">Stage 1 — Basing</span>
+    <h3>Chop / No Trade</h3>
+    <div class="triggers">
+      close inside PDH–PDL range<br>
+      AND VWAP flat
+    </div>
+    <ul class="actions">
+      <li class="do">Wait for stage flip or sweep</li>
+      <li class="do">Take SWEEP+/SWEEP- diamonds (high conviction)</li>
+      <li class="dont">Don't trade BREAK+ / BREAK- — likely fail</li>
+      <li class="dont">Don't trade RECLAIM / REJECT in chop</li>
+      <li class="dont">No size pressure — flat is fine</li>
+    </ul>
+    <div class="example">
+      <strong>Example:</strong> SPY chopping between PDH and PDL with VWAP flat. 90% of breakouts here fake out. Sit on hands.
+    </div>
+  </article>
+
+  <article class="stage-card tr">
+    <span class="label tr">Transitioning</span>
+    <h3>No Clean Regime</h3>
+    <div class="triggers">
+      Doesn't fit Stage 1/2/3/4 cleanly<br>
+      e.g. above PDH but price &lt; VWAP<br>
+      e.g. below PDL but VWAP rising
+    </div>
+    <ul class="actions">
+      <li class="do">HALF SIZE if any trade</li>
+      <li class="do">Take SWEEP diamonds only</li>
+      <li class="do">Wait for stage to clarify</li>
+      <li class="dont">Don't take ANY triangle signals</li>
+      <li class="dont">Don't force a bias</li>
+    </ul>
+    <div class="example">
+      <strong>Example:</strong> Price below PDL but VWAP rising = potential bottoming. Could resolve up (reclaim) or down (continuation). Wait.
+    </div>
+  </article>
+
+  <article class="stage-card">
+    <span class="label">Insufficient Data</span>
+    <h3>Pre-Open / Loading</h3>
+    <div class="triggers">
+      VWAP slope not yet calculable<br>
+      (first 20 bars of session)
+    </div>
+    <ul class="actions">
+      <li class="do">Wait for slope to populate (~20 bars)</li>
+      <li class="do">Don't trade the first 15-20 minutes</li>
+      <li class="dont">Don't trust the badge yet</li>
+    </ul>
+    <div class="example">
+      <strong>Example:</strong> First hour of session on a 65m chart = badge will read INSUFFICIENT DATA. Watch open, don't trade.
+    </div>
+  </article>
+
+</div>
+
+<h2>SWEEP vs BREAK / REJECT</h2>
+<p>Triangles fire on every PDH/PDL event — most fail in chop. <strong>Diamonds (sweeps)</strong> are A+ reversal setups that work in any stage.</p>
+<div class="sweep-grid">
+
+  <div class="sweep-card long">
+    <h3><span class="marker">&#9670;</span> SWEEP+ — Long Reversal</h3>
+    <p><strong>Pattern:</strong> price breaks BELOW PDL, triggers stops, reverses back ABOVE PDL within 5 bars.</p>
+    <ol>
+      <li>Bar closes below PDL — short stops trigger, late shorts pile in</li>
+      <li>Smart money fills longs against the panic</li>
+      <li>Price reclaims back above PDL within 5 bars</li>
+      <li>Trapped shorts cover = fuel for the rally</li>
+    </ol>
+    <p style="margin-top:12px;"><strong>Trade:</strong> Long on the reclaim. Stop below the sweep wick. Target = PDH.</p>
+  </div>
+
+  <div class="sweep-card short">
+    <h3><span class="marker">&#9670;</span> SWEEP- — Short Reversal</h3>
+    <p><strong>Pattern:</strong> price breaks ABOVE PDH, triggers stops, fails back BELOW PDH within 5 bars.</p>
+    <ol>
+      <li>Bar closes above PDH — buy stops trigger, late longs FOMO in</li>
+      <li>Smart money fills shorts against the panic</li>
+      <li>Price drops back below PDH within 5 bars</li>
+      <li>Trapped longs sell = fuel for the dump</li>
+    </ol>
+    <p style="margin-top:12px;"><strong>Trade:</strong> Short on the failure. Stop above the sweep wick. Target = PDL.</p>
+  </div>
+
+</div>
+
+<div class="takeaway">
+  <strong>Mental rule:</strong> "Did the level break and hold? Trend trade (BREAK / RECLAIM). Did the level break and fail? Reversal trade (SWEEP — much higher conviction)." When in doubt, wait for a diamond.
+</div>
+
+<h2>Decision Flow at Every Triangle</h2>
+<div class="flow">When a triangle fires on the chart:
+
+   1. Read the badge.
+        |
+        v
+   2. Is the signal direction stage-aligned?
+        |
+   YES  |  NO
+        |   |
+        v   v
+   3a.  Take it.    3b. Skip it.
+        |
+        v
+   4.   Manage with stage-aware stops:
+          Stage 2 long  -> stop below VWAP or PDH
+          Stage 4 short -> stop above VWAP or PDL
+          Sweep         -> stop just past the wick
+
+When a diamond fires:
+   ALWAYS take it (regardless of stage).
+   Sweeps are universal A+ setups.</div>
+
+<h2>Daily Routine</h2>
+<ul class="checklist">
+  <li>Open chart on 65m timeframe (or 1h for slower stocks). Avoid 5/15m — VWAP slope too noisy.</li>
+  <li>First 15 minutes: do not trade. Badge reads INSUFFICIENT DATA until ~20 bars print.</li>
+  <li>Once badge populates: read stage, set bias for the session.</li>
+  <li>Build a small watchlist (5-7 names) — don't try to trade 20 charts.</li>
+  <li>Set TradingView alerts on each name — Telegram routes JSON with stage tag.</li>
+  <li>Position sizing: stage-aligned signal = full size. Sweep = full size. TRANSITIONING = half size or skip. Counter-trend = zero.</li>
+  <li>If no diamond fires AND stage stays mixed all day: zero trades is the right answer. Cash is a position.</li>
+  <li>End of session: log every trade against the badge state at entry. Review weekly — count which stages produced winners.</li>
+</ul>
+
+<h2>Quick Reference</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Stage</th>
+      <th>Take</th>
+      <th>Skip</th>
+      <th>Size</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="badge long">Stage 2</span></td>
+      <td>BREAK+, RECLAIM, SWEEP+</td>
+      <td>All shorts</td>
+      <td>Full</td>
+    </tr>
+    <tr>
+      <td><span class="badge short">Stage 4</span></td>
+      <td>BREAK-, REJECT, SWEEP-</td>
+      <td>All longs</td>
+      <td>Full</td>
+    </tr>
+    <tr>
+      <td><span class="badge hot">Stage 3</span></td>
+      <td>REJECT, SWEEP-</td>
+      <td>BREAK+, new longs</td>
+      <td>Half</td>
+    </tr>
+    <tr>
+      <td><span class="badge skip">Stage 1</span></td>
+      <td>SWEEP+, SWEEP-</td>
+      <td>All triangles</td>
+      <td>Skip mostly</td>
+    </tr>
+    <tr>
+      <td><span class="badge skip">Transitioning</span></td>
+      <td>SWEEP+, SWEEP-</td>
+      <td>All triangles</td>
+      <td>Half</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Three Ground Truths</h2>
+<ol style="margin-left: 24px;">
+  <li><strong>Sweeps work in any stage.</strong> Diamonds always trade — they're the failed-breakout reversal pattern, market-condition agnostic.</li>
+  <li><strong>Triangles only work in their matched stage.</strong> A BREAK+ in Stage 1 is a coin flip. A BREAK+ in Stage 2 is your edge.</li>
+  <li><strong>The badge protects you from yourself.</strong> Most blown-up trader days come from forcing trades in chop. The "sweeps only" rule is the discipline you didn't know you needed.</li>
+</ol>
+
+<div class="takeaway" style="margin-top: 32px;">
+  <strong>One sentence to remember tomorrow:</strong> "If the badge doesn't agree with my trade direction, I don't take the trade — unless it's a diamond."
+</div>
+
+</body>
+</html>

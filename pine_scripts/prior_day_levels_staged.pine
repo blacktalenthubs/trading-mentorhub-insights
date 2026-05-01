@@ -1,0 +1,235 @@
+// @version=5
+//
+// Prior Day Levels (Staged) — PDH/PDL with intraday stage classification.
+//
+// Mirrors `prior_day_levels.pine` (same PDH/PDL break/reject/sweep logic +
+// alerts) and layers a Minervini-style 4-stage badge on top, applied to
+// intraday structure instead of daily MAs.
+//
+// Stage proxy mapping (daily Minervini → intraday PDH/PDL):
+//   • Slope reference: 200 SMA slope  → VWAP slope over N bars
+//   • MA stack:        50>150>200 SMA → price vs PDH / PDL / VWAP
+//   • Position regime: above 200 SMA  → above PDH (range broken up)
+//
+// Intraday stage definitions:
+//   • STAGE 2: ADVANCING  — above PDH, VWAP rising, price > VWAP
+//                           (high-conviction LONG continuation)
+//   • STAGE 3: TOPPING    — above PDH but VWAP flat/rolling
+//                           (caution — distribution; tighten longs)
+//   • STAGE 4: DECLINING  — below PDL, VWAP falling, price < VWAP
+//                           (high-conviction SHORT continuation)
+//   • STAGE 1: BASING     — inside PDH/PDL range, VWAP flat
+//                           (chop — wait for break)
+//   • TRANSITIONING       — between regimes (e.g., below PDL but VWAP
+//                           rising = potential bottoming; above PDH but
+//                           price < VWAP = failed breakout in progress)
+//
+// Apply on intraday timeframes (15m / 30m / 65m / 1h / 4h). VWAP resets
+// daily, so on D/W/M the badge shows INSUFFICIENT DATA.
+//
+// Alerts: same rule names as prior_day_levels.pine. Payloads now include
+//   • stage           — current stage_text
+//   • vwap_slope_pct  — slope over lookback window (signed %)
+//   • above_vwap      — true/false
+// so /tv/webhook → Telegram can highlight high-conviction setups (LONG in
+// Stage 2 / SHORT in Stage 4) and downgrade counter-trend signals.
+//
+indicator("Prior Day Levels (Staged)", overlay = true)
+
+show_lines        = input.bool(true,  "Show PDH/PDL lines")
+show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
+show_sweep        = input.bool(true,  "Show SWEEP composite markers")
+show_vwap         = input.bool(true,  "Show VWAP")
+show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
+show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
+sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
+atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
+vwap_slope_thresh = input.float(0.1,  "VWAP slope threshold (%)", minval = 0.01, maxval = 1.0, step = 0.01)
+
+// =====================================================================
+// PDH / PDL — same as prior_day_levels.pine
+// =====================================================================
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+
+plot(show_lines ? pdh : na, title = "PDH",
+     color = color.new(color.green, 0), style = plot.style_linebr, linewidth = 2)
+plot(show_lines ? pdl : na, title = "PDL",
+     color = color.new(color.red, 0),   style = plot.style_linebr, linewidth = 2)
+
+// =====================================================================
+// VWAP + slope — intraday trend proxy
+// =====================================================================
+vwap_v    = ta.vwap(hlc3)
+vwap_past = vwap_v[vwap_lookback]
+vwap_slope_pct = not na(vwap_past) and vwap_past != 0 ? (vwap_v - vwap_past) / vwap_past * 100 : na
+
+vwap_rising  = not na(vwap_slope_pct) and vwap_slope_pct >  vwap_slope_thresh
+vwap_falling = not na(vwap_slope_pct) and vwap_slope_pct < -vwap_slope_thresh
+vwap_flat    = not na(vwap_slope_pct) and not vwap_rising and not vwap_falling
+
+plot(show_vwap ? vwap_v : na, title = "VWAP",
+     color = color.new(#9C27B0, 20), linewidth = 2)
+
+// =====================================================================
+// STAGE DETECTION
+// =====================================================================
+above_pdh   = not na(pdh) and close > pdh
+below_pdl   = not na(pdl) and close < pdl
+in_range    = not na(pdh) and not na(pdl) and close >= pdl and close <= pdh
+above_vwap  = not na(vwap_v) and close > vwap_v
+below_vwap  = not na(vwap_v) and close < vwap_v
+
+is_stage2 = above_pdh and vwap_rising  and above_vwap
+is_stage4 = below_pdl and vwap_falling and below_vwap
+is_stage3 = above_pdh and not is_stage2 and (vwap_flat or vwap_falling)
+is_stage1 = in_range  and vwap_flat
+
+string stage_text = "TRANSITIONING\nno clean regime\nHALF SIZE — sweeps only"
+color  stage_bg   = color.new(color.purple, 30)
+if na(vwap_slope_pct)
+    stage_text := "INSUFFICIENT DATA\nVWAP loading\nWAIT for slope to settle"
+    stage_bg   := color.new(color.gray, 30)
+else if is_stage2
+    stage_text := "STAGE 2: ADVANCING\nabove PDH + VWAP rising\nLONGS at PDH/VWAP pullbacks"
+    stage_bg   := color.new(color.green, 10)
+else if is_stage4
+    stage_text := "STAGE 4: DECLINING\nbelow PDL + VWAP falling\nSHORTS at VWAP pops"
+    stage_bg   := color.new(color.red, 10)
+else if is_stage3
+    stage_text := "STAGE 3: TOPPING\nabove PDH but VWAP rolling\nTRIM LONGS — fade rejects"
+    stage_bg   := color.new(color.orange, 10)
+else if is_stage1
+    stage_text := "STAGE 1: BASING\ninside range + VWAP flat\nWAIT — sweeps only"
+    stage_bg   := color.new(color.gray, 30)
+
+var table stage_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
+if show_stage_badge and barstate.islast
+    table.cell(stage_t, 0, 0, stage_text, text_color = color.white, bgcolor = stage_bg, text_size = size.normal)
+
+bgcolor(show_stage_bg and is_stage2 ? color.new(color.green, 95)  : na, title = "Stage 2 bg")
+bgcolor(show_stage_bg and is_stage4 ? color.new(color.red,   95)  : na, title = "Stage 4 bg")
+
+// =====================================================================
+// PDH/PDL break / reject / sweep — unchanged from prior_day_levels.pine
+// =====================================================================
+pdh_break     = close > pdh and close[1] <= pdh
+pdh_rejection = high >= pdh and close < pdh and high[1] < pdh
+pdl_break     = close < pdl and close[1] >= pdl
+pdl_reclaim   = close > pdl and close[1] <= pdl
+
+var int pdl_break_bar = na
+var int pdh_break_bar = na
+if pdl_break
+    pdl_break_bar := bar_index
+if pdh_break
+    pdh_break_bar := bar_index
+
+pdh_failed = close < pdh and close[1] > pdh
+
+bars_since_pdl_break = na(pdl_break_bar) ? 9999 : bar_index - pdl_break_bar
+bars_since_pdh_break = na(pdh_break_bar) ? 9999 : bar_index - pdh_break_bar
+
+sweep_reclaim_long   = pdl_reclaim and bars_since_pdl_break <= sweep_window_bars
+sweep_reversal_short = pdh_failed  and bars_since_pdh_break <= sweep_window_bars
+
+sweep_active = sweep_reclaim_long or sweep_reversal_short
+
+bgcolor((not sweep_active) and pdh_break     ? color.new(color.green,   75) : na, title = "PDH break bg")
+bgcolor((not sweep_active) and pdl_reclaim   ? color.new(color.aqua,    75) : na, title = "PDL reclaim bg")
+bgcolor((not sweep_active) and pdh_rejection ? color.new(color.orange,  70) : na, title = "PDH rejection bg")
+bgcolor((not sweep_active) and pdl_break     ? color.new(color.red,     75) : na, title = "PDL break bg")
+bgcolor(sweep_reclaim_long   ? color.new(color.lime,    40) : na, title = "Sweep LONG bg")
+bgcolor(sweep_reversal_short ? color.new(color.fuchsia, 40) : na, title = "Sweep SHORT bg")
+
+plotshape(show_signals and pdh_break,
+          title = "BREAK+ LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.normal, text = "BREAK+", textcolor = color.white)
+plotshape(show_signals and pdl_reclaim and not sweep_reclaim_long,
+          title = "RECLAIM LONG", location = location.belowbar,
+          color = color.new(color.aqua, 0), style = shape.triangleup,
+          size = size.normal, text = "RECLAIM", textcolor = color.black)
+plotshape(show_signals and pdh_rejection,
+          title = "REJECT SHORT", location = location.abovebar,
+          color = color.new(color.orange, 0), style = shape.triangledown,
+          size = size.normal, text = "REJECT", textcolor = color.white)
+plotshape(show_signals and pdl_break and not sweep_reversal_short,
+          title = "BREAK- SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.normal, text = "BREAK-", textcolor = color.white)
+
+plotshape(show_sweep and sweep_reclaim_long,
+          title = "SWEEP+ HC LONG", location = location.belowbar,
+          color = color.new(color.lime, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP+", textcolor = color.black)
+plotshape(show_sweep and sweep_reversal_short,
+          title = "SWEEP- HC SHORT", location = location.abovebar,
+          color = color.new(color.fuchsia, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP-", textcolor = color.white)
+
+// =====================================================================
+// Alert payload — adds stage / vwap_slope_pct / above_vwap
+// =====================================================================
+build_payload(string rule, string direction,
+              float entry_p, float stop_p, float t1_p, float t2_p) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","stage":"' + stage_text
+      + '","vwap":"' + str.tostring(vwap_v, format.mintick)
+      + '","vwap_slope_pct":"' + str.tostring(vwap_slope_pct, "#.##")
+      + '","above_vwap":"' + (above_vwap ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+atr14      = nz(ta.atr(14)[1], close * 0.005)
+atr_buffer = atr14 * atr_buffer_mult
+
+if pdh_break
+    e   = close
+    s   = pdh - atr_buffer
+    rsk = e - s
+    alert(build_payload("staged_pdh_break", "BUY", e, s, e + rsk * 2, e + rsk * 3),
+          alert.freq_once_per_bar)
+if pdh_rejection
+    e   = close
+    s   = high + atr_buffer
+    rsk = s - e
+    alert(build_payload("staged_pdh_rejection", "SHORT", e, s, e - rsk * 2, pdl),
+          alert.freq_once_per_bar)
+if pdl_break
+    e   = close
+    s   = pdl + atr_buffer
+    rsk = s - e
+    alert(build_payload("staged_pdl_break", "SHORT", e, s, e - rsk * 2, e - rsk * 3),
+          alert.freq_once_per_bar)
+if pdl_reclaim
+    e   = close
+    s   = low - atr_buffer
+    rsk = e - s
+    alert(build_payload("staged_pdl_reclaim", "BUY", e, s, e + rsk * 2, pdh),
+          alert.freq_once_per_bar)
+
+if sweep_reclaim_long
+    e   = close
+    s   = low - atr_buffer
+    rsk = e - s
+    alert(build_payload("staged_sweep_long", "BUY", e, s, e + rsk * 2, pdh),
+          alert.freq_once_per_bar)
+if sweep_reversal_short
+    e   = close
+    s   = high + atr_buffer
+    rsk = s - e
+    alert(build_payload("staged_sweep_short", "SHORT", e, s, e - rsk * 2, pdl),
+          alert.freq_once_per_bar)

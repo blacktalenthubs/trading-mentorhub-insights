@@ -68,12 +68,97 @@ def _clean_message(msg: str | None) -> str:
     return clean.strip()
 
 
+def _tv_alignment(direction: str, rule: str, stage_text: str) -> tuple[str, str, int]:
+    """Map TV signal + stage → (alignment_glyph, conviction_label, conviction_score).
+
+    Sweeps are universally A+ (work in any stage). Triangle signals only
+    qualify as HIGH when stage matches direction. Counter-trend is LOW.
+    """
+    is_long = direction in ("BUY", "LONG")
+    is_short = direction == "SHORT"
+    rule_l = rule.lower()
+    stage_l = stage_text.lower()
+
+    if "sweep" in rule_l:
+        return "✓ aligned", "HIGH", 75
+
+    if "stage 2" in stage_l:
+        return ("✓ aligned", "HIGH", 75) if is_long else ("✗ counter-trend", "LOW", 30)
+    if "stage 4" in stage_l:
+        return ("✓ aligned", "HIGH", 75) if is_short else ("✗ counter-trend", "LOW", 30)
+    if "stage 3" in stage_l:
+        if is_short and ("reject" in rule_l or "rejection" in rule_l):
+            return "⚠ topping fade", "MEDIUM", 55
+        if is_long:
+            return "⚠ caution — distribution", "LOW", 35
+    if "stage 1" in stage_l:
+        return "— basing (sweeps only)", "LOW", 35
+    if "transitioning" in stage_l:
+        return "— transitioning", "MEDIUM", 50
+
+    return "— neutral", "MEDIUM", 50
+
+
+def _format_tv_body(signal: AlertSignal) -> str | None:
+    """TV-native Telegram message. Driven by Pine script output.
+
+    No rule-engine concepts (Confluence, regime, scanner score). Just the
+    rule that fired, stage alignment, and entry/stop/targets.
+    """
+    import html as _html
+
+    sym = _html.escape(signal.symbol)
+    direction = (signal.direction or "").upper()
+    dir_label = "LONG" if direction in ("BUY", "LONG") else ("SHORT" if direction == "SHORT" else direction)
+    rule = getattr(signal, "_tv_rule", "") or "tv_alert"
+    stage_raw = getattr(signal, "_tv_stage", "") or ""
+    # Stage text from Pine has 3 lines (name / trigger / action). Take line 1
+    # for the badge — clean and short for Telegram.
+    stage_first = stage_raw.split("\n")[0].strip() if stage_raw else ""
+
+    alignment_tag, conviction_label, conviction_score = _tv_alignment(direction, rule, stage_first)
+
+    parts = [f"<b>{dir_label} {sym} ${signal.price:.2f}</b> — <i>{_html.escape(rule)}</i>"]
+
+    levels = []
+    if signal.entry is not None:
+        levels.append(f"Entry ${signal.entry:.2f}")
+    if signal.stop is not None:
+        levels.append(f"Stop ${signal.stop:.2f}")
+    if signal.target_1 is not None:
+        levels.append(f"T1 ${signal.target_1:.2f}")
+    if signal.target_2 is not None:
+        levels.append(f"T2 ${signal.target_2:.2f}")
+    if levels:
+        parts.append(" · ".join(levels))
+
+    if stage_first:
+        parts.append(f"Stage: {_html.escape(stage_first)} {alignment_tag}")
+
+    # VWAP context — only if Pine supplied it and slope is meaningful
+    vwap = getattr(signal, "_tv_vwap", None)
+    slope = getattr(signal, "_tv_vwap_slope_pct", None)
+    if vwap is not None and slope is not None:
+        slope_word = "rising" if slope > 0.1 else ("falling" if slope < -0.1 else "flat")
+        parts.append(f"VWAP ${vwap:.2f} ({slope_word} {slope:+.2f}%)")
+
+    parts.append(f"Conviction: {conviction_label}/{conviction_score}")
+
+    return "\n".join(parts)[:4000]
+
+
 def _format_sms_body(signal: AlertSignal) -> str | None:
     """Build a concise SMS/Telegram message. Returns None to skip Telegram.
 
     Output uses HTML formatting for Telegram (clickable links, bold headers).
     """
     import html as _html
+
+    # TradingView alerts are driven purely by what the Pine script emits
+    # (rule, stage, VWAP). Rule-engine concepts (Confluence, score, regime)
+    # are intentionally absent — see _format_tv_body.
+    if getattr(signal, "_source", None) == "tradingview":
+        return _format_tv_body(signal)
 
     label = signal.alert_type.value.replace("_", " ").title()
 

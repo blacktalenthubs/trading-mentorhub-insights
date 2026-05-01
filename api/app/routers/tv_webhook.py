@@ -70,6 +70,12 @@ class TVWebhookPayload(BaseModel):
     target_1: Optional[str] = None
     target_2: Optional[str] = None
     fired_at: Optional[str] = None
+    # Staged indicator extras — drive Telegram formatting for TV-native alerts
+    stage: Optional[str] = None
+    vwap: Optional[str] = None
+    vwap_slope_pct: Optional[str] = None
+    above_vwap: Optional[str] = None
+    ma_tag: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -173,28 +179,18 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         logger.exception("TV webhook: fetch_prior_day failed for %s", sig.symbol)
         prior_day = None
 
-    # 2. HTF bias COMPUTATION ONLY — used to tag the alert with a confluence
-    # score so the user can see how aligned the signal is with HTF trend.
-    # Gate checks REMOVED: TradingView signals are an independent source from
-    # the rule-engine scanner and should not be filtered by gates designed
-    # for the scanner. The user trusts what TV emits; we just deliver.
-    bias = HTFBias()
-    try:
-        bars_1h = fetch_intraday(sig.symbol, period="5d", interval="1h")
-        if is_crypto:
-            bars_4h = fetch_intraday_crypto(sig.symbol, interval="4h")
-        else:
-            bars_4h = fetch_intraday(sig.symbol, period="10d", interval="4h")
-        bias = compute_htf_bias(bars_1h, bars_4h)
-    except Exception:
-        logger.debug("TV webhook: HTF bias fetch failed for %s — defaulting NEUTRAL",
-                     sig.symbol, exc_info=True)
+    # 2. HTF bias / confluence — RULE-ENGINE concept. Skipped for TV alerts:
+    # the user is moving away from rule-engine logic. TV signals are driven
+    # purely by what the Pine script emits (stage, VWAP slope). Adding HTF
+    # confluence here would mix paradigms.
+    bias = HTFBias()  # neutral default — passed through but not surfaced in Telegram
 
     direction = (sig.direction or "").upper()
 
     # 3. Phase 4a structural targets if Pine Script didn't supply them.
+    # Staged Pine always supplies entry/stop/T1/T2, so this only fills gaps
+    # for older Pine scripts or non-staged rules.
     if direction in ("BUY", "LONG") and sig.entry and not (sig.target_1 and sig.target_2):
-        # Default stop = 0.5% below entry if not provided.
         stop = sig.stop if sig.stop else round(sig.entry * 0.995, 2)
         sig.stop = stop
         t1, t2 = _targets_for_long(sig.entry, stop, prior_day)
@@ -205,7 +201,8 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         t1, t2 = _targets_for_short(sig.entry, stop, prior_day)
         sig.target_1, sig.target_2 = t1, t2
 
-    # 4. Stamp confluence score (Phase 2).
+    # 4. Stamp confluence score (Phase 2) — kept for non-TV consumers, but
+    # the Telegram formatter ignores it on TV alerts (see _format_tv_body).
     sig._confluence_score = confluence_score(direction, bias)
 
     # 5. Persist + notify per user. Mirrors api/app/background/monitor.py:857
