@@ -42,12 +42,74 @@ export function useMe() {
 export interface WatchlistItem {
   id: number;
   symbol: string;
+  group_id?: number | null;
+}
+
+export interface WatchlistGroup {
+  id: number;
+  name: string;
+  sort_order: number;
+  color: string;
 }
 
 export function useWatchlist() {
   return useQuery({
     queryKey: ["watchlist"],
     queryFn: () => api.get<WatchlistItem[]>("/watchlist"),
+  });
+}
+
+export function useWatchlistGroups() {
+  return useQuery({
+    queryKey: ["watchlist-groups"],
+    queryFn: () => api.get<WatchlistGroup[]>("/watchlist/groups"),
+  });
+}
+
+export function useSeedDefaultGroups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<WatchlistGroup[]>("/watchlist/groups/seed-defaults", {}),
+    onSuccess: () => {
+      toast.success("Default groups seeded — Mega Tech, Chips, Memory, Optics, Cloud, BTC, Power");
+      qc.invalidateQueries({ queryKey: ["watchlist"] });
+      qc.invalidateQueries({ queryKey: ["watchlist-groups"] });
+    },
+    onError: () => toast.error("Failed to seed default groups"),
+  });
+}
+
+export function useCreateGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; color?: string; sort_order?: number }) =>
+      api.post<WatchlistGroup>("/watchlist/groups", body),
+    onSuccess: () => {
+      toast.success("Group created");
+      qc.invalidateQueries({ queryKey: ["watchlist-groups"] });
+    },
+    onError: () => toast.error("Failed to create group"),
+  });
+}
+
+export function useDeleteGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (groupId: number) => api.delete(`/watchlist/groups/${groupId}`),
+    onSuccess: () => {
+      toast.success("Group deleted — items moved to Ungrouped");
+      qc.invalidateQueries({ queryKey: ["watchlist-groups"] });
+      qc.invalidateQueries({ queryKey: ["watchlist"] });
+    },
+  });
+}
+
+export function useMoveItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, groupId }: { itemId: number; groupId: number | null }) =>
+      api.patch<WatchlistItem>(`/watchlist/${itemId}`, { group_id: groupId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
   });
 }
 
