@@ -1,66 +1,113 @@
 // @version=5
 //
-// Position Trade MA Levels — daily SMAs 20, 50, 100, 200 for long-term
-// position trading decisions.
+// Position Trade MA Levels + Minervini Stage Detection
 //
 // Tracks 4 daily simple moving averages:
 //   • 20 SMA  — fast trail (momentum/swing trader's protection line)
-//   • 50 SMA  — THE institutional trail line (most-watched gain-protection MA)
-//   • 100 SMA — medium-term trend
+//   • 50 SMA  — THE institutional gain-protection line
+//   • 150 SMA — Minervini Trend Template intermediate-term reference
 //   • 200 SMA — major long-term trend (the "bull/bear line")
 //
-// Detection per MA (mirrors daily_ma_bounce.pine):
-//   • bounce_long  — low wicked the SMA (within ATR*tol), close above it,
-//                    candle is green. POSITION ENTRY signal.
-//   • reject_short — high tagged the SMA from below, close back below,
-//                    candle is red. POSITION EXIT / SHORT signal.
+// Mirrors Mark Minervini's "Trade Like a Stock Market Wizard" framework.
+// His Trend Template requires: Price > 50 > 150 > 200 SMA + 200 SMA up.
 //
-// Add to a DAILY chart for true position trading. Will also work on any
-// intraday TF (daily SMA values pulled via request.security).
+// Stage badge (top-right corner) classifies the chart into one of:
+//   • STAGE 2 ✓ ADVANCING — bullish, in the buy zone
+//   • STAGE 4 ✗ DECLINING — bearish, no longs / consider shorts
+//   • STAGE 1 ⏸ BASING    — sideways post-decline, wait for breakout
+//   • STAGE 3 ⏸ TOPPING   — sideways post-advance, wait for breakdown
+//   • TRANSITIONING ⚠     — between stages, no clean signal
+//
+// Detection per MA (mirrors daily_ma_bounce.pine):
+//   • bounce_long  — low wicked the SMA, close above it, candle is green
+//   • reject_short — high tagged the SMA from below, close below, red candle
+//
+// Add to a DAILY chart for true position trading. Will work on intraday TFs
+// too (daily SMAs pulled via request.security).
 //
 // Alert rules (routed via /tv/webhook → Telegram):
-//   • position_ma_bounce_long  (BUY)   — long-term entry at SMA support
-//   • position_ma_rejection_short (SHORT) — long-term exit / counter-trend
+//   • position_ma_bounce_long      (BUY)
+//   • position_ma_rejection_short  (SHORT)
 //
-indicator("Position Trade MAs (SMA 50/100/150/200)", overlay = true, max_labels_count = 500)
+indicator("Position Trade MAs + Minervini Stage", overlay = true, max_labels_count = 500)
 
 show_lines        = input.bool(true,  "Show daily SMA lines")
 show_markers      = input.bool(true,  "Show BOUNCE/REJECT markers")
 show_price_labels = input.bool(false, "Show MA values in right price scale (declutter when off)")
+show_stage_badge  = input.bool(true,  "Show Minervini Stage badge (top-right)")
+show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
 tolerance_atr     = input.float(0.5,  "Tolerance (× ATR14)", minval = 0.1, maxval = 3.0, step = 0.1)
+slope_lookback    = input.int(20,     "200 SMA slope lookback (days)", minval = 5, maxval = 60)
 label_size_in     = input.string("small", "Marker label size", options = ["tiny", "small", "normal", "large"])
 fire_alerts       = input.bool(true,  "Fire bounce/rejection alerts to webhook")
 
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
 
-// Display config — when show_price_labels is OFF, suppress right-edge labels
-// to keep the price scale uncluttered.
 ma_disp = show_price_labels ? display.all : (display.pane + display.status_line + display.data_window)
 
-// Pull daily SMAs with [1] offset + lookahead_on for stable horizontal lines
-// (yesterday's daily-close value, no future bias).
+// Pull daily SMAs with [1] offset + lookahead_on for stable horizontal lines.
 sma20  = request.security(syminfo.tickerid, "D", ta.sma(close, 20)[1],  lookahead = barmerge.lookahead_on)
 sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
-sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma150 = request.security(syminfo.tickerid, "D", ta.sma(close, 150)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// Plot the 4 SMA levels — distinct colors for at-a-glance identification.
-//   20  = orange    (fast trail, momentum/swing protection)
-//   50  = green     (THE institutional trail line — gain protection)
-//   100 = blue      (medium-term trend)
-//   200 = black     (major level — bull/bear line)
+// 200 SMA from N days ago, for slope detection. Uses request.security so we
+// get DAILY-bar offsets regardless of chart timeframe.
+sma200_past = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1 + slope_lookback], lookahead = barmerge.lookahead_on)
+
+// Plot the 4 SMAs.
 plot(show_lines ? sma20  : na, "SMA 20 (D)",  color = color.new(#F57F17,       20), linewidth = 2, display = ma_disp)
 plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(color.green,    0), linewidth = 3, display = ma_disp)
-plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#1565C0,       20), linewidth = 2, display = ma_disp)
+plot(show_lines ? sma150 : na, "SMA 150 (D)", color = color.new(#1565C0,       20), linewidth = 2, display = ma_disp)
 plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,    0), linewidth = 3, display = ma_disp)
 
-// Tolerance — ATR-buffered, computed from previous bar for stability.
-// Default 0.5x ATR (wider than intraday) since position trades expect more
-// noise around the level before committing to a setup.
+// =====================================================================
+// MINERVINI STAGE DETECTION
+// =====================================================================
+// 200 SMA slope: rising, falling, or flat (within ±0.5% over lookback).
+sma200_change_pct = not na(sma200) and not na(sma200_past) ? (sma200 - sma200_past) / sma200_past * 100 : na
+sma200_rising  = not na(sma200_change_pct) and sma200_change_pct >  0.5
+sma200_falling = not na(sma200_change_pct) and sma200_change_pct < -0.5
+sma200_flat    = not na(sma200_change_pct) and not sma200_rising and not sma200_falling
+
+// MA stack alignment.
+stack_bullish = not na(sma200) and close > sma50 and sma50 > sma150 and sma150 > sma200
+stack_bearish = not na(sma200) and close < sma50 and sma50 < sma150 and sma150 < sma200
+
+// Stage classification.
+is_stage2 = stack_bullish and sma200_rising
+is_stage4 = stack_bearish and sma200_falling
+is_stage1 = not is_stage2 and not is_stage4 and not na(sma200) and close <  sma200 and (sma200_flat or sma200_falling)
+is_stage3 = not is_stage2 and not is_stage4 and not na(sma200) and close >= sma200 and (sma200_flat or sma200_rising)
+
+stage_text = na(sma200) ? "INSUFFICIENT DATA" :
+              is_stage2 ? "STAGE 2 ✓ ADVANCING" :
+              is_stage4 ? "STAGE 4 ✗ DECLINING" :
+              is_stage1 ? "STAGE 1 ⏸ BASING" :
+              is_stage3 ? "STAGE 3 ⏸ TOPPING" :
+                          "TRANSITIONING ⚠"
+
+stage_bg = is_stage2 ? color.new(color.green,  10) :
+            is_stage4 ? color.new(color.red,    10) :
+            is_stage1 ? color.new(color.gray,   30) :
+            is_stage3 ? color.new(color.yellow, 30) :
+                        color.new(color.purple, 30)
+
+// Stage badge — top-right corner.
+var table stage_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
+if show_stage_badge and barstate.islast
+    table.cell(stage_t, 0, 0, stage_text, text_color = color.white, bgcolor = stage_bg, text_size = size.normal)
+
+// Optional bgcolor tint by stage (subtle — 95% transparent).
+bgcolor(show_stage_bg and is_stage2 ? color.new(color.green,  95) : na, title = "Stage 2 bg")
+bgcolor(show_stage_bg and is_stage4 ? color.new(color.red,    95) : na, title = "Stage 4 bg")
+
+// =====================================================================
+// BOUNCE / REJECTION DETECTION + ALERTS
+// =====================================================================
 atr14 = nz(ta.atr(14)[1], close * 0.005)
 tol   = atr14 * tolerance_atr
 
-// Per-MA bounce / rejection detection. Same logic as daily_ma_bounce.pine.
 bounce_long(float ma) =>
     not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
 
@@ -69,22 +116,20 @@ reject_short(float ma) =>
 
 b_20  = bounce_long(sma20)
 b_50  = bounce_long(sma50)
-b_100 = bounce_long(sma100)
+b_150 = bounce_long(sma150)
 b_200 = bounce_long(sma200)
 
 r_20  = reject_short(sma20)
 r_50  = reject_short(sma50)
-r_100 = reject_short(sma100)
+r_150 = reject_short(sma150)
 r_200 = reject_short(sma200)
 
-any_long  = b_20 or b_50 or b_100 or b_200
-any_short = r_20 or r_50 or r_100 or r_200
+any_long  = b_20 or b_50 or b_150 or b_200
+any_short = r_20 or r_50 or r_150 or r_200
 
-// Build dynamic label text showing which SMA(s) fired.
-long_tag  = (b_20 ? "20 "  : "") + (b_50 ? "50 "  : "") + (b_100 ? "100 " : "") + (b_200 ? "200 " : "")
-short_tag = (r_20 ? "20 "  : "") + (r_50 ? "50 "  : "") + (r_100 ? "100 " : "") + (r_200 ? "200 " : "")
+long_tag  = (b_20 ? "20 "  : "") + (b_50 ? "50 "  : "") + (b_150 ? "150 " : "") + (b_200 ? "200 " : "")
+short_tag = (r_20 ? "20 "  : "") + (r_50 ? "50 "  : "") + (r_150 ? "150 " : "") + (r_200 ? "200 " : "")
 
-// Triangle markers always visible; labels carry the SMA tag.
 plotshape(show_markers and any_long,
           title = "Bounce LONG", location = location.belowbar,
           color = color.new(color.green, 0), style = shape.triangleup,
@@ -109,13 +154,8 @@ if show_markers and any_short
               size = label_size,
               yloc = yloc.abovebar)
 
-// =====================================================================
-// POSITION-TRADE ALERTS
-// Fire on any SMA bounce or rejection. Use alert.freq_once_per_bar_close
-// so daily-chart users get exactly one alert per day (when the daily bar
-// closes). Intraday users get one per intraday bar close.
-// =====================================================================
-
+// JSON payload — includes stage info so Telegram side can highlight when
+// a bounce happens IN STAGE 2 (high conviction) vs counter-trend.
 build_payload(string rule, string direction, string ma_tag) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
@@ -127,10 +167,11 @@ build_payload(string rule, string direction, string ma_tag) =>
       + '","rule":"' + rule
       + '","direction":"' + direction
       + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
-      + '","sma20":"' + str.tostring(sma20, format.mintick)
-      + '","sma50":"' + str.tostring(sma50, format.mintick)
-      + '","sma100":"' + str.tostring(sma100, format.mintick)
+      + '","sma20":"'  + str.tostring(sma20,  format.mintick)
+      + '","sma50":"'  + str.tostring(sma50,  format.mintick)
+      + '","sma150":"' + str.tostring(sma150, format.mintick)
       + '","sma200":"' + str.tostring(sma200, format.mintick)
+      + '","stage":"'  + stage_text
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if fire_alerts and any_long
