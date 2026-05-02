@@ -34,7 +34,7 @@ export const TIER_LIMITS: Record<string, Record<string, number | null | boolean>
     backtesting: false,
   },
   premium: {
-    watchlist_max: 25,
+    watchlist_max: 50,
     ai_queries_per_day: null,
     visible_alerts: null,
     chart_replay_per_day: null,

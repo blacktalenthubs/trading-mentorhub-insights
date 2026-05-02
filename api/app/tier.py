@@ -88,7 +88,7 @@ TIER_LIMITS: dict[str, dict] = {
         "backtesting": False,
     },
     "premium": {
-        "watchlist_max": 25,
+        "watchlist_max": 50,
         "ai_queries_per_day": None,     # unlimited
         "ai_scan_alerts_per_day": None,
         "ai_wait_alerts_per_day": None,

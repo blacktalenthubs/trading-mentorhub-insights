@@ -18,7 +18,7 @@ class TestDefaultGroups:
         from app.routers.watchlist import DEFAULT_GROUPS
         return DEFAULT_GROUPS
 
-    def test_seven_categories_exact_names(self, default_groups):
+    def test_default_categories_exact_names(self, default_groups):
         names = [g["name"] for g in default_groups]
         assert names == [
             "Mega Tech",
@@ -28,7 +28,18 @@ class TestDefaultGroups:
             "Cloud",
             "BTC",
             "Power",
+            "Macro",
         ]
+
+    def test_macro_group_has_indexes_and_sector_etfs(self, default_groups):
+        macro = next(g for g in default_groups if g["name"] == "Macro")
+        # Broad indexes
+        assert "SPY" in macro["symbols"]
+        assert "QQQ" in macro["symbols"]
+        assert "IWM" in macro["symbols"]
+        # Sector SPDRs
+        assert "XLK" in macro["symbols"]
+        assert "XLE" in macro["symbols"]
 
     def test_each_group_has_color_and_symbols(self, default_groups):
         for group in default_groups:
@@ -40,15 +51,11 @@ class TestDefaultGroups:
                 f"Group {group['name']} has too few symbols — at least 2 expected"
             )
 
-    def test_total_symbol_count_under_premium_cap(self, default_groups):
-        """Premium tier cap is 25; default seed should fit under or equal."""
+    def test_total_symbol_count_within_premium_cap(self, default_groups):
+        """Premium tier cap is 50; default seed (35 symbols) fits cleanly."""
         total = sum(len(g["symbols"]) for g in default_groups)
-        # Curated list is 27 — slightly over premium 25. Seed handles cap
-        # gracefully (skips overflow). This test documents the design choice:
-        # we WANT a >25-symbol curated list so trimming is intentional, not
-        # forced by the seed.
-        assert total >= 20, "Default seed should be a meaningful watchlist"
-        assert total <= 35, "Default seed shouldn't blow past any tier cap by far"
+        assert total >= 30, "Default seed should be a meaningful watchlist"
+        assert total <= 50, "Default seed must fit within premium tier cap"
 
     def test_no_duplicate_symbols_across_groups(self, default_groups):
         """A symbol appears in at most one default group (no NVDA in both Tech and Chips)."""

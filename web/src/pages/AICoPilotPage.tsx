@@ -1,874 +1,470 @@
-/** AI Co-Pilot — tabbed hub.
- *  Tabs: Best setup · AI signals · AI updates · Win rates · Coach chat
- */
+/** AI CoPilot — chart analysis with structured trade plans. */
 
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  useActiveEntries,
-  useAlertsToday,
-  useScanner,
-  usePerformanceBreakdown,
-} from "../api/hooks";
-import { useCoachStream } from "../hooks/useCoachStream";
-import { Send, Sparkles } from "lucide-react";
-import type { Alert, SignalResult } from "../types";
+import { useState, useCallback, useRef } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
+import { useAuthStore } from "../stores/auth";
+import { useWatchlist, useOHLCV, useLivePrices } from "../api/hooks";
+import type { OHLCBar } from "../api/hooks";
+import CandlestickChart from "../components/CandlestickChart";
+import TradePlanCard, { type TradePlan } from "../components/ai/TradePlanCard";
+import PatternEducation from "../components/ai/PatternEducation";
+import PatternLibrary from "../components/ai/PatternLibrary";
+import AnalysisHistory from "../components/ai/AnalysisHistory";
+import { Brain, Loader2, StopCircle, TrendingUp, TrendingDown } from "lucide-react";
 
-type TabId = "best" | "signals" | "updates" | "winrates" | "chat";
+const API_HOST = Capacitor.isNativePlatform()
+  ? String(import.meta.env.VITE_API_URL || "https://api.aicopilottrader.com")
+  : "";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "best", label: "Best setup" },
-  { id: "signals", label: "AI signals" },
-  { id: "updates", label: "AI updates" },
-  { id: "winrates", label: "Win rates" },
-  { id: "chat", label: "Coach chat" },
-];
+const TIMEFRAMES = ["1m", "5m", "15m", "30m", "1H", "4H", "D", "W"] as const;
 
-const TAB_KEY = "twai_coach_tab";
+const TF_MAP: Record<string, { period: string; interval: string }> = {
+  "1m": { period: "1d", interval: "1m" },
+  "5m": { period: "5d", interval: "5m" },
+  "15m": { period: "5d", interval: "15m" },
+  "30m": { period: "5d", interval: "30m" },
+  "1H": { period: "5d", interval: "60m" },
+  "4H": { period: "1mo", interval: "60m" },
+  "D": { period: "1y", interval: "1d" },
+  "W": { period: "2y", interval: "1wk" },
+};
 
-function gradeFromScore(score: number): "a" | "b" | "c" {
-  if (score >= 80) return "a";
-  if (score >= 60) return "b";
-  return "c";
-}
+/* ── Helpers ──────────────────────────────────────────────────────── */
 
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(
-      d.getMinutes(),
-    ).padStart(2, "0")}`;
-  } catch {
-    return "—";
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Best setup
-// ──────────────────────────────────────────────────────────────
-
-function CoachBestSetup({ onOpenChart }: { onOpenChart: (sym: string) => void }) {
-  const { data: scan } = useScanner();
-  const ranked = useMemo(
-    () => (scan ?? []).slice().sort((a, b) => b.score - a.score).slice(0, 10),
-    [scan],
-  );
-  const [selIdx, setSelIdx] = useState(0);
-  const sel = ranked[selIdx] as SignalResult | undefined;
-
-  return (
-    <div
-      className="h-full grid overflow-hidden"
-      style={{ gridTemplateColumns: "320px 1fr" }}
-    >
-      {/* List */}
-      <div className="border-r border-border-subtle bg-surface-1 overflow-y-auto">
-        <div className="flex justify-between items-baseline px-5 py-4 border-b border-border-subtle">
-          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-secondary">
-            Ranked setups
-          </span>
-          <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-text-muted">
-            live · scored by AI
-          </span>
-        </div>
-        {ranked.length === 0 && (
-          <div className="font-mono text-[11px] text-text-muted px-5 py-8 text-center uppercase tracking-[0.14em]">
-            no setups yet
-          </div>
-        )}
-        {ranked.map((b, i) => {
-          const tier = gradeFromScore(b.score);
-          const active = i === selIdx;
-          return (
-            <div
-              key={b.symbol}
-              onClick={() => setSelIdx(i)}
-              className="grid items-center gap-3 px-5 py-3.5 border-b border-border-subtle cursor-pointer transition-colors"
-              style={{
-                gridTemplateColumns: "44px 1fr auto",
-                background: active ? "var(--color-surface-2)" : "transparent",
-                boxShadow: active ? "inset 3px 0 0 var(--color-accent)" : "none",
-              }}
-            >
-              <div
-                className="font-mono font-semibold text-center py-1.5 rounded border"
-                style={{
-                  fontSize: 14,
-                  background:
-                    tier === "a"
-                      ? "var(--color-bullish-muted)"
-                      : tier === "b"
-                      ? "var(--color-accent-muted)"
-                      : "var(--color-surface-3)",
-                  color:
-                    tier === "a"
-                      ? "var(--color-bullish-text)"
-                      : tier === "b"
-                      ? "var(--color-accent-ink)"
-                      : "var(--color-text-secondary)",
-                  borderColor:
-                    tier === "a"
-                      ? "var(--color-bullish)"
-                      : tier === "b"
-                      ? "var(--color-accent)"
-                      : "var(--color-border-default)",
-                }}
-              >
-                {b.score}
-              </div>
-              <div>
-                <div className="font-mono text-[13px] font-semibold text-text-primary">
-                  {b.symbol}
-                </div>
-                <div className="text-[11px] text-text-muted mt-0.5">
-                  {b.pattern || b.action_label || "Pattern"}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-mono text-[11px] text-text-secondary">5m</div>
-                <div className="font-mono text-[11px] text-text-muted mt-0.5">
-                  {b.rr_ratio ? `${b.rr_ratio.toFixed(1)}R` : "—"}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Detail */}
-      <div className="overflow-y-auto px-10 py-8">
-        {!sel ? (
-          <div className="font-mono text-[11px] text-text-muted uppercase tracking-[0.14em]">
-            select a setup
-          </div>
-        ) : (
-          <>
-            <div className="flex justify-between items-start mb-7 gap-6">
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1.5">
-                  Best setup · now
-                </div>
-                <h2
-                  className="serif-display text-text-primary"
-                  style={{ fontSize: 40, lineHeight: 1.05 }}
-                >
-                  <em>{sel.symbol}</em> — {sel.pattern || "Setup"}
-                </h2>
-              </div>
-              <div
-                className="text-center rounded-lg p-4 min-w-[120px] border"
-                style={{
-                  background:
-                    gradeFromScore(sel.score) === "a"
-                      ? "var(--color-bullish-muted)"
-                      : gradeFromScore(sel.score) === "b"
-                      ? "var(--color-accent-muted)"
-                      : "var(--color-surface-1)",
-                  borderColor:
-                    gradeFromScore(sel.score) === "a"
-                      ? "var(--color-bullish)"
-                      : gradeFromScore(sel.score) === "b"
-                      ? "var(--color-accent)"
-                      : "var(--color-border-default)",
-                }}
-              >
-                <div
-                  className="font-mono font-semibold text-text-primary"
-                  style={{ fontSize: 32, lineHeight: 1 }}
-                >
-                  {sel.score}
-                </div>
-                <div className="font-mono text-[9px] text-text-muted tracking-[0.16em] mt-1.5">
-                  AI SCORE
-                </div>
-              </div>
-            </div>
-
-            <div
-              className="grid rounded border border-border-subtle mb-6"
-              style={{
-                gridTemplateColumns: "repeat(4, 1fr)",
-                background: "var(--color-surface-1)",
-              }}
-            >
-              {[
-                { label: "Grade", value: sel.grade || "—" },
-                {
-                  label: "Risk/Reward",
-                  value: sel.rr_ratio ? `${sel.rr_ratio.toFixed(1)}R` : "—",
-                },
-                {
-                  label: "Entry",
-                  value: sel.entry ? `$${sel.entry.toFixed(2)}` : "—",
-                },
-                {
-                  label: "Stop",
-                  value: sel.stop ? `$${sel.stop.toFixed(2)}` : "—",
-                },
-              ].map((m, i) => (
-                <div
-                  key={i}
-                  className="px-4 py-3.5 border-r border-border-subtle last:border-r-0"
-                >
-                  <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-muted mb-1.5">
-                    {m.label}
-                  </div>
-                  <b
-                    className="font-mono font-semibold text-text-primary"
-                    style={{ fontSize: 16 }}
-                  >
-                    {m.value}
-                  </b>
-                </div>
-              ))}
-            </div>
-
-            <div className="mb-5">
-              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-muted mb-2">
-                Trigger
-              </div>
-              <div
-                className="px-4 py-3.5 font-mono text-text-primary text-[13px]"
-                style={{
-                  background: "var(--color-surface-1)",
-                  borderLeft: "2px solid var(--color-accent)",
-                  lineHeight: 1.6,
-                }}
-              >
-                {sel.action_label || "Waiting for confirmation"}
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-muted mb-2">
-                Why this setup
-              </div>
-              <div
-                className="px-4 py-3.5 text-text-secondary text-[13px]"
-                style={{
-                  background: "var(--color-surface-1)",
-                  borderLeft: "2px solid var(--color-accent)",
-                  lineHeight: 1.6,
-                  textWrap: "pretty" as never,
-                }}
-              >
-                {sel.pattern
-                  ? `${sel.symbol} is showing a ${sel.pattern.toLowerCase()} with score ${sel.score}. ${
-                      sel.near_support ? "Near support — entry setup clean." : ""
-                    } Confluence score ${(sel.score).toFixed(0)}.`
-                  : "Setup forming. Wait for confirmation before adding size."}
-              </div>
-            </div>
-
-            <div className="flex gap-2.5">
-              <button
-                onClick={() => onOpenChart(sel.symbol)}
-                className="px-3.5 py-2 rounded-md font-medium text-[12px]"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-surface-0)",
-                }}
-              >
-                Open {sel.symbol} chart →
-              </button>
-              <button className="px-3.5 py-2 rounded-md font-medium text-[12px] text-text-secondary border border-border-subtle hover:bg-surface-2 hover:text-text-primary transition-colors">
-                Set alert on trigger
-              </button>
-              <button className="px-3.5 py-2 rounded-md font-medium text-[12px] text-text-secondary border border-border-subtle hover:bg-surface-2 hover:text-text-primary transition-colors">
-                Ask Co-Pilot
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────
-// AI signals feed
-// ──────────────────────────────────────────────────────────────
-
-function kindFromAlert(a: Alert): "entry" | "alert" | "exit" | "warn" {
-  const t = (a.alert_type || "").toLowerCase();
-  if (t.includes("target") || t.includes("exit") || t.includes("trim")) return "exit";
-  if (t.includes("stop") || t.includes("warn")) return "warn";
-  if (t.includes("approach") || t.includes("near")) return "alert";
-  return "entry";
-}
-
-function CoachSignals({ onOpenChart }: { onOpenChart: (sym: string) => void }) {
-  const { data: alerts } = useAlertsToday();
-  const rows = alerts ?? [];
-
-  return (
-    <div className="p-7 max-w-[1100px] overflow-y-auto h-full">
-      <div className="flex justify-between items-center font-mono text-[10px] uppercase tracking-[0.16em] text-text-muted mb-3 px-1">
-        <span>AI signals · live feed</span>
-        <span className="text-[10px] text-text-muted normal-case tracking-normal">
-          click row → open chart
-        </span>
-      </div>
-      {rows.length === 0 && (
-        <div className="rounded-lg border border-border-subtle bg-surface-1 py-12 text-center font-mono text-[11px] uppercase tracking-[0.14em] text-text-muted">
-          waiting for signals
-        </div>
-      )}
-      {rows.map((s) => {
-        const kind = kindFromAlert(s);
-        const colorMap = {
-          entry: { bg: "var(--color-bullish-muted)", fg: "var(--color-bullish-text)" },
-          alert: { bg: "var(--color-accent-muted)", fg: "var(--color-accent-ink)" },
-          exit: { bg: "var(--color-info-muted)", fg: "var(--color-info)" },
-          warn: { bg: "var(--color-bearish-muted)", fg: "var(--color-bearish-text)" },
-        }[kind];
-        const conf = Math.round(s.score);
-        return (
-          <div
-            key={s.id}
-            onClick={() => onOpenChart(s.symbol)}
-            className="grid items-center gap-4 py-3.5 px-4 border-b border-border-subtle bg-surface-1 cursor-pointer transition-colors hover:bg-surface-2"
-            style={{
-              gridTemplateColumns: "60px 90px 80px 1fr 140px",
-            }}
-          >
-            <div className="font-mono text-[11px] text-text-muted">
-              {formatTime(s.created_at)}
-            </div>
-            <div
-              className="font-mono text-[9px] uppercase tracking-[0.14em] px-2 py-1 rounded text-center font-semibold"
-              style={{ background: colorMap.bg, color: colorMap.fg }}
-            >
-              {kind}
-            </div>
-            <div className="font-mono text-[13px] font-semibold text-text-primary">
-              {s.symbol}
-            </div>
-            <div className="text-[13px] text-text-secondary">
-              {s.message || s.alert_type || `${s.symbol} alert triggered`}
-            </div>
-            <div className="flex items-center gap-2">
-              <div
-                className="flex-1 h-1 rounded overflow-hidden"
-                style={{ background: "var(--color-surface-3)" }}
-              >
-                <div
-                  className="h-full rounded"
-                  style={{
-                    width: `${conf}%`,
-                    background: "var(--color-accent)",
-                  }}
-                />
-              </div>
-              <span className="font-mono text-[11px] text-text-secondary min-w-6 text-right">
-                {conf}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenChart(s.symbol);
-                }}
-                className="font-mono text-[10px] px-2 py-1 rounded border"
-                style={{
-                  background: "var(--color-accent-muted)",
-                  color: "var(--color-accent-ink)",
-                  borderColor: "var(--color-accent)",
-                }}
-              >
-                Chart →
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────
-// AI updates timeline
-// ──────────────────────────────────────────────────────────────
-
-function CoachUpdates({ onOpenChart }: { onOpenChart: (sym: string) => void }) {
-  const { messages } = useCoachStream();
-  const { data: alerts } = useAlertsToday();
-
-  // Group: the Coach's own responses + a synthetic pre-open plan item.
-  const updates = useMemo(() => {
-    const out: {
-      time: string;
-      heading: string;
-      body: string;
-      tags: string[];
-    }[] = [];
-
-    if (alerts && alerts.length > 0) {
-      const symbols = Array.from(new Set(alerts.map((a) => a.symbol))).slice(0, 5);
-      const top = alerts[0];
-      out.push({
-        time: formatTime(top.created_at),
-        heading: "Session check-in",
-        body: `${alerts.length} signals fired so far today. Top score: ${top.symbol} at ${top.score}. Breadth is ${
-          alerts.filter((a) => a.direction.toLowerCase() !== "short").length >
-          alerts.length / 2
-            ? "upward-biased"
-            : "defensive"
-        }.`,
-        tags: symbols,
-      });
-    }
-
-    messages
-      .filter((m) => m.role === "assistant" && m.content.length > 20)
-      .slice(-4)
-      .reverse()
-      .forEach((m, i) => {
-        const firstLine = m.content.split("\n").find((l) => l.trim());
-        out.push({
-          time: `—${i + 1}`,
-          heading: firstLine?.slice(0, 80) || "AI note",
-          body: m.content.slice(0, 360),
-          tags: [],
-        });
-      });
-
-    if (out.length === 0) {
-      out.push({
-        time: "09:45",
-        heading: "Pre-open game plan",
-        body: "Overnight levels and key sectors have been checked. No major shifts. Watch for open-range breakouts in names on your watchlist. Avoid chasing gaps.",
-        tags: ["SPY", "QQQ"],
-      });
-    }
-    return out;
-  }, [messages, alerts]);
-
-  return (
-    <div className="px-10 py-7 max-w-[820px] mx-auto overflow-y-auto h-full">
-      <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted px-1 pb-4">
-        AI updates · what changed today
-      </div>
-      <div className="relative">
-        <div
-          className="absolute left-[55px] top-2 bottom-5 w-px"
-          style={{ background: "var(--color-border-subtle)" }}
-        />
-        {updates.map((u, i) => (
-          <div
-            key={i}
-            className="grid gap-5 pb-7 relative"
-            style={{ gridTemplateColumns: "80px 1fr" }}
-          >
-            <div className="text-right relative pt-1">
-              <div
-                className="absolute -right-4 top-[7px] w-2.5 h-2.5 rounded-full"
-                style={{
-                  background: "var(--color-accent)",
-                  boxShadow: "0 0 0 4px var(--color-surface-0)",
-                }}
-              />
-              <div className="font-mono text-[11px] text-text-muted">
-                {u.time}
-              </div>
-            </div>
-            <div>
-              <h3
-                className="font-display text-text-primary mb-2"
-                style={{
-                  fontSize: "22px",
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                  letterSpacing: "-0.005em",
-                }}
-              >
-                {u.heading}
-              </h3>
-              <p
-                className="text-[14px] text-text-secondary"
-                style={{ lineHeight: 1.65, textWrap: "pretty" as never }}
-              >
-                {u.body}
-              </p>
-              {u.tags.length > 0 && (
-                <div className="flex gap-1.5 mt-3 flex-wrap">
-                  {u.tags.map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => onOpenChart(t)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border-subtle bg-surface-1 text-[11px] text-text-secondary transition-colors hover:bg-accent-muted"
-                      style={{ background: "var(--color-surface-1)" }}
-                    >
-                      <span className="font-mono font-semibold">{t}</span>
-                      <span className="opacity-50">↗</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────
-// Win rates
-// ──────────────────────────────────────────────────────────────
-
-function CoachWinRates() {
-  const { data } = usePerformanceBreakdown();
-  const rows = useMemo(() => {
-    if (!data?.by_pattern) return [];
-    const sorted = [...data.by_pattern].sort((a, b) => b.trades - a.trades);
-    if (sorted.length === 0) return [];
-    const best = sorted.reduce((a, b) => (a.win_rate > b.win_rate ? a : b));
-    const worst = sorted.reduce((a, b) => (a.win_rate < b.win_rate ? a : b));
-    return sorted.map((r) => ({
-      ...r,
-      best: r.pattern === best.pattern && sorted.length > 1,
-      worst: r.pattern === worst.pattern && sorted.length > 1,
-    }));
-  }, [data]);
-
-  return (
-    <div className="px-10 py-7 max-w-[960px] overflow-y-auto h-full">
-      <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted px-1 pb-4">
-        Your win rates by setup · trailing 90 days
-      </div>
-      {rows.length === 0 ? (
-        <div className="rounded border border-border-subtle bg-surface-1 py-10 text-center font-mono text-[11px] uppercase tracking-[0.14em] text-text-muted">
-          not enough trades yet to break down by setup
-        </div>
-      ) : (
-        <div
-          className="rounded border border-border-subtle overflow-hidden"
-          style={{ background: "var(--color-surface-1)" }}
-        >
-          <div
-            className="grid gap-3.5 px-5 py-3 font-mono text-[10px] uppercase tracking-[0.14em] text-text-muted border-b border-border-subtle"
-            style={{
-              gridTemplateColumns: "2.4fr 0.6fr 0.8fr 0.8fr 2fr",
-              background: "var(--color-surface-2)",
-            }}
-          >
-            <div>Setup</div>
-            <div>N</div>
-            <div>Win rate</div>
-            <div>Avg P&L</div>
-            <div>Distribution</div>
-          </div>
-          {rows.map((r, i) => (
-            <div
-              key={i}
-              className="grid gap-3.5 items-center px-5 py-3 border-b border-border-subtle last:border-b-0 text-[13px]"
-              style={{
-                gridTemplateColumns: "2.4fr 0.6fr 0.8fr 0.8fr 2fr",
-                background: r.best
-                  ? "var(--color-bullish-muted)"
-                  : r.worst
-                  ? "var(--color-bearish-muted)"
-                  : "transparent",
-              }}
-            >
-              <div className="text-text-primary flex items-center gap-2.5">
-                {r.label}
-                {r.best && (
-                  <span
-                    className="font-mono text-[9px] px-1.5 py-px rounded tracking-[0.1em] font-semibold"
-                    style={{
-                      background: "var(--color-bullish)",
-                      color: "var(--color-surface-0)",
-                    }}
-                  >
-                    BEST
-                  </span>
-                )}
-                {r.worst && (
-                  <span
-                    className="font-mono text-[9px] px-1.5 py-px rounded tracking-[0.1em] font-semibold"
-                    style={{
-                      background: "var(--color-bearish)",
-                      color: "var(--color-surface-0)",
-                    }}
-                  >
-                    AVOID
-                  </span>
-                )}
-              </div>
-              <div className="font-mono text-text-secondary">{r.trades}</div>
-              <div
-                className="font-mono"
-                style={{
-                  color:
-                    r.win_rate >= 0.6
-                      ? "var(--color-bullish-text)"
-                      : r.win_rate < 0.45
-                      ? "var(--color-bearish-text)"
-                      : "var(--color-text-primary)",
-                }}
-              >
-                {(r.win_rate * 100).toFixed(0)}%
-              </div>
-              <div
-                className="font-mono"
-                style={{
-                  color:
-                    r.avg_pnl >= 0
-                      ? "var(--color-bullish-text)"
-                      : "var(--color-bearish-text)",
-                }}
-              >
-                {r.avg_pnl >= 0 ? "+" : "−"}${Math.abs(r.avg_pnl).toFixed(0)}
-              </div>
-              <div
-                className="h-1.5 rounded overflow-hidden"
-                style={{ background: "var(--color-surface-3)" }}
-              >
-                <div
-                  className="h-full rounded"
-                  style={{
-                    width: `${Math.min(100, Math.max(0, r.win_rate * 100))}%`,
-                    background:
-                      r.win_rate >= 0.6
-                        ? "var(--color-bullish)"
-                        : r.win_rate < 0.45
-                        ? "var(--color-bearish)"
-                        : "var(--color-accent)",
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────
-// Chat
-// ──────────────────────────────────────────────────────────────
-
-const SUGGESTION_CHIPS = [
-  "Should I add to my biggest winner?",
-  "What am I doing wrong on shorts lately?",
-  "Scan for continuation setups into close",
-  "Review my 3 worst trades this week",
-];
-
-function CoachChat() {
-  const { messages, streaming, sendMessage } = useCoachStream();
-  const [text, setText] = useState("");
-
-  const submit = () => {
-    const value = text.trim();
-    if (!value || streaming) return;
-    sendMessage(value);
-    setText("");
+function parsePlanFromText(text: string): TradePlan | null {
+  const clean = text.replace(/\*\*/g, "");
+  const getField = (name: string): string | null => {
+    const re = new RegExp(`${name}:\\s*(.+?)(?:\\n|$)`, "i");
+    const m = clean.match(re);
+    return m ? m[1].trim() : null;
   };
+  const getNum = (name: string): number | null => {
+    const v = getField(name);
+    if (!v || v.toUpperCase() === "N/A") return null;
+    const n = parseFloat(v.replace(/[$,]/g, ""));
+    return isNaN(n) ? null : n;
+  };
+  const direction = getField("DIRECTION");
+  if (!direction) return null;
+  return {
+    setup: getField("SETUP") ?? null,
+    direction: direction.toUpperCase().replace(/\s+/g, "_"),
+    entry: getNum("ENTRY"),
+    stop: getNum("STOP"),
+    target_1: getNum("TARGET_1"),
+    target_2: getNum("TARGET_2"),
+    rr_ratio: getNum("RR_RATIO"),
+    confidence: (() => {
+      const v = getField("CONFIDENCE");
+      if (!v || v.toUpperCase() === "N/A") return null;
+      return v.toUpperCase().replace(/[^A-Z]/g, "");
+    })(),
+    confluence_score: (() => {
+      const v = getField("CONFLUENCE_SCORE");
+      if (!v) return null;
+      const n = parseInt(v);
+      return isNaN(n) ? null : Math.min(10, Math.max(0, n));
+    })(),
+    timeframe_fit: getField("TIMEFRAME_FIT"),
+    key_levels: (() => {
+      const v = getField("KEY_LEVELS");
+      if (!v || v.toUpperCase() === "N/A") return [];
+      return v.split(",").map((s) => s.trim()).filter(Boolean);
+    })(),
+    historical_ref: null,
+  };
+}
+
+function extractReasoning(text: string): { reasoning: string; higherTf: string } {
+  const clean = text.replace(/\*\*/g, "");
+  const rMatch = clean.match(/REASONING:\s*\n?([\s\S]*?)(?=HIGHER_TF|$)/i);
+  let reasoning = rMatch?.[1]?.replace(/---+/g, "").trim() || "";
+  const hMatch = clean.match(/HIGHER_TF_SUMMARY:\s*\n?([\s\S]*?)$/i);
+  const higherTf = hMatch?.[1]?.replace(/---+/g, "").trim() || "";
+  return { reasoning, higherTf };
+}
+
+function cleanText(text: string): string {
+  return text.replace(/\*\*/g, "").replace(/^#{1,3}\s+/gm, "").replace(/^---+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/* ── Symbol Picker Button ─────────────────────────────────────────── */
+
+function SymbolPicker({
+  symbols,
+  active,
+  prices,
+  onSelect,
+}: {
+  symbols: string[];
+  active: string;
+  prices: Record<string, { price: number; change_pct: number }>;
+  onSelect: (s: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-8 pt-6 pb-4 max-w-[780px] mx-auto w-full">
-        {messages.length === 0 && (
-          <div className="flex flex-wrap mb-5">
-            {SUGGESTION_CHIPS.map((c) => (
-              <button
-                key={c}
-                onClick={() => sendMessage(c)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border-default bg-surface-1 text-text-secondary mr-1.5 mb-2 transition-colors hover:border-accent hover:bg-surface-2"
-                style={{
-                  fontFamily: "var(--font-serif)",
-                  fontStyle: "italic",
-                  fontSize: "12.5px",
-                }}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 bg-surface-3 border border-border-subtle rounded-lg px-3 py-1.5 hover:border-accent/50 transition-colors"
+      >
+        <span className="text-sm font-bold text-text-primary">{active || "Select"}</span>
+        {prices[active] && (
+          <span className={`text-xs font-mono ${prices[active].change_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+            ${prices[active].price.toFixed(2)}
+            <span className="ml-1 text-[10px]">
+              {prices[active].change_pct >= 0 ? "+" : ""}{prices[active].change_pct.toFixed(1)}%
+            </span>
+          </span>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className="flex gap-3.5 mb-5">
-            <div
-              className="w-[30px] h-[30px] rounded-full flex items-center justify-center font-mono text-[11px] font-semibold shrink-0"
-              style={
-                m.role === "assistant"
-                  ? {
-                      background:
-                        "linear-gradient(135deg, var(--color-accent), var(--color-purple))",
-                      color: "var(--color-surface-0)",
-                    }
-                  : {
-                      background: "var(--color-surface-2)",
-                      border: "1px solid var(--color-border-default)",
-                      color: "var(--color-text-secondary)",
-                    }
-              }
-            >
-              {m.role === "assistant" ? (
-                <Sparkles className="h-3.5 w-3.5" />
-              ) : (
-                "You"
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-muted mb-1">
-                {m.role === "assistant" ? "Co-Pilot" : "You"}
-              </div>
-              <div
-                className="text-text-primary"
-                style={{
-                  fontFamily: "var(--font-serif)",
-                  fontSize: "15px",
-                  lineHeight: 1.6,
-                  whiteSpace: "pre-wrap",
-                  textWrap: "pretty" as never,
-                }}
-              >
-                {m.content}
-                {streaming && i === messages.length - 1 && m.role === "assistant" && (
-                  <span className="ai-dot inline-block ml-1" />
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+        <svg className={`h-3 w-3 text-text-faint transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5l3 3 3-3" /></svg>
+      </button>
 
-      <div className="sticky bottom-4 mx-8 mb-4 max-w-[780px] lg:mx-auto w-[calc(100%-4rem)] lg:w-auto">
-        <div
-          className="rounded-xl p-3 flex items-end gap-2.5 border border-border-default"
-          style={{
-            background: "var(--color-surface-1)",
-            boxShadow: "var(--shadow-elevated)",
-          }}
-        >
-          <textarea
-            rows={1}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            placeholder="Ask about a setup, a trade, or today's plan…"
-            className="flex-1 bg-transparent outline-none resize-none"
-            style={{
-              fontFamily: "var(--font-serif)",
-              fontSize: "15px",
-              fontStyle: "italic",
-              color: "var(--color-text-primary)",
-              maxHeight: 140,
-            }}
-          />
-          <button
-            onClick={submit}
-            disabled={!text.trim() || streaming}
-            className="px-3 py-2 rounded font-medium text-[12px] disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-surface-0)",
-            }}
-          >
-            <Send className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 z-50 w-56 max-h-64 overflow-y-auto rounded-lg border border-border-subtle bg-surface-2 shadow-xl">
+            {symbols.length === 0 ? (
+              <div className="px-3 py-4 text-xs text-text-faint text-center">
+                Add symbols in Settings → Watchlist
+              </div>
+            ) : (
+              symbols.map((s) => {
+                const p = prices[s];
+                const isActive = s === active;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => { onSelect(s); setOpen(false); }}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-surface-3/60 transition-colors ${isActive ? "bg-accent/10" : ""}`}
+                  >
+                    <span className={`text-sm font-semibold ${isActive ? "text-accent" : "text-text-primary"}`}>{s}</span>
+                    {p && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-mono text-text-secondary">${p.price.toFixed(2)}</span>
+                        <span className={`flex items-center text-[10px] font-semibold ${p.change_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                          {p.change_pct >= 0 ? <TrendingUp className="h-2.5 w-2.5 mr-0.5" /> : <TrendingDown className="h-2.5 w-2.5 mr-0.5" />}
+                          {p.change_pct >= 0 ? "+" : ""}{p.change_pct.toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-// ──────────────────────────────────────────────────────────────
-// Page
-// ──────────────────────────────────────────────────────────────
+/* ── Main Page ────────────────────────────────────────────────────── */
 
 export default function AICoPilotPage() {
   const navigate = useNavigate();
-  useActiveEntries(); // prefetch
+  const { data: watchlist } = useWatchlist();
+  const { data: pricesData } = useLivePrices();
+  const prices = pricesData?.prices ?? {};
+  const symbols = watchlist?.map((w) => w.symbol) ?? [];
 
-  const [tab, setTab] = useState<TabId>(() => {
-    const saved = (typeof localStorage !== "undefined" && localStorage.getItem(TAB_KEY)) as TabId | null;
-    return saved && TABS.some((t) => t.id === saved) ? saved : "best";
-  });
+  const [selectedSymbol, setSelectedSymbol] = useState("");
+  const [timeframe, setTimeframe] = useState("15m");
 
-  useEffect(() => {
+  const tf = TF_MAP[timeframe] ?? TF_MAP["15m"];
+  const activeSymbol = selectedSymbol || symbols[0] || "";
+  const { data: ohlcv, isLoading: chartLoading } = useOHLCV(activeSymbol, tf.period, tf.interval);
+
+  const [plan, setPlan] = useState<TradePlan | null>(null);
+  const [reasoning, setReasoning] = useState("");
+  const [higherTfSummary, setHigherTfSummary] = useState(""); void higherTfSummary;
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState("");
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  if (!selectedSymbol && symbols.length > 0) {
+    setSelectedSymbol(symbols[0]);
+  }
+
+  const analyzeChart = useCallback(async () => {
+    const token = useAuthStore.getState().accessToken;
+    if (!token || !activeSymbol) return;
+
+    setPlan(null);
+    setReasoning("");
+    setHigherTfSummary("");
+    setError("");
+    setStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const lastBars: OHLCBar[] = ohlcv?.slice(-60) ?? [];
+
     try {
-      localStorage.setItem(TAB_KEY, tab);
-    } catch {
-      /* ignore */
-    }
-  }, [tab]);
+      const res = await fetch(`${API_HOST}/api/v1/intel/analyze-chart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          symbol: activeSymbol,
+          timeframe,
+          ohlcv_bars: lastBars.map((b) => ({ timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume })),
+        }),
+        signal: controller.signal,
+      });
 
-  const onOpenChart = (sym: string) => {
-    navigate(`/trading?symbol=${encodeURIComponent(sym)}`);
-  };
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        // Upgrade required (free/comp tier or AI whitelist denial) → route to billing
+        if (res.status === 403 && err.detail?.error === "upgrade_required") {
+          navigate("/billing");
+          return;
+        }
+        if (res.status === 429) throw new Error("Daily analysis limit reached. Upgrade for more.");
+        const msg =
+          typeof err.detail === "string"
+            ? err.detail
+            : err.detail?.message || "Analysis request failed";
+        throw new Error(msg);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let currentEvent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("event:")) { currentEvent = line.slice(6).trim(); continue; }
+          if (!line.startsWith("data:")) continue;
+          const dataStr = line.slice(5).trim();
+          if (!dataStr) continue;
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (currentEvent === "plan" || parsed.event === "plan") {
+              const d = parsed.data || parsed;
+              setPlan({ setup: d.setup ?? null, direction: d.direction ?? null, entry: d.entry ?? null, stop: d.stop ?? null, target_1: d.target_1 ?? null, target_2: d.target_2 ?? null, rr_ratio: d.rr_ratio ?? null, confidence: d.confidence ?? null, confluence_score: d.confluence_score ?? null, timeframe_fit: d.timeframe_fit ?? null, key_levels: d.key_levels ?? [], historical_ref: d.historical_ref ?? null });
+            } else if (currentEvent === "reasoning" || parsed.event === "reasoning") {
+              setReasoning(parsed.data?.text || parsed.text || "");
+            } else if (currentEvent === "higher_tf" || parsed.event === "higher_tf") {
+              setHigherTfSummary(parsed.data?.text || parsed.text || "");
+            } else if (currentEvent === "done" || parsed.event === "done") {
+              const r = parsed.data?.remaining ?? parsed.remaining;
+              if (r != null) setRemaining(r);
+            } else if (currentEvent === "chunk" || parsed.text) {
+              fullText += parsed.text || "";
+              const livePlan = parsePlanFromText(fullText);
+              if (livePlan) setPlan(livePlan);
+              const { reasoning: r, higherTf: h } = extractReasoning(fullText);
+              if (r) setReasoning(r);
+              if (h) setHigherTfSummary(h);
+            }
+          } catch { /* skip */ }
+          currentEvent = "";
+        }
+      }
+      if (fullText && !plan) {
+        const finalPlan = parsePlanFromText(fullText);
+        if (finalPlan) setPlan(finalPlan);
+        const { reasoning: r, higherTf: h } = extractReasoning(fullText);
+        if (r) setReasoning(r);
+        if (h) setHigherTfSummary(h);
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") setError((err as Error).message);
+    } finally {
+      setStreaming(false);
+      abortRef.current = null;
+    }
+  }, [activeSymbol, timeframe, ohlcv]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Hero */}
-      <div
-        className="px-8 pt-6 border-b border-border-subtle"
-        style={{ background: "var(--color-surface-1)" }}
-      >
-        <div className="max-w-[880px] mb-4">
-          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted mb-3">
-            AI Co-Pilot · Claude · always on
-          </div>
-          <h1
-            className="serif-display text-text-primary italic"
-            style={{ fontSize: 36, lineHeight: 1.05, marginBottom: 6 }}
-          >
-            Your edge, <em>surfaced.</em>
-          </h1>
-          <p
-            className="font-serif italic text-text-secondary"
-            style={{
-              fontSize: 13,
-              maxWidth: "62ch",
-              textWrap: "pretty" as never,
-            }}
-          >
-            Ranked setups, live AI-tagged signals, narrative updates, and your
-            own performance data — in one place.
-          </p>
-        </div>
-        <div className="flex gap-0 -mb-px">
-          {TABS.map((t) => {
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className="font-mono uppercase py-3 px-4 transition-colors"
-                style={{
-                  fontSize: 11,
-                  letterSpacing: "0.12em",
-                  color: active
-                    ? "var(--color-text-primary)"
-                    : "var(--color-text-muted)",
-                  borderBottom: active
-                    ? "2px solid var(--color-accent)"
-                    : "2px solid transparent",
-                }}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+    <div className="h-full overflow-y-auto p-4 md:p-5">
+      <div className="max-w-6xl mx-auto space-y-4">
+        {/* ── Controls bar ── */}
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border-subtle bg-surface-1 px-3 py-2.5">
+          <Brain className="h-5 w-5 text-accent shrink-0" />
+          <span className="font-display text-sm font-bold text-text-primary">AI CoPilot — Learn Trading Patterns</span>
 
-      {/* Tab body */}
-      <div className="flex-1 overflow-hidden bg-surface-0">
-        {tab === "best" && <CoachBestSetup onOpenChart={onOpenChart} />}
-        {tab === "signals" && <CoachSignals onOpenChart={onOpenChart} />}
-        {tab === "updates" && <CoachUpdates onOpenChart={onOpenChart} />}
-        {tab === "winrates" && <CoachWinRates />}
-        {tab === "chat" && <CoachChat />}
+          <SymbolPicker symbols={symbols} active={activeSymbol} prices={prices} onSelect={setSelectedSymbol} />
+
+          <div className="flex gap-0.5 bg-surface-3/50 rounded-lg p-0.5">
+            {TIMEFRAMES.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTimeframe(t)}
+                className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all ${
+                  timeframe === t
+                    ? "bg-accent text-white shadow-sm"
+                    : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1" />
+
+          {remaining != null && (
+            <span className="text-[10px] text-text-faint">{remaining} left today</span>
+          )}
+
+          {streaming ? (
+            <button onClick={() => abortRef.current?.abort()} className="flex items-center gap-1.5 bg-bearish/10 hover:bg-bearish/20 border border-bearish/20 text-bearish-text font-semibold text-xs px-3 py-1.5 rounded-lg transition-colors">
+              <StopCircle className="h-3.5 w-3.5" /> Stop
+            </button>
+          ) : (
+            <button onClick={analyzeChart} disabled={!activeSymbol || chartLoading} className="flex items-center gap-1.5 bg-accent hover:bg-accent-hover text-white font-semibold text-xs px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-glow-accent">
+              <Brain className="h-3.5 w-3.5" /> Analyze
+            </button>
+          )}
+        </div>
+
+        {/* ── Chart ── */}
+        <div className="rounded-xl border border-border-subtle bg-surface-1 p-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-text-primary">
+              {activeSymbol} <span className="text-text-faint">{timeframe}</span>
+            </span>
+            {chartLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />}
+          </div>
+          {ohlcv && ohlcv.length > 0 ? (
+            <CandlestickChart data={ohlcv} height={420} entry={plan?.entry ?? undefined} stop={plan?.stop ?? undefined} target={plan?.target_1 ?? undefined} />
+          ) : !chartLoading ? (
+            <div className="flex items-center justify-center h-[400px] text-xs text-text-faint">
+              {activeSymbol ? "No chart data" : "Select a symbol"}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-[400px]">
+              <Loader2 className="h-5 w-5 animate-spin text-accent" />
+            </div>
+          )}
+        </div>
+
+        {/* ── Loading state ── */}
+        {streaming && !plan && !reasoning && (
+          <div className="rounded-xl border border-accent/20 bg-accent/5 p-4 flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-accent shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-text-primary">Analyzing {activeSymbol} on {timeframe}...</p>
+              <p className="text-xs text-text-muted">Checking setups, levels, and multi-timeframe alignment</p>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl border border-bearish/20 bg-bearish/5 p-4">
+            <p className="text-sm text-bearish-text">{error}</p>
+            {error.toLowerCase().includes("limit") && (
+              <Link
+                to="/billing"
+                className="inline-block mt-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors"
+              >
+                Upgrade Plan →
+              </Link>
+            )}
+          </div>
+        )}
+
+        {/* ── Results: Plan card + Analysis text ── */}
+        {plan && (
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div className="lg:col-span-2">
+              <TradePlanCard plan={plan} />
+            </div>
+            <div className="lg:col-span-3 rounded-xl border border-border-subtle bg-surface-1 p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
+                <Brain className="h-4 w-4 text-accent" />
+                AI Analysis
+                {streaming && <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />}
+              </h3>
+              {reasoning ? (
+                <div className="space-y-2.5">
+                  {(() => {
+                    const text = cleanText(reasoning);
+                    // Parse PATTERN: / LEVELS: / CONTEXT: sections
+                    const patternMatch = text.match(/PATTERN:\s*(.+?)(?=LEVELS:|CONTEXT:|$)/s);
+                    const levelsMatch = text.match(/LEVELS:\s*(.+?)(?=CONTEXT:|$)/s);
+                    const contextMatch = text.match(/CONTEXT:\s*(.+?)$/s);
+
+                    if (patternMatch || levelsMatch || contextMatch) {
+                      return (
+                        <>
+                          {patternMatch && (
+                            <div>
+                              <span className="text-[10px] font-bold text-accent uppercase tracking-wider">Pattern</span>
+                              <p className="text-[13px] text-text-secondary leading-relaxed mt-0.5">{patternMatch[1].trim()}</p>
+                            </div>
+                          )}
+                          {levelsMatch && (
+                            <div>
+                              <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider">Key Levels</span>
+                              <p className="text-[13px] text-text-secondary leading-relaxed mt-0.5">{levelsMatch[1].trim()}</p>
+                            </div>
+                          )}
+                          {contextMatch && (
+                            <div>
+                              <span className="text-[10px] font-bold text-text-faint uppercase tracking-wider">Context</span>
+                              <p className="text-[13px] text-text-secondary leading-relaxed mt-0.5">{contextMatch[1].trim()}</p>
+                            </div>
+                          )}
+                        </>
+                      );
+                    }
+                    // Fallback: plain text
+                    return <p className="text-[13px] text-text-secondary leading-relaxed whitespace-pre-line">{text}</p>;
+                  })()}
+                </div>
+              ) : streaming ? (
+                <p className="text-sm text-text-muted italic">Generating analysis...</p>
+              ) : (
+                <p className="text-sm text-text-muted italic">No reasoning available.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Streaming preview (before plan parsed) ── */}
+        {streaming && !plan && reasoning && (
+          <div className="rounded-xl border border-accent/20 bg-surface-1 p-5">
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-1.5 mb-2">
+              <Brain className="h-4 w-4 text-accent" />
+              Analyzing...
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+            </h3>
+            <p className="text-[13px] text-text-secondary leading-relaxed">{cleanText(reasoning)}</p>
+          </div>
+        )}
+
+        {/* ── Education Panel — teaches WHY the setup works ── */}
+        {plan && plan.setup && (
+          <PatternEducation
+            data={{
+              what: reasoning ? cleanText(reasoning).split("\n")[0] : null,
+              why: null,
+              confirm_items: [],
+              invalidation: null,
+              risk: plan.entry && plan.stop && plan.target_1
+                ? `Entry: $${plan.entry.toFixed(2)}\nStop: $${plan.stop.toFixed(2)}\nTarget: $${plan.target_1.toFixed(2)}\nR:R: 1:${plan.rr_ratio?.toFixed(1) || "?"}`
+                : null,
+              setup_type: plan.setup || "Unknown Setup",
+            }}
+          />
+        )}
+
+        {/* ── Pattern Library ── */}
+        <PatternLibrary />
+
+        {/* ── History ── */}
+        <AnalysisHistory />
       </div>
     </div>
   );

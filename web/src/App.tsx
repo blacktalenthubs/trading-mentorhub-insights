@@ -27,6 +27,8 @@ import BillingPage from "./pages/BillingPage";
 import TradeReviewPage from "./pages/TradeReviewPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
 import AIUpdatesPage from "./pages/AIUpdatesPage";
+import WatchlistPage from "./pages/WatchlistPage";
+import PremarketPage from "./pages/PremarketPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -100,11 +102,13 @@ export default function App() {
                 <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
                 <Route path="ai-updates" element={<ErrorBoundary><AIUpdatesPage /></ErrorBoundary>} />
 
+                <Route path="watchlist" element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
+                <Route path="premarket" element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
+
                 {/* Legacy redirects */}
                 <Route path="scanner" element={<Navigate to="/trading" replace />} />
                 <Route path="charts" element={<Navigate to="/trading" replace />} />
                 <Route path="alerts" element={<Navigate to="/trading" replace />} />
-                <Route path="watchlist" element={<Navigate to="/settings" replace />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

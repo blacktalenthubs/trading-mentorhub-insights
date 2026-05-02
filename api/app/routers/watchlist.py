@@ -73,6 +73,11 @@ DEFAULT_GROUPS: list[dict] = [
         "color": "#cf222e",
         "symbols": ["VST", "CEG", "TLN", "POWL", "OKLO"],
     },
+    {
+        "name": "Macro",
+        "color": "#6e7681",
+        "symbols": ["SPY", "QQQ", "IWM", "DIA", "XLK", "XLE", "XLF", "XLV"],
+    },
 ]
 
 

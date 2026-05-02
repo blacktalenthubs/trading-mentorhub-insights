@@ -707,25 +707,9 @@ def run_monitor():
     scheduler = BlockingScheduler()
 
     def scheduled_poll():
-        # Pre-market brief: send once between 9:10-9:29 AM ET
-        try:
-            from analytics.market_hours import is_premarket
-            if is_premarket():
-                import pytz as _pytz
-                now_et = datetime.now(_pytz.timezone("US/Eastern"))
-                if now_et.hour == 9 and now_et.minute >= 10:
-                    from analytics.premarket_brief import (
-                        send_premarket_brief,
-                        send_ai_premarket_brief,
-                    )
-                    send_premarket_brief()
-                    # AI game plan for Pro/Elite users (after data brief)
-                    try:
-                        send_ai_premarket_brief()
-                    except Exception:
-                        logger.exception("AI pre-market brief failed")
-        except Exception:
-            logger.exception("Pre-market brief failed")
+        # AI premarket brief removed (May 2026). Replaced by deterministic
+        # sector heat brief — see api/app/services/sector_brief.py and the
+        # cron in api/app/main.py lifespan (9:00 ET, no AI cost).
 
         try:
             if not is_market_hours():

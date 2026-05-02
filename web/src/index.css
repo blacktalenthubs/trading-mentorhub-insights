@@ -1,96 +1,95 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* ============================================================
-   DESIGN SYSTEM TOKENS — Vault aesthetic
-   Terminal-meets-editorial: warm near-black + amber accent,
-   Fraunces italic serif for headlines, JetBrains Mono for data.
+   DESIGN SYSTEM TOKENS — TradeCoPilot
+   ============================================================
+   Tailwind v4 CSS-first configuration via @theme.
+   All tokens are available as Tailwind utilities:
+     bg-surface-2, text-text-primary, border-border-default, etc.
    ============================================================ */
 
 @theme {
   /* ── Fonts ────────────────────────────────────── */
-  --font-display: "Instrument Serif", "Fraunces", Georgia, serif;
-  --font-serif: "Fraunces", "Instrument Serif", Georgia, serif;
-  --font-body: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* ── Surfaces (warm near-black depth) ─────────── */
-  --color-surface-0: #0a0a0b;
-  --color-surface-1: #0f0f11;
-  --color-surface-2: #141416;
-  --color-surface-3: #1b1b1f;
-  --color-surface-4: #23232a;
+  /* ── Surfaces (dark-theme depth system) ───────── */
+  --color-surface-0: #0f1117;
+  --color-surface-1: #161923;
+  --color-surface-2: #1c2030;
+  --color-surface-3: #252a3a;
+  --color-surface-4: #2e3548;
 
   /* ── Borders ──────────────────────────────────── */
-  --color-border-subtle: #1d1d24;
-  --color-border-default: #2a2a33;
-  --color-border-strong: #42413d;
+  --color-border-subtle: #2a3040;
+  --color-border-default: #333b50;
+  --color-border-strong: #424d66;
 
   /* ── Text ─────────────────────────────────────── */
-  --color-text-primary: #e9e8e3;
-  --color-text-secondary: #a5a29a;
-  --color-text-muted: #6c6a63;
-  --color-text-faint: #42413d;
+  --color-text-primary: #e8ecf4;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #8896ab;
+  --color-text-faint: #6b7a8f;
 
-  /* ── Accent (amber) ───────────────────────────── */
-  --color-accent: #e8a647;
-  --color-accent-hover: #f4d08a;
-  --color-accent-ink: #f4d08a;
-  --color-accent-muted: rgba(232, 166, 71, 0.14);
-  --color-accent-subtle: rgba(232, 166, 71, 0.08);
+  /* ── Accent (brand) ───────────────────────────── */
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-accent-muted: #1e3a5f;
+  --color-accent-subtle: #0f1d32;
 
-  /* ── Semantic: Bullish (sage) ─────────────────── */
-  --color-bullish: #7fb069;
-  --color-bullish-text: #a3d18b;
-  --color-bullish-muted: rgba(127, 176, 105, 0.12);
-  --color-bullish-subtle: rgba(127, 176, 105, 0.08);
+  /* ── Semantic: Bullish ────────────────────────── */
+  --color-bullish: #22c55e;
+  --color-bullish-text: #4ade80;
+  --color-bullish-muted: #14532d;
+  --color-bullish-subtle: #052e16;
 
-  /* ── Semantic: Bearish (brick) ────────────────── */
-  --color-bearish: #d96666;
-  --color-bearish-text: #e88d8d;
-  --color-bearish-muted: rgba(217, 102, 102, 0.12);
-  --color-bearish-subtle: rgba(217, 102, 102, 0.08);
+  /* ── Semantic: Bearish ────────────────────────── */
+  --color-bearish: #ef4444;
+  --color-bearish-text: #f87171;
+  --color-bearish-muted: #7f1d1d;
+  --color-bearish-subtle: #450a0a;
 
-  /* ── Semantic: Warning (darker amber) ─────────── */
-  --color-warning: #e0b84b;
-  --color-warning-text: #f0d48a;
-  --color-warning-muted: rgba(224, 184, 75, 0.12);
-  --color-warning-subtle: rgba(224, 184, 75, 0.06);
+  /* ── Semantic: Warning ────────────────────────── */
+  --color-warning: #f59e0b;
+  --color-warning-text: #fbbf24;
+  --color-warning-muted: #78350f;
+  --color-warning-subtle: #451a03;
 
-  /* ── Semantic: Info (slate-blue) ──────────────── */
-  --color-info: #8ab4d4;
-  --color-info-text: #a8c8e0;
-  --color-info-muted: rgba(138, 180, 212, 0.12);
-  --color-info-subtle: rgba(138, 180, 212, 0.06);
+  /* ── Semantic: Info ───────────────────────────── */
+  --color-info: #3b82f6;
+  --color-info-text: #60a5fa;
+  --color-info-muted: #1e3a5f;
+  --color-info-subtle: #172554;
 
-  /* ── Semantic: Purple (plum, used in gradients) ─ */
-  --color-purple: #b892c9;
-  --color-purple-text: #d4baea;
-  --color-purple-muted: rgba(184, 146, 201, 0.12);
-  --color-purple-subtle: rgba(184, 146, 201, 0.06);
+  /* ── Semantic: Purple (patterns) ──────────────── */
+  --color-purple: #a855f7;
+  --color-purple-text: #c084fc;
+  --color-purple-muted: #581c87;
+  --color-purple-subtle: #3b0764;
 
-  /* ── Semantic: Orange (distinct from amber) ───── */
-  --color-orange: #e89551;
-  --color-orange-text: #f0b078;
-  --color-orange-muted: rgba(232, 149, 81, 0.12);
-  --color-orange-subtle: rgba(232, 149, 81, 0.06);
+  /* ── Semantic: Orange (patterns) ──────────────── */
+  --color-orange: #f97316;
+  --color-orange-text: #fb923c;
+  --color-orange-muted: #9a3412;
+  --color-orange-subtle: #431407;
 
   /* ── Radii ────────────────────────────────────── */
-  --radius-sm: 3px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
   --radius-full: 9999px;
 
   /* ── Shadows ──────────────────────────────────── */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-elevated: 0 6px 20px -10px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.25);
-  --shadow-glow-accent: 0 8px 20px -6px rgba(232, 166, 71, 0.35);
-  --shadow-glow-bullish: 0 0 20px rgba(127, 176, 105, 0.12);
-  --shadow-glow-bearish: 0 0 20px rgba(217, 102, 102, 0.12);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-glow-accent: 0 0 20px rgba(59, 130, 246, 0.15);
+  --shadow-glow-bullish: 0 0 20px rgba(34, 197, 94, 0.12);
+  --shadow-glow-bearish: 0 0 20px rgba(239, 68, 68, 0.12);
 }
 
-/* Legacy aliases — any page still referencing these keeps working. */
+/* Legacy aliases — keep existing Tailwind classes working during migration */
 :root {
   --color-primary: var(--color-accent);
   --color-success: var(--color-bullish);
@@ -98,81 +97,88 @@
 }
 
 /* ============================================================
-   LIGHT THEME — "paper" editorial (cream + brown accent)
-   Toggled via .light class on <html>.
+   LIGHT THEME — toggled via .light class on <html>
+   Inspired by TradingView/Webull light mode.
    ============================================================ */
 
 html.light {
-  --color-surface-0: #f5f2ea;
-  --color-surface-1: #efece3;
-  --color-surface-2: #e8e4d9;
-  --color-surface-3: #ddd8c9;
-  --color-surface-4: #ccc7b6;
+  --color-surface-0: #ffffff;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #f8f9fb;
+  --color-surface-3: #f1f3f6;
+  --color-surface-4: #e8ebf0;
 
-  --color-border-subtle: #d8d3c2;
-  --color-border-default: #c2bda9;
-  --color-border-strong: #a8a390;
+  --color-border-subtle: #e5e7eb;
+  --color-border-default: #d1d5db;
+  --color-border-strong: #9ca3af;
 
-  --color-text-primary: #1a1814;
-  --color-text-secondary: #504d43;
-  --color-text-muted: #807c6f;
-  --color-text-faint: #b0ac9e;
+  --color-text-primary: #1a1d26;
+  --color-text-secondary: #4a5568;
+  --color-text-muted: #64748b;
+  --color-text-faint: #94a3b8;
 
-  --color-accent: #8f3a13;
-  --color-accent-hover: #6f2c0c;
-  --color-accent-ink: #6f2c0c;
-  --color-accent-muted: rgba(143, 58, 19, 0.1);
-  --color-accent-subtle: rgba(143, 58, 19, 0.05);
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-muted: #dbeafe;
+  --color-accent-subtle: #eff6ff;
 
-  --color-bullish: #3d6b2a;
-  --color-bullish-text: #2f5621;
-  --color-bullish-muted: rgba(61, 107, 42, 0.1);
-  --color-bullish-subtle: rgba(61, 107, 42, 0.05);
+  --color-bullish: #16a34a;
+  --color-bullish-text: #15803d;
+  --color-bullish-muted: #dcfce7;
+  --color-bullish-subtle: #f0fdf4;
 
-  --color-bearish: #a3321f;
-  --color-bearish-text: #852617;
-  --color-bearish-muted: rgba(163, 50, 31, 0.1);
-  --color-bearish-subtle: rgba(163, 50, 31, 0.05);
+  --color-bearish: #dc2626;
+  --color-bearish-text: #b91c1c;
+  --color-bearish-muted: #fee2e2;
+  --color-bearish-subtle: #fef2f2;
 
-  --color-warning: #a8700f;
-  --color-warning-text: #7d520b;
-  --color-warning-muted: rgba(168, 112, 15, 0.1);
-  --color-warning-subtle: rgba(168, 112, 15, 0.05);
+  --color-warning: #d97706;
+  --color-warning-text: #b45309;
+  --color-warning-muted: #fef3c7;
+  --color-warning-subtle: #fffbeb;
 
-  --color-info: #3a6b8f;
-  --color-info-text: #2a506b;
+  --color-info: #2563eb;
+  --color-info-text: #1d4ed8;
+  --color-info-muted: #dbeafe;
+  --color-info-subtle: #eff6ff;
+
+  --color-purple: #7c3aed;
+  --color-purple-text: #6d28d9;
+  --color-purple-muted: #ede9fe;
+  --color-purple-subtle: #f5f3ff;
+
+  --color-orange: #ea580c;
+  --color-orange-text: #c2410c;
+  --color-orange-muted: #ffedd5;
+  --color-orange-subtle: #fff7ed;
 
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
-  --shadow-glow-accent: 0 0 20px rgba(143, 58, 19, 0.12);
+  --shadow-glow-accent: 0 0 20px rgba(37, 99, 235, 0.1);
+  --shadow-glow-bullish: 0 0 20px rgba(22, 163, 74, 0.08);
+  --shadow-glow-bearish: 0 0 20px rgba(220, 38, 38, 0.08);
 }
 
 html.light ::-webkit-scrollbar-thumb {
-  background: #c2bda9;
+  background: #c1c8d4;
 }
 html.light ::-webkit-scrollbar-thumb:hover {
-  background: #a8a390;
+  background: #a8b0bf;
 }
 
 /* ============================================================
    BASE STYLES
    ============================================================ */
 
-html, body {
-  background-color: var(--color-surface-0);
-  color: var(--color-text-primary);
-}
-
 body {
   font-family: var(--font-body);
-  font-size: 13px;
-  line-height: 1.45;
+  background-color: var(--color-surface-1);
+  color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-  font-feature-settings: "ss01", "cv11";
   margin: 0;
   min-height: 100vh;
+  /* iOS safe areas (notch, home indicator) */
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
@@ -181,9 +187,9 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
-  letter-spacing: -0.01em;
 }
 
+/* Tabular numbers for price/data displays */
 .font-mono,
 [data-mono] {
   font-family: var(--font-mono);
@@ -191,12 +197,12 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   SCROLLBARS (subtle)
+   SCROLLBAR (subtle dark)
    ============================================================ */
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -213,7 +219,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   FOCUS RING
+   FOCUS RING (accessible, on-brand)
    ============================================================ */
 
 :focus-visible {
@@ -222,18 +228,18 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   CHART GRID PATTERN — finer, for trading chart background
+   CHART GRID PATTERN
    ============================================================ */
 
 .chart-grid-bg {
-  background:
-    linear-gradient(var(--color-border-subtle) 1px, transparent 1px) 0 0 / 100% 48px,
-    linear-gradient(90deg, var(--color-border-subtle) 1px, transparent 1px) 0 0 / 80px 100%,
-    var(--color-surface-0);
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 
 /* ============================================================
-   ANIMATIONS
+   AI SWEEP ANIMATION
    ============================================================ */
 
 @keyframes slideIn {
@@ -241,55 +247,18 @@ h1, h2, h3, h4, h5, h6 {
   to { opacity: 1; transform: translateX(0); }
 }
 
+/* Disabled buttons */
+button:disabled {
+  cursor: not-allowed;
+}
+
 @keyframes ai-sweep {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(200%); }
 }
 
-@keyframes fadeIn {
-  from { opacity: 0.8; }
-  to { opacity: 1; }
-}
-
-/* Market status dot pulse */
-@keyframes status-pulse {
-  0% { transform: scale(1); opacity: 0.4; }
-  100% { transform: scale(2.2); opacity: 0; }
-}
-
-/* AI breathing indicator */
-@keyframes ai-breath {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
-/* Signal row pulse dot */
-@keyframes row-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-button:disabled {
-  cursor: not-allowed;
-}
-
-main {
-  animation: fadeIn 0.15s ease-out;
-}
-
-.ai-sweep-glow::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(to right, transparent, rgba(232, 166, 71, 0.1), transparent);
-  animation: ai-sweep 3s infinite linear;
-}
-
 /* ============================================================
-   RANGE SLIDER (amber accent thumb)
+   RANGE SLIDER (dark theme)
    ============================================================ */
 
 input[type="range"] {
@@ -309,7 +278,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--color-accent);
   cursor: pointer;
   border: 2px solid var(--color-surface-0);
-  box-shadow: 0 0 4px rgba(232, 166, 71, 0.3);
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
 }
 
 input[type="range"]::-moz-range-thumb {
@@ -322,7 +291,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ============================================================
-   TEXT GRADIENT (AI branding — amber → plum)
+   GRADIENT TEXT (used on landing page)
    ============================================================ */
 
 .text-gradient-ai {
@@ -333,113 +302,42 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ============================================================
-   NO SCROLLBAR UTILITY (used by horizontal ticker strip etc.)
+   SMOOTH PAGE TRANSITIONS
+   ============================================================ */
+
+main {
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0.8; }
+  to { opacity: 1; }
+}
+
+.ai-sweep-glow::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(to right, transparent, rgba(99, 102, 241, 0.1), transparent);
+  animation: ai-sweep 3s infinite linear;
+}
+
+/* ============================================================
+   TEXT GRADIENT (AI branding)
+   ============================================================ */
+
+.text-gradient-ai {
+  background: linear-gradient(to right, #a5b4fc, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ============================================================
+   NO SCROLLBAR UTILITY
    ============================================================ */
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-/* ============================================================
-   VAULT UTILITIES — reused across redesigned pages
-   ============================================================ */
-
-/* Serif display with subtle italic em-accent */
-.serif-display {
-  font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: -0.02em;
-}
-.serif-display em {
-  font-style: italic;
-  color: var(--color-accent-ink);
-}
-
-/* Mono uppercase kicker */
-.kicker {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-}
-
-/* Section number: § 01 */
-.sect-no {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-text-faint);
-  letter-spacing: 0.14em;
-}
-
-/* Market status dot (pulsing) */
-.market-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-bullish);
-  position: relative;
-  flex-shrink: 0;
-}
-.market-dot::after {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  background: var(--color-bullish);
-  opacity: 0.3;
-  animation: status-pulse 2.2s ease-out infinite;
-}
-.market-dot.closed { background: var(--color-text-faint); }
-.market-dot.closed::after { animation: none; background: var(--color-text-faint); opacity: 0.15; }
-.market-dot.pre { background: var(--color-warning); }
-.market-dot.pre::after { background: var(--color-warning); }
-
-/* Amber breathing dot (AI indicator) */
-.ai-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  animation: ai-breath 3s ease-in-out infinite;
-  flex-shrink: 0;
-}
-
-/* Direction pill (LONG / SHORT / EXIT) */
-.dir-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-}
-.dir-pill.long { background: var(--color-bullish-muted); color: var(--color-bullish-text); }
-.dir-pill.short { background: var(--color-bearish-muted); color: var(--color-bearish-text); }
-.dir-pill.exit { background: var(--color-warning-muted); color: var(--color-warning-text); }
-
-/* Conviction dot */
-.conv-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  margin-right: 2px;
-}
-.conv-dot.filled { background: var(--color-accent-ink); }
-.conv-dot.empty { background: var(--color-border-default); }
-
-/* Feed table pulse dot (leftmost cell) */
-.feed-pulse::before {
-  content: '';
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  margin-right: 8px;
-  animation: row-pulse 2s ease-out infinite;
-  vertical-align: middle;
-}

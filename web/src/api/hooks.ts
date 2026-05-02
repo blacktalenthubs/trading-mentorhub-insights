@@ -113,6 +113,38 @@ export function useMoveItem() {
   });
 }
 
+// --- Premarket sector heat (per watchlist group) ---
+
+export interface GroupSymbolQuote {
+  symbol: string;
+  last_price?: number | null;
+  prior_close?: number | null;
+  gap_pct?: number | null;
+  volume?: number | null;
+}
+
+export interface GroupPremarketSummary {
+  group_id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+  item_count: number;
+  avg_gap_pct: number | null;
+  breadth_green: number;
+  breadth_total: number;
+  top_mover: GroupSymbolQuote | null;
+  bottom_mover: GroupSymbolQuote | null;
+  items: GroupSymbolQuote[];
+}
+
+export function useGroupsPremarket() {
+  return useQuery({
+    queryKey: ["groups-premarket"],
+    queryFn: () => api.get<GroupPremarketSummary[]>("/market/groups/premarket-summary"),
+    staleTime: 60_000,  // server caches 60s; client respects same window
+  });
+}
+
 /** Live prices — polls every 15 seconds during market hours. */
 export function useLivePrices() {
   return useQuery({

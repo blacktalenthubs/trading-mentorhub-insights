@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -51,6 +51,32 @@ class CatalystItem(BaseModel):
     date: str  # ISO date string
     days_away: int
     timing: Optional[str] = None  # "After Close" | "Before Open" | "Unknown"
+
+
+class GroupSymbolQuote(BaseModel):
+    """Per-symbol quote inside a sector group."""
+
+    symbol: str
+    last_price: Optional[float] = None
+    prior_close: Optional[float] = None
+    gap_pct: Optional[float] = None
+    volume: Optional[float] = None
+
+
+class GroupPremarketSummary(BaseModel):
+    """Aggregated premarket movement for a single watchlist group."""
+
+    group_id: int
+    name: str
+    color: str
+    sort_order: int
+    item_count: int
+    avg_gap_pct: Optional[float] = None
+    breadth_green: int = 0  # how many symbols with gap_pct > 0
+    breadth_total: int = 0  # how many symbols had data
+    top_mover: Optional[GroupSymbolQuote] = None
+    bottom_mover: Optional[GroupSymbolQuote] = None
+    items: List[GroupSymbolQuote] = []
 
 
 class PriorDayResponse(BaseModel):

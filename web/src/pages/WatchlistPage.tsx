@@ -76,7 +76,7 @@ export default function WatchlistPage() {
   }, [groups, byGroup]);
 
   return (
-    <div className="space-y-4">
+    <div className="h-full overflow-y-auto p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Star className="h-5 w-5 text-accent" />

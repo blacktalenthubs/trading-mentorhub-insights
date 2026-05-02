@@ -14,7 +14,16 @@ from app.cache import cache_get, cache_set
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.rate_limit import limiter
-from app.schemas.market import CatalystItem, MarketStatusResponse, OHLCBar, OptionsFlowItem, PriorDayResponse, SectorRotationItem
+from app.schemas.market import (
+    CatalystItem,
+    GroupPremarketSummary,
+    GroupSymbolQuote,
+    MarketStatusResponse,
+    OHLCBar,
+    OptionsFlowItem,
+    PriorDayResponse,
+    SectorRotationItem,
+)
 
 # Add project root so analytics is importable
 _root = str(Path(__file__).resolve().parents[3])
@@ -456,3 +465,210 @@ async def catalysts(symbols: str = ""):
     items = await loop.run_in_executor(None, partial(_fetch_catalysts, sym_list))
     cache_set(key, items, _CATALYSTS_TTL)
     return items
+
+
+# =====================================================================
+# Premarket sector heat — per watchlist group, batched yfinance fetch.
+# =====================================================================
+
+_GROUPS_PREMARKET_TTL = 60  # 1 min — fresh enough for premarket window
+
+
+def _fetch_quotes_batch(symbols: list[str]) -> dict[str, dict]:
+    """Batch fetch latest price + prior close for many symbols via yfinance.
+
+    Returns {symbol: {last, prev_close, volume}}. Symbols with no data are
+    omitted. yfinance batch keeps this to a single HTTP round-trip.
+    """
+    import pandas as pd
+    import yfinance as yf
+
+    out: dict[str, dict] = {}
+    if not symbols:
+        return out
+
+    # period=2d so we always have a prior close even if today hasn't traded yet.
+    # prepost=True picks up premarket / aftermarket bars when present.
+    try:
+        data = yf.download(
+            tickers=symbols,
+            period="2d",
+            interval="1d",
+            prepost=True,
+            progress=False,
+            group_by="ticker",
+            threads=False,  # yfinance threading is flaky; serial is fine for ~30 symbols
+            auto_adjust=False,
+        )
+    except Exception:
+        return out
+
+    if data is None or len(data) == 0:
+        return out
+
+    for sym in symbols:
+        try:
+            # Single-symbol download returns flat columns; multi-symbol → MultiIndex.
+            if len(symbols) == 1:
+                df = data
+            else:
+                if sym not in data.columns.get_level_values(0):
+                    continue
+                df = data[sym]
+            if df is None or df.empty or len(df) < 2:
+                continue
+            close = df["Close"].dropna()
+            vol = df["Volume"].dropna() if "Volume" in df else pd.Series(dtype=float)
+            if len(close) < 2:
+                continue
+            last = float(close.iloc[-1])
+            prev_close = float(close.iloc[-2])
+            volume = float(vol.iloc[-1]) if len(vol) > 0 else None
+            if prev_close <= 0:
+                continue
+            out[sym] = {"last": last, "prev_close": prev_close, "volume": volume}
+        except Exception:
+            continue
+    return out
+
+
+def _summarize_group(
+    group, items: list, quotes: dict[str, dict]
+) -> GroupPremarketSummary:
+    """Aggregate per-group: avg gap, breadth, top/bottom movers."""
+    item_quotes: list[GroupSymbolQuote] = []
+    breadth_green = 0
+    breadth_total = 0
+    gap_sum = 0.0
+
+    for it in items:
+        q = quotes.get(it.symbol)
+        if q is None:
+            item_quotes.append(GroupSymbolQuote(symbol=it.symbol))
+            continue
+        last = q["last"]
+        prev = q["prev_close"]
+        gap_pct = round((last - prev) / prev * 100, 2) if prev > 0 else None
+        item_quotes.append(
+            GroupSymbolQuote(
+                symbol=it.symbol,
+                last_price=round(last, 2),
+                prior_close=round(prev, 2),
+                gap_pct=gap_pct,
+                volume=q.get("volume"),
+            )
+        )
+        if gap_pct is not None:
+            gap_sum += gap_pct
+            breadth_total += 1
+            if gap_pct > 0:
+                breadth_green += 1
+
+    movers = [q for q in item_quotes if q.gap_pct is not None]
+    top = max(movers, key=lambda q: q.gap_pct) if movers else None
+    bottom = min(movers, key=lambda q: q.gap_pct) if movers else None
+    avg_gap = round(gap_sum / breadth_total, 2) if breadth_total > 0 else None
+
+    return GroupPremarketSummary(
+        group_id=group.id,
+        name=group.name,
+        color=group.color,
+        sort_order=group.sort_order,
+        item_count=len(items),
+        avg_gap_pct=avg_gap,
+        breadth_green=breadth_green,
+        breadth_total=breadth_total,
+        top_mover=top,
+        bottom_mover=bottom,
+        items=item_quotes,
+    )
+
+
+@router.get("/groups/premarket-summary", response_model=List[GroupPremarketSummary])
+async def groups_premarket_summary(
+    user: User = Depends(get_current_user),
+):
+    """Per-watchlist-group premarket aggregation.
+
+    For each of the user's WatchlistGroups, computes:
+      - avg gap % across constituents
+      - breadth (count of green symbols / total)
+      - top mover and bottom mover
+      - per-symbol last/prev_close/gap_pct rows for drill-in
+
+    Sorted by abs(avg_gap_pct) DESC so the most active sectors float to top.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.database import async_session_factory
+    from app.models.watchlist import WatchlistGroup, WatchlistItem
+
+    cache_key = f"groups_premarket:{user.id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Load user's groups + items.
+    db: AsyncSession
+    async with async_session_factory() as db:
+        groups_result = await db.execute(
+            select(WatchlistGroup)
+            .where(WatchlistGroup.user_id == user.id)
+            .order_by(WatchlistGroup.sort_order, WatchlistGroup.id)
+        )
+        groups = list(groups_result.scalars().all())
+        if not groups:
+            return []
+
+        items_result = await db.execute(
+            select(WatchlistItem)
+            .where(WatchlistItem.user_id == user.id)
+            .where(WatchlistItem.group_id.is_not(None))
+        )
+        all_items = list(items_result.scalars().all())
+
+    # Bucket items by group_id.
+    items_by_group: dict[int, list] = {}
+    for it in all_items:
+        items_by_group.setdefault(it.group_id, []).append(it)
+
+    # Batch fetch quotes for all symbols at once (one HTTP round-trip).
+    all_symbols = sorted({it.symbol for it in all_items})
+    loop = asyncio.get_event_loop()
+    quotes = await loop.run_in_executor(None, partial(_fetch_quotes_batch, all_symbols))
+
+    summaries = [
+        _summarize_group(g, items_by_group.get(g.id, []), quotes) for g in groups
+    ]
+    # Sort by abs(avg_gap_pct) DESC; groups with no data sink to bottom.
+    summaries.sort(
+        key=lambda s: abs(s.avg_gap_pct) if s.avg_gap_pct is not None else -1,
+        reverse=True,
+    )
+
+    cache_set(cache_key, summaries, _GROUPS_PREMARKET_TTL)
+    return summaries
+
+
+@router.post("/groups/sector-brief/test")
+async def fire_sector_brief_test(
+    user: User = Depends(get_current_user),
+):
+    """Manually fire the premarket sector brief to the current user's Telegram.
+
+    Bypasses the 9:00 ET cron — useful for testing the format and pipeline
+    without waiting for the scheduled run. Only sends to YOUR chat_id, not
+    other users.
+    """
+    from app.services.sector_brief import build_user_sector_brief
+    from alerting.notifier import _send_telegram_to
+
+    if not user.telegram_chat_id:
+        return {"sent": False, "reason": "no telegram_chat_id on this user"}
+
+    body = await build_user_sector_brief(user.id)
+    if not body:
+        return {"sent": False, "reason": "no groups or no premarket data"}
+
+    ok = _send_telegram_to(body, user.telegram_chat_id, parse_mode="HTML")
+    return {"sent": ok, "preview": body}

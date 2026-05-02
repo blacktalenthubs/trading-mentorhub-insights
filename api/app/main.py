@@ -432,30 +432,35 @@ async def lifespan(app: FastAPI):
                 replace_existing=True,
             )
 
-            # Pre-market brief — runs once at 9:15 AM ET weekdays
-            def _premarket_brief():
-                try:
-                    from analytics.premarket_brief import send_premarket_brief, send_ai_premarket_brief
-                    send_premarket_brief()
-                    send_ai_premarket_brief()
-                    logger.info("Pre-market brief sent (data + AI)")
-                except Exception:
-                    logger.exception("Pre-market brief failed")
-
-            scheduler.add_job(
-                _premarket_brief,
-                "cron",
-                hour=9, minute=15,
-                timezone="America/New_York",
-                day_of_week="mon-fri",
-                id="premarket_brief",
-                replace_existing=True,
-            )
         else:
             logger.info(
                 "Scheduled AI jobs disabled (AI_SCHEDULED_JOBS_ENABLED=false): "
-                "game_plan, premarket_brief, daily_review"
+                "game_plan, daily_review"
             )
+
+        # =============================================================
+        # Premarket sector heat brief — deterministic, no AI, fires
+        # at 9:00 AM ET mon-fri. Independent of AI_SCHEDULED_JOBS_ENABLED
+        # because there's no AI cost.
+        # =============================================================
+        async def _sector_brief_job():
+            try:
+                from app.services.sector_brief import send_sector_briefs
+                sent, attempted = await send_sector_briefs()
+                logger.info("Sector brief cron: sent=%d/%d", sent, attempted)
+            except Exception:
+                logger.exception("Sector brief cron failed")
+
+        scheduler.add_job(
+            _sector_brief_job,
+            "cron",
+            hour=8, minute=45,
+            timezone="America/New_York",
+            day_of_week="mon-fri",
+            id="sector_brief",
+            replace_existing=True,
+        )
+        logger.info("Sector brief cron registered: 8:45 AM ET mon-fri")
 
         # =============================================================
         # Candle close heads-ups (NOT gated by AI/rule flags — these are
