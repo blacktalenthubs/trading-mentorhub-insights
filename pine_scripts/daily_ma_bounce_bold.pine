@@ -124,7 +124,19 @@ plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.bel
 plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
           color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
 
-build_ma_payload(string rule, string direction, string ma_tag, bool at_pdl_v, bool at_pdh_v) =>
+// Pick the bounced/rejected MA as the structural stop reference.
+// Long: tightest stop = just below the bounced MA (whichever fired).
+// Short: tightest stop = just above the rejected MA.
+bounced_ma_long = b_e8 ? ema8 : b_e21 ? ema21 : b_e50 ? ema50 :
+                  b_e100 ? ema100 : b_e200 ? ema200 :
+                  b_s50 ? sma50 : b_s100 ? sma100 : b_s200 ? sma200 : na
+rejected_ma_short = r_e8 ? ema8 : r_e21 ? ema21 : r_e50 ? ema50 :
+                    r_e100 ? ema100 : r_e200 ? ema200 :
+                    r_s50 ? sma50 : r_s100 ? sma100 : r_s200 ? sma200 : na
+
+build_ma_payload(string rule, string direction, string ma_tag,
+                 float entry_p, float stop_p, float t1_p, float t2_p,
+                 bool at_pdl_v, bool at_pdh_v) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
       + '","interval":"' + timeframe.period
@@ -132,6 +144,10 @@ build_ma_payload(string rule, string direction, string ma_tag, bool at_pdl_v, bo
       + '","high":"' + str.tostring(high, format.mintick)
       + '","low":"' + str.tostring(low, format.mintick)
       + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
       + '","rule":"' + rule
       + '","direction":"' + direction
       + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
@@ -142,6 +158,18 @@ build_ma_payload(string rule, string direction, string ma_tag, bool at_pdl_v, bo
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if fire_alerts and any_long
-    alert(build_ma_payload("ma_bounce_long",     "BUY",   long_tag,  near_pdl, false),    alert.freq_once_per_bar)
+    e   = close
+    s   = (not na(bounced_ma_long) ? bounced_ma_long : low) - atr14 * 0.3
+    rsk = e - s
+    alert(build_ma_payload("ma_bounce_long", "BUY", long_tag,
+                           e, s, e + rsk * 2, e + rsk * 3,
+                           near_pdl, false),
+          alert.freq_once_per_bar_close)
 if fire_alerts and any_short
-    alert(build_ma_payload("ma_rejection_short", "SHORT", short_tag, false,    near_pdh), alert.freq_once_per_bar)
+    e   = close
+    s   = (not na(rejected_ma_short) ? rejected_ma_short : high) + atr14 * 0.3
+    rsk = s - e
+    alert(build_ma_payload("ma_rejection_short", "SHORT", short_tag,
+                           e, s, e - rsk * 2, e - rsk * 3,
+                           false, near_pdh),
+          alert.freq_once_per_bar_close)

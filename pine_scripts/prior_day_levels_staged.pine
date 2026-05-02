@@ -201,40 +201,32 @@ build_payload(string rule, string direction,
 atr14      = nz(ta.atr(14)[1], close * 0.005)
 atr_buffer = atr14 * atr_buffer_mult
 
+// Alerts use freq_once_per_bar_close — fires only on confirmed bar close,
+// so intra-bar wicks that revert before close don't trigger fake alerts.
+// Sweep+/Sweep- diamonds stay on the chart as visual conviction markers,
+// but no separate alerts fire (every sweep+ is also a pdl_reclaim, every
+// sweep- is covered by pdh_break + pdh_rejection over time).
 if pdh_break
     e   = close
     s   = pdh - atr_buffer
     rsk = e - s
     alert(build_payload("staged_pdh_break", "BUY", e, s, e + rsk * 2, e + rsk * 3),
-          alert.freq_once_per_bar)
+          alert.freq_once_per_bar_close)
 if pdh_rejection
     e   = close
     s   = high + atr_buffer
     rsk = s - e
     alert(build_payload("staged_pdh_rejection", "SHORT", e, s, e - rsk * 2, pdl),
-          alert.freq_once_per_bar)
+          alert.freq_once_per_bar_close)
 if pdl_break
     e   = close
     s   = pdl + atr_buffer
     rsk = s - e
     alert(build_payload("staged_pdl_break", "SHORT", e, s, e - rsk * 2, e - rsk * 3),
-          alert.freq_once_per_bar)
+          alert.freq_once_per_bar_close)
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
     rsk = e - s
     alert(build_payload("staged_pdl_reclaim", "BUY", e, s, e + rsk * 2, pdh),
-          alert.freq_once_per_bar)
-
-if sweep_reclaim_long
-    e   = close
-    s   = low - atr_buffer
-    rsk = e - s
-    alert(build_payload("staged_sweep_long", "BUY", e, s, e + rsk * 2, pdh),
-          alert.freq_once_per_bar)
-if sweep_reversal_short
-    e   = close
-    s   = high + atr_buffer
-    rsk = s - e
-    alert(build_payload("staged_sweep_short", "SHORT", e, s, e - rsk * 2, pdl),
-          alert.freq_once_per_bar)
+          alert.freq_once_per_bar_close)
