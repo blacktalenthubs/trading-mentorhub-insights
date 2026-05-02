@@ -23,6 +23,23 @@ import {
 
 type ActionFilter = "all" | "took" | "skipped" | "open";
 
+const SETUP_TYPE_PREFIXES = ["tv_", "ai_"];
+const NON_SETUP_TYPES = new Set([
+  "ai_scan_wait",
+  "target_1_hit",
+  "target_2_hit",
+  "stop_loss_hit",
+  "auto_stop_out",
+  "vwap_loss",
+  "vwap_reclaim",
+]);
+
+function isSetupAlert(alertType: string | undefined | null): boolean {
+  if (!alertType) return false;
+  if (NON_SETUP_TYPES.has(alertType)) return false;
+  return SETUP_TYPE_PREFIXES.some((p) => alertType.startsWith(p));
+}
+
 export default function TradeReviewPage() {
   const { data: alerts, isLoading } = useAlertsHistory(30);
 
@@ -40,13 +57,11 @@ export default function TradeReviewPage() {
   const activeDate = selectedDate || sessionDates[0] || "";
   const dateIdx = sessionDates.indexOf(activeDate);
 
-  // Filter alerts — exclude WAIT (no replay value), rules (AI-only page now)
   const filtered = useMemo(() => {
     if (!alerts) return [];
     let result = alerts
       .filter((a) => a.session_date === activeDate)
-      .filter((a) => a.alert_type?.startsWith("ai_"))
-      .filter((a) => a.alert_type !== "ai_scan_wait");
+      .filter((a) => isSetupAlert(a.alert_type));
 
     if (actionFilter === "took") result = result.filter((a) => a.user_action === "took");
     if (actionFilter === "skipped") result = result.filter((a) => a.user_action === "skipped");
@@ -84,17 +99,11 @@ export default function TradeReviewPage() {
     () => alerts?.filter((a) => a.session_date === activeDate) ?? [],
     [alerts, activeDate]
   );
-  const aiSignalCount = dateAlerts.filter(
-    (a) => a.alert_type?.startsWith("ai_") && a.alert_type !== "ai_scan_wait"
-  ).length;
-  const tookCount = dateAlerts.filter((a) => a.user_action === "took").length;
-  const skippedCount = dateAlerts.filter((a) => a.user_action === "skipped").length;
-  const openCount = dateAlerts.filter(
-    (a) =>
-      a.alert_type?.startsWith("ai_") &&
-      a.alert_type !== "ai_scan_wait" &&
-      !a.user_action
-  ).length;
+  const setupAlerts = dateAlerts.filter((a) => isSetupAlert(a.alert_type));
+  const signalCount = setupAlerts.length;
+  const tookCount = setupAlerts.filter((a) => a.user_action === "took").length;
+  const skippedCount = setupAlerts.filter((a) => a.user_action === "skipped").length;
+  const openCount = setupAlerts.filter((a) => !a.user_action).length;
 
   const fmt = (n: number) =>
     n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -190,7 +199,7 @@ export default function TradeReviewPage() {
       <div className="flex rounded-lg border border-border-subtle overflow-hidden w-fit">
         {(
           [
-            ["all", "All", aiSignalCount],
+            ["all", "All", signalCount],
             ["took", "Took", tookCount],
             ["skipped", "Skipped", skippedCount],
             ["open", "Open", openCount],
