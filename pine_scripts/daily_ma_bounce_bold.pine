@@ -127,12 +127,43 @@ plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abo
 // Pick the bounced/rejected MA as the structural stop reference.
 // Long: tightest stop = just below the bounced MA (whichever fired).
 // Short: tightest stop = just above the rejected MA.
-bounced_ma_long = b_e8 ? ema8 : b_e21 ? ema21 : b_e50 ? ema50 :
-                  b_e100 ? ema100 : b_e200 ? ema200 :
-                  b_s50 ? sma50 : b_s100 ? sma100 : b_s200 ? sma200 : na
-rejected_ma_short = r_e8 ? ema8 : r_e21 ? ema21 : r_e50 ? ema50 :
-                    r_e100 ? ema100 : r_e200 ? ema200 :
-                    r_s50 ? sma50 : r_s100 ? sma100 : r_s200 ? sma200 : na
+// Pine v5 doesn't parse 8-deep ternary chains across multiple lines reliably,
+// so we use if/else blocks (same pattern as the stage badge in staged Pine).
+float bounced_ma_long = na
+if b_e8
+    bounced_ma_long := ema8
+else if b_e21
+    bounced_ma_long := ema21
+else if b_e50
+    bounced_ma_long := ema50
+else if b_e100
+    bounced_ma_long := ema100
+else if b_e200
+    bounced_ma_long := ema200
+else if b_s50
+    bounced_ma_long := sma50
+else if b_s100
+    bounced_ma_long := sma100
+else if b_s200
+    bounced_ma_long := sma200
+
+float rejected_ma_short = na
+if r_e8
+    rejected_ma_short := ema8
+else if r_e21
+    rejected_ma_short := ema21
+else if r_e50
+    rejected_ma_short := ema50
+else if r_e100
+    rejected_ma_short := ema100
+else if r_e200
+    rejected_ma_short := ema200
+else if r_s50
+    rejected_ma_short := sma50
+else if r_s100
+    rejected_ma_short := sma100
+else if r_s200
+    rejected_ma_short := sma200
 
 build_ma_payload(string rule, string direction, string ma_tag,
                  float entry_p, float stop_p, float t1_p, float t2_p,
