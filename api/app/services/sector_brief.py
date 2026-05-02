@@ -117,16 +117,97 @@ def _format_macro_token(symbol: str, q: Optional[dict]) -> str:
     return f"{display} {last:.1f}"
 
 
+def _gap_pct(q: Optional[dict]) -> Optional[float]:
+    if not q or q.get("last") is None or not q.get("prev_close"):
+        return None
+    prev = q["prev_close"]
+    if prev <= 0:
+        return None
+    return (q["last"] - prev) / prev * 100
+
+
+def _index_focus_line(macro_quotes: dict[str, dict]) -> Optional[str]:
+    """One-line tape characterization + dominant index recommendation.
+
+    Reads SPY/QQQ/IWM/DIA gaps + VIX + leading sector SPDR. Returns something
+    like 'Lead: QQQ +1.0% (tech tape) · Sector: XLK +1.5%'.
+    """
+    spy = _gap_pct(macro_quotes.get("SPY"))
+    qqq = _gap_pct(macro_quotes.get("QQQ"))
+    iwm = _gap_pct(macro_quotes.get("IWM"))
+    dia = _gap_pct(macro_quotes.get("DIA"))
+    vix_q = macro_quotes.get("^VIX")
+    vix_level = vix_q["last"] if vix_q and vix_q.get("last") is not None else None
+
+    indexes = [
+        ("SPY", spy, "S&P broad"),
+        ("QQQ", qqq, "tech tape"),
+        ("IWM", iwm, "small-cap risk-on"),
+        ("DIA", dia, "blue-chip"),
+    ]
+    indexes_with_data = [(s, g, lbl) for s, g, lbl in indexes if g is not None]
+    if not indexes_with_data:
+        return None
+
+    # Tape character — risk-off if everything red, otherwise leader.
+    all_red = all(g < -0.1 for _, g, _ in indexes_with_data)
+    all_green = all(g > 0.1 for _, g, _ in indexes_with_data)
+    leader = max(indexes_with_data, key=lambda x: abs(x[1]))
+    sym, gap, label = leader
+
+    if all_red:
+        char = "risk-off (broad weakness)"
+    elif all_green:
+        char = f"{label}, broad green"
+    elif gap > 0:
+        # Special case: SPY leads but QQQ lags = defensive mega-cap day
+        if sym == "SPY" and qqq is not None and qqq < spy - 0.3:
+            char = "mega-cap defensive (QQQ lags)"
+        else:
+            char = label
+    else:
+        char = f"{label} weakening"
+
+    sign = "+" if gap >= 0 else ""
+    parts = [f"Lead: {sym} {sign}{gap:.1f}% ({char})"]
+
+    # Sector ETF leader if meaningful.
+    sec_gaps = [
+        (sym, _gap_pct(macro_quotes.get(sym)))
+        for sym in MACRO_SECTORS
+    ]
+    sec_with_data = [(s, g) for s, g in sec_gaps if g is not None]
+    if sec_with_data:
+        sec_leader = max(sec_with_data, key=lambda x: abs(x[1]))
+        ssym, sgap = sec_leader
+        if abs(sgap) > 0.5:
+            ssign = "+" if sgap >= 0 else ""
+            parts.append(f"Sector: {ssym} {ssign}{sgap:.1f}%")
+
+    # VIX caveat.
+    if vix_level is not None:
+        if vix_level >= 20:
+            parts.append(f"VIX {vix_level:.1f} (elevated fear)")
+        elif vix_level <= 12:
+            parts.append(f"VIX {vix_level:.1f} (complacent)")
+
+    return " · ".join(parts)
+
+
 def _format_tape_section(macro_quotes: dict[str, dict]) -> list[str]:
-    """Two-line macro tape: indexes on row 1, sector ETFs on row 2."""
+    """Macro tape: indexes (row 1), sector ETFs (row 2), focus call (row 3)."""
     if not macro_quotes:
         return []
     idx_tokens = [_format_macro_token(s, macro_quotes.get(s)) for s in MACRO_INDEXES]
     sec_tokens = [_format_macro_token(s, macro_quotes.get(s)) for s in MACRO_SECTORS]
-    return [
+    lines = [
         f"Tape:  {'  '.join(idx_tokens)}",
         f"       {'  '.join(sec_tokens)}",
     ]
+    focus = _index_focus_line(macro_quotes)
+    if focus:
+        lines.append(f"       {focus}")
+    return lines
 
 
 def format_brief(
