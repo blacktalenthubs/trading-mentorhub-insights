@@ -120,7 +120,9 @@ def _format_tv_body(signal: AlertSignal) -> str | None:
 
     alignment_tag, conviction_label, conviction_score = _tv_alignment(direction, rule, stage_first)
 
-    parts = [f"<b>{dir_label} {sym} ${signal.price:.2f}</b> — <i>{_html.escape(rule)}</i>"]
+    ma_tag_pretty = getattr(signal, "_tv_ma_tag_pretty", "") or ""
+    rule_label = f"{rule} ({ma_tag_pretty})" if ma_tag_pretty else rule
+    parts = [f"<b>{dir_label} {sym} ${signal.price:.2f}</b> — <i>{_html.escape(rule_label)}</i>"]
 
     levels = []
     if signal.entry is not None:

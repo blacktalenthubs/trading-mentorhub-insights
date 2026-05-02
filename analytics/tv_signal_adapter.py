@@ -37,6 +37,24 @@ logger = logging.getLogger(__name__)
 
 # TradingView interval string → our internal canonical interval label.
 # TV uses single-letter codes for D/W/M and minute counts for intraday.
+_MA_TAG_PATTERN = __import__("re").compile(r"(\d+)([ES])")
+
+
+def _format_ma_tag(raw: str) -> str:
+    """Convert Pine ma_tag like '21E' / '8E21E' / '50S' to 'EMA21' / 'EMA8+EMA21' / 'SMA50'.
+
+    Pine emits combined tags when multiple MAs fire on the same bar (confluence).
+    Returns "" for empty/unparseable input.
+    """
+    if not raw:
+        return ""
+    matches = _MA_TAG_PATTERN.findall(raw)
+    if not matches:
+        return ""
+    parts = [f"{'EMA' if kind == 'E' else 'SMA'}{num}" for num, kind in matches]
+    return "+".join(parts)
+
+
 INTERVAL_MAP: dict[str, str] = {
     "1": "1m",
     "3": "3m",
@@ -225,8 +243,12 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
 
     fired_at = parse_fired_at(payload.get("fired_at", ""))
 
-    # Build the message — keep it explicit so the user sees the rule name.
+    raw_ma_tag = (payload.get("ma_tag") or "").strip()
+    pretty_ma_tag = _format_ma_tag(raw_ma_tag)
+
     msg_parts = [f"[TV] {rule}"]
+    if pretty_ma_tag:
+        msg_parts.append(pretty_ma_tag)
     if interval_label:
         msg_parts.append(f"({interval_label})")
     if direction == "NOTICE":
@@ -262,7 +284,8 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     sig._tv_vwap_slope_pct = _to_float_optional(payload.get("vwap_slope_pct"))  # type: ignore[attr-defined]
     _above_vwap_raw = (payload.get("above_vwap") or "").strip().lower()
     sig._tv_above_vwap = _above_vwap_raw == "true" if _above_vwap_raw else None  # type: ignore[attr-defined]
-    sig._tv_ma_tag = (payload.get("ma_tag") or "").strip()  # type: ignore[attr-defined]
+    sig._tv_ma_tag = raw_ma_tag  # type: ignore[attr-defined]
+    sig._tv_ma_tag_pretty = pretty_ma_tag  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig
