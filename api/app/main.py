@@ -42,6 +42,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Migration ALTER TABLE trial_ends_at: %s", e)
 
+        # Migration (May 2026): add watchlist.group_id FK for sector groups.
+        # create_all() doesn't ALTER existing tables, so this is needed for
+        # databases that pre-date the watchlist_group feature.
+        try:
+            await conn.execute(text(
+                "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS group_id INTEGER "
+                "REFERENCES watchlist_group(id) ON DELETE SET NULL"
+            ))
+            logger.info("Migration: watchlist.group_id column ensured")
+        except Exception as e:
+            logger.warning("Migration ALTER TABLE watchlist.group_id: %s", e)
+
         # Give existing free users a 3-day trial (one-time migration)
         try:
             result = await conn.execute(text(
