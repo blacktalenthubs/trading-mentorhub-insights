@@ -111,6 +111,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS t1_notified_at TIMESTAMP",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS t2_notified_at TIMESTAMP",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS stop_notified_at TIMESTAMP",
+            # TV v2 Pine: order-flow payload fields. Numeric values stored so
+            # the alert tuner can correlate exact thresholds to outcomes.
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS volume_ratio REAL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cvd_delta REAL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cvd_diverging INTEGER DEFAULT 0",
             # Coach message history persistence
             """CREATE TABLE IF NOT EXISTS coach_messages (
                 id SERIAL PRIMARY KEY,

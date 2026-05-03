@@ -286,6 +286,11 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     sig._tv_above_vwap = _above_vwap_raw == "true" if _above_vwap_raw else None  # type: ignore[attr-defined]
     sig._tv_ma_tag = raw_ma_tag  # type: ignore[attr-defined]
     sig._tv_ma_tag_pretty = pretty_ma_tag  # type: ignore[attr-defined]
+    # v2 Pine order-flow fields (None if not present in payload)
+    sig._tv_volume_ratio = _to_float_optional(payload.get("volume_ratio"))  # type: ignore[attr-defined]
+    sig._tv_cvd_delta = _to_float_optional(payload.get("cvd_delta"))  # type: ignore[attr-defined]
+    _cvd_div_raw = (payload.get("cvd_diverging") or "").strip().lower()
+    sig._tv_cvd_diverging = _cvd_div_raw == "true"  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig

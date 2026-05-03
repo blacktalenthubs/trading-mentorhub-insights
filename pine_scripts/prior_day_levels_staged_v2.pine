@@ -1,0 +1,251 @@
+// @version=5
+//
+// Prior Day Levels (Staged) v2 — Phase A order-flow additions.
+//
+// Identical to `prior_day_levels_staged.pine` (same 4 alerts, same stage
+// detection, same structural stops) plus three new payload fields:
+//
+//   • volume_ratio   — fire-bar volume / N-bar average (1.0 = avg, 1.5 = 50% above)
+//   • cvd_delta      — CVD change over lookback (positive = aggressive buying)
+//   • cvd_diverging  — true if price/CVD direction conflicts (bearish div on
+//                      LONGs, bullish div on SHORTs)
+//
+// CVD is approximated from candle structure (close near high = aggressive
+// buy proxy). Pine has no native bid/ask classification for non-futures.
+// Magnitude is approximate; direction and divergence are reliable.
+//
+// Backend uses these to DEGRADE conviction (not mute) and surface explicit
+// warnings ("⚠️ low volume", "⚠️ CVD diverging") in Telegram. v1 still
+// works unchanged — backend treats missing fields as neutral.
+//
+// Indicator name suffixed " v2" so TV treats it as a separate script slot —
+// you can run both v1 and v2 side-by-side and compare.
+//
+indicator("Prior Day Levels (Staged) v2", overlay = true)
+
+show_lines        = input.bool(true,  "Show PDH/PDL lines")
+show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
+show_sweep        = input.bool(true,  "Show SWEEP composite markers")
+show_vwap         = input.bool(true,  "Show VWAP")
+show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
+show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
+sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
+atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
+vwap_slope_thresh = input.float(0.1,  "VWAP slope threshold (%)", minval = 0.01, maxval = 1.0, step = 0.01)
+vol_avg_lookback  = input.int (20,    "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback      = input.int (10,    "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+
+// =====================================================================
+// PDH / PDL
+// =====================================================================
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+
+plot(show_lines ? pdh : na, title = "PDH",
+     color = color.new(color.green, 0), style = plot.style_linebr, linewidth = 2)
+plot(show_lines ? pdl : na, title = "PDL",
+     color = color.new(color.red, 0),   style = plot.style_linebr, linewidth = 2)
+
+// =====================================================================
+// VWAP + slope
+// =====================================================================
+vwap_v    = ta.vwap(hlc3)
+vwap_past = vwap_v[vwap_lookback]
+vwap_slope_pct = not na(vwap_past) and vwap_past != 0 ? (vwap_v - vwap_past) / vwap_past * 100 : na
+
+vwap_rising  = not na(vwap_slope_pct) and vwap_slope_pct >  vwap_slope_thresh
+vwap_falling = not na(vwap_slope_pct) and vwap_slope_pct < -vwap_slope_thresh
+vwap_flat    = not na(vwap_slope_pct) and not vwap_rising and not vwap_falling
+
+plot(show_vwap ? vwap_v : na, title = "VWAP",
+     color = color.new(#9C27B0, 20), linewidth = 2)
+
+// =====================================================================
+// Volume confirmation — fire-bar volume vs N-bar SMA
+// =====================================================================
+vol_avg = ta.sma(volume, vol_avg_lookback)
+volume_ratio = vol_avg > 0 ? volume / vol_avg : na
+
+// =====================================================================
+// CVD (Cumulative Volume Delta) — candle-structure approximation
+// close near high  → aggressive buying skew
+// close near low   → aggressive selling skew
+// Magnitude approximate; trend / divergence reliable.
+// =====================================================================
+bar_range = high - low
+buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
+sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
+delta_v = buy_vol - sell_vol
+cvd     = ta.cum(delta_v)
+
+cvd_past   = cvd[cvd_lookback]
+price_past = close[cvd_lookback]
+cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
+price_slope_n = not na(price_past) ? close - price_past : na
+
+// LONG entries care about bearish divergence: price up, CVD flat/down
+bearish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
+// SHORT entries care about bullish divergence: price down, CVD flat/up
+bullish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
+
+// =====================================================================
+// STAGE DETECTION
+// =====================================================================
+above_pdh   = not na(pdh) and close > pdh
+below_pdl   = not na(pdl) and close < pdl
+in_range    = not na(pdh) and not na(pdl) and close >= pdl and close <= pdh
+above_vwap  = not na(vwap_v) and close > vwap_v
+below_vwap  = not na(vwap_v) and close < vwap_v
+
+is_stage2 = above_pdh and vwap_rising  and above_vwap
+is_stage4 = below_pdl and vwap_falling and below_vwap
+is_stage3 = above_pdh and not is_stage2 and (vwap_flat or vwap_falling)
+is_stage1 = in_range  and vwap_flat
+
+string stage_text = "TRANSITIONING\nno clean regime\nHALF SIZE — sweeps only"
+color  stage_bg   = color.new(color.purple, 30)
+if na(vwap_slope_pct)
+    stage_text := "INSUFFICIENT DATA\nVWAP loading\nWAIT for slope to settle"
+    stage_bg   := color.new(color.gray, 30)
+else if is_stage2
+    stage_text := "STAGE 2: ADVANCING\nabove PDH + VWAP rising\nLONGS at PDH/VWAP pullbacks"
+    stage_bg   := color.new(color.green, 10)
+else if is_stage4
+    stage_text := "STAGE 4: DECLINING\nbelow PDL + VWAP falling\nSHORTS at VWAP pops"
+    stage_bg   := color.new(color.red, 10)
+else if is_stage3
+    stage_text := "STAGE 3: TOPPING\nabove PDH but VWAP rolling\nTRIM LONGS — fade rejects"
+    stage_bg   := color.new(color.orange, 10)
+else if is_stage1
+    stage_text := "STAGE 1: BASING\ninside range + VWAP flat\nWAIT — sweeps only"
+    stage_bg   := color.new(color.gray, 30)
+
+var table stage_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
+if show_stage_badge and barstate.islast
+    table.cell(stage_t, 0, 0, stage_text, text_color = color.white, bgcolor = stage_bg, text_size = size.normal)
+
+bgcolor(show_stage_bg and is_stage2 ? color.new(color.green, 95)  : na, title = "Stage 2 bg")
+bgcolor(show_stage_bg and is_stage4 ? color.new(color.red,   95)  : na, title = "Stage 4 bg")
+
+// =====================================================================
+// PDH/PDL break / reject / sweep
+// =====================================================================
+pdh_break     = close > pdh and close[1] <= pdh
+pdh_rejection = high >= pdh and close < pdh and high[1] < pdh
+pdl_break     = close < pdl and close[1] >= pdl
+pdl_reclaim   = close > pdl and close[1] <= pdl
+
+var int pdl_break_bar = na
+var int pdh_break_bar = na
+if pdl_break
+    pdl_break_bar := bar_index
+if pdh_break
+    pdh_break_bar := bar_index
+
+pdh_failed = close < pdh and close[1] > pdh
+
+bars_since_pdl_break = na(pdl_break_bar) ? 9999 : bar_index - pdl_break_bar
+bars_since_pdh_break = na(pdh_break_bar) ? 9999 : bar_index - pdh_break_bar
+
+sweep_reclaim_long   = pdl_reclaim and bars_since_pdl_break <= sweep_window_bars
+sweep_reversal_short = pdh_failed  and bars_since_pdh_break <= sweep_window_bars
+
+sweep_active = sweep_reclaim_long or sweep_reversal_short
+
+bgcolor((not sweep_active) and pdh_break     ? color.new(color.green,   75) : na, title = "PDH break bg")
+bgcolor((not sweep_active) and pdl_reclaim   ? color.new(color.aqua,    75) : na, title = "PDL reclaim bg")
+bgcolor((not sweep_active) and pdh_rejection ? color.new(color.orange,  70) : na, title = "PDH rejection bg")
+bgcolor((not sweep_active) and pdl_break     ? color.new(color.red,     75) : na, title = "PDL break bg")
+bgcolor(sweep_reclaim_long   ? color.new(color.lime,    40) : na, title = "Sweep LONG bg")
+bgcolor(sweep_reversal_short ? color.new(color.fuchsia, 40) : na, title = "Sweep SHORT bg")
+
+plotshape(show_signals and pdh_break,
+          title = "BREAK+ LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.normal, text = "BREAK+", textcolor = color.white)
+plotshape(show_signals and pdl_reclaim and not sweep_reclaim_long,
+          title = "RECLAIM LONG", location = location.belowbar,
+          color = color.new(color.aqua, 0), style = shape.triangleup,
+          size = size.normal, text = "RECLAIM", textcolor = color.black)
+plotshape(show_signals and pdh_rejection,
+          title = "REJECT SHORT", location = location.abovebar,
+          color = color.new(color.orange, 0), style = shape.triangledown,
+          size = size.normal, text = "REJECT", textcolor = color.white)
+plotshape(show_signals and pdl_break and not sweep_reversal_short,
+          title = "BREAK- SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.normal, text = "BREAK-", textcolor = color.white)
+
+plotshape(show_sweep and sweep_reclaim_long,
+          title = "SWEEP+ HC LONG", location = location.belowbar,
+          color = color.new(color.lime, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP+", textcolor = color.black)
+plotshape(show_sweep and sweep_reversal_short,
+          title = "SWEEP- HC SHORT", location = location.abovebar,
+          color = color.new(color.fuchsia, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP-", textcolor = color.white)
+
+// =====================================================================
+// Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
+// =====================================================================
+stage_json = str.replace_all(stage_text, "\n", " — ")
+
+build_payload_v2(string rule, string direction,
+                 float entry_p, float stop_p, float t1_p, float t2_p,
+                 float vr, float cvd_d, bool cvd_div) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","stage":"' + stage_json
+      + '","vwap":"' + str.tostring(vwap_v, format.mintick)
+      + '","vwap_slope_pct":"' + str.tostring(vwap_slope_pct, "#.##")
+      + '","above_vwap":"' + (above_vwap ? "true" : "false")
+      + '","volume_ratio":"' + str.tostring(vr, "#.##")
+      + '","cvd_delta":"' + str.tostring(cvd_d, "#.##")
+      + '","cvd_diverging":"' + (cvd_div ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+atr14      = nz(ta.atr(14)[1], close * 0.005)
+atr_buffer = atr14 * atr_buffer_mult
+
+// LONG alerts pass bearish_div (price up, CVD lagging = bad for longs)
+// SHORT alerts pass bullish_div (price down, CVD lifting = bad for shorts)
+if pdh_break
+    e   = close
+    s   = pdh - atr_buffer
+    rsk = e - s
+    alert(build_payload_v2("staged_pdh_break", "BUY", e, s, e + rsk * 2, e + rsk * 3,
+                           volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
+if pdh_rejection
+    e   = close
+    s   = high + atr_buffer
+    rsk = s - e
+    alert(build_payload_v2("staged_pdh_rejection", "SHORT", e, s, e - rsk * 2, pdl,
+                           volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+if pdl_break
+    e   = close
+    s   = pdl + atr_buffer
+    rsk = s - e
+    alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, e - rsk * 2, e - rsk * 3,
+                           volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+if pdl_reclaim
+    e   = close
+    s   = low - atr_buffer
+    rsk = e - s
+    alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, e + rsk * 2, pdh,
+                           volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)

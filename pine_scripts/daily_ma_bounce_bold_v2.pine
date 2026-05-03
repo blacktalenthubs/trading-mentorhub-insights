@@ -1,0 +1,231 @@
+// @version=5
+//
+// Daily MA Bounce (Bold) v2 — Phase A order-flow additions.
+//
+// Identical to `daily_ma_bounce_bold.pine` (same 8 daily MAs, same bounce/
+// reject detection, same structural stop selection) plus three new payload
+// fields per alert:
+//
+//   • volume_ratio   — fire-bar volume / N-bar SMA
+//   • cvd_delta      — CVD change over lookback (>0 = aggressive buying)
+//   • cvd_diverging  — true if CVD/price direction conflicts
+//
+// CVD is approximated from candle structure (Pine has no native bid/ask
+// classification for non-futures). Magnitude approximate; direction reliable.
+//
+// Backend uses these to DEGRADE conviction (not mute) and surface warnings
+// in Telegram. v1 still works unchanged — backend treats missing fields
+// as neutral.
+//
+// Indicator name suffixed " v2" so TV treats as separate script slot.
+//
+indicator("Daily MA Bounce (Bold) v2", overlay = true, max_labels_count = 500)
+
+show_lines        = input.bool(true,  "Show daily MA lines")
+show_markers      = input.bool(true,  "Show BOUNCE/REJECT markers")
+show_price_labels = input.bool(false, "Show MA values in right price scale (declutter when off)")
+tolerance_atr     = input.float(0.3,  "Tolerance (× ATR14)", minval = 0.05, maxval = 2.0, step = 0.05)
+label_size_in     = input.string("tiny", "Marker label size", options = ["tiny", "small", "normal", "large"])
+vol_avg_lookback  = input.int (20,    "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback      = input.int (10,    "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+
+label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
+
+ma_disp = show_price_labels ? display.all : (display.pane + display.status_line + display.data_window)
+
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, display = ma_disp)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, display = ma_disp)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles, display = ma_disp)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles, display = ma_disp)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles, display = ma_disp)
+
+atr14 = nz(ta.atr(14)[1], close * 0.005)
+tol   = atr14 * tolerance_atr
+
+bounce_long(float ma) =>
+    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+
+reject_short(float ma) =>
+    not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
+
+b_e8   = bounce_long(ema8)
+b_e21  = bounce_long(ema21)
+b_e50  = bounce_long(ema50)
+b_e100 = bounce_long(ema100)
+b_e200 = bounce_long(ema200)
+b_s50  = bounce_long(sma50)
+b_s100 = bounce_long(sma100)
+b_s200 = bounce_long(sma200)
+
+r_e8   = reject_short(ema8)
+r_e21  = reject_short(ema21)
+r_e50  = reject_short(ema50)
+r_e100 = reject_short(ema100)
+r_e200 = reject_short(ema200)
+r_s50  = reject_short(sma50)
+r_s100 = reject_short(sma100)
+r_s200 = reject_short(sma200)
+
+any_long  = b_e8 or b_e21 or b_e50 or b_e100 or b_e200 or b_s50 or b_s100 or b_s200
+any_short = r_e8 or r_e21 or r_e50 or r_e100 or r_e200 or r_s50 or r_s100 or r_s200
+
+long_tag = (b_e8 ? "8E " : "") + (b_e21 ? "21E " : "") + (b_e50 ? "50E " : "") + (b_e100 ? "100E " : "") + (b_e200 ? "200E " : "") + (b_s50 ? "50S " : "") + (b_s100 ? "100S " : "") + (b_s200 ? "200S " : "")
+
+short_tag = (r_e8 ? "8E " : "") + (r_e21 ? "21E " : "") + (r_e50 ? "50E " : "") + (r_e100 ? "100E " : "") + (r_e200 ? "200E " : "") + (r_s50 ? "50S " : "") + (r_s100 ? "100S " : "") + (r_s200 ? "200S " : "")
+
+plotshape(show_markers and any_long,
+          title = "Bounce LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.tiny)
+plotshape(show_markers and any_short,
+          title = "Reject SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.tiny)
+
+if show_markers and any_long
+    label.new(bar_index, low, long_tag,
+              style = label.style_label_up,
+              color = color.new(color.green, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.belowbar)
+if show_markers and any_short
+    label.new(bar_index, high, short_tag,
+              style = label.style_label_down,
+              color = color.new(color.red, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.abovebar)
+
+bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
+bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
+
+// =====================================================================
+// Volume confirmation + CVD (same approximation as staged v2)
+// =====================================================================
+vol_avg = ta.sma(volume, vol_avg_lookback)
+volume_ratio = vol_avg > 0 ? volume / vol_avg : na
+
+bar_range = high - low
+buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
+sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
+delta_v = buy_vol - sell_vol
+cvd     = ta.cum(delta_v)
+
+cvd_past   = cvd[cvd_lookback]
+price_past = close[cvd_lookback]
+cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
+price_slope_n = not na(price_past) ? close - price_past : na
+
+bearish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
+bullish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
+
+// Confluence + PDH/PDL context (unchanged from v1)
+fire_alerts  = input.bool(true,  "Fire MA bounce/rejection alerts to webhook")
+conf_tol_atr = input.float(0.5,  "PDH/PDL confluence tag tolerance (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+conf_buffer = atr14 * conf_tol_atr
+near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
+near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
+
+plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.belowbar,
+          color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
+plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
+          color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
+
+float bounced_ma_long = na
+if b_e8
+    bounced_ma_long := ema8
+else if b_e21
+    bounced_ma_long := ema21
+else if b_e50
+    bounced_ma_long := ema50
+else if b_e100
+    bounced_ma_long := ema100
+else if b_e200
+    bounced_ma_long := ema200
+else if b_s50
+    bounced_ma_long := sma50
+else if b_s100
+    bounced_ma_long := sma100
+else if b_s200
+    bounced_ma_long := sma200
+
+float rejected_ma_short = na
+if r_e8
+    rejected_ma_short := ema8
+else if r_e21
+    rejected_ma_short := ema21
+else if r_e50
+    rejected_ma_short := ema50
+else if r_e100
+    rejected_ma_short := ema100
+else if r_e200
+    rejected_ma_short := ema200
+else if r_s50
+    rejected_ma_short := sma50
+else if r_s100
+    rejected_ma_short := sma100
+else if r_s200
+    rejected_ma_short := sma200
+
+build_ma_payload_v2(string rule, string direction, string ma_tag,
+                    float entry_p, float stop_p, float t1_p, float t2_p,
+                    bool at_pdl_v, bool at_pdh_v,
+                    float vr, float cvd_d, bool cvd_div) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","pdh":"' + str.tostring(pdh, format.mintick)
+      + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
+      + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
+      + '","volume_ratio":"' + str.tostring(vr, "#.##")
+      + '","cvd_delta":"' + str.tostring(cvd_d, "#.##")
+      + '","cvd_diverging":"' + (cvd_div ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if fire_alerts and any_long
+    e   = close
+    s   = (not na(bounced_ma_long) ? bounced_ma_long : low) - atr14 * 0.3
+    rsk = e - s
+    alert(build_ma_payload_v2("ma_bounce_long", "BUY", long_tag,
+                              e, s, e + rsk * 2, e + rsk * 3,
+                              near_pdl, false,
+                              volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
+if fire_alerts and any_short
+    e   = close
+    s   = (not na(rejected_ma_short) ? rejected_ma_short : high) + atr14 * 0.3
+    rsk = s - e
+    alert(build_ma_payload_v2("ma_rejection_short", "SHORT", short_tag,
+                              e, s, e - rsk * 2, e - rsk * 3,
+                              false, near_pdh,
+                              volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)

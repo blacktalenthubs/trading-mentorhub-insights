@@ -50,6 +50,9 @@ class Alert(Base):
     t1_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     t2_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     stop_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    volume_ratio: Mapped[Optional[float]] = mapped_column(Float)
+    cvd_delta: Mapped[Optional[float]] = mapped_column(Float)
+    cvd_diverging: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
 
 
 class ActiveEntry(Base):

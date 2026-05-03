@@ -76,6 +76,10 @@ class TVWebhookPayload(BaseModel):
     vwap_slope_pct: Optional[str] = None
     above_vwap: Optional[str] = None
     ma_tag: Optional[str] = None
+    # v2 Pine order-flow extras (volume confirmation + CVD divergence)
+    volume_ratio: Optional[str] = None
+    cvd_delta: Optional[str] = None
+    cvd_diverging: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +259,9 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
                 score=int(sig.score) if sig.score else 0,
                 confluence_score=int(getattr(sig, "_confluence_score", 0)) or 0,
                 session_date=session_date,
+                volume_ratio=getattr(sig, "_tv_volume_ratio", None),
+                cvd_delta=getattr(sig, "_tv_cvd_delta", None),
+                cvd_diverging=1 if getattr(sig, "_tv_cvd_diverging", False) else 0,
             )
             db.add(alert)
             pairs.append((user, alert))
