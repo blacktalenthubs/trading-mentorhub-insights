@@ -35,6 +35,7 @@ vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, 
 vwap_slope_thresh = input.float(0.1,  "VWAP slope threshold (%)", minval = 0.01, maxval = 1.0, step = 0.01)
 vol_avg_lookback  = input.int (20,    "Volume average lookback (bars)", minval = 5, maxval = 60)
 cvd_lookback      = input.int (10,    "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+vwap_setup_bars   = input.int (3,     "VWAP setup: bars on wrong side before reclaim/reject fires", minval = 1, maxval = 10)
 
 // =====================================================================
 // PDH / PDL
@@ -249,3 +250,85 @@ if pdl_reclaim
     alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, e + rsk * 2, pdh,
                            volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
+
+// =====================================================================
+// VWAP reclaim → PDH (LONG) / VWAP reject → PDL (SHORT)
+// =====================================================================
+// Earlier-entry setup than PDH/PDL break — when price closes back above
+// VWAP after N consecutive bars below, PDH becomes a clean structural
+// target. R:R is materially better than waiting for PDH break (entry at
+// the level being defended, not at the breakout).
+//
+// Skip if already past the target (above PDH for longs, below PDL for
+// shorts) — no clean target overhead/below in those cases.
+//
+// Backend dedup (30 min, 0.5%, direction-aware) handles same-direction
+// re-fires from VWAP whipsaw. State machine here only checks the "wrong
+// side first" precondition.
+//
+// Helper: true if all of the last `n` bars closed strictly below VWAP.
+all_closes_below_vwap(int n) =>
+    result = true
+    for i = 1 to n
+        if na(vwap_v[i]) or close[i] >= vwap_v[i]
+            result := false
+    result
+
+all_closes_above_vwap(int n) =>
+    result = true
+    for i = 1 to n
+        if na(vwap_v[i]) or close[i] <= vwap_v[i]
+            result := false
+    result
+
+was_below_vwap = all_closes_below_vwap(vwap_setup_bars)
+was_above_vwap = all_closes_above_vwap(vwap_setup_bars)
+
+vwap_reclaim_long = not na(vwap_v) and not na(pdh) and was_below_vwap and close > vwap_v and close > open and close < pdh
+vwap_reject_short = not na(vwap_v) and not na(pdl) and was_above_vwap and close < vwap_v and close < open and close > pdl
+
+// Visual markers
+plotshape(show_signals and vwap_reclaim_long,
+          title = "VWAP reclaim LONG", location = location.belowbar,
+          color = color.new(#00BCD4, 0), style = shape.triangleup,
+          size = size.small)
+plotshape(show_signals and vwap_reject_short,
+          title = "VWAP reject SHORT", location = location.abovebar,
+          color = color.new(#E91E63, 0), style = shape.triangledown,
+          size = size.small)
+
+if show_signals and vwap_reclaim_long
+    label.new(bar_index, low, "VWAP→PDH",
+              style = label.style_label_up,
+              color = color.new(#00BCD4, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.belowbar)
+if show_signals and vwap_reject_short
+    label.new(bar_index, high, "VWAP→PDL",
+              style = label.style_label_down,
+              color = color.new(#E91E63, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.abovebar)
+
+// Alerts — entry at VWAP cross, stop just below/above the wick, T1 = PDH/PDL
+if vwap_reclaim_long
+    e = close
+    s = math.min(low, low[1]) - atr_buffer
+    rsk = e - s
+    t1 = pdh
+    t2 = pdh + (pdh - e) * 0.5
+    msg_vwap_long = build_payload_v2("vwap_reclaim_long", "BUY", e, s, t1, t2,
+                                     volume_ratio, cvd_slope_n, bearish_div)
+    alert(msg_vwap_long, alert.freq_once_per_bar_close)
+
+if vwap_reject_short
+    e = close
+    s = math.max(high, high[1]) + atr_buffer
+    rsk = s - e
+    t1 = pdl
+    t2 = pdl - (e - pdl) * 0.5
+    msg_vwap_short = build_payload_v2("vwap_reject_short", "SHORT", e, s, t1, t2,
+                                      volume_ratio, cvd_slope_n, bullish_div)
+    alert(msg_vwap_short, alert.freq_once_per_bar_close)
