@@ -497,17 +497,19 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Lifecycle watcher failed")
 
+        # Run 24/7 — crypto trades on weekends and outside US market hours,
+        # so gating to mon-fri 9-16 ET caused missed T1/T2/STOP notifications
+        # for ETH/BTC trades that hit targets off-hours.
+        # Cost is bounded: watcher only polls symbols with TOOK alerts in the
+        # last 5 days; no-op when none.
         scheduler.add_job(
             _lifecycle_watcher_job,
             "cron",
             minute="*/5",
-            hour="9-16",
-            timezone="America/New_York",
-            day_of_week="mon-fri",
             id="lifecycle_watcher",
             replace_existing=True,
         )
-        logger.info("Lifecycle watcher cron registered: every 5 min, 9:00-16:00 ET mon-fri")
+        logger.info("Lifecycle watcher cron registered: every 5 min, 24/7 (crypto-friendly)")
 
         # =============================================================
         # Candle close heads-ups (NOT gated by AI/rule flags — these are
