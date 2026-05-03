@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     APP_NAME: str = "TradeCoPilot API"
     DEBUG: bool = False
 
+    # TV alert lifecycle notifications (T1/T2/stop hits for took trades).
+    # Set TV_LIFECYCLE_ALERTS_ENABLED=false in Railway to silence them.
+    TV_LIFECYCLE_ALERTS_ENABLED: bool = True
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

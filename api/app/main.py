@@ -107,6 +107,10 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS entry_guidance TEXT",
             # P3: record suppressed_reason for tagged signals (noise, stale, overhead MA)
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS suppressed_reason VARCHAR(200)",
+            # TV alert lifecycle notifications: stamped when T1/T2/stop hit and Telegram fired
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS t1_notified_at TIMESTAMP",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS t2_notified_at TIMESTAMP",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS stop_notified_at TIMESTAMP",
             # Coach message history persistence
             """CREATE TABLE IF NOT EXISTS coach_messages (
                 id SERIAL PRIMARY KEY,
@@ -473,6 +477,32 @@ async def lifespan(app: FastAPI):
             replace_existing=True,
         )
         logger.info("Sector brief cron registered: 8:45 AM ET mon-fri")
+
+        # =============================================================
+        # TV alert lifecycle watcher — fires Telegram for T1/T2/stop hits
+        # on alerts the user pressed Took. One notification per outcome.
+        # Set TV_LIFECYCLE_ALERTS_ENABLED=false to disable.
+        # =============================================================
+        def _lifecycle_watcher_job():
+            try:
+                from app.background.lifecycle_watcher import check_lifecycle_outcomes
+                fired = check_lifecycle_outcomes(sync_session_factory)
+                if fired:
+                    logger.info("Lifecycle watcher: fired %d notifications", fired)
+            except Exception:
+                logger.exception("Lifecycle watcher failed")
+
+        scheduler.add_job(
+            _lifecycle_watcher_job,
+            "cron",
+            minute="*/5",
+            hour="9-16",
+            timezone="America/New_York",
+            day_of_week="mon-fri",
+            id="lifecycle_watcher",
+            replace_existing=True,
+        )
+        logger.info("Lifecycle watcher cron registered: every 5 min, 9:00-16:00 ET mon-fri")
 
         # =============================================================
         # Candle close heads-ups (NOT gated by AI/rule flags — these are

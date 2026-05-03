@@ -99,6 +99,48 @@ def _tv_alignment(direction: str, rule: str, stage_text: str) -> tuple[str, str,
     return "— neutral", "MEDIUM", 50
 
 
+def format_lifecycle_message(
+    *,
+    outcome: str,
+    symbol: str,
+    direction: str,
+    entry: float,
+    stop: float,
+    hit_price: float,
+    rule: str,
+    ma_tag_pretty: str = "",
+) -> str:
+    """Build a one-shot Telegram message for a TV alert outcome (T1/T2/stop hit).
+
+    *outcome* — one of "T1", "T2", "STOP".
+    Computes R-multiple from entry/stop spread and direction.
+    """
+    risk = abs(entry - stop)
+    if risk <= 0:
+        r_multiple = 0.0
+    elif direction == "BUY":
+        r_multiple = (hit_price - entry) / risk
+    else:
+        r_multiple = (entry - hit_price) / risk
+
+    rule_label = f"{rule} ({ma_tag_pretty})" if ma_tag_pretty else rule
+
+    if outcome == "T1":
+        head = f"🎯 <b>{symbol} T1 HIT ${hit_price:.2f}</b>"
+        tail = f"+{r_multiple:.2f}R · trail to BE or take half"
+    elif outcome == "T2":
+        head = f"🏆 <b>{symbol} T2 HIT ${hit_price:.2f}</b>"
+        tail = f"+{r_multiple:.2f}R · runner complete"
+    elif outcome == "STOP":
+        head = f"🛑 <b>{symbol} STOPPED ${hit_price:.2f}</b>"
+        tail = f"{r_multiple:.2f}R · trade closed"
+    else:
+        head = f"<b>{symbol} {outcome} ${hit_price:.2f}</b>"
+        tail = f"{r_multiple:+.2f}R"
+
+    return f"{head}\nFrom: {rule_label} entry ${entry:.2f}\n{tail}"
+
+
 def _format_tv_body(signal: AlertSignal) -> str | None:
     """TV-native Telegram message. Driven by Pine script output.
 
