@@ -346,8 +346,10 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
 
 // Fire alerts ----------------------------------------------------------------
 // Stop placement varies by mode:
-//   intraday → wick low - 0.2 × daily ATR    (tight, captures the actual test)
-//   swing    → MA       - 0.3 × chart ATR    (wider, lets the level breathe)
+//   intraday → wick low - 0.3 × chart-TF ATR (tight, scales with the bar
+//              you're actually trading — daily ATR was too wide on volatile
+//              symbols like ETH where 0.2×daily ≈ $16 buffer above wick)
+//   swing    → MA       - 0.3 × chart-TF ATR (lets the level breathe)
 //
 // T1/T2 use STRUCTURAL levels when available, R-multiples as fallback:
 //   LONG  → T1 = PDH (if PDH > entry), T2 = PDH extension
@@ -359,7 +361,7 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
 // first, then call alert() on a single line.
 if fire_alerts and any_long
     e = close
-    s = is_intraday_mode ? (low - atr_d * 0.2) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
+    s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
     pdh_above_entry = not na(pdh) and pdh > e
     float t1_long = na
@@ -375,7 +377,7 @@ if fire_alerts and any_long
 
 if fire_alerts and any_short
     e = close
-    s = is_intraday_mode ? (high + atr_d * 0.2) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
+    s = is_intraday_mode ? (high + atr_chart * 0.3) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
     rsk = s - e
     vwap_below_entry = not na(vwap_v) and vwap_v < e
     pdl_below_entry  = not na(pdl) and pdl < e
