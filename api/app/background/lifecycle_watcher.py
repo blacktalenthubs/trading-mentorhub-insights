@@ -132,7 +132,16 @@ def check_lifecycle_outcomes(sync_session_factory) -> int:
                     hit_price=hit_price,
                     rule=rule,
                 )
-                ok = _send_telegram_to(body, user.telegram_chat_id)
+                # Exit button — telegram_bot.py:296 _handle_exit closes the
+                # real_trade row and stops further lifecycle polling for this
+                # alert. Without the button, the trader has to use /exit
+                # SYMBOL PRICE manually, which they often miss.
+                exit_buttons = {
+                    "inline_keyboard": [[
+                        {"text": "\U0001f6d1 Exit Trade", "callback_data": f"exit:{alert.id}"},
+                    ]]
+                }
+                ok = _send_telegram_to(body, user.telegram_chat_id, reply_markup=exit_buttons)
                 if ok:
                     setattr(alert, col, now_utc)
                     fired += 1
