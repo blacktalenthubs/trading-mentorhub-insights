@@ -70,6 +70,10 @@ atr_chart = nz(ta.atr(14)[1], close * 0.005)
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
 
+// Chart-TF VWAP — used as primary structural T1 for SHORTs (first support
+// below an MA rejection). Resets daily by default on TV.
+vwap_v = ta.vwap(hlc3)
+
 tol = atr_chart * tolerance_atr
 
 // Plot daily MAs -------------------------------------------------------------
@@ -344,18 +348,50 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
 // Stop placement varies by mode:
 //   intraday → wick low - 0.2 × daily ATR    (tight, captures the actual test)
 //   swing    → MA       - 0.3 × chart ATR    (wider, lets the level breathe)
+//
+// T1/T2 use STRUCTURAL levels when available, R-multiples as fallback:
+//   LONG  → T1 = PDH (if PDH > entry), T2 = PDH extension
+//   SHORT → T1 = VWAP (if VWAP < entry), T2 = PDL (if PDL < VWAP)
+//   Fallback to R-multiples (r_t1 / r_t2 inputs) when structural target
+//   isn't on the right side of entry (e.g., entry already extended past PDH).
+//
 // Multi-line alert() args are flaky in Pine v5 — build payload into a var
 // first, then call alert() on a single line.
 if fire_alerts and any_long
     e = close
     s = is_intraday_mode ? (low - atr_d * 0.2) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
-    msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, e + rsk * r_t1, e + rsk * r_t2, near_pdl, false)
+    pdh_above_entry = not na(pdh) and pdh > e
+    float t1_long = na
+    float t2_long = na
+    if pdh_above_entry
+        t1_long := pdh
+        t2_long := pdh + (pdh - e) * 0.5
+    else
+        t1_long := e + rsk * r_t1
+        t2_long := e + rsk * r_t2
+    msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
     alert(msg_long, alert.freq_once_per_bar_close)
 
 if fire_alerts and any_short
     e = close
     s = is_intraday_mode ? (high + atr_d * 0.2) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
     rsk = s - e
-    msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, e - rsk * r_t1, e - rsk * r_t2, false, near_pdh)
+    vwap_below_entry = not na(vwap_v) and vwap_v < e
+    pdl_below_entry  = not na(pdl) and pdl < e
+    float t1_short = na
+    float t2_short = na
+    if vwap_below_entry and pdl_below_entry and pdl < vwap_v
+        t1_short := vwap_v
+        t2_short := pdl
+    else if vwap_below_entry
+        t1_short := vwap_v
+        t2_short := e - rsk * r_t2
+    else if pdl_below_entry
+        t1_short := pdl
+        t2_short := e - rsk * r_t2
+    else
+        t1_short := e - rsk * r_t1
+        t2_short := e - rsk * r_t2
+    msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, t1_short, t2_short, false, near_pdh)
     alert(msg_short, alert.freq_once_per_bar_close)
