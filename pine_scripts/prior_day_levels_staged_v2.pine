@@ -191,9 +191,9 @@ plotshape(show_sweep and sweep_reversal_short,
 // =====================================================================
 stage_json = str.replace_all(stage_text, "\n", " — ")
 
-build_payload_v2(string rule, string direction,
-                 float entry_p, float stop_p, float t1_p, float t2_p,
-                 float vr, float cvd_d, bool cvd_div) =>
+build_payload_v2(rule, direction,
+                 entry_p, stop_p, t1_p, t2_p,
+                 vr, cvd_d, cvd_div) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
       + '","interval":"' + timeframe.period

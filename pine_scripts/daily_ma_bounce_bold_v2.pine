@@ -184,10 +184,10 @@ else if r_s100
 else if r_s200
     rejected_ma_short := sma200
 
-build_ma_payload_v2(string rule, string direction, string ma_tag,
-                    float entry_p, float stop_p, float t1_p, float t2_p,
-                    bool at_pdl_v, bool at_pdh_v,
-                    float vr, float cvd_d, bool cvd_div) =>
+build_ma_payload_v2(rule, direction, ma_tag,
+                    entry_p, stop_p, t1_p, t2_p,
+                    at_pdl_v, at_pdh_v,
+                    vr, cvd_d, cvd_div) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
       + '","interval":"' + timeframe.period
