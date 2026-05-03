@@ -187,9 +187,9 @@ else if r_s200
 // Pine v5 caps user functions at 9 params; order-flow values
 // (volume_ratio, cvd_slope_n, bearish_div, bullish_div) are referenced
 // from outer scope directly. Direction picks bearish vs bullish inline.
-build_ma_payload_v2(rule, direction, ma_tag,
-                    entry_p, stop_p, t1_p, t2_p,
-                    at_pdl_v, at_pdh_v) =>
+// Declaration on one line — Pine v5 multi-line untyped param lists fail
+// with "end of line without line continuation".
+build_ma_payload_v2(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v, at_pdh_v) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
       + '","interval":"' + timeframe.period
