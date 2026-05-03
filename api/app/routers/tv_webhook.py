@@ -234,8 +234,13 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         # hold the DB connection during network I/O to Telegram.
         for user in users:
             # Per-user level dedup against alerts table.
+            # Direction-scoped — a LONG and a SHORT at the same level are
+            # opposite views and should both fire (e.g., PDH reclaim LONG
+            # vs PDH rejection SHORT at $2342). Same-direction repeats at
+            # the same level still get suppressed.
             if await _level_already_alerted(
-                db, user.id, sig.symbol, sig.entry or sig.price,
+                db, user.id, sig.symbol, sig.direction,
+                sig.entry or sig.price,
                 dedup_tolerance_pct, dedup_window,
             ):
                 logger.info(
@@ -346,11 +351,18 @@ async def _level_already_alerted(
     db,
     user_id: int,
     symbol: str,
+    direction: str,
     level: float,
     tolerance_pct: float,
     window: timedelta,
 ) -> bool:
-    """True if an alert at a similar level fired for this user recently."""
+    """True if an alert at a similar level fired in the same direction recently.
+
+    Direction is part of the dedup key — a LONG and a SHORT at the same price
+    level are opposite views (e.g., PDH reclaim vs PDH rejection at $2342),
+    both legitimate, neither redundant. Without the direction filter, whichever
+    fires first squashes the other.
+    """
     from app.models.alert import Alert
 
     if not level or level <= 0:
@@ -359,6 +371,7 @@ async def _level_already_alerted(
     stmt = select(Alert).where(
         Alert.user_id == user_id,
         Alert.symbol == symbol,
+        Alert.direction == direction,
         Alert.created_at >= cutoff,
     )
     result = await db.execute(stmt)

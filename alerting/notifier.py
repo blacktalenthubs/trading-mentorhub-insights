@@ -188,19 +188,29 @@ def _format_tv_body(signal: AlertSignal) -> str | None:
         slope_word = "rising" if slope > 0.1 else ("falling" if slope < -0.1 else "flat")
         parts.append(f"VWAP ${vwap:.2f} ({slope_word} {slope:+.2f}%)")
 
-    # v2 Pine order-flow degradation. Penalties applied additively to the
-    # base conviction score; warnings shown as ⚠ lines so the user sees
-    # exactly why the alert was downgraded. Floor at 15 so every alert is
-    # still actionable enough to track outcomes (no muting — by design).
+    # v2 Pine order-flow context — always show when data present, so the
+    # trader sees whether the silence means "good signal" or "missing data".
+    # Conviction penalties stay one-sided (only down on bad order flow) to
+    # preserve the existing baseline calibration — no upward boost for good.
     volume_ratio = getattr(signal, "_tv_volume_ratio", None)
     cvd_diverging = getattr(signal, "_tv_cvd_diverging", False)
+    cvd_delta = getattr(signal, "_tv_cvd_delta", None)
 
-    if volume_ratio is not None and volume_ratio < 1.5:
-        conviction_score -= 25
-        parts.append(f"⚠️ Low volume on fire bar ({volume_ratio:.2f}× avg)")
-    if cvd_diverging:
-        conviction_score -= 20
-        parts.append(f"⚠️ CVD diverging — order flow not confirming move")
+    if volume_ratio is not None:
+        if volume_ratio < 1.5:
+            conviction_score -= 25
+            parts.append(f"⚠️ Low volume on fire bar ({volume_ratio:.2f}× avg)")
+        elif volume_ratio >= 2.0:
+            parts.append(f"✅ Strong volume ({volume_ratio:.2f}× avg)")
+        else:
+            parts.append(f"Volume: {volume_ratio:.2f}× avg")
+
+    if cvd_delta is not None:
+        if cvd_diverging:
+            conviction_score -= 20
+            parts.append(f"⚠️ CVD diverging — order flow not confirming move")
+        else:
+            parts.append(f"✅ CVD confirming move")
 
     conviction_score = max(15, conviction_score)
     if conviction_score < 35:
