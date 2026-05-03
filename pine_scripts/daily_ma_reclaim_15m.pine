@@ -1,0 +1,305 @@
+// @version=5
+//
+// Daily MA Reclaim (15m) — Phase 5d (2026-05-03)
+//
+// Fires on the FIRST 15m bar that reclaims a daily EMA/SMA after wicking
+// through it. Solves the lag problem in v2 daily: instead of waiting for
+// the daily candle to close above the MA (which lands you $13+ off the
+// actual touch), this fires within minutes of the wick reclaim.
+//
+// Trigger condition (per MA):
+//   armed AND low <= ma AND close > ma AND close > open
+//
+// State machine — disarm/re-arm to suppress consolidation noise:
+//   • On fire → MA goes "disarmed"
+//   • Re-arm only when close > MA + (re_arm_atr × daily ATR14)
+//     (a clear breakout away from the level — not a re-touch)
+//   • Next touch after re-arm fires the next reclaim alert
+//
+// This prevents the 5–6 spam alerts you'd otherwise get during a
+// consolidation hugging the EMA after the initial reclaim.
+//
+// Stop is the wick low of the firing 15m bar minus a small daily ATR
+// buffer — much tighter than v2 daily because the entry is right at
+// the level. T1/T2 use 4R / 6R because risk is small enough that
+// 2R/3R would be inside noise.
+//
+// Same payload schema as v2 daily (volume_ratio, cvd_delta,
+// cvd_diverging) so backend conviction degradation works unchanged.
+//
+// Recommended timeframe: 15m. Will run on 5m–1h, but tolerance and
+// stop sizing are tuned for 15m.
+//
+indicator("Daily MA Reclaim (15m)", overlay = true, max_labels_count = 500)
+
+// Inputs ---------------------------------------------------------------------
+fire_alerts      = input.bool (true, "Fire reclaim alerts to webhook")
+show_lines       = input.bool (true, "Show daily MA lines")
+show_markers     = input.bool (true, "Show RECLAIM markers")
+re_arm_atr       = input.float(1.0,  "Re-arm buffer (× daily ATR14)", minval = 0.2, maxval = 3.0, step = 0.1)
+vol_avg_lookback = input.int  (20,   "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback     = input.int  (10,   "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+conf_tol_atr     = input.float(0.5,  "PDH/PDL confluence tolerance (× daily ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+
+// Timeframe guard — script only fires on intraday timeframes.
+is_intraday = timeframe.in_seconds() < timeframe.in_seconds("D")
+
+// Daily MAs (yesterday's settled value via [1] offset) -----------------------
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+atr_d = nz(atr_d_raw, close * 0.005)
+
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+// Plot daily MAs on the intraday chart ---------------------------------------
+plot(show_lines and is_intraday ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,   0), linewidth = 2)
+plot(show_lines and is_intraday ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green, 0), linewidth = 2)
+plot(show_lines and is_intraday ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,     0), linewidth = 2)
+plot(show_lines and is_intraday ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,     0), linewidth = 2)
+plot(show_lines and is_intraday ? ema200 : na, "EMA 200 (D)", color = color.new(color.black, 0), linewidth = 2)
+plot(show_lines and is_intraday ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,     0), linewidth = 2, style = plot.style_circles)
+plot(show_lines and is_intraday ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,     0), linewidth = 2, style = plot.style_circles)
+plot(show_lines and is_intraday ? sma200 : na, "SMA 200 (D)", color = color.new(color.black, 0), linewidth = 2, style = plot.style_circles)
+
+// State: armed flags per MA --------------------------------------------------
+// LONG side
+var bool armed_e8   = true
+var bool armed_e21  = true
+var bool armed_e50  = true
+var bool armed_e100 = true
+var bool armed_e200 = true
+var bool armed_s50  = true
+var bool armed_s100 = true
+var bool armed_s200 = true
+// SHORT side
+var bool s_armed_e8   = true
+var bool s_armed_e21  = true
+var bool s_armed_e50  = true
+var bool s_armed_e100 = true
+var bool s_armed_e200 = true
+var bool s_armed_s50  = true
+var bool s_armed_s100 = true
+var bool s_armed_s200 = true
+
+// Reclaim / rejection detection (single-line typed params) -------------------
+reclaim(bool armed, float ma) =>
+    armed and not na(ma) and low <= ma and close > ma and close > open
+
+rejection(bool armed, float ma) =>
+    armed and not na(ma) and high >= ma and close < ma and close < open
+
+fire_e8   = reclaim(armed_e8,   ema8)
+fire_e21  = reclaim(armed_e21,  ema21)
+fire_e50  = reclaim(armed_e50,  ema50)
+fire_e100 = reclaim(armed_e100, ema100)
+fire_e200 = reclaim(armed_e200, ema200)
+fire_s50  = reclaim(armed_s50,  sma50)
+fire_s100 = reclaim(armed_s100, sma100)
+fire_s200 = reclaim(armed_s200, sma200)
+
+s_fire_e8   = rejection(s_armed_e8,   ema8)
+s_fire_e21  = rejection(s_armed_e21,  ema21)
+s_fire_e50  = rejection(s_armed_e50,  ema50)
+s_fire_e100 = rejection(s_armed_e100, ema100)
+s_fire_e200 = rejection(s_armed_e200, ema200)
+s_fire_s50  = rejection(s_armed_s50,  sma50)
+s_fire_s100 = rejection(s_armed_s100, sma100)
+s_fire_s200 = rejection(s_armed_s200, sma200)
+
+// Disarm on fire, re-arm on clear breakout -----------------------------------
+re_arm_buffer = atr_d * re_arm_atr
+
+if fire_e8
+    armed_e8 := false
+if not armed_e8 and not na(ema8) and close > ema8 + re_arm_buffer
+    armed_e8 := true
+
+if fire_e21
+    armed_e21 := false
+if not armed_e21 and not na(ema21) and close > ema21 + re_arm_buffer
+    armed_e21 := true
+
+if fire_e50
+    armed_e50 := false
+if not armed_e50 and not na(ema50) and close > ema50 + re_arm_buffer
+    armed_e50 := true
+
+if fire_e100
+    armed_e100 := false
+if not armed_e100 and not na(ema100) and close > ema100 + re_arm_buffer
+    armed_e100 := true
+
+if fire_e200
+    armed_e200 := false
+if not armed_e200 and not na(ema200) and close > ema200 + re_arm_buffer
+    armed_e200 := true
+
+if fire_s50
+    armed_s50 := false
+if not armed_s50 and not na(sma50) and close > sma50 + re_arm_buffer
+    armed_s50 := true
+
+if fire_s100
+    armed_s100 := false
+if not armed_s100 and not na(sma100) and close > sma100 + re_arm_buffer
+    armed_s100 := true
+
+if fire_s200
+    armed_s200 := false
+if not armed_s200 and not na(sma200) and close > sma200 + re_arm_buffer
+    armed_s200 := true
+
+// SHORT mirror — re-arm when close clearly below MA
+if s_fire_e8
+    s_armed_e8 := false
+if not s_armed_e8 and not na(ema8) and close < ema8 - re_arm_buffer
+    s_armed_e8 := true
+
+if s_fire_e21
+    s_armed_e21 := false
+if not s_armed_e21 and not na(ema21) and close < ema21 - re_arm_buffer
+    s_armed_e21 := true
+
+if s_fire_e50
+    s_armed_e50 := false
+if not s_armed_e50 and not na(ema50) and close < ema50 - re_arm_buffer
+    s_armed_e50 := true
+
+if s_fire_e100
+    s_armed_e100 := false
+if not s_armed_e100 and not na(ema100) and close < ema100 - re_arm_buffer
+    s_armed_e100 := true
+
+if s_fire_e200
+    s_armed_e200 := false
+if not s_armed_e200 and not na(ema200) and close < ema200 - re_arm_buffer
+    s_armed_e200 := true
+
+if s_fire_s50
+    s_armed_s50 := false
+if not s_armed_s50 and not na(sma50) and close < sma50 - re_arm_buffer
+    s_armed_s50 := true
+
+if s_fire_s100
+    s_armed_s100 := false
+if not s_armed_s100 and not na(sma100) and close < sma100 - re_arm_buffer
+    s_armed_s100 := true
+
+if s_fire_s200
+    s_armed_s200 := false
+if not s_armed_s200 and not na(sma200) and close < sma200 - re_arm_buffer
+    s_armed_s200 := true
+
+// Aggregate fires + tags -----------------------------------------------------
+any_long  = fire_e8 or fire_e21 or fire_e50 or fire_e100 or fire_e200 or fire_s50 or fire_s100 or fire_s200
+any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
+
+long_tag  = (fire_e8   ? "8E "   : "") + (fire_e21   ? "21E "  : "") + (fire_e50   ? "50E "  : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S "  : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
+short_tag = (s_fire_e8 ? "8E "   : "") + (s_fire_e21 ? "21E "  : "") + (s_fire_e50 ? "50E "  : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S "  : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+
+// Markers --------------------------------------------------------------------
+plotshape(show_markers and any_long,
+          title = "Reclaim LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.tiny)
+plotshape(show_markers and any_short,
+          title = "Rejection SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.tiny)
+if show_markers and any_long
+    label.new(bar_index, low, long_tag,
+              style = label.style_label_up,
+              color = color.new(color.green, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.belowbar)
+if show_markers and any_short
+    label.new(bar_index, high, short_tag,
+              style = label.style_label_down,
+              color = color.new(color.red, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.abovebar)
+
+bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Reclaim bg")
+bgcolor(any_short ? color.new(color.red,   90) : na, title = "Rejection bg")
+
+// Volume + CVD (15m bar values) ----------------------------------------------
+vol_avg = ta.sma(volume, vol_avg_lookback)
+volume_ratio = vol_avg > 0 ? volume / vol_avg : na
+
+bar_range = high - low
+buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
+sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
+delta_v  = buy_vol - sell_vol
+cvd      = ta.cum(delta_v)
+
+cvd_past   = cvd[cvd_lookback]
+price_past = close[cvd_lookback]
+cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
+price_slope_n = not na(price_past) ? close - price_past : na
+
+bearish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
+bullish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
+
+// PDH/PDL confluence ---------------------------------------------------------
+conf_buffer = atr_d * conf_tol_atr
+near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
+near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
+
+plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.belowbar,
+          color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
+plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
+          color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
+
+// Payload builder — same schema as v2 daily, 9-param cap --------------------
+build_reclaim_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v, at_pdh_v) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","pdh":"' + str.tostring(pdh, format.mintick)
+      + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
+      + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
+      + '","volume_ratio":"' + str.tostring(volume_ratio, "#.##")
+      + '","cvd_delta":"' + str.tostring(cvd_slope_n, "#.##")
+      + '","cvd_diverging":"' + ((direction == "BUY" ? bearish_div : bullish_div) ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+// Fire alerts ----------------------------------------------------------------
+// Stop = wick low of firing bar - small daily ATR buffer (the actual support).
+// T1 = entry + 4×risk, T2 = entry + 6×risk — wider multiples than v2 daily
+// because risk is much smaller, so 2R/3R lands inside noise.
+if fire_alerts and any_long and is_intraday
+    e = close
+    s = low - atr_d * 0.2
+    rsk = e - s
+    msg_long = build_reclaim_payload("ma_bounce_long_reclaim", "BUY", long_tag, e, s, e + rsk * 4, e + rsk * 6, near_pdl, false)
+    alert(msg_long, alert.freq_once_per_bar_close)
+
+if fire_alerts and any_short and is_intraday
+    e = close
+    s = high + atr_d * 0.2
+    rsk = s - e
+    msg_short = build_reclaim_payload("ma_rejection_short_reclaim", "SHORT", short_tag, e, s, e - rsk * 4, e - rsk * 6, false, near_pdh)
+    alert(msg_short, alert.freq_once_per_bar_close)

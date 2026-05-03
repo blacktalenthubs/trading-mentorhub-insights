@@ -1,0 +1,141 @@
+// @version=5
+//
+// Daily 5 EMA Trailing Exit — Phase 5d (2026-05-03)
+//
+// Trailing exit signal driven by the daily 5 EMA, with optional 5/9 EMA
+// cross filter for noisy symbols (SPY/QQQ/etc.). Fires NOTICE alerts when
+// price closes through the trailing line.
+//
+//   • LONG trail exit:  close < daily 5 EMA   (exit your long, protect gains)
+//   • SHORT trail exit: close > daily 5 EMA   (exit your short, protect gains)
+//
+// Optional 5/9 cross filter (`use_9ema_filter` input):
+//   • When ON, LONG exit also requires 5 EMA < 9 EMA (5/9 cross confirmed bear)
+//   • When ON, SHORT exit also requires 5 EMA > 9 EMA (5/9 cross confirmed bull)
+//   • Suppresses single-bar whipsaws around the 5 EMA — needs structural
+//     momentum shift before signaling exit.
+//   • Recommended ON for SPY/QQQ/index ETFs (chop), OFF for momentum names
+//     (NVDA, MU, BTC) where 5 EMA alone catches trends cleanly.
+//
+// Designed to be paired with v2/v3 entry alerts. After taking a trade
+// from a longer-EMA bounce, set this Pine's alert at INTERVAL = 1D so
+// daily close confirms the trail break before exiting.
+//
+// State machine prevents whipsaw alerts during chop around the 5 EMA:
+//   • LONG exit armed only after close > 5 EMA + (re_arm_atr × daily ATR)
+//   • SHORT exit armed only after close < 5 EMA - (re_arm_atr × daily ATR)
+//   • After fire, that direction is disarmed until the price clearly
+//     re-establishes trend in the opposite direction.
+//
+// All alerts use direction = "NOTICE" — these are informational, not
+// entry signals. They flow through the existing TV webhook with no
+// backend changes needed.
+//
+// Recommended TV alert setup:
+//   • Interval: 1D                 (daily close confirms the break)
+//   • Frequency: Once Per Bar Close (already enforced in alert() call)
+//
+indicator("Daily 5 EMA Trail Exit", overlay = true, max_labels_count = 500)
+
+// Inputs ---------------------------------------------------------------------
+fire_alerts      = input.bool  (true,  "Fire trailing exit alerts to webhook")
+show_line        = input.bool  (true,  "Show daily 5 EMA line")
+show_markers     = input.bool  (true,  "Show TRAIL EXIT markers")
+use_9ema_filter  = input.bool  (false, "Require 5/9 EMA cross confirmation (recommended for SPY/QQQ)")
+re_arm_atr       = input.float (1.0,   "Re-arm buffer (× daily ATR14)", minval = 0.2, maxval = 3.0, step = 0.1)
+
+// Daily 5 EMA + 9 EMA + ATR (yesterday's settled value via [1] offset) ------
+ema5      = request.security(syminfo.tickerid, "D", ta.ema(close, 5)[1], lookahead = barmerge.lookahead_on)
+ema9      = request.security(syminfo.tickerid, "D", ta.ema(close, 9)[1], lookahead = barmerge.lookahead_on)
+atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1],       lookahead = barmerge.lookahead_on)
+atr_d     = nz(atr_d_raw, close * 0.005)
+
+plot(show_line ? ema5 : na, "EMA 5 (D)", color = color.new(color.purple, 0), linewidth = 2)
+plot(show_line and use_9ema_filter ? ema9 : na, "EMA 9 (D)", color = color.new(color.aqua, 0), linewidth = 2, style = plot.style_line)
+
+// State: armed flags --------------------------------------------------------
+// long_armed  = true means: price has been clearly above 5 EMA recently,
+//               so a close below the 5 EMA is a meaningful exit signal.
+// short_armed = mirror.
+var bool long_armed  = false
+var bool short_armed = false
+
+re_arm_buffer = atr_d * re_arm_atr
+
+// Detection ------------------------------------------------------------------
+// Base trigger: close on the wrong side of the 5 EMA (after being armed).
+// Optional 5/9 filter: also require 5 EMA on the same side of 9 EMA so we
+// only act on confirmed momentum cross, not a single-bar dip/snap.
+filter_long_ok  = not use_9ema_filter or (not na(ema9) and ema5 < ema9)
+filter_short_ok = not use_9ema_filter or (not na(ema9) and ema5 > ema9)
+
+fire_long_exit  = long_armed  and not na(ema5) and close < ema5 and filter_long_ok
+fire_short_exit = short_armed and not na(ema5) and close > ema5 and filter_short_ok
+
+// Disarm on fire
+if fire_long_exit
+    long_armed := false
+if fire_short_exit
+    short_armed := false
+
+// Re-arm when price clearly re-establishes the relevant side of the EMA
+if not long_armed and not na(ema5) and close > ema5 + re_arm_buffer
+    long_armed := true
+if not short_armed and not na(ema5) and close < ema5 - re_arm_buffer
+    short_armed := true
+
+// Markers --------------------------------------------------------------------
+plotshape(show_markers and fire_long_exit,
+          title = "Long trail exit", location = location.abovebar,
+          color = color.new(color.orange, 0), style = shape.xcross,
+          size = size.small)
+plotshape(show_markers and fire_short_exit,
+          title = "Short trail exit", location = location.belowbar,
+          color = color.new(color.aqua, 0), style = shape.xcross,
+          size = size.small)
+
+long_label_text  = use_9ema_filter ? "EXIT LONG (5/9)"  : "EXIT LONG (5E)"
+short_label_text = use_9ema_filter ? "EXIT SHORT (5/9)" : "EXIT SHORT (5E)"
+
+if show_markers and fire_long_exit
+    label.new(bar_index, high, long_label_text,
+              style = label.style_label_down,
+              color = color.new(color.orange, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.abovebar)
+if show_markers and fire_short_exit
+    label.new(bar_index, low, short_label_text,
+              style = label.style_label_up,
+              color = color.new(color.aqua, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.belowbar)
+
+// Payload --------------------------------------------------------------------
+// `filter_mode` lets the DB distinguish 5-only vs 5/9-cross alerts so we can
+// compare hit rates per symbol later.
+build_exit_payload(rule, exit_for) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","rule":"' + rule
+      + '","direction":"NOTICE"'
+      + '","ema5":"' + str.tostring(ema5, format.mintick)
+      + '","ema9":"' + str.tostring(ema9, format.mintick)
+      + '","filter_mode":"' + (use_9ema_filter ? "5_9_cross" : "5ema") + '"'
+      + ',"exit_for":"' + exit_for
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+// Fire alerts ----------------------------------------------------------------
+if fire_alerts and fire_long_exit
+    msg_l = build_exit_payload("ema5_trail_exit_long", "LONG")
+    alert(msg_l, alert.freq_once_per_bar_close)
+
+if fire_alerts and fire_short_exit
+    msg_s = build_exit_payload("ema5_trail_exit_short", "SHORT")
+    alert(msg_s, alert.freq_once_per_bar_close)

@@ -1,0 +1,361 @@
+// @version=5
+//
+// Daily MA Bounce v3 — Phase 5d (2026-05-03)
+//
+// Unified MA bounce/rejection Pine — works at ANY intraday or daily TF
+// via the TV alert "Interval" setting. Merges:
+//
+//   • v2 daily Pine — 8 daily MAs (EMA 8/21/50/100/200, SMA 50/100/200),
+//                     bounce/reject detection, PDH/PDL confluence, volume
+//                     + CVD order flow, conviction-aware payload.
+//
+//   • 15m reclaim Pine — state machine that suppresses re-fires during
+//                        consolidation, daily-ATR-relative buffers,
+//                        wick-based stops, wider R multiples.
+//
+// One Pine, every TF. Configure via:
+//   • TV alert Interval setting (15m, 65m, 4h, 1D)
+//   • `mode` input — "intraday" (strict touch + wick stop, defaults 4R/6R)
+//                  — "swing"    (band touch + MA-buffer stop, recommend 2R/3R)
+//
+// Recommended pairings:
+//   • 15m / 65m alerts → mode = intraday  (tight risk, fast entry)
+//   • 4h / daily alerts → mode = swing    (wider risk, full-bar confirmation)
+//
+// State machine (BOTH modes): after firing on a given MA, that MA is
+// "disarmed" until close moves > re_arm_atr × daily ATR away from it.
+// Prevents the 5-6 spam alerts during consolidations hugging the EMA.
+//
+// Same payload schema as v2 daily — backend conviction degradation,
+// Telegram formatting, Trade Review etc. all work unchanged. Rule names
+// are `ma_bounce_long_v3` / `ma_rejection_short_v3` so v3 alerts can be
+// distinguished from v2 in the DB.
+//
+indicator("Daily MA Bounce v3", overlay = true, max_labels_count = 500)
+
+// Inputs ---------------------------------------------------------------------
+fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to webhook")
+show_lines       = input.bool   (true,         "Show daily MA lines")
+show_markers     = input.bool   (true,         "Show BOUNCE/REJECT markers")
+mode             = input.string ("intraday",   "Setup mode", options = ["intraday", "swing"])
+re_arm_atr       = input.float  (1.0,          "Re-arm buffer (× daily ATR14)", minval = 0.2, maxval = 3.0, step = 0.1)
+tolerance_atr    = input.float  (0.3,          "MA tolerance band (× chart ATR14, swing mode)", minval = 0.05, maxval = 2.0, step = 0.05)
+r_t1             = input.float  (4.0,          "T1 R multiple (intraday=4, swing=2)", minval = 1.0, maxval = 10.0, step = 0.5)
+r_t2             = input.float  (6.0,          "T2 R multiple (intraday=6, swing=3)", minval = 1.0, maxval = 15.0, step = 0.5)
+vol_avg_lookback = input.int    (20,           "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback     = input.int    (10,           "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+conf_tol_atr     = input.float  (0.5,          "PDH/PDL confluence tolerance (× chart ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+label_size_in    = input.string ("tiny",       "Marker label size", options = ["tiny", "small", "normal", "large"])
+
+label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
+
+is_intraday_mode = mode == "intraday"
+
+// Daily MAs (yesterday's settled value via [1] offset) -----------------------
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+// Daily ATR (for state-machine re-arm buffer + intraday wick stop buffer)
+atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+atr_d     = nz(atr_d_raw, close * 0.005)
+// Chart-TF ATR (for v2-style tolerance band + ma-based stop in swing mode)
+atr_chart = nz(ta.atr(14)[1], close * 0.005)
+
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+tol = atr_chart * tolerance_atr
+
+// Plot daily MAs -------------------------------------------------------------
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    0), linewidth = 3)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles)
+
+// State: armed flags per MA (8 longs + 8 shorts) -----------------------------
+var bool armed_e8   = true
+var bool armed_e21  = true
+var bool armed_e50  = true
+var bool armed_e100 = true
+var bool armed_e200 = true
+var bool armed_s50  = true
+var bool armed_s100 = true
+var bool armed_s200 = true
+var bool s_armed_e8   = true
+var bool s_armed_e21  = true
+var bool s_armed_e50  = true
+var bool s_armed_e100 = true
+var bool s_armed_e200 = true
+var bool s_armed_s50  = true
+var bool s_armed_s100 = true
+var bool s_armed_s200 = true
+
+// Detection helpers — strict (intraday) and band (swing) ---------------------
+strict_long(float ma) =>
+    not na(ma) and low <= ma and close > ma and close > open
+
+strict_short(float ma) =>
+    not na(ma) and high >= ma and close < ma and close < open
+
+band_long(float ma) =>
+    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+
+band_short(float ma) =>
+    not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
+
+// Active condition per MA × direction (gated by armed flag) ------------------
+fire_e8   = armed_e8   and (is_intraday_mode ? strict_long(ema8)   : band_long(ema8))
+fire_e21  = armed_e21  and (is_intraday_mode ? strict_long(ema21)  : band_long(ema21))
+fire_e50  = armed_e50  and (is_intraday_mode ? strict_long(ema50)  : band_long(ema50))
+fire_e100 = armed_e100 and (is_intraday_mode ? strict_long(ema100) : band_long(ema100))
+fire_e200 = armed_e200 and (is_intraday_mode ? strict_long(ema200) : band_long(ema200))
+fire_s50  = armed_s50  and (is_intraday_mode ? strict_long(sma50)  : band_long(sma50))
+fire_s100 = armed_s100 and (is_intraday_mode ? strict_long(sma100) : band_long(sma100))
+fire_s200 = armed_s200 and (is_intraday_mode ? strict_long(sma200) : band_long(sma200))
+
+s_fire_e8   = s_armed_e8   and (is_intraday_mode ? strict_short(ema8)   : band_short(ema8))
+s_fire_e21  = s_armed_e21  and (is_intraday_mode ? strict_short(ema21)  : band_short(ema21))
+s_fire_e50  = s_armed_e50  and (is_intraday_mode ? strict_short(ema50)  : band_short(ema50))
+s_fire_e100 = s_armed_e100 and (is_intraday_mode ? strict_short(ema100) : band_short(ema100))
+s_fire_e200 = s_armed_e200 and (is_intraday_mode ? strict_short(ema200) : band_short(ema200))
+s_fire_s50  = s_armed_s50  and (is_intraday_mode ? strict_short(sma50)  : band_short(sma50))
+s_fire_s100 = s_armed_s100 and (is_intraday_mode ? strict_short(sma100) : band_short(sma100))
+s_fire_s200 = s_armed_s200 and (is_intraday_mode ? strict_short(sma200) : band_short(sma200))
+
+// Disarm on fire, re-arm on clear breakout (always uses daily ATR) -----------
+re_arm_buffer = atr_d * re_arm_atr
+
+if fire_e8
+    armed_e8 := false
+if not armed_e8 and not na(ema8) and close > ema8 + re_arm_buffer
+    armed_e8 := true
+
+if fire_e21
+    armed_e21 := false
+if not armed_e21 and not na(ema21) and close > ema21 + re_arm_buffer
+    armed_e21 := true
+
+if fire_e50
+    armed_e50 := false
+if not armed_e50 and not na(ema50) and close > ema50 + re_arm_buffer
+    armed_e50 := true
+
+if fire_e100
+    armed_e100 := false
+if not armed_e100 and not na(ema100) and close > ema100 + re_arm_buffer
+    armed_e100 := true
+
+if fire_e200
+    armed_e200 := false
+if not armed_e200 and not na(ema200) and close > ema200 + re_arm_buffer
+    armed_e200 := true
+
+if fire_s50
+    armed_s50 := false
+if not armed_s50 and not na(sma50) and close > sma50 + re_arm_buffer
+    armed_s50 := true
+
+if fire_s100
+    armed_s100 := false
+if not armed_s100 and not na(sma100) and close > sma100 + re_arm_buffer
+    armed_s100 := true
+
+if fire_s200
+    armed_s200 := false
+if not armed_s200 and not na(sma200) and close > sma200 + re_arm_buffer
+    armed_s200 := true
+
+if s_fire_e8
+    s_armed_e8 := false
+if not s_armed_e8 and not na(ema8) and close < ema8 - re_arm_buffer
+    s_armed_e8 := true
+
+if s_fire_e21
+    s_armed_e21 := false
+if not s_armed_e21 and not na(ema21) and close < ema21 - re_arm_buffer
+    s_armed_e21 := true
+
+if s_fire_e50
+    s_armed_e50 := false
+if not s_armed_e50 and not na(ema50) and close < ema50 - re_arm_buffer
+    s_armed_e50 := true
+
+if s_fire_e100
+    s_armed_e100 := false
+if not s_armed_e100 and not na(ema100) and close < ema100 - re_arm_buffer
+    s_armed_e100 := true
+
+if s_fire_e200
+    s_armed_e200 := false
+if not s_armed_e200 and not na(ema200) and close < ema200 - re_arm_buffer
+    s_armed_e200 := true
+
+if s_fire_s50
+    s_armed_s50 := false
+if not s_armed_s50 and not na(sma50) and close < sma50 - re_arm_buffer
+    s_armed_s50 := true
+
+if s_fire_s100
+    s_armed_s100 := false
+if not s_armed_s100 and not na(sma100) and close < sma100 - re_arm_buffer
+    s_armed_s100 := true
+
+if s_fire_s200
+    s_armed_s200 := false
+if not s_armed_s200 and not na(sma200) and close < sma200 - re_arm_buffer
+    s_armed_s200 := true
+
+// Aggregate fires + tags -----------------------------------------------------
+any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
+any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
+
+long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
+short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+
+// Markers --------------------------------------------------------------------
+plotshape(show_markers and any_long,
+          title = "Bounce LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.tiny)
+plotshape(show_markers and any_short,
+          title = "Reject SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.tiny)
+
+if show_markers and any_long
+    label.new(bar_index, low, long_tag,
+              style = label.style_label_up,
+              color = color.new(color.green, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.belowbar)
+if show_markers and any_short
+    label.new(bar_index, high, short_tag,
+              style = label.style_label_down,
+              color = color.new(color.red, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.abovebar)
+
+bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
+bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
+
+// MA value to anchor swing-mode stop -----------------------------------------
+float bounced_ma_long = na
+if fire_e8
+    bounced_ma_long := ema8
+else if fire_e21
+    bounced_ma_long := ema21
+else if fire_e50
+    bounced_ma_long := ema50
+else if fire_e100
+    bounced_ma_long := ema100
+else if fire_e200
+    bounced_ma_long := ema200
+else if fire_s50
+    bounced_ma_long := sma50
+else if fire_s100
+    bounced_ma_long := sma100
+else if fire_s200
+    bounced_ma_long := sma200
+
+float rejected_ma_short = na
+if s_fire_e8
+    rejected_ma_short := ema8
+else if s_fire_e21
+    rejected_ma_short := ema21
+else if s_fire_e50
+    rejected_ma_short := ema50
+else if s_fire_e100
+    rejected_ma_short := ema100
+else if s_fire_e200
+    rejected_ma_short := ema200
+else if s_fire_s50
+    rejected_ma_short := sma50
+else if s_fire_s100
+    rejected_ma_short := sma100
+else if s_fire_s200
+    rejected_ma_short := sma200
+
+// Volume + CVD (chart-TF bar values) -----------------------------------------
+vol_avg = ta.sma(volume, vol_avg_lookback)
+volume_ratio = vol_avg > 0 ? volume / vol_avg : na
+
+bar_range = high - low
+buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
+sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
+delta_v  = buy_vol - sell_vol
+cvd      = ta.cum(delta_v)
+
+cvd_past   = cvd[cvd_lookback]
+price_past = close[cvd_lookback]
+cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
+price_slope_n = not na(price_past) ? close - price_past : na
+
+bearish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
+bullish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
+
+// PDH/PDL confluence ---------------------------------------------------------
+conf_buffer = atr_chart * conf_tol_atr
+near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
+near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
+
+plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.belowbar,
+          color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
+plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
+          color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
+
+// Payload builder — same schema as v2, 9-param cap ---------------------------
+build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v, at_pdh_v) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","pdh":"' + str.tostring(pdh, format.mintick)
+      + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
+      + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
+      + '","volume_ratio":"' + str.tostring(volume_ratio, "#.##")
+      + '","cvd_delta":"' + str.tostring(cvd_slope_n, "#.##")
+      + '","cvd_diverging":"' + ((direction == "BUY" ? bearish_div : bullish_div) ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+// Fire alerts ----------------------------------------------------------------
+// Stop placement varies by mode:
+//   intraday → wick low - 0.2 × daily ATR    (tight, captures the actual test)
+//   swing    → MA       - 0.3 × chart ATR    (wider, lets the level breathe)
+// Multi-line alert() args are flaky in Pine v5 — build payload into a var
+// first, then call alert() on a single line.
+if fire_alerts and any_long
+    e = close
+    s = is_intraday_mode ? (low - atr_d * 0.2) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
+    rsk = e - s
+    msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, e + rsk * r_t1, e + rsk * r_t2, near_pdl, false)
+    alert(msg_long, alert.freq_once_per_bar_close)
+
+if fire_alerts and any_short
+    e = close
+    s = is_intraday_mode ? (high + atr_d * 0.2) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
+    rsk = s - e
+    msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, e - rsk * r_t1, e - rsk * r_t2, false, near_pdh)
+    alert(msg_short, alert.freq_once_per_bar_close)
