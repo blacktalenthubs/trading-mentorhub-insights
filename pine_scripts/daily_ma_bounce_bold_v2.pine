@@ -184,10 +184,12 @@ else if r_s100
 else if r_s200
     rejected_ma_short := sma200
 
+// Pine v5 caps user functions at 9 params; order-flow values
+// (volume_ratio, cvd_slope_n, bearish_div, bullish_div) are referenced
+// from outer scope directly. Direction picks bearish vs bullish inline.
 build_ma_payload_v2(rule, direction, ma_tag,
                     entry_p, stop_p, t1_p, t2_p,
-                    at_pdl_v, at_pdh_v,
-                    vr, cvd_d, cvd_div) =>
+                    at_pdl_v, at_pdh_v) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
       + '","interval":"' + timeframe.period
@@ -206,9 +208,9 @@ build_ma_payload_v2(rule, direction, ma_tag,
       + '","pdl":"' + str.tostring(pdl, format.mintick)
       + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
       + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
-      + '","volume_ratio":"' + str.tostring(vr, "#.##")
-      + '","cvd_delta":"' + str.tostring(cvd_d, "#.##")
-      + '","cvd_diverging":"' + (cvd_div ? "true" : "false")
+      + '","volume_ratio":"' + str.tostring(volume_ratio, "#.##")
+      + '","cvd_delta":"' + str.tostring(cvd_slope_n, "#.##")
+      + '","cvd_diverging":"' + ((direction == "BUY" ? bearish_div : bullish_div) ? "true" : "false")
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if fire_alerts and any_long
@@ -217,8 +219,7 @@ if fire_alerts and any_long
     rsk = e - s
     alert(build_ma_payload_v2("ma_bounce_long", "BUY", long_tag,
                               e, s, e + rsk * 2, e + rsk * 3,
-                              near_pdl, false,
-                              volume_ratio, cvd_slope_n, bearish_div),
+                              near_pdl, false),
           alert.freq_once_per_bar_close)
 if fire_alerts and any_short
     e   = close
@@ -226,6 +227,5 @@ if fire_alerts and any_short
     rsk = s - e
     alert(build_ma_payload_v2("ma_rejection_short", "SHORT", short_tag,
                               e, s, e - rsk * 2, e - rsk * 3,
-                              false, near_pdh,
-                              volume_ratio, cvd_slope_n, bullish_div),
+                              false, near_pdh),
           alert.freq_once_per_bar_close)
