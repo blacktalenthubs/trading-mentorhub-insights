@@ -381,3 +381,43 @@ class TestEndpointAcceptsValidPayload:
         response = client.post("/tv/webhook", json=base_payload)
         assert response.status_code == 200
         assert response.json()["dispatched"] is False
+
+
+# -----------------------------------------------------------------------------
+# Identity dedup (2026-05-03) — replaces price-band dedup.
+# MA-tag suffix unit tests live here (no DB / no async). Behavioral dedup
+# tests are in api/tests/test_tv_webhook_dedup.py because they need
+# pytest-asyncio + the async SQLAlchemy stack which only the api package
+# is configured for.
+# -----------------------------------------------------------------------------
+
+
+class TestMaTagToSuffix:
+    """Pine ma_tag → alert_type suffix conversion."""
+
+    def test_single_ema(self):
+        from api.app.routers.tv_webhook import _ma_tag_to_suffix
+        assert _ma_tag_to_suffix("100E") == "_ema100"
+        assert _ma_tag_to_suffix("8E") == "_ema8"
+        assert _ma_tag_to_suffix("21E") == "_ema21"
+
+    def test_single_sma(self):
+        from api.app.routers.tv_webhook import _ma_tag_to_suffix
+        assert _ma_tag_to_suffix("50S") == "_sma50"
+        assert _ma_tag_to_suffix("200S") == "_sma200"
+
+    def test_confluence_combined(self):
+        """Pine concatenates tags when multiple MAs fire same bar."""
+        from api.app.routers.tv_webhook import _ma_tag_to_suffix
+        assert _ma_tag_to_suffix("8E21E") == "_ema8_ema21"
+        assert _ma_tag_to_suffix("50E100E") == "_ema50_ema100"
+        assert _ma_tag_to_suffix("50S200S") == "_sma50_sma200"
+
+    def test_empty_or_unparseable(self):
+        """Rules without MA (VWAP reclaim, PDH break) should produce no suffix."""
+        from api.app.routers.tv_webhook import _ma_tag_to_suffix
+        assert _ma_tag_to_suffix("") == ""
+        assert _ma_tag_to_suffix("garbage") == ""
+        assert _ma_tag_to_suffix(None or "") == ""
+
+

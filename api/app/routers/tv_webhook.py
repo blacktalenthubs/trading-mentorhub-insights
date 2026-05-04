@@ -217,8 +217,18 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     persisted = 0
     notified = 0
     session_date = date.today().isoformat()
-    dedup_window = timedelta(minutes=30)
-    dedup_tolerance_pct = 0.005  # 0.5% — same as Phase 1 level dedup
+    # Identity dedup (2026-05-03): same MA + same direction = same setup.
+    # Old price-band approach was brittle — ETH EMA100 short re-fired at
+    # $2322.50 after $2338.56 because 0.69% drift exceeded the band. Replaced
+    # with exact alert_type match (tv_ma_rejection_short_v3_ema100), making
+    # the dedup key reflect what the trader actually sees as redundant.
+    dedup_window = timedelta(hours=4)
+
+    # Build alert_type with MA-tag suffix so each MA is its own dedup key.
+    # ma_tag "100E" -> "_ema100", "8E21E" -> "_ema8_ema21", "" -> "".
+    # Computed once per signal — same across all subscribed users.
+    rule_name = getattr(sig, "_tv_rule", "webhook")
+    alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
 
     pairs: list[tuple[Any, Alert]] = []
 
@@ -233,26 +243,26 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         # for the notification fan-out which happens AFTER commit so we don't
         # hold the DB connection during network I/O to Telegram.
         for user in users:
-            # Per-user level dedup against alerts table.
-            # Direction-scoped — a LONG and a SHORT at the same level are
-            # opposite views and should both fire (e.g., PDH reclaim LONG
-            # vs PDH rejection SHORT at $2342). Same-direction repeats at
-            # the same level still get suppressed.
-            if await _level_already_alerted(
+            # Per-user identity dedup against alerts table.
+            # Key = (user_id, symbol, direction, alert_type) where alert_type
+            # carries the MA tag (tv_ma_rejection_short_v3_ema100). Same MA +
+            # same direction within the window = same setup, suppressed.
+            # Different MAs (ema50 vs ema100) and opposite directions still
+            # fire — they're genuinely different events.
+            if await _alert_already_fired(
                 db, user.id, sig.symbol, sig.direction,
-                sig.entry or sig.price,
-                dedup_tolerance_pct, dedup_window,
+                alert_type_full, dedup_window,
             ):
                 logger.info(
-                    "TV webhook: level dedup suppressed %s for user %d",
-                    sig.symbol, user.id,
+                    "TV webhook: identity dedup suppressed %s/%s for user %d",
+                    sig.symbol, alert_type_full, user.id,
                 )
                 continue
 
             alert = Alert(
                 user_id=user.id,
                 symbol=sig.symbol,
-                alert_type=f"tv_{getattr(sig, '_tv_rule', 'webhook')}"[:100],
+                alert_type=alert_type_full,
                 direction=sig.direction or "NOTICE",
                 price=float(sig.price),
                 entry=sig.entry,
@@ -347,44 +357,69 @@ async def _users_watching(db, symbol: str):
     return result.scalars().all()
 
 
-async def _level_already_alerted(
+_MA_TAG_SUFFIX_RE = __import__("re").compile(r"(\d+)([ES])")
+
+
+def _ma_tag_to_suffix(raw_ma_tag: str) -> str:
+    """Convert raw Pine ma_tag to an alert_type suffix.
+
+    Examples:
+        "100E"   -> "_ema100"
+        "8E"     -> "_ema8"
+        "8E21E"  -> "_ema8_ema21"   (confluence: multiple MAs same bar)
+        "50S"    -> "_sma50"
+        ""       -> ""              (rules without MAs — VWAP reclaim etc.)
+
+    Suffix lets identity dedup distinguish EMA50 rejection from EMA100
+    rejection without a price-band check (each MA is its own setup).
+    """
+    if not raw_ma_tag:
+        return ""
+    matches = _MA_TAG_SUFFIX_RE.findall(raw_ma_tag)
+    if not matches:
+        return ""
+    parts = [f"{'ema' if kind == 'E' else 'sma'}{num}" for num, kind in matches]
+    return "_" + "_".join(parts)
+
+
+async def _alert_already_fired(
     db,
     user_id: int,
     symbol: str,
     direction: str,
-    level: float,
-    tolerance_pct: float,
+    alert_type: str,
     window: timedelta,
 ) -> bool:
-    """True if an alert at a similar level fired in the same direction recently.
+    """True if this exact (user, symbol, direction, alert_type) fired recently.
 
-    Direction is part of the dedup key — a LONG and a SHORT at the same price
-    level are opposite views (e.g., PDH reclaim vs PDH rejection at $2342),
-    both legitimate, neither redundant. Without the direction filter, whichever
-    fires first squashes the other.
+    Identity-based dedup. The alert_type carries the MA tag (e.g.,
+    tv_ma_rejection_short_v3_ema100), so same MA + same direction = same
+    setup. Different MAs (ema50 vs ema100) and opposite directions get
+    different alert_types and fire independently.
+
+    Replaces the old price-band approach — same setup at slightly different
+    prices (e.g., ETH EMA100 short at $2338 then $2322) was the noise we
+    actually wanted to suppress, and identity captures it cleanly.
     """
     from app.models.alert import Alert
 
-    if not level or level <= 0:
-        return False
     cutoff = datetime.utcnow() - window
-    stmt = select(Alert).where(
+    stmt = select(Alert.id).where(
         Alert.user_id == user_id,
         Alert.symbol == symbol,
         Alert.direction == direction,
+        Alert.alert_type == alert_type,
         Alert.created_at >= cutoff,
-    )
+    ).limit(1)
     result = await db.execute(stmt)
-    rows = result.scalars().all()
-    band = level * tolerance_pct
-    for row in rows:
-        prev = row.entry or row.price or 0
-        if prev <= 0:
-            continue
-        if abs(prev - level) <= band:
-            return True
-    return False
+    return result.scalar_one_or_none() is not None
 
 
 # Public exports for tests
-__all__ = ["router", "TVWebhookPayload", "_is_allowed_ip"]
+__all__ = [
+    "router",
+    "TVWebhookPayload",
+    "_is_allowed_ip",
+    "_ma_tag_to_suffix",
+    "_alert_already_fired",
+]
