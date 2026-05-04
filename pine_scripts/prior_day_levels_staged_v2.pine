@@ -222,13 +222,24 @@ atr_buffer = atr14 * atr_buffer_mult
 
 // LONG alerts pass bearish_div (price up, CVD lagging = bad for longs)
 // SHORT alerts pass bullish_div (price down, CVD lifting = bad for shorts)
+//
+// Alert frequency mix (2026-05-04):
+//   • PDH/PDL crosses (break, reclaim) use `freq_once_per_bar` — the level
+//     cross is a single decisive event that happens on a tick, not a
+//     full-bar pattern. Waiting for bar close adds 0-15 min lag and lets
+//     fast moves slip away (live miss: QQQ pdh_break batched with 4 other
+//     alerts at the same 15m close — entry already gone).
+//   • Rejection / VWAP reclaim use `freq_once_per_bar_close` — these are
+//     full-bar patterns ("tested level then closed wrong side"). Intra-bar
+//     they flicker on wicks that don't actually become rejections.
+//
 if pdh_break
     e   = close
     s   = pdh - atr_buffer
     rsk = e - s
     alert(build_payload_v2("staged_pdh_break", "BUY", e, s, e + rsk * 2, e + rsk * 3,
                            volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+          alert.freq_once_per_bar)
 if pdh_rejection
     e   = close
     s   = high + atr_buffer
@@ -242,14 +253,14 @@ if pdl_break
     rsk = s - e
     alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, e - rsk * 2, e - rsk * 3,
                            volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
+          alert.freq_once_per_bar)
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
     rsk = e - s
     alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, e + rsk * 2, pdh,
                            volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+          alert.freq_once_per_bar)
 
 // =====================================================================
 // VWAP reclaim → PDH (LONG) / VWAP reject → PDL (SHORT)
