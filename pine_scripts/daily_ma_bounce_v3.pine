@@ -1,6 +1,12 @@
 // @version=5
 //
-// Daily MA Bounce v3 — Phase 5d (2026-05-03)
+// Daily MA Bounce v3 — Phase 5e (2026-05-03)
+//
+// Detection covers BOTH bounce AND reclaim of every MA (and the symmetric
+// rejection + lose for shorts). v3 was previously missing the reclaim case
+// — gap-and-go through an MA on momentum, no wick into the level — which
+// silently muted breakouts like ETH 2026-05-03 ($2,330 → $2,360 cleanly
+// above EMA100 with no test). See strict_long/reclaim_long block below.
 //
 // Unified MA bounce/rejection Pine — works at ANY intraday or daily TF
 // via the TV alert "Interval" setting. Merges:
@@ -105,11 +111,30 @@ var bool s_armed_s100 = true
 var bool s_armed_s200 = true
 
 // Detection helpers — strict (intraday) and band (swing) ---------------------
+//
+// Two distinct LONG setups, both bullish, both worth alerting:
+//   • strict_long  — DEFENSE: price comes down to MA from above, holds, closes
+//                    back above. The "MA defended" case.
+//   • reclaim_long — RECLAIM: price was below MA on prev close, this bar's
+//                    close crosses back above. The "broke through MA on
+//                    momentum" / "gap-up reclaim" case. Without this v3 misses
+//                    every gap-and-go through an MA — exactly the setup we
+//                    want most for SPY/QQQ/MSFT-style breakouts.
+//
+// Symmetric SHORT pair: strict_short (rejection from below — resistance test)
+// and lose_short (price was above MA, now closes below — losing structure).
+//
 strict_long(float ma) =>
     not na(ma) and low <= ma and close > ma and close > open
 
+reclaim_long(float ma) =>
+    not na(ma) and not na(close[1]) and close[1] <= ma and close > ma
+
 strict_short(float ma) =>
     not na(ma) and high >= ma and close < ma and close < open
+
+lose_short(float ma) =>
+    not na(ma) and not na(close[1]) and close[1] >= ma and close < ma
 
 band_long(float ma) =>
     not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
@@ -118,23 +143,25 @@ band_short(float ma) =>
     not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
 
 // Active condition per MA × direction (gated by armed flag) ------------------
-fire_e8   = armed_e8   and (is_intraday_mode ? strict_long(ema8)   : band_long(ema8))
-fire_e21  = armed_e21  and (is_intraday_mode ? strict_long(ema21)  : band_long(ema21))
-fire_e50  = armed_e50  and (is_intraday_mode ? strict_long(ema50)  : band_long(ema50))
-fire_e100 = armed_e100 and (is_intraday_mode ? strict_long(ema100) : band_long(ema100))
-fire_e200 = armed_e200 and (is_intraday_mode ? strict_long(ema200) : band_long(ema200))
-fire_s50  = armed_s50  and (is_intraday_mode ? strict_long(sma50)  : band_long(sma50))
-fire_s100 = armed_s100 and (is_intraday_mode ? strict_long(sma100) : band_long(sma100))
-fire_s200 = armed_s200 and (is_intraday_mode ? strict_long(sma200) : band_long(sma200))
+// Intraday: defense (strict_long) OR reclaim (close crosses above MA).
+// Swing:    band touch unchanged — band already covers wider entry zone.
+fire_e8   = armed_e8   and (is_intraday_mode ? (strict_long(ema8)   or reclaim_long(ema8))   : band_long(ema8))
+fire_e21  = armed_e21  and (is_intraday_mode ? (strict_long(ema21)  or reclaim_long(ema21))  : band_long(ema21))
+fire_e50  = armed_e50  and (is_intraday_mode ? (strict_long(ema50)  or reclaim_long(ema50))  : band_long(ema50))
+fire_e100 = armed_e100 and (is_intraday_mode ? (strict_long(ema100) or reclaim_long(ema100)) : band_long(ema100))
+fire_e200 = armed_e200 and (is_intraday_mode ? (strict_long(ema200) or reclaim_long(ema200)) : band_long(ema200))
+fire_s50  = armed_s50  and (is_intraday_mode ? (strict_long(sma50)  or reclaim_long(sma50))  : band_long(sma50))
+fire_s100 = armed_s100 and (is_intraday_mode ? (strict_long(sma100) or reclaim_long(sma100)) : band_long(sma100))
+fire_s200 = armed_s200 and (is_intraday_mode ? (strict_long(sma200) or reclaim_long(sma200)) : band_long(sma200))
 
-s_fire_e8   = s_armed_e8   and (is_intraday_mode ? strict_short(ema8)   : band_short(ema8))
-s_fire_e21  = s_armed_e21  and (is_intraday_mode ? strict_short(ema21)  : band_short(ema21))
-s_fire_e50  = s_armed_e50  and (is_intraday_mode ? strict_short(ema50)  : band_short(ema50))
-s_fire_e100 = s_armed_e100 and (is_intraday_mode ? strict_short(ema100) : band_short(ema100))
-s_fire_e200 = s_armed_e200 and (is_intraday_mode ? strict_short(ema200) : band_short(ema200))
-s_fire_s50  = s_armed_s50  and (is_intraday_mode ? strict_short(sma50)  : band_short(sma50))
-s_fire_s100 = s_armed_s100 and (is_intraday_mode ? strict_short(sma100) : band_short(sma100))
-s_fire_s200 = s_armed_s200 and (is_intraday_mode ? strict_short(sma200) : band_short(sma200))
+s_fire_e8   = s_armed_e8   and (is_intraday_mode ? (strict_short(ema8)   or lose_short(ema8))   : band_short(ema8))
+s_fire_e21  = s_armed_e21  and (is_intraday_mode ? (strict_short(ema21)  or lose_short(ema21))  : band_short(ema21))
+s_fire_e50  = s_armed_e50  and (is_intraday_mode ? (strict_short(ema50)  or lose_short(ema50))  : band_short(ema50))
+s_fire_e100 = s_armed_e100 and (is_intraday_mode ? (strict_short(ema100) or lose_short(ema100)) : band_short(ema100))
+s_fire_e200 = s_armed_e200 and (is_intraday_mode ? (strict_short(ema200) or lose_short(ema200)) : band_short(ema200))
+s_fire_s50  = s_armed_s50  and (is_intraday_mode ? (strict_short(sma50)  or lose_short(sma50))  : band_short(sma50))
+s_fire_s100 = s_armed_s100 and (is_intraday_mode ? (strict_short(sma100) or lose_short(sma100)) : band_short(sma100))
+s_fire_s200 = s_armed_s200 and (is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : band_short(sma200))
 
 // Disarm on fire, re-arm on clear breakout (always uses daily ATR) -----------
 re_arm_buffer = atr_d * re_arm_atr
