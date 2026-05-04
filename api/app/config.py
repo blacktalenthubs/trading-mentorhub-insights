@@ -59,8 +59,13 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # TV alert lifecycle notifications (T1/T2/stop hits for took trades).
-    # Set TV_LIFECYCLE_ALERTS_ENABLED=false in Railway to silence them.
-    TV_LIFECYCLE_ALERTS_ENABLED: bool = True
+    # Disabled by default 2026-05-03 — exit-button-handler doesn't stamp
+    # t1/t2/stop_notified_at, so T2 fires after a user manually exits a
+    # trade (live miss: ETH ma_bounce_long entry $2309.26 pinged "T2 HIT
+    # $2360.89 +3.00R" 30+ minutes after the user had already exited).
+    # Re-enable by setting TV_LIFECYCLE_ALERTS_ENABLED=true once exit flow
+    # stamps the lifecycle columns properly.
+    TV_LIFECYCLE_ALERTS_ENABLED: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
