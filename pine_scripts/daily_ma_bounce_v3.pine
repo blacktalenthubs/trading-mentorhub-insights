@@ -250,6 +250,32 @@ if not s_armed_s200 and not na(sma200) and close < sma200 - re_arm_buffer
 any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
 any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
 
+// Split LONG fire by event type — reclaim (clean cross, intra-bar) vs
+// bounce (defense pattern, needs full-bar confirmation). When the SAME bar
+// satisfies both reclaim and strict_long (rare but possible on real-time
+// bars where close is still moving), reclaim wins and fires intra-bar.
+// Same payload either way — only the alert frequency differs. Swing mode
+// uses band_long, which always needs close confirmation, so reclaim flag
+// is gated on intraday mode.
+any_long_reclaim = is_intraday_mode and (
+     (fire_e8   and reclaim_long(ema8))   or
+     (fire_e21  and reclaim_long(ema21))  or
+     (fire_e50  and reclaim_long(ema50))  or
+     (fire_e100 and reclaim_long(ema100)) or
+     (fire_e200 and reclaim_long(ema200)) or
+     (fire_s50  and reclaim_long(sma50))  or
+     (fire_s100 and reclaim_long(sma100)) or
+     (fire_s200 and reclaim_long(sma200)))
+any_short_lose = is_intraday_mode and (
+     (s_fire_e8   and lose_short(ema8))   or
+     (s_fire_e21  and lose_short(ema21))  or
+     (s_fire_e50  and lose_short(ema50))  or
+     (s_fire_e100 and lose_short(ema100)) or
+     (s_fire_e200 and lose_short(ema200)) or
+     (s_fire_s50  and lose_short(sma50))  or
+     (s_fire_s100 and lose_short(sma100)) or
+     (s_fire_s200 and lose_short(sma200)))
+
 long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
 short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
 
@@ -386,6 +412,16 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
 //
 // Multi-line alert() args are flaky in Pine v5 — build payload into a var
 // first, then call alert() on a single line.
+//
+// Alert frequency mix (2026-05-04):
+//   • RECLAIM (close[1] ≤ ma, close > ma) — clean cross event, fires
+//     `freq_once_per_bar` (intra-bar). Tick-decisive, no full-bar wait.
+//   • BOUNCE / REJECTION (strict_long / strict_short) — defense pattern
+//     requiring `close > open` (or `close < open`) — only meaningful at
+//     bar close, fires `freq_once_per_bar_close`. Intra-bar this flickers.
+//   • Pine v5 requires alert.freq to be a constant, so we call alert()
+//     twice — same payload, different freq, only one branch executes per
+//     bar because (any_long_reclaim and any_long_bounce) is exclusive.
 if fire_alerts and any_long
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
@@ -400,7 +436,10 @@ if fire_alerts and any_long
         t1_long := e + rsk * r_t1
         t2_long := e + rsk * r_t2
     msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
-    alert(msg_long, alert.freq_once_per_bar_close)
+    if any_long_reclaim
+        alert(msg_long, alert.freq_once_per_bar)
+    else
+        alert(msg_long, alert.freq_once_per_bar_close)
 
 if fire_alerts and any_short
     e = close
@@ -423,4 +462,7 @@ if fire_alerts and any_short
         t1_short := e - rsk * r_t1
         t2_short := e - rsk * r_t2
     msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, t1_short, t2_short, false, near_pdh)
-    alert(msg_short, alert.freq_once_per_bar_close)
+    if any_short_lose
+        alert(msg_short, alert.freq_once_per_bar)
+    else
+        alert(msg_short, alert.freq_once_per_bar_close)
