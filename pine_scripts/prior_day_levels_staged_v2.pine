@@ -21,7 +21,7 @@
 // Indicator name suffixed " v2" so TV treats it as a separate script slot —
 // you can run both v1 and v2 side-by-side and compare.
 //
-indicator("Prior Day Levels (Staged) v2", overlay = true)
+indicator("pdl-pdh-vwap", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")

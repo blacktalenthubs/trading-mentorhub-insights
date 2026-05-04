@@ -37,7 +37,7 @@
 // are `ma_bounce_long_v3` / `ma_rejection_short_v3` so v3 alerts can be
 // distinguished from v2 in the DB.
 //
-indicator("Daily MA Bounce v3", overlay = true, max_labels_count = 500)
+indicator("ma-levels-daily", overlay = true, max_labels_count = 500)
 
 // Inputs ---------------------------------------------------------------------
 fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to webhook")
