@@ -29,6 +29,7 @@ show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
 show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
 show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
+fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject alerts (off — too whippy in chop)")
 sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
 atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
@@ -223,15 +224,11 @@ atr_buffer = atr14 * atr_buffer_mult
 // LONG alerts pass bearish_div (price up, CVD lagging = bad for longs)
 // SHORT alerts pass bullish_div (price down, CVD lifting = bad for shorts)
 //
-// Alert frequency mix (2026-05-04):
-//   • PDH/PDL crosses (break, reclaim) use `freq_once_per_bar` — the level
-//     cross is a single decisive event that happens on a tick, not a
-//     full-bar pattern. Waiting for bar close adds 0-15 min lag and lets
-//     fast moves slip away (live miss: QQQ pdh_break batched with 4 other
-//     alerts at the same 15m close — entry already gone).
-//   • Rejection / VWAP reclaim use `freq_once_per_bar_close` — these are
-//     full-bar patterns ("tested level then closed wrong side"). Intra-bar
-//     they flicker on wicks that don't actually become rejections.
+// Alert frequency (2026-05-04 v2): all alerts fire on bar close. Intra-bar
+// firing was tried but rejected — wick-fakeouts on PDH/PDL crosses caused
+// false entries that close-confirmation prevents. Use a 10m chart TF on
+// the TV alert side for faster delivery (10min close beats 15min close
+// for entry timing) without sacrificing the close-confirmation guarantee.
 //
 if pdh_break
     e   = close
@@ -239,7 +236,7 @@ if pdh_break
     rsk = e - s
     alert(build_payload_v2("staged_pdh_break", "BUY", e, s, e + rsk * 2, e + rsk * 3,
                            volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar)
+          alert.freq_once_per_bar_close)
 if pdh_rejection
     e   = close
     s   = high + atr_buffer
@@ -253,14 +250,14 @@ if pdl_break
     rsk = s - e
     alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, e - rsk * 2, e - rsk * 3,
                            volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar)
+          alert.freq_once_per_bar_close)
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
     rsk = e - s
     alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, e + rsk * 2, pdh,
                            volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar)
+          alert.freq_once_per_bar_close)
 
 // =====================================================================
 // VWAP reclaim → PDH (LONG) / VWAP reject → PDL (SHORT)
@@ -323,8 +320,13 @@ if show_signals and vwap_reject_short
               size = size.tiny,
               yloc = yloc.abovebar)
 
-// Alerts — entry at VWAP cross, stop just below/above the wick, T1 = PDH/PDL
-if vwap_reclaim_long
+// Alerts — entry at VWAP cross, stop just below/above the wick, T1 = PDH/PDL.
+// Disabled by default 2026-05-04 — VWAP whips through chop and produces
+// noisy alerts that don't survive close confirmation. Visual labels
+// (cyan VWAP→PDH / pink VWAP→PDL) still plot for chart-side context;
+// only the Telegram delivery is gated. Flip `fire_vwap_alerts` to true
+// in indicator settings to re-enable without redeploying.
+if fire_vwap_alerts and vwap_reclaim_long
     e = close
     s = math.min(low, low[1]) - atr_buffer
     rsk = e - s
@@ -334,7 +336,7 @@ if vwap_reclaim_long
                                      volume_ratio, cvd_slope_n, bearish_div)
     alert(msg_vwap_long, alert.freq_once_per_bar_close)
 
-if vwap_reject_short
+if fire_vwap_alerts and vwap_reject_short
     e = close
     s = math.max(high, high[1]) + atr_buffer
     rsk = s - e
