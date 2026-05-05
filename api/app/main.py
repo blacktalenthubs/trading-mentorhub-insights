@@ -478,7 +478,7 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Sector brief cron: FAILED")
 
-        sb_job = scheduler.add_job(
+        scheduler.add_job(
             _sector_brief_job,
             "cron",
             hour=8, minute=45,
@@ -489,11 +489,7 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=600,
             coalesce=True,
         )
-        logger.info(
-            "Sector brief cron registered: 8:45 AM ET mon-fri "
-            "(grace=600s, next_run=%s)",
-            sb_job.next_run_time,
-        )
+        logger.info("Sector brief cron registered: 8:45 AM ET mon-fri (grace=600s)")
 
         # =============================================================
         # TV alert lifecycle watcher — fires Telegram for T1/T2/stop hits
