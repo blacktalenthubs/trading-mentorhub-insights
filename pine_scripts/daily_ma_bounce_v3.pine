@@ -164,84 +164,95 @@ s_fire_s100 = s_armed_s100 and (is_intraday_mode ? (strict_short(sma100) or lose
 s_fire_s200 = s_armed_s200 and (is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : band_short(sma200))
 
 // Disarm on fire, re-arm on clear breakout (always uses daily ATR) -----------
+//
+// Disarm is gated on `not barstate.ishistory` (2026-05-04 fix). Reason:
+// when a TV alert is created mid-session, TV's server-side Pine evaluator
+// plays through ALL historical bars to warm up state, then starts real-time
+// evaluation. During warmup, alert() calls don't fire to Telegram, but the
+// state machine still advances. Without this gate, a morning EMA bounce
+// silently disarms the flag during warmup, and real-time bars can't fire
+// for the rest of the day (re-arm requires +1×daily_ATR move which often
+// never happens). Symptom: zero alerts on freshly-created alerts despite
+// chart labels showing the events. Re-arm logic is unchanged — the flag
+// just stays armed through history so real-time gets a fresh state.
 re_arm_buffer = atr_d * re_arm_atr
 
-if fire_e8
+if fire_e8 and not barstate.ishistory
     armed_e8 := false
 if not armed_e8 and not na(ema8) and close > ema8 + re_arm_buffer
     armed_e8 := true
 
-if fire_e21
+if fire_e21 and not barstate.ishistory
     armed_e21 := false
 if not armed_e21 and not na(ema21) and close > ema21 + re_arm_buffer
     armed_e21 := true
 
-if fire_e50
+if fire_e50 and not barstate.ishistory
     armed_e50 := false
 if not armed_e50 and not na(ema50) and close > ema50 + re_arm_buffer
     armed_e50 := true
 
-if fire_e100
+if fire_e100 and not barstate.ishistory
     armed_e100 := false
 if not armed_e100 and not na(ema100) and close > ema100 + re_arm_buffer
     armed_e100 := true
 
-if fire_e200
+if fire_e200 and not barstate.ishistory
     armed_e200 := false
 if not armed_e200 and not na(ema200) and close > ema200 + re_arm_buffer
     armed_e200 := true
 
-if fire_s50
+if fire_s50 and not barstate.ishistory
     armed_s50 := false
 if not armed_s50 and not na(sma50) and close > sma50 + re_arm_buffer
     armed_s50 := true
 
-if fire_s100
+if fire_s100 and not barstate.ishistory
     armed_s100 := false
 if not armed_s100 and not na(sma100) and close > sma100 + re_arm_buffer
     armed_s100 := true
 
-if fire_s200
+if fire_s200 and not barstate.ishistory
     armed_s200 := false
 if not armed_s200 and not na(sma200) and close > sma200 + re_arm_buffer
     armed_s200 := true
 
-if s_fire_e8
+if s_fire_e8 and not barstate.ishistory
     s_armed_e8 := false
 if not s_armed_e8 and not na(ema8) and close < ema8 - re_arm_buffer
     s_armed_e8 := true
 
-if s_fire_e21
+if s_fire_e21 and not barstate.ishistory
     s_armed_e21 := false
 if not s_armed_e21 and not na(ema21) and close < ema21 - re_arm_buffer
     s_armed_e21 := true
 
-if s_fire_e50
+if s_fire_e50 and not barstate.ishistory
     s_armed_e50 := false
 if not s_armed_e50 and not na(ema50) and close < ema50 - re_arm_buffer
     s_armed_e50 := true
 
-if s_fire_e100
+if s_fire_e100 and not barstate.ishistory
     s_armed_e100 := false
 if not s_armed_e100 and not na(ema100) and close < ema100 - re_arm_buffer
     s_armed_e100 := true
 
-if s_fire_e200
+if s_fire_e200 and not barstate.ishistory
     s_armed_e200 := false
 if not s_armed_e200 and not na(ema200) and close < ema200 - re_arm_buffer
     s_armed_e200 := true
 
-if s_fire_s50
+if s_fire_s50 and not barstate.ishistory
     s_armed_s50 := false
 if not s_armed_s50 and not na(sma50) and close < sma50 - re_arm_buffer
     s_armed_s50 := true
 
-if s_fire_s100
+if s_fire_s100 and not barstate.ishistory
     s_armed_s100 := false
 if not s_armed_s100 and not na(sma100) and close < sma100 - re_arm_buffer
     s_armed_s100 := true
 
-if s_fire_s200
+if s_fire_s200 and not barstate.ishistory
     s_armed_s200 := false
 if not s_armed_s200 and not na(sma200) and close < sma200 - re_arm_buffer
     s_armed_s200 := true
