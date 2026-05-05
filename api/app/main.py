@@ -461,18 +461,24 @@ async def lifespan(app: FastAPI):
 
         # =============================================================
         # Premarket sector heat brief — deterministic, no AI, fires
-        # at 9:00 AM ET mon-fri. Independent of AI_SCHEDULED_JOBS_ENABLED
-        # because there's no AI cost.
+        # at 8:45 AM ET mon-fri (45 min before open). Independent of
+        # AI_SCHEDULED_JOBS_ENABLED because there's no AI cost.
+        #
+        # misfire_grace_time=600 — if Railway restarts the container within
+        # 10 min of 8:45 ET, APScheduler still fires the job once on next
+        # tick instead of silently dropping it (the default 1-second grace
+        # is what made 2026-05-04 disappear with no log trace).
         # =============================================================
         async def _sector_brief_job():
+            logger.info("Sector brief cron: STARTED")
             try:
                 from app.services.sector_brief import send_sector_briefs
                 sent, attempted = await send_sector_briefs()
-                logger.info("Sector brief cron: sent=%d/%d", sent, attempted)
+                logger.info("Sector brief cron: DONE sent=%d/%d", sent, attempted)
             except Exception:
-                logger.exception("Sector brief cron failed")
+                logger.exception("Sector brief cron: FAILED")
 
-        scheduler.add_job(
+        sb_job = scheduler.add_job(
             _sector_brief_job,
             "cron",
             hour=8, minute=45,
@@ -480,8 +486,14 @@ async def lifespan(app: FastAPI):
             day_of_week="mon-fri",
             id="sector_brief",
             replace_existing=True,
+            misfire_grace_time=600,
+            coalesce=True,
         )
-        logger.info("Sector brief cron registered: 8:45 AM ET mon-fri")
+        logger.info(
+            "Sector brief cron registered: 8:45 AM ET mon-fri "
+            "(grace=600s, next_run=%s)",
+            sb_job.next_run_time,
+        )
 
         # =============================================================
         # TV alert lifecycle watcher — fires Telegram for T1/T2/stop hits
