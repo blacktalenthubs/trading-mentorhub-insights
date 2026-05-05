@@ -29,7 +29,7 @@ show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
 show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
 show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
-fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject alerts (off — too whippy in chop)")
+fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject alerts (NOTICE-only — set true on 1h chart for confirmation)")
 sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
 atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
@@ -321,18 +321,20 @@ if show_signals and vwap_reject_short
               yloc = yloc.abovebar)
 
 // Alerts — entry at VWAP cross, stop just below/above the wick, T1 = PDH/PDL.
-// Disabled by default 2026-05-04 — VWAP whips through chop and produces
-// noisy alerts that don't survive close confirmation. Visual labels
-// (cyan VWAP→PDH / pink VWAP→PDL) still plot for chart-side context;
-// only the Telegram delivery is gated. Flip `fire_vwap_alerts` to true
-// in indicator settings to re-enable without redeploying.
+// 2026-05-04 v2: VWAP alerts now fire as direction="NOTICE" (heads-up only,
+// not tradable). VWAP whips through chop too easily for entry signals, but
+// a 1h-confirmed reclaim/reject is real context worth knowing. Recommended
+// setup: keep fire_vwap_alerts=false on 15m chart, set true on a separate
+// 1h chart's instance of this indicator. NOTICE-direction alerts surface
+// in Telegram with "NOTICE" prefix so the brain doesn't anchor on them as
+// entries. Visual labels paint regardless of fire_vwap_alerts.
 if fire_vwap_alerts and vwap_reclaim_long
     e = close
     s = math.min(low, low[1]) - atr_buffer
     rsk = e - s
     t1 = pdh
     t2 = pdh + (pdh - e) * 0.5
-    msg_vwap_long = build_payload_v2("vwap_reclaim_long", "BUY", e, s, t1, t2,
+    msg_vwap_long = build_payload_v2("vwap_reclaim_long", "NOTICE", e, s, t1, t2,
                                      volume_ratio, cvd_slope_n, bearish_div)
     alert(msg_vwap_long, alert.freq_once_per_bar_close)
 
@@ -342,6 +344,6 @@ if fire_vwap_alerts and vwap_reject_short
     rsk = s - e
     t1 = pdl
     t2 = pdl - (e - pdl) * 0.5
-    msg_vwap_short = build_payload_v2("vwap_reject_short", "SHORT", e, s, t1, t2,
+    msg_vwap_short = build_payload_v2("vwap_reject_short", "NOTICE", e, s, t1, t2,
                                       volume_ratio, cvd_slope_n, bullish_div)
     alert(msg_vwap_short, alert.freq_once_per_bar_close)
