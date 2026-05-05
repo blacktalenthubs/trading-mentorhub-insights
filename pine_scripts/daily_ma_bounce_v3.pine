@@ -1,6 +1,18 @@
 // @version=5
 //
-// Daily MA Bounce v3 — Phase 5e (2026-05-03)
+// Daily MA Bounce v3 — Phase 5f (2026-05-04)
+//
+// Pine fires on every qualifying bar close — backend handles dedup.
+// Previously v3 had a Pine-side state machine (armed flags + ATR-based
+// re-arm) to prevent spam during chop, but it had two problems: (1) it
+// got disarmed during TV alert warmup and silenced the rest of the day,
+// (2) it locked out genuine multi-cross events on chop days. Removed.
+//
+// Spam protection now lives in two layers:
+//   • Pine: alert.freq_once_per_bar_close prevents same-bar refires
+//   • Backend: identity dedup on (user, symbol, direction, alert_type)
+//     with 60-min window — same MA + same direction within 60 min collapses
+//     to one Telegram. Setups >1hr apart all fire.
 //
 // Detection covers BOTH bounce AND reclaim of every MA (and the symmetric
 // rejection + lose for shorts). v3 was previously missing the reclaim case
@@ -15,9 +27,7 @@
 //                     bounce/reject detection, PDH/PDL confluence, volume
 //                     + CVD order flow, conviction-aware payload.
 //
-//   • 15m reclaim Pine — state machine that suppresses re-fires during
-//                        consolidation, daily-ATR-relative buffers,
-//                        wick-based stops, wider R multiples.
+//   • 15m reclaim Pine — wick-based stops, wider R multiples.
 //
 // One Pine, every TF. Configure via:
 //   • TV alert Interval setting (15m, 65m, 4h, 1D)
@@ -27,10 +37,6 @@
 // Recommended pairings:
 //   • 15m / 65m alerts → mode = intraday  (tight risk, fast entry)
 //   • 4h / daily alerts → mode = swing    (wider risk, full-bar confirmation)
-//
-// State machine (BOTH modes): after firing on a given MA, that MA is
-// "disarmed" until close moves > re_arm_atr × daily ATR away from it.
-// Prevents the 5-6 spam alerts during consolidations hugging the EMA.
 //
 // Same payload schema as v2 daily — backend conviction degradation,
 // Telegram formatting, Trade Review etc. all work unchanged. Rule names
@@ -44,7 +50,6 @@ fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to 
 show_lines       = input.bool   (true,         "Show daily MA lines")
 show_markers     = input.bool   (true,         "Show BOUNCE/REJECT markers")
 mode             = input.string ("intraday",   "Setup mode", options = ["intraday", "swing"])
-re_arm_atr       = input.float  (1.0,          "Re-arm buffer (× daily ATR14)", minval = 0.2, maxval = 3.0, step = 0.1)
 tolerance_atr    = input.float  (0.3,          "MA tolerance band (× chart ATR14, swing mode)", minval = 0.05, maxval = 2.0, step = 0.05)
 r_t1             = input.float  (4.0,          "T1 R multiple (intraday=4, swing=2)", minval = 1.0, maxval = 10.0, step = 0.5)
 r_t2             = input.float  (6.0,          "T2 R multiple (intraday=6, swing=3)", minval = 1.0, maxval = 15.0, step = 0.5)
@@ -92,24 +97,6 @@ plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0)
 plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles)
 plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles)
 
-// State: armed flags per MA (8 longs + 8 shorts) -----------------------------
-var bool armed_e8   = true
-var bool armed_e21  = true
-var bool armed_e50  = true
-var bool armed_e100 = true
-var bool armed_e200 = true
-var bool armed_s50  = true
-var bool armed_s100 = true
-var bool armed_s200 = true
-var bool s_armed_e8   = true
-var bool s_armed_e21  = true
-var bool s_armed_e50  = true
-var bool s_armed_e100 = true
-var bool s_armed_e200 = true
-var bool s_armed_s50  = true
-var bool s_armed_s100 = true
-var bool s_armed_s200 = true
-
 // Detection helpers — strict (intraday) and band (swing) ---------------------
 //
 // Two distinct LONG setups, both bullish, both worth alerting:
@@ -142,120 +129,30 @@ band_long(float ma) =>
 band_short(float ma) =>
     not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
 
-// Active condition per MA × direction (gated by armed flag) ------------------
+// Active condition per MA × direction ----------------------------------------
 // Intraday: defense (strict_long) OR reclaim (close crosses above MA).
-// Swing:    band touch unchanged — band already covers wider entry zone.
-fire_e8   = armed_e8   and (is_intraday_mode ? (strict_long(ema8)   or reclaim_long(ema8))   : band_long(ema8))
-fire_e21  = armed_e21  and (is_intraday_mode ? (strict_long(ema21)  or reclaim_long(ema21))  : band_long(ema21))
-fire_e50  = armed_e50  and (is_intraday_mode ? (strict_long(ema50)  or reclaim_long(ema50))  : band_long(ema50))
-fire_e100 = armed_e100 and (is_intraday_mode ? (strict_long(ema100) or reclaim_long(ema100)) : band_long(ema100))
-fire_e200 = armed_e200 and (is_intraday_mode ? (strict_long(ema200) or reclaim_long(ema200)) : band_long(ema200))
-fire_s50  = armed_s50  and (is_intraday_mode ? (strict_long(sma50)  or reclaim_long(sma50))  : band_long(sma50))
-fire_s100 = armed_s100 and (is_intraday_mode ? (strict_long(sma100) or reclaim_long(sma100)) : band_long(sma100))
-fire_s200 = armed_s200 and (is_intraday_mode ? (strict_long(sma200) or reclaim_long(sma200)) : band_long(sma200))
+// Swing:    band touch — wider entry zone.
+// alert.freq_once_per_bar_close at the alert call site prevents same-bar
+// refire. Backend identity dedup (60-min window per alert_type+direction)
+// prevents same-MA same-direction repeats within an hour.
+fire_e8   = is_intraday_mode ? (strict_long(ema8)   or reclaim_long(ema8))   : band_long(ema8)
+fire_e21  = is_intraday_mode ? (strict_long(ema21)  or reclaim_long(ema21))  : band_long(ema21)
+fire_e50  = is_intraday_mode ? (strict_long(ema50)  or reclaim_long(ema50))  : band_long(ema50)
+fire_e100 = is_intraday_mode ? (strict_long(ema100) or reclaim_long(ema100)) : band_long(ema100)
+fire_e200 = is_intraday_mode ? (strict_long(ema200) or reclaim_long(ema200)) : band_long(ema200)
+fire_s50  = is_intraday_mode ? (strict_long(sma50)  or reclaim_long(sma50))  : band_long(sma50)
+fire_s100 = is_intraday_mode ? (strict_long(sma100) or reclaim_long(sma100)) : band_long(sma100)
+fire_s200 = is_intraday_mode ? (strict_long(sma200) or reclaim_long(sma200)) : band_long(sma200)
 
-s_fire_e8   = s_armed_e8   and (is_intraday_mode ? (strict_short(ema8)   or lose_short(ema8))   : band_short(ema8))
-s_fire_e21  = s_armed_e21  and (is_intraday_mode ? (strict_short(ema21)  or lose_short(ema21))  : band_short(ema21))
-s_fire_e50  = s_armed_e50  and (is_intraday_mode ? (strict_short(ema50)  or lose_short(ema50))  : band_short(ema50))
-s_fire_e100 = s_armed_e100 and (is_intraday_mode ? (strict_short(ema100) or lose_short(ema100)) : band_short(ema100))
-s_fire_e200 = s_armed_e200 and (is_intraday_mode ? (strict_short(ema200) or lose_short(ema200)) : band_short(ema200))
-s_fire_s50  = s_armed_s50  and (is_intraday_mode ? (strict_short(sma50)  or lose_short(sma50))  : band_short(sma50))
-s_fire_s100 = s_armed_s100 and (is_intraday_mode ? (strict_short(sma100) or lose_short(sma100)) : band_short(sma100))
-s_fire_s200 = s_armed_s200 and (is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : band_short(sma200))
+s_fire_e8   = is_intraday_mode ? (strict_short(ema8)   or lose_short(ema8))   : band_short(ema8)
+s_fire_e21  = is_intraday_mode ? (strict_short(ema21)  or lose_short(ema21))  : band_short(ema21)
+s_fire_e50  = is_intraday_mode ? (strict_short(ema50)  or lose_short(ema50))  : band_short(ema50)
+s_fire_e100 = is_intraday_mode ? (strict_short(ema100) or lose_short(ema100)) : band_short(ema100)
+s_fire_e200 = is_intraday_mode ? (strict_short(ema200) or lose_short(ema200)) : band_short(ema200)
+s_fire_s50  = is_intraday_mode ? (strict_short(sma50)  or lose_short(sma50))  : band_short(sma50)
+s_fire_s100 = is_intraday_mode ? (strict_short(sma100) or lose_short(sma100)) : band_short(sma100)
+s_fire_s200 = is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : band_short(sma200)
 
-// Disarm on fire, re-arm on clear breakout (always uses daily ATR) -----------
-//
-// Disarm is gated on `not barstate.ishistory` (2026-05-04 fix). Reason:
-// when a TV alert is created mid-session, TV's server-side Pine evaluator
-// plays through ALL historical bars to warm up state, then starts real-time
-// evaluation. During warmup, alert() calls don't fire to Telegram, but the
-// state machine still advances. Without this gate, a morning EMA bounce
-// silently disarms the flag during warmup, and real-time bars can't fire
-// for the rest of the day (re-arm requires +1×daily_ATR move which often
-// never happens). Symptom: zero alerts on freshly-created alerts despite
-// chart labels showing the events. Re-arm logic is unchanged — the flag
-// just stays armed through history so real-time gets a fresh state.
-re_arm_buffer = atr_d * re_arm_atr
-
-if fire_e8 and not barstate.ishistory
-    armed_e8 := false
-if not armed_e8 and not na(ema8) and close > ema8 + re_arm_buffer
-    armed_e8 := true
-
-if fire_e21 and not barstate.ishistory
-    armed_e21 := false
-if not armed_e21 and not na(ema21) and close > ema21 + re_arm_buffer
-    armed_e21 := true
-
-if fire_e50 and not barstate.ishistory
-    armed_e50 := false
-if not armed_e50 and not na(ema50) and close > ema50 + re_arm_buffer
-    armed_e50 := true
-
-if fire_e100 and not barstate.ishistory
-    armed_e100 := false
-if not armed_e100 and not na(ema100) and close > ema100 + re_arm_buffer
-    armed_e100 := true
-
-if fire_e200 and not barstate.ishistory
-    armed_e200 := false
-if not armed_e200 and not na(ema200) and close > ema200 + re_arm_buffer
-    armed_e200 := true
-
-if fire_s50 and not barstate.ishistory
-    armed_s50 := false
-if not armed_s50 and not na(sma50) and close > sma50 + re_arm_buffer
-    armed_s50 := true
-
-if fire_s100 and not barstate.ishistory
-    armed_s100 := false
-if not armed_s100 and not na(sma100) and close > sma100 + re_arm_buffer
-    armed_s100 := true
-
-if fire_s200 and not barstate.ishistory
-    armed_s200 := false
-if not armed_s200 and not na(sma200) and close > sma200 + re_arm_buffer
-    armed_s200 := true
-
-if s_fire_e8 and not barstate.ishistory
-    s_armed_e8 := false
-if not s_armed_e8 and not na(ema8) and close < ema8 - re_arm_buffer
-    s_armed_e8 := true
-
-if s_fire_e21 and not barstate.ishistory
-    s_armed_e21 := false
-if not s_armed_e21 and not na(ema21) and close < ema21 - re_arm_buffer
-    s_armed_e21 := true
-
-if s_fire_e50 and not barstate.ishistory
-    s_armed_e50 := false
-if not s_armed_e50 and not na(ema50) and close < ema50 - re_arm_buffer
-    s_armed_e50 := true
-
-if s_fire_e100 and not barstate.ishistory
-    s_armed_e100 := false
-if not s_armed_e100 and not na(ema100) and close < ema100 - re_arm_buffer
-    s_armed_e100 := true
-
-if s_fire_e200 and not barstate.ishistory
-    s_armed_e200 := false
-if not s_armed_e200 and not na(ema200) and close < ema200 - re_arm_buffer
-    s_armed_e200 := true
-
-if s_fire_s50 and not barstate.ishistory
-    s_armed_s50 := false
-if not s_armed_s50 and not na(sma50) and close < sma50 - re_arm_buffer
-    s_armed_s50 := true
-
-if s_fire_s100 and not barstate.ishistory
-    s_armed_s100 := false
-if not s_armed_s100 and not na(sma100) and close < sma100 - re_arm_buffer
-    s_armed_s100 := true
-
-if s_fire_s200 and not barstate.ishistory
-    s_armed_s200 := false
-if not s_armed_s200 and not na(sma200) and close < sma200 - re_arm_buffer
-    s_armed_s200 := true
 
 // Aggregate fires + tags -----------------------------------------------------
 any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200

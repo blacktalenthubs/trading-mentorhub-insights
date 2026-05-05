@@ -217,12 +217,16 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     persisted = 0
     notified = 0
     session_date = date.today().isoformat()
-    # Identity dedup (2026-05-03): same MA + same direction = same setup.
-    # Old price-band approach was brittle — ETH EMA100 short re-fired at
-    # $2322.50 after $2338.56 because 0.69% drift exceeded the band. Replaced
-    # with exact alert_type match (tv_ma_rejection_short_v3_ema100), making
-    # the dedup key reflect what the trader actually sees as redundant.
-    dedup_window = timedelta(hours=4)
+    # Identity dedup keys on (user, symbol, direction, alert_type) where
+    # alert_type carries the MA tag. Window 60 min (was 4hrs).
+    #
+    # Pine v3 state machine was stripped 2026-05-04 — all qualifying bars
+    # now fire alert(). Backend dedup is the sole rate-limiter, so the
+    # window has to balance "catch genuine multi-cross events" against
+    # "don't spam on chop". 60 min lets a long bounce + short rejection
+    # an hour apart both fire, while a same-direction repeat 30 min later
+    # gets suppressed. Tune here without redeploying Pine.
+    dedup_window = timedelta(minutes=60)
 
     # Build alert_type with MA-tag suffix so each MA is its own dedup key.
     # ma_tag "100E" -> "_ema100", "8E21E" -> "_ema8_ema21", "" -> "".
