@@ -58,6 +58,13 @@ cvd_lookback     = input.int    (10,           "CVD divergence lookback (bars)",
 conf_tol_atr     = input.float  (0.5,          "PDH/PDL confluence tolerance (× chart ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 label_size_in    = input.string ("tiny",       "Marker label size", options = ["tiny", "small", "normal", "large"])
 
+// Proximity NOTICE alerts — fires when bar holds NEAR an MA without touching.
+// Catches gap-up holds where price found buyers a few ticks above the level
+// (e.g., ORCL 2026-05-04: post-gap drift to within 0.3% of EMA100, bounced).
+// NOTICE-only — informational, not a tradeable defense like strict_long.
+fire_proximity_alerts = input.bool  (true, "Fire MA proximity NOTICE alerts (bar holds near MA without touching)", group = "Proximity NOTICE")
+proximity_pct         = input.float (0.3,  "Proximity threshold (% of MA price)", minval = 0.05, maxval = 2.0, step = 0.05, group = "Proximity NOTICE")
+
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
 
 is_intraday_mode = mode == "intraday"
@@ -129,6 +136,16 @@ band_long(float ma) =>
 band_short(float ma) =>
     not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
 
+// Proximity (NOTICE-only) — bar held NEAR the MA without touching it. Tight
+// threshold (% of MA price). Distinct from strict_long which requires
+// low <= ma. Fires when price respects the level from above (long) or below
+// (short) without an actual test — the "found buyers above the level" case.
+proximity_long(float ma, float pct) =>
+    not na(ma) and ma > 0 and low > ma and (low - ma) / ma * 100.0 <= pct and close > open
+
+proximity_short(float ma, float pct) =>
+    not na(ma) and ma > 0 and high < ma and (ma - high) / ma * 100.0 <= pct and close < open
+
 // Active condition per MA × direction ----------------------------------------
 // Intraday: defense (strict_long) OR reclaim (close crosses above MA).
 // Swing:    band touch — wider entry zone.
@@ -153,13 +170,41 @@ s_fire_s50  = is_intraday_mode ? (strict_short(sma50)  or lose_short(sma50))  : 
 s_fire_s100 = is_intraday_mode ? (strict_short(sma100) or lose_short(sma100)) : band_short(sma100)
 s_fire_s200 = is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : band_short(sma200)
 
+// Proximity NOTICE per MA × direction. Suppressed when a real defense fired
+// on the same MA same bar — strict_long/lose_short already say more than a
+// proximity hint, no point spamming both. Cross-MA bleed is fine: e.g., a
+// strict_long on EMA50 doesn't suppress a proximity_long on EMA100.
+prox_e8_l   = fire_proximity_alerts and proximity_long(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
+prox_e21_l  = fire_proximity_alerts and proximity_long(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
+prox_e50_l  = fire_proximity_alerts and proximity_long(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
+prox_e100_l = fire_proximity_alerts and proximity_long(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
+prox_e200_l = fire_proximity_alerts and proximity_long(ema200, proximity_pct) and not (fire_e200 or s_fire_e200)
+prox_s50_l  = fire_proximity_alerts and proximity_long(sma50,  proximity_pct) and not (fire_s50  or s_fire_s50)
+prox_s100_l = fire_proximity_alerts and proximity_long(sma100, proximity_pct) and not (fire_s100 or s_fire_s100)
+prox_s200_l = fire_proximity_alerts and proximity_long(sma200, proximity_pct) and not (fire_s200 or s_fire_s200)
+
+prox_e8_s   = fire_proximity_alerts and proximity_short(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
+prox_e21_s  = fire_proximity_alerts and proximity_short(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
+prox_e50_s  = fire_proximity_alerts and proximity_short(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
+prox_e100_s = fire_proximity_alerts and proximity_short(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
+prox_e200_s = fire_proximity_alerts and proximity_short(ema200, proximity_pct) and not (fire_e200 or s_fire_e200)
+prox_s50_s  = fire_proximity_alerts and proximity_short(sma50,  proximity_pct) and not (fire_s50  or s_fire_s50)
+prox_s100_s = fire_proximity_alerts and proximity_short(sma100, proximity_pct) and not (fire_s100 or s_fire_s100)
+prox_s200_s = fire_proximity_alerts and proximity_short(sma200, proximity_pct) and not (fire_s200 or s_fire_s200)
+
 
 // Aggregate fires + tags -----------------------------------------------------
 any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
 any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
 
+any_prox_long  = prox_e8_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
+any_prox_short = prox_e8_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
+
 long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
 short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+
+prox_long_tag  = (prox_e8_l   ? "8E "  : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
+prox_short_tag = (prox_e8_s   ? "8E "  : "") + (prox_e21_s  ? "21E " : "") + (prox_e50_s  ? "50E " : "") + (prox_e100_s ? "100E " : "") + (prox_e200_s ? "200E " : "") + (prox_s50_s  ? "50S " : "") + (prox_s100_s ? "100S " : "") + (prox_s200_s ? "200S " : "")
 
 // Markers --------------------------------------------------------------------
 plotshape(show_markers and any_long,
@@ -169,6 +214,17 @@ plotshape(show_markers and any_long,
 plotshape(show_markers and any_short,
           title = "Reject SHORT", location = location.abovebar,
           color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.tiny)
+
+// Proximity NOTICE markers — small dots, distinct from solid triangles so the
+// user can tell at-a-glance "near level" vs "actual defense".
+plotshape(show_markers and any_prox_long,
+          title = "Proximity LONG", location = location.belowbar,
+          color = color.new(color.green, 30), style = shape.circle,
+          size = size.tiny)
+plotshape(show_markers and any_prox_short,
+          title = "Proximity SHORT", location = location.abovebar,
+          color = color.new(color.red, 30), style = shape.circle,
           size = size.tiny)
 
 if show_markers and any_long
@@ -332,3 +388,19 @@ if fire_alerts and any_short
         t2_short := e - rsk * r_t2
     msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, t1_short, t2_short, false, near_pdh)
     alert(msg_short, alert.freq_once_per_bar_close)
+
+// Proximity NOTICE alerts ----------------------------------------------------
+// Direction = NOTICE, entry/stop/targets set to close as placeholder — the
+// notifier's NOTICE formatter ignores these. Backend dedup buckets these as
+// alert_type=tv_ma_proximity_{long|short}_v3_{ma_suffix}, fully separate from
+// the BUY/SHORT defense buckets — so a real EMA100 defense and an EMA50
+// proximity NOTICE on the same bar produce two distinct Telegram messages.
+if fire_alerts and any_prox_long
+    e = close
+    msg_prox_long = build_v3_payload("ma_proximity_long_v3", "NOTICE", prox_long_tag, e, e, e, e, near_pdl, false)
+    alert(msg_prox_long, alert.freq_once_per_bar_close)
+
+if fire_alerts and any_prox_short
+    e = close
+    msg_prox_short = build_v3_payload("ma_proximity_short_v3", "NOTICE", prox_short_tag, e, e, e, e, false, near_pdh)
+    alert(msg_prox_short, alert.freq_once_per_bar_close)

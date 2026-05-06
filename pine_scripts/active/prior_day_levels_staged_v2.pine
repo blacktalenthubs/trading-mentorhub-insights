@@ -24,12 +24,14 @@
 indicator("pdl-pdh-vwap", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
+show_weekly_lines = input.bool(true,  "Show PWH/PWL + weekly EMA8/21",  group = "Weekly levels")
+fire_weekly_alerts = input.bool(true, "Fire weekly level alerts (PWH/PWL break/reject/reclaim)", group = "Weekly levels")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
 show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
 show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
-fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject alerts (NOTICE-only — set true on 1h chart for confirmation)")
+fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/lose alerts (NOTICE-only — set true on 1h chart for confirmation)")
 sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
 atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
@@ -48,6 +50,31 @@ plot(show_lines ? pdh : na, title = "PDH",
      color = color.new(color.green, 0), style = plot.style_linebr, linewidth = 2)
 plot(show_lines ? pdl : na, title = "PDL",
      color = color.new(color.red, 0),   style = plot.style_linebr, linewidth = 2)
+
+// =====================================================================
+// Prior Week High / Low + weekly EMAs (added 2026-05-05 — spec C2)
+// Higher-timeframe structural levels. PWH/PWL act as major resistance/
+// support; weekly EMAs as HTF trend filter. Used as T1/T2 anchors in the
+// target hierarchy (see C4 helpers below) and emit their own break/
+// rejection events when fire_weekly_alerts is on.
+// =====================================================================
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+wema8  = request.security(syminfo.tickerid, "W", ta.ema(close, 8)[1],
+                          lookahead = barmerge.lookahead_on)
+wema21 = request.security(syminfo.tickerid, "W", ta.ema(close, 21)[1],
+                          lookahead = barmerge.lookahead_on)
+
+// Weekly lines: lighter colors than daily so the visual hierarchy is
+// "daily = bold, weekly = subtle" — daily levels are the primary read.
+plot(show_weekly_lines ? pwh : na, title = "PWH",
+     color = color.new(color.green, 50), style = plot.style_linebr, linewidth = 1)
+plot(show_weekly_lines ? pwl : na, title = "PWL",
+     color = color.new(color.red, 50),   style = plot.style_linebr, linewidth = 1)
+plot(show_weekly_lines ? wema8 : na,  title = "Weekly EMA8",
+     color = color.new(#FF9800, 60), linewidth = 1)
+plot(show_weekly_lines ? wema21 : na, title = "Weekly EMA21",
+     color = color.new(#9E9E9E, 60), linewidth = 1)
 
 // =====================================================================
 // VWAP + slope
@@ -195,6 +222,7 @@ stage_json = str.replace_all(stage_text, "\n", " — ")
 
 build_payload_v2(rule, direction,
                  entry_p, stop_p, t1_p, t2_p,
+                 gap_ctx_v,
                  vr, cvd_d, cvd_div) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
@@ -213,6 +241,9 @@ build_payload_v2(rule, direction,
       + '","vwap":"' + str.tostring(vwap_v, format.mintick)
       + '","vwap_slope_pct":"' + str.tostring(vwap_slope_pct, "#.##")
       + '","above_vwap":"' + (above_vwap ? "true" : "false")
+      + '","gap_context":"' + (gap_ctx_v ? "true" : "false")
+      + '","pwh":"' + str.tostring(pwh, format.mintick)
+      + '","pwl":"' + str.tostring(pwl, format.mintick)
       + '","volume_ratio":"' + str.tostring(vr, "#.##")
       + '","cvd_delta":"' + str.tostring(cvd_d, "#.##")
       + '","cvd_diverging":"' + (cvd_div ? "true" : "false")
@@ -220,6 +251,84 @@ build_payload_v2(rule, direction,
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
 atr_buffer = atr14 * atr_buffer_mult
+
+// Daily ATR for the target-hierarchy ATR fallback (intraday-scaled at 0.5×
+// because daily ATR is too wide for a single-session target).
+atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1],
+                             lookahead = barmerge.lookahead_on)
+atr_d     = nz(atr_d_raw, close * 0.005)
+
+// =====================================================================
+// Gap-and-go detection (spec C1) — track today's open + first 10-min low
+// =====================================================================
+// Captures the gap-up + hold pattern: open well above PDH, first bar
+// doesn't wick below PDH. Used by `staged_pdh_break` to swap in a tight
+// first-bar-low stop instead of yesterday's wide swing-low.
+//
+// "First bar" = first 10 minutes of the regular session. We track the
+// running low across however many chart-TF bars fit in 10 min (e.g.,
+// two 5m bars, ten 1m bars).
+session_open_now = ta.change(time("D")) != 0
+var float today_open       = na
+var float bar1_low         = na
+var int   first_bar_time   = na
+
+if session_open_now
+    today_open := open
+    bar1_low := low
+    first_bar_time := time
+else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
+    bar1_low := math.min(nz(bar1_low, low), low)
+
+// Gap-up + hold flags. gap_context true = use tight first-bar stop.
+gap_up      = not na(today_open) and not na(pdh) and today_open >= pdh * 1.005
+gap_held    = not na(bar1_low)   and not na(pdh) and bar1_low > pdh
+gap_context = gap_up and gap_held
+
+// =====================================================================
+// Target hierarchy helpers (spec C4)
+// =====================================================================
+// Walk: structural overhead/support → next round number → 0.5× daily ATR
+// extension → 0.75% floor. Always returns a target at least 0.5% from
+// entry (so tight-stop alerts don't get tight targets too).
+
+next_round_above(float p) =>
+    incr = p > 200 ? 5.0 : (p > 50 ? 1.0 : 0.5)
+    math.ceil(p / incr) * incr
+
+next_round_below(float p) =>
+    incr = p > 200 ? 5.0 : (p > 50 ? 1.0 : 0.5)
+    math.floor(p / incr) * incr
+
+// Closest valid level above entry within 3% (na if none).
+nearest_above(float e, float l1, float l2) =>
+    a1 = not na(l1) and l1 > e and (l1 - e) / e <= 0.03 ? l1 : 9.0e15
+    a2 = not na(l2) and l2 > e and (l2 - e) / e <= 0.03 ? l2 : 9.0e15
+    r  = math.min(a1, a2)
+    r == 9.0e15 ? float(na) : r
+
+nearest_below(float e, float l1, float l2) =>
+    a1 = not na(l1) and l1 < e and (e - l1) / e <= 0.03 ? l1 : -9.0e15
+    a2 = not na(l2) and l2 < e and (e - l2) / e <= 0.03 ? l2 : -9.0e15
+    r  = math.max(a1, a2)
+    r == -9.0e15 ? float(na) : r
+
+t1_long_hier(float e, float l1, float l2, float atr_daily) =>
+    s = nearest_above(e, l1, l2)
+    not na(s) ? s :
+      next_round_above(e) > e * 1.005 ? next_round_above(e) :
+      e + atr_daily * 0.5 > e * 1.005 ? e + atr_daily * 0.5 :
+      e * 1.0075
+
+t1_short_hier(float e, float l1, float l2, float atr_daily) =>
+    s = nearest_below(e, l1, l2)
+    not na(s) ? s :
+      next_round_below(e) < e * 0.995 ? next_round_below(e) :
+      e - atr_daily * 0.5 < e * 0.995 ? e - atr_daily * 0.5 :
+      e * 0.9925
+
+t2_extend_long(float e, float t1)  => math.max(t1 + (t1 - e) * 0.5, t1 * 1.005)
+t2_extend_short(float e, float t1) => math.min(t1 - (e - t1) * 0.5, t1 * 0.995)
 
 // LONG alerts pass bearish_div (price up, CVD lagging = bad for longs)
 // SHORT alerts pass bullish_div (price down, CVD lifting = bad for shorts)
@@ -230,33 +339,53 @@ atr_buffer = atr14 * atr_buffer_mult
 // the TV alert side for faster delivery (10min close beats 15min close
 // for entry timing) without sacrificing the close-confirmation guarantee.
 //
+// Stop sizing notes:
+//   • staged_pdh_break — gap_context=true means use first-10min-bar low as
+//     stop (tight, ~1-2%) instead of yesterday's swing. Without gap context,
+//     fall back to the prior `pdh - atr_buffer` logic.
+//   • staged_pdh_rejection — stop above the rejection wick.
+//   • staged_pdl_break — stop just above the broken level.
+//   • staged_pdl_reclaim — stop at the sweep low (current bar's low).
+//
+// Target sizing: t1_long_hier / t1_short_hier walks structural → round →
+// ATR/2 → 0.75% floor. For LONG breakout (pdh_break), candidates are
+// PWH first then n/a — round/ATR fallback handles ATH cases. For LONG
+// reclaim (pdl_reclaim), candidates are PDH then PWH (further out).
 if pdh_break
     e   = close
-    s   = pdh - atr_buffer
-    rsk = e - s
-    alert(build_payload_v2("staged_pdh_break", "BUY", e, s, e + rsk * 2, e + rsk * 3,
-                           volume_ratio, cvd_slope_n, bearish_div),
+    s_default = pdh - atr_buffer
+    s   = gap_context and not na(bar1_low) ? bar1_low - atr_buffer * 0.5 : s_default
+    t1  = t1_long_hier(e, pwh, na, atr_d)
+    t2  = t2_extend_long(e, t1)
+    alert(build_payload_v2("staged_pdh_break", "BUY", e, s, t1, t2,
+                           gap_context, volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
 if pdh_rejection
     e   = close
     s   = high + atr_buffer
-    rsk = s - e
-    alert(build_payload_v2("staged_pdh_rejection", "SHORT", e, s, e - rsk * 2, pdl,
-                           volume_ratio, cvd_slope_n, bullish_div),
+    // T1: VWAP if below entry, else PDL. T2: PWL or extension below T1.
+    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
+    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pdh_rejection", "SHORT", e, s, t1, t2,
+                           false, volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 if pdl_break
     e   = close
     s   = pdl + atr_buffer
-    rsk = s - e
-    alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, e - rsk * 2, e - rsk * 3,
-                           volume_ratio, cvd_slope_n, bullish_div),
+    t1  = t1_short_hier(e, pwl, na, atr_d)
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, t1, t2,
+                           false, volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
-    rsk = e - s
-    alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, e + rsk * 2, pdh,
-                           volume_ratio, cvd_slope_n, bearish_div),
+    // T1: PDH (existing logic kept), T2: PWH if available, else extension.
+    t1  = pdh
+    t2  = not na(pwh) and pwh > t1 ? pwh : t2_extend_long(e, t1)
+    alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, t1, t2,
+                           false, volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
 
 // =====================================================================
@@ -331,19 +460,114 @@ if show_signals and vwap_reject_short
 if fire_vwap_alerts and vwap_reclaim_long
     e = close
     s = math.min(low, low[1]) - atr_buffer
-    rsk = e - s
     t1 = pdh
     t2 = pdh + (pdh - e) * 0.5
     msg_vwap_long = build_payload_v2("vwap_reclaim_long", "NOTICE", e, s, t1, t2,
-                                     volume_ratio, cvd_slope_n, bearish_div)
+                                     false, volume_ratio, cvd_slope_n, bearish_div)
     alert(msg_vwap_long, alert.freq_once_per_bar_close)
 
 if fire_vwap_alerts and vwap_reject_short
     e = close
     s = math.max(high, high[1]) + atr_buffer
-    rsk = s - e
     t1 = pdl
     t2 = pdl - (e - pdl) * 0.5
     msg_vwap_short = build_payload_v2("vwap_reject_short", "NOTICE", e, s, t1, t2,
-                                      volume_ratio, cvd_slope_n, bullish_div)
+                                      false, volume_ratio, cvd_slope_n, bullish_div)
     alert(msg_vwap_short, alert.freq_once_per_bar_close)
+
+// =====================================================================
+// VWAP lose (price was above VWAP, breaks below) — SPY short trigger
+// per spec §A2. Direction = NOTICE so non-SPY symbols get FYI; backend
+// whitelists `vwap_lose_short` to ACTION when symbol == SPY.
+// =====================================================================
+vwap_lose_short = not na(vwap_v) and not na(close[1]) and close[1] >= vwap_v and close < vwap_v and close < open
+
+plotshape(show_signals and vwap_lose_short,
+          title = "VWAP lose SHORT", location = location.abovebar,
+          color = color.new(#FF5722, 0), style = shape.triangledown,
+          size = size.small)
+
+if show_signals and vwap_lose_short
+    label.new(bar_index, high, "LOSE VWAP",
+              style = label.style_label_down,
+              color = color.new(#FF5722, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.abovebar)
+
+if fire_vwap_alerts and vwap_lose_short
+    e = close
+    s = math.max(high, high[1]) + atr_buffer
+    t1 = t1_short_hier(e, pdl, pwl, atr_d)
+    t2 = t2_extend_short(e, t1)
+    msg_vwap_lose = build_payload_v2("vwap_lose_short", "NOTICE", e, s, t1, t2,
+                                     false, volume_ratio, cvd_slope_n, bullish_div)
+    alert(msg_vwap_lose, alert.freq_once_per_bar_close)
+
+// =====================================================================
+// PWH/PWL events (spec C2) — weekly level break/reject/reclaim
+// =====================================================================
+// Same 4-event taxonomy as PDH/PDL. Direction = BUY/SHORT (actionable
+// at the weekly level). T1/T2 use the hierarchy helpers — for a PWH
+// break at ATH, the hierarchy falls back to round/ATR cleanly.
+
+pwh_break     = not na(pwh) and not na(close[1]) and close > pwh and close[1] <= pwh
+pwh_rejection = not na(pwh) and not na(high[1])  and high >= pwh and close < pwh and high[1] < pwh
+pwl_break     = not na(pwl) and not na(close[1]) and close < pwl and close[1] >= pwl
+pwl_reclaim   = not na(pwl) and not na(close[1]) and close > pwl and close[1] <= pwl
+
+// Visual markers — circles to differentiate from daily triangles.
+plotshape(show_signals and show_weekly_lines and pwh_break,
+          title = "PWH break LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.circle,
+          size = size.small, text = "PWH+", textcolor = color.white)
+plotshape(show_signals and show_weekly_lines and pwh_rejection,
+          title = "PWH reject SHORT", location = location.abovebar,
+          color = color.new(color.orange, 0), style = shape.circle,
+          size = size.small, text = "PWH−", textcolor = color.white)
+plotshape(show_signals and show_weekly_lines and pwl_break,
+          title = "PWL break SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.circle,
+          size = size.small, text = "PWL−", textcolor = color.white)
+plotshape(show_signals and show_weekly_lines and pwl_reclaim,
+          title = "PWL reclaim LONG", location = location.belowbar,
+          color = color.new(color.aqua, 0), style = shape.circle,
+          size = size.small, text = "PWL+", textcolor = color.black)
+
+if fire_weekly_alerts and pwh_break
+    e   = close
+    s   = pwh - atr_buffer
+    // ATH case — no level above PWH, hierarchy falls to round/ATR
+    t1  = t1_long_hier(e, na, na, atr_d)
+    t2  = t2_extend_long(e, t1)
+    alert(build_payload_v2("staged_pwh_break", "BUY", e, s, t1, t2,
+                           false, volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
+if fire_weekly_alerts and pwh_rejection
+    e   = close
+    s   = high + atr_buffer
+    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdh
+    t1  = na(t1_a) ? t1_short_hier(e, pdh, pdl, atr_d) : t1_a
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pwh_rejection", "SHORT", e, s, t1, t2,
+                           false, volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+if fire_weekly_alerts and pwl_break
+    e   = close
+    s   = pwl + atr_buffer
+    t1  = t1_short_hier(e, na, na, atr_d)
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pwl_break", "SHORT", e, s, t1, t2,
+                           false, volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+if fire_weekly_alerts and pwl_reclaim
+    e   = close
+    s   = low - atr_buffer
+    // T1: nearest above (PDL if above entry, then PDH); fall back to
+    // hierarchy if neither is above entry.
+    t1_struct = nearest_above(e, pdl, pdh)
+    t1  = not na(t1_struct) ? t1_struct : t1_long_hier(e, pdl, pdh, atr_d)
+    t2  = t2_extend_long(e, t1)
+    alert(build_payload_v2("staged_pwl_reclaim", "BUY", e, s, t1, t2,
+                           false, volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
