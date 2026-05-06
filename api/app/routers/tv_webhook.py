@@ -426,14 +426,17 @@ _spy_state_cache: dict[str, Any] = {"value": None, "expires_at": 0.0}
 
 
 # SPY SHORT whitelist (A2). Rules NOT in this set drop to NOTICE when
-# SPY is in long-bias regime. `vwap_lose_short` is whitelisted preemptively
-# (Pine implementation lands in C1 work) — defensive whitelisting causes
-# no harm since no alert with that rule fires until then.
+# SPY is in long-bias regime.
+#
+# Note: `vwap_lose_short` was added briefly 2026-05-05 and removed the
+# same day — single bar-close VWAP cross was too noisy on charts where
+# candles hug VWAP (AAPL 1h showed 7 false triggers in a session). The
+# actionable VWAP-from-above case is already covered by vwap_reject_short
+# (which requires `vwap_setup_bars` confirmation).
 _SPY_SHORT_ACTION_RULES = {
     "tv_staged_pdh_rejection",
     "tv_staged_pdl_break",
     "tv_vwap_reject_short",
-    "tv_vwap_lose_short",
 }
 
 

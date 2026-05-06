@@ -475,34 +475,14 @@ if fire_vwap_alerts and vwap_reject_short
                                       false, volume_ratio, cvd_slope_n, bullish_div)
     alert(msg_vwap_short, alert.freq_once_per_bar_close)
 
-// =====================================================================
-// VWAP lose (price was above VWAP, breaks below) — SPY short trigger
-// per spec §A2. Direction = NOTICE so non-SPY symbols get FYI; backend
-// whitelists `vwap_lose_short` to ACTION when symbol == SPY.
-// =====================================================================
-vwap_lose_short = not na(vwap_v) and not na(close[1]) and close[1] >= vwap_v and close < vwap_v and close < open
-
-plotshape(show_signals and vwap_lose_short,
-          title = "VWAP lose SHORT", location = location.abovebar,
-          color = color.new(#FF5722, 0), style = shape.triangledown,
-          size = size.small)
-
-if show_signals and vwap_lose_short
-    label.new(bar_index, high, "LOSE VWAP",
-              style = label.style_label_down,
-              color = color.new(#FF5722, 0),
-              textcolor = color.white,
-              size = size.tiny,
-              yloc = yloc.abovebar)
-
-if fire_vwap_alerts and vwap_lose_short
-    e = close
-    s = math.max(high, high[1]) + atr_buffer
-    t1 = t1_short_hier(e, pdl, pwl, atr_d)
-    t2 = t2_extend_short(e, t1)
-    msg_vwap_lose = build_payload_v2("vwap_lose_short", "NOTICE", e, s, t1, t2,
-                                     false, volume_ratio, cvd_slope_n, bullish_div)
-    alert(msg_vwap_lose, alert.freq_once_per_bar_close)
+// vwap_lose_short was added briefly 2026-05-05 and removed same day.
+// AAPL 1h chart showed 7 LOSE VWAP labels in a single session because
+// candle bodies routinely brush VWAP in chop. Single bar-close cross
+// without setup_bars confirmation is too noisy to be tradeable; the
+// existing vwap_reject_short already covers the actionable case (price
+// rejecting VWAP from below after `vwap_setup_bars` consecutive bars).
+// SPY short remains gated on staged_pdh_rejection / staged_pdl_break /
+// vwap_reject_short — no behaviour lost.
 
 // =====================================================================
 // PWH/PWL events (spec C2) — weekly level break/reject/reclaim

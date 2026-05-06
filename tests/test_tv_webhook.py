@@ -491,14 +491,13 @@ class TestRoutingLogic:
 
     def test_spy_short_whitelisted_rule_actions(self, monkeypatch):
         """A2 — staged_pdh_rejection / staged_pdl_break / vwap_reject_short
-        / vwap_lose_short on SPY pass through as ACTION even in long-bias."""
+        on SPY pass through as ACTION even in long-bias."""
         from api.app.routers.tv_webhook import _route_alert
         _mock_spy_state(monkeypatch, True)
         for rule in (
             "tv_staged_pdh_rejection",
             "tv_staged_pdl_break",
             "tv_vwap_reject_short",
-            "tv_vwap_lose_short",
         ):
             sig = _FakeSig("SPY", "SHORT", rule)
             deliver, downgrade = _run(_route_alert(sig))

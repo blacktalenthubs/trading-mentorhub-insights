@@ -112,16 +112,19 @@ When SPY closes below its daily 8 OR 21 EMA:
 | `vwap_loses_long` (price loses VWAP from above) | **ACTION** *(new — see notes)* |
 | any other SHORT rule on SPY | NOTICE |
 
-**Two distinct VWAP short events** (both ACTION-routed for SPY):
+**SPY VWAP short — only `vwap_reject_short`** (after live test):
 
 | Event | When | Status |
 |-------|------|--------|
-| `vwap_reject_short` | Price approaches VWAP from below, gets rejected back down — VWAP acting as resistance | Exists in `staged_v2.pine` |
-| `vwap_lose_short` | Price was above VWAP during session, then breaks down through it — VWAP support failing | **New — needs to be added** |
+| `vwap_reject_short` | Price approaches VWAP from below, gets rejected back down — VWAP acting as resistance, `vwap_setup_bars` (default 3) of below-VWAP closes required first | Live in `staged_v2.pine` |
+| ~~`vwap_lose_short`~~ | ~~Price was above VWAP during session, then breaks down through it~~ | **REMOVED 2026-05-05** |
 
-User confirmed both are valid SPY short triggers. Pine implementation:
-new event `vwap_lose_short` checks `close[1] > vwap and close < vwap` —
-mirrors how `lose_short` works for MAs in v3.
+`vwap_lose_short` was implemented and tested same-day. Live AAPL 1h chart
+showed 7 LOSE VWAP labels in a single session because candle bodies
+routinely brush VWAP in chop — single bar-close cross has no signal.
+The `vwap_setup_bars` confirmation that makes `vwap_reject_short` clean
+doesn't apply to a "lose" event (price was just above, no setup phase).
+Removed from Pine, backend whitelist, and tests.
 
 > COMMENT (user):
 
