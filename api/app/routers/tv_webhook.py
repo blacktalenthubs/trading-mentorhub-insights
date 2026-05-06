@@ -21,7 +21,9 @@ Behind env flag `TV_WEBHOOK_ENABLED` (default false). Endpoint returns
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -80,6 +82,13 @@ class TVWebhookPayload(BaseModel):
     volume_ratio: Optional[str] = None
     cvd_delta: Optional[str] = None
     cvd_diverging: Optional[str] = None
+    # 2026-05-05 Pine batch (C1 + C2): gap-and-go context + weekly levels.
+    # Strings per TV's payload format. Telegram template work to surface
+    # these is deferred — fields are accepted now so they're available
+    # downstream when the formatter is updated.
+    gap_context: Optional[str] = None
+    pwh: Optional[str] = None
+    pwl: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +199,24 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     bias = HTFBias()  # neutral default — passed through but not surfaced in Telegram
 
     direction = (sig.direction or "").upper()
+
+    # 2b. Routing gate — A1 (SPY 8/21 long-bias suppresses non-SPY shorts) +
+    # A2 (SPY shorts only ACTION on whitelist; others → NOTICE). LONG and
+    # NOTICE alerts pass through unchanged.
+    deliver, downgrade = await _route_alert(sig)
+    if not deliver:
+        logger.info(
+            "TV routing: SUPPRESSED %s/%s rule=%s (long-bias mode, non-SPY short)",
+            sig.symbol, sig.direction, getattr(sig, "_tv_rule", "?"),
+        )
+        return {"dispatched": False, "reason": "routing_suppressed_long_bias"}
+    if downgrade:
+        logger.info(
+            "TV routing: DOWNGRADED %s/%s rule=%s → %s",
+            sig.symbol, sig.direction, getattr(sig, "_tv_rule", "?"), downgrade,
+        )
+        sig.direction = downgrade
+        direction = downgrade  # keep local var in sync for downstream branches
 
     # 3. Phase 4a structural targets if Pine Script didn't supply them.
     # Staged Pine always supplies entry/stop/T1/T2, so this only fills gaps
@@ -386,6 +413,111 @@ def _ma_tag_to_suffix(raw_ma_tag: str) -> str:
     return "_" + "_".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Routing logic — A1 (SPY 8/21 long-bias gate) + A2 (SPY short whitelist)
+# Spec: specs/41-tv-trading-system/v2-routing-notices-patterns.md
+# ---------------------------------------------------------------------------
+
+
+# SPY-state cache. yfinance is slow + flaky — refresh at most once per
+# 5 minutes during a webhook burst. In-process; resets on container start.
+_SPY_STATE_TTL_SEC = 300
+_spy_state_cache: dict[str, Any] = {"value": None, "expires_at": 0.0}
+
+
+# SPY SHORT whitelist (A2). Rules NOT in this set drop to NOTICE when
+# SPY is in long-bias regime. `vwap_lose_short` is whitelisted preemptively
+# (Pine implementation lands in C1 work) — defensive whitelisting causes
+# no harm since no alert with that rule fires until then.
+_SPY_SHORT_ACTION_RULES = {
+    "tv_staged_pdh_rejection",
+    "tv_staged_pdl_break",
+    "tv_vwap_reject_short",
+    "tv_vwap_lose_short",
+}
+
+
+def _fetch_spy_state_sync() -> bool:
+    """Sync helper: SPY's last close > both daily 8 EMA and 21 EMA.
+
+    Returns True (long-bias=permissive) on insufficient data.
+    Called from a thread pool so it doesn't block the event loop.
+    """
+    import yfinance as yf
+
+    spy = yf.Ticker("SPY")
+    hist = spy.history(period="60d", interval="1d")
+    if len(hist) < 22:
+        return True  # not enough data — fail-open
+    closes = hist["Close"]
+    ema8 = closes.ewm(span=8, adjust=False).mean().iloc[-1]
+    ema21 = closes.ewm(span=21, adjust=False).mean().iloc[-1]
+    last = closes.iloc[-1]
+    return bool(last > ema8 and last > ema21)
+
+
+async def _spy_above_8_21() -> bool:
+    """True if SPY closed above both daily 8 EMA and 21 EMA.
+
+    Cached for 5 min. Fails open (returns True = long-bias permissive)
+    on any error so a yfinance hiccup doesn't silently block alerts.
+    """
+    now = time.time()
+    if _spy_state_cache["expires_at"] > now and _spy_state_cache["value"] is not None:
+        return _spy_state_cache["value"]
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _fetch_spy_state_sync)
+    except Exception:
+        logger.exception(
+            "SPY 8/21 fetch failed — failing open (long-bias=True permissive)"
+        )
+        return True
+    _spy_state_cache["value"] = result
+    _spy_state_cache["expires_at"] = now + _SPY_STATE_TTL_SEC
+    return result
+
+
+async def _route_alert(sig) -> tuple[bool, Optional[str]]:
+    """Decide whether to deliver an alert and whether to downgrade direction.
+
+    Returns:
+        (deliver, downgrade)
+        - (True, None)        → deliver as-is (ACTION)
+        - (True, "NOTICE")    → deliver but override sig.direction to NOTICE
+        - (False, None)       → suppress entirely (no DB row, no Telegram)
+
+    Rules implemented:
+        A1. When SPY > daily 8 AND 21 EMAs (long-bias regime):
+            - non-SPY SHORTs → suppress
+        A2. When SPY > 8/21 AND symbol == SPY AND direction == SHORT:
+            - whitelisted rule → ACTION
+            - other SPY short rules → NOTICE
+        Otherwise (LONGs, NOTICEs, shorts with weak SPY) → ACTION as-is.
+    """
+    direction = (sig.direction or "").upper()
+
+    # LONG / BUY / NOTICE pass through unchanged in v1.
+    if direction not in ("SHORT", "SELL"):
+        return True, None
+
+    spy_long_bias = await _spy_above_8_21()
+    if not spy_long_bias:
+        # SPY weak — all shorts (including single-name) restored to ACTION.
+        return True, None
+
+    rule = (getattr(sig, "_tv_rule", "") or "").strip()
+
+    if sig.symbol != "SPY":
+        # A1: non-SPY shorts in long-bias regime are noise. Suppress.
+        return False, None
+
+    # A2: SPY shorts. Whitelisted rules pass through; others NOTICE-downgrade.
+    if rule in _SPY_SHORT_ACTION_RULES:
+        return True, None
+    return True, "NOTICE"
+
+
 async def _alert_already_fired(
     db,
     user_id: int,
@@ -426,4 +558,8 @@ __all__ = [
     "_is_allowed_ip",
     "_ma_tag_to_suffix",
     "_alert_already_fired",
+    "_route_alert",
+    "_spy_above_8_21",
+    "_fetch_spy_state_sync",
+    "_SPY_SHORT_ACTION_RULES",
 ]

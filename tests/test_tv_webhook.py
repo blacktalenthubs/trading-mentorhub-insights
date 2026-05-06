@@ -421,3 +421,154 @@ class TestMaTagToSuffix:
         assert _ma_tag_to_suffix(None or "") == ""
 
 
+# -----------------------------------------------------------------------------
+# Routing logic — A1 (SPY 8/21 long-bias gate) + A2 (SPY short whitelist)
+# Spec: specs/41-tv-trading-system/v2-routing-notices-patterns.md
+# Plan: plan/tv-routing-a1-a2.md
+# -----------------------------------------------------------------------------
+
+
+class _FakeSig:
+    """Minimal stand-in for AlertSignal — only fields _route_alert reads."""
+
+    def __init__(self, symbol: str, direction: str, rule: str = ""):
+        self.symbol = symbol
+        self.direction = direction
+        self._tv_rule = rule
+
+
+def _run(coro):
+    """Run an async coroutine to completion in a sync test."""
+    import asyncio
+    return asyncio.run(coro)
+
+
+def _mock_spy_state(monkeypatch, value: bool):
+    """Replace _spy_above_8_21 with a coroutine returning a fixed value."""
+    async def _stub():
+        return value
+    monkeypatch.setattr("api.app.routers.tv_webhook._spy_above_8_21", _stub)
+
+
+class TestRoutingLogic:
+    """A1: suppress non-SPY shorts when SPY > 8/21.
+    A2: SPY shorts only ACTION on whitelist; others → NOTICE.
+    """
+
+    def test_long_passes_unchanged(self, monkeypatch):
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, True)  # bullish SPY shouldn't matter for longs
+        sig = _FakeSig("AAPL", "BUY", "tv_staged_pdh_break")
+        deliver, downgrade = _run(_route_alert(sig))
+        assert deliver is True
+        assert downgrade is None
+
+    def test_notice_passes_unchanged(self, monkeypatch):
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, True)
+        sig = _FakeSig("AAPL", "NOTICE", "tv_vwap_reclaim_long")
+        deliver, downgrade = _run(_route_alert(sig))
+        assert deliver is True
+        assert downgrade is None
+
+    def test_non_spy_short_suppressed_when_spy_strong(self, monkeypatch):
+        """A1 — NVDA SHORT in long-bias regime is fully suppressed."""
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, True)
+        sig = _FakeSig("NVDA", "SHORT", "tv_staged_pdl_break")
+        deliver, downgrade = _run(_route_alert(sig))
+        assert deliver is False
+        assert downgrade is None
+
+    def test_non_spy_short_allowed_when_spy_weak(self, monkeypatch):
+        """A1 — when SPY < 8/21, single-name shorts restored."""
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, False)
+        sig = _FakeSig("NVDA", "SHORT", "tv_staged_pdl_break")
+        deliver, downgrade = _run(_route_alert(sig))
+        assert deliver is True
+        assert downgrade is None
+
+    def test_spy_short_whitelisted_rule_actions(self, monkeypatch):
+        """A2 — staged_pdh_rejection / staged_pdl_break / vwap_reject_short
+        / vwap_lose_short on SPY pass through as ACTION even in long-bias."""
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, True)
+        for rule in (
+            "tv_staged_pdh_rejection",
+            "tv_staged_pdl_break",
+            "tv_vwap_reject_short",
+            "tv_vwap_lose_short",
+        ):
+            sig = _FakeSig("SPY", "SHORT", rule)
+            deliver, downgrade = _run(_route_alert(sig))
+            assert deliver is True, f"{rule} should pass through"
+            assert downgrade is None, f"{rule} should not downgrade"
+
+    def test_spy_short_non_whitelisted_downgrades(self, monkeypatch):
+        """A2 — SPY shorts NOT in whitelist drop to NOTICE."""
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, True)
+        sig = _FakeSig("SPY", "SHORT", "tv_ma_rejection_short_v3_ema50")
+        deliver, downgrade = _run(_route_alert(sig))
+        assert deliver is True
+        assert downgrade == "NOTICE"
+
+    def test_unknown_direction_passes_through(self, monkeypatch):
+        """Defensive — unknown directions shouldn't trip the gate."""
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, True)
+        sig = _FakeSig("AAPL", "FLAT", "tv_unknown")
+        deliver, downgrade = _run(_route_alert(sig))
+        assert deliver is True
+        assert downgrade is None
+
+    def test_short_lowercase_normalized(self, monkeypatch):
+        """Direction 'short' (lowercase) must hit the same gate as 'SHORT'."""
+        from api.app.routers.tv_webhook import _route_alert
+        _mock_spy_state(monkeypatch, True)
+        sig = _FakeSig("NVDA", "short", "tv_staged_pdl_break")
+        deliver, downgrade = _run(_route_alert(sig))
+        assert deliver is False  # gated same as SHORT
+
+
+class TestSpyStateCache:
+    """The 5-min in-process cache around yfinance lookups."""
+
+    def test_cache_hit_avoids_yfinance(self, monkeypatch):
+        """Within TTL, second call returns cached value without re-fetch."""
+        import api.app.routers.tv_webhook as mod
+        # Reset cache to fresh
+        mod._spy_state_cache["value"] = None
+        mod._spy_state_cache["expires_at"] = 0.0
+
+        call_count = {"n": 0}
+
+        def _fake_fetch():
+            call_count["n"] += 1
+            return True
+
+        monkeypatch.setattr(mod, "_fetch_spy_state_sync", _fake_fetch)
+
+        # First call hits yfinance, second call within TTL should not
+        v1 = _run(mod._spy_above_8_21())
+        v2 = _run(mod._spy_above_8_21())
+        assert v1 is True
+        assert v2 is True
+        assert call_count["n"] == 1, "second call should hit cache"
+
+    def test_yfinance_failure_fails_open(self, monkeypatch):
+        """If yfinance raises, default to long-bias=True (permissive)."""
+        import api.app.routers.tv_webhook as mod
+        mod._spy_state_cache["value"] = None
+        mod._spy_state_cache["expires_at"] = 0.0
+
+        def _explode():
+            raise RuntimeError("yfinance is down")
+
+        monkeypatch.setattr(mod, "_fetch_spy_state_sync", _explode)
+
+        result = _run(mod._spy_above_8_21())
+        assert result is True, "fail-open default for yfinance errors"
+
+
