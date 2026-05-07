@@ -89,6 +89,12 @@ class TVWebhookPayload(BaseModel):
     gap_context: Optional[str] = None
     pwh: Optional[str] = None
     pwl: Optional[str] = None
+    # 2026-05-06: confluence_count = number of timeframe levels (PDH/PWH/PMH
+    # or PDL/PWL/PML) stacked within 1% of the broken/reclaimed level.
+    # 1 = single-level event, 2 = two stacked, 3 = full confluence.
+    # Higher count = stronger institutional memory at that price = bigger
+    # conviction for execution.
+    confluence_count: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

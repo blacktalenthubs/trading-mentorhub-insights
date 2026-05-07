@@ -226,6 +226,45 @@ pdh_rejection = not na(rejected_resistance)
 pdl_break     = not na(broken_support)
 pdl_reclaim   = not na(reclaimed_support)
 
+// =====================================================================
+// Confluence count — how many of {PDH/PWH/PMH} or {PDL/PWL/PML} are
+// stacked within 1% of the just-broken/reclaimed level. Higher count =
+// more institutional memory at that price = stronger breakout/reclaim.
+// User direction 2026-05-06: "the more convinced the better we are at
+// executing." A 3-of-3 confluence break is materially higher conviction
+// than a single-level break.
+// =====================================================================
+within_zone(float a, float b, float pct) =>
+    not na(a) and not na(b) and math.abs(a - b) / b <= pct
+
+confluence_count_at(float anchor, float l1, float l2, float l3) =>
+    if na(anchor)
+        0
+    else
+        c = 0
+        // Anchor itself counts if it's one of the three
+        if not na(l1) and l1 == anchor
+            c := c + 1
+        if not na(l2) and l2 == anchor
+            c := c + 1
+        if not na(l3) and l3 == anchor
+            c := c + 1
+        // Add levels within 1% that aren't the anchor itself
+        if not na(l1) and l1 != anchor and within_zone(l1, anchor, 0.01)
+            c := c + 1
+        if not na(l2) and l2 != anchor and within_zone(l2, anchor, 0.01)
+            c := c + 1
+        if not na(l3) and l3 != anchor and within_zone(l3, anchor, 0.01)
+            c := c + 1
+        // Cap at 3 — anchor itself shouldn't double-count beyond its
+        // membership in the level list
+        math.min(c, 3)
+
+confluence_resistance = confluence_count_at(broken_resistance, pdh, pwh, pmh)
+confluence_support    = confluence_count_at(reclaimed_support, pdl, pwl, pml)
+confluence_rej        = confluence_count_at(rejected_resistance, pdh, pwh, pmh)
+confluence_brk_sup    = confluence_count_at(broken_support, pdl, pwl, pml)
+
 var int pdl_break_bar = na
 var int pdh_break_bar = na
 if pdl_break
@@ -284,6 +323,7 @@ stage_json = str.replace_all(stage_text, "\n", " — ")
 build_payload_v2(rule, direction,
                  entry_p, stop_p, t1_p, t2_p,
                  gap_ctx_v,
+                 confluence_n,
                  vr, cvd_d, cvd_div) =>
     '{"symbol":"' + syminfo.ticker
       + '","exchange":"' + syminfo.prefix
@@ -303,6 +343,7 @@ build_payload_v2(rule, direction,
       + '","vwap_slope_pct":"' + str.tostring(vwap_slope_pct, "#.##")
       + '","above_vwap":"' + (above_vwap ? "true" : "false")
       + '","gap_context":"' + (gap_ctx_v ? "true" : "false")
+      + '","confluence_count":"' + str.tostring(confluence_n)
       + '","pwh":"' + str.tostring(pwh, format.mintick)
       + '","pwl":"' + str.tostring(pwl, format.mintick)
       + '","volume_ratio":"' + str.tostring(vr, "#.##")
@@ -422,7 +463,8 @@ if pdh_break
     t1  = t1_long_hier(e, pwh, pmh, atr_d)
     t2  = t2_extend_long(e, t1)
     alert(build_payload_v2("staged_pdh_break", "BUY", e, s, t1, t2,
-                           gap_context, volume_ratio, cvd_slope_n, bearish_div),
+                           gap_context, confluence_resistance,
+                           volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
 if pdh_rejection
     e   = close
@@ -434,7 +476,8 @@ if pdh_rejection
     t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
     t2  = t2_extend_short(e, t1)
     alert(build_payload_v2("staged_pdh_rejection", "SHORT", e, s, t1, t2,
-                           false, volume_ratio, cvd_slope_n, bullish_div),
+                           false, confluence_rej,
+                           volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 if pdl_break
     e   = close
@@ -444,7 +487,8 @@ if pdl_break
     t1  = t1_short_hier(e, pwl, pml, atr_d)
     t2  = t2_extend_short(e, t1)
     alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, t1, t2,
-                           false, volume_ratio, cvd_slope_n, bullish_div),
+                           false, confluence_brk_sup,
+                           volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 if pdl_reclaim
     e   = close
@@ -456,7 +500,8 @@ if pdl_reclaim
     t1 = not na(t1_struct) ? t1_struct : t1_long_hier(e, pdh, pmh, atr_d)
     t2 = not na(pwh) and pwh > t1 ? pwh : (not na(pmh) and pmh > t1 ? pmh : t2_extend_long(e, t1))
     alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, t1, t2,
-                           false, volume_ratio, cvd_slope_n, bearish_div),
+                           false, confluence_support,
+                           volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
 
 // =====================================================================
@@ -534,7 +579,8 @@ if fire_vwap_alerts and vwap_reclaim_long
     t1 = pdh
     t2 = pdh + (pdh - e) * 0.5
     msg_vwap_long = build_payload_v2("vwap_reclaim_long", "NOTICE", e, s, t1, t2,
-                                     false, volume_ratio, cvd_slope_n, bearish_div)
+                                     false, 1,
+                                     volume_ratio, cvd_slope_n, bearish_div)
     alert(msg_vwap_long, alert.freq_once_per_bar_close)
 
 if fire_vwap_alerts and vwap_reject_short
@@ -543,7 +589,8 @@ if fire_vwap_alerts and vwap_reject_short
     t1 = pdl
     t2 = pdl - (e - pdl) * 0.5
     msg_vwap_short = build_payload_v2("vwap_reject_short", "NOTICE", e, s, t1, t2,
-                                      false, volume_ratio, cvd_slope_n, bullish_div)
+                                      false, 1,
+                                      volume_ratio, cvd_slope_n, bullish_div)
     alert(msg_vwap_short, alert.freq_once_per_bar_close)
 
 // vwap_lose_short was added briefly 2026-05-05 and removed same day.

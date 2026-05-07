@@ -212,6 +212,19 @@ def _format_tv_body(signal: AlertSignal) -> str | None:
         else:
             parts.append(f"✅ CVD confirming move")
 
+    # Confluence — number of timeframe levels stacked at the breakout/reclaim
+    # price. 2+ = institutional memory at this level across timeframes,
+    # materially higher conviction (per user 2026-05-06 — "the more convinced
+    # the better we are at executing"). Only boost on confluence ≥ 2; single-
+    # level events get the existing baseline calibration.
+    confluence_count = getattr(signal, "_tv_confluence_count", 1) or 1
+    if confluence_count >= 3:
+        conviction_score += 25
+        parts.append(f"🎯 Triple confluence — daily + weekly + monthly stacked")
+    elif confluence_count >= 2:
+        conviction_score += 15
+        parts.append(f"🎯 Confluence x{confluence_count} — multiple timeframes stacked")
+
     conviction_score = max(15, conviction_score)
     if conviction_score < 35:
         conviction_label = "LOW"

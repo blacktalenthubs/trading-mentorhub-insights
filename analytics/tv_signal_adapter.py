@@ -291,6 +291,13 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     sig._tv_cvd_delta = _to_float_optional(payload.get("cvd_delta"))  # type: ignore[attr-defined]
     _cvd_div_raw = (payload.get("cvd_diverging") or "").strip().lower()
     sig._tv_cvd_diverging = _cvd_div_raw == "true"  # type: ignore[attr-defined]
+    # 2026-05-06 confluence: 1 = single-level event, 2 = two stacked, 3 = full
+    # confluence (PDH+PWH+PMH all at same price). Higher = stronger signal.
+    _confluence_raw = payload.get("confluence_count")
+    try:
+        sig._tv_confluence_count = int(_confluence_raw) if _confluence_raw else 1  # type: ignore[attr-defined]
+    except (ValueError, TypeError):
+        sig._tv_confluence_count = 1  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig
