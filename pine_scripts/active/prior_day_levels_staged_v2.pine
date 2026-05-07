@@ -265,6 +265,22 @@ confluence_support    = confluence_count_at(reclaimed_support, pdl, pwl, pml)
 confluence_rej        = confluence_count_at(rejected_resistance, pdh, pwh, pmh)
 confluence_brk_sup    = confluence_count_at(broken_support, pdl, pwl, pml)
 
+// Failed breakout — price closed above a resistance level (PDH/PWH/PMH)
+// and now closes back below it. Different from `_just_rejected` (wick
+// test that never closed above). This is the trap pattern: breakout
+// buyers above are now underwater and forced to cover.
+// User 2026-05-07: "if SPY goes above PDH and then reverses below, that's
+// a short signal." Adding as a new SHORT event.
+highest_res_just_failed() =>
+    p_pdh = not na(pdh) and close < pdh and close[1] > pdh ? pdh : -9.0e15
+    p_pwh = not na(pwh) and close < pwh and close[1] > pwh ? pwh : -9.0e15
+    p_pmh = not na(pmh) and close < pmh and close[1] > pmh ? pmh : -9.0e15
+    m = math.max(p_pdh, math.max(p_pwh, p_pmh))
+    m == -9.0e15 ? float(na) : m
+
+failed_resistance = highest_res_just_failed()
+confluence_failed = confluence_count_at(failed_resistance, pdh, pwh, pmh)
+
 var int pdl_break_bar = na
 var int pdh_break_bar = na
 if pdl_break
@@ -272,7 +288,8 @@ if pdl_break
 if pdh_break
     pdh_break_bar := bar_index
 
-pdh_failed = close < pdh and close[1] > pdh
+// pdh_failed now unified — fires on close-back-below ANY of PDH/PWH/PMH.
+pdh_failed = not na(failed_resistance)
 
 bars_since_pdl_break = na(pdl_break_bar) ? 9999 : bar_index - pdl_break_bar
 bars_since_pdh_break = na(pdh_break_bar) ? 9999 : bar_index - pdh_break_bar
@@ -477,6 +494,23 @@ if pdh_rejection
     t2  = t2_extend_short(e, t1)
     alert(build_payload_v2("staged_pdh_rejection", "SHORT", e, s, t1, t2,
                            false, confluence_rej,
+                           volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+// Failed-breakout SHORT — separate from rejection: price actually closed
+// above the level (breakout fired) and then closed back below within the
+// sweep window. Trap pattern, higher-conviction short than a clean rejection.
+if sweep_reversal_short
+    e   = close
+    // Stop above the failed-breakout high — that's the "if it gets back
+    // there, the trap was wrong" level. Use prior bar's high (the high of
+    // the bar that closed above the level).
+    s   = math.max(high, high[1]) + atr_buffer
+    // T1: VWAP if below entry, else PDL. T2: extension walking PWL/PML.
+    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
+    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pdh_failed_short", "SHORT", e, s, t1, t2,
+                           false, confluence_failed,
                            volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 if pdl_break

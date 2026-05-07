@@ -441,6 +441,7 @@ _spy_state_cache: dict[str, Any] = {"value": None, "expires_at": 0.0}
 # (which requires `vwap_setup_bars` confirmation).
 _SPY_SHORT_ACTION_RULES = {
     "tv_staged_pdh_rejection",
+    "tv_staged_pdh_failed_short",  # added 2026-05-07 — failed-breakout reversal
     "tv_staged_pdl_break",
     "tv_vwap_reject_short",
 }

@@ -490,12 +490,14 @@ class TestRoutingLogic:
         assert downgrade is None
 
     def test_spy_short_whitelisted_rule_actions(self, monkeypatch):
-        """A2 — staged_pdh_rejection / staged_pdl_break / vwap_reject_short
-        on SPY pass through as ACTION even in long-bias."""
+        """A2 — staged_pdh_rejection / staged_pdh_failed_short /
+        staged_pdl_break / vwap_reject_short on SPY pass through as ACTION
+        even in long-bias."""
         from api.app.routers.tv_webhook import _route_alert
         _mock_spy_state(monkeypatch, True)
         for rule in (
             "tv_staged_pdh_rejection",
+            "tv_staged_pdh_failed_short",
             "tv_staged_pdl_break",
             "tv_vwap_reject_short",
         ):
