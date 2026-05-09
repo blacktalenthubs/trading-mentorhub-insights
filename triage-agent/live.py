@@ -73,9 +73,25 @@ logger = logging.getLogger("triage.live")
 # ──────────────────────────────────────────────────────────────────
 def load_cursor():
     try:
-        return int(CURSOR_PATH.read_text().strip() or "0")
+        cur = int(CURSOR_PATH.read_text().strip() or "0")
     except FileNotFoundError:
-        return 0
+        cur = 0
+    # First-run bootstrap: if INITIAL_CURSOR env var is set and our cursor is
+    # below it, jump forward. Lets ops skip a backfill on first deploy without
+    # shell access (set INITIAL_CURSOR on Railway, redeploy, done).
+    initial = os.environ.get("INITIAL_CURSOR")
+    if initial:
+        try:
+            initial_int = int(initial)
+            if cur < initial_int:
+                logger.info("INITIAL_CURSOR=%d > current cursor=%d — jumping forward",
+                            initial_int, cur)
+                CURSOR_PATH.parent.mkdir(parents=True, exist_ok=True)
+                CURSOR_PATH.write_text(str(initial_int))
+                cur = initial_int
+        except ValueError:
+            logger.warning("INITIAL_CURSOR=%r is not an int, ignoring", initial)
+    return cur
 
 def save_cursor(alert_id):
     CURSOR_PATH.write_text(str(alert_id))
