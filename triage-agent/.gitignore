@@ -1,0 +1,25 @@
+# secrets / credentials
+.env
+.env.local
+.env.production
+
+# runtime state
+.triage-cursor
+.triage-audit.jsonl
+*.log
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# editor
+.vscode/
+.idea/
+
+# dev-only scripts (kept in master-domain-hub, not deployed)
+_smoke_test_*.py
+_no_llm_scan.py
+_inspect_alert.py

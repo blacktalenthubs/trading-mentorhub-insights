@@ -289,3 +289,53 @@ class TestEmailFormat:
         # T1 is suppressed from Telegram but email still gets a fallback
         assert "SELL" in body
         assert "AAPL" in body
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Tests for AGENT_OWNS_TELEGRAM feature flag (2026-05-09)
+# Behavior: when on, notify_user skips Telegram send (the triage-agent
+# service handles delivery instead). Email path is unaffected.
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestAgentOwnsTelegramFlag:
+    def _prefs(self):
+        return {
+            "telegram_enabled":      True,
+            "telegram_chat_id":      "555",
+            "email_enabled":         True,
+            "notification_email":    "user@example.com",
+        }
+
+    @patch("alerting.notifier._send_telegram_to", return_value=True)
+    @patch("alerting.notifier.send_email_to", return_value=True)
+    @patch("alert_config.AGENT_OWNS_TELEGRAM", False)
+    def test_default_off_telegram_still_sends(self, mock_email, mock_tg):
+        """Default state (flag off) — Telegram fires through notifier as before."""
+        from alerting.notifier import notify_user
+        sig = _make_signal(score=80, score_label="A")
+        email_sent, tg_sent = notify_user(sig, self._prefs(), alert_id=42)
+        assert tg_sent is True
+        mock_tg.assert_called_once()
+
+    @patch("alerting.notifier._send_telegram_to", return_value=True)
+    @patch("alerting.notifier.send_email_to", return_value=True)
+    @patch("alert_config.AGENT_OWNS_TELEGRAM", True)
+    def test_flag_on_telegram_skipped(self, mock_email, mock_tg):
+        """Flag on — Telegram send is skipped; the agent will deliver instead."""
+        from alerting.notifier import notify_user
+        sig = _make_signal(score=80, score_label="A")
+        email_sent, tg_sent = notify_user(sig, self._prefs(), alert_id=42)
+        assert tg_sent is False
+        mock_tg.assert_not_called()
+
+    @patch("alerting.notifier._send_telegram_to", return_value=True)
+    @patch("alerting.notifier.send_email_to", return_value=True)
+    @patch("alert_config.AGENT_OWNS_TELEGRAM", True)
+    def test_flag_on_email_still_sends(self, mock_email, mock_tg):
+        """Flag on — email path is unaffected, still delivers."""
+        from alerting.notifier import notify_user
+        sig = _make_signal(score=80, score_label="A")
+        email_sent, _ = notify_user(sig, self._prefs(), alert_id=42)
+        assert email_sent is True
+        mock_email.assert_called_once()

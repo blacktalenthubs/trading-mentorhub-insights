@@ -1,0 +1,23 @@
+# Docker build context — keep it tiny + secret-free
+.git/
+.gitignore
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# secrets — env vars come from Railway, never bake into image
+.env
+.env.local
+.env.production
+
+# runtime state — provided by mounted volume on Railway
+.triage-cursor
+.triage-audit.jsonl
+*.log
+
+# dev-only scripts
+_smoke_test_*.py
+_no_llm_scan.py
+_inspect_alert.py
