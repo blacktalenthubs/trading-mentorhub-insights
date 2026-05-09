@@ -832,20 +832,30 @@ def notify_user(
     if prefs.get("telegram_enabled"):
         chat_id = prefs.get("telegram_chat_id", "")
         if chat_id:
-            body = _format_sms_body(signal)
-            if body is not None:
-                buttons = _build_trade_buttons(signal, alert_id)
-                telegram_sent = _send_telegram_to(body, chat_id, reply_markup=buttons)
+            # Feature flag: when on, the triage-agent service owns Telegram
+            # delivery (it sends a unified Pine + agent-context message via
+            # LISTEN/NOTIFY). Email/SMS paths still run here.
+            from alert_config import AGENT_OWNS_TELEGRAM
+            if AGENT_OWNS_TELEGRAM:
+                logger.info(
+                    "notify_user: skipping Telegram for chat_id=%s — "
+                    "AGENT_OWNS_TELEGRAM=true (triage-agent will deliver)", chat_id,
+                )
+            else:
+                body = _format_sms_body(signal)
+                if body is not None:
+                    buttons = _build_trade_buttons(signal, alert_id)
+                    telegram_sent = _send_telegram_to(body, chat_id, reply_markup=buttons)
 
-                # Auto-analysis follow-up: spawn background thread if enabled
-                if telegram_sent and prefs.get("auto_analysis_enabled"):
-                    if signal.direction in ("BUY", "SHORT"):
-                        thread = threading.Thread(
-                            target=_send_auto_analysis,
-                            args=(signal.symbol, chat_id),
-                            daemon=True,
-                        )
-                        thread.start()
+                    # Auto-analysis follow-up: spawn background thread if enabled
+                    if telegram_sent and prefs.get("auto_analysis_enabled"):
+                        if signal.direction in ("BUY", "SHORT"):
+                            thread = threading.Thread(
+                                target=_send_auto_analysis,
+                                args=(signal.symbol, chat_id),
+                                daemon=True,
+                            )
+                            thread.start()
         else:
             logger.warning("notify_user: telegram_enabled but chat_id empty")
     else:

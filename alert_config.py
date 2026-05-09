@@ -978,6 +978,14 @@ AI_CONVICTION_SUPPRESS_BELOW = int(_get_secret("AI_CONVICTION_SUPPRESS_BELOW", "
 AI_CONVICTION_BOOST_ABOVE = int(_get_secret("AI_CONVICTION_BOOST_ABOVE", "80"))
 AI_CONVICTION_BOOST_POINTS = int(_get_secret("AI_CONVICTION_BOOST_POINTS", "10"))
 
+# Triage-agent integration (2026-05-09)
+# When true, alerting/notifier.py skips Telegram delivery and lets the
+# triage-agent service own it. Email/SMS paths unchanged. The agent posts
+# a unified message (Pine-shape body + agent verdict + sector/index/cluster
+# context + same inline buttons) ~1-2 sec after the alert is persisted.
+# Default false — zero behavior change unless explicitly enabled.
+AGENT_OWNS_TELEGRAM = _get_secret("AGENT_OWNS_TELEGRAM", "false").lower() == "true"
+
 # Free tier: max push notifications (DM/email) per day
 FREE_DAILY_ALERT_LIMIT = 3
 
