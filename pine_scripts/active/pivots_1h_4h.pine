@@ -40,15 +40,8 @@ cvd_lookback      = input.int(10, "CVD divergence lookback (bars)", minval = 3, 
 // `ta.pivothigh/low` returns the pivot price N bars ago when confirmed
 // (na otherwise). On the chart we forward-fill so each chart bar knows
 // the most recent confirmed pivot of each kind.
-[ph_1h_raw, pl_1h_raw] = request.security(syminfo.tickerid, "60",
-    [ta.pivothigh(high, piv_left_1h, piv_right_1h),
-     ta.pivotlow (low,  piv_left_1h, piv_right_1h)],
-    lookahead = barmerge.lookahead_off)
-
-[ph_4h_raw, pl_4h_raw] = request.security(syminfo.tickerid, "240",
-    [ta.pivothigh(high, piv_left_4h, piv_right_4h),
-     ta.pivotlow (low,  piv_left_4h, piv_right_4h)],
-    lookahead = barmerge.lookahead_off)
+[ph_1h_raw, pl_1h_raw] = request.security(syminfo.tickerid, "60", [ta.pivothigh(high, piv_left_1h, piv_right_1h), ta.pivotlow(low, piv_left_1h, piv_right_1h)], lookahead = barmerge.lookahead_off)
+[ph_4h_raw, pl_4h_raw] = request.security(syminfo.tickerid, "240", [ta.pivothigh(high, piv_left_4h, piv_right_4h), ta.pivotlow(low, piv_left_4h, piv_right_4h)], lookahead = barmerge.lookahead_off)
 
 // Forward-fill: keep the last confirmed pivot until a new one appears.
 var float ph_1h = na
@@ -75,58 +68,21 @@ aligned_res = within_pct(ph_1h, ph_4h, align_tolerance) ? (ph_1h + ph_4h) / 2 : 
 aligned_sup = within_pct(pl_1h, pl_4h, align_tolerance) ? (pl_1h + pl_4h) / 2 : na
 
 // Plot aligned levels (lighter tone — these are pivots, not hard PDH/PDL).
-plot(show_levels ? aligned_res : na, title = "Aligned R (1h+4h)",
-     color = color.new(#FF5722, 30), style = plot.style_linebr, linewidth = 2)
-plot(show_levels ? aligned_sup : na, title = "Aligned S (1h+4h)",
-     color = color.new(#4CAF50, 30), style = plot.style_linebr, linewidth = 2)
+plot(show_levels ? aligned_res : na, title = "Aligned R (1h+4h)", color = color.new(#FF5722, 30), style = plot.style_linebr, linewidth = 2)
+plot(show_levels ? aligned_sup : na, title = "Aligned S (1h+4h)", color = color.new(#4CAF50, 30), style = plot.style_linebr, linewidth = 2)
 
 // ── Event detection (close-confirmed) ───────────────────────────────
-// Same semantic shape as levels-day-vwap break/reclaim/reject helpers
-// so behavior is consistent across the system.
-
-// Break above aligned resistance: prev close at-or-below, current close above.
-pivot_break_long = not na(aligned_res)
-                   and not na(close[1])
-                   and close[1] <= aligned_res
-                   and close > aligned_res
-
-// Reject from below: wick tagged the level, but close came back under,
-// AND prior bar high was below the level (so this is a fresh rejection,
-// not a continuation of an already-tested break).
-pivot_reject_short = not na(aligned_res)
-                     and high >= aligned_res
-                     and close < aligned_res
-                     and not na(high[1]) and high[1] < aligned_res
-
-// Reclaim above aligned support: prev close at-or-below, current close above.
-pivot_reclaim_long = not na(aligned_sup)
-                     and not na(close[1])
-                     and close[1] <= aligned_sup
-                     and close > aligned_sup
-
-// Break below aligned support: prev close at-or-above, current close below.
-pivot_break_short = not na(aligned_sup)
-                    and not na(close[1])
-                    and close[1] >= aligned_sup
-                    and close < aligned_sup
+// Same semantic shape as levels-day-vwap break/reclaim/reject helpers.
+pivot_break_long   = not na(aligned_res) and not na(close[1]) and close[1] <= aligned_res and close > aligned_res
+pivot_reject_short = not na(aligned_res) and high >= aligned_res and close < aligned_res and not na(high[1]) and high[1] < aligned_res
+pivot_reclaim_long = not na(aligned_sup) and not na(close[1]) and close[1] <= aligned_sup and close > aligned_sup
+pivot_break_short  = not na(aligned_sup) and not na(close[1]) and close[1] >= aligned_sup and close < aligned_sup
 
 // ── Visual markers ──────────────────────────────────────────────────
-plotshape(show_signals and pivot_break_long,
-          title = "BREAK+ LONG (1h+4h)", location = location.belowbar,
-          color = color.new(color.green, 0), style = shape.triangleup,
-          size = size.normal, text = "P-BREAK+", textcolor = color.white)
-plotshape(show_signals and pivot_reclaim_long,
-          title = "RECLAIM LONG (1h+4h)", location = location.belowbar,
-          color = color.new(color.aqua, 0), style = shape.triangleup,
-          size = size.normal, text = "P-RECLAIM", textcolor = color.black)
-plotshape(show_signals and pivot_reject_short,
-          title = "REJECT SHORT (1h+4h)", location = location.abovebar,
-          color = color.new(color.orange, 0), style = shape.triangledown,
-          size = size.normal, text = "P-REJECT", textcolor = color.white)
-plotshape(show_signals and pivot_break_short,
-          title = "BREAK- SHORT (1h+4h)", location = location.abovebar,
-          color = color.new(color.red, 0), style = shape.triangledown,
-          size = size.normal, text = "P-BREAK-", textcolor = color.white)
+plotshape(show_signals and pivot_break_long,   title = "BREAK+ LONG (1h+4h)",   location = location.belowbar, color = color.new(color.green,   0), style = shape.triangleup,   size = size.normal, text = "P-BREAK+",  textcolor = color.white)
+plotshape(show_signals and pivot_reclaim_long, title = "RECLAIM LONG (1h+4h)",  location = location.belowbar, color = color.new(color.aqua,    0), style = shape.triangleup,   size = size.normal, text = "P-RECLAIM", textcolor = color.black)
+plotshape(show_signals and pivot_reject_short, title = "REJECT SHORT (1h+4h)",  location = location.abovebar, color = color.new(color.orange,  0), style = shape.triangledown, size = size.normal, text = "P-REJECT",  textcolor = color.white)
+plotshape(show_signals and pivot_break_short,  title = "BREAK- SHORT (1h+4h)",  location = location.abovebar, color = color.new(color.red,     0), style = shape.triangledown, size = size.normal, text = "P-BREAK-",  textcolor = color.white)
 
 // ── Volume + CVD context (same as levels-day-vwap payload) ──────────
 vol_avg      = ta.sma(volume, vol_avg_lookback)
