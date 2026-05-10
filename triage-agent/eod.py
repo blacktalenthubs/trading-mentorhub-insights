@@ -37,6 +37,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+load_dotenv()  # picks up .env when running standalone; harmless on Railway
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import yfinance as yf
