@@ -24,20 +24,17 @@
 indicator("pivots-1h-4h", overlay = true)
 
 // ── Inputs ──────────────────────────────────────────────────────────
-show_levels      = input.bool(true,  "Show aligned S/R levels")
-show_signals     = input.bool(true,  "Show entry markers")
-align_tolerance  = input.float(1.0,  "Alignment tolerance (% — 1h vs 4h)",
-                                minval = 0.1, maxval = 3.0, step = 0.1) / 100.0
-piv_left_1h      = input.int(5, "1h pivot — left bars",  minval = 2, maxval = 15)
-piv_right_1h     = input.int(5, "1h pivot — right bars", minval = 2, maxval = 15)
-piv_left_4h      = input.int(3, "4h pivot — left bars",  minval = 2, maxval = 10)
-piv_right_4h     = input.int(3, "4h pivot — right bars", minval = 2, maxval = 10)
-atr_buffer_mult  = input.float(0.3, "ATR buffer for stops (× ATR14)",
-                                minval = 0.1, maxval = 2.0, step = 0.1)
-vol_avg_lookback = input.int(20, "Volume average lookback (bars)",
-                              minval = 5, maxval = 60)
-cvd_lookback     = input.int(10, "CVD divergence lookback (bars)",
-                              minval = 3, maxval = 30)
+show_levels       = input.bool(true,  "Show aligned S/R levels")
+show_signals      = input.bool(true,  "Show entry markers")
+align_tolerance_p = input.float(1.0, "Alignment tolerance (% - 1h vs 4h)", minval = 0.1, maxval = 3.0, step = 0.1)
+align_tolerance   = align_tolerance_p / 100.0
+piv_left_1h       = input.int(5, "1h pivot - left bars",  minval = 2, maxval = 15)
+piv_right_1h      = input.int(5, "1h pivot - right bars", minval = 2, maxval = 15)
+piv_left_4h       = input.int(3, "4h pivot - left bars",  minval = 2, maxval = 10)
+piv_right_4h      = input.int(3, "4h pivot - right bars", minval = 2, maxval = 10)
+atr_buffer_mult   = input.float(0.3, "ATR buffer for stops (x ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+vol_avg_lookback  = input.int(20, "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback      = input.int(10, "CVD divergence lookback (bars)", minval = 3, maxval = 30)
 
 // ── 1h + 4h pivot detection (via request.security) ──────────────────
 // `ta.pivothigh/low` returns the pivot price N bars ago when confirmed
