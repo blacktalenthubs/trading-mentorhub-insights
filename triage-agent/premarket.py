@@ -331,70 +331,85 @@ def pick_top_stocks(
 # FORMATTING (the brief itself)
 # ──────────────────────────────────────────────────────────────────
 
-def _arrow(pct: float) -> str:
-    if pct >= 1.5:  return "▲"
-    if pct <= -1.5: return "▼"
-    return "─"
+# Sector ETFs to surface on the tape line — keep it the heavy hitters.
+TAPE_ETFS = ["XLK", "XLE", "XLF", "XLV", "XLI"]
 
 
-def _pad(s: str, width: int) -> str:
-    return f"{s:<{width}}"
+def _sector_emoji(cls: str) -> str:
+    return {"bullish": "🟢", "neutral": "⚪", "bearish": "🔴"}.get(cls, "⚪")
 
 
-def format_tape_line(quotes: dict[str, PriceMove]) -> str:
-    """Indices + sector ETF tape line."""
-    parts = []
+def format_tape_block(quotes: dict[str, PriceMove]) -> str:
+    """Two-line tape inside a <pre> block for alignment."""
+    line1_parts = []
     for s in INDICES:
         if s in quotes:
-            parts.append(f"{s} {quotes[s].pct_change:+.1f}%")
-    if VIX_SYMBOL in quotes:
-        parts.append(f"VIX {quotes[VIX_SYMBOL].premarket_price:.1f}")
-    elif "VIX" in quotes:
-        parts.append(f"VIX {quotes['VIX'].premarket_price:.1f}")
-    line1 = "Tape: " + "  ".join(parts)
+            line1_parts.append(f"{s:<3} {quotes[s].pct_change:+.1f}%")
+    # VIX (level, not %)
+    vix_q = quotes.get(VIX_SYMBOL) or quotes.get("VIX")
+    if vix_q:
+        line1_parts.append(f"VIX {vix_q.premarket_price:.1f}")
 
-    etf_parts = []
-    for s in SECTOR_ETFS:
+    line2_parts = []
+    for s in TAPE_ETFS:
         if s in quotes:
-            etf_parts.append(f"{s} {quotes[s].pct_change:+.1f}%")
-    line2 = "      " + "  ".join(etf_parts)
+            line2_parts.append(f"{s} {quotes[s].pct_change:+.1f}%")
 
-    return line1 + "\n" + line2
-
-
-def format_sector_row(s: SectorBreadth) -> str:
-    arrow = _arrow(s.avg_pct)
-    sec_pad = _pad(s.name, 12)
-    pct_str = f"{s.avg_pct:+.1f}%"
-    breadth_str = f"{s.n_positive}/{s.n_total}"
-    if s.top_mover and s.avg_pct > 0:
-        top = f"  {s.top_mover.symbol} {s.top_mover.pct_change:+.1f}%"
-    elif s.bottom_mover and s.avg_pct < 0:
-        top = f"  {s.bottom_mover.symbol} {s.bottom_mover.pct_change:+.1f}%"
-    else:
-        top = ""
-    return f"{arrow} {sec_pad} {pct_str:>7}   {breadth_str}{top}"
+    inner = "   ".join(line1_parts) + "\n" + "   ".join(line2_parts)
+    return f"<pre>{inner}</pre>"
 
 
-def format_picks(picks: list[dict]) -> str:
+def format_sectors_block(breadths: list[SectorBreadth]) -> str:
+    """Sector table inside a <pre> block. Grouped bullish → neutral → bearish."""
+    if not breadths:
+        return ""
+    # Group by classification
+    groups = {"bullish": [], "neutral": [], "bearish": []}
+    for s in breadths:
+        groups[classify_sector(s)].append(s)
+    # Sort each group by avg_pct (desc within bullish/neutral, asc within bearish)
+    groups["bullish"].sort(key=lambda s: s.avg_pct, reverse=True)
+    groups["neutral"].sort(key=lambda s: s.avg_pct, reverse=True)
+    groups["bearish"].sort(key=lambda s: s.avg_pct)
+
+    rows = []
+    for cls in ("bullish", "neutral", "bearish"):
+        for s in groups[cls]:
+            emoji = _sector_emoji(cls)
+            name = f"{s.name:<11}"
+            pct = f"{s.avg_pct:+5.1f}%"
+            breadth = f"{s.n_positive}/{s.n_total}"
+            top = ""
+            if cls == "bullish" and s.top_mover:
+                top = f"   {s.top_mover.symbol} {s.top_mover.pct_change:+.1f}%"
+            elif cls == "bearish" and s.bottom_mover:
+                top = f"   {s.bottom_mover.symbol} {s.bottom_mover.pct_change:+.1f}%"
+            rows.append(f"{emoji} {name} {pct}   {breadth}{top}")
+    return f"<pre>{chr(10).join(rows)}</pre>"
+
+
+def format_picks_block(picks: list[dict]) -> str:
+    """Numbered top picks inside a <pre> block, fixed-width columns."""
     if not picks:
         return ""
-    lines = ["", "Top picks:"]
-    for p in picks:
-        sym       = p["symbol"]
-        sector    = p["sector"]
-        pct       = p["pct_change"]
-        price     = p["premarket_price"]
-        rel_vol   = p["rel_volume"]
-        setup     = p.get("setup")
-        setup_str = ""
-        if setup:
-            entry = setup.get("entry")
-            if entry:
-                setup_str = f" · setup ${entry:.2f}"
-        rv_str = f"{rel_vol:.1f}× vol" if rel_vol else "vol n/a"
-        lines.append(f"  {sym} (${price:.2f}) — {sector} {pct:+.1f}% · {rv_str}{setup_str}")
-    return "\n".join(lines)
+    rows = []
+    for i, p in enumerate(picks, 1):
+        sym     = f"{p['symbol']:<6}"
+        sector  = f"{p['sector']:<10}"
+        pct     = f"{p['pct_change']:+5.1f}%"
+        # Consistent 8-char width regardless of price magnitude
+        price   = p["premarket_price"]
+        if price >= 1000:
+            price_str = f"${price:>7,.0f}"   # "$  1,562"
+        else:
+            price_str = f"${price:>7.2f}"    # "$ 757.35" / "$  60.80"
+        rel_vol = p.get("rel_volume") or 0
+        rv      = f"{rel_vol:.1f}× vol"
+        setup   = ""
+        if p.get("setup") and p["setup"].get("entry"):
+            setup = f"  · setup ${p['setup']['entry']:.2f}"
+        rows.append(f"{i}. {sym} {price_str}  {sector} {pct}  {rv}{setup}")
+    return f"<pre>{chr(10).join(rows)}</pre>"
 
 
 def build_premarket_brief(
@@ -408,23 +423,30 @@ def build_premarket_brief(
 ) -> str:
     et_str = now.strftime("%a %-I:%M %p ET") if hasattr(now, "strftime") else str(now)
     parts = [f"📊 <b>Premarket Heat</b> — {et_str}", ""]
-    parts.append(format_tape_line(quotes))
-    parts.append("")
-    for s in breadths:
-        parts.append(format_sector_row(s))
+
+    parts.append("<b>🌐 Tape</b>")
+    parts.append(format_tape_block(quotes))
     parts.append("")
 
+    parts.append("<b>📊 Sectors</b>")
+    parts.append(format_sectors_block(breadths))
+    parts.append("")
+
+    parts.append("<b>🎯 Plan</b>")
     if focus:
-        focus_names = ", ".join(s.name for s in focus)
-        parts.append(f"<b>Focus:</b> {focus_names} (longs)")
+        parts.append(f"Focus: <b>{', '.join(s.name for s in focus)}</b> (longs)")
     if avoid:
-        avoid_names = ", ".join(s.name for s in avoid)
-        parts.append(f"<b>Avoid:</b> {avoid_names} (red breadth)")
-    parts.append(format_picks(picks))
+        parts.append(f"Avoid: <b>{', '.join(s.name for s in avoid)}</b> (red breadth)")
+    parts.append("")
+
+    if picks:
+        parts.append("<b>⭐ Top Picks</b>")
+        parts.append(format_picks_block(picks))
+        parts.append("")
 
     if polish:
-        parts.append("")
-        parts.append("🤖 " + polish)
+        parts.append("<b>🤖 Brief</b>")
+        parts.append(polish)
 
     return "\n".join(parts)[:4000]
 
@@ -433,17 +455,18 @@ def build_premarket_brief(
 # LLM POLISH (heavy tier)
 # ──────────────────────────────────────────────────────────────────
 
-POLISH_PROMPT = """You are a trading-desk analyst writing a one-paragraph premarket brief.
-You'll be given:
-- Sector breadth data (bullish / bearish / neutral classification)
-- Top stock picks with sector, % move, volume
-- News headlines for top movers
-- Macro / earnings calendar context
+POLISH_PROMPT = """You are a trading-desk analyst writing one short paragraph for a trader's premarket brief.
 
-Write a tight 2-4 sentence brief explaining WHY today's setup looks the way it does.
-Cite catalysts (earnings, news, macro events) by name when they explain the move.
-Don't restate the numbers — they're already in the brief above. Add reasoning, not summary.
-"""
+Given sector breadth, top picks, news headlines, and macro context, write 2-3 sentences MAX.
+Rules:
+- NO header (no "**Premarket Brief**" or similar — the brief already has one)
+- NO bullet points or lists
+- NO restating the numbers — they're in the data above
+- DO cite catalysts by name when they explain the move (earnings, Fed, sector news)
+- DO note rotation patterns and one thing to watch
+- Be specific. "Memory rallying on chip cycle" beats "tech is up".
+
+Output: the paragraph only, no preamble."""
 
 
 def polish_with_llm(
