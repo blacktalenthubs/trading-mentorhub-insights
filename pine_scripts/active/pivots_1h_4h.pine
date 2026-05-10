@@ -142,33 +142,25 @@ if pivot_break_long
     s  = aligned_res - atr_buffer
     t1 = t1_long(e, s)
     t2 = t2_long(e, s)
-    alert(build_payload("pivot_aligned_break_long", "BUY", e, s, t1, t2,
-                        volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+    alert(build_payload("pivot_aligned_break_long", "BUY", e, s, t1, t2, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 if pivot_reclaim_long
     e  = close
-    s  = low - atr_buffer  // sweep-low stop
+    s  = low - atr_buffer
     t1 = t1_long(e, s)
     t2 = t2_long(e, s)
-    alert(build_payload("pivot_aligned_reclaim_long", "BUY", e, s, t1, t2,
-                        volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+    alert(build_payload("pivot_aligned_reclaim_long", "BUY", e, s, t1, t2, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 if pivot_reject_short
     e  = close
-    s  = high + atr_buffer  // stop above the rejection wick
+    s  = high + atr_buffer
     t1 = t1_short(e, s)
     t2 = t2_short(e, s)
-    alert(build_payload("pivot_aligned_reject_short", "SHORT", e, s, t1, t2,
-                        volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
+    alert(build_payload("pivot_aligned_reject_short", "SHORT", e, s, t1, t2, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
 
 if pivot_break_short
     e  = close
     s  = aligned_sup + atr_buffer
     t1 = t1_short(e, s)
     t2 = t2_short(e, s)
-    alert(build_payload("pivot_aligned_break_short", "SHORT", e, s, t1, t2,
-                        volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
+    alert(build_payload("pivot_aligned_break_short", "SHORT", e, s, t1, t2, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
