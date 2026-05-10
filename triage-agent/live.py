@@ -40,6 +40,14 @@ load_dotenv()
 import telegram_post
 import triage as triage_mod
 
+# Optional cron-driven jobs (premarket brief + EOD recap)
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    _SCHEDULER_AVAILABLE = True
+except ImportError:
+    _SCHEDULER_AVAILABLE = False
+
 # ──────────────────────────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────────────────────────
@@ -49,6 +57,14 @@ CHANNEL         = "new_alert"
 CURSOR_PATH     = Path(os.environ.get("TRIAGE_CURSOR_FILE", ".triage-cursor"))
 AUDIT_LOG_PATH  = Path(os.environ.get("TRIAGE_AUDIT_FILE", ".triage-audit.jsonl"))
 DAILY_USD_CAP   = float(os.environ.get("TRIAGE_DAILY_USD_CAP", "1.50"))
+
+# Premarket / EOD scheduler — set ENABLE_PREMARKET_BRIEF=true to activate.
+# Default false so existing deploys aren't surprised by new behavior.
+ENABLE_PREMARKET_BRIEF = os.environ.get("ENABLE_PREMARKET_BRIEF", "false").lower() == "true"
+PREMARKET_HOUR_ET   = int(os.environ.get("PREMARKET_HOUR_ET", "8"))
+PREMARKET_MINUTE_ET = int(os.environ.get("PREMARKET_MINUTE_ET", "30"))
+EOD_HOUR_ET         = int(os.environ.get("EOD_HOUR_ET", "16"))
+EOD_MINUTE_ET       = int(os.environ.get("EOD_MINUTE_ET", "5"))
 
 # Post mode — controls what the agent sends to Telegram.
 # Default 'all' = post every verdict (validation phase: see all data,
@@ -296,6 +312,59 @@ def listen_forever(budget, dry_run=False):
             return
 
 
+def start_premarket_scheduler():
+    """Start the background scheduler for premarket / EOD jobs.
+    Returns the scheduler (so caller can shut it down on exit) or None if disabled.
+    """
+    if not ENABLE_PREMARKET_BRIEF:
+        logger.info("premarket brief scheduler disabled (ENABLE_PREMARKET_BRIEF=false)")
+        return None
+    if not _SCHEDULER_AVAILABLE:
+        logger.warning("APScheduler not installed; premarket brief disabled")
+        return None
+
+    try:
+        import pytz
+        et_tz = pytz.timezone("America/New_York")
+    except Exception:
+        logger.exception("pytz unavailable; premarket brief disabled")
+        return None
+
+    scheduler = BackgroundScheduler(timezone=et_tz)
+
+    def _safe_premarket():
+        try:
+            from premarket import run_premarket_brief
+            run_premarket_brief(send=True)
+        except Exception:
+            logger.exception("premarket brief job failed")
+
+    def _safe_eod():
+        try:
+            from eod import run_eod_recap
+            run_eod_recap(send=True)
+        except Exception:
+            logger.exception("eod recap job failed")
+
+    # Mon-Fri only (no weekend briefs)
+    scheduler.add_job(
+        _safe_premarket,
+        CronTrigger(hour=PREMARKET_HOUR_ET, minute=PREMARKET_MINUTE_ET,
+                    day_of_week="mon-fri", timezone=et_tz),
+        id="premarket_brief", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_eod,
+        CronTrigger(hour=EOD_HOUR_ET, minute=EOD_MINUTE_ET,
+                    day_of_week="mon-fri", timezone=et_tz),
+        id="eod_recap", replace_existing=True,
+    )
+    scheduler.start()
+    logger.info("scheduler started: premarket %02d:%02d ET, EOD %02d:%02d ET (mon-fri)",
+                PREMARKET_HOUR_ET, PREMARKET_MINUTE_ET, EOD_HOUR_ET, EOD_MINUTE_ET)
+    return scheduler
+
+
 def main():
     p = argparse.ArgumentParser(description="Live triage agent.")
     p.add_argument("--dry-run", action="store_true",
@@ -305,8 +374,8 @@ def main():
     args = p.parse_args()
 
     logger.info("starting triage worker — user_id=%d, post_mode=%s, "
-                "daily_cap=$%.2f, dry_run=%s",
-                USER_ID, POST_MODE, DAILY_USD_CAP, args.dry_run)
+                "daily_cap=$%.2f, dry_run=%s, premarket=%s",
+                USER_ID, POST_MODE, DAILY_USD_CAP, args.dry_run, ENABLE_PREMARKET_BRIEF)
     budget = CostBudget(DAILY_USD_CAP)
 
     catchup(budget, dry_run=args.dry_run)
@@ -318,7 +387,15 @@ def main():
     # Graceful shutdown on SIGTERM (Railway sends this)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
-    listen_forever(budget, dry_run=args.dry_run)
+    # Background scheduler for premarket + EOD briefs (if enabled)
+    sched = start_premarket_scheduler()
+
+    try:
+        listen_forever(budget, dry_run=args.dry_run)
+    finally:
+        if sched is not None:
+            try: sched.shutdown(wait=False)
+            except Exception: pass
 
 
 if __name__ == "__main__":
