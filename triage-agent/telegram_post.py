@@ -132,7 +132,9 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
     """Fetch a TradingView-style chart PNG from chart-img.com.
     Returns PNG bytes or None on any failure (caller falls back to text).
 
-    Layout (4 of 5 PRO param budget — clean, lines do the talking):
+    Layout (5 of 5 PRO param budget):
+      • VWAP (study)             — session-anchored institutional reference.
+                                   Resets each session; bias filter for the day.
       • Long/Short Position      — TradingView trade box on the right edge:
                                    green target zone, gray entry, red stop zone,
                                    risk/reward visually proportional.
@@ -153,6 +155,7 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
         "theme": "dark",
         "width": 1920,
         "height": 1080,
+        "studies": [{"name": "VWAP"}],
     }
 
     drawings = []
