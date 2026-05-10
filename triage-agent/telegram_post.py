@@ -39,7 +39,9 @@ CHART_IMG_ENDPOINT = "https://api.chart-img.com/v2/tradingview/advanced-chart"
 
 
 def _alert_interval(alert_type: str) -> str:
-    """Map a Pine alert_type to a sensible chart interval."""
+    """Map a Pine alert_type to a chart-img interval enum.
+    chart-img valid intervals: 1m, 3m, 5m, 15m, 30m, 45m, 1h, 2h, 3h, 4h, 1D, 1W, 1M.
+    """
     if not alert_type:
         return "5m"
     at = alert_type.lower()
@@ -49,11 +51,40 @@ def _alert_interval(alert_type: str) -> str:
         return "15m"
     if "_1h" in at or "_60m" in at:
         return "1h"
+    if "ema21" in at or "ema50" in at:
+        return "15m"
     return "5m"
 
 
+# Symbol → TradingView exchange prefix. Default NASDAQ for unknown US tickers.
+# Add to this map as new symbols enter the watchlist.
+_EXCHANGE_OVERRIDES = {
+    # ETFs — most are AMEX (NYSEARCA), QQQ is NASDAQ
+    "SPY": "AMEX", "IWM": "AMEX", "DIA": "AMEX",
+    "XLK": "AMEX", "XLE": "AMEX", "XLF": "AMEX", "XLV": "AMEX",
+    "XLY": "AMEX", "XLI": "AMEX", "XLB": "AMEX", "XLU": "AMEX",
+    "XLP": "AMEX", "XLRE": "AMEX", "XLC": "AMEX",
+    # NYSE listings
+    "ORCL": "NYSE", "NOW": "NYSE", "TSM": "NYSE",
+    "OKLO": "NYSE", "VST": "NYSE",
+    "V": "NYSE", "MA": "NYSE", "AXP": "NYSE",
+    "IONQ": "NYSE", "RDDT": "NYSE", "SHOP": "NYSE",
+    # Crypto (full override — not "EXCHANGE:SYMBOL" pattern)
+    "BTC-USD": "COINBASE:BTCUSD",
+    "ETH-USD": "COINBASE:ETHUSD",
+}
+
+
+def _tv_symbol(symbol: str) -> str:
+    """Convert a watchlist symbol to chart-img's EXCHANGE:SYMBOL format."""
+    override = _EXCHANGE_OVERRIDES.get(symbol)
+    if override:
+        return override if ":" in override else f"{override}:{symbol}"
+    return f"NASDAQ:{symbol}"  # default for the bulk of the watchlist
+
+
 def _hline(price: float, color: str) -> dict:
-    """A horizontal line drawing for chart-img v2 advanced-chart."""
+    """Horizontal line drawing for chart-img v2 advanced-chart."""
     return {
         "name": "Horizontal Line",
         "input": {"price": float(price)},
@@ -70,19 +101,15 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
     if not symbol:
         return None
 
+    # chart-img free tier caps studies + drawings at 3 combined.
+    # Prioritize the actionable layer (entry/stop/T1 horizontal lines) over
+    # indicators — the user can already see EMAs/VWAP on their live TV chart.
     payload = {
-        "symbol": symbol,
+        "symbol": _tv_symbol(symbol),
         "interval": _alert_interval(alert.get("alert_type") or ""),
         "theme": "dark",
-        "range": "5d",
-        "studies": [
-            {"name": "Volume@tv-basicstudies"},
-            {"name": "Moving Average Exponential", "input": {"length": 8}},
-            {"name": "Moving Average Exponential", "input": {"length": 21}},
-            {"name": "VWAP@tv-basicstudies"},
-        ],
-        "width": 1000,
-        "height": 700,
+        "width": 800,
+        "height": 600,
     }
 
     drawings = []
@@ -92,10 +119,9 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
         drawings.append(_hline(alert["stop"], "#f06a6a"))      # red — stop
     if alert.get("target_1") is not None:
         drawings.append(_hline(alert["target_1"], "#3ddc84"))  # green — T1
-    if alert.get("target_2") is not None:
-        drawings.append(_hline(alert["target_2"], "#22d3ee"))  # cyan — T2
+    # T2 dropped for free tier (3-param cap on studies + drawings combined)
     if drawings:
-        payload["drawings"] = drawings
+        payload["drawings"] = drawings[:3]  # hard cap to avoid 403
 
     try:
         r = requests.post(
@@ -106,7 +132,8 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
         )
         if r.status_code == 200 and r.content:
             return r.content
-        logger.warning("chart-img returned %s: %s", r.status_code, r.text[:200])
+        logger.warning("chart-img returned %s for %s: %s",
+                       r.status_code, symbol, r.text[:300])
         return None
     except Exception:
         logger.exception("chart-img fetch failed for %s", symbol)
