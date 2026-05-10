@@ -83,45 +83,63 @@ def _tv_symbol(symbol: str) -> str:
     return f"NASDAQ:{symbol}"  # default for the bulk of the watchlist
 
 
-def _hline(price: float, color: str) -> dict:
-    """Horizontal line drawing for chart-img v2 advanced-chart."""
+def _hline(price: float, color: str, label: str) -> dict:
+    """Labeled horizontal line drawing for chart-img v2 advanced-chart."""
     return {
         "name": "Horizontal Line",
         "input": {"price": float(price)},
-        "override": {"linecolor": color, "linewidth": 1, "linestyle": 0},
+        "override": {
+            "linecolor": color,
+            "linewidth": 2,
+            "linestyle": 0,
+            "showLabel": True,
+            "text": label,
+            "textcolor": color,
+            "horzLabelsAlign": "right",
+            "vertLabelsAlign": "middle",
+        },
     }
 
 
 def fetch_chart_image(alert: dict) -> Optional[bytes]:
     """Fetch a TradingView-style chart PNG from chart-img.com.
-    Returns PNG bytes or None on any failure (caller falls back to text)."""
+    Returns PNG bytes or None on any failure (caller falls back to text).
+
+    Layout (PRO tier — 5 parameter budget):
+      • EMA 8 (study)            — faster trend reference
+      • EMA 21 (study)           — slower trend reference
+      • Entry line (drawing)     — blue, labeled "ENTRY"
+      • Stop line (drawing)      — red, labeled "STOP"
+      • T1 line (drawing)        — green, labeled "T1"
+    """
     if not CHART_IMG_API_KEY:
         return None
     symbol = alert.get("symbol")
     if not symbol:
         return None
 
-    # chart-img free tier caps studies + drawings at 3 combined.
-    # Prioritize the actionable layer (entry/stop/T1 horizontal lines) over
-    # indicators — the user can already see EMAs/VWAP on their live TV chart.
     payload = {
         "symbol": _tv_symbol(symbol),
         "interval": _alert_interval(alert.get("alert_type") or ""),
         "theme": "dark",
-        "width": 800,
-        "height": 600,
+        "width": 1920,
+        "height": 1080,
+        "studies": [
+            {"name": "Moving Average Exponential", "input": {"length": 8}},
+            {"name": "Moving Average Exponential", "input": {"length": 21}},
+        ],
     }
 
     drawings = []
     if alert.get("entry") is not None:
-        drawings.append(_hline(alert["entry"], "#5b8def"))     # blue — entry
+        drawings.append(_hline(alert["entry"], "#5b8def", "ENTRY"))   # blue
     if alert.get("stop") is not None:
-        drawings.append(_hline(alert["stop"], "#f06a6a"))      # red — stop
+        drawings.append(_hline(alert["stop"], "#f06a6a", "STOP"))     # red
     if alert.get("target_1") is not None:
-        drawings.append(_hline(alert["target_1"], "#3ddc84"))  # green — T1
-    # T2 dropped for free tier (3-param cap on studies + drawings combined)
+        drawings.append(_hline(alert["target_1"], "#3ddc84", "T1"))   # green
+    # 2 studies + 3 drawings = 5 parameters (PRO tier budget)
     if drawings:
-        payload["drawings"] = drawings[:3]  # hard cap to avoid 403
+        payload["drawings"] = drawings
 
     try:
         r = requests.post(
