@@ -21,6 +21,7 @@ is the SOLE Telegram sender. Output structure:
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -83,17 +84,46 @@ def _tv_symbol(symbol: str) -> str:
     return f"NASDAQ:{symbol}"  # default for the bulk of the watchlist
 
 
-def _hline(price: float, color: str, label: str) -> dict:
+def _hline(price: float, color: str) -> dict:
     """Horizontal line drawing for chart-img v2 advanced-chart.
-    chart-img only honors lineColor + lineWidth on Horizontal Line; label is
-    encoded by line color (caller picks blue/red/green for ENTRY/STOP/T1).
+    Used as fallback when entry/stop/target_1 aren't all present (so we can't
+    build a Long/Short Position trade box). chart-img only honors lineColor
+    and lineWidth on Horizontal Line — labels aren't supported.
     """
     return {
         "name": "Horizontal Line",
         "input": {"price": float(price)},
-        "override": {
-            "lineColor": color,
-            "lineWidth": 2,
+        "override": {"lineColor": color, "lineWidth": 2},
+    }
+
+
+def _trade_box(alert: dict) -> Optional[dict]:
+    """Build a TradingView Long/Short Position drawing from alert levels.
+    Returns None if entry/stop/target_1 aren't all present.
+
+    Renders the trade structure as a colored zone:
+      • Long: green target zone above entry, red stop zone below
+      • Short: green target zone below entry, red stop zone above
+    Each zone shows a price label, and risk/reward is visually proportional.
+    """
+    entry  = alert.get("entry")
+    stop   = alert.get("stop")
+    target = alert.get("target_1")
+    if entry is None or stop is None or target is None:
+        return None
+    direction = (alert.get("direction") or "").upper()
+    name = "Short Position" if direction == "SHORT" else "Long Position"
+
+    # Box renders forward from startDatetime to the chart's right edge.
+    # Anchor 1h before the alert so the box has visible width on the chart.
+    anchor_dt = datetime.now(timezone.utc) - timedelta(hours=1)
+    return {
+        "name": name,
+        "input": {
+            "startDatetime": anchor_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "entryPrice":  float(entry),
+            "targetPrice": float(target),
+            "stopPrice":   float(stop),
         },
     }
 
@@ -105,9 +135,10 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
     Layout (PRO tier — 5 parameter budget):
       • EMA 8 (study)            — faster trend reference
       • EMA 21 (study)           — slower trend reference
-      • Entry line (drawing)     — blue, labeled "ENTRY"
-      • Stop line (drawing)      — red, labeled "STOP"
-      • T1 line (drawing)        — green, labeled "T1"
+      • Long/Short Position      — TradingView trade box: green target zone,
+                                   gray entry, red stop zone, all labeled
+                                   with price. Risk/reward visually proportional.
+      • Falls back to 3 colored hlines when entry/stop/T1 aren't all present.
     """
     if not CHART_IMG_API_KEY:
         return None
@@ -127,16 +158,19 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
         ],
     }
 
-    drawings = []
-    if alert.get("entry") is not None:
-        drawings.append(_hline(alert["entry"], "rgb(91,141,239)", "ENTRY"))    # blue
-    if alert.get("stop") is not None:
-        drawings.append(_hline(alert["stop"], "rgb(240,106,106)", "STOP"))     # red
-    if alert.get("target_1") is not None:
-        drawings.append(_hline(alert["target_1"], "rgb(61,220,132)", "T1"))    # green
-    # 2 studies + 3 drawings = 5 parameters (PRO tier budget)
-    if drawings:
-        payload["drawings"] = drawings
+    box = _trade_box(alert)
+    if box:
+        payload["drawings"] = [box]
+    else:
+        drawings = []
+        if alert.get("entry") is not None:
+            drawings.append(_hline(alert["entry"], "rgb(91,141,239)"))    # blue
+        if alert.get("stop") is not None:
+            drawings.append(_hline(alert["stop"], "rgb(240,106,106)"))    # red
+        if alert.get("target_1") is not None:
+            drawings.append(_hline(alert["target_1"], "rgb(61,220,132)")) # green
+        if drawings:
+            payload["drawings"] = drawings
 
     try:
         r = requests.post(
