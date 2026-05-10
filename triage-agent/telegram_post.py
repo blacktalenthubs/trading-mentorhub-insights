@@ -84,19 +84,16 @@ def _tv_symbol(symbol: str) -> str:
 
 
 def _hline(price: float, color: str, label: str) -> dict:
-    """Labeled horizontal line drawing for chart-img v2 advanced-chart."""
+    """Horizontal line drawing for chart-img v2 advanced-chart.
+    chart-img only honors lineColor + lineWidth on Horizontal Line; label is
+    encoded by line color (caller picks blue/red/green for ENTRY/STOP/T1).
+    """
     return {
         "name": "Horizontal Line",
         "input": {"price": float(price)},
         "override": {
-            "linecolor": color,
-            "linewidth": 2,
-            "linestyle": 0,
-            "showLabel": True,
-            "text": label,
-            "textcolor": color,
-            "horzLabelsAlign": "right",
-            "vertLabelsAlign": "middle",
+            "lineColor": color,
+            "lineWidth": 2,
         },
     }
 
@@ -132,11 +129,11 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
 
     drawings = []
     if alert.get("entry") is not None:
-        drawings.append(_hline(alert["entry"], "#5b8def", "ENTRY"))   # blue
+        drawings.append(_hline(alert["entry"], "rgb(91,141,239)", "ENTRY"))    # blue
     if alert.get("stop") is not None:
-        drawings.append(_hline(alert["stop"], "#f06a6a", "STOP"))     # red
+        drawings.append(_hline(alert["stop"], "rgb(240,106,106)", "STOP"))     # red
     if alert.get("target_1") is not None:
-        drawings.append(_hline(alert["target_1"], "#3ddc84", "T1"))   # green
+        drawings.append(_hline(alert["target_1"], "rgb(61,220,132)", "T1"))    # green
     # 2 studies + 3 drawings = 5 parameters (PRO tier budget)
     if drawings:
         payload["drawings"] = drawings
