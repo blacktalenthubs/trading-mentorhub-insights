@@ -18,8 +18,10 @@ is the SOLE Telegram sender. Output structure:
                                           as notifier so existing handlers
                                           remain unchanged.
 """
+import json
 import logging
 import os
+from typing import Optional
 
 import requests
 
@@ -28,6 +30,118 @@ logger = logging.getLogger("triage.tg")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CONVICTION_CHAT_ID = os.environ.get("CONVICTION_CHAT_ID")
 API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}" if TELEGRAM_BOT_TOKEN else None
+
+# Chart image rendering (chart-img.com). Optional — when set, HIGH-conviction
+# alerts include an inline TradingView-style chart with entry/stop/T1 lines.
+# When unset, all alerts fall back to text-only.
+CHART_IMG_API_KEY = os.environ.get("CHART_IMG_API_KEY")
+CHART_IMG_ENDPOINT = "https://api.chart-img.com/v2/tradingview/advanced-chart"
+
+
+def _alert_interval(alert_type: str) -> str:
+    """Map a Pine alert_type to a sensible chart interval."""
+    if not alert_type:
+        return "5m"
+    at = alert_type.lower()
+    if "_5m" in at or "staged_" in at:
+        return "5m"
+    if "_15m" in at:
+        return "15m"
+    if "_1h" in at or "_60m" in at:
+        return "1h"
+    return "5m"
+
+
+def _hline(price: float, color: str) -> dict:
+    """A horizontal line drawing for chart-img v2 advanced-chart."""
+    return {
+        "name": "Horizontal Line",
+        "input": {"price": float(price)},
+        "override": {"linecolor": color, "linewidth": 1, "linestyle": 0},
+    }
+
+
+def fetch_chart_image(alert: dict) -> Optional[bytes]:
+    """Fetch a TradingView-style chart PNG from chart-img.com.
+    Returns PNG bytes or None on any failure (caller falls back to text)."""
+    if not CHART_IMG_API_KEY:
+        return None
+    symbol = alert.get("symbol")
+    if not symbol:
+        return None
+
+    payload = {
+        "symbol": symbol,
+        "interval": _alert_interval(alert.get("alert_type") or ""),
+        "theme": "dark",
+        "range": "5d",
+        "studies": [
+            {"name": "Volume@tv-basicstudies"},
+            {"name": "Moving Average Exponential", "input": {"length": 8}},
+            {"name": "Moving Average Exponential", "input": {"length": 21}},
+            {"name": "VWAP@tv-basicstudies"},
+        ],
+        "width": 1000,
+        "height": 700,
+    }
+
+    drawings = []
+    if alert.get("entry") is not None:
+        drawings.append(_hline(alert["entry"], "#5b8def"))     # blue — entry
+    if alert.get("stop") is not None:
+        drawings.append(_hline(alert["stop"], "#f06a6a"))      # red — stop
+    if alert.get("target_1") is not None:
+        drawings.append(_hline(alert["target_1"], "#3ddc84"))  # green — T1
+    if alert.get("target_2") is not None:
+        drawings.append(_hline(alert["target_2"], "#22d3ee"))  # cyan — T2
+    if drawings:
+        payload["drawings"] = drawings
+
+    try:
+        r = requests.post(
+            CHART_IMG_ENDPOINT,
+            json=payload,
+            headers={"x-api-key": CHART_IMG_API_KEY, "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if r.status_code == 200 and r.content:
+            return r.content
+        logger.warning("chart-img returned %s: %s", r.status_code, r.text[:200])
+        return None
+    except Exception:
+        logger.exception("chart-img fetch failed for %s", symbol)
+        return None
+
+
+def _send_with_photo(photo_bytes: bytes, caption: str,
+                     reply_markup: Optional[dict] = None,
+                     chat_id: Optional[str] = None) -> bool:
+    """Telegram sendPhoto with optional inline buttons. Returns True on success."""
+    if not API_BASE:
+        return False
+    target = chat_id or CONVICTION_CHAT_ID
+    if not target:
+        return False
+    # Telegram caption limit is 1024 chars
+    if len(caption) > 1024:
+        caption = caption[:1020] + "…"
+    files = {"photo": ("chart.png", photo_bytes, "image/png")}
+    data = {
+        "chat_id": str(target),
+        "caption": caption,
+        "parse_mode": "HTML",
+    }
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    try:
+        r = requests.post(f"{API_BASE}/sendPhoto", files=files, data=data, timeout=15)
+        if r.status_code != 200:
+            logger.warning("sendPhoto non-200: %s %s", r.status_code, r.text[:200])
+            return False
+        return True
+    except Exception:
+        logger.exception("sendPhoto failed")
+        return False
 
 
 def _e(s):
@@ -222,6 +336,18 @@ def send_verdict(alert, result, mode="all", chat_id=None):
 
     text = format_unified(alert, result)
     buttons = _build_buttons(alert)
+
+    # HIGH-conviction alerts: try to attach a TV-style chart.
+    # Falls through to text-only if chart fetch fails or API key missing.
+    if verdict == "HIGH" and CHART_IMG_API_KEY:
+        chart = fetch_chart_image(alert)
+        if chart:
+            ok = _send_with_photo(chart, text, reply_markup=buttons, chat_id=chat_id)
+            if ok:
+                return True
+            logger.warning("photo send failed; falling back to text for #%s",
+                           alert.get("id"))
+
     return _send(text, reply_markup=buttons, chat_id=chat_id)
 
 
