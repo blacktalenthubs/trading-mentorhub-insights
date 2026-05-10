@@ -132,8 +132,7 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
     """Fetch a TradingView-style chart PNG from chart-img.com.
     Returns PNG bytes or None on any failure (caller falls back to text).
 
-    Layout (PRO tier — 5 parameter budget):
-      • EMA 21 (study)           — trend reference
+    Layout (4 of 5 PRO param budget — clean, lines do the talking):
       • Long/Short Position      — TradingView trade box on the right edge:
                                    green target zone, gray entry, red stop zone,
                                    risk/reward visually proportional.
@@ -154,9 +153,6 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
         "theme": "dark",
         "width": 1920,
         "height": 1080,
-        "studies": [
-            {"name": "Moving Average Exponential", "input": {"length": 21}},
-        ],
     }
 
     drawings = []
