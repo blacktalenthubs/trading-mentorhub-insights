@@ -265,91 +265,180 @@ def _verdict_emoji(verdict):
     return {"HIGH": "\U0001f525", "NORMAL": "⚪", "MUTE": "\U0001f515"}.get(verdict, "⚪")
 
 
-def _sector_line(sec):
+def _direction_emoji(direction):
+    return {"BUY": "🟢", "LONG": "🟢", "SHORT": "🔴", "SELL": "🟡"}.get(direction, "⚪")
+
+
+def _fmt_price(p):
+    """Format a price with commas; 2 decimals always."""
+    if p is None:
+        return ""
+    return f"${p:,.2f}"
+
+
+def _pct_diff(a, b):
+    """Signed percent change from b → a. Returns None if either side is invalid."""
+    if a is None or b is None or b == 0:
+        return None
+    return (a - b) / b * 100.0
+
+
+def _fmt_levels_block(alert):
+    """Return a <pre> block with entry/stop/T1/T2 aligned in columns,
+    each target carrying its % offset from entry and R multiple vs stop.
+    """
+    entry  = alert.get("entry")
+    stop   = alert.get("stop")
+    t1     = alert.get("target_1")
+    t2     = alert.get("target_2")
+    if entry is None:
+        return ""
+
+    risk = abs(entry - stop) if stop is not None else None
+
+    def _row(label, price, ref=None, is_target=False):
+        if price is None:
+            return None
+        base = f"{label:<7} {_fmt_price(price):>13}"
+        pct  = _pct_diff(price, ref) if ref is not None else None
+        if pct is None:
+            return base
+        arrow = "↑" if pct >= 0 else "↓"
+        pct_s = f"{arrow}{abs(pct):.2f}%"
+        if is_target and risk and risk > 0:
+            r_mult = abs(price - entry) / risk
+            return f"{base}   {pct_s:>7}  {r_mult:>4.1f}R"
+        return f"{base}   {pct_s:>7}"
+
+    rows = [
+        _row("Entry", entry),
+        _row("Stop",  stop,  entry, is_target=False),
+        _row("T1",    t1,    entry, is_target=True),
+        _row("T2",    t2,    entry, is_target=True),
+    ]
+    rows = [r for r in rows if r]
+    return "<pre>" + "\n".join(rows) + "</pre>"
+
+
+def _fmt_vitals_block(alert):
+    """Return a <pre> block with Vol + CVD lines, status flags aligned right."""
+    lines = []
+    vr = alert.get("volume_ratio")
+    if vr is not None:
+        if vr < 1.5:
+            lines.append(f"Vol     {vr:.2f}× ⚠️ low")
+        elif vr >= 2.0:
+            lines.append(f"Vol     {vr:.2f}× ✅")
+        else:
+            lines.append(f"Vol     {vr:.2f}×")
+    cvd_div = alert.get("cvd_diverging")
+    if cvd_div is True:
+        lines.append("CVD     diverging ⚠️")
+    elif cvd_div is False:
+        lines.append("CVD     confirming ✅")
+    if not lines:
+        return ""
+    return "<pre>" + "\n".join(lines) + "</pre>"
+
+
+def _fmt_context_block(result):
+    """Return a <pre> block for sector / index / cluster — three aligned rows."""
+    rows = []
+
+    sec = result.get("sector") or {}
     if not sec.get("in_sector"):
-        return f"  Sector: {_e(sec.get('reason', '—'))}"
-    name = _e(sec.get("sector"))
-    own_bias = sec.get("own_bias") or "neutral"
-    if sec.get("aligned"):
-        peers = sec.get("bull_peers" if own_bias == "bull" else "bear_peers") or []
-        return f"  Sector ({name}): ALIGNED — {_e(', '.join(peers))}"
-    if sec.get("counter_flow"):
-        opp = sec.get("bear_peers" if own_bias == "bull" else "bull_peers") or []
-        return f"  Sector ({name}): COUNTER-FLOW ⚠ — {_e(', '.join(opp))}"
-    lookback = sec.get("lookback_minutes", 15)
-    return f"  Sector ({name}): no peers firing in {lookback}min — isolated"
+        rows.append(("Sector",  sec.get("reason") or "—"))
+    else:
+        name = sec.get("sector") or "peers"
+        own_bias = sec.get("own_bias") or "neutral"
+        if sec.get("aligned"):
+            peers = sec.get("bull_peers" if own_bias == "bull" else "bear_peers") or []
+            rows.append(("Sector", f"{', '.join(peers)} aligned" if peers else f"{name} aligned"))
+        elif sec.get("counter_flow"):
+            opp = sec.get("bear_peers" if own_bias == "bull" else "bull_peers") or []
+            rows.append(("Sector", f"⚠ counter-flow: {', '.join(opp)}" if opp else f"⚠ counter-flow ({name})"))
+        else:
+            lookback = sec.get("lookback_minutes", 15)
+            rows.append(("Sector", f"{name} peers quiet ({lookback}m)"))
 
-
-def _index_line(idx):
+    idx = result.get("index") or {}
     if not idx.get("checked"):
-        return "  Index: not checked"
-    if not idx.get("any_macro_fire"):
-        return f"  Index: no SPY/QQQ/XL* alerts in last {idx.get('lookback_minutes', 10)}min"
-    if idx.get("aligned_with_index"):
-        return f"  Index: ALIGNED — {_e(', '.join(idx['aligned_with_index']))}"
-    if idx.get("counter_flow_index"):
-        return f"  Index: COUNTER-FLOW ⚠ — {_e(', '.join(idx['counter_flow_index']))}"
-    return "  Index: macro alerts present but neutral"
+        rows.append(("Index", "not checked"))
+    elif not idx.get("any_macro_fire"):
+        rows.append(("Index", "no macro"))
+    elif idx.get("aligned_with_index"):
+        rows.append(("Index", f"{', '.join(idx['aligned_with_index'])} aligned"))
+    elif idx.get("counter_flow_index"):
+        rows.append(("Index", f"⚠ counter-flow: {', '.join(idx['counter_flow_index'])}"))
+    else:
+        rows.append(("Index", "neutral"))
 
-
-def _cluster_line(result):
     if result.get("proximity_match"):
-        return "  Cluster: ⚠ proximity match — same setup recently"
-    return "  Cluster: 1st alert in window"
+        rows.append(("Cluster", "⚠ proximity match"))
+    else:
+        rows.append(("Cluster", "fresh"))
+
+    if not rows:
+        return ""
+    return "<pre>" + "\n".join(f"{label:<9}{_e(val)}" for label, val in rows) + "</pre>"
 
 
 def format_unified(alert, result):
-    """Single integrated message — Pine-shape body + agent verdict + context.
+    """Single integrated Telegram message.
 
-    Verdict line is presented FIRST after the alert essentials (per user
-    feedback: verdict is the headline, supporting context follows).
+    Layout — scannable top-to-bottom:
+      🟢 LONG · SYMBOL · $price
+      rule_name · interval
+
+      <pre>  Entry / Stop / T1 / T2 grid with % and R multiples  </pre>
+      <pre>  Vol / CVD status lines                              </pre>
+
+      ⚪ VERDICT
+      reason (only if present)
+
+      <pre>  Sector / Index / Cluster context                    </pre>
     """
     sym       = _e(alert.get("symbol"))
     direction = (alert.get("direction") or "").upper()
     dir_label = ("LONG" if direction in ("BUY", "LONG")
                  else "SHORT" if direction == "SHORT"
                  else direction or "ALERT")
+    dir_emoji = _direction_emoji(direction)
     rule      = _e(alert.get("alert_type") or "tv_alert")
     price     = alert.get("price")
+    interval  = _e(alert.get("interval") or "")
 
-    # ── Header + setup levels ────────────────────────────────────────
-    parts = [f"<b>{dir_label} {sym} ${price:.2f}</b> — <i>{rule}</i>"]
+    parts = []
 
-    levels = []
-    if alert.get("entry") is not None:    levels.append(f"Entry ${alert['entry']:.2f}")
-    if alert.get("stop") is not None:     levels.append(f"Stop ${alert['stop']:.2f}")
-    if alert.get("target_1") is not None: levels.append(f"T1 ${alert['target_1']:.2f}")
-    if alert.get("target_2") is not None: levels.append(f"T2 ${alert['target_2']:.2f}")
-    if levels:
-        parts.append(" · ".join(levels))
-
-    # Volume line — same wording as existing Pine notifier so it's familiar
-    vr = alert.get("volume_ratio")
-    if vr is not None:
-        if vr < 1.5:
-            parts.append(f"⚠️ Low volume on fire bar ({vr:.2f}× avg)")
-        elif vr >= 2.0:
-            parts.append(f"✅ Strong volume ({vr:.2f}× avg)")
-        else:
-            parts.append(f"Volume: {vr:.2f}× avg")
-
-    # CVD line
-    cvd_div = alert.get("cvd_diverging")
-    if cvd_div is not None:
-        if cvd_div:
-            parts.append("⚠️ CVD diverging — order flow not confirming")
-        else:
-            parts.append("✅ CVD confirming move")
-
-    # ── Agent block — verdict first, supporting context after ────────
-    verdict = (result.get("verdict") or "NORMAL").upper()
-    reason  = _e(result.get("reason") or "")
+    # ── Header ───────────────────────────────────────────────────────
+    header = f"{dir_emoji} <b>{dir_label}</b> · <b>{sym}</b> · {_fmt_price(price)}"
+    parts.append(header)
+    rule_line = f"<i>{rule}</i>" + (f" · {interval}" if interval else "")
+    parts.append(rule_line)
     parts.append("")
-    parts.append(f"  {_verdict_emoji(verdict)} <b>Agent Verdict: {verdict}</b> — {reason}")
 
-    parts.append(_sector_line(result.get("sector") or {}))
-    parts.append(_index_line(result.get("index") or {}))
-    parts.append(_cluster_line(result))
+    # ── Levels grid ──────────────────────────────────────────────────
+    levels_block = _fmt_levels_block(alert)
+    if levels_block:
+        parts.append(levels_block)
+
+    # ── Vitals (vol + CVD) ───────────────────────────────────────────
+    vitals_block = _fmt_vitals_block(alert)
+    if vitals_block:
+        parts.append(vitals_block)
+
+    # ── Verdict + reason ─────────────────────────────────────────────
+    verdict = (result.get("verdict") or "NORMAL").upper()
+    reason  = (result.get("reason") or "").strip()
+    parts.append("")
+    parts.append(f"{_verdict_emoji(verdict)} <b>{verdict}</b>")
+    if reason:
+        parts.append(_e(reason))
+
+    # ── Context (sector / index / cluster) ───────────────────────────
+    context_block = _fmt_context_block(result)
+    if context_block:
+        parts.append(context_block)
 
     return "\n".join(parts)[:4000]
 
