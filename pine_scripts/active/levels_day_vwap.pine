@@ -1,0 +1,620 @@
+// @version=5
+//
+// Prior Day Levels (Staged) v2 — Phase A order-flow additions.
+//
+// Identical to `prior_day_levels_staged.pine` (same 4 alerts, same stage
+// detection, same structural stops) plus three new payload fields:
+//
+//   • volume_ratio   — fire-bar volume / N-bar average (1.0 = avg, 1.5 = 50% above)
+//   • cvd_delta      — CVD change over lookback (positive = aggressive buying)
+//   • cvd_diverging  — true if price/CVD direction conflicts (bearish div on
+//                      LONGs, bullish div on SHORTs)
+//
+// CVD is approximated from candle structure (close near high = aggressive
+// buy proxy). Pine has no native bid/ask classification for non-futures.
+// Magnitude is approximate; direction and divergence are reliable.
+//
+// Backend uses these to DEGRADE conviction (not mute) and surface explicit
+// warnings ("⚠️ low volume", "⚠️ CVD diverging") in Telegram. v1 still
+// works unchanged — backend treats missing fields as neutral.
+//
+// Indicator name suffixed " v2" so TV treats it as a separate script slot —
+// you can run both v1 and v2 side-by-side and compare.
+//
+indicator("levels-day-vwap", overlay = true)
+
+show_lines        = input.bool(true,  "Show PDH/PDL lines")
+show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
+show_sweep        = input.bool(true,  "Show SWEEP composite markers")
+show_vwap         = input.bool(true,  "Show VWAP")
+show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
+show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
+fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/lose alerts (NOTICE-only — set true on 1h chart for confirmation)")
+sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
+atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
+vwap_slope_thresh = input.float(0.1,  "VWAP slope threshold (%)", minval = 0.01, maxval = 1.0, step = 0.01)
+vol_avg_lookback  = input.int (20,    "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback      = input.int (10,    "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+vwap_setup_bars   = input.int (3,     "VWAP setup: bars on wrong side before reclaim/reject fires", minval = 1, maxval = 10)
+
+// =====================================================================
+// PDH / PDL
+// =====================================================================
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+
+plot(show_lines ? pdh : na, title = "PDH",
+     color = color.new(color.green, 0), style = plot.style_linebr, linewidth = 2)
+plot(show_lines ? pdl : na, title = "PDL",
+     color = color.new(color.red, 0),   style = plot.style_linebr, linewidth = 2)
+
+// =====================================================================
+// PWH/PWL + PMH/PML — fetched silently (NOT plotted here)
+// =====================================================================
+// Per 2026-05-06 unification, these levels participate in the same alert
+// events as PDH/PDL (a PWL reclaim fires `staged_pdl_reclaim`, etc.) and
+// feed the confluence count + T1/T2 target hierarchy. Visual plots live
+// in the `levels-week-month` indicator so users can toggle the higher-TF
+// lines off without affecting alert quality.
+// =====================================================================
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+
+// =====================================================================
+// VWAP + slope
+// =====================================================================
+vwap_v    = ta.vwap(hlc3)
+vwap_past = vwap_v[vwap_lookback]
+vwap_slope_pct = not na(vwap_past) and vwap_past != 0 ? (vwap_v - vwap_past) / vwap_past * 100 : na
+
+vwap_rising  = not na(vwap_slope_pct) and vwap_slope_pct >  vwap_slope_thresh
+vwap_falling = not na(vwap_slope_pct) and vwap_slope_pct < -vwap_slope_thresh
+vwap_flat    = not na(vwap_slope_pct) and not vwap_rising and not vwap_falling
+
+plot(show_vwap ? vwap_v : na, title = "VWAP",
+     color = color.new(#9C27B0, 20), linewidth = 2)
+
+// =====================================================================
+// Volume confirmation — fire-bar volume vs N-bar SMA
+// =====================================================================
+vol_avg = ta.sma(volume, vol_avg_lookback)
+volume_ratio = vol_avg > 0 ? volume / vol_avg : na
+
+// =====================================================================
+// CVD (Cumulative Volume Delta) — candle-structure approximation
+// close near high  → aggressive buying skew
+// close near low   → aggressive selling skew
+// Magnitude approximate; trend / divergence reliable.
+// =====================================================================
+bar_range = high - low
+buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
+sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
+delta_v = buy_vol - sell_vol
+cvd     = ta.cum(delta_v)
+
+cvd_past   = cvd[cvd_lookback]
+price_past = close[cvd_lookback]
+cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
+price_slope_n = not na(price_past) ? close - price_past : na
+
+// LONG entries care about bearish divergence: price up, CVD flat/down
+bearish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
+// SHORT entries care about bullish divergence: price down, CVD flat/up
+bullish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
+
+// =====================================================================
+// STAGE DETECTION
+// =====================================================================
+above_pdh   = not na(pdh) and close > pdh
+below_pdl   = not na(pdl) and close < pdl
+in_range    = not na(pdh) and not na(pdl) and close >= pdl and close <= pdh
+above_vwap  = not na(vwap_v) and close > vwap_v
+below_vwap  = not na(vwap_v) and close < vwap_v
+
+is_stage2 = above_pdh and vwap_rising  and above_vwap
+is_stage4 = below_pdl and vwap_falling and below_vwap
+is_stage3 = above_pdh and not is_stage2 and (vwap_flat or vwap_falling)
+is_stage1 = in_range  and vwap_flat
+
+string stage_text = "TRANSITIONING\nno clean regime\nHALF SIZE — sweeps only"
+color  stage_bg   = color.new(color.purple, 30)
+if na(vwap_slope_pct)
+    stage_text := "INSUFFICIENT DATA\nVWAP loading\nWAIT for slope to settle"
+    stage_bg   := color.new(color.gray, 30)
+else if is_stage2
+    stage_text := "STAGE 2: ADVANCING\nabove PDH + VWAP rising\nLONGS at PDH/VWAP pullbacks"
+    stage_bg   := color.new(color.green, 10)
+else if is_stage4
+    stage_text := "STAGE 4: DECLINING\nbelow PDL + VWAP falling\nSHORTS at VWAP pops"
+    stage_bg   := color.new(color.red, 10)
+else if is_stage3
+    stage_text := "STAGE 3: TOPPING\nabove PDH but VWAP rolling\nTRIM LONGS — fade rejects"
+    stage_bg   := color.new(color.orange, 10)
+else if is_stage1
+    stage_text := "STAGE 1: BASING\ninside range + VWAP flat\nWAIT — sweeps only"
+    stage_bg   := color.new(color.gray, 30)
+
+var table stage_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
+if show_stage_badge and barstate.islast
+    table.cell(stage_t, 0, 0, stage_text, text_color = color.white, bgcolor = stage_bg, text_size = size.normal)
+
+bgcolor(show_stage_bg and is_stage2 ? color.new(color.green, 95)  : na, title = "Stage 2 bg")
+bgcolor(show_stage_bg and is_stage4 ? color.new(color.red,   95)  : na, title = "Stage 4 bg")
+
+// =====================================================================
+// Level break / reject / reclaim — unified across daily/weekly/monthly
+// =====================================================================
+// User direction (2026-05-06): "treat all levels as same — if PWL holds
+// it's support too." Expanded triggers fire on any of the three timeframe
+// levels, but the existing event names (pdh_break, pdl_reclaim, etc) are
+// preserved so already-bound TV alerts keep working.
+//
+// When multiple levels cross on the same bar (e.g. gap-up clears PDH and
+// PWH together), we use the LEVEL CLOSEST TO PRIOR-BAR-CLOSE as the
+// reference for stops — that's the level price actually defended/broke.
+
+// Helpers — return the just-crossed level (na if no cross this bar).
+// Lowest resistance just broken: lowest level above prior close that's
+// now below current close.
+lowest_res_just_broken() =>
+    p_pdh = not na(pdh) and close > pdh and close[1] <= pdh ? pdh : 9.0e15
+    p_pwh = not na(pwh) and close > pwh and close[1] <= pwh ? pwh : 9.0e15
+    p_pmh = not na(pmh) and close > pmh and close[1] <= pmh ? pmh : 9.0e15
+    m = math.min(p_pdh, math.min(p_pwh, p_pmh))
+    m == 9.0e15 ? float(na) : m
+
+// Highest support just reclaimed: highest level below prior close that's
+// now above current close.
+highest_sup_just_reclaimed() =>
+    p_pdl = not na(pdl) and close > pdl and close[1] <= pdl ? pdl : -9.0e15
+    p_pwl = not na(pwl) and close > pwl and close[1] <= pwl ? pwl : -9.0e15
+    p_pml = not na(pml) and close > pml and close[1] <= pml ? pml : -9.0e15
+    m = math.max(p_pdl, math.max(p_pwl, p_pml))
+    m == -9.0e15 ? float(na) : m
+
+// Highest resistance just rejected: wick tagged level from below + closed back under.
+highest_res_just_rejected() =>
+    p_pdh = not na(pdh) and high >= pdh and close < pdh and high[1] < pdh ? pdh : -9.0e15
+    p_pwh = not na(pwh) and high >= pwh and close < pwh and high[1] < pwh ? pwh : -9.0e15
+    p_pmh = not na(pmh) and high >= pmh and close < pmh and high[1] < pmh ? pmh : -9.0e15
+    m = math.max(p_pdh, math.max(p_pwh, p_pmh))
+    m == -9.0e15 ? float(na) : m
+
+// Lowest support just broken: lowest level below prior close that's now broken below.
+lowest_sup_just_broken() =>
+    p_pdl = not na(pdl) and close < pdl and close[1] >= pdl ? pdl : 9.0e15
+    p_pwl = not na(pwl) and close < pwl and close[1] >= pwl ? pwl : 9.0e15
+    p_pml = not na(pml) and close < pml and close[1] >= pml ? pml : 9.0e15
+    m = math.min(p_pdl, math.min(p_pwl, p_pml))
+    m == 9.0e15 ? float(na) : m
+
+broken_resistance   = lowest_res_just_broken()
+reclaimed_support   = highest_sup_just_reclaimed()
+rejected_resistance = highest_res_just_rejected()
+broken_support      = lowest_sup_just_broken()
+
+pdh_break     = not na(broken_resistance)
+pdh_rejection = not na(rejected_resistance)
+pdl_break     = not na(broken_support)
+pdl_reclaim   = not na(reclaimed_support)
+
+// =====================================================================
+// Confluence count — how many of {PDH/PWH/PMH} or {PDL/PWL/PML} are
+// stacked within 1% of the just-broken/reclaimed level. Higher count =
+// more institutional memory at that price = stronger breakout/reclaim.
+// User direction 2026-05-06: "the more convinced the better we are at
+// executing." A 3-of-3 confluence break is materially higher conviction
+// than a single-level break.
+// =====================================================================
+within_zone(float a, float b, float pct) =>
+    not na(a) and not na(b) and math.abs(a - b) / b <= pct
+
+confluence_count_at(float anchor, float l1, float l2, float l3) =>
+    if na(anchor)
+        0
+    else
+        c = 0
+        // Anchor itself counts if it's one of the three
+        if not na(l1) and l1 == anchor
+            c := c + 1
+        if not na(l2) and l2 == anchor
+            c := c + 1
+        if not na(l3) and l3 == anchor
+            c := c + 1
+        // Add levels within 1% that aren't the anchor itself
+        if not na(l1) and l1 != anchor and within_zone(l1, anchor, 0.01)
+            c := c + 1
+        if not na(l2) and l2 != anchor and within_zone(l2, anchor, 0.01)
+            c := c + 1
+        if not na(l3) and l3 != anchor and within_zone(l3, anchor, 0.01)
+            c := c + 1
+        // Cap at 3 — anchor itself shouldn't double-count beyond its
+        // membership in the level list
+        math.min(c, 3)
+
+confluence_resistance = confluence_count_at(broken_resistance, pdh, pwh, pmh)
+confluence_support    = confluence_count_at(reclaimed_support, pdl, pwl, pml)
+confluence_rej        = confluence_count_at(rejected_resistance, pdh, pwh, pmh)
+confluence_brk_sup    = confluence_count_at(broken_support, pdl, pwl, pml)
+
+// Failed breakout — price closed above a resistance level (PDH/PWH/PMH)
+// and now closes back below it. Different from `_just_rejected` (wick
+// test that never closed above). This is the trap pattern: breakout
+// buyers above are now underwater and forced to cover.
+// User 2026-05-07: "if SPY goes above PDH and then reverses below, that's
+// a short signal." Adding as a new SHORT event.
+highest_res_just_failed() =>
+    p_pdh = not na(pdh) and close < pdh and close[1] > pdh ? pdh : -9.0e15
+    p_pwh = not na(pwh) and close < pwh and close[1] > pwh ? pwh : -9.0e15
+    p_pmh = not na(pmh) and close < pmh and close[1] > pmh ? pmh : -9.0e15
+    m = math.max(p_pdh, math.max(p_pwh, p_pmh))
+    m == -9.0e15 ? float(na) : m
+
+failed_resistance = highest_res_just_failed()
+confluence_failed = confluence_count_at(failed_resistance, pdh, pwh, pmh)
+
+var int pdl_break_bar = na
+var int pdh_break_bar = na
+if pdl_break
+    pdl_break_bar := bar_index
+if pdh_break
+    pdh_break_bar := bar_index
+
+// pdh_failed now unified — fires on close-back-below ANY of PDH/PWH/PMH.
+pdh_failed = not na(failed_resistance)
+
+bars_since_pdl_break = na(pdl_break_bar) ? 9999 : bar_index - pdl_break_bar
+bars_since_pdh_break = na(pdh_break_bar) ? 9999 : bar_index - pdh_break_bar
+
+sweep_reclaim_long   = pdl_reclaim and bars_since_pdl_break <= sweep_window_bars
+sweep_reversal_short = pdh_failed  and bars_since_pdh_break <= sweep_window_bars
+
+sweep_active = sweep_reclaim_long or sweep_reversal_short
+
+bgcolor((not sweep_active) and pdh_break     ? color.new(color.green,   75) : na, title = "PDH break bg")
+bgcolor((not sweep_active) and pdl_reclaim   ? color.new(color.aqua,    75) : na, title = "PDL reclaim bg")
+bgcolor((not sweep_active) and pdh_rejection ? color.new(color.orange,  70) : na, title = "PDH rejection bg")
+bgcolor((not sweep_active) and pdl_break     ? color.new(color.red,     75) : na, title = "PDL break bg")
+bgcolor(sweep_reclaim_long   ? color.new(color.lime,    40) : na, title = "Sweep LONG bg")
+bgcolor(sweep_reversal_short ? color.new(color.fuchsia, 40) : na, title = "Sweep SHORT bg")
+
+plotshape(show_signals and pdh_break,
+          title = "BREAK+ LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.normal, text = "BREAK+", textcolor = color.white)
+plotshape(show_signals and pdl_reclaim and not sweep_reclaim_long,
+          title = "RECLAIM LONG", location = location.belowbar,
+          color = color.new(color.aqua, 0), style = shape.triangleup,
+          size = size.normal, text = "RECLAIM", textcolor = color.black)
+plotshape(show_signals and pdh_rejection,
+          title = "REJECT SHORT", location = location.abovebar,
+          color = color.new(color.orange, 0), style = shape.triangledown,
+          size = size.normal, text = "REJECT", textcolor = color.white)
+plotshape(show_signals and pdl_break and not sweep_reversal_short,
+          title = "BREAK- SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.normal, text = "BREAK-", textcolor = color.white)
+
+plotshape(show_sweep and sweep_reclaim_long,
+          title = "SWEEP+ HC LONG", location = location.belowbar,
+          color = color.new(color.lime, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP+", textcolor = color.black)
+plotshape(show_sweep and sweep_reversal_short,
+          title = "SWEEP- HC SHORT", location = location.abovebar,
+          color = color.new(color.fuchsia, 0), style = shape.diamond,
+          size = size.large, text = "SWEEP-", textcolor = color.white)
+
+// =====================================================================
+// Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
+// =====================================================================
+stage_json = str.replace_all(stage_text, "\n", " — ")
+
+build_payload_v2(rule, direction,
+                 entry_p, stop_p, t1_p, t2_p,
+                 gap_ctx_v,
+                 confluence_n,
+                 vr, cvd_d, cvd_div) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","stage":"' + stage_json
+      + '","vwap":"' + str.tostring(vwap_v, format.mintick)
+      + '","vwap_slope_pct":"' + str.tostring(vwap_slope_pct, "#.##")
+      + '","above_vwap":"' + (above_vwap ? "true" : "false")
+      + '","gap_context":"' + (gap_ctx_v ? "true" : "false")
+      + '","confluence_count":"' + str.tostring(confluence_n)
+      + '","pwh":"' + str.tostring(pwh, format.mintick)
+      + '","pwl":"' + str.tostring(pwl, format.mintick)
+      + '","volume_ratio":"' + str.tostring(vr, "#.##")
+      + '","cvd_delta":"' + str.tostring(cvd_d, "#.##")
+      + '","cvd_diverging":"' + (cvd_div ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+atr14      = nz(ta.atr(14)[1], close * 0.005)
+atr_buffer = atr14 * atr_buffer_mult
+
+// Daily ATR for the target-hierarchy ATR fallback (intraday-scaled at 0.5×
+// because daily ATR is too wide for a single-session target).
+atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1],
+                             lookahead = barmerge.lookahead_on)
+atr_d     = nz(atr_d_raw, close * 0.005)
+
+// =====================================================================
+// Gap-and-go detection (spec C1) — track today's open + first 10-min low
+// =====================================================================
+// Captures the gap-up + hold pattern: open well above PDH, first bar
+// doesn't wick below PDH. Used by `staged_pdh_break` to swap in a tight
+// first-bar-low stop instead of yesterday's wide swing-low.
+//
+// "First bar" = first 10 minutes of the regular session. We track the
+// running low across however many chart-TF bars fit in 10 min (e.g.,
+// two 5m bars, ten 1m bars).
+session_open_now = ta.change(time("D")) != 0
+var float today_open       = na
+var float bar1_low         = na
+var int   first_bar_time   = na
+
+if session_open_now
+    today_open := open
+    bar1_low := low
+    first_bar_time := time
+else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
+    bar1_low := math.min(nz(bar1_low, low), low)
+
+// Gap-up + hold flags. gap_context true = use tight first-bar stop.
+gap_up      = not na(today_open) and not na(pdh) and today_open >= pdh * 1.005
+gap_held    = not na(bar1_low)   and not na(pdh) and bar1_low > pdh
+gap_context = gap_up and gap_held
+
+// =====================================================================
+// Target hierarchy helpers (spec C4)
+// =====================================================================
+// Walk: structural overhead/support → next round number → 0.5× daily ATR
+// extension → 0.75% floor. Always returns a target at least 0.5% from
+// entry (so tight-stop alerts don't get tight targets too).
+
+next_round_above(float p) =>
+    incr = p > 200 ? 5.0 : (p > 50 ? 1.0 : 0.5)
+    math.ceil(p / incr) * incr
+
+next_round_below(float p) =>
+    incr = p > 200 ? 5.0 : (p > 50 ? 1.0 : 0.5)
+    math.floor(p / incr) * incr
+
+// Closest valid level above entry within 3% (na if none).
+nearest_above(float e, float l1, float l2) =>
+    a1 = not na(l1) and l1 > e and (l1 - e) / e <= 0.03 ? l1 : 9.0e15
+    a2 = not na(l2) and l2 > e and (l2 - e) / e <= 0.03 ? l2 : 9.0e15
+    r  = math.min(a1, a2)
+    r == 9.0e15 ? float(na) : r
+
+nearest_below(float e, float l1, float l2) =>
+    a1 = not na(l1) and l1 < e and (e - l1) / e <= 0.03 ? l1 : -9.0e15
+    a2 = not na(l2) and l2 < e and (e - l2) / e <= 0.03 ? l2 : -9.0e15
+    r  = math.max(a1, a2)
+    r == -9.0e15 ? float(na) : r
+
+t1_long_hier(float e, float l1, float l2, float atr_daily) =>
+    s = nearest_above(e, l1, l2)
+    not na(s) ? s :
+      next_round_above(e) > e * 1.005 ? next_round_above(e) :
+      e + atr_daily * 0.5 > e * 1.005 ? e + atr_daily * 0.5 :
+      e * 1.0075
+
+t1_short_hier(float e, float l1, float l2, float atr_daily) =>
+    s = nearest_below(e, l1, l2)
+    not na(s) ? s :
+      next_round_below(e) < e * 0.995 ? next_round_below(e) :
+      e - atr_daily * 0.5 < e * 0.995 ? e - atr_daily * 0.5 :
+      e * 0.9925
+
+t2_extend_long(float e, float t1)  => math.max(t1 + (t1 - e) * 0.5, t1 * 1.005)
+t2_extend_short(float e, float t1) => math.min(t1 - (e - t1) * 0.5, t1 * 0.995)
+
+// LONG alerts pass bearish_div (price up, CVD lagging = bad for longs)
+// SHORT alerts pass bullish_div (price down, CVD lifting = bad for shorts)
+//
+// Alert frequency (2026-05-04 v2): all alerts fire on bar close. Intra-bar
+// firing was tried but rejected — wick-fakeouts on PDH/PDL crosses caused
+// false entries that close-confirmation prevents. Use a 10m chart TF on
+// the TV alert side for faster delivery (10min close beats 15min close
+// for entry timing) without sacrificing the close-confirmation guarantee.
+//
+// Stop sizing notes:
+//   • staged_pdh_break — gap_context=true means use first-10min-bar low as
+//     stop (tight, ~1-2%) instead of yesterday's swing. Without gap context,
+//     fall back to the prior `pdh - atr_buffer` logic.
+//   • staged_pdh_rejection — stop above the rejection wick.
+//   • staged_pdl_break — stop just above the broken level.
+//   • staged_pdl_reclaim — stop at the sweep low (current bar's low).
+//
+// Target sizing: t1_long_hier / t1_short_hier walks structural → round →
+// ATR/2 → 0.75% floor. For LONG breakout (pdh_break), candidates are
+// PWH first then n/a — round/ATR fallback handles ATH cases. For LONG
+// reclaim (pdl_reclaim), candidates are PDH then PWH (further out).
+if pdh_break
+    e   = close
+    // Stop = just below the level that was actually broken (could be PDH,
+    // PWH or PMH per unified detection). Gap-context override remains.
+    s_default = broken_resistance - atr_buffer
+    s   = gap_context and not na(bar1_low) ? bar1_low - atr_buffer * 0.5 : s_default
+    // Target hierarchy still walks PWH → PMH → round → ATR for next overhead.
+    t1  = t1_long_hier(e, pwh, pmh, atr_d)
+    t2  = t2_extend_long(e, t1)
+    alert(build_payload_v2("staged_pdh_break", "BUY", e, s, t1, t2,
+                           gap_context, confluence_resistance,
+                           volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
+if pdh_rejection
+    e   = close
+    // Stop above the wick that tagged the rejected level.
+    s   = high + atr_buffer
+    // T1: VWAP if below entry, else PDL. T2: extension below T1 walking
+    // PWL/PML as deeper anchors.
+    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
+    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pdh_rejection", "SHORT", e, s, t1, t2,
+                           false, confluence_rej,
+                           volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+// Failed-breakout SHORT — separate from rejection: price actually closed
+// above the level (breakout fired) and then closed back below within the
+// sweep window. Trap pattern, higher-conviction short than a clean rejection.
+if sweep_reversal_short
+    e   = close
+    // Stop above the failed-breakout high — that's the "if it gets back
+    // there, the trap was wrong" level. Use prior bar's high (the high of
+    // the bar that closed above the level).
+    s   = math.max(high, high[1]) + atr_buffer
+    // T1: VWAP if below entry, else PDL. T2: extension walking PWL/PML.
+    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
+    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pdh_failed_short", "SHORT", e, s, t1, t2,
+                           false, confluence_failed,
+                           volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+if pdl_break
+    e   = close
+    s   = broken_support + atr_buffer
+    // Hierarchy walks PWL → PML → round → ATR — all support levels treated
+    // equivalently, picks whichever is closest below entry within 3%.
+    t1  = t1_short_hier(e, pwl, pml, atr_d)
+    t2  = t2_extend_short(e, t1)
+    alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, t1, t2,
+                           false, confluence_brk_sup,
+                           volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+if pdl_reclaim
+    e   = close
+    // Stop at sweep low — same logic as before, level-agnostic.
+    s   = low - atr_buffer
+    // T1: nearest above (which could be the next level after the reclaimed
+    // one — e.g., reclaim PWL, T1 = PDL). T2: next further structural level.
+    t1_struct = nearest_above(e, pdh, pwh)
+    t1 = not na(t1_struct) ? t1_struct : t1_long_hier(e, pdh, pmh, atr_d)
+    t2 = not na(pwh) and pwh > t1 ? pwh : (not na(pmh) and pmh > t1 ? pmh : t2_extend_long(e, t1))
+    alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, t1, t2,
+                           false, confluence_support,
+                           volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
+
+// =====================================================================
+// VWAP reclaim → PDH (LONG) / VWAP reject → PDL (SHORT)
+// =====================================================================
+// Earlier-entry setup than PDH/PDL break — when price closes back above
+// VWAP after N consecutive bars below, PDH becomes a clean structural
+// target. R:R is materially better than waiting for PDH break (entry at
+// the level being defended, not at the breakout).
+//
+// Skip if already past the target (above PDH for longs, below PDL for
+// shorts) — no clean target overhead/below in those cases.
+//
+// Backend dedup (30 min, 0.5%, direction-aware) handles same-direction
+// re-fires from VWAP whipsaw. State machine here only checks the "wrong
+// side first" precondition.
+//
+// Helper: true if all of the last `n` bars closed strictly below VWAP.
+all_closes_below_vwap(int n) =>
+    result = true
+    for i = 1 to n
+        if na(vwap_v[i]) or close[i] >= vwap_v[i]
+            result := false
+    result
+
+all_closes_above_vwap(int n) =>
+    result = true
+    for i = 1 to n
+        if na(vwap_v[i]) or close[i] <= vwap_v[i]
+            result := false
+    result
+
+was_below_vwap = all_closes_below_vwap(vwap_setup_bars)
+was_above_vwap = all_closes_above_vwap(vwap_setup_bars)
+
+vwap_reclaim_long = not na(vwap_v) and not na(pdh) and was_below_vwap and close > vwap_v and close > open and close < pdh
+vwap_reject_short = not na(vwap_v) and not na(pdl) and was_above_vwap and close < vwap_v and close < open and close > pdl
+
+// Visual markers
+plotshape(show_signals and vwap_reclaim_long,
+          title = "VWAP reclaim LONG", location = location.belowbar,
+          color = color.new(#00BCD4, 0), style = shape.triangleup,
+          size = size.small)
+plotshape(show_signals and vwap_reject_short,
+          title = "VWAP reject SHORT", location = location.abovebar,
+          color = color.new(#E91E63, 0), style = shape.triangledown,
+          size = size.small)
+
+if show_signals and vwap_reclaim_long
+    label.new(bar_index, low, "VWAP→PDH",
+              style = label.style_label_up,
+              color = color.new(#00BCD4, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.belowbar)
+if show_signals and vwap_reject_short
+    label.new(bar_index, high, "VWAP→PDL",
+              style = label.style_label_down,
+              color = color.new(#E91E63, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.abovebar)
+
+// Alerts — entry at VWAP cross, stop just below/above the wick, T1 = PDH/PDL.
+// 2026-05-04 v2: VWAP alerts now fire as direction="NOTICE" (heads-up only,
+// not tradable). VWAP whips through chop too easily for entry signals, but
+// a 1h-confirmed reclaim/reject is real context worth knowing. Recommended
+// setup: keep fire_vwap_alerts=false on 15m chart, set true on a separate
+// 1h chart's instance of this indicator. NOTICE-direction alerts surface
+// in Telegram with "NOTICE" prefix so the brain doesn't anchor on them as
+// entries. Visual labels paint regardless of fire_vwap_alerts.
+if fire_vwap_alerts and vwap_reclaim_long
+    e = close
+    s = math.min(low, low[1]) - atr_buffer
+    t1 = pdh
+    t2 = pdh + (pdh - e) * 0.5
+    msg_vwap_long = build_payload_v2("vwap_reclaim_long", "NOTICE", e, s, t1, t2,
+                                     false, 1,
+                                     volume_ratio, cvd_slope_n, bearish_div)
+    alert(msg_vwap_long, alert.freq_once_per_bar_close)
+
+if fire_vwap_alerts and vwap_reject_short
+    e = close
+    s = math.max(high, high[1]) + atr_buffer
+    t1 = pdl
+    t2 = pdl - (e - pdl) * 0.5
+    msg_vwap_short = build_payload_v2("vwap_reject_short", "NOTICE", e, s, t1, t2,
+                                      false, 1,
+                                      volume_ratio, cvd_slope_n, bullish_div)
+    alert(msg_vwap_short, alert.freq_once_per_bar_close)
+
+// vwap_lose_short was added briefly 2026-05-05 and removed same day.
+// AAPL 1h chart showed 7 LOSE VWAP labels in a single session because
+// candle bodies routinely brush VWAP in chop. Single bar-close cross
+// without setup_bars confirmation is too noisy to be tradeable; the
+// existing vwap_reject_short already covers the actionable case (price
+// rejecting VWAP from below after `vwap_setup_bars` consecutive bars).
+// SPY short remains gated on staged_pdh_rejection / staged_pdl_break /
+// vwap_reject_short — no behaviour lost.
+
+// PWH/PWL/PMH/PML events have been UNIFIED into the daily PDH/PDL events
+// above (see `lowest_res_just_broken` / `highest_sup_just_reclaimed`
+// helpers). Per user direction 2026-05-06: "treat all levels as same —
+// if PWL holds it's support too." A reclaim of any of {PDL, PWL, PML}
+// fires the existing `staged_pdl_reclaim` alert with the highest reclaimed
+// level as stop reference. Same for the other 3 events. PWH/PWL/PMH/PML
+// remain visible on chart as datapoints but no longer emit separate alerts.

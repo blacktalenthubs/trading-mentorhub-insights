@@ -8991,11 +8991,18 @@ def evaluate_rules(
                 )
 
     # --- SPY Daily EMA Regime Gate ---
-    from alert_config import SPY_REGIME_ENABLED, REGIME_TRENDING_SUPPRESS_SHORTS, REGIME_CAUTIOUS_SCORE_PENALTY
+    from alert_config import (SPY_REGIME_ENABLED, REGIME_TRENDING_SUPPRESS_SHORTS,
+                              REGIME_CAUTIOUS_SCORE_PENALTY, SPY_SHORT_SYMBOLS)
     _spy_daily_regime = spy.get("spy_daily_regime") if spy else None
 
     if SPY_REGIME_ENABLED and _spy_daily_regime and not is_crypto:
-        if _spy_daily_regime == "TRENDING" and REGIME_TRENDING_SUPPRESS_SHORTS:
+        # SPY/QQQ shorts ALWAYS fire even in TRENDING regime — they're macro
+        # trend-change signals (rejection at PDH/key MA, PDL break on volume).
+        # Suppressing them in TRENDING is exactly when you'd want the warning.
+        # Other equities still get short-filtered in TRENDING (bull-market protection).
+        if (_spy_daily_regime == "TRENDING"
+            and REGIME_TRENDING_SUPPRESS_SHORTS
+            and symbol not in SPY_SHORT_SYMBOLS):
             pre_regime = signals[:]
             signals = [s for s in signals if s.direction != "SHORT"]
             for s in pre_regime:

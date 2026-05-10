@@ -1,0 +1,54 @@
+// @version=5
+//
+// Weekly + Monthly structural levels — VISUAL ONLY.
+//
+// Plots prior week high/low, prior month high/low, and (optionally) the
+// weekly EMA 8/21 trend filters. NO alerts fire from this indicator.
+//
+// Why visual-only? Per 2026-05-06 user direction, weekly/monthly level
+// breaks/reclaims are UNIFIED with daily levels in the alert layer — a
+// PWL reclaim fires the same `staged_pdl_reclaim` event from
+// `levels-day-vwap` as a PDL reclaim does. Splitting visuals here means
+// the user can toggle HTF lines off the chart without losing any alert
+// signal.
+//
+// Color hierarchy: HTF lines stay LIGHTER than daily PDH/PDL lines so the
+// "daily = bold, weekly = subtle, monthly = subtler" read survives even
+// when both indicators are on the chart.
+//
+indicator("levels-week-month", overlay = true)
+
+show_weekly_lines  = input.bool(true,  "Show PWH / PWL")
+show_weekly_emas   = input.bool(false, "Show Weekly EMA 8 / 21",
+                                 tooltip = "Off by default — toggle on for HTF trend filter")
+show_monthly_lines = input.bool(true,  "Show PMH / PML")
+
+// =====================================================================
+// Prior Week High / Low + Weekly EMAs
+// =====================================================================
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+wema8  = request.security(syminfo.tickerid, "W", ta.ema(close, 8)[1],
+                          lookahead = barmerge.lookahead_on)
+wema21 = request.security(syminfo.tickerid, "W", ta.ema(close, 21)[1],
+                          lookahead = barmerge.lookahead_on)
+
+plot(show_weekly_lines ? pwh : na, title = "PWH",
+     color = color.new(color.green, 50), style = plot.style_linebr, linewidth = 1)
+plot(show_weekly_lines ? pwl : na, title = "PWL",
+     color = color.new(color.red, 50),   style = plot.style_linebr, linewidth = 1)
+plot(show_weekly_emas  ? wema8  : na, title = "Weekly EMA8",
+     color = color.new(#FF9800, 60), linewidth = 1)
+plot(show_weekly_emas  ? wema21 : na, title = "Weekly EMA21",
+     color = color.new(#9E9E9E, 60), linewidth = 1)
+
+// =====================================================================
+// Prior Month High / Low
+// =====================================================================
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+
+plot(show_monthly_lines ? pmh : na, title = "PMH",
+     color = color.new(color.green, 70), style = plot.style_linebr, linewidth = 1)
+plot(show_monthly_lines ? pml : na, title = "PML",
+     color = color.new(color.red, 70),   style = plot.style_linebr, linewidth = 1)

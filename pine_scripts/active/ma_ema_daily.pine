@@ -1,0 +1,406 @@
+// @version=5
+//
+// Daily MA Bounce v3 — Phase 5f (2026-05-04)
+//
+// Pine fires on every qualifying bar close — backend handles dedup.
+// Previously v3 had a Pine-side state machine (armed flags + ATR-based
+// re-arm) to prevent spam during chop, but it had two problems: (1) it
+// got disarmed during TV alert warmup and silenced the rest of the day,
+// (2) it locked out genuine multi-cross events on chop days. Removed.
+//
+// Spam protection now lives in two layers:
+//   • Pine: alert.freq_once_per_bar_close prevents same-bar refires
+//   • Backend: identity dedup on (user, symbol, direction, alert_type)
+//     with 60-min window — same MA + same direction within 60 min collapses
+//     to one Telegram. Setups >1hr apart all fire.
+//
+// Detection covers BOTH bounce AND reclaim of every MA (and the symmetric
+// rejection + lose for shorts). v3 was previously missing the reclaim case
+// — gap-and-go through an MA on momentum, no wick into the level — which
+// silently muted breakouts like ETH 2026-05-03 ($2,330 → $2,360 cleanly
+// above EMA100 with no test). See strict_long/reclaim_long block below.
+//
+// Unified MA bounce/rejection Pine — works at ANY intraday or daily TF
+// via the TV alert "Interval" setting. Merges:
+//
+//   • v2 daily Pine — 8 daily MAs (EMA 8/21/50/100/200, SMA 50/100/200),
+//                     bounce/reject detection, PDH/PDL confluence, volume
+//                     + CVD order flow, conviction-aware payload.
+//
+//   • 15m reclaim Pine — wick-based stops, wider R multiples.
+//
+// One Pine, every TF. Configure via:
+//   • TV alert Interval setting (15m, 65m, 4h, 1D)
+//   • `mode` input — "intraday" (strict touch + wick stop, defaults 4R/6R)
+//                  — "swing"    (band touch + MA-buffer stop, recommend 2R/3R)
+//
+// Recommended pairings:
+//   • 15m / 65m alerts → mode = intraday  (tight risk, fast entry)
+//   • 4h / daily alerts → mode = swing    (wider risk, full-bar confirmation)
+//
+// Same payload schema as v2 daily — backend conviction degradation,
+// Telegram formatting, Trade Review etc. all work unchanged. Rule names
+// are `ma_bounce_long_v3` / `ma_rejection_short_v3` so v3 alerts can be
+// distinguished from v2 in the DB.
+//
+indicator("ma-ema-daily", overlay = true, max_labels_count = 500)
+
+// Inputs ---------------------------------------------------------------------
+fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to webhook")
+show_lines       = input.bool   (true,         "Show daily MA lines")
+show_markers     = input.bool   (true,         "Show BOUNCE/REJECT markers")
+mode             = input.string ("intraday",   "Setup mode", options = ["intraday", "swing"])
+tolerance_atr    = input.float  (0.3,          "MA tolerance band (× chart ATR14, swing mode)", minval = 0.05, maxval = 2.0, step = 0.05)
+r_t1             = input.float  (4.0,          "T1 R multiple (intraday=4, swing=2)", minval = 1.0, maxval = 10.0, step = 0.5)
+r_t2             = input.float  (6.0,          "T2 R multiple (intraday=6, swing=3)", minval = 1.0, maxval = 15.0, step = 0.5)
+vol_avg_lookback = input.int    (20,           "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback     = input.int    (10,           "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+conf_tol_atr     = input.float  (0.5,          "PDH/PDL confluence tolerance (× chart ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+label_size_in    = input.string ("tiny",       "Marker label size", options = ["tiny", "small", "normal", "large"])
+
+// Proximity NOTICE alerts — fires when bar holds NEAR an MA without touching.
+// Catches gap-up holds where price found buyers a few ticks above the level
+// (e.g., ORCL 2026-05-04: post-gap drift to within 0.3% of EMA100, bounced).
+// NOTICE-only — informational, not a tradeable defense like strict_long.
+fire_proximity_alerts = input.bool  (true, "Fire MA proximity NOTICE alerts (bar holds near MA without touching)", group = "Proximity NOTICE")
+proximity_pct         = input.float (0.3,  "Proximity threshold (% of MA price)", minval = 0.05, maxval = 2.0, step = 0.05, group = "Proximity NOTICE")
+
+label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
+
+is_intraday_mode = mode == "intraday"
+
+// Daily MAs (yesterday's settled value via [1] offset) -----------------------
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+// Daily ATR (for state-machine re-arm buffer + intraday wick stop buffer)
+atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+atr_d     = nz(atr_d_raw, close * 0.005)
+// Chart-TF ATR (for v2-style tolerance band + ma-based stop in swing mode)
+atr_chart = nz(ta.atr(14)[1], close * 0.005)
+
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+// Chart-TF VWAP — used as primary structural T1 for SHORTs (first support
+// below an MA rejection). Resets daily by default on TV.
+vwap_v = ta.vwap(hlc3)
+
+tol = atr_chart * tolerance_atr
+
+// Plot daily MAs -------------------------------------------------------------
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    0), linewidth = 3)
+plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
+plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
+plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
+plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3)
+plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles)
+
+// Detection helpers — strict (intraday) and band (swing) ---------------------
+//
+// Two distinct LONG setups, both bullish, both worth alerting:
+//   • strict_long  — DEFENSE: price comes down to MA from above, holds, closes
+//                    back above. The "MA defended" case.
+//   • reclaim_long — RECLAIM: price was below MA on prev close, this bar's
+//                    close crosses back above. The "broke through MA on
+//                    momentum" / "gap-up reclaim" case. Without this v3 misses
+//                    every gap-and-go through an MA — exactly the setup we
+//                    want most for SPY/QQQ/MSFT-style breakouts.
+//
+// Symmetric SHORT pair: strict_short (rejection from below — resistance test)
+// and lose_short (price was above MA, now closes below — losing structure).
+//
+strict_long(float ma) =>
+    not na(ma) and low <= ma and close > ma and close > open
+
+reclaim_long(float ma) =>
+    not na(ma) and not na(close[1]) and close[1] <= ma and close > ma
+
+strict_short(float ma) =>
+    not na(ma) and high >= ma and close < ma and close < open
+
+lose_short(float ma) =>
+    not na(ma) and not na(close[1]) and close[1] >= ma and close < ma
+
+band_long(float ma) =>
+    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+
+band_short(float ma) =>
+    not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
+
+// Proximity (NOTICE-only) — bar held NEAR the MA without touching it. Tight
+// threshold (% of MA price). Distinct from strict_long which requires
+// low <= ma. Fires when price respects the level from above (long) or below
+// (short) without an actual test — the "found buyers above the level" case.
+proximity_long(float ma, float pct) =>
+    not na(ma) and ma > 0 and low > ma and (low - ma) / ma * 100.0 <= pct and close > open
+
+proximity_short(float ma, float pct) =>
+    not na(ma) and ma > 0 and high < ma and (ma - high) / ma * 100.0 <= pct and close < open
+
+// Active condition per MA × direction ----------------------------------------
+// Intraday: defense (strict_long) OR reclaim (close crosses above MA).
+// Swing:    band touch — wider entry zone.
+// alert.freq_once_per_bar_close at the alert call site prevents same-bar
+// refire. Backend identity dedup (60-min window per alert_type+direction)
+// prevents same-MA same-direction repeats within an hour.
+fire_e8   = is_intraday_mode ? (strict_long(ema8)   or reclaim_long(ema8))   : band_long(ema8)
+fire_e21  = is_intraday_mode ? (strict_long(ema21)  or reclaim_long(ema21))  : band_long(ema21)
+fire_e50  = is_intraday_mode ? (strict_long(ema50)  or reclaim_long(ema50))  : band_long(ema50)
+fire_e100 = is_intraday_mode ? (strict_long(ema100) or reclaim_long(ema100)) : band_long(ema100)
+fire_e200 = is_intraday_mode ? (strict_long(ema200) or reclaim_long(ema200)) : band_long(ema200)
+fire_s50  = is_intraday_mode ? (strict_long(sma50)  or reclaim_long(sma50))  : band_long(sma50)
+fire_s100 = is_intraday_mode ? (strict_long(sma100) or reclaim_long(sma100)) : band_long(sma100)
+fire_s200 = is_intraday_mode ? (strict_long(sma200) or reclaim_long(sma200)) : band_long(sma200)
+
+s_fire_e8   = is_intraday_mode ? (strict_short(ema8)   or lose_short(ema8))   : band_short(ema8)
+s_fire_e21  = is_intraday_mode ? (strict_short(ema21)  or lose_short(ema21))  : band_short(ema21)
+s_fire_e50  = is_intraday_mode ? (strict_short(ema50)  or lose_short(ema50))  : band_short(ema50)
+s_fire_e100 = is_intraday_mode ? (strict_short(ema100) or lose_short(ema100)) : band_short(ema100)
+s_fire_e200 = is_intraday_mode ? (strict_short(ema200) or lose_short(ema200)) : band_short(ema200)
+s_fire_s50  = is_intraday_mode ? (strict_short(sma50)  or lose_short(sma50))  : band_short(sma50)
+s_fire_s100 = is_intraday_mode ? (strict_short(sma100) or lose_short(sma100)) : band_short(sma100)
+s_fire_s200 = is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : band_short(sma200)
+
+// Proximity NOTICE per MA × direction. Suppressed when a real defense fired
+// on the same MA same bar — strict_long/lose_short already say more than a
+// proximity hint, no point spamming both. Cross-MA bleed is fine: e.g., a
+// strict_long on EMA50 doesn't suppress a proximity_long on EMA100.
+prox_e8_l   = fire_proximity_alerts and proximity_long(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
+prox_e21_l  = fire_proximity_alerts and proximity_long(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
+prox_e50_l  = fire_proximity_alerts and proximity_long(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
+prox_e100_l = fire_proximity_alerts and proximity_long(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
+prox_e200_l = fire_proximity_alerts and proximity_long(ema200, proximity_pct) and not (fire_e200 or s_fire_e200)
+prox_s50_l  = fire_proximity_alerts and proximity_long(sma50,  proximity_pct) and not (fire_s50  or s_fire_s50)
+prox_s100_l = fire_proximity_alerts and proximity_long(sma100, proximity_pct) and not (fire_s100 or s_fire_s100)
+prox_s200_l = fire_proximity_alerts and proximity_long(sma200, proximity_pct) and not (fire_s200 or s_fire_s200)
+
+prox_e8_s   = fire_proximity_alerts and proximity_short(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
+prox_e21_s  = fire_proximity_alerts and proximity_short(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
+prox_e50_s  = fire_proximity_alerts and proximity_short(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
+prox_e100_s = fire_proximity_alerts and proximity_short(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
+prox_e200_s = fire_proximity_alerts and proximity_short(ema200, proximity_pct) and not (fire_e200 or s_fire_e200)
+prox_s50_s  = fire_proximity_alerts and proximity_short(sma50,  proximity_pct) and not (fire_s50  or s_fire_s50)
+prox_s100_s = fire_proximity_alerts and proximity_short(sma100, proximity_pct) and not (fire_s100 or s_fire_s100)
+prox_s200_s = fire_proximity_alerts and proximity_short(sma200, proximity_pct) and not (fire_s200 or s_fire_s200)
+
+
+// Aggregate fires + tags -----------------------------------------------------
+any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
+any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
+
+any_prox_long  = prox_e8_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
+any_prox_short = prox_e8_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
+
+long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
+short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+
+prox_long_tag  = (prox_e8_l   ? "8E "  : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
+prox_short_tag = (prox_e8_s   ? "8E "  : "") + (prox_e21_s  ? "21E " : "") + (prox_e50_s  ? "50E " : "") + (prox_e100_s ? "100E " : "") + (prox_e200_s ? "200E " : "") + (prox_s50_s  ? "50S " : "") + (prox_s100_s ? "100S " : "") + (prox_s200_s ? "200S " : "")
+
+// Markers --------------------------------------------------------------------
+plotshape(show_markers and any_long,
+          title = "Bounce LONG", location = location.belowbar,
+          color = color.new(color.green, 0), style = shape.triangleup,
+          size = size.tiny)
+plotshape(show_markers and any_short,
+          title = "Reject SHORT", location = location.abovebar,
+          color = color.new(color.red, 0), style = shape.triangledown,
+          size = size.tiny)
+
+// Proximity NOTICE markers — small dots, distinct from solid triangles so the
+// user can tell at-a-glance "near level" vs "actual defense".
+plotshape(show_markers and any_prox_long,
+          title = "Proximity LONG", location = location.belowbar,
+          color = color.new(color.green, 30), style = shape.circle,
+          size = size.tiny)
+plotshape(show_markers and any_prox_short,
+          title = "Proximity SHORT", location = location.abovebar,
+          color = color.new(color.red, 30), style = shape.circle,
+          size = size.tiny)
+
+if show_markers and any_long
+    label.new(bar_index, low, long_tag,
+              style = label.style_label_up,
+              color = color.new(color.green, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.belowbar)
+if show_markers and any_short
+    label.new(bar_index, high, short_tag,
+              style = label.style_label_down,
+              color = color.new(color.red, 0),
+              textcolor = color.white,
+              size = label_size,
+              yloc = yloc.abovebar)
+
+bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
+bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
+
+// MA value to anchor swing-mode stop -----------------------------------------
+float bounced_ma_long = na
+if fire_e8
+    bounced_ma_long := ema8
+else if fire_e21
+    bounced_ma_long := ema21
+else if fire_e50
+    bounced_ma_long := ema50
+else if fire_e100
+    bounced_ma_long := ema100
+else if fire_e200
+    bounced_ma_long := ema200
+else if fire_s50
+    bounced_ma_long := sma50
+else if fire_s100
+    bounced_ma_long := sma100
+else if fire_s200
+    bounced_ma_long := sma200
+
+float rejected_ma_short = na
+if s_fire_e8
+    rejected_ma_short := ema8
+else if s_fire_e21
+    rejected_ma_short := ema21
+else if s_fire_e50
+    rejected_ma_short := ema50
+else if s_fire_e100
+    rejected_ma_short := ema100
+else if s_fire_e200
+    rejected_ma_short := ema200
+else if s_fire_s50
+    rejected_ma_short := sma50
+else if s_fire_s100
+    rejected_ma_short := sma100
+else if s_fire_s200
+    rejected_ma_short := sma200
+
+// Volume + CVD (chart-TF bar values) -----------------------------------------
+vol_avg = ta.sma(volume, vol_avg_lookback)
+volume_ratio = vol_avg > 0 ? volume / vol_avg : na
+
+bar_range = high - low
+buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
+sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
+delta_v  = buy_vol - sell_vol
+cvd      = ta.cum(delta_v)
+
+cvd_past   = cvd[cvd_lookback]
+price_past = close[cvd_lookback]
+cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
+price_slope_n = not na(price_past) ? close - price_past : na
+
+bearish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
+bullish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
+
+// PDH/PDL confluence ---------------------------------------------------------
+conf_buffer = atr_chart * conf_tol_atr
+near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
+near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
+
+plotshape(any_long  and near_pdl, title = "LONG @ PDL",  location = location.belowbar,
+          color = color.new(color.yellow, 0), style = shape.diamond, size = size.small)
+plotshape(any_short and near_pdh, title = "SHORT @ PDH", location = location.abovebar,
+          color = color.new(color.purple, 0), style = shape.diamond, size = size.small)
+
+// Payload builder — same schema as v2, 9-param cap ---------------------------
+build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v, at_pdh_v) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","ma_tag":"' + str.replace_all(ma_tag, " ", "")
+      + '","pdh":"' + str.tostring(pdh, format.mintick)
+      + '","pdl":"' + str.tostring(pdl, format.mintick)
+      + '","at_pdl":"' + (at_pdl_v ? "true" : "false")
+      + '","at_pdh":"' + (at_pdh_v ? "true" : "false")
+      + '","volume_ratio":"' + str.tostring(volume_ratio, "#.##")
+      + '","cvd_delta":"' + str.tostring(cvd_slope_n, "#.##")
+      + '","cvd_diverging":"' + ((direction == "BUY" ? bearish_div : bullish_div) ? "true" : "false")
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+// Fire alerts ----------------------------------------------------------------
+// Stop placement varies by mode:
+//   intraday → wick low - 0.3 × chart-TF ATR (tight, scales with the bar
+//              you're actually trading — daily ATR was too wide on volatile
+//              symbols like ETH where 0.2×daily ≈ $16 buffer above wick)
+//   swing    → MA       - 0.3 × chart-TF ATR (lets the level breathe)
+//
+// T1/T2 use STRUCTURAL levels when available, R-multiples as fallback:
+//   LONG  → T1 = PDH (if PDH > entry), T2 = PDH extension
+//   SHORT → T1 = VWAP (if VWAP < entry), T2 = PDL (if PDL < VWAP)
+//   Fallback to R-multiples (r_t1 / r_t2 inputs) when structural target
+//   isn't on the right side of entry (e.g., entry already extended past PDH).
+//
+// Multi-line alert() args are flaky in Pine v5 — build payload into a var
+// first, then call alert() on a single line.
+if fire_alerts and any_long
+    e = close
+    s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
+    rsk = e - s
+    pdh_above_entry = not na(pdh) and pdh > e
+    float t1_long = na
+    float t2_long = na
+    if pdh_above_entry
+        t1_long := pdh
+        t2_long := pdh + (pdh - e) * 0.5
+    else
+        t1_long := e + rsk * r_t1
+        t2_long := e + rsk * r_t2
+    msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
+    alert(msg_long, alert.freq_once_per_bar_close)
+
+if fire_alerts and any_short
+    e = close
+    s = is_intraday_mode ? (high + atr_chart * 0.3) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
+    rsk = s - e
+    vwap_below_entry = not na(vwap_v) and vwap_v < e
+    pdl_below_entry  = not na(pdl) and pdl < e
+    float t1_short = na
+    float t2_short = na
+    if vwap_below_entry and pdl_below_entry and pdl < vwap_v
+        t1_short := vwap_v
+        t2_short := pdl
+    else if vwap_below_entry
+        t1_short := vwap_v
+        t2_short := e - rsk * r_t2
+    else if pdl_below_entry
+        t1_short := pdl
+        t2_short := e - rsk * r_t2
+    else
+        t1_short := e - rsk * r_t1
+        t2_short := e - rsk * r_t2
+    msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, t1_short, t2_short, false, near_pdh)
+    alert(msg_short, alert.freq_once_per_bar_close)
+
+// Proximity NOTICE alerts ----------------------------------------------------
+// Direction = NOTICE, entry/stop/targets set to close as placeholder — the
+// notifier's NOTICE formatter ignores these. Backend dedup buckets these as
+// alert_type=tv_ma_proximity_{long|short}_v3_{ma_suffix}, fully separate from
+// the BUY/SHORT defense buckets — so a real EMA100 defense and an EMA50
+// proximity NOTICE on the same bar produce two distinct Telegram messages.
+if fire_alerts and any_prox_long
+    e = close
+    msg_prox_long = build_v3_payload("ma_proximity_long_v3", "NOTICE", prox_long_tag, e, e, e, e, near_pdl, false)
+    alert(msg_prox_long, alert.freq_once_per_bar_close)
+
+if fire_alerts and any_prox_short
+    e = close
+    msg_prox_short = build_v3_payload("ma_proximity_short_v3", "NOTICE", prox_short_tag, e, e, e, e, false, near_pdh)
+    alert(msg_prox_short, alert.freq_once_per_bar_close)
