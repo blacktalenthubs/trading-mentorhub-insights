@@ -133,12 +133,14 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
     Returns PNG bytes or None on any failure (caller falls back to text).
 
     Layout (PRO tier — 5 parameter budget):
-      • EMA 8 (study)            — faster trend reference
-      • EMA 21 (study)           — slower trend reference
-      • Long/Short Position      — TradingView trade box: green target zone,
-                                   gray entry, red stop zone, all labeled
-                                   with price. Risk/reward visually proportional.
-      • Falls back to 3 colored hlines when entry/stop/T1 aren't all present.
+      • EMA 21 (study)           — trend reference
+      • Long/Short Position      — TradingView trade box on the right edge:
+                                   green target zone, gray entry, red stop zone,
+                                   risk/reward visually proportional.
+      • Entry hline (blue)       — extends back through price history so you
+      • Stop hline (red)           can see prior reactions / confluence at each
+      • Target hline (green)       level. Labels show on the price axis.
+      • Falls back to lines only when entry/stop/T1 aren't all present.
     """
     if not CHART_IMG_API_KEY:
         return None
@@ -153,24 +155,22 @@ def fetch_chart_image(alert: dict) -> Optional[bytes]:
         "width": 1920,
         "height": 1080,
         "studies": [
-            {"name": "Moving Average Exponential", "input": {"length": 8}},
             {"name": "Moving Average Exponential", "input": {"length": 21}},
         ],
     }
 
+    drawings = []
     box = _trade_box(alert)
     if box:
-        payload["drawings"] = [box]
-    else:
-        drawings = []
-        if alert.get("entry") is not None:
-            drawings.append(_hline(alert["entry"], "rgb(91,141,239)"))    # blue
-        if alert.get("stop") is not None:
-            drawings.append(_hline(alert["stop"], "rgb(240,106,106)"))    # red
-        if alert.get("target_1") is not None:
-            drawings.append(_hline(alert["target_1"], "rgb(61,220,132)")) # green
-        if drawings:
-            payload["drawings"] = drawings
+        drawings.append(box)
+    if alert.get("entry") is not None:
+        drawings.append(_hline(alert["entry"], "rgb(91,141,239)"))    # blue
+    if alert.get("stop") is not None:
+        drawings.append(_hline(alert["stop"], "rgb(240,106,106)"))    # red
+    if alert.get("target_1") is not None:
+        drawings.append(_hline(alert["target_1"], "rgb(61,220,132)")) # green
+    if drawings:
+        payload["drawings"] = drawings
 
     try:
         r = requests.post(
