@@ -175,6 +175,47 @@ def _verdict_emoji(v: str) -> str:
     return {"win": "🟢", "flat": "🟡", "miss": "🔴", "no_data": "⚪"}.get(v, "⚪")
 
 
+def format_picks_perf_block(picks: list[dict]) -> str:
+    """Numbered EOD picks-performance table inside <pre>."""
+    if not picks:
+        return ""
+    rows = []
+    for i, p in enumerate(picks, 1):
+        em = _verdict_emoji(p["verdict"])
+        sym = f"{p['symbol']:<6}"
+        pct = p.get("full_day_pct")
+        pct_str = f"{pct:+5.1f}%" if pct is not None else "  n/a "
+        eod_price = p.get("eod_price")
+        if eod_price is None:
+            price_str = "       "
+        elif eod_price >= 1000:
+            price_str = f"${eod_price:>7,.0f}"
+        else:
+            price_str = f"${eod_price:>7.2f}"
+        sector = f"{p['sector']:<10}"
+        rows.append(f"{i}. {em} {sym} {price_str}  {sector} {pct_str}")
+    return f"<pre>{chr(10).join(rows)}</pre>"
+
+
+def format_tomorrow_block(tomorrow: list[dict]) -> str:
+    """Tomorrow-watch alerts inside <pre>."""
+    if not tomorrow:
+        return ""
+    rows = []
+    for t in tomorrow[:5]:
+        sym = f"{t['symbol']:<6}"
+        direction = f"{t.get('direction', '?'):<5}"
+        atype = t["alert_type"]
+        notes = []
+        if t.get("volume_ratio") and t["volume_ratio"] >= 2.0:
+            notes.append(f"{t['volume_ratio']:.1f}×")
+        if t.get("cvd_diverging"):
+            notes.append("cvd!")
+        note_str = (" · " + " · ".join(notes)) if notes else ""
+        rows.append(f"• {sym} {direction} {atype}{note_str}")
+    return f"<pre>{chr(10).join(rows)}</pre>"
+
+
 def format_eod_recap(
     quotes: dict[str, premarket.PriceMove],
     morning: Optional[dict],
@@ -187,63 +228,52 @@ def format_eod_recap(
 ) -> str:
     et_str = now.strftime("%a %-I:%M %p ET") if hasattr(now, "strftime") else str(now)
     parts = [f"📊 <b>EOD Recap</b> — {et_str}", ""]
-    parts.append(premarket.format_tape_line(quotes))
+
+    parts.append("<b>🌐 Tape</b>")
+    parts.append(premarket.format_tape_block(quotes))
     parts.append("")
 
     if morning is None:
-        parts.append("<i>No morning brief was generated today; skipping picks recap.</i>")
-    else:
-        parts.append("<b>Morning Brief Verdict:</b>")
-        # Focus sectors
-        if graded_focus:
-            wins = [f"{s['name']} {s['eod_avg_pct']:+.1f}%"
-                    for s in graded_focus if s.get("eod_avg_pct") is not None]
-            if wins:
-                parts.append("✓ Focus delivered: " + ", ".join(wins))
-            else:
-                parts.append("✓ Focus sectors: data missing")
-        # Avoid sectors — did the call hold?
-        if graded_avoid:
-            for s in graded_avoid:
-                pct = s.get("eod_avg_pct")
-                if pct is None:
-                    continue
-                if pct < 0:
-                    parts.append(f"✓ Avoid held: {s['name']} {pct:+.1f}%")
-                else:
-                    parts.append(f"✗ Avoid call missed: {s['name']} {pct:+.1f}% (we said red)")
-
-        # Picks
-        if graded_picks:
-            parts.append("")
-            parts.append("<b>Top picks performance:</b>")
-            for p in graded_picks:
-                em = _verdict_emoji(p["verdict"])
-                pct = p.get("full_day_pct")
-                pct_str = f"{pct:+.1f}%" if pct is not None else "n/a"
-                eod_price = p.get("eod_price")
-                price_str = f"${eod_price:.2f}" if eod_price else ""
-                parts.append(f"  {em} {p['symbol']} {pct_str}  {price_str}")
-
-    # Tomorrow watch
-    if tomorrow:
+        parts.append("<i>No morning brief was generated today; skipping verdict.</i>")
         parts.append("")
-        parts.append("<b>Tomorrow watch:</b>")
-        for t in tomorrow[:5]:
-            sym = t["symbol"]
-            atype = t["alert_type"]
-            direction = t.get("direction", "")
-            note_parts = []
-            if t.get("volume_ratio") and t["volume_ratio"] >= 2.0:
-                note_parts.append(f"vr={t['volume_ratio']:.1f}×")
-            if t.get("cvd_diverging"):
-                note_parts.append("cvd!")
-            note = " · ".join(note_parts)
-            parts.append(f"  • {sym} {direction} — {atype}{(' (' + note + ')') if note else ''}")
+    else:
+        parts.append("<b>🎯 Morning Verdict</b>")
+        # Focus sectors
+        focus_lines = []
+        for s in graded_focus:
+            pct = s.get("eod_avg_pct")
+            if pct is None:
+                continue
+            if pct >= 0.5:
+                focus_lines.append(f"{s['name']} {pct:+.1f}%")
+            else:
+                focus_lines.append(f"{s['name']} {pct:+.1f}% (under-delivered)")
+        if focus_lines:
+            parts.append(f"✓ Focus called: {', '.join(focus_lines)}")
+        # Avoid sectors
+        for s in graded_avoid:
+            pct = s.get("eod_avg_pct")
+            if pct is None:
+                continue
+            if pct < 0:
+                parts.append(f"✓ Avoid held: {s['name']} {pct:+.1f}%")
+            else:
+                parts.append(f"✗ Avoid missed: {s['name']} {pct:+.1f}% (we said red)")
+        parts.append("")
+
+        if graded_picks:
+            parts.append("<b>📈 Top Picks Performance</b>")
+            parts.append(format_picks_perf_block(graded_picks))
+            parts.append("")
+
+    if tomorrow:
+        parts.append("<b>🔭 Tomorrow Watch</b>")
+        parts.append(format_tomorrow_block(tomorrow))
+        parts.append("")
 
     if polish:
-        parts.append("")
-        parts.append("🤖 " + polish)
+        parts.append("<b>🤖 Recap</b>")
+        parts.append(polish)
 
     return "\n".join(parts)[:4000]
 
@@ -252,16 +282,19 @@ def format_eod_recap(
 # LLM POLISH (heavy)
 # ──────────────────────────────────────────────────────────────────
 
-POLISH_PROMPT = """You are a trading-desk analyst writing a 2-3 sentence end-of-day recap.
-You'll be given:
-- Today's index moves
-- Morning brief verdict (focus / avoid sectors and how they performed)
-- Top picks performance (won, flat, missed)
-- Tomorrow's potential setups from late-session alerts
+POLISH_PROMPT = """You are a trading-desk analyst writing one short paragraph for an EOD recap.
 
-Write a tight 2-3 sentence reflection: what worked, what didn't, and one thing
-to carry into tomorrow. Don't restate the numbers — they're above. Add insight.
-"""
+Given today's tape, morning brief verdict, top picks performance, and tomorrow's setups,
+write 2 sentences MAX.
+Rules:
+- NO header (no "**EOD Recap**" — already there)
+- NO bullet points
+- NO restating numbers — they're already in the brief
+- DO note what worked / what didn't and WHY (rotation, breadth, catalyst, etc.)
+- DO mention one thing to carry into tomorrow
+- Be specific. "Memory delivered, IREN missed despite sector strength" beats generic.
+
+Output: the paragraph only, no preamble."""
 
 
 def polish_with_llm_eod(
