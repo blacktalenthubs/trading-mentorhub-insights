@@ -57,26 +57,41 @@ if not na(ph_4h_raw)
 if not na(pl_4h_raw)
     pl_4h := pl_4h_raw
 
-// ── Alignment detection ─────────────────────────────────────────────
-// A 1h pivot lines up with a 4h pivot when they're within `align_tolerance`
-// of each other. Aligned price = average of the two (treats them as the
-// same level for break/reclaim/rejection logic).
+// ── Alignment detection — LATCHED LEVELS ────────────────────────────
+// A fresh alignment fires when a new pivot just confirmed on one TF
+// AND the latest confirmed pivot on the other TF is within tolerance.
+// Levels then LATCH: aligned_res / aligned_sup hold their price until
+// price closes through them (break event invalidates the level). This
+// gives flat horizontal lines like PDH/PDL — no more zigzag envelope.
 within_pct(float a, float b, float pct) =>
     not na(a) and not na(b) and b > 0 and math.abs(a - b) / b <= pct
 
-aligned_res = within_pct(ph_1h, ph_4h, align_tolerance) ? (ph_1h + ph_4h) / 2 : na
-aligned_sup = within_pct(pl_1h, pl_4h, align_tolerance) ? (pl_1h + pl_4h) / 2 : na
+fresh_res = (not na(ph_1h_raw) and within_pct(ph_1h_raw, ph_4h, align_tolerance)) or (not na(ph_4h_raw) and within_pct(ph_4h_raw, ph_1h, align_tolerance))
+fresh_sup = (not na(pl_1h_raw) and within_pct(pl_1h_raw, pl_4h, align_tolerance)) or (not na(pl_4h_raw) and within_pct(pl_4h_raw, pl_1h, align_tolerance))
 
-// Plot aligned levels (lighter tone — these are pivots, not hard PDH/PDL).
+var float aligned_res = na
+var float aligned_sup = na
+if fresh_res
+    aligned_res := (ph_1h + ph_4h) / 2
+if fresh_sup
+    aligned_sup := (pl_1h + pl_4h) / 2
+
+// Plot aligned levels (flat horizontal — like PDH/PDL).
 plot(show_levels ? aligned_res : na, title = "Aligned R (1h+4h)", color = color.new(#FF5722, 30), style = plot.style_linebr, linewidth = 2)
 plot(show_levels ? aligned_sup : na, title = "Aligned S (1h+4h)", color = color.new(#4CAF50, 30), style = plot.style_linebr, linewidth = 2)
 
 // ── Event detection (close-confirmed) ───────────────────────────────
-// Same semantic shape as levels-day-vwap break/reclaim/reject helpers.
 pivot_break_long   = not na(aligned_res) and not na(close[1]) and close[1] <= aligned_res and close > aligned_res
 pivot_reject_short = not na(aligned_res) and high >= aligned_res and close < aligned_res and not na(high[1]) and high[1] < aligned_res
 pivot_reclaim_long = not na(aligned_sup) and not na(close[1]) and close[1] <= aligned_sup and close > aligned_sup
 pivot_break_short  = not na(aligned_sup) and not na(close[1]) and close[1] >= aligned_sup and close < aligned_sup
+
+// Invalidate levels AFTER event detection — break events use the level
+// before it clears. Next bar there's no level until a new alignment forms.
+if pivot_break_long
+    aligned_res := na
+if pivot_break_short
+    aligned_sup := na
 
 // ── Visual markers ──────────────────────────────────────────────────
 plotshape(show_signals and pivot_break_long,   title = "BREAK+ LONG (1h+4h)",   location = location.belowbar, color = color.new(color.green,   0), style = shape.triangleup,   size = size.normal, text = "P-BREAK+",  textcolor = color.white)
