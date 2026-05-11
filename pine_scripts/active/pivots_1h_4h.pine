@@ -79,29 +79,36 @@ var array<line>  sup_lines  = array.new<line>()
 var array<float> sup_prices = array.new<float>()
 
 // Dedup helper — true if any price in the array is within tolerance of `p`.
-// Stops the "10 lines stacked at the same level" clutter when consecutive
-// 1h pivots align with the same 4h pivot.
+// Uses an integer counter (boolean mutation inside nested if-for is unreliable
+// in Pine v5). Returns true even on a single near-match.
 already_near(array<float> arr, float p, float tol) =>
-    bool found = false
+    int hits = 0
     if array.size(arr) > 0
         for i = 0 to array.size(arr) - 1
             existing = array.get(arr, i)
             if not na(existing) and within_pct(p, existing, tol)
-                found := true
-    found
+                hits := hits + 1
+    hits > 0
+
+// Dedup uses 2× the alignment tolerance so the cascading "leapfrog"
+// pattern (each new pivot just barely outside 1% from the previous one,
+// each one not deduped, end result: many stacked lines) doesn't survive.
+// At default align_tolerance=1%, dedup runs at 2% — meaningful S/R zones
+// are wider apart than 2% anyway.
+dedup_tol = align_tolerance * 2.0
 
 // New resistance line — only add if it's above current close AND not a
-// duplicate of an existing aligned level within tolerance.
+// duplicate of an existing aligned level within dedup_tol.
 if fresh_res_align
     new_res_p = (ph_1h + ph_4h) / 2
-    if show_levels and new_res_p > close and not already_near(res_prices, new_res_p, align_tolerance)
+    if show_levels and new_res_p > close and not already_near(res_prices, new_res_p, dedup_tol)
         new_res_line = line.new(x1 = bar_index, y1 = new_res_p, x2 = bar_index + 1, y2 = new_res_p, extend = extend.right, color = color.new(#FF5722, 30), width = 2, style = line.style_dashed)
         array.push(res_lines,  new_res_line)
         array.push(res_prices, new_res_p)
 
 if fresh_sup_align
     new_sup_p = (pl_1h + pl_4h) / 2
-    if show_levels and new_sup_p < close and not already_near(sup_prices, new_sup_p, align_tolerance)
+    if show_levels and new_sup_p < close and not already_near(sup_prices, new_sup_p, dedup_tol)
         new_sup_line = line.new(x1 = bar_index, y1 = new_sup_p, x2 = bar_index + 1, y2 = new_sup_p, extend = extend.right, color = color.new(#4CAF50, 30), width = 2, style = line.style_dashed)
         array.push(sup_lines,  new_sup_line)
         array.push(sup_prices, new_sup_p)
