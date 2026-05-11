@@ -78,37 +78,38 @@ var array<float> res_prices = array.new<float>()
 var array<line>  sup_lines  = array.new<line>()
 var array<float> sup_prices = array.new<float>()
 
-// Dedup helper — true if any price in the array is within tolerance of `p`.
-// Uses an integer counter (boolean mutation inside nested if-for is unreliable
-// in Pine v5). Returns true even on a single near-match.
-already_near(array<float> arr, float p, float tol) =>
-    int hits = 0
-    if array.size(arr) > 0
-        for i = 0 to array.size(arr) - 1
-            existing = array.get(arr, i)
-            if not na(existing) and within_pct(p, existing, tol)
-                hits := hits + 1
-    hits > 0
+// Dedup is inlined below — Pine v5 function-scoped bool/int mutation
+// inside nested if-for blocks doesn't propagate reliably enough to trust
+// for a critical visual filter.
 
-// Dedup uses 2× the alignment tolerance so the cascading "leapfrog"
-// pattern (each new pivot just barely outside 1% from the previous one,
-// each one not deduped, end result: many stacked lines) doesn't survive.
-// At default align_tolerance=1%, dedup runs at 2% — meaningful S/R zones
-// are wider apart than 2% anyway.
+// Dedup runs at 2x alignment tolerance so the cascading "leapfrog" pattern
+// (each new pivot just barely outside the tolerance, none deduped) dies.
+// At default align_tolerance=1%, dedup tolerance = 2%.
 dedup_tol = align_tolerance * 2.0
 
-// New resistance line — only add if it's above current close AND not a
-// duplicate of an existing aligned level within dedup_tol.
+// New resistance line — INLINE dedup against res_prices.
 if fresh_res_align
     new_res_p = (ph_1h + ph_4h) / 2
-    if show_levels and new_res_p > close and not already_near(res_prices, new_res_p, dedup_tol)
+    int res_dup_hits = 0
+    if array.size(res_prices) > 0
+        for i = 0 to array.size(res_prices) - 1
+            ep = array.get(res_prices, i)
+            if not na(ep) and ep > 0 and math.abs(new_res_p - ep) / ep <= dedup_tol
+                res_dup_hits := res_dup_hits + 1
+    if show_levels and new_res_p > close and res_dup_hits == 0
         new_res_line = line.new(x1 = bar_index, y1 = new_res_p, x2 = bar_index + 1, y2 = new_res_p, extend = extend.right, color = color.new(#FF5722, 30), width = 2, style = line.style_dashed)
         array.push(res_lines,  new_res_line)
         array.push(res_prices, new_res_p)
 
 if fresh_sup_align
     new_sup_p = (pl_1h + pl_4h) / 2
-    if show_levels and new_sup_p < close and not already_near(sup_prices, new_sup_p, dedup_tol)
+    int sup_dup_hits = 0
+    if array.size(sup_prices) > 0
+        for i = 0 to array.size(sup_prices) - 1
+            ep = array.get(sup_prices, i)
+            if not na(ep) and ep > 0 and math.abs(new_sup_p - ep) / ep <= dedup_tol
+                sup_dup_hits := sup_dup_hits + 1
+    if show_levels and new_sup_p < close and sup_dup_hits == 0
         new_sup_line = line.new(x1 = bar_index, y1 = new_sup_p, x2 = bar_index + 1, y2 = new_sup_p, extend = extend.right, color = color.new(#4CAF50, 30), width = 2, style = line.style_dashed)
         array.push(sup_lines,  new_sup_line)
         array.push(sup_prices, new_sup_p)
