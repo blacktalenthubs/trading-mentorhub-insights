@@ -17,6 +17,15 @@ from app.tier import get_limits, has_access
 
 settings = get_settings()
 
+# Admin emails — these users bypass tier caps + unlock admin-only endpoints.
+# Single source of truth; admin.py and the watchlist router both read this.
+ADMIN_EMAILS = {"vbolofinde@gmail.com", "segunbolofinde@gmail.com"}
+
+
+def is_admin_user(user: User) -> bool:
+    """True if the user is an admin (by email match). Admins bypass all caps."""
+    return bool(user and user.email and user.email in ADMIN_EMAILS)
+
 
 async def get_current_user(
     request: Request,

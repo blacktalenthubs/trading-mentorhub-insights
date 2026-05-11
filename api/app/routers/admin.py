@@ -17,9 +17,9 @@ router = APIRouter()
 
 
 async def _require_admin(user: User = Depends(get_current_user)):
-    """Only allow admin users (user_id <= 3 or specific emails)."""
-    admin_emails = {"vbolofinde@gmail.com", "segunbolofinde@gmail.com"}
-    if user.email not in admin_emails:
+    """Only allow admin users — emails listed in dependencies.ADMIN_EMAILS."""
+    from app.dependencies import is_admin_user
+    if not is_admin_user(user):
         raise HTTPException(403, "Admin access required")
     return user
 

@@ -15,7 +15,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_user_tier
+from app.dependencies import get_current_user, get_user_tier, is_admin_user
 from app.tier import get_limits
 from app.models.user import User
 from app.models.watchlist import WatchlistGroup, WatchlistItem
@@ -117,7 +117,7 @@ async def add_symbol(
     count_result = await db.execute(
         select(WatchlistItem).where(WatchlistItem.user_id == user.id)
     )
-    if len(count_result.scalars().all()) >= max_symbols:
+    if not is_admin_user(user) and len(count_result.scalars().all()) >= max_symbols:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -205,7 +205,7 @@ async def bulk_set(
 
     limits = get_limits(tier)
     max_symbols = limits["watchlist_max"]
-    if len(symbols) > max_symbols:
+    if not is_admin_user(user) and len(symbols) > max_symbols:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -365,7 +365,7 @@ async def seed_default_groups(
     """
     tier = get_user_tier(user)
     limits = get_limits(tier)
-    max_symbols = limits["watchlist_max"]
+    max_symbols = float("inf") if is_admin_user(user) else limits["watchlist_max"]
 
     # Existing items by symbol — for skip + later assignment if ungrouped.
     existing_items_result = await db.execute(
