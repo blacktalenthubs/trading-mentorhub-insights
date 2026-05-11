@@ -70,6 +70,12 @@ EOD_MINUTE_ET       = int(os.environ.get("EOD_MINUTE_ET", "5"))
 # Default 'all' = post every verdict (validation phase: see all data,
 # judge accuracy). Switch to 'high_only' once the agent is trusted.
 POST_MODE       = os.environ.get("TRIAGE_POST_MODE", "all").lower()
+
+# Mute NOTICE-direction alerts (ma_proximity_*, vwap_reclaim/reject_*).
+# Default true — NOTICE is heads-up context, not actionable; muting saves
+# triage tokens + Telegram noise. Flip to false to bring them back.
+MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "true").lower() == "true"
+
 HEARTBEAT_SECS  = 30
 RECONNECT_SECS  = 5
 
@@ -230,6 +236,15 @@ def process_alert(alert_id, budget, dry_run=False):
 
     if alert["user_id"] != USER_ID:
         # Not our user — still bump the cursor so we don't re-evaluate it.
+        save_cursor(alert_id)
+        return
+
+    if MUTE_NOTICE_ALERTS and (alert.get("direction") or "").upper() == "NOTICE":
+        logger.info("NOTICE #%s %s %s — muted (MUTE_NOTICE_ALERTS=true)",
+                    alert_id, alert["symbol"], alert["alert_type"])
+        write_audit({"alert_id": alert_id, "symbol": alert["symbol"],
+                     "alert_type": alert["alert_type"], "verdict": "NOTICE_MUTED",
+                     "reason": "MUTE_NOTICE_ALERTS env flag"})
         save_cursor(alert_id)
         return
 
