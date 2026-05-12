@@ -466,10 +466,13 @@ def format_unified(alert, result):
     parts = []
 
     # ── Header ───────────────────────────────────────────────────────
-    header = f"{dir_emoji} <b>{dir_label}</b> · <b>{sym}</b> · {_fmt_price(price)}"
+    # Reason goes FIRST in CAPS so it commands the eye — that's the
+    # "what kind of setup is this" answer the trader scans for. Symbol /
+    # direction / price come on the second line as supporting metadata.
+    reason_line = f"🎯 <b>{reason.upper()}</b>" + (f"  ·  {interval}" if interval else "")
+    parts.append(reason_line)
+    header = f"{dir_emoji} <b>{dir_label} · {sym} · {_fmt_price(price)}</b>"
     parts.append(header)
-    rule_line = f"<b>{reason}</b>" + (f" · {interval}" if interval else "")
-    parts.append(rule_line)
     parts.append("")
 
     # ── Levels grid ──────────────────────────────────────────────────
