@@ -256,6 +256,26 @@ highest_res_just_failed() =>
 failed_resistance = highest_res_just_failed()
 confluence_failed = confluence_count_at(failed_resistance, pdh, pwh, pmh)
 
+// =====================================================================
+// Triggered-timeframe tag — D / W / M / "" (na)
+// =====================================================================
+// Per user direction 2026-05-12: weekly/monthly level events should fire
+// as NOTICE (heads-up), not BUY/SHORT. Daily level events stay BUY/SHORT.
+// Identifies which TF actually triggered the break/reclaim/rejection by
+// comparing the anchor price (broken_resistance / reclaimed_support /
+// rejected_resistance / failed_resistance / broken_support) against the
+// PDH/PWH/PMH or PDL/PWL/PML values. Daily wins ties (first match).
+level_tf(float lvl, float d, float w, float m) =>
+    na(lvl) ? "" :
+      not na(d) and lvl == d ? "D" :
+      not na(w) and lvl == w ? "W" :
+      not na(m) and lvl == m ? "M" : ""
+
+// Direction picker: daily levels keep their actionable direction;
+// weekly/monthly levels degrade to NOTICE so triage muting kicks in.
+dir_for_tf(string tf, string actionable_dir) =>
+    tf == "D" ? actionable_dir : "NOTICE"
+
 var int pdl_break_bar = na
 var int pdh_break_bar = na
 if pdl_break
@@ -447,68 +467,60 @@ t2_extend_short(float e, float t1) => math.min(t1 - (e - t1) * 0.5, t1 * 0.995)
 // reclaim (pdl_reclaim), candidates are PDH then PWH (further out).
 if pdh_break
     e   = close
-    // Stop = just below the level that was actually broken (could be PDH,
-    // PWH or PMH per unified detection). Gap-context override remains.
     s_default = broken_resistance - atr_buffer
     s   = gap_context and not na(bar1_low) ? bar1_low - atr_buffer * 0.5 : s_default
-    // Target hierarchy still walks PWH → PMH → round → ATR for next overhead.
     t1  = t1_long_hier(e, pwh, pmh, atr_d)
     t2  = t2_extend_long(e, t1)
-    alert(build_payload_v2("staged_pdh_break", "BUY", e, s, t1, t2,
+    tf  = level_tf(broken_resistance, pdh, pwh, pmh)
+    dir = dir_for_tf(tf, "BUY")
+    alert(build_payload_v2("staged_pdh_break", dir, e, s, t1, t2,
                            gap_context, confluence_resistance,
                            volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
 if pdh_rejection
     e   = close
-    // Stop above the wick that tagged the rejected level.
     s   = high + atr_buffer
-    // T1: VWAP if below entry, else PDL. T2: extension below T1 walking
-    // PWL/PML as deeper anchors.
     t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
     t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
     t2  = t2_extend_short(e, t1)
-    alert(build_payload_v2("staged_pdh_rejection", "SHORT", e, s, t1, t2,
+    tf  = level_tf(rejected_resistance, pdh, pwh, pmh)
+    dir = dir_for_tf(tf, "SHORT")
+    alert(build_payload_v2("staged_pdh_rejection", dir, e, s, t1, t2,
                            false, confluence_rej,
                            volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
-// Failed-breakout SHORT — separate from rejection: price actually closed
-// above the level (breakout fired) and then closed back below within the
-// sweep window. Trap pattern, higher-conviction short than a clean rejection.
 if sweep_reversal_short
     e   = close
-    // Stop above the failed-breakout high — that's the "if it gets back
-    // there, the trap was wrong" level. Use prior bar's high (the high of
-    // the bar that closed above the level).
     s   = math.max(high, high[1]) + atr_buffer
-    // T1: VWAP if below entry, else PDL. T2: extension walking PWL/PML.
     t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
     t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
     t2  = t2_extend_short(e, t1)
-    alert(build_payload_v2("staged_pdh_failed_short", "SHORT", e, s, t1, t2,
+    tf  = level_tf(failed_resistance, pdh, pwh, pmh)
+    dir = dir_for_tf(tf, "SHORT")
+    alert(build_payload_v2("staged_pdh_failed_short", dir, e, s, t1, t2,
                            false, confluence_failed,
                            volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 if pdl_break
     e   = close
     s   = broken_support + atr_buffer
-    // Hierarchy walks PWL → PML → round → ATR — all support levels treated
-    // equivalently, picks whichever is closest below entry within 3%.
     t1  = t1_short_hier(e, pwl, pml, atr_d)
     t2  = t2_extend_short(e, t1)
-    alert(build_payload_v2("staged_pdl_break", "SHORT", e, s, t1, t2,
+    tf  = level_tf(broken_support, pdl, pwl, pml)
+    dir = dir_for_tf(tf, "SHORT")
+    alert(build_payload_v2("staged_pdl_break", dir, e, s, t1, t2,
                            false, confluence_brk_sup,
                            volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 if pdl_reclaim
     e   = close
-    // Stop at sweep low — same logic as before, level-agnostic.
     s   = low - atr_buffer
-    // T1: nearest above (which could be the next level after the reclaimed
-    // one — e.g., reclaim PWL, T1 = PDL). T2: next further structural level.
     t1_struct = nearest_above(e, pdh, pwh)
     t1 = not na(t1_struct) ? t1_struct : t1_long_hier(e, pdh, pmh, atr_d)
     t2 = not na(pwh) and pwh > t1 ? pwh : (not na(pmh) and pmh > t1 ? pmh : t2_extend_long(e, t1))
-    alert(build_payload_v2("staged_pdl_reclaim", "BUY", e, s, t1, t2,
+    tf  = level_tf(reclaimed_support, pdl, pwl, pml)
+    dir = dir_for_tf(tf, "BUY")
+    alert(build_payload_v2("staged_pdl_reclaim", dir, e, s, t1, t2,
                            false, confluence_support,
                            volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
