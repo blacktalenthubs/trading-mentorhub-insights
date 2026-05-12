@@ -24,6 +24,8 @@ import {
   Star,
   Activity,
   ListChecks,
+  Target,
+  GraduationCap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -42,6 +44,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/copilot", label: "AI CoPilot", icon: Brain },
   { to: "/review", label: "Review", icon: PlayCircle },
   { to: "/eod-report", label: "EOD Report", icon: ListChecks },
+  { to: "/learn", label: "Learn", icon: GraduationCap },
+  { to: "/strategies", label: "Strategies", icon: Target },
   { to: "/track-record", label: "AI Auto-Pilot", icon: Sparkles },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight, badge: "0" },
   { to: "/ai-updates", label: "AI Updates", icon: FileText },

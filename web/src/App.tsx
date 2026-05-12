@@ -26,6 +26,8 @@ import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import TradeReviewPage from "./pages/TradeReviewPage";
 import EODReportPage from "./pages/EODReportPage";
+import StrategiesPage from "./pages/StrategiesPage";
+import DisclaimerPage from "./pages/DisclaimerPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
 import AIUpdatesPage from "./pages/AIUpdatesPage";
 import WatchlistPage from "./pages/WatchlistPage";
@@ -75,6 +77,8 @@ export default function App() {
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/learn" element={<LearnPage />} />
+              <Route path="/strategies" element={<StrategiesPage />} />
+              <Route path="/disclaimer" element={<DisclaimerPage />} />
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />
               <Route path="/replay/:alertId" element={<ReplayPage />} />

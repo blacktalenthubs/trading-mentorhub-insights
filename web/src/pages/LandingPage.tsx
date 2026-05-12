@@ -108,40 +108,45 @@ function Hero({ track }: { track: TrackRecord | null }) {
         </Badge>
 
         <h1 className="mt-8 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-text-primary leading-[1.08]">
-          AI finds the trade.
+          Learn the framework.
           <br />
-          <span className="text-gradient-ai">You decide.</span>
+          <span className="text-gradient-ai">See it fire live.</span>
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto leading-relaxed">
-          AI performs automated scans on your watchlist, identifies entries at key levels,
-          and delivers complete trade plans. Entry. Stop. Target. Education.
+          A structured trading methodology — EMA framework, prior-day levels, multi-timeframe pivot
+          confluence — taught in lessons and surfaced as real-time pattern detections, each one AI-vetted
+          for sector and volume context before delivery.
         </p>
 
-        {/* CTA */}
+        {/* Dual CTA — Education path + Trading detection path */}
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
-            to="/register"
-            className="inline-flex items-center justify-center gap-2 bg-bullish hover:bg-bullish/90 text-surface-0 font-bold text-base px-8 py-4 rounded-xl transition-all shadow-[0_0_30px_rgba(34,197,94,0.25)] hover:shadow-[0_0_40px_rgba(34,197,94,0.35)]"
+            to="/learn"
+            className="inline-flex items-center justify-center gap-2 bg-accent hover:bg-accent/90 text-surface-0 font-bold text-base px-8 py-4 rounded-xl transition-all shadow-[0_0_30px_rgba(99,102,241,0.25)] hover:shadow-[0_0_40px_rgba(99,102,241,0.35)]"
           >
-            Start Free — 3 Day Pro Trial
+            Start Learning
             <ArrowRight className="h-4 w-4" />
           </Link>
-          <a
-            href="#track-record"
-            className="inline-flex items-center justify-center gap-2 bg-surface-2 hover:bg-surface-3 text-text-primary font-medium text-base px-8 py-4 rounded-xl border border-border-subtle transition-colors"
+          <Link
+            to="/strategies"
+            className="inline-flex items-center justify-center gap-2 bg-bullish hover:bg-bullish/90 text-surface-0 font-bold text-base px-8 py-4 rounded-xl transition-all shadow-[0_0_30px_rgba(34,197,94,0.25)] hover:shadow-[0_0_40px_rgba(34,197,94,0.35)]"
           >
-            See Live Track Record
-          </a>
+            See Live Signals
+            <ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
+        <p className="mt-4 text-xs text-text-faint">
+          Educational content + AI-vetted pattern detection. <Link to="/disclaimer" className="underline hover:text-text-muted">Not investment advice.</Link>
+        </p>
 
-        {/* Live metrics ticker */}
+        {/* Descriptive system metrics — NOT performance claims */}
         <div className="mt-16 flex flex-wrap justify-center gap-6 sm:gap-10">
           {[
-            { label: "Signals tracked", value: track ? `${track.total_signals}` : "---", color: "text-text-primary" },
-            { label: "Win rate", value: track ? `${track.win_rate}%` : "---", color: "text-bullish-text" },
-            { label: "Patterns", value: "14", color: "text-accent" },
-            { label: "Crypto coverage", value: "24/7", color: "text-purple-400" },
+            { label: "Signals detected", value: track ? `${track.total_signals}` : "---", color: "text-text-primary" },
+            { label: "Patterns taught", value: "14", color: "text-accent" },
+            { label: "Pine indicators", value: "4", color: "text-bullish-text" },
+            { label: "Coverage", value: "24/7", color: "text-purple-400" },
           ].map((m) => (
             <div key={m.label} className="flex flex-col items-center">
               <span className={`font-mono text-2xl sm:text-3xl font-bold ${m.color}`}>{m.value}</span>
@@ -939,13 +944,13 @@ function Footer() {
             <span className="text-accent">Trade</span>CoPilot
           </span>
         </div>
-        <p className="text-xs text-text-faint text-center">
-          Educational platform. Not financial advice. Past performance does not guarantee future results. Trade responsibly.
+        <p className="text-xs text-text-faint text-center max-w-md">
+          Educational content. Not investment advice. Past pattern detection does not guarantee future outcomes. Trade at your own risk.
         </p>
         <div className="flex gap-6 text-xs text-text-faint">
-          <Link to="/learn" className="hover:text-text-muted">Pattern Library</Link>
-          <a href="#" className="hover:text-text-muted">Terms</a>
-          <a href="#" className="hover:text-text-muted">Privacy</a>
+          <Link to="/learn" className="hover:text-text-muted">Learn</Link>
+          <Link to="/strategies" className="hover:text-text-muted">Strategies</Link>
+          <Link to="/disclaimer" className="hover:text-text-muted">Disclaimer</Link>
         </div>
       </div>
     </footer>
