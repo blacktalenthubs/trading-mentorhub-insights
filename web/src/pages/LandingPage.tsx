@@ -55,20 +55,20 @@ function LandingNav() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-surface-0/80 backdrop-blur-lg border-b border-border-subtle/50">
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+        <Link to="/" className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple flex items-center justify-center">
             <Crosshair className="h-4 w-4 text-white" />
           </div>
           <span className="font-bold text-lg text-text-primary">
-            <span className="text-accent">Trade</span>CoPilot
+            <span className="text-accent">trading</span>withai
           </span>
-        </div>
+        </Link>
 
         <div className="hidden md:flex items-center gap-8 text-sm text-text-muted">
-          <a href="#pillars" className="hover:text-text-primary transition-colors">AI Features</a>
+          <Link to="/learn" className="hover:text-text-primary transition-colors">Learn</Link>
+          <Link to="/strategies" className="hover:text-text-primary transition-colors">Strategies</Link>
           <a href="#pricing" className="hover:text-text-primary transition-colors">Pricing</a>
-          <Link to="/learn" className="hover:text-text-primary transition-colors">Pattern Library</Link>
-          <Link to="/track-record" className="hover:text-text-primary transition-colors">Track Record</Link>
+          <Link to="/disclaimer" className="hover:text-text-primary transition-colors text-xs">Disclaimer</Link>
         </div>
 
         <div className="flex items-center gap-3">
@@ -609,16 +609,14 @@ function Pricing() {
       name: "Free",
       price: "$0",
       period: "forever",
-      desc: "3-day Pro trial, then limited access",
-      cta: "Start Free Trial",
+      desc: "Preview the methodology + 1 lesson",
+      cta: "Start Free",
       features: [
         "5 symbols on watchlist",
-        "AI Coach: 3 queries/day",
-        "AI Scan: 3 alerts/day",
-        "Telegram: 3 commands/day",
-        "Today's alerts only",
-        "1 replay/day",
-        "Pattern Library access",
+        "1 Foundations lesson preview",
+        "Today's pattern detections (limited view)",
+        "AI Tutor: 3 queries/day",
+        "Read the methodology & strategies pages",
       ],
       highlight: false,
     },
@@ -626,19 +624,17 @@ function Pricing() {
       name: "Pro",
       price: "$49",
       period: "/month",
-      desc: "For active traders who want an edge",
-      cta: "Start Free Trial",
+      desc: "Daily traders + active learners — best value",
+      cta: "Start Pro Trial",
       features: [
+        "Full Foundations track + AI Tutor (50/day)",
         "10 symbols on watchlist",
-        "AI Coach: 50 queries/day",
-        "AI Scan: unlimited alerts",
-        "Telegram: 50 commands/day",
-        "Real-time Telegram alerts",
-        "Unlimited replay",
-        "Pre-market AI Brief",
-        "Daily AI EOD Review",
-        "Performance Analytics",
-        "30-day alert history",
+        "Real-time Telegram alerts (AI-vetted)",
+        "Full EOD Report (sortable session review)",
+        "Pine indicator source — copy into your TV",
+        "Premarket brief (8:30 ET) + EOD recap (4:05 ET)",
+        "30-day alert history + unlimited replay",
+        "Smart noise filtering (NOTICE muted, repeat MA bounces capped)",
       ],
       highlight: true,
     },
@@ -646,14 +642,14 @@ function Pricing() {
       name: "Premium",
       price: "$99",
       period: "/month",
-      desc: "Full access for serious traders",
-      cta: "Start Free Trial",
+      desc: "Power users — everything unlocked",
+      cta: "Start Premium Trial",
       features: [
         "Everything in Pro",
-        "25 symbols on watchlist",
-        "Unlimited AI Coach",
-        "Unlimited Telegram",
-        "Weekly AI Edge Report",
+        "50 symbols on watchlist",
+        "Unlimited AI Tutor + AI Coach",
+        "Weekly AI edge report",
+        "Paper trading + backtesting",
         "Full alert history",
       ],
       highlight: false,
@@ -936,14 +932,14 @@ function Footer() {
   return (
     <footer className="border-t border-border-subtle py-12 px-6">
       <div className="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-        <div className="flex items-center gap-2">
+        <Link to="/" className="flex items-center gap-2">
           <div className="w-6 h-6 rounded bg-accent/20 flex items-center justify-center">
             <Crosshair className="h-3 w-3 text-accent" />
           </div>
           <span className="text-sm text-text-muted">
-            <span className="text-accent">Trade</span>CoPilot
+            <span className="text-accent">trading</span>withai
           </span>
-        </div>
+        </Link>
         <p className="text-xs text-text-faint text-center max-w-md">
           Educational content. Not investment advice. Past pattern detection does not guarantee future outcomes. Trade at your own risk.
         </p>
