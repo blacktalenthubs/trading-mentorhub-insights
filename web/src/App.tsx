@@ -25,6 +25,7 @@ import AICoPilotPage from "./pages/AICoPilotPage";
 import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import TradeReviewPage from "./pages/TradeReviewPage";
+import EODReportPage from "./pages/EODReportPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
 import AIUpdatesPage from "./pages/AIUpdatesPage";
 import WatchlistPage from "./pages/WatchlistPage";
@@ -96,6 +97,7 @@ export default function App() {
                 <Route path="trading-v1" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
                 <Route path="copilot" element={<ErrorBoundary><AICoPilotPage /></ErrorBoundary>} />
                 <Route path="review" element={<ErrorBoundary><TradeReviewPage /></ErrorBoundary>} />
+                <Route path="eod-report" element={<ErrorBoundary><EODReportPage /></ErrorBoundary>} />
                 <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
                 <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
