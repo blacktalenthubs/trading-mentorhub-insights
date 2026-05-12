@@ -25,6 +25,7 @@ indicator("levels-day-vwap", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
 show_open         = input.bool(true,  "Show today's opening price")
+fire_open_alerts  = input.bool(false, "Fire open lost/reclaim alerts (NOTICE-only — set true on SPY chart for session-shift heads-up)")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
@@ -401,6 +402,68 @@ else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
 // hierarchy stays clear.
 plot(show_open ? today_open : na, title = "Today's Open",
      color = color.new(#F59E0B, 20), style = plot.style_linebr, linewidth = 2)
+
+// =====================================================================
+// Open lost / reclaimed — NOTICE alerts (one of each per session)
+// =====================================================================
+// Pattern: stock opens, builds above the open ("bullish session"), then
+// closes back below = bearish session shift. Symmetric reclaim after a
+// loss = bullish recovery. Both fire ONCE per session (state vars reset
+// at the next session open) to keep noise low — repeated whips around
+// the open line don't re-fire.
+//
+// Requires `was_above_open` to be true (price made a bar above the open
+// at some point) before "lost" can fire — protects against gap-down opens
+// where there's no defended-above baseline to lose.
+var bool was_above_open       = false
+var bool was_below_open       = false
+var bool open_lost_today      = false
+var bool open_reclaimed_today = false
+
+if session_open_now
+    was_above_open       := false
+    was_below_open       := false
+    open_lost_today      := false
+    open_reclaimed_today := false
+
+if not na(today_open) and close > today_open
+    was_above_open := true
+if not na(today_open) and close < today_open
+    was_below_open := true
+
+// First close below the open after having been above earlier.
+open_lost_first = fire_open_alerts and was_above_open and not open_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
+if open_lost_first
+    open_lost_today := true
+
+// First close back above the open after losing it intraday.
+open_reclaimed_first = fire_open_alerts and open_lost_today and not open_reclaimed_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
+if open_reclaimed_first
+    open_reclaimed_today := true
+
+// Visual markers — small diamond at the cross bar, distinct from VWAP shapes
+plotshape(open_lost_first,      title = "LOST OPEN",      location = location.abovebar, color = color.new(#EF4444, 0), style = shape.diamond, size = size.tiny, text = "LOST OPEN",  textcolor = color.white)
+plotshape(open_reclaimed_first, title = "RECLAIM OPEN",   location = location.belowbar, color = color.new(#22C55E, 0), style = shape.diamond, size = size.tiny, text = "RECL OPEN",  textcolor = color.white)
+
+// Alert firing — NOTICE direction (muted by triage agent's MUTE_NOTICE_ALERTS
+// gate, visible in EOD Report). Stops/targets sized like VWAP NOTICEs.
+if open_lost_first
+    e_ol  = close
+    s_ol  = math.max(high, high[1]) + atr_buffer
+    t1_ol = not na(pdl) and pdl < e_ol ? pdl : e_ol * 0.9925
+    // Inline t2_extend_short equivalent — t2_* helpers defined later in file
+    t2_ol = math.min(t1_ol - (e_ol - t1_ol) * 0.5, t1_ol * 0.995)
+    msg_ol = build_payload_v2("open_lost", "NOTICE", e_ol, s_ol, t1_ol, t2_ol, false, 1, volume_ratio, cvd_slope_n, bullish_div)
+    alert(msg_ol, alert.freq_once_per_bar_close)
+
+if open_reclaimed_first
+    e_or  = close
+    s_or  = math.min(low, low[1]) - atr_buffer
+    t1_or = not na(pdh) and pdh > e_or ? pdh : e_or * 1.0075
+    // Inline t2_extend_long equivalent
+    t2_or = math.max(t1_or + (t1_or - e_or) * 0.5, t1_or * 1.005)
+    msg_or = build_payload_v2("open_reclaimed", "NOTICE", e_or, s_or, t1_or, t2_or, false, 1, volume_ratio, cvd_slope_n, bearish_div)
+    alert(msg_or, alert.freq_once_per_bar_close)
 
 // Gap-up + hold flags. gap_context true = use tight first-bar stop.
 gap_up      = not na(today_open) and not na(pdh) and today_open >= pdh * 1.005
