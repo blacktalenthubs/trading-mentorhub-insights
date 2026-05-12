@@ -76,6 +76,14 @@ POST_MODE       = os.environ.get("TRIAGE_POST_MODE", "all").lower()
 # triage tokens + Telegram noise. Flip to false to bring them back.
 MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "true").lower() == "true"
 
+# Per-day cap on MA/EMA alerts. Crypto chops around EMA8/21 24/7 and
+# equities re-fire the same MA bounce all session — same setup, no new
+# information after the 2nd hit. Limits each (symbol, alert_type) combo
+# to N fires per session_date for ALL symbols. EMA8 and EMA21 buckets
+# are independent (so EMA8 hitting the cap doesn't affect EMA21 alerts).
+# Backwards compat: CRYPTO_MA_DAILY_CAP read as fallback name.
+MA_DAILY_CAP = int(os.environ.get("MA_DAILY_CAP", os.environ.get("CRYPTO_MA_DAILY_CAP", "2")))
+
 HEARTBEAT_SECS  = 30
 RECONNECT_SECS  = 5
 
@@ -148,6 +156,32 @@ def fetch_alerts_since(cursor_id, user_id):
                             ORDER BY id ASC""",
                         (cursor_id, user_id))
             return list(cur.fetchall())
+
+
+def count_prior_fires_today(symbol, alert_type, session_date, current_id, user_id):
+    """Count earlier alerts with the same (symbol, alert_type) on this session_date.
+    Used by the crypto MA daily cap — once this count reaches the cap, the
+    next fire of the same MA on the same symbol is skipped.
+    """
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT COUNT(*) FROM alerts
+                            WHERE user_id = %s
+                              AND symbol = %s
+                              AND alert_type = %s
+                              AND session_date = %s
+                              AND id < %s""",
+                        (user_id, symbol, alert_type, session_date, current_id))
+            return cur.fetchone()[0] or 0
+
+
+def is_ma_alert(alert):
+    """True if this alert is an MA bounce / rejection subject to the per-day
+    cap. Proximity (NOTICE) alerts are already muted elsewhere — we only
+    cap actionable BUY/SHORT MA events here. Applies to all symbols.
+    """
+    at = (alert.get("alert_type") or "")
+    return at.startswith("tv_ma_bounce_long_v3_ema") or at.startswith("tv_ma_rejection_short_v3_ema")
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -247,6 +281,29 @@ def process_alert(alert_id, budget, dry_run=False):
                      "reason": "MUTE_NOTICE_ALERTS env flag"})
         save_cursor(alert_id)
         return
+
+    # MA/EMA daily cap — prevent the same EMA8 bounce on ETH/AAPL/etc.
+    # from firing many times per session. Counts prior fires of the EXACT
+    # same (symbol, alert_type) for today's session_date; skips once cap
+    # hit. Applies to crypto + equities equally.
+    if is_ma_alert(alert):
+        prior = count_prior_fires_today(
+            alert["symbol"], alert["alert_type"], alert["session_date"],
+            alert_id, USER_ID,
+        )
+        if prior >= MA_DAILY_CAP:
+            logger.info(
+                "CAP_HIT #%s %s %s — %d prior fires today >= cap %d, skipping",
+                alert_id, alert["symbol"], alert["alert_type"],
+                prior, MA_DAILY_CAP,
+            )
+            write_audit({
+                "alert_id": alert_id, "symbol": alert["symbol"],
+                "alert_type": alert["alert_type"], "verdict": "MA_DAILY_CAP_HIT",
+                "reason": f"{prior} prior fires today (cap={MA_DAILY_CAP})",
+            })
+            save_cursor(alert_id)
+            return
 
     if not budget.under_cap():
         logger.warning("daily cost cap $%.2f hit; queuing #%s as audit-only",
