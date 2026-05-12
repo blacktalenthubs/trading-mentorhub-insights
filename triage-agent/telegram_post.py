@@ -21,6 +21,7 @@ is the SOLE Telegram sender. Output structure:
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -383,12 +384,66 @@ def _fmt_context_block(result):
     return "<pre>" + "\n".join(f"{label:<9}{_e(val)}" for label, val in rows) + "</pre>"
 
 
+# Specific rule → human label mapping. Used for the bold reason line
+# at the top of each Telegram message. Mirrors prettyReason() in the
+# EOD Report page so UI and Telegram show the same wording.
+_REASON_EXACT = {
+    "staged_pdh_break":           "PDH break",
+    "staged_pdl_reclaim":         "PDL reclaim",
+    "staged_pdh_rejection":       "PDH rejection",
+    "staged_pdh_failed_short":    "PDH failed (trap short)",
+    "staged_pdl_break":           "PDL break",
+    "pivot_aligned_break_long":   "1h/4h pivot break ↑",
+    "pivot_aligned_break_short":  "1h/4h pivot break ↓",
+    "pivot_aligned_reclaim_long": "1h/4h pivot reclaim ↑",
+    "pivot_aligned_reject_short": "1h/4h pivot reject ↓",
+    "vwap_reclaim_long":          "VWAP reclaim ↑",
+    "vwap_reject_short":          "VWAP reject ↓",
+}
+
+def _pretty_reason(alert_type: str) -> str:
+    """Convert raw alert_type tag into a readable label for the Telegram
+    header. Handles MA bounce / rejection / proximity with EMA or SMA
+    level extraction; falls back to a sanitized form for unknown tags.
+    """
+    if not alert_type:
+        return "Alert"
+    t = alert_type[3:] if alert_type.startswith("tv_") else alert_type
+
+    # MA bounce — possible single or stacked (ema8_ema21).
+    m = re.match(r"^ma_bounce_long_v3_(ema|sma)(\d+)_(ema|sma)(\d+)$", t)
+    if m:
+        return f"{m.group(1).upper()} {m.group(2)} + {m.group(3).upper()} {m.group(4)} bounce"
+    m = re.match(r"^ma_bounce_long_v3_(ema|sma)(\d+)$", t)
+    if m:
+        return f"{m.group(1).upper()} {m.group(2)} bounce"
+
+    # MA rejection (SHORT)
+    m = re.match(r"^ma_rejection_short_v3_(ema|sma)(\d+)$", t)
+    if m:
+        return f"{m.group(1).upper()} {m.group(2)} rejection"
+
+    # Proximity NOTICEs (still rendered cleanly even though they're muted)
+    m = re.match(r"^ma_proximity_long_v3_(ema|sma)(\d+)$", t)
+    if m:
+        return f"{m.group(1).upper()} {m.group(2)} proximity ↑"
+    m = re.match(r"^ma_proximity_short_v3_(ema|sma)(\d+)$", t)
+    if m:
+        return f"{m.group(1).upper()} {m.group(2)} proximity ↓"
+
+    if t in _REASON_EXACT:
+        return _REASON_EXACT[t]
+
+    # Fallback: replace underscores with spaces, leave as-is otherwise
+    return t.replace("_", " ")
+
+
 def format_unified(alert, result):
     """Single integrated Telegram message.
 
     Layout — scannable top-to-bottom:
       🟢 LONG · SYMBOL · $price
-      rule_name · interval
+      Reason (bold) · interval
 
       <pre>  Entry / Stop / T1 / T2 grid with % and R multiples  </pre>
       <pre>  Vol / CVD status lines                              </pre>
@@ -404,7 +459,7 @@ def format_unified(alert, result):
                  else "SHORT" if direction == "SHORT"
                  else direction or "ALERT")
     dir_emoji = _direction_emoji(direction)
-    rule      = _e(alert.get("alert_type") or "tv_alert")
+    reason    = _e(_pretty_reason(alert.get("alert_type") or ""))
     price     = alert.get("price")
     interval  = _e(alert.get("interval") or "")
 
@@ -413,7 +468,7 @@ def format_unified(alert, result):
     # ── Header ───────────────────────────────────────────────────────
     header = f"{dir_emoji} <b>{dir_label}</b> · <b>{sym}</b> · {_fmt_price(price)}"
     parts.append(header)
-    rule_line = f"<i>{rule}</i>" + (f" · {interval}" if interval else "")
+    rule_line = f"<b>{reason}</b>" + (f" · {interval}" if interval else "")
     parts.append(rule_line)
     parts.append("")
 
