@@ -24,6 +24,7 @@
 indicator("levels-day-vwap", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
+show_open         = input.bool(true,  "Show today's opening price")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
@@ -393,6 +394,13 @@ if session_open_now
     first_bar_time := time
 else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
     bar1_low := math.min(nz(bar1_low, low), low)
+
+// Today's opening price — intraday pivot. Useful as a "balance line": price
+// above it = bullish session bias, below = bearish. Plotted as an amber
+// dashed-style line distinct from PDH (green) and PDL (red) so the visual
+// hierarchy stays clear.
+plot(show_open ? today_open : na, title = "Today's Open",
+     color = color.new(#F59E0B, 20), style = plot.style_linebr, linewidth = 2)
 
 // Gap-up + hold flags. gap_context true = use tight first-bar stop.
 gap_up      = not na(today_open) and not na(pdh) and today_open >= pdh * 1.005
