@@ -26,6 +26,9 @@ class AlertResponse(BaseModel):
     created_at: str
     session_date: str
     user_action: Optional[str] = None
+    volume_ratio: Optional[float] = None
+    cvd_delta: Optional[float] = None
+    cvd_diverging: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -50,6 +53,9 @@ class AlertResponse(BaseModel):
             created_at=str(alert.created_at) if alert.created_at else "",
             session_date=alert.session_date or "",
             user_action=alert.user_action,
+            volume_ratio=getattr(alert, "volume_ratio", None),
+            cvd_delta=getattr(alert, "cvd_delta", None),
+            cvd_diverging=getattr(alert, "cvd_diverging", None),
         )
 
 

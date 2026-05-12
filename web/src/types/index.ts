@@ -67,6 +67,9 @@ export interface Alert {
   created_at: string;
   session_date: string;
   user_action?: string | null;
+  volume_ratio?: number | null;
+  cvd_delta?: number | null;
+  cvd_diverging?: number | null;
 }
 
 // --- Options Trade ---

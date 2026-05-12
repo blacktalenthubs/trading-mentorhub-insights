@@ -77,7 +77,7 @@ export default function EODReportPage() {
   }, [alerts]);
 
   function copyAsTSV() {
-    const header = ["Time", "Symbol", "Direction", "Reason", "Entry", "Stop", "T1", "T2", "R:R"];
+    const header = ["Time", "Symbol", "Direction", "Reason", "Entry", "Stop", "T1", "T2", "R:R", "Vol×", "CVD"];
     const lines = rows.map((a) => [
       timeOnly(a.created_at),
       a.symbol,
@@ -88,6 +88,8 @@ export default function EODReportPage() {
       a.target_1?.toFixed(2) ?? "",
       a.target_2?.toFixed(2) ?? "",
       rrRatio(a.entry ?? null, a.stop ?? null, a.target_1 ?? null),
+      a.volume_ratio != null ? a.volume_ratio.toFixed(2) : "",
+      a.cvd_diverging == null ? "" : a.cvd_diverging ? "diverging" : "confirming",
     ].join("\t"));
     navigator.clipboard.writeText([header.join("\t"), ...lines].join("\n"));
   }
@@ -169,6 +171,8 @@ export default function EODReportPage() {
                   <th className="px-3 py-2 text-right font-medium">T1</th>
                   <th className="px-3 py-2 text-right font-medium">T2</th>
                   <th className="px-3 py-2 text-right font-medium">R:R</th>
+                  <th className="px-3 py-2 text-right font-medium">Vol×</th>
+                  <th className="px-3 py-2 text-center font-medium">CVD</th>
                 </tr>
               </thead>
               <tbody>
@@ -198,6 +202,20 @@ export default function EODReportPage() {
                         rrNum >= 3 ? "text-emerald-400" :
                         rrNum >= 1.5 ? "text-amber-400" : "text-rose-400"
                       }`}>{rr}</td>
+                      <td className={`px-3 py-2 text-right font-mono text-xs ${
+                        a.volume_ratio == null ? "text-text-muted" :
+                        a.volume_ratio >= 2.0 ? "text-emerald-400" :
+                        a.volume_ratio < 1.0 ? "text-rose-400" : "text-amber-400"
+                      }`}>{a.volume_ratio != null ? `${a.volume_ratio.toFixed(2)}×` : "—"}</td>
+                      <td className="px-3 py-2 text-center text-xs">
+                        {a.cvd_diverging == null ? (
+                          <span className="text-text-muted">—</span>
+                        ) : a.cvd_diverging ? (
+                          <span className="text-rose-400" title="CVD diverging — order flow not confirming">⚠ diverge</span>
+                        ) : (
+                          <span className="text-emerald-400" title="CVD confirming">✓ confirm</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -208,7 +226,9 @@ export default function EODReportPage() {
       </Card>
 
       <p className="text-xs text-text-muted">
-        Tip: R:R is reward-to-risk against T1. Green = ≥3, amber = 1.5–3, red = below 1.5 (math doesn't favor the trade at the alerted entry).
+        Tip: <span className="font-medium">R:R</span> is reward-to-risk against T1 (green ≥ 3, amber 1.5–3, red &lt; 1.5).
+        <span className="font-medium"> Vol×</span> is fire-bar volume vs avg (green ≥ 2.0×, amber 1.0–2.0×, red &lt; 1.0×).
+        <span className="font-medium"> CVD</span> = order flow alignment (✓ confirm = price & flow agree, ⚠ diverge = price moving but flow not).
       </p>
     </div>
   );
