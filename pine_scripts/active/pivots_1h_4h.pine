@@ -2,64 +2,50 @@
 //
 // 4h support / resistance — VISUAL ONLY.
 //
-// Plots the most recent and prior 4h swing highs (resistance) and 4h
-// swing lows (support) as horizontal forward-filled lines. No alerts
-// fire from this indicator — the daily PDH/PDL events in
-// `levels-day-vwap` already cover the actionable layer; this is pure
-// HTF structure for chart context.
+// Draws each recent 4h swing high (resistance) and 4h swing low (support)
+// as a SINGLE horizontal line.new() that extends right indefinitely. Each
+// line sits at its exact pivot price and doesn't change once drawn — no
+// staircase, no historical forward-fill segments.
 //
-// Replaces the earlier `pivots-1h-4h` aligned-pivot detection. Reasons
-// for the redesign:
+// When a new pivot confirms, a new line is added and (if the per-side
+// limit is exceeded) the OLDEST line of that kind is deleted. The result
+// is a fixed-size set of "the N most recent" resistance + support levels
+// always visible on the chart.
 //
-//   • The aligned-pivot signal class was sparse (a few fires per week)
-//     and shared the same trade structure as the existing daily PDH/PDL
-//     alerts — no incremental signal worth the alert taxonomy.
-//   • Persistent line.new() rendering produced visual clutter as new
-//     pivots formed at near-identical prices.
-//   • The simpler "4h swing structure visible at all times" pattern
-//     gives the trader the right context without the noise.
+// Indicator name retained as `pivots-4h` (history goes back to
+// `pivots-1h-4h`). Re-paste this source into TradingView to swap behavior.
 //
-// Indicator name retained as `pivots-1h-4h` for backwards-compat with
-// any TV alerts you'd wired up under the old taxonomy (those alerts
-// now fire nothing — Pine code has no `alert()` calls). Re-paste this
-// source into TradingView to swap behavior.
-//
-indicator("pivots-4h", overlay = true)
+indicator("pivots-4h", overlay = true, max_lines_count = 50)
 
 // ── Inputs ──────────────────────────────────────────────────────────
-show_resistance = input.bool(true, "Show 4h resistance lines")
-show_support    = input.bool(true, "Show 4h support lines")
-show_prior      = input.bool(true, "Show the prior level (faint) alongside current",
-                              tooltip = "Off = only current level shown. On = current bold + prior faint")
-piv_left        = input.int(3, "4h pivot — left bars",  minval = 2, maxval = 10,
-                             tooltip = "Bars to the LEFT a swing needs for the pivot to qualify")
+show_resistance = input.bool(true, "Show 4h resistance")
+show_support    = input.bool(true, "Show 4h support")
+show_n          = input.int(2, "Recent pivots per side", minval = 1, maxval = 5,
+                             tooltip = "How many of the most recent 4h pivots to keep on chart. New pivots push older ones out.")
+piv_left        = input.int(3, "4h pivot — left bars",  minval = 2, maxval = 10)
 piv_right       = input.int(3, "4h pivot — right bars", minval = 2, maxval = 10,
-                             tooltip = "Bars to the RIGHT a swing needs to be confirmed (= confirmation latency)")
+                             tooltip = "Confirmation latency: a pivot confirms `right` 4h bars after the swing prints. Default 3 = 12 hours.")
 
 // ── 4h pivot detection via request.security ─────────────────────────
-// `ta.pivothigh/low` returns the pivot price `right` bars AFTER the
-// swing has formed (i.e. confirmed). `lookahead_off` ensures we never
-// peek into future bars — values lag by `piv_right` 4h bars (= 12 hours
-// at default 3-right).
 [ph_4h_raw, pl_4h_raw] = request.security(syminfo.tickerid, "240", [ta.pivothigh(high, piv_left, piv_right), ta.pivotlow(low, piv_left, piv_right)], lookahead = barmerge.lookahead_off)
 
-// ── Forward-fill: track current + prior pivot of each kind ──────────
-var float r_now  = na  // most recent confirmed 4h resistance
-var float r_prev = na  // the one before that
-var float s_now  = na  // most recent confirmed 4h support
-var float s_prev = na
+// ── Line objects, kept in arrays so we can cap at N ─────────────────
+var array<line> r_lines = array.new<line>()
+var array<line> s_lines = array.new<line>()
 
-if not na(ph_4h_raw)
-    r_prev := r_now
-    r_now  := ph_4h_raw
-if not na(pl_4h_raw)
-    s_prev := s_now
-    s_now  := pl_4h_raw
+// New 4h resistance — create a horizontal line at the pivot price and
+// rotate the oldest out if we're over the N-per-side cap.
+if show_resistance and not na(ph_4h_raw)
+    new_r = line.new(x1 = bar_index, y1 = ph_4h_raw, x2 = bar_index + 1, y2 = ph_4h_raw, extend = extend.right, color = color.new(color.red, 0), style = line.style_dashed, width = 2)
+    array.push(r_lines, new_r)
+    while array.size(r_lines) > show_n
+        oldest = array.shift(r_lines)
+        line.delete(oldest)
 
-// ── Plots ───────────────────────────────────────────────────────────
-// Current levels are bold; prior levels are faint (alpha 60). linebr
-// style breaks the line cleanly at session/data gaps.
-plot(show_resistance ? r_now : na,                  title = "4h R (current)", color = color.new(color.red,     0),  style = plot.style_linebr, linewidth = 2)
-plot(show_resistance and show_prior ? r_prev : na,  title = "4h R (prior)",   color = color.new(color.red,    60),  style = plot.style_linebr, linewidth = 1)
-plot(show_support    ? s_now : na,                  title = "4h S (current)", color = color.new(color.green,   0),  style = plot.style_linebr, linewidth = 2)
-plot(show_support    and show_prior ? s_prev : na,  title = "4h S (prior)",   color = color.new(color.green,  60),  style = plot.style_linebr, linewidth = 1)
+// New 4h support — same pattern, green.
+if show_support and not na(pl_4h_raw)
+    new_s = line.new(x1 = bar_index, y1 = pl_4h_raw, x2 = bar_index + 1, y2 = pl_4h_raw, extend = extend.right, color = color.new(color.green, 0), style = line.style_dashed, width = 2)
+    array.push(s_lines, new_s)
+    while array.size(s_lines) > show_n
+        oldest = array.shift(s_lines)
+        line.delete(oldest)
