@@ -16,10 +16,12 @@ const BASE_URL = `${API_HOST}/api/v1`;
 
 class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  detail: unknown;
+  constructor(status: number, message: string, detail?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -86,7 +88,20 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail || res.statusText);
+    // body.detail can be a string OR a structured object (e.g. tier-cap
+    // 403s send { error, current_tier, limit, message }). Surface a sensible
+    // message for `error instanceof Error` consumers and stash the full
+    // detail on `.detail` so callers can render structured UI.
+    const d = body.detail;
+    let message: string;
+    if (typeof d === "string") {
+      message = d;
+    } else if (d && typeof d === "object" && typeof (d as { message?: unknown }).message === "string") {
+      message = (d as { message: string }).message;
+    } else {
+      message = res.statusText;
+    }
+    throw new ApiError(res.status, message, d);
   }
 
   if (res.status === 204) return undefined as T;

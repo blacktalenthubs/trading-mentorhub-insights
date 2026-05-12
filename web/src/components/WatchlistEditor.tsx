@@ -3,10 +3,28 @@
  */
 
 import { useState } from "react";
-import { X, Plus, Loader2, Star } from "lucide-react";
+import { Link } from "react-router-dom";
+import { X, Plus, Loader2, Star, ArrowUpRight } from "lucide-react";
 import { useWatchlist, useAddSymbol, useRemoveSymbol } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
+import { ApiError } from "../api/client";
 import Card from "./ui/Card";
+
+interface UpgradeRequiredDetail {
+  error: "upgrade_required";
+  current_tier: string;
+  limit: number;
+  message: string;
+}
+
+function parseUpgradeError(error: unknown): UpgradeRequiredDetail | null {
+  if (!(error instanceof ApiError) || error.status !== 403) return null;
+  const d = error.detail;
+  if (d && typeof d === "object" && (d as { error?: unknown }).error === "upgrade_required") {
+    return d as UpgradeRequiredDetail;
+  }
+  return null;
+}
 
 interface Props {
   /** Optional className */
@@ -69,17 +87,41 @@ export default function WatchlistEditor({ className = "" }: Props) {
         </form>
       </div>
 
-      {/* Error message */}
-      {addSymbol.error && (
-        <p className="mt-2 text-xs text-bearish-text">
-          {addSymbol.error instanceof Error ? addSymbol.error.message : "Failed to add symbol"}
-        </p>
-      )}
+      {/* Error message — structured upgrade prompt if the API returned
+          { error: "upgrade_required", current_tier, limit, message } */}
+      {addSymbol.error && (() => {
+        const upgrade = parseUpgradeError(addSymbol.error);
+        if (upgrade) {
+          const nextTier = upgrade.current_tier === "pro" ? "Premium" : "Pro";
+          return (
+            <div className="mt-3 rounded-lg border border-warning-text/30 bg-warning-text/5 p-3">
+              <p className="text-sm font-semibold text-warning-text">
+                {upgrade.current_tier.charAt(0).toUpperCase() + upgrade.current_tier.slice(1)} tier limit reached — {upgrade.limit} symbols.
+              </p>
+              <p className="mt-1 text-xs text-text-secondary">
+                Upgrade to {nextTier} for a larger watchlist + more features.
+              </p>
+              <Link
+                to="/billing"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover"
+              >
+                See {nextTier} plan
+                <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            </div>
+          );
+        }
+        return (
+          <p className="mt-2 text-xs text-bearish-text">
+            {addSymbol.error instanceof Error ? addSymbol.error.message : "Failed to add symbol"}
+          </p>
+        );
+      })()}
 
-      {/* Tier limit warning */}
+      {/* Tier limit warning (pre-emptive, before add attempt) */}
       {atLimit && !isPro && (
         <p className="mt-2 text-xs text-warning-text">
-          Free tier limit reached. Upgrade to Pro for unlimited symbols.
+          Free tier limit reached. <Link to="/billing" className="underline hover:text-text-primary">Upgrade for more symbols.</Link>
         </p>
       )}
 
