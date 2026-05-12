@@ -1,181 +1,65 @@
 // @version=5
 //
-// 1h + 4h pivot alignment — fires alerts ONLY when a 1h swing pivot and a
-// 4h swing pivot stack within 1% of each other.
+// 4h support / resistance — VISUAL ONLY.
 //
-// Why aligned-only? This indicator is under validation. Each alert in the
-// system needs to be measurable independently — folding multi-TF pivots
-// into the existing daily-level confluence_count would hide whether 1h+4h
-// alignment is itself a profitable signal source. Once we have ~50 scored
-// alerts here, we'll know whether to keep this standalone or merge into
-// the daily confluence hierarchy.
+// Plots the most recent and prior 4h swing highs (resistance) and 4h
+// swing lows (support) as horizontal forward-filled lines. No alerts
+// fire from this indicator — the daily PDH/PDL events in
+// `levels-day-vwap` already cover the actionable layer; this is pure
+// HTF structure for chart context.
 //
-// Alert taxonomy (4 events):
-//   • pivot_aligned_reclaim_long — close back above aligned support
-//   • pivot_aligned_break_long   — close above aligned resistance
-//   • pivot_aligned_reject_short — wick tagged + closed back under aligned
-//                                  resistance (rejection from below)
-//   • pivot_aligned_break_short  — close below aligned support
+// Replaces the earlier `pivots-1h-4h` aligned-pivot detection. Reasons
+// for the redesign:
 //
-// Same payload schema as levels-day-vwap so backend dedup/conviction
-// logic ingests these without any changes. Backend SPY-regime gate
-// (intraday_rules.py) auto-applies based on direction.
+//   • The aligned-pivot signal class was sparse (a few fires per week)
+//     and shared the same trade structure as the existing daily PDH/PDL
+//     alerts — no incremental signal worth the alert taxonomy.
+//   • Persistent line.new() rendering produced visual clutter as new
+//     pivots formed at near-identical prices.
+//   • The simpler "4h swing structure visible at all times" pattern
+//     gives the trader the right context without the noise.
 //
-indicator("pivots-1h-4h", overlay = true)
+// Indicator name retained as `pivots-1h-4h` for backwards-compat with
+// any TV alerts you'd wired up under the old taxonomy (those alerts
+// now fire nothing — Pine code has no `alert()` calls). Re-paste this
+// source into TradingView to swap behavior.
+//
+indicator("pivots-4h", overlay = true)
 
 // ── Inputs ──────────────────────────────────────────────────────────
-show_levels       = input.bool(true,  "Show aligned S/R levels")
-show_signals      = input.bool(true,  "Show entry markers")
-align_tolerance_p = input.float(1.0, "Alignment tolerance (% - 1h vs 4h)", minval = 0.1, maxval = 3.0, step = 0.1)
-align_tolerance   = align_tolerance_p / 100.0
-piv_left_1h       = input.int(5, "1h pivot - left bars",  minval = 2, maxval = 15)
-piv_right_1h      = input.int(5, "1h pivot - right bars", minval = 2, maxval = 15)
-piv_left_4h       = input.int(3, "4h pivot - left bars",  minval = 2, maxval = 10)
-piv_right_4h      = input.int(3, "4h pivot - right bars", minval = 2, maxval = 10)
-atr_buffer_mult   = input.float(0.3, "ATR buffer for stops (x ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
-vol_avg_lookback  = input.int(20, "Volume average lookback (bars)", minval = 5, maxval = 60)
-cvd_lookback      = input.int(10, "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+show_resistance = input.bool(true, "Show 4h resistance lines")
+show_support    = input.bool(true, "Show 4h support lines")
+show_prior      = input.bool(true, "Show the prior level (faint) alongside current",
+                              tooltip = "Off = only current level shown. On = current bold + prior faint")
+piv_left        = input.int(3, "4h pivot — left bars",  minval = 2, maxval = 10,
+                             tooltip = "Bars to the LEFT a swing needs for the pivot to qualify")
+piv_right       = input.int(3, "4h pivot — right bars", minval = 2, maxval = 10,
+                             tooltip = "Bars to the RIGHT a swing needs to be confirmed (= confirmation latency)")
 
-// ── 1h + 4h pivot detection (via request.security) ──────────────────
-// `ta.pivothigh/low` returns the pivot price N bars ago when confirmed
-// (na otherwise). On the chart we forward-fill so each chart bar knows
-// the most recent confirmed pivot of each kind.
-[ph_1h_raw, pl_1h_raw] = request.security(syminfo.tickerid, "60", [ta.pivothigh(high, piv_left_1h, piv_right_1h), ta.pivotlow(low, piv_left_1h, piv_right_1h)], lookahead = barmerge.lookahead_off)
-[ph_4h_raw, pl_4h_raw] = request.security(syminfo.tickerid, "240", [ta.pivothigh(high, piv_left_4h, piv_right_4h), ta.pivotlow(low, piv_left_4h, piv_right_4h)], lookahead = barmerge.lookahead_off)
+// ── 4h pivot detection via request.security ─────────────────────────
+// `ta.pivothigh/low` returns the pivot price `right` bars AFTER the
+// swing has formed (i.e. confirmed). `lookahead_off` ensures we never
+// peek into future bars — values lag by `piv_right` 4h bars (= 12 hours
+// at default 3-right).
+[ph_4h_raw, pl_4h_raw] = request.security(syminfo.tickerid, "240", [ta.pivothigh(high, piv_left, piv_right), ta.pivotlow(low, piv_left, piv_right)], lookahead = barmerge.lookahead_off)
 
-// Forward-fill: keep the last confirmed pivot until a new one appears.
-var float ph_1h = na
-var float pl_1h = na
-var float ph_4h = na
-var float pl_4h = na
-if not na(ph_1h_raw)
-    ph_1h := ph_1h_raw
-if not na(pl_1h_raw)
-    pl_1h := pl_1h_raw
+// ── Forward-fill: track current + prior pivot of each kind ──────────
+var float r_now  = na  // most recent confirmed 4h resistance
+var float r_prev = na  // the one before that
+var float s_now  = na  // most recent confirmed 4h support
+var float s_prev = na
+
 if not na(ph_4h_raw)
-    ph_4h := ph_4h_raw
+    r_prev := r_now
+    r_now  := ph_4h_raw
 if not na(pl_4h_raw)
-    pl_4h := pl_4h_raw
+    s_prev := s_now
+    s_now  := pl_4h_raw
 
-// ── Alignment detection — LATCHED LEVELS ────────────────────────────
-// A fresh alignment fires when a new pivot just confirmed on one TF
-// AND the latest confirmed pivot on the other TF is within tolerance.
-// Levels then LATCH: aligned_res / aligned_sup hold their price until
-// price closes through them (break event invalidates the level). This
-// gives flat horizontal lines like PDH/PDL — no more zigzag envelope.
-within_pct(float a, float b, float pct) =>
-    not na(a) and not na(b) and b > 0 and math.abs(a - b) / b <= pct
-
-fresh_res = (not na(ph_1h_raw) and within_pct(ph_1h_raw, ph_4h, align_tolerance)) or (not na(ph_4h_raw) and within_pct(ph_4h_raw, ph_1h, align_tolerance))
-fresh_sup = (not na(pl_1h_raw) and within_pct(pl_1h_raw, pl_4h, align_tolerance)) or (not na(pl_4h_raw) and within_pct(pl_4h_raw, pl_1h, align_tolerance))
-
-var float aligned_res = na
-var float aligned_sup = na
-if fresh_res
-    aligned_res := (ph_1h + ph_4h) / 2
-if fresh_sup
-    aligned_sup := (pl_1h + pl_4h) / 2
-
-// Plot aligned levels (flat horizontal — like PDH/PDL).
-plot(show_levels ? aligned_res : na, title = "Aligned R (1h+4h)", color = color.new(#FF5722, 30), style = plot.style_linebr, linewidth = 2)
-plot(show_levels ? aligned_sup : na, title = "Aligned S (1h+4h)", color = color.new(#4CAF50, 30), style = plot.style_linebr, linewidth = 2)
-
-// ── Event detection (close-confirmed) ───────────────────────────────
-pivot_break_long   = not na(aligned_res) and not na(close[1]) and close[1] <= aligned_res and close > aligned_res
-pivot_reject_short = not na(aligned_res) and high >= aligned_res and close < aligned_res and not na(high[1]) and high[1] < aligned_res
-pivot_reclaim_long = not na(aligned_sup) and not na(close[1]) and close[1] <= aligned_sup and close > aligned_sup
-pivot_break_short  = not na(aligned_sup) and not na(close[1]) and close[1] >= aligned_sup and close < aligned_sup
-
-// Invalidate levels AFTER event detection — break events use the level
-// before it clears. Next bar there's no level until a new alignment forms.
-if pivot_break_long
-    aligned_res := na
-if pivot_break_short
-    aligned_sup := na
-
-// ── Visual markers ──────────────────────────────────────────────────
-plotshape(show_signals and pivot_break_long,   title = "BREAK+ LONG (1h+4h)",   location = location.belowbar, color = color.new(color.green,   0), style = shape.triangleup,   size = size.normal, text = "P-BREAK+",  textcolor = color.white)
-plotshape(show_signals and pivot_reclaim_long, title = "RECLAIM LONG (1h+4h)",  location = location.belowbar, color = color.new(color.aqua,    0), style = shape.triangleup,   size = size.normal, text = "P-RECLAIM", textcolor = color.black)
-plotshape(show_signals and pivot_reject_short, title = "REJECT SHORT (1h+4h)",  location = location.abovebar, color = color.new(color.orange,  0), style = shape.triangledown, size = size.normal, text = "P-REJECT",  textcolor = color.white)
-plotshape(show_signals and pivot_break_short,  title = "BREAK- SHORT (1h+4h)",  location = location.abovebar, color = color.new(color.red,     0), style = shape.triangledown, size = size.normal, text = "P-BREAK-",  textcolor = color.white)
-
-// ── Volume + CVD context (same as levels-day-vwap payload) ──────────
-vol_avg      = ta.sma(volume, vol_avg_lookback)
-volume_ratio = vol_avg > 0 ? volume / vol_avg : na
-
-bar_range = high - low
-buy_vol   = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
-sell_vol  = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
-cvd       = ta.cum(buy_vol - sell_vol)
-cvd_past  = cvd[cvd_lookback]
-price_past = close[cvd_lookback]
-cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
-price_slope_n = not na(price_past) ? close - price_past : na
-bearish_div   = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
-bullish_div   = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
-
-// ── Stop / target sizing ────────────────────────────────────────────
-atr14      = nz(ta.atr(14)[1], close * 0.005)
-atr_buffer = atr14 * atr_buffer_mult
-
-// Targets: 1.5R / 3R from entry — pivot-based system has no obvious
-// structural target overhead/below the aligned level itself.
-t1_long(float e, float s)  => e + (e - s) * 1.5
-t2_long(float e, float s)  => e + (e - s) * 3.0
-t1_short(float e, float s) => e - (s - e) * 1.5
-t2_short(float e, float s) => e - (s - e) * 3.0
-
-// ── Payload — schema compatible with levels-day-vwap ────────────────
-// Backend's existing v2 payload parser already handles all these fields.
-// confluence_count = 2 (1h pivot + 4h pivot stacked); not 3 because we're
-// not also testing daily/weekly stack — that's a separate signal class.
-build_payload(rule, direction, entry_p, stop_p, t1_p, t2_p, vr, cvd_d, cvd_div) =>
-    '{"symbol":"' + syminfo.ticker
-      + '","exchange":"' + syminfo.prefix
-      + '","interval":"' + timeframe.period
-      + '","price":"' + str.tostring(close, format.mintick)
-      + '","high":"' + str.tostring(high, format.mintick)
-      + '","low":"' + str.tostring(low, format.mintick)
-      + '","volume":"' + str.tostring(volume)
-      + '","entry":"' + str.tostring(entry_p, format.mintick)
-      + '","stop":"' + str.tostring(stop_p, format.mintick)
-      + '","target_1":"' + str.tostring(t1_p, format.mintick)
-      + '","target_2":"' + str.tostring(t2_p, format.mintick)
-      + '","rule":"' + rule
-      + '","direction":"' + direction
-      + '","confluence_count":"2'
-      + '","pivot_1h":"' + str.tostring(direction == "BUY" ? (rule == "pivot_aligned_reclaim_long" ? pl_1h : ph_1h) : (rule == "pivot_aligned_reject_short" ? ph_1h : pl_1h), format.mintick)
-      + '","pivot_4h":"' + str.tostring(direction == "BUY" ? (rule == "pivot_aligned_reclaim_long" ? pl_4h : ph_4h) : (rule == "pivot_aligned_reject_short" ? ph_4h : pl_4h), format.mintick)
-      + '","volume_ratio":"' + str.tostring(vr, "#.##")
-      + '","cvd_delta":"' + str.tostring(cvd_d, "#.##")
-      + '","cvd_diverging":"' + (cvd_div ? "true" : "false")
-      + '","fired_at":"' + str.tostring(timenow) + '"}'
-
-// ── Alerts (close-confirmed) ────────────────────────────────────────
-if pivot_break_long
-    e  = close
-    s  = aligned_res - atr_buffer
-    t1 = t1_long(e, s)
-    t2 = t2_long(e, s)
-    alert(build_payload("pivot_aligned_break_long", "BUY", e, s, t1, t2, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-
-if pivot_reclaim_long
-    e  = close
-    s  = low - atr_buffer
-    t1 = t1_long(e, s)
-    t2 = t2_long(e, s)
-    alert(build_payload("pivot_aligned_reclaim_long", "BUY", e, s, t1, t2, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-
-if pivot_reject_short
-    e  = close
-    s  = high + atr_buffer
-    t1 = t1_short(e, s)
-    t2 = t2_short(e, s)
-    alert(build_payload("pivot_aligned_reject_short", "SHORT", e, s, t1, t2, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
-
-if pivot_break_short
-    e  = close
-    s  = aligned_sup + atr_buffer
-    t1 = t1_short(e, s)
-    t2 = t2_short(e, s)
-    alert(build_payload("pivot_aligned_break_short", "SHORT", e, s, t1, t2, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
+// ── Plots ───────────────────────────────────────────────────────────
+// Current levels are bold; prior levels are faint (alpha 60). linebr
+// style breaks the line cleanly at session/data gaps.
+plot(show_resistance ? r_now : na,                  title = "4h R (current)", color = color.new(color.red,     0),  style = plot.style_linebr, linewidth = 2)
+plot(show_resistance and show_prior ? r_prev : na,  title = "4h R (prior)",   color = color.new(color.red,    60),  style = plot.style_linebr, linewidth = 1)
+plot(show_support    ? s_now : na,                  title = "4h S (current)", color = color.new(color.green,   0),  style = plot.style_linebr, linewidth = 2)
+plot(show_support    and show_prior ? s_prev : na,  title = "4h S (prior)",   color = color.new(color.green,  60),  style = plot.style_linebr, linewidth = 1)
