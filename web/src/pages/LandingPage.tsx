@@ -304,7 +304,7 @@ function AIPillars() {
       title: "Pattern Library",
       subtitle: "14 Setups Taught With Real Data",
       color: "blue-400",
-      desc: "Learn support bounces, breakouts, and reversals with difficulty ratings and live win rate data.",
+      desc: "Learn support bounces, breakouts, and reversals with difficulty ratings and historical hit-rate data.",
       bullets: [
         "Beginner to Advanced difficulty levels",
         "Click any pattern for deep education: what, why, how, risk",
@@ -725,20 +725,22 @@ function Trust({ track }: { track: TrackRecord | null }) {
   return (
     <section id="track-record" className="py-24 px-6 bg-surface-1/50">
       <div className="max-w-4xl mx-auto text-center">
-        <Badge>Radical transparency</Badge>
+        <Badge>What the system has detected</Badge>
         <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-          We show everything.<br />Even when it's ugly.
+          Historical pattern detections.<br />Shown openly.
         </h2>
         <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
-          Public track record. Per-pattern win rates. Alerts you skipped that would
-          have worked. Most signal services can't survive this level of honesty. We can.
+          We publish what the system saw — total detections, historical hit rate (% of past signals where price reached T1 before the stop), and the full archive of every alert it fired.
+        </p>
+        <p className="mt-2 text-xs text-text-faint max-w-xl mx-auto">
+          Descriptive system measurements. Past pattern detection does not guarantee future outcomes. <Link to="/disclaimer" className="underline hover:text-text-muted">See full disclaimer.</Link>
         </p>
 
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-6">
           {[
-            { stat: track ? `${track.win_rate}%` : "---", label: "Overall win rate", sub: "Across all entry alerts, last 90 days" },
-            { stat: track ? `${track.wins}W / ${track.losses}L` : "---", label: "Win / Loss", sub: "Target hits vs stop outs" },
-            { stat: track ? `${track.total_signals}` : "---", label: "Signals tracked", sub: "Entry alerts scored and verified" },
+            { stat: track ? `${track.win_rate}%` : "---", label: "T1 hit rate (historical)", sub: "% of past signals that reached T1 before stop, last 90 days" },
+            { stat: track ? `${track.wins}W / ${track.losses}L` : "---", label: "T1 hits / Stop-outs", sub: "Counted across all entry detections in the archive" },
+            { stat: track ? `${track.total_signals}` : "---", label: "Signals detected", sub: "Total pattern detections scored in the archive" },
           ].map((item) => (
             <div key={item.label} className="bg-surface-1 border border-border-subtle rounded-xl p-6">
               <span className="font-mono text-3xl font-bold text-bullish-text">{item.stat}</span>
@@ -750,14 +752,14 @@ function Trust({ track }: { track: TrackRecord | null }) {
 
         <div className="mt-10">
           <Link
-            to="/track-record"
+            to="/strategies"
             className="inline-flex items-center gap-2 bg-accent hover:bg-accent-hover text-white font-bold text-sm px-6 py-3 rounded-xl transition-colors"
           >
-            See the AI's auto-pilot account — every trade, every P&L
+            How the system finds setups
             <ArrowRight className="h-4 w-4" />
           </Link>
           <p className="mt-3 text-[11px] text-text-faint max-w-xl mx-auto">
-            The same AI trades its own signals in a simulated $10k account. Live equity curve, every win, every loss.
+            See the 4 Pine indicators, the AI triage flow, and a sample alert structure. Educational walkthrough.
           </p>
         </div>
       </div>
@@ -786,8 +788,8 @@ function PatternPreview() {
             14 patterns taught with real data
           </h2>
           <p className="mt-4 text-text-secondary max-w-xl mx-auto">
-            Free access. Beginner to advanced. Each pattern includes what it is,
-            why it works, how to confirm, and real win rate data from our signals.
+            Free access. Beginner to advanced. Each pattern explains what it is,
+            why it works, how to confirm, and historical hit-rate data from past detections.
           </p>
         </div>
 
@@ -840,8 +842,8 @@ function FAQ() {
       a: "US equities (SPY, AAPL, TSLA, NVDA, META, etc.) during market hours, and crypto (ETH, BTC) 24/7 using Coinbase data for reliable pricing.",
     },
     {
-      q: "What's your win rate?",
-      a: "Our track record is live and public on this page. Win rates vary by pattern -- we show all of it transparently. Check the Pattern Library for per-setup performance data.",
+      q: "What's the historical hit rate?",
+      a: "The system publishes the % of past signals where price reached T1 before the stop. This is descriptive of past detections — not a predictor of future trades. See the live numbers above and the per-pattern detail in the Learn section. Past pattern detection does not guarantee future outcomes.",
     },
     {
       q: "Can I use it from my phone?",
