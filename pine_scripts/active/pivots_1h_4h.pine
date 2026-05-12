@@ -33,10 +33,17 @@ piv_right       = input.int(3, "4h pivot — right bars", minval = 2, maxval = 1
 var array<line> r_lines = array.new<line>()
 var array<line> s_lines = array.new<line>()
 
+// Line x-anchor uses xloc.bar_time (absolute timestamp) instead of
+// xloc.bar_index — bar_index is chart-specific (15m bars vs 4h bars
+// produce different indices for the same wall-clock moment), so lines
+// rendered with xloc.bar_index can appear at different positions
+// across timeframes. xloc.bar_time anchors to a specific second of
+// chart history regardless of bar size.
+
 // New 4h resistance — create a horizontal line at the pivot price and
 // rotate the oldest out if we're over the N-per-side cap.
 if show_resistance and not na(ph_4h_raw)
-    new_r = line.new(x1 = bar_index, y1 = ph_4h_raw, x2 = bar_index + 1, y2 = ph_4h_raw, extend = extend.right, color = color.new(color.red, 0), style = line.style_dashed, width = 2)
+    new_r = line.new(x1 = time, y1 = ph_4h_raw, x2 = time + 1, y2 = ph_4h_raw, xloc = xloc.bar_time, extend = extend.right, color = color.new(color.red, 0), style = line.style_dashed, width = 2)
     array.push(r_lines, new_r)
     while array.size(r_lines) > show_n
         oldest = array.shift(r_lines)
@@ -44,7 +51,7 @@ if show_resistance and not na(ph_4h_raw)
 
 // New 4h support — same pattern, green.
 if show_support and not na(pl_4h_raw)
-    new_s = line.new(x1 = bar_index, y1 = pl_4h_raw, x2 = bar_index + 1, y2 = pl_4h_raw, extend = extend.right, color = color.new(color.green, 0), style = line.style_dashed, width = 2)
+    new_s = line.new(x1 = time, y1 = pl_4h_raw, x2 = time + 1, y2 = pl_4h_raw, xloc = xloc.bar_time, extend = extend.right, color = color.new(color.green, 0), style = line.style_dashed, width = 2)
     array.push(s_lines, new_s)
     while array.size(s_lines) > show_n
         oldest = array.shift(s_lines)
