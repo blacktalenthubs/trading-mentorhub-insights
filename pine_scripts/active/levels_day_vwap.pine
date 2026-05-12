@@ -561,10 +561,22 @@ was_above_vwap = all_closes_above_vwap(vwap_setup_bars)
 vwap_reclaim_long = not na(vwap_v) and not na(pdh) and was_below_vwap and close > vwap_v and close > open and close < pdh
 vwap_reject_short = not na(vwap_v) and not na(pdl) and was_above_vwap and close < vwap_v and close < open and close > pdl
 
+// VWAP support hold — price was above VWAP for `vwap_setup_bars` consecutive
+// bars, then wicked DOWN to/through VWAP on this bar, but closed back above
+// on a green bar. "VWAP defended" — bullish continuation context for SPY-like
+// trend days where VWAP is the live institutional reference. NOTICE only.
+// vwap_tolerance: how close the wick has to come to VWAP to count as a test.
+vwap_tolerance_pct = 0.001  // 0.1% — tight test, not just "in the area"
+vwap_support_hold = not na(vwap_v) and was_above_vwap and low <= vwap_v * (1.0 + vwap_tolerance_pct) and close > vwap_v and close > open
+
 // Visual markers
 plotshape(show_signals and vwap_reclaim_long,
           title = "VWAP reclaim LONG", location = location.belowbar,
           color = color.new(#00BCD4, 0), style = shape.triangleup,
+          size = size.small)
+plotshape(show_signals and vwap_support_hold,
+          title = "VWAP support HOLD", location = location.belowbar,
+          color = color.new(#9C27B0, 0), style = shape.circle,
           size = size.small)
 plotshape(show_signals and vwap_reject_short,
           title = "VWAP reject SHORT", location = location.abovebar,
@@ -575,6 +587,13 @@ if show_signals and vwap_reclaim_long
     label.new(bar_index, low, "VWAP→PDH",
               style = label.style_label_up,
               color = color.new(#00BCD4, 0),
+              textcolor = color.white,
+              size = size.tiny,
+              yloc = yloc.belowbar)
+if show_signals and vwap_support_hold
+    label.new(bar_index, low, "VWAP HOLD",
+              style = label.style_label_up,
+              color = color.new(#9C27B0, 0),
               textcolor = color.white,
               size = size.tiny,
               yloc = yloc.belowbar)
@@ -613,6 +632,20 @@ if fire_vwap_alerts and vwap_reject_short
                                       false, 1,
                                       volume_ratio, cvd_slope_n, bullish_div)
     alert(msg_vwap_short, alert.freq_once_per_bar_close)
+
+// VWAP support hold — defended pullback to VWAP, NOTICE only. Stop below
+// the wick low of the holding bar; T1 = next overhead (PDH); T2 = PDH +
+// projection. Most useful on SPY 10m chart: when SPY's VWAP holds during
+// a pullback, the broader long bias for the day is intact.
+if fire_vwap_alerts and vwap_support_hold
+    e = close
+    s = low - atr_buffer
+    t1 = pdh
+    t2 = not na(pdh) ? pdh + (pdh - e) * 0.5 : e * 1.005
+    msg_vwap_hold = build_payload_v2("vwap_support_hold", "NOTICE", e, s, t1, t2,
+                                     false, 1,
+                                     volume_ratio, cvd_slope_n, bearish_div)
+    alert(msg_vwap_hold, alert.freq_once_per_bar_close)
 
 // vwap_lose_short was added briefly 2026-05-05 and removed same day.
 // AAPL 1h chart showed 7 LOSE VWAP labels in a single session because

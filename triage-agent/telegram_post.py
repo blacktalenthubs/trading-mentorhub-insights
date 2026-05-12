@@ -399,6 +399,7 @@ _REASON_EXACT = {
     "pivot_aligned_reject_short": "1h/4h pivot reject ↓",
     "vwap_reclaim_long":          "VWAP reclaim ↑",
     "vwap_reject_short":          "VWAP reject ↓",
+    "vwap_support_hold":          "VWAP support hold ✓",
 }
 
 def _pretty_reason(alert_type: str) -> str:
