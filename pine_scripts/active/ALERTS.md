@@ -91,19 +91,18 @@ One-shot per session each (state vars reset at next session open):
 ## Pine 3 — `sb-trend` (Steve Burns trend stack)
 
 **File**: `pine_scripts/active/steve_burns_trend.pine`
-**Monitors**: EMA 5 / 10 / 20 stack + SMA 50 / 200 + Keltner Channels (20, 3.0, 10)
-**Alert taxonomy**: 4 NOTICE events (off by default, opt-in via `fire_stack_alerts`)
+**Monitors**: EMA 5 + EMA 20 + SMA 50 — all daily-anchored via `request.security("D", …)`
+**Alert taxonomy**: 2 NOTICE events (off by default, opt-in via `fire_stack_alerts`)
 
 ### Visual layer (always on)
 
-- **EMA 5 / 10 / 20** plotted as a fast-MA stack
-- **SMA 50 / 200** for golden/death-cross context
-- **Keltner Channels** (basis + upper + lower bands)
-- **Background tint** when full stack is aligned (green = bullish stack, red = bearish stack)
-- **▲ STACK+** triangle when bullish stack just forms, ▼ STACK- when bearish stack just forms
-- **○ KC↑ / KC↓** circle markers when price closes outside the Keltner envelope
+- **EMA 5 (D)** — purple
+- **EMA 20 (D)** — green
+- **SMA 50 (D)** — blue
+- **Background tint** when stack is aligned (green = bullish, red = bearish)
+- **▲ STACK+** triangle when bullish stack first forms, ▼ STACK- when bearish first forms
 
-Bullish stack = `EMA5 > EMA10 > EMA20 AND close > SMA50 AND SMA50 > SMA200`. Reverse for bearish.
+Bullish stack = `EMA5 > EMA20 AND close > SMA50`. Reverse for bearish.
 
 ### Alert events (opt-in)
 
@@ -113,10 +112,8 @@ Enable `fire_stack_alerts=true` on the chart instance to receive these. All NOTI
 |---|---|---|
 | `sb_stack_long` | Bullish stack first forms (no prior bar had stack alignment) | NOTICE |
 | `sb_stack_short` | Bearish stack first forms | NOTICE |
-| `sb_kelt_break_long` | Close above Keltner upper band — momentum thrust | NOTICE |
-| `sb_kelt_break_short` | Close below Keltner lower band | NOTICE |
 
-Backend gating: like all NOTICEs, hard-gated to SPY/QQQ at the triage layer unless you want to widen the index-only filter. ETH MA cooldown doesn't apply (different alert taxonomy).
+Backend gating: like all NOTICEs, hard-gated to SPY/QQQ at the triage layer.
 
 ---
 

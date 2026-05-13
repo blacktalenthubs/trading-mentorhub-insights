@@ -1,76 +1,48 @@
 // @version=5
 //
-// Steve Burns trend-stack indicator — DAILY-ANCHORED.
+// Steve Burns trend-stack indicator — DAILY-ANCHORED, simplified.
 //
-// All values fetched via request.security("D", ...) so plots stay
-// horizontal across chart timeframes (same shape as ma-ema-daily).
-// Switching between 5m / 15m / 1h / daily shows IDENTICAL levels.
+// Plots EMA 5, EMA 20, and SMA 50 — all fetched from the DAILY
+// timeframe via request.security so the lines stay horizontal
+// regardless of chart TF (5m / 15m / 1h / 4h / daily all show
+// IDENTICAL levels).
 //
-// Plots:
-//   • EMA stack — 5, 10, 20 (daily)
-//   • SMA 50, 200 (daily)
-//   • Keltner Channels (20, 3.0, 10) — basis = daily EMA20, range = daily ATR10
-//
-// Burns' core thesis: when EMA 5 > 10 > 20 AND price > SMA 50 > SMA 200,
-// the trend is fully aligned. Pullbacks to the stack are continuation
-// entries. Reverse stack = confirmed downtrend.
+// Burns' core thesis (simplified): when EMA 5 > EMA 20 and price is
+// above the SMA 50, the trend is aligned long. Reverse stack = down.
+// Pullbacks to the stack are continuation entries.
 //
 // Alerts (opt-in via `fire_stack_alerts`):
-//   • `sb_stack_long`       — bullish stack just formed (NOTICE)
-//   • `sb_stack_short`      — bearish stack just formed (NOTICE)
-//   • `sb_kelt_break_long`  — close above daily Keltner upper (NOTICE)
-//   • `sb_kelt_break_short` — close below daily Keltner lower (NOTICE)
+//   • `sb_stack_long`  — bullish stack just formed (NOTICE)
+//   • `sb_stack_short` — bearish stack just formed (NOTICE)
 //
 indicator("sb-trend", overlay = true)
 
 // ── Inputs ──────────────────────────────────────────────────────────
-show_ema_stack    = input.bool(true,  "Show EMA stack (5/10/20)")
-show_sma_long     = input.bool(true,  "Show SMA 50/200")
-show_kelt         = input.bool(true,  "Show Keltner Channels")
+show_ema_stack    = input.bool(true,  "Show EMA stack (5 / 20)")
+show_sma_50       = input.bool(true,  "Show SMA 50")
 show_stack_bg     = input.bool(true,  "Tint background on bullish/bearish stack")
-fire_stack_alerts = input.bool(false, "Fire stack-formation + Keltner-break alerts (NOTICE)")
+fire_stack_alerts = input.bool(false, "Fire stack-formation alerts (NOTICE)")
 
-ema_fast_len      = input.int(5,    "EMA fast",          minval = 2, maxval = 20)
-ema_mid_len       = input.int(10,   "EMA mid",           minval = 3, maxval = 30)
-ema_slow_len      = input.int(20,   "EMA slow",          minval = 5, maxval = 50)
-sma_short_len     = input.int(50,   "SMA short (trend)", minval = 20, maxval = 100)
-sma_long_len      = input.int(200,  "SMA long (macro)",  minval = 50, maxval = 400)
-kelt_len          = input.int(20,   "Keltner length",    minval = 5, maxval = 50)
-kelt_mult         = input.float(3.0,"Keltner multiplier",minval = 1.0, maxval = 5.0, step = 0.5)
-kelt_atr_len      = input.int(10,   "Keltner ATR length",minval = 5, maxval = 30)
+ema_fast_len      = input.int(5,    "EMA fast", minval = 2, maxval = 20)
+ema_slow_len      = input.int(20,   "EMA slow", minval = 5, maxval = 50)
+sma_trend_len     = input.int(50,   "SMA trend", minval = 20, maxval = 100)
 
 // ── Daily values via request.security ───────────────────────────────
 // Same pattern as ma-ema-daily — fetch the PREVIOUS daily bar's value
 // ([1] index) with lookahead_on so the daily series is fully confirmed
 // and never repaints. Result: identical plot on any chart TF.
-ema5  = request.security(syminfo.tickerid, "D", ta.ema(close, ema_fast_len)[1],  lookahead = barmerge.lookahead_on)
-ema10 = request.security(syminfo.tickerid, "D", ta.ema(close, ema_mid_len)[1],   lookahead = barmerge.lookahead_on)
-ema20 = request.security(syminfo.tickerid, "D", ta.ema(close, ema_slow_len)[1],  lookahead = barmerge.lookahead_on)
-sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, sma_short_len)[1], lookahead = barmerge.lookahead_on)
-sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, sma_long_len)[1],  lookahead = barmerge.lookahead_on)
-
-// Keltner Channels = daily EMA20 basis ± daily ATR(10) × multiplier.
-// All components fetched on daily TF for consistency.
-kelt_basis    = request.security(syminfo.tickerid, "D", ta.ema(close, kelt_len)[1], lookahead = barmerge.lookahead_on)
-kelt_atr_daily = request.security(syminfo.tickerid, "D", ta.atr(kelt_atr_len)[1],   lookahead = barmerge.lookahead_on)
-kelt_upper = kelt_basis + kelt_atr_daily * kelt_mult
-kelt_lower = kelt_basis - kelt_atr_daily * kelt_mult
+ema5  = request.security(syminfo.tickerid, "D", ta.ema(close, ema_fast_len)[1], lookahead = barmerge.lookahead_on)
+ema20 = request.security(syminfo.tickerid, "D", ta.ema(close, ema_slow_len)[1], lookahead = barmerge.lookahead_on)
+sma50 = request.security(syminfo.tickerid, "D", ta.sma(close, sma_trend_len)[1], lookahead = barmerge.lookahead_on)
 
 // ── Plots ───────────────────────────────────────────────────────────
-plot(show_ema_stack ? ema5  : na, title = "EMA 5 (D)",   color = color.new(#9C27B0, 0),  linewidth = 2)
-plot(show_ema_stack ? ema10 : na, title = "EMA 10 (D)",  color = color.new(#EF4444, 0),  linewidth = 2)
-plot(show_ema_stack ? ema20 : na, title = "EMA 20 (D)",  color = color.new(#22C55E, 0),  linewidth = 2)
-plot(show_sma_long  ? sma50  : na, title = "SMA 50 (D)",  color = color.new(#3B82F6, 0), linewidth = 2)
-plot(show_sma_long  ? sma200 : na, title = "SMA 200 (D)", color = color.new(#A855F7, 0), linewidth = 2)
-plot(show_kelt ? kelt_upper : na, title = "KC Upper (D)", color = color.new(#FF9800, 30), linewidth = 1)
-plot(show_kelt ? kelt_basis : na, title = "KC Basis (D)", color = color.new(#FF9800, 60), linewidth = 1)
-plot(show_kelt ? kelt_lower : na, title = "KC Lower (D)", color = color.new(#FF9800, 30), linewidth = 1)
+plot(show_ema_stack ? ema5  : na, title = "EMA 5 (D)",  color = color.new(#9C27B0, 0), linewidth = 2)
+plot(show_ema_stack ? ema20 : na, title = "EMA 20 (D)", color = color.new(#22C55E, 0), linewidth = 2)
+plot(show_sma_50    ? sma50 : na, title = "SMA 50 (D)", color = color.new(#3B82F6, 0), linewidth = 2)
 
-// ── Stack state (using current chart close vs daily MAs) ───────────
-// `close` here is the chart-TF close — bullishness depends on whether
-// current intraday price is above the daily-anchored SMA stack.
-bullish_stack = ema5 > ema10 and ema10 > ema20 and close > sma50 and sma50 > sma200
-bearish_stack = ema5 < ema10 and ema10 < ema20 and close < sma50 and sma50 < sma200
+// ── Stack state (close vs daily MAs) ────────────────────────────────
+bullish_stack = ema5 > ema20 and close > sma50
+bearish_stack = ema5 < ema20 and close < sma50
 
 new_bullish_stack = bullish_stack and not (bullish_stack[1])
 new_bearish_stack = bearish_stack and not (bearish_stack[1])
@@ -79,31 +51,18 @@ bgcolor(show_stack_bg and bullish_stack ? color.new(color.green, 95) : na, title
 bgcolor(show_stack_bg and bearish_stack ? color.new(color.red,   95) : na, title = "Bearish stack bg")
 
 // ── Stack-formation markers ────────────────────────────────────────
-plotshape(new_bullish_stack, title = "Bullish stack formed",  location = location.belowbar, color = color.new(color.green, 0), style = shape.triangleup,   size = size.small, text = "STACK+", textcolor = color.white)
-plotshape(new_bearish_stack, title = "Bearish stack formed",  location = location.abovebar, color = color.new(color.red,   0), style = shape.triangledown, size = size.small, text = "STACK-", textcolor = color.white)
-
-// ── Keltner breakouts (current close vs daily KC bands) ────────────
-kelt_break_long  = close > kelt_upper and close[1] <= kelt_upper
-kelt_break_short = close < kelt_lower and close[1] >= kelt_lower
-
-plotshape(kelt_break_long,  title = "Keltner upper breakout",  location = location.belowbar, color = color.new(#FF9800, 0), style = shape.circle, size = size.tiny, text = "KC↑", textcolor = color.white)
-plotshape(kelt_break_short, title = "Keltner lower breakdown", location = location.abovebar, color = color.new(#FF9800, 0), style = shape.circle, size = size.tiny, text = "KC↓", textcolor = color.white)
+plotshape(new_bullish_stack, title = "Bullish stack formed", location = location.belowbar, color = color.new(color.green, 0), style = shape.triangleup,   size = size.small, text = "STACK+", textcolor = color.white)
+plotshape(new_bearish_stack, title = "Bearish stack formed", location = location.abovebar, color = color.new(color.red,   0), style = shape.triangledown, size = size.small, text = "STACK-", textcolor = color.white)
 
 // ── Payload + alerts (NOTICE direction) ────────────────────────────
 build_sb_payload(rule, direction, e_p, s_p, t1_p, t2_p) =>
-    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(e_p, format.mintick) + '","stop":"' + str.tostring(s_p, format.mintick) + '","target_1":"' + str.tostring(t1_p, format.mintick) + '","target_2":"' + str.tostring(t2_p, format.mintick) + '","rule":"' + rule + '","direction":"' + direction + '","ema5":"' + str.tostring(ema5, format.mintick) + '","ema10":"' + str.tostring(ema10, format.mintick) + '","ema20":"' + str.tostring(ema20, format.mintick) + '","sma50":"' + str.tostring(sma50, format.mintick) + '","sma200":"' + str.tostring(sma200, format.mintick) + '","kelt_basis":"' + str.tostring(kelt_basis, format.mintick) + '","kelt_upper":"' + str.tostring(kelt_upper, format.mintick) + '","kelt_lower":"' + str.tostring(kelt_lower, format.mintick) + '","fired_at":"' + str.tostring(timenow) + '"}'
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(e_p, format.mintick) + '","stop":"' + str.tostring(s_p, format.mintick) + '","target_1":"' + str.tostring(t1_p, format.mintick) + '","target_2":"' + str.tostring(t2_p, format.mintick) + '","rule":"' + rule + '","direction":"' + direction + '","ema5":"' + str.tostring(ema5, format.mintick) + '","ema20":"' + str.tostring(ema20, format.mintick) + '","sma50":"' + str.tostring(sma50, format.mintick) + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 atr14_chart = nz(ta.atr(14)[1], close * 0.005)
 buf = atr14_chart * 0.3
 
 if fire_stack_alerts and new_bullish_stack
-    alert(build_sb_payload("sb_stack_long", "NOTICE", close, ema20 - buf, kelt_upper, kelt_upper + (kelt_upper - close) * 0.5), alert.freq_once_per_bar_close)
+    alert(build_sb_payload("sb_stack_long",  "NOTICE", close, ema20 - buf, close * 1.01, close * 1.025), alert.freq_once_per_bar_close)
 
 if fire_stack_alerts and new_bearish_stack
-    alert(build_sb_payload("sb_stack_short", "NOTICE", close, ema20 + buf, kelt_lower, kelt_lower - (close - kelt_lower) * 0.5), alert.freq_once_per_bar_close)
-
-if fire_stack_alerts and kelt_break_long
-    alert(build_sb_payload("sb_kelt_break_long", "NOTICE", close, kelt_basis - buf, close + (close - kelt_basis) * 1.5, close + (close - kelt_basis) * 3.0), alert.freq_once_per_bar_close)
-
-if fire_stack_alerts and kelt_break_short
-    alert(build_sb_payload("sb_kelt_break_short", "NOTICE", close, kelt_basis + buf, close - (kelt_basis - close) * 1.5, close - (kelt_basis - close) * 3.0), alert.freq_once_per_bar_close)
+    alert(build_sb_payload("sb_stack_short", "NOTICE", close, ema20 + buf, close * 0.99, close * 0.975), alert.freq_once_per_bar_close)

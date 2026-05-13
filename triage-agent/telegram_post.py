@@ -400,8 +400,6 @@ _REASON_EXACT = {
     "open_reclaimed":             "Reclaimed the open ↑",
     "sb_stack_long":              "Burns stack bullish ↑",
     "sb_stack_short":             "Burns stack bearish ↓",
-    "sb_kelt_break_long":         "Keltner thrust ↑",
-    "sb_kelt_break_short":        "Keltner thrust ↓",
 }
 
 def _pretty_reason(alert_type: str) -> str:
