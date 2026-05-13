@@ -127,7 +127,9 @@ export default function EODReportPage() {
     return c;
   }, [alerts]);
 
-  function copyAsTSV() {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
+
+  async function copyAsTSV() {
     const header = ["Time", "Symbol", "Direction", "Reason", "Entry", "Stop", "T1", "T2", "R:R", "Vol×", "CVD"];
     const lines = rows.map((a) => [
       timeOnly(a.created_at),
@@ -142,7 +144,31 @@ export default function EODReportPage() {
       a.volume_ratio != null ? a.volume_ratio.toFixed(2) : "",
       a.cvd_diverging == null ? "" : a.cvd_diverging ? "diverging" : "confirming",
     ].join("\t"));
-    navigator.clipboard.writeText([header.join("\t"), ...lines].join("\n"));
+    const text = [header.join("\t"), ...lines].join("\n");
+
+    // Try modern clipboard API; fall back to textarea+execCommand on
+    // browsers/contexts where it's unavailable (non-https, sandboxed iframe).
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (!ok) throw new Error("execCommand copy returned false");
+      }
+      setCopyStatus("ok");
+      setTimeout(() => setCopyStatus("idle"), 2000);
+    } catch (err) {
+      console.error("Copy failed:", err);
+      setCopyStatus("fail");
+      setTimeout(() => setCopyStatus("idle"), 3000);
+    }
   }
 
   return (
@@ -156,11 +182,17 @@ export default function EODReportPage() {
         </div>
         <button
           onClick={copyAsTSV}
-          className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+          className={`rounded px-3 py-1.5 text-xs font-medium text-white transition ${
+            copyStatus === "ok"   ? "bg-bullish hover:bg-bullish/90"     :
+            copyStatus === "fail" ? "bg-bearish-text hover:bg-bearish-text/90" :
+                                    "bg-accent hover:bg-accent-hover"
+          }`}
           disabled={rows.length === 0}
           title="Copy as tab-separated values — paste into Sheets/Excel/Notion"
         >
-          Copy as TSV
+          {copyStatus === "ok"   ? `✓ Copied ${rows.length} rows` :
+           copyStatus === "fail" ? "✗ Copy failed"                :
+                                   `Copy as TSV (${rows.length})`}
         </button>
       </div>
 

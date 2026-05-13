@@ -78,18 +78,26 @@ async def alerts_history(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Enforce tier-based history depth
-    tier = get_user_tier(user)
-    limits = get_limits(tier)
-    max_days = limits.get("alert_history_days")
-    if max_days is not None:
-        days = min(days, max(max_days, 1))  # at least 1 day
+    # Enforce tier-based history depth. Admin users bypass all caps.
+    from app.dependencies import is_admin_user
+    if not is_admin_user(user):
+        tier = get_user_tier(user)
+        limits = get_limits(tier)
+        max_days = limits.get("alert_history_days")
+        if max_days is not None:
+            days = min(days, max(max_days, 1))
+
+    # Row cap was previously `days * 50` (4500 for 90 days). With high
+    # alert volume (~70+ per day for active users), older sessions were
+    # getting cut off entirely. Bumped to 200/day so even very busy
+    # symbols stay in scope. Admin users get a higher ceiling.
+    rows_per_day = 500 if is_admin_user(user) else 200
 
     result = await db.execute(
         select(Alert)
         .where(Alert.user_id == user.id)
         .order_by(Alert.created_at.desc())
-        .limit(days * 50)
+        .limit(days * rows_per_day)
     )
     return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
 
