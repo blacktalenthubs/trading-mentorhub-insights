@@ -16,10 +16,6 @@ function prettyReason(alertType: string | null | undefined): string {
   t = t.replace(/^staged_pdh_rejection$/, "PDH reject");
   t = t.replace(/^staged_pdh_failed_short$/, "PDH fail-short");
   t = t.replace(/^staged_pdl_break$/, "PDL break");
-  t = t.replace(/^pivot_aligned_break_long$/, "1h/4h pivot break ↑");
-  t = t.replace(/^pivot_aligned_break_short$/, "1h/4h pivot break ↓");
-  t = t.replace(/^pivot_aligned_reclaim_long$/, "1h/4h pivot reclaim ↑");
-  t = t.replace(/^pivot_aligned_reject_short$/, "1h/4h pivot reject ↓");
   t = t.replace(/^vwap_reclaim_long$/, "VWAP reclaim");
   t = t.replace(/^vwap_reject_short$/, "VWAP reject");
   t = t.replace(/ema(\d+)_ema(\d+)/g, "EMA$1+EMA$2");
