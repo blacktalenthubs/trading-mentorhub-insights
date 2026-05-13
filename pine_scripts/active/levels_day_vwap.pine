@@ -31,7 +31,7 @@ show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
 show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
 show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
-fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/lose alerts (NOTICE-only — set true on 1h chart for confirmation)")
+fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/support alerts (NOTICE — SPY/QQQ only; ignored on other symbols)")
 sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
 atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
@@ -676,15 +676,20 @@ if show_signals and vwap_reject_short
               size = size.tiny,
               yloc = yloc.abovebar)
 
-// Alerts — entry at VWAP cross, stop just below/above the wick, T1 = PDH/PDL.
-// 2026-05-04 v2: VWAP alerts now fire as direction="NOTICE" (heads-up only,
-// not tradable). VWAP whips through chop too easily for entry signals, but
-// a 1h-confirmed reclaim/reject is real context worth knowing. Recommended
-// setup: keep fire_vwap_alerts=false on 15m chart, set true on a separate
-// 1h chart's instance of this indicator. NOTICE-direction alerts surface
-// in Telegram with "NOTICE" prefix so the brain doesn't anchor on them as
-// entries. Visual labels paint regardless of fire_vwap_alerts.
-if fire_vwap_alerts and vwap_reclaim_long
+// VWAP alerts — gated to SPY / QQQ only.
+//
+// VWAP as a level matters most as an INSTITUTIONAL REFERENCE on the index
+// ETFs (SPY/QQQ). On individual stocks, VWAP is noisy and the alerts
+// aren't actionable — most stocks oscillate around VWAP without it being
+// a meaningful structural level. Hardcoding the macro-symbol filter at
+// the Pine level so alerts don't fire on unintended charts even if a
+// user accidentally toggles `fire_vwap_alerts=true`.
+//
+// The visual VWAP line + markers still paint on any chart (useful as
+// context). Only the alert() calls are restricted.
+is_macro_symbol = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ"
+
+if fire_vwap_alerts and is_macro_symbol and vwap_reclaim_long
     e = close
     s = math.min(low, low[1]) - atr_buffer
     t1 = pdh
@@ -694,7 +699,7 @@ if fire_vwap_alerts and vwap_reclaim_long
                                      volume_ratio, cvd_slope_n, bearish_div)
     alert(msg_vwap_long, alert.freq_once_per_bar_close)
 
-if fire_vwap_alerts and vwap_reject_short
+if fire_vwap_alerts and is_macro_symbol and vwap_reject_short
     e = close
     s = math.max(high, high[1]) + atr_buffer
     t1 = pdl
@@ -708,7 +713,7 @@ if fire_vwap_alerts and vwap_reject_short
 // the wick low of the holding bar; T1 = next overhead (PDH); T2 = PDH +
 // projection. Most useful on SPY 10m chart: when SPY's VWAP holds during
 // a pullback, the broader long bias for the day is intact.
-if fire_vwap_alerts and vwap_support_hold
+if fire_vwap_alerts and is_macro_symbol and vwap_support_hold
     e = close
     s = low - atr_buffer
     t1 = pdh
