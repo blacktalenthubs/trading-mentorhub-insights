@@ -84,6 +84,14 @@ MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "true").lower() == "tr
 # Backwards compat: CRYPTO_MA_DAILY_CAP read as fallback name.
 MA_DAILY_CAP = int(os.environ.get("MA_DAILY_CAP", os.environ.get("CRYPTO_MA_DAILY_CAP", "2")))
 
+# Per-day cap on NOTICE-direction alerts (VWAP reclaim/reject/support,
+# open lost/reclaimed, weekly/monthly level NOTICEs). Same (symbol,
+# alert_type, session_date) bucket logic as the MA cap — second
+# occurrence of the same notice in chop is informationally redundant.
+# Only applies when MUTE_NOTICE_ALERTS=false (otherwise notices are
+# muted entirely before this gate runs).
+NOTICE_DAILY_CAP = int(os.environ.get("NOTICE_DAILY_CAP", "2"))
+
 HEARTBEAT_SECS  = 30
 RECONNECT_SECS  = 5
 
@@ -301,6 +309,28 @@ def process_alert(alert_id, budget, dry_run=False):
                 "alert_id": alert_id, "symbol": alert["symbol"],
                 "alert_type": alert["alert_type"], "verdict": "MA_DAILY_CAP_HIT",
                 "reason": f"{prior} prior fires today (cap={MA_DAILY_CAP})",
+            })
+            save_cursor(alert_id)
+            return
+
+    # NOTICE daily cap — same setup, second occurrence of the same notice
+    # in chop is informationally redundant. Only runs when MUTE_NOTICE_ALERTS
+    # is false (otherwise the mute check above short-circuits first).
+    if (alert.get("direction") or "").upper() == "NOTICE":
+        prior = count_prior_fires_today(
+            alert["symbol"], alert["alert_type"], alert["session_date"],
+            alert_id, USER_ID,
+        )
+        if prior >= NOTICE_DAILY_CAP:
+            logger.info(
+                "CAP_HIT #%s %s %s NOTICE — %d prior fires today >= cap %d, skipping",
+                alert_id, alert["symbol"], alert["alert_type"],
+                prior, NOTICE_DAILY_CAP,
+            )
+            write_audit({
+                "alert_id": alert_id, "symbol": alert["symbol"],
+                "alert_type": alert["alert_type"], "verdict": "NOTICE_DAILY_CAP_HIT",
+                "reason": f"{prior} prior NOTICE fires today (cap={NOTICE_DAILY_CAP})",
             })
             save_cursor(alert_id)
             return
