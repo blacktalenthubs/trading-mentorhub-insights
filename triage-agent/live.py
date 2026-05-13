@@ -78,13 +78,19 @@ POST_MODE       = os.environ.get("TRIAGE_POST_MODE", "all").lower()
 # for SPY/QQQ macro alignment.
 MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "false").lower() == "true"
 
-# Per-day cap on MA/EMA alerts. Crypto chops around EMA8/21 24/7 and
-# equities re-fire the same MA bounce all session — same setup, no new
-# information after the 2nd hit. Limits each (symbol, alert_type) combo
-# to N fires per session_date for ALL symbols. EMA8 and EMA21 buckets
-# are independent (so EMA8 hitting the cap doesn't affect EMA21 alerts).
+# Per-day cap on MA/EMA alerts. ETH chops around EMA8/21 24/7 — same
+# setup re-fires endlessly on crypto. Cap limits each (symbol, alert_type)
+# combo to N fires per session_date, BUT ONLY for symbols in
+# MA_DAILY_CAP_SYMBOLS (default: ETH-USD). Equity MA bounces are NOT
+# capped — dedup + cooldown already handle rate-limiting there, and we
+# don't want to miss valid 2nd/3rd entries on a trend day.
 # Backwards compat: CRYPTO_MA_DAILY_CAP read as fallback name.
 MA_DAILY_CAP = int(os.environ.get("MA_DAILY_CAP", os.environ.get("CRYPTO_MA_DAILY_CAP", "2")))
+MA_DAILY_CAP_SYMBOLS = set(
+    s.strip().upper()
+    for s in os.environ.get("MA_DAILY_CAP_SYMBOLS", "ETH-USD").split(",")
+    if s.strip()
+)
 
 # Per-day cap on NOTICE-direction alerts (VWAP reclaim/reject/support,
 # open lost/reclaimed, weekly/monthly level NOTICEs). Same (symbol,
@@ -187,9 +193,14 @@ def count_prior_fires_today(symbol, alert_type, session_date, current_id, user_i
 
 def is_ma_alert(alert):
     """True if this alert is an MA bounce / rejection subject to the per-day
-    cap. Proximity (NOTICE) alerts are already muted elsewhere — we only
-    cap actionable BUY/SHORT MA events here. Applies to all symbols.
+    cap. Restricted to symbols in MA_DAILY_CAP_SYMBOLS (default: ETH-USD)
+    — equity MA bounces are not capped here because dedup + cooldown logic
+    already throttles them, and capping risks missing valid 2nd/3rd
+    entries on a trend day.
     """
+    symbol = (alert.get("symbol") or "").upper()
+    if symbol not in MA_DAILY_CAP_SYMBOLS:
+        return False
     at = (alert.get("alert_type") or "")
     return at.startswith("tv_ma_bounce_long_v3_ema") or at.startswith("tv_ma_rejection_short_v3_ema")
 
