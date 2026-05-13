@@ -71,10 +71,12 @@ EOD_MINUTE_ET       = int(os.environ.get("EOD_MINUTE_ET", "5"))
 # judge accuracy). Switch to 'high_only' once the agent is trusted.
 POST_MODE       = os.environ.get("TRIAGE_POST_MODE", "all").lower()
 
-# Mute NOTICE-direction alerts (ma_proximity_*, vwap_reclaim/reject_*).
-# Default true — NOTICE is heads-up context, not actionable; muting saves
-# triage tokens + Telegram noise. Flip to false to bring them back.
-MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "true").lower() == "true"
+# Mute NOTICE-direction alerts. Default FALSE — NOTICEs reach Telegram
+# (SPY/QQQ only — non-index NOTICEs filtered separately, see process_alert).
+# Set to true to mute NOTICEs entirely; the per-session cap still applies
+# when enabled. Old behavior was mute=true; now NOTICEs are core context
+# for SPY/QQQ macro alignment.
+MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "false").lower() == "true"
 
 # Per-day cap on MA/EMA alerts. Crypto chops around EMA8/21 24/7 and
 # equities re-fire the same MA bounce all session — same setup, no new

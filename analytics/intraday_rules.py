@@ -8990,29 +8990,28 @@ def evaluate_rules(
                     symbol, s.alert_type.value, _adx,
                 )
 
-    # --- SPY Daily EMA Regime Gate ---
-    from alert_config import (SPY_REGIME_ENABLED, REGIME_TRENDING_SUPPRESS_SHORTS,
-                              REGIME_CAUTIOUS_SCORE_PENALTY, SPY_SHORT_SYMBOLS)
+    # --- Hard gate: SHORTs are SPY/QQQ ONLY (always) ---
+    # User direction 2026-05-12: only the index ETFs (SPY/QQQ) can fire
+    # SHORT alerts. Individual equity shorts are dropped at all times,
+    # regardless of SPY regime. This is more aggressive than the older
+    # "suppress in TRENDING only" gate — applied unconditionally.
+    # Crypto path is unaffected (`is_crypto` exempts crypto symbols).
+    from alert_config import (SPY_REGIME_ENABLED, REGIME_CAUTIOUS_SCORE_PENALTY,
+                              SPY_SHORT_SYMBOLS)
+    if not is_crypto and symbol not in SPY_SHORT_SYMBOLS:
+        pre_short_gate = signals[:]
+        signals = [s for s in signals if s.direction != "SHORT"]
+        for s in pre_short_gate:
+            if s not in signals:
+                logger.info(
+                    "%s: INDEX-ONLY SHORT gate dropped %s (only SPY/QQQ can short)",
+                    symbol, s.alert_type.value,
+                )
+
+    # --- SPY Daily EMA Regime Tags (informational, BUY-side only) ---
     _spy_daily_regime = spy.get("spy_daily_regime") if spy else None
-
     if SPY_REGIME_ENABLED and _spy_daily_regime and not is_crypto:
-        # SPY/QQQ shorts ALWAYS fire even in TRENDING regime — they're macro
-        # trend-change signals (rejection at PDH/key MA, PDL break on volume).
-        # Suppressing them in TRENDING is exactly when you'd want the warning.
-        # Other equities still get short-filtered in TRENDING (bull-market protection).
-        if (_spy_daily_regime == "TRENDING"
-            and REGIME_TRENDING_SUPPRESS_SHORTS
-            and symbol not in SPY_SHORT_SYMBOLS):
-            pre_regime = signals[:]
-            signals = [s for s in signals if s.direction != "SHORT"]
-            for s in pre_regime:
-                if s not in signals:
-                    logger.info(
-                        "%s: REGIME TRENDING suppressed SHORT %s",
-                        symbol, s.alert_type.value,
-                    )
-
-        elif _spy_daily_regime == "CAUTIOUS":
+        if _spy_daily_regime == "CAUTIOUS":
             for s in signals:
                 if s.direction == "BUY":
                     s.score = max(0, s.score - REGIME_CAUTIOUS_SCORE_PENALTY)
