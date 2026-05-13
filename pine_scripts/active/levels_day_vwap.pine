@@ -25,13 +25,16 @@ indicator("levels-day-vwap", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
 show_open         = input.bool(true,  "Show today's opening price")
-fire_open_alerts  = input.bool(false, "Fire open lost/reclaim alerts (NOTICE-only — set true on SPY chart for session-shift heads-up)")
+fire_open_alerts  = input.bool(true,  "Fire open lost/reclaim alerts (NOTICE — SPY/QQQ only; ignored on other symbols)")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
 show_stage_badge  = input.bool(true,  "Show Stage badge (top-right)")
 show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
 fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/support alerts (NOTICE — SPY/QQQ only; ignored on other symbols)")
+// Note: macro-symbol gate is shared across VWAP, open lost/reclaimed,
+// and the failed-PDH session window expansion. Defined once near top.
+is_macro_symbol   = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ"
 sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
 atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
@@ -291,8 +294,15 @@ pdh_failed = not na(failed_resistance)
 bars_since_pdl_break = na(pdl_break_bar) ? 9999 : bar_index - pdl_break_bar
 bars_since_pdh_break = na(pdh_break_bar) ? 9999 : bar_index - pdh_break_bar
 
-sweep_reclaim_long   = pdl_reclaim and bars_since_pdl_break <= sweep_window_bars
-sweep_reversal_short = pdh_failed  and bars_since_pdh_break <= sweep_window_bars
+// Effective sweep window — SPY/QQQ use a session-wide window (200 bars,
+// covers a full RTH session on any chart TF). For other symbols the
+// configured window (default 5 bars) keeps the "quick trap" semantics.
+// Rationale: SPY/QQQ failed-PDH reversals are macro-relevant whether
+// they happen 5 bars after the break or 5 hours after — both are the
+// same "the breakout failed" narrative for the index.
+effective_sweep_window = is_macro_symbol ? 200 : sweep_window_bars
+sweep_reclaim_long   = pdl_reclaim and bars_since_pdl_break <= effective_sweep_window
+sweep_reversal_short = pdh_failed  and bars_since_pdh_break <= effective_sweep_window
 
 sweep_active = sweep_reclaim_long or sweep_reversal_short
 
@@ -431,13 +441,13 @@ if not na(today_open) and close > today_open
 if not na(today_open) and close < today_open
     was_below_open := true
 
-// First close below the open after having been above earlier.
-open_lost_first = fire_open_alerts and was_above_open and not open_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
+// SPY/QQQ-gated. Open-line crosses on individual stocks are too noisy
+// to be useful as alerts; only fire on the macro index ETFs.
+open_lost_first = fire_open_alerts and is_macro_symbol and was_above_open and not open_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
 if open_lost_first
     open_lost_today := true
 
-// First close back above the open after losing it intraday.
-open_reclaimed_first = fire_open_alerts and open_lost_today and not open_reclaimed_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
+open_reclaimed_first = fire_open_alerts and is_macro_symbol and open_lost_today and not open_reclaimed_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
 if open_reclaimed_first
     open_reclaimed_today := true
 
@@ -687,7 +697,7 @@ if show_signals and vwap_reject_short
 //
 // The visual VWAP line + markers still paint on any chart (useful as
 // context). Only the alert() calls are restricted.
-is_macro_symbol = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ"
+// (is_macro_symbol declared near top, alongside fire_vwap_alerts input)
 
 if fire_vwap_alerts and is_macro_symbol and vwap_reclaim_long
     e = close
