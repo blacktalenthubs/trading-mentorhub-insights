@@ -12,7 +12,7 @@ This file describes the **3 active Pine indicators** in `pine_scripts/active/` a
 |---|---|---|
 | **BUY** | Every watchlist symbol | ETH MA bounces: 4h rolling cooldown per `(symbol, alert_type)`. Others: none. |
 | **SHORT** | **SPY / QQQ only** (other symbol shorts dropped at the backend) | None |
-| **NOTICE** | **SPY / QQQ only** (other symbol notices dropped at the backend) | 2/session per `(symbol, alert_type)` |
+| **NOTICE** | **SPY / QQQ only** (other symbol notices dropped at the backend) | 60-min dedup per `(symbol, direction, alert_type)` |
 
 ---
 
@@ -103,10 +103,10 @@ You can toggle this indicator off the chart without losing any alert signal.
 
 Order of gates applied in the triage agent (`triage-agent/live.py`) after an alert hits the database:
 
-1. **Non-index NOTICE drop** — any NOTICE-direction alert where `symbol` ∉ {SPY, QQQ} is dropped before triage. Audited as `NOTICE_NON_INDEX_DROPPED`.
-2. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true`, all NOTICEs dropped. Default: `false` (NOTICEs delivered).
-3. **ETH MA rolling cooldown** — if alert is an ETH MA bounce/rejection AND a prior fire of the same `(symbol, alert_type)` happened within the last 4 hours, drop. Audited as `MA_COOLDOWN_HIT`.
-4. **NOTICE daily cap** — if a 3rd+ NOTICE of the same `(symbol, alert_type)` fires in the same session, drop. Audited as `NOTICE_DAILY_CAP_HIT`. Default cap: 2.
+1. **TV-webhook dedup** (in `api/app/routers/tv_webhook.py`) — same `(user, symbol, direction, alert_type)` within 60 minutes is suppressed. This is the primary rate-limiter for all TV-sourced alerts (BUY / SHORT / NOTICE).
+2. **Non-index NOTICE drop** — any NOTICE-direction alert where `symbol` ∉ {SPY, QQQ} is dropped before triage. Audited as `NOTICE_NON_INDEX_DROPPED`.
+3. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true`, all NOTICEs dropped. Default: `false` (NOTICEs delivered).
+4. **ETH MA rolling cooldown** — if alert is an ETH MA bounce/rejection AND a prior fire of the same `(symbol, alert_type)` happened within the last 4 hours, drop. Audited as `MA_COOLDOWN_HIT`. (Strictly tighter than the 60-min webhook dedup for ETH.)
 5. **Cost budget** — daily triage spend cap (default $1.50).
 6. **Triage agent runs** — LLM evaluates sector confluence, index alignment, CVD, volume, cluster. Assigns verdict (HIGH / NORMAL / MUTE) + reason.
 7. **Non-index SHORT gate** (in `analytics/intraday_rules.py`) — SHORT-direction alerts on non-SPY/QQQ symbols are dropped at the rule evaluation stage. Crypto path unaffected.
@@ -124,7 +124,6 @@ All on the Railway `triage-agent` service:
 | `MUTE_NOTICE_ALERTS` | `false` | Set `true` to mute all NOTICEs from Telegram |
 | `MA_COOLDOWN_HOURS` | `4` | Rolling cooldown window for MA alerts on capped symbols |
 | `MA_COOLDOWN_SYMBOLS` | `ETH-USD` | Comma-separated list of symbols subject to MA cooldown |
-| `NOTICE_DAILY_CAP` | `2` | Max NOTICEs per `(symbol, alert_type)` per session |
 | `TRIAGE_POST_MODE` | `all` | `all` / `high_only` / `high_mute` |
 | `TRIAGE_DAILY_USD_CAP` | `1.50` | Daily LLM spend ceiling |
 
@@ -152,8 +151,8 @@ Every dropped/muted alert still hits the database AND is audited with a verdict 
 
 - `NOTICE_NON_INDEX_DROPPED` — non-SPY/QQQ NOTICE
 - `NOTICE_MUTED` — NOTICE dropped by MUTE_NOTICE_ALERTS
-- `NOTICE_DAILY_CAP_HIT` — NOTICE blocked by 2/session cap
 - `MA_COOLDOWN_HIT` — ETH MA blocked by 4h cooldown
+- TV-webhook 60-min dedup — logged but not stored as an alert row (suppressed at ingest)
 - Backend-side filtered SHORTs (logged to triage logs, not as audit verdicts) — visible in EOD Report by direction filter
 
 ---
