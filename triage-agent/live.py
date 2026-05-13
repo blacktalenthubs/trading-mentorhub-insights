@@ -78,17 +78,21 @@ POST_MODE       = os.environ.get("TRIAGE_POST_MODE", "all").lower()
 # for SPY/QQQ macro alignment.
 MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "false").lower() == "true"
 
-# Per-day cap on MA/EMA alerts. ETH chops around EMA8/21 24/7 — same
-# setup re-fires endlessly on crypto. Cap limits each (symbol, alert_type)
-# combo to N fires per session_date, BUT ONLY for symbols in
-# MA_DAILY_CAP_SYMBOLS (default: ETH-USD). Equity MA bounces are NOT
-# capped — dedup + cooldown already handle rate-limiting there, and we
-# don't want to miss valid 2nd/3rd entries on a trend day.
-# Backwards compat: CRYPTO_MA_DAILY_CAP read as fallback name.
-MA_DAILY_CAP = int(os.environ.get("MA_DAILY_CAP", os.environ.get("CRYPTO_MA_DAILY_CAP", "2")))
-MA_DAILY_CAP_SYMBOLS = set(
+# Rolling-window cooldown on MA/EMA alerts. ETH trades 24/7 and the
+# midnight-anchored "2/day cap" was a poor fit — a fire at 23:45 ET could
+# fire again at 00:01 ET. Switched to a rolling time window: after an
+# MA alert of (symbol, alert_type) fires, the same combo is blocked for
+# the next MA_COOLDOWN_HOURS hours (default 4).
+#
+# ONLY applies to symbols in MA_COOLDOWN_SYMBOLS (default: ETH-USD).
+# Equity MA bounces are NOT throttled here — dedup + cooldown handle
+# them already, and we don't want to miss valid 2nd/3rd entries on a
+# trend day.
+MA_COOLDOWN_HOURS = float(os.environ.get("MA_COOLDOWN_HOURS", "4"))
+MA_COOLDOWN_SYMBOLS = set(
     s.strip().upper()
-    for s in os.environ.get("MA_DAILY_CAP_SYMBOLS", "ETH-USD").split(",")
+    for s in os.environ.get("MA_COOLDOWN_SYMBOLS",
+                             os.environ.get("MA_DAILY_CAP_SYMBOLS", "ETH-USD")).split(",")
     if s.strip()
 )
 
@@ -176,8 +180,7 @@ def fetch_alerts_since(cursor_id, user_id):
 
 def count_prior_fires_today(symbol, alert_type, session_date, current_id, user_id):
     """Count earlier alerts with the same (symbol, alert_type) on this session_date.
-    Used by the crypto MA daily cap — once this count reaches the cap, the
-    next fire of the same MA on the same symbol is skipped.
+    Used by the NOTICE per-session cap.
     """
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -191,15 +194,45 @@ def count_prior_fires_today(symbol, alert_type, session_date, current_id, user_i
             return cur.fetchone()[0] or 0
 
 
+def has_recent_fire(symbol, alert_type, current_id, user_id, hours):
+    """True if there was a prior fire of (symbol, alert_type) within the
+    last `hours` hours, measured against the current alert's created_at.
+    Used by the MA cooldown — rolling window, not session-bucketed.
+    Returns also the timestamp of that prior fire (or None).
+    """
+    cutoff_minutes = hours * 60
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # Look up the current alert's created_at, then check for any
+            # prior fire with the same (symbol, alert_type) more recent
+            # than (current_created_at - hours).
+            cur.execute("""SELECT created_at FROM alerts WHERE id = %s""", (current_id,))
+            curr_row = cur.fetchone()
+            if curr_row is None:
+                return False, None
+            current_created_at = curr_row[0]
+            cur.execute("""SELECT created_at FROM alerts
+                            WHERE user_id = %s
+                              AND symbol = %s
+                              AND alert_type = %s
+                              AND id < %s
+                              AND created_at > %s - (%s || ' minutes')::interval
+                            ORDER BY id DESC LIMIT 1""",
+                        (user_id, symbol, alert_type, current_id,
+                         current_created_at, cutoff_minutes))
+            prior = cur.fetchone()
+            return (prior is not None), (prior[0] if prior else None)
+
+
 def is_ma_alert(alert):
-    """True if this alert is an MA bounce / rejection subject to the per-day
-    cap. Restricted to symbols in MA_DAILY_CAP_SYMBOLS (default: ETH-USD)
-    — equity MA bounces are not capped here because dedup + cooldown logic
-    already throttles them, and capping risks missing valid 2nd/3rd
-    entries on a trend day.
+    """True if this alert is an MA bounce / rejection subject to the rolling
+    cooldown. Restricted to symbols in MA_COOLDOWN_SYMBOLS (default:
+    ETH-USD) — equity MA bounces are not throttled here because dedup +
+    cooldown logic already handles them, and throttling risks missing
+    valid 2nd/3rd entries on a trend day.
     """
     symbol = (alert.get("symbol") or "").upper()
-    if symbol not in MA_DAILY_CAP_SYMBOLS:
+    if symbol not in MA_COOLDOWN_SYMBOLS:
         return False
     at = (alert.get("alert_type") or "")
     return at.startswith("tv_ma_bounce_long_v3_ema") or at.startswith("tv_ma_rejection_short_v3_ema")
@@ -318,25 +351,25 @@ def process_alert(alert_id, budget, dry_run=False):
         save_cursor(alert_id)
         return
 
-    # MA/EMA daily cap — prevent the same EMA8 bounce on ETH/AAPL/etc.
-    # from firing many times per session. Counts prior fires of the EXACT
-    # same (symbol, alert_type) for today's session_date; skips once cap
-    # hit. Applies to crypto + equities equally.
+    # MA/EMA rolling cooldown — ETH-only by default. If the same
+    # (symbol, alert_type) fired within the last MA_COOLDOWN_HOURS hours,
+    # skip this one. Better fit for 24/7 crypto than a midnight-anchored
+    # session cap.
     if is_ma_alert(alert):
-        prior = count_prior_fires_today(
-            alert["symbol"], alert["alert_type"], alert["session_date"],
-            alert_id, USER_ID,
+        recent, prior_ts = has_recent_fire(
+            alert["symbol"], alert["alert_type"],
+            alert_id, USER_ID, MA_COOLDOWN_HOURS,
         )
-        if prior >= MA_DAILY_CAP:
+        if recent:
             logger.info(
-                "CAP_HIT #%s %s %s — %d prior fires today >= cap %d, skipping",
+                "COOLDOWN_HIT #%s %s %s — prior fire at %s within %.1fh window, skipping",
                 alert_id, alert["symbol"], alert["alert_type"],
-                prior, MA_DAILY_CAP,
+                prior_ts, MA_COOLDOWN_HOURS,
             )
             write_audit({
                 "alert_id": alert_id, "symbol": alert["symbol"],
-                "alert_type": alert["alert_type"], "verdict": "MA_DAILY_CAP_HIT",
-                "reason": f"{prior} prior fires today (cap={MA_DAILY_CAP})",
+                "alert_type": alert["alert_type"], "verdict": "MA_COOLDOWN_HIT",
+                "reason": f"prior fire {prior_ts} within {MA_COOLDOWN_HOURS}h cooldown",
             })
             save_cursor(alert_id)
             return
