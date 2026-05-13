@@ -281,7 +281,22 @@ def process_alert(alert_id, budget, dry_run=False):
         save_cursor(alert_id)
         return
 
-    if MUTE_NOTICE_ALERTS and (alert.get("direction") or "").upper() == "NOTICE":
+    # NOTICE alerts are index-only (SPY/QQQ). Non-index NOTICE-direction
+    # alerts (e.g., a weekly-level cross on AAPL that degraded to NOTICE)
+    # are dropped before they can reach Telegram, regardless of mute flag.
+    # SPY/QQQ NOTICEs proceed to the mute check next.
+    _direction = (alert.get("direction") or "").upper()
+    _symbol_upper = (alert.get("symbol") or "").upper()
+    if _direction == "NOTICE" and _symbol_upper not in {"SPY", "QQQ"}:
+        logger.info("NOTICE #%s %s %s — non-index NOTICE dropped",
+                    alert_id, alert["symbol"], alert["alert_type"])
+        write_audit({"alert_id": alert_id, "symbol": alert["symbol"],
+                     "alert_type": alert["alert_type"], "verdict": "NOTICE_NON_INDEX_DROPPED",
+                     "reason": "NOTICE direction restricted to SPY/QQQ"})
+        save_cursor(alert_id)
+        return
+
+    if MUTE_NOTICE_ALERTS and _direction == "NOTICE":
         logger.info("NOTICE #%s %s %s — muted (MUTE_NOTICE_ALERTS=true)",
                     alert_id, alert["symbol"], alert["alert_type"])
         write_audit({"alert_id": alert_id, "symbol": alert["symbol"],
