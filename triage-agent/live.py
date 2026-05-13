@@ -325,7 +325,7 @@ def process_alert(alert_id, budget, dry_run=False):
     # SPY/QQQ NOTICEs proceed to the mute check next.
     _direction = (alert.get("direction") or "").upper()
     _symbol_upper = (alert.get("symbol") or "").upper()
-    if _direction == "NOTICE" and _symbol_upper not in {"SPY", "QQQ"}:
+    if _direction == "NOTICE" and _symbol_upper not in {"SPY", "QQQ", "AIQ"}:
         logger.info("NOTICE #%s %s %s — non-index NOTICE dropped",
                     alert_id, alert["symbol"], alert["alert_type"])
         write_audit({"alert_id": alert_id, "symbol": alert["symbol"],

@@ -11,8 +11,8 @@ This file describes the **3 active Pine indicators** in `pine_scripts/active/` a
 | Direction | Symbols | Caps / cooldowns |
 |---|---|---|
 | **BUY** | Every watchlist symbol | ETH MA bounces: 4h rolling cooldown per `(symbol, alert_type)`. Others: none. |
-| **SHORT** | **SPY / QQQ only** (other symbol shorts dropped at the backend) | None |
-| **NOTICE** | **SPY / QQQ only** (other symbol notices dropped at the backend) | 60-min dedup per `(symbol, direction, alert_type)` |
+| **SHORT** | **SPY / QQQ / AIQ only** (other symbol shorts dropped at the backend) | None |
+| **NOTICE** | **SPY / QQQ / AIQ only** (other symbol notices dropped at the backend) | 60-min dedup per `(symbol, direction, alert_type)` |
 
 ---
 
@@ -67,7 +67,7 @@ Each event fires when price crosses ANY of the corresponding D/W/M levels. Direc
 
 ### VWAP NOTICEs
 
-Pine-gated to SPY / QQQ only. Require `fire_vwap_alerts=true` (default false; flip on the SPY 10m chart instance).
+Pine-gated to SPY / QQQ / AIQ only. Require `fire_vwap_alerts=true` (default false; flip on the SPY 10m chart instance).
 
 | Rule | Direction | Trigger |
 |---|---|---|
@@ -77,7 +77,7 @@ Pine-gated to SPY / QQQ only. Require `fire_vwap_alerts=true` (default false; fl
 
 ### Open-line NOTICEs
 
-Pine-gated to SPY / QQQ only. Require `fire_open_alerts=true` (**default true** — safe because SPY/QQQ gate hardcoded).
+Pine-gated to SPY / QQQ / AIQ only. Require `fire_open_alerts=true` (**default true** — safe because SPY/QQQ/AIQ gate hardcoded).
 
 One-shot per session each (state vars reset at next session open):
 
@@ -109,7 +109,7 @@ Order of gates applied in the triage agent (`triage-agent/live.py`) after an ale
 4. **ETH MA rolling cooldown** — if alert is an ETH MA bounce/rejection AND a prior fire of the same `(symbol, alert_type)` happened within the last 4 hours, drop. Audited as `MA_COOLDOWN_HIT`. (Strictly tighter than the 60-min webhook dedup for ETH.)
 5. **Cost budget** — daily triage spend cap (default $1.50).
 6. **Triage agent runs** — LLM evaluates sector confluence, index alignment, CVD, volume, cluster. Assigns verdict (HIGH / NORMAL / MUTE) + reason.
-7. **Non-index SHORT gate** (in `analytics/intraday_rules.py`) — SHORT-direction alerts on non-SPY/QQQ symbols are dropped at the rule evaluation stage. Crypto path unaffected.
+7. **Non-index SHORT gate** (in `analytics/intraday_rules.py`) — SHORT-direction alerts on non-SPY/QQQ/AIQ symbols are dropped at the rule evaluation stage. Crypto path unaffected.
 8. **Post mode filter** — `TRIAGE_POST_MODE=all` (default) sends everything; `high_only` / `high_mute` restricts.
 9. **Telegram delivery** — format_unified renders the message; HIGH-conviction alerts get an inline chart.
 
@@ -132,14 +132,14 @@ In Pine inputs (per chart instance):
 | Input | Default | Pine |
 |---|---|---|
 | `fire_vwap_alerts` | `false` | levels-day-vwap (set true on SPY 10m chart) |
-| `fire_open_alerts` | `true` | levels-day-vwap (SPY/QQQ hard-gated regardless) |
+| `fire_open_alerts` | `true` | levels-day-vwap (SPY/QQQ/AIQ hard-gated regardless) |
 | `show_lines` / `show_open` / `show_vwap` / etc. | `true` | Visual toggles |
 
 ---
 
 ## What you'd see in Telegram on a typical day
 
-- **9:30-16:00 ET (US RTH)**: BUY alerts on the equity watchlist as PDH breaks / MA bounces fire. SHORT alerts only on SPY/QQQ. NOTICE alerts on SPY/QQQ (VWAP + open events).
+- **9:30-16:00 ET (US RTH)**: BUY alerts on the equity watchlist as PDH breaks / MA bounces fire. SHORT alerts only on SPY/QQQ/AIQ. NOTICE alerts on SPY/QQQ/AIQ (VWAP + open events).
 - **24/7 (crypto)**: BUY alerts on BTC-USD freely; ETH-USD throttled to one fire per `(symbol, MA)` every 4 hours.
 - **Premarket / afterhours**: Mostly quiet. Premarket brief at 08:30 ET, EOD recap at 16:05 ET (gated by `ENABLE_PREMARKET_BRIEF` env flag).
 
@@ -149,7 +149,7 @@ In Pine inputs (per chart instance):
 
 Every dropped/muted alert still hits the database AND is audited with a verdict tag. The EOD Report (`/eod-report` in the UI) shows all of them so you can review what would have fired:
 
-- `NOTICE_NON_INDEX_DROPPED` — non-SPY/QQQ NOTICE
+- `NOTICE_NON_INDEX_DROPPED` — non-SPY/QQQ/AIQ NOTICE
 - `NOTICE_MUTED` — NOTICE dropped by MUTE_NOTICE_ALERTS
 - `MA_COOLDOWN_HIT` — ETH MA blocked by 4h cooldown
 - TV-webhook 60-min dedup — logged but not stored as an alert row (suppressed at ingest)

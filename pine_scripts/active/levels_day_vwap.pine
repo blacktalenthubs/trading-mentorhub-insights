@@ -34,7 +34,7 @@ show_stage_bg     = input.bool(false, "Tint background by stage (subtle)")
 fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/support alerts (NOTICE — SPY/QQQ only; ignored on other symbols)")
 // Note: macro-symbol gate is shared across VWAP, open lost/reclaimed,
 // and the failed-PDH session window expansion. Defined once near top.
-is_macro_symbol   = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ"
+is_macro_symbol   = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ" or syminfo.ticker == "AIQ"
 sweep_window_bars = input.int (5,     "Sweep window (bars)", minval = 1, maxval = 10)
 atr_buffer_mult   = input.float(0.3,  "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 vwap_lookback     = input.int (20,    "VWAP slope lookback (bars)", minval = 5, maxval = 60)
