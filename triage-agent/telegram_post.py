@@ -398,8 +398,6 @@ _REASON_EXACT = {
     "vwap_support_hold":          "VWAP support hold ✓",
     "open_lost":                  "Lost the open ↓",
     "open_reclaimed":             "Reclaimed the open ↑",
-    "sb_stack_long":              "Burns stack bullish ↑",
-    "sb_stack_short":             "Burns stack bearish ↓",
 }
 
 def _pretty_reason(alert_type: str) -> str:

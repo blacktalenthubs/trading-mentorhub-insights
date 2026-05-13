@@ -23,7 +23,7 @@
 // Unified MA bounce/rejection Pine — works at ANY intraday or daily TF
 // via the TV alert "Interval" setting. Merges:
 //
-//   • v2 daily Pine — 8 daily MAs (EMA 8/21/50/100/200, SMA 50/100/200),
+//   • v2 daily Pine — 9 daily MAs (EMA 5/10/21/50/100/200, SMA 50/100/200),
 //                     bounce/reject detection, PDH/PDL confluence, volume
 //                     + CVD order flow, conviction-aware payload.
 //
@@ -70,7 +70,8 @@ label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? si
 is_intraday_mode = mode == "intraday"
 
 // Daily MAs (yesterday's settled value via [1] offset) -----------------------
-ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema5   = request.security(syminfo.tickerid, "D", ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on)
+ema10  = request.security(syminfo.tickerid, "D", ta.ema(close, 10)[1],  lookahead = barmerge.lookahead_on)
 ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
 ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
 ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
@@ -95,7 +96,8 @@ vwap_v = ta.vwap(hlc3)
 tol = atr_chart * tolerance_atr
 
 // Plot daily MAs -------------------------------------------------------------
-plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(color.red,    0), linewidth = 3)
+plot(show_lines ? ema5   : na, "EMA 5 (D)",   color = color.new(#9C27B0,      0), linewidth = 2)
+plot(show_lines ? ema10  : na, "EMA 10 (D)",  color = color.new(color.red,    0), linewidth = 2)
 plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
 plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
 plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
@@ -152,7 +154,8 @@ proximity_short(float ma, float pct) =>
 // alert.freq_once_per_bar_close at the alert call site prevents same-bar
 // refire. Backend identity dedup (60-min window per alert_type+direction)
 // prevents same-MA same-direction repeats within an hour.
-fire_e8   = is_intraday_mode ? (strict_long(ema8)   or reclaim_long(ema8))   : band_long(ema8)
+fire_e5   = is_intraday_mode ? (strict_long(ema5)   or reclaim_long(ema5))   : band_long(ema5)
+fire_e10  = is_intraday_mode ? (strict_long(ema10)  or reclaim_long(ema10))  : band_long(ema10)
 fire_e21  = is_intraday_mode ? (strict_long(ema21)  or reclaim_long(ema21))  : band_long(ema21)
 fire_e50  = is_intraday_mode ? (strict_long(ema50)  or reclaim_long(ema50))  : band_long(ema50)
 fire_e100 = is_intraday_mode ? (strict_long(ema100) or reclaim_long(ema100)) : band_long(ema100)
@@ -161,7 +164,8 @@ fire_s50  = is_intraday_mode ? (strict_long(sma50)  or reclaim_long(sma50))  : b
 fire_s100 = is_intraday_mode ? (strict_long(sma100) or reclaim_long(sma100)) : band_long(sma100)
 fire_s200 = is_intraday_mode ? (strict_long(sma200) or reclaim_long(sma200)) : band_long(sma200)
 
-s_fire_e8   = is_intraday_mode ? (strict_short(ema8)   or lose_short(ema8))   : band_short(ema8)
+s_fire_e5   = is_intraday_mode ? (strict_short(ema5)   or lose_short(ema5))   : band_short(ema5)
+s_fire_e10  = is_intraday_mode ? (strict_short(ema10)  or lose_short(ema10))  : band_short(ema10)
 s_fire_e21  = is_intraday_mode ? (strict_short(ema21)  or lose_short(ema21))  : band_short(ema21)
 s_fire_e50  = is_intraday_mode ? (strict_short(ema50)  or lose_short(ema50))  : band_short(ema50)
 s_fire_e100 = is_intraday_mode ? (strict_short(ema100) or lose_short(ema100)) : band_short(ema100)
@@ -174,7 +178,8 @@ s_fire_s200 = is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : 
 // on the same MA same bar — strict_long/lose_short already say more than a
 // proximity hint, no point spamming both. Cross-MA bleed is fine: e.g., a
 // strict_long on EMA50 doesn't suppress a proximity_long on EMA100.
-prox_e8_l   = fire_proximity_alerts and proximity_long(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
+prox_e5_l   = fire_proximity_alerts and proximity_long(ema5,   proximity_pct) and not (fire_e5   or s_fire_e5)
+prox_e10_l  = fire_proximity_alerts and proximity_long(ema10,  proximity_pct) and not (fire_e10  or s_fire_e10)
 prox_e21_l  = fire_proximity_alerts and proximity_long(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
 prox_e50_l  = fire_proximity_alerts and proximity_long(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
 prox_e100_l = fire_proximity_alerts and proximity_long(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
@@ -183,7 +188,8 @@ prox_s50_l  = fire_proximity_alerts and proximity_long(sma50,  proximity_pct) an
 prox_s100_l = fire_proximity_alerts and proximity_long(sma100, proximity_pct) and not (fire_s100 or s_fire_s100)
 prox_s200_l = fire_proximity_alerts and proximity_long(sma200, proximity_pct) and not (fire_s200 or s_fire_s200)
 
-prox_e8_s   = fire_proximity_alerts and proximity_short(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
+prox_e5_s   = fire_proximity_alerts and proximity_short(ema5,   proximity_pct) and not (fire_e5   or s_fire_e5)
+prox_e10_s  = fire_proximity_alerts and proximity_short(ema10,  proximity_pct) and not (fire_e10  or s_fire_e10)
 prox_e21_s  = fire_proximity_alerts and proximity_short(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
 prox_e50_s  = fire_proximity_alerts and proximity_short(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
 prox_e100_s = fire_proximity_alerts and proximity_short(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
@@ -194,17 +200,17 @@ prox_s200_s = fire_proximity_alerts and proximity_short(sma200, proximity_pct) a
 
 
 // Aggregate fires + tags -----------------------------------------------------
-any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
-any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
+any_long  = fire_e5   or fire_e10   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
+any_short = s_fire_e5 or s_fire_e10 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
 
-any_prox_long  = prox_e8_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
-any_prox_short = prox_e8_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
+any_prox_long  = prox_e5_l or prox_e10_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
+any_prox_short = prox_e5_s or prox_e10_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
 
-long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
-short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+long_tag  = (fire_e5   ? "5E "  : "") + (fire_e10   ? "10E " : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
+short_tag = (s_fire_e5 ? "5E "  : "") + (s_fire_e10 ? "10E " : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
 
-prox_long_tag  = (prox_e8_l   ? "8E "  : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
-prox_short_tag = (prox_e8_s   ? "8E "  : "") + (prox_e21_s  ? "21E " : "") + (prox_e50_s  ? "50E " : "") + (prox_e100_s ? "100E " : "") + (prox_e200_s ? "200E " : "") + (prox_s50_s  ? "50S " : "") + (prox_s100_s ? "100S " : "") + (prox_s200_s ? "200S " : "")
+prox_long_tag  = (prox_e5_l   ? "5E "  : "") + (prox_e10_l  ? "10E " : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
+prox_short_tag = (prox_e5_s   ? "5E "  : "") + (prox_e10_s  ? "10E " : "") + (prox_e21_s  ? "21E " : "") + (prox_e50_s  ? "50E " : "") + (prox_e100_s ? "100E " : "") + (prox_e200_s ? "200E " : "") + (prox_s50_s  ? "50S " : "") + (prox_s100_s ? "100S " : "") + (prox_s200_s ? "200S " : "")
 
 // Markers --------------------------------------------------------------------
 plotshape(show_markers and any_long,
@@ -247,8 +253,10 @@ bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
 
 // MA value to anchor swing-mode stop -----------------------------------------
 float bounced_ma_long = na
-if fire_e8
-    bounced_ma_long := ema8
+if fire_e5
+    bounced_ma_long := ema5
+else if fire_e10
+    bounced_ma_long := ema10
 else if fire_e21
     bounced_ma_long := ema21
 else if fire_e50
@@ -265,8 +273,10 @@ else if fire_s200
     bounced_ma_long := sma200
 
 float rejected_ma_short = na
-if s_fire_e8
-    rejected_ma_short := ema8
+if s_fire_e5
+    rejected_ma_short := ema5
+else if s_fire_e10
+    rejected_ma_short := ema10
 else if s_fire_e21
     rejected_ma_short := ema21
 else if s_fire_e50

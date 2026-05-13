@@ -19,8 +19,8 @@ This file describes the **3 active Pine indicators** in `pine_scripts/active/` a
 ## Pine 1 — `ma-ema-daily`
 
 **File**: `pine_scripts/active/ma_ema_daily.pine`
-**Monitors**: 8 daily moving averages — EMA 8 / 21 / 50 / 100 / 200, SMA 50 / 100 / 200
-**Alert taxonomy**: 4 event types × 8 MAs. The MA name is appended to the rule key (e.g. `tv_ma_bounce_long_v3_ema8`).
+**Monitors**: 9 daily moving averages — EMA 5 / 10 / 21 / 50 / 100 / 200, SMA 50 / 100 / 200
+**Alert taxonomy**: 4 event types × 9 MAs. The MA name is appended to the rule key (e.g. `tv_ma_bounce_long_v3_ema5`).
 
 ### Event types
 
@@ -32,14 +32,14 @@ This file describes the **3 active Pine indicators** in `pine_scripts/active/` a
 | `ma_proximity_short_v3_<ma>` | NOTICE | Symmetric short proximity |
 
 ### Examples
-- `tv_ma_bounce_long_v3_ema8` — EMA 8 bounce (LONG)
-- `tv_ma_bounce_long_v3_ema8_ema21` — Stacked EMA 8 + EMA 21 bounce
+- `tv_ma_bounce_long_v3_ema5` — EMA 5 bounce (LONG) — fast short-term momentum
+- `tv_ma_bounce_long_v3_ema5_ema10` — Stacked EMA 5 + EMA 10 bounce
 - `tv_ma_rejection_short_v3_ema21` — EMA 21 rejection (SHORT)
 - `tv_ma_proximity_long_v3_ema100` — EMA 100 proximity (NOTICE)
 
 ### Total events
-- 8 bounce-long (BUY) + 8 rejection-short (SHORT) + 8 proximity-long (NOTICE) + 8 proximity-short (NOTICE) = **32 distinct alert keys**
-- Plus stacked-MA variants (`ema8_ema21` etc.)
+- 9 bounce-long (BUY) + 9 rejection-short (SHORT) + 9 proximity-long (NOTICE) + 9 proximity-short (NOTICE) = **36 distinct alert keys**
+- Plus stacked-MA variants (`ema5_ema10`, `ema5_ema21` etc.)
 
 ---
 
@@ -88,36 +88,7 @@ One-shot per session each (state vars reset at next session open):
 
 ---
 
-## Pine 3 — `sb-trend` (Steve Burns trend stack)
-
-**File**: `pine_scripts/active/steve_burns_trend.pine`
-**Monitors**: EMA 5 + EMA 20 + SMA 50 — all daily-anchored via `request.security("D", …)`
-**Alert taxonomy**: 2 NOTICE events (off by default, opt-in via `fire_stack_alerts`)
-
-### Visual layer (always on)
-
-- **EMA 5 (D)** — purple
-- **EMA 20 (D)** — green
-- **SMA 50 (D)** — blue
-- **Background tint** when stack is aligned (green = bullish, red = bearish)
-- **▲ STACK+** triangle when bullish stack first forms, ▼ STACK- when bearish first forms
-
-Bullish stack = `EMA5 > EMA20 AND close > SMA50`. Reverse for bearish.
-
-### Alert events (opt-in)
-
-Enable `fire_stack_alerts=true` on the chart instance to receive these. All NOTICE direction.
-
-| Rule | Triggers when | Direction |
-|---|---|---|
-| `sb_stack_long` | Bullish stack first forms (no prior bar had stack alignment) | NOTICE |
-| `sb_stack_short` | Bearish stack first forms | NOTICE |
-
-Backend gating: like all NOTICEs, hard-gated to SPY/QQQ at the triage layer.
-
----
-
-## Pine 4 — `levels-week-month`
+## Pine 3 — `levels-week-month`
 
 **File**: `pine_scripts/active/levels_week_month.pine`
 **Purpose**: Visual reference only — PWH / PWL / PMH / PML horizontal lines + optional weekly EMA 8 / 21.
