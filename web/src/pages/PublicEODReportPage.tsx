@@ -174,7 +174,7 @@ export default function PublicEODReportPage() {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="font-display text-2xl font-bold">
-              Mentorhub — EOD Alert Report
+              TradingWithAI — EOD Alert Report
               {focusSymbol && (
                 <span className="ml-2 rounded bg-accent/20 px-2 py-1 align-middle text-base text-accent">
                   {focusSymbol}
@@ -366,7 +366,7 @@ export default function PublicEODReportPage() {
         <div className="rounded-lg border border-border-subtle bg-surface-1 p-4">
           <h2 className="mb-2 font-display text-lg font-semibold">Want these alerts live in your Telegram?</h2>
           <p className="mb-3 text-sm text-text-muted">
-            Mentorhub fires these signals via Pine indicators on TradingView and delivers them to your phone the moment they cross — with AI triage that ranks each by sector confluence, volume, and order flow.
+            TradingWithAI fires these signals via Pine indicators on TradingView and delivers them to your phone the moment they cross — with AI triage that ranks each by sector confluence, volume, and order flow.
           </p>
           <Link
             to="/register"
