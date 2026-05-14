@@ -14,6 +14,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   createChart,
   CandlestickSeries,
+  LineSeries,
   ColorType,
   LineStyle,
   createSeriesMarkers,
@@ -171,6 +172,32 @@ export default function StaticTradeChart({ alertId }: Props) {
       close: b.close,
     }));
     series.setData(candleData);
+
+    // Force the price scale to include entry/stop/T1/T2 by adding an
+    // invisible anchor series spanning min and max of (bars + all levels).
+    // Without this, the auto-scale fits to candles only and any level that
+    // falls outside the candle's high/low range renders off-screen.
+    const levelPrices = [
+      data.alert.entry, data.alert.stop, data.alert.target_1, data.alert.target_2,
+    ].filter((p): p is number => p != null);
+    const candleLows = candleData.map((c) => c.low);
+    const candleHighs = candleData.map((c) => c.high);
+    const allLows = [...candleLows, ...levelPrices];
+    const allHighs = [...candleHighs, ...levelPrices];
+    const minPrice = Math.min(...allLows);
+    const maxPrice = Math.max(...allHighs);
+    const pad = (maxPrice - minPrice) * 0.04;
+    const anchorSeries = chart.addSeries(LineSeries, {
+      color: "rgba(0,0,0,0)",
+      lineWidth: 1,
+      lastValueVisible: false,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    anchorSeries.setData([
+      { time: candleData[0].time, value: minPrice - pad },
+      { time: candleData[candleData.length - 1].time, value: maxPrice + pad },
+    ]);
 
     // Draw entry / stop / T1 / T2 as labeled horizontal price lines
     const lines: IPriceLine[] = [];
