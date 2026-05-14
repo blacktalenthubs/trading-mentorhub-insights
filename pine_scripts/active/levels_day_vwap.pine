@@ -24,6 +24,7 @@
 indicator("levels-day-vwap", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
+fire_open_alerts  = input.bool(true,  "Fire open_lost / open_reclaimed alerts")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
@@ -339,6 +340,31 @@ plotshape(show_sweep and sweep_reversal_short,
           size = size.large, text = "SWEEP-", textcolor = color.white)
 
 // =====================================================================
+// Today's open + open-line PDH/PDL confluence flags
+// =====================================================================
+// today_open is captured on the first bar of each session. It feeds both
+// gap-context detection (further down) AND the open_lost/open_reclaimed
+// alerts (further still). near_pdh_open / near_pdl_open mark when the
+// open sits at PDH/PDL — used by the webhook to collapse confluence twins.
+// These need to be declared BEFORE build_payload_v2 because the payload
+// references them by name.
+session_open_now = ta.change(time("D")) != 0
+var float today_open       = na
+var float bar1_low         = na
+var int   first_bar_time   = na
+
+if session_open_now
+    today_open := open
+    bar1_low := low
+    first_bar_time := time
+else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
+    bar1_low := math.min(nz(bar1_low, low), low)
+
+open_confluence_tol = 0.003  // 0.3%
+near_pdh_open = not na(today_open) and not na(pdh) and math.abs(today_open - pdh) / pdh <= open_confluence_tol
+near_pdl_open = not na(today_open) and not na(pdl) and math.abs(today_open - pdl) / pdl <= open_confluence_tol
+
+// =====================================================================
 // Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
 // =====================================================================
 stage_json = str.replace_all(stage_text, "\n", " — ")
@@ -372,6 +398,9 @@ build_payload_v2(rule, direction,
       + '","volume_ratio":"' + str.tostring(vr, "#.##")
       + '","cvd_delta":"' + str.tostring(cvd_d, "#.##")
       + '","cvd_diverging":"' + (cvd_div ? "true" : "false")
+      + '","today_open":"' + str.tostring(today_open, format.mintick)
+      + '","near_pdh":"' + (near_pdh_open ? "true" : "false")
+      + '","near_pdl":"' + (near_pdl_open ? "true" : "false")
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
@@ -384,36 +413,49 @@ atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1],
 atr_d     = nz(atr_d_raw, close * 0.005)
 
 // =====================================================================
-// Gap-and-go detection (spec C1) — track today's open + first 10-min low
+// Gap-and-go detection (spec C1) — uses today_open + bar1_low
 // =====================================================================
-// Captures the gap-up + hold pattern: open well above PDH, first bar
-// doesn't wick below PDH. Used by `staged_pdh_break` to swap in a tight
-// first-bar-low stop instead of yesterday's wide swing-low.
-//
-// "First bar" = first 10 minutes of the regular session. We track the
-// running low across however many chart-TF bars fit in 10 min (e.g.,
-// two 5m bars, ten 1m bars).
-session_open_now = ta.change(time("D")) != 0
-var float today_open       = na
-var float bar1_low         = na
-var int   first_bar_time   = na
-
-if session_open_now
-    today_open := open
-    bar1_low := low
-    first_bar_time := time
-else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
-    bar1_low := math.min(nz(bar1_low, low), low)
-
-// today_open is kept here for gap-up detection (gap_context below).
-// The visual open-line plot + open_lost/open_reclaimed alerts now live
-// in the separate `open-line` indicator so the layer can be toggled
-// independently on charts.
+// today_open / bar1_low / first_bar_time are computed above (before
+// build_payload_v2 so the payload can reference them). This block just
+// builds the gap_context flag from those values.
 
 // Gap-up + hold flags. gap_context true = use tight first-bar stop.
 gap_up      = not na(today_open) and not na(pdh) and today_open >= pdh * 1.005
 gap_held    = not na(bar1_low)   and not na(pdh) and bar1_low > pdh
 gap_context = gap_up and gap_held
+
+// =====================================================================
+// Open lost / reclaimed — alerts (one of each per session)
+// =====================================================================
+// Pattern: stock opens, builds above the open ("bullish session"), then
+// closes back below = bearish session shift. Symmetric reclaim after a
+// loss = bullish recovery. Both fire ONCE per session (state vars reset
+// at the next session open) to keep noise low.
+//
+// open_reclaimed → BUY on every symbol (NVDA-style trend-day signal).
+// open_lost      → NOTICE on SPY/QQQ/AIQ/NDX only (bearish session shift).
+//
+// Detection runs on EVERY symbol so the reclaim eligibility flag tracks
+// correctly even on non-index symbols where open_lost is gated off.
+var bool ol_was_above_open       = false
+var bool ol_lost_today           = false
+var bool ol_reclaimed_today      = false
+
+if session_open_now
+    ol_was_above_open       := false
+    ol_lost_today           := false
+    ol_reclaimed_today      := false
+
+if not na(today_open) and close > today_open
+    ol_was_above_open := true
+
+ol_just_lost      = ol_was_above_open and not ol_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
+ol_just_reclaimed = ol_lost_today and not ol_reclaimed_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
+
+if ol_just_lost
+    ol_lost_today := true
+if ol_just_reclaimed
+    ol_reclaimed_today := true
 
 // =====================================================================
 // Target hierarchy helpers (spec C4)
@@ -538,6 +580,34 @@ if pdl_reclaim
     dir = dir_for_tf(tf, "BUY")
     alert(build_payload_v2("staged_pdl_reclaim", dir, e, s, t1, t2,
                            false, confluence_support,
+                           volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
+
+// =====================================================================
+// Open-line alert fires — open_lost (NOTICE, index only) +
+// open_reclaimed (BUY, all symbols)
+// =====================================================================
+// Stops/targets sized in-line: open_lost is small projected drawdown
+// (NOTICE), open_reclaimed is standard long-side projection. The triage
+// agent re-ranks based on confluence. near_pdh / near_pdl flags ride on
+// build_payload_v2 so the webhook can collapse confluence twins.
+if fire_open_alerts and ol_just_lost and is_macro_symbol
+    e  = close
+    s  = math.max(high, high[1]) + atr_buffer
+    t1 = e * 0.9925
+    t2 = e * 0.985
+    alert(build_payload_v2("open_lost", "NOTICE", e, s, t1, t2,
+                           false, 1,
+                           volume_ratio, cvd_slope_n, bullish_div),
+          alert.freq_once_per_bar_close)
+
+if fire_open_alerts and ol_just_reclaimed
+    e  = close
+    s  = math.min(low, low[1]) - atr_buffer
+    t1 = e * 1.0075
+    t2 = e * 1.015
+    alert(build_payload_v2("open_reclaimed", "BUY", e, s, t1, t2,
+                           false, 1,
                            volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
 

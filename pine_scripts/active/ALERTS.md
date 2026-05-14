@@ -75,7 +75,32 @@ Pine-gated to SPY / QQQ / AIQ only. Require `fire_vwap_alerts=true` (default fal
 | `vwap_reject_short` | NOTICE | Close back below VWAP after N consecutive bars above |
 | `vwap_support_hold` | NOTICE | Bar wicked down to VWAP (within 0.1%) + closed back above on green bar |
 
-**Open-line alerts moved out.** As of 2026-05-13, `open_lost` and `open_reclaimed` live in the separate `open-line` indicator (Pine 4 below) so the visual layer can be toggled independently.
+### Open-line events (fired from levels-day-vwap, visual layer in Pine 4)
+
+The open-line ALERTS fire from this indicator (so we only burn one TV
+watchlist alert slot for both PDH/PDL/VWAP and open events). The visual
+plot + LOST/RECL diamond markers live in the separate `open-line` indicator
+(Pine 4) so the visual layer can be toggled on/off independently.
+
+| Rule | Direction | Symbols | Trigger |
+|---|---|---|---|
+| `open_reclaimed` | **BUY** | **All symbols** | First close back above today's open after having lost it. One-shot per session. The NVDA-style trend-day signal. |
+| `open_lost` | NOTICE | SPY / QQQ / AIQ / NDX only | First close below today's open after holding above earlier. One-shot per session. Bearish session shift on the indexes. |
+
+State machine: `ol_was_above_open` flag must be set (price made a bar with `close > today_open` earlier in session) before `open_lost` is eligible. `ol_lost_today` must be set before `open_reclaimed` is eligible. Both reset at the next session open.
+
+### PDH/PDL confluence
+
+When today's open sits within **0.3% of PDH or PDL** (gap-up/gap-down days), the open-line alert IS the level alert — `open_reclaimed` and `staged_pdh_break` would normally fire on the same bar. The payload carries `near_pdh` / `near_pdl` flags; the webhook uses these to **suppress the twin** within a 5-min window:
+
+| First arrives | Second (twin) | Action |
+|---|---|---|
+| `open_reclaimed` (near_pdh=true) | `staged_pdh_break` | Twin suppressed. Message header: "Open + PDH confluence ↑" |
+| `staged_pdh_break` | `open_reclaimed` (near_pdh=true) | Twin (open_reclaimed) suppressed. Message header: plain "PDH break" |
+| `open_lost` (near_pdl=true) | `staged_pdl_break` | Twin suppressed. Message header: "Open + PDL confluence ↓" |
+| `staged_pdl_break` | `open_lost` (near_pdl=true) | Twin (open_lost) suppressed. Message header: plain "PDL break" |
+
+Audit log records `confluence_twin_suppressed` with the dropped alert_type for EOD Report visibility.
 
 ---
 
@@ -90,37 +115,15 @@ You can toggle this indicator off the chart without losing any alert signal.
 
 ---
 
-## Pine 4 — `open-line`
+## Pine 4 — `open-line` (visual only)
 
 **File**: `pine_scripts/active/open_line.pine`
 **Monitors**: Today's opening price (captured on the first bar of each session, held flat through the day)
-**Alert taxonomy**: 2 events.
+**Alerts**: **None — visual layer only.** The open_lost / open_reclaimed alerts fire from `levels-day-vwap` (Pine 2 above).
 
-Separated from `levels-day-vwap` (2026-05-13) so the open-line visual can be toggled independently. Backtest evidence: NVDA-style trend days establish themselves with the reclaim, weak names never reclaim — high signal-to-noise on the BUY direction.
+This indicator exists so the open-line **visual** (the orange dashed line + LOST/RECL diamonds) can be toggled on/off independently of the PDH/PDL/VWAP layer. Alerts live in `levels-day-vwap` so we only burn one TV watchlist alert slot for everything in the levels family.
 
-| Rule | Direction | Symbols | Trigger |
-|---|---|---|---|
-| `open_reclaimed` | **BUY** | **All symbols** | First close back above today's open after having lost it. One-shot per session. |
-| `open_lost` | NOTICE | SPY / QQQ / AIQ / NDX only | First close below today's open after holding above earlier in the session. One-shot per session. |
-
-State machine: `was_above_open` flag must be set (price made a bar with `close > open` earlier in session) before `open_lost` is eligible. `open_lost_today` must be set before `open_reclaimed` is eligible. Both reset at the next session open.
-
-Stops/targets:
-- `open_reclaimed` BUY → stop at `min(low, low[1]) - atr_buffer`, T1 = +0.75%, T2 = +1.5% (triage agent re-ranks)
-- `open_lost` NOTICE → stop at `max(high, high[1]) + atr_buffer`, T1 = -0.75%, T2 = -1.5%
-
-### PDH/PDL confluence
-
-When today's open sits within **0.3% of PDH or PDL** (gap-up/gap-down days), the open-line alert IS the level alert — `open_reclaimed` and `staged_pdh_break` would normally fire on the same bar. The payload carries `near_pdh` / `near_pdl` flags; the webhook uses these to **suppress the twin** within a 5-min window:
-
-| First arrives | Second (twin) | Action |
-|---|---|---|
-| `open_reclaimed` (near_pdh=true) | `staged_pdh_break` | Twin suppressed. Message header: "Open + PDH confluence ↑" |
-| `staged_pdh_break` | `open_reclaimed` (near_pdh=true) | Twin (open_reclaimed) suppressed. Message header: plain "PDH break" |
-| `open_lost` (near_pdl=true) | `staged_pdl_break` | Twin suppressed. Message header: "Open + PDL confluence ↓" |
-| `staged_pdl_break` | `open_lost` (near_pdl=true) | Twin (open_lost) suppressed. Message header: plain "PDL break" |
-
-Audit log records `confluence_twin_suppressed` with the dropped alert_type for EOD Report visibility.
+Why split: when reviewing PDH/PDL setups, sometimes you want the open line invisible for clarity, but the alerts should still fire. Splitting the visual from the alert source gives that toggle independence without doubling the TV watchlist-alert overhead.
 
 ---
 
