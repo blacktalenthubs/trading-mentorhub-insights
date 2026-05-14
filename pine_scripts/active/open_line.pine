@@ -38,6 +38,21 @@ var float today_open = na
 if session_open_now
     today_open := open
 
+// =====================================================================
+// PDH / PDL confluence — flag when today_open sits at yesterday's high/low
+// =====================================================================
+// When today's open is right at PDH (gap-up) or PDL (gap-down), an open
+// reclaim/loss is ALSO a PDH/PDL break. levels-day-vwap fires its own
+// staged_pdh_break/staged_pdl_break for the same setup. Backend uses
+// these flags to suppress the redundant twin alert and tag the surviving
+// message as "open + PDH/PDL confluence" — higher conviction, one alert.
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]],
+                              lookahead = barmerge.lookahead_on)
+
+confluence_tol_pct = 0.003  // 0.3% — tight enough to mean "same level"
+near_pdh = not na(today_open) and not na(pdh) and math.abs(today_open - pdh) / pdh <= confluence_tol_pct
+near_pdl = not na(today_open) and not na(pdl) and math.abs(today_open - pdl) / pdl <= confluence_tol_pct
+
 plot(show_open ? today_open : na, title = "Today's Open",
      color = color.new(#F59E0B, 20), style = plot.style_linebr, linewidth = 2)
 
@@ -100,6 +115,8 @@ build_payload(rule, direction, entry_p, stop_p, t1_p, t2_p) =>
       + '","rule":"' + rule
       + '","direction":"' + direction
       + '","today_open":"' + str.tostring(today_open, format.mintick)
+      + '","near_pdh":"' + (near_pdh ? "true" : "false")
+      + '","near_pdl":"' + (near_pdl ? "true" : "false")
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 // open_lost — NOTICE, SPY/QQQ/AIQ/NDX only.

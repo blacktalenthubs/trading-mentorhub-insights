@@ -400,11 +400,21 @@ _REASON_EXACT = {
     "open_reclaimed":             "Reclaimed the open ↑",
 }
 
-def _pretty_reason(alert_type: str) -> str:
+def _pretty_reason(alert_type: str, message: str = "") -> str:
     """Convert raw alert_type tag into a readable label for the Telegram
     header. Handles MA bounce / rejection / proximity with EMA or SMA
     level extraction; falls back to a sanitized form for unknown tags.
+
+    If `message` carries the open-line confluence marker (set by the
+    webhook when today_open ≈ PDH/PDL), the header is upgraded to the
+    confluence label instead of the plain reason — surfaces the
+    "two indicators agreeing" context for the trader.
     """
+    msg = message or ""
+    if "OPEN+PDH CONFLUENCE" in msg:
+        return "Open + PDH confluence ↑"
+    if "OPEN+PDL CONFLUENCE" in msg:
+        return "Open + PDL confluence ↓"
     if not alert_type:
         return "Alert"
     t = alert_type[3:] if alert_type.startswith("tv_") else alert_type
@@ -458,7 +468,8 @@ def format_unified(alert, result):
                  else "SHORT" if direction == "SHORT"
                  else direction or "ALERT")
     dir_emoji = _direction_emoji(direction)
-    reason    = _e(_pretty_reason(alert.get("alert_type") or ""))
+    reason    = _e(_pretty_reason(alert.get("alert_type") or "",
+                                  alert.get("message") or ""))
     price     = alert.get("price")
     interval  = _e(alert.get("interval") or "")
 

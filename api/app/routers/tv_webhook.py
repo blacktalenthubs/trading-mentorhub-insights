@@ -46,6 +46,91 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
+# Confluence twin suppression — when today's open is at PDH/PDL, the
+# open-line indicator (`open_reclaimed` / `open_lost`) and the levels-day-vwap
+# indicator (`staged_pdh_break` / `staged_pdl_break`) fire on the same bar
+# for the same setup. To avoid double-firing Telegram, we track recent fires
+# per (symbol, session_date) in memory; whichever twin arrives second gets
+# suppressed.
+#
+# In-memory state is fine here — both twins always arrive within seconds of
+# each other (same bar close → same TV webhook batch). Process restart loses
+# state, but the 60-min identity dedup on (user, symbol, direction, type)
+# still prevents same-alert-type retriggers across restarts.
+# ---------------------------------------------------------------------------
+
+_CONFLUENCE_WINDOW = timedelta(minutes=5)
+# Key: (symbol, session_date) -> list of (alert_type, fired_at, near_pdh, near_pdl)
+_recent_confluence_fires: dict[tuple[str, str], list[tuple[str, datetime, bool, bool]]] = {}
+
+
+def _prune_confluence(key: tuple[str, str]) -> list[tuple[str, datetime, bool, bool]]:
+    """Drop entries older than the confluence window. Returns the live list."""
+    now = datetime.utcnow()
+    fires = _recent_confluence_fires.get(key, [])
+    fires = [t for t in fires if now - t[1] < _CONFLUENCE_WINDOW]
+    _recent_confluence_fires[key] = fires
+    return fires
+
+
+def _check_confluence_twin(
+    symbol: str,
+    session_date: str,
+    alert_type: str,
+    near_pdh: bool,
+    near_pdl: bool,
+) -> Optional[str]:
+    """Return the twin alert_type if one fired recently and this one should
+    be suppressed. None if this alert should proceed normally.
+
+    Twin pairs (within 5 min, same symbol+session):
+      • tv_open_reclaimed (near_pdh=true) ↔ tv_staged_pdh_break
+      • tv_open_lost      (near_pdl=true) ↔ tv_staged_pdl_break
+    """
+    fires = _prune_confluence((symbol, session_date))
+    if alert_type == "tv_open_reclaimed" and near_pdh:
+        for at, _, _, _ in fires:
+            if at == "tv_staged_pdh_break":
+                return at
+    elif alert_type == "tv_staged_pdh_break":
+        for at, _, np, _ in fires:
+            if at == "tv_open_reclaimed" and np:
+                return at
+    elif alert_type == "tv_open_lost" and near_pdl:
+        for at, _, _, _ in fires:
+            if at == "tv_staged_pdl_break":
+                return at
+    elif alert_type == "tv_staged_pdl_break":
+        for at, _, _, npl in fires:
+            if at == "tv_open_lost" and npl:
+                return at
+    return None
+
+
+def _record_confluence_fire(
+    symbol: str,
+    session_date: str,
+    alert_type: str,
+    near_pdh: bool,
+    near_pdl: bool,
+) -> None:
+    """Record this alert in the confluence tracker so a later twin can
+    detect it. Only call for alerts that are confluence-eligible (the four
+    twin types above). Other alerts can skip this."""
+    if alert_type not in (
+        "tv_open_reclaimed",
+        "tv_open_lost",
+        "tv_staged_pdh_break",
+        "tv_staged_pdl_break",
+    ):
+        return
+    key = (symbol, session_date)
+    _recent_confluence_fires.setdefault(key, []).append(
+        (alert_type, datetime.utcnow(), near_pdh, near_pdl)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pydantic schema — matches the JSON template in pine_scripts/.
 # ---------------------------------------------------------------------------
 
@@ -95,6 +180,12 @@ class TVWebhookPayload(BaseModel):
     # Higher count = stronger institutional memory at that price = bigger
     # conviction for execution.
     confluence_count: Optional[str] = None
+    # 2026-05-13: open-line confluence flags. `near_pdh` = today_open within
+    # 0.3% of PDH (gap-up scenario where open_reclaimed and staged_pdh_break
+    # fire on the same setup). `near_pdl` = today_open within 0.3% of PDL.
+    # Used by twin-alert suppression — see _check_confluence_twin().
+    near_pdh: Optional[str] = None
+    near_pdl: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +357,35 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     # Computed once per signal — same across all subscribed users.
     rule_name = getattr(sig, "_tv_rule", "webhook")
     alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
+
+    # Confluence twin suppression — see _check_confluence_twin docstring.
+    # Open-line + level alerts firing for the same setup get collapsed to one.
+    near_pdh = bool(getattr(sig, "_tv_near_pdh", False))
+    near_pdl = bool(getattr(sig, "_tv_near_pdl", False))
+    twin = _check_confluence_twin(
+        sig.symbol, session_date, alert_type_full, near_pdh, near_pdl
+    )
+    if twin:
+        logger.info(
+            "TV confluence twin suppressed: %s for %s — twin %s already fired in window",
+            alert_type_full, sig.symbol, twin,
+        )
+        return {
+            "dispatched": False,
+            "reason": "confluence_twin_suppressed",
+            "twin_type": twin,
+        }
+    _record_confluence_fire(
+        sig.symbol, session_date, alert_type_full, near_pdh, near_pdl,
+    )
+
+    # When this alert IS the confluence anchor (open_reclaimed/open_lost with
+    # near flag set), prefix the message with a tag so the Telegram template
+    # surfaces the confluence context.
+    if alert_type_full == "tv_open_reclaimed" and near_pdh:
+        sig.message = "✨ OPEN+PDH CONFLUENCE — " + (sig.message or "")
+    elif alert_type_full == "tv_open_lost" and near_pdl:
+        sig.message = "✨ OPEN+PDL CONFLUENCE — " + (sig.message or "")
 
     pairs: list[tuple[Any, Alert]] = []
 

@@ -298,6 +298,13 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
         sig._tv_confluence_count = int(_confluence_raw) if _confluence_raw else 1  # type: ignore[attr-defined]
     except (ValueError, TypeError):
         sig._tv_confluence_count = 1  # type: ignore[attr-defined]
+    # 2026-05-13: open-line ↔ PDH/PDL confluence flags from open_line.pine.
+    # True when today_open sits within 0.3% of PDH/PDL — the webhook uses
+    # this to suppress the twin staged_pdh_break/staged_pdl_break alert.
+    _near_pdh_raw = (payload.get("near_pdh") or "").strip().lower()
+    _near_pdl_raw = (payload.get("near_pdl") or "").strip().lower()
+    sig._tv_near_pdh = _near_pdh_raw == "true"  # type: ignore[attr-defined]
+    sig._tv_near_pdl = _near_pdl_raw == "true"  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig

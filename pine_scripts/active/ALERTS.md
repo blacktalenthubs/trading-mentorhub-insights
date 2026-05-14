@@ -109,6 +109,19 @@ Stops/targets:
 - `open_reclaimed` BUY → stop at `min(low, low[1]) - atr_buffer`, T1 = +0.75%, T2 = +1.5% (triage agent re-ranks)
 - `open_lost` NOTICE → stop at `max(high, high[1]) + atr_buffer`, T1 = -0.75%, T2 = -1.5%
 
+### PDH/PDL confluence
+
+When today's open sits within **0.3% of PDH or PDL** (gap-up/gap-down days), the open-line alert IS the level alert — `open_reclaimed` and `staged_pdh_break` would normally fire on the same bar. The payload carries `near_pdh` / `near_pdl` flags; the webhook uses these to **suppress the twin** within a 5-min window:
+
+| First arrives | Second (twin) | Action |
+|---|---|---|
+| `open_reclaimed` (near_pdh=true) | `staged_pdh_break` | Twin suppressed. Message header: "Open + PDH confluence ↑" |
+| `staged_pdh_break` | `open_reclaimed` (near_pdh=true) | Twin (open_reclaimed) suppressed. Message header: plain "PDH break" |
+| `open_lost` (near_pdl=true) | `staged_pdl_break` | Twin suppressed. Message header: "Open + PDL confluence ↓" |
+| `staged_pdl_break` | `open_lost` (near_pdl=true) | Twin (open_lost) suppressed. Message header: plain "PDL break" |
+
+Audit log records `confluence_twin_suppressed` with the dropped alert_type for EOD Report visibility.
+
 ---
 
 ## Backend gating — what happens between Pine and Telegram
