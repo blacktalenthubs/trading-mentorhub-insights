@@ -1,0 +1,125 @@
+// @version=5
+//
+// open-line — Today's opening price as a key intraday level.
+//
+// Plots today's opening price as a horizontal line throughout the
+// session and fires two alerts based on price interaction with it:
+//
+//   • tv_open_reclaimed → BUY (all symbols), one-shot per session
+//       Fires when price closes back ABOVE today's open after having
+//       lost it. The "strength returns" pattern — stock dipped under
+//       the open, defended, then reclaimed. NVDA-style trend-day
+//       continuation signal.
+//
+//   • tv_open_lost → NOTICE (SPY/QQQ/AIQ/NDX only), one-shot per session
+//       Fires when price closes BELOW today's open after holding above
+//       earlier in the session. Bearish session shift on the indexes.
+//
+// Separated from levels-day-vwap so the visual layer can be toggled
+// independently — keeps the chart uncluttered when reviewing PDH/PDL
+// or VWAP setups in isolation.
+//
+indicator("open-line", overlay = true)
+
+show_open       = input.bool(true, "Show today's opening price line")
+show_markers    = input.bool(true, "Show LOST/RECLAIM diamonds")
+atr_buffer_mult = input.float(0.3, "ATR buffer for stops (× ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+
+// Index gate — open_lost (NOTICE) only fires on SPY/QQQ/AIQ/NDX.
+// open_reclaimed (BUY) fires on every symbol regardless.
+is_macro_symbol = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ" or syminfo.ticker == "AIQ" or syminfo.ticker == "NDX"
+
+// =====================================================================
+// Today's opening price — captured on the first bar of each session
+// =====================================================================
+session_open_now = ta.change(time("D")) != 0
+var float today_open = na
+
+if session_open_now
+    today_open := open
+
+plot(show_open ? today_open : na, title = "Today's Open",
+     color = color.new(#F59E0B, 20), style = plot.style_linebr, linewidth = 2)
+
+// =====================================================================
+// Lost / reclaimed detection — one-shot per session
+// =====================================================================
+// Detection runs on EVERY symbol so the reclaim eligibility flag
+// (open_lost_today) tracks correctly even on non-index symbols where
+// the LOST alert itself is gated off.
+var bool was_above_open       = false
+var bool open_lost_today      = false
+var bool open_reclaimed_today = false
+
+if session_open_now
+    was_above_open       := false
+    open_lost_today      := false
+    open_reclaimed_today := false
+
+if not na(today_open) and close > today_open
+    was_above_open := true
+
+just_lost_open      = was_above_open and not open_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
+just_reclaimed_open = open_lost_today and not open_reclaimed_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
+
+if just_lost_open
+    open_lost_today := true
+if just_reclaimed_open
+    open_reclaimed_today := true
+
+// =====================================================================
+// Visual markers
+// =====================================================================
+plotshape(show_markers and just_lost_open,
+          title = "LOST OPEN", location = location.abovebar,
+          color = color.new(#EF4444, 0), style = shape.diamond,
+          size = size.tiny, text = "LOST OPEN", textcolor = color.white)
+plotshape(show_markers and just_reclaimed_open,
+          title = "RECLAIM OPEN", location = location.belowbar,
+          color = color.new(#22C55E, 0), style = shape.diamond,
+          size = size.tiny, text = "RECL OPEN", textcolor = color.white)
+
+// =====================================================================
+// Alert payload + ATR stops
+// =====================================================================
+atr14      = nz(ta.atr(14)[1], close * 0.005)
+atr_buffer = atr14 * atr_buffer_mult
+
+build_payload(rule, direction, entry_p, stop_p, t1_p, t2_p) =>
+    '{"symbol":"' + syminfo.ticker
+      + '","exchange":"' + syminfo.prefix
+      + '","interval":"' + timeframe.period
+      + '","price":"' + str.tostring(close, format.mintick)
+      + '","high":"' + str.tostring(high, format.mintick)
+      + '","low":"' + str.tostring(low, format.mintick)
+      + '","volume":"' + str.tostring(volume)
+      + '","entry":"' + str.tostring(entry_p, format.mintick)
+      + '","stop":"' + str.tostring(stop_p, format.mintick)
+      + '","target_1":"' + str.tostring(t1_p, format.mintick)
+      + '","target_2":"' + str.tostring(t2_p, format.mintick)
+      + '","rule":"' + rule
+      + '","direction":"' + direction
+      + '","today_open":"' + str.tostring(today_open, format.mintick)
+      + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+// open_lost — NOTICE, SPY/QQQ/AIQ/NDX only.
+// Stop above the high that lost the level; T1/T2 = small projected
+// drawdown targets (NOTICEs are heads-up, not actionable entries).
+if just_lost_open and is_macro_symbol
+    e  = close
+    s  = math.max(high, high[1]) + atr_buffer
+    t1 = e * 0.9925
+    t2 = e * 0.985
+    alert(build_payload("open_lost", "NOTICE", e, s, t1, t2),
+          alert.freq_once_per_bar_close)
+
+// open_reclaimed — BUY, all symbols. The actionable strength signal.
+// Stop below the wick low of the reclaim bar; T1/T2 = standard
+// long-side projections (triage agent re-ranks based on confluence).
+if just_reclaimed_open
+    e  = close
+    s  = math.min(low, low[1]) - atr_buffer
+    t1 = e * 1.0075
+    t2 = e * 1.015
+    alert(build_payload("open_reclaimed", "BUY", e, s, t1, t2),
+          alert.freq_once_per_bar_close)
