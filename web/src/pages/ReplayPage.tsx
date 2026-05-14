@@ -1,15 +1,19 @@
 /** Public Replay Page — shareable trade replay at /replay/:alertId.
  *
- *  Opens in full-screen studio mode. No auth required for viewing.
- *  Used for social media sharing and content creation.
+ *  No auth required for viewing. Uses StaticTradeChart for a clean
+ *  quick-look chart with entry/stop/T1/T2 horizontal lines, alert/outcome
+ *  markers, and the trade stats above the chart.
+ *
+ *  Previously used ChartReplay (cinematic candle-by-candle playback) —
+ *  swapped 2026-05-14 for the static view which is faster to evaluate
+ *  and better for sharing.
  */
 
-import { useParams, useNavigate } from "react-router-dom";
-import ChartReplay from "../components/ChartReplay";
+import { useParams } from "react-router-dom";
+import StaticTradeChart from "../components/StaticTradeChart";
 
 export default function ReplayPage() {
   const { alertId } = useParams();
-  const navigate = useNavigate();
   const id = parseInt(alertId || "0", 10);
 
   if (!id) {
@@ -20,9 +24,5 @@ export default function ReplayPage() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-surface-0">
-      <ChartReplay alertId={id} onClose={() => navigate("/")} />
-    </div>
-  );
+  return <StaticTradeChart alertId={id} />;
 }
