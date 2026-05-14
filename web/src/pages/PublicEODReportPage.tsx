@@ -83,6 +83,23 @@ function rrRatio(entry: number | null, stop: number | null, t1: number | null): 
 const DIRECTION_FILTERS = ["All", "BUY", "SHORT"] as const;
 type Filter = (typeof DIRECTION_FILTERS)[number];
 
+type SortKey = "time" | "symbol" | "direction" | "reason" | "entry" | "stop" | "t1" | "t2" | "rr" | "vol";
+type SortDir = "asc" | "desc";
+
+// Numeric columns default to descending (biggest first); string columns ascending.
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  time: "desc", symbol: "asc", direction: "asc", reason: "asc",
+  entry: "desc", stop: "desc", t1: "desc", t2: "desc",
+  rr: "desc", vol: "desc",
+};
+
+function rrNumeric(entry: number | null, stop: number | null, t1: number | null): number {
+  if (entry === null || stop === null || t1 === null) return -Infinity;
+  const risk = Math.abs(entry - stop);
+  if (risk <= 0) return -Infinity;
+  return Math.abs(t1 - entry) / risk;
+}
+
 export default function PublicEODReportPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -104,6 +121,17 @@ export default function PublicEODReportPage() {
   const [dirFilter, setDirFilter] = useState<Filter>("All");
   const [symFilter, setSymFilter] = useState("");
   const [shareStatus, setShareStatus] = useState<"idle" | "ok" | "fail">("idle");
+  const [sortKey, setSortKey] = useState<SortKey>("time");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function setSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(DEFAULT_DIR[key]);
+    }
+  }
 
   // Sync browser back/forward with date param: navigating to {basePath}/X
   // updates activeDate via the route. Changing the date dropdown navigates.
@@ -140,14 +168,39 @@ export default function PublicEODReportPage() {
 
   const rows = useMemo(() => {
     if (!alerts) return [];
-    return alerts
+    const filtered = alerts
       // Drop NOTICE alerts entirely — public report shows actionable BUY/SHORT only.
       .filter((a) => a.direction !== "NOTICE")
       .filter((a) => dirFilter === "All" || a.direction === dirFilter)
       .filter((a) =>
         !symFilter ? true : a.symbol.toUpperCase().includes(symFilter.toUpperCase()),
       );
-  }, [alerts, dirFilter, symFilter]);
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    const NEG_INF = -Number.MAX_VALUE;
+    return [...filtered].sort((a, b) => {
+      let va: number | string = "";
+      let vb: number | string = "";
+      switch (sortKey) {
+        case "time":      va = a.created_at;            vb = b.created_at;            break;
+        case "symbol":    va = a.symbol;                vb = b.symbol;                break;
+        case "direction": va = a.direction;             vb = b.direction;             break;
+        case "reason":    va = prettyReason(a.alert_type); vb = prettyReason(b.alert_type); break;
+        case "entry":     va = a.entry ?? NEG_INF;      vb = b.entry ?? NEG_INF;      break;
+        case "stop":      va = a.stop ?? NEG_INF;       vb = b.stop ?? NEG_INF;       break;
+        case "t1":        va = a.target_1 ?? NEG_INF;   vb = b.target_1 ?? NEG_INF;   break;
+        case "t2":        va = a.target_2 ?? NEG_INF;   vb = b.target_2 ?? NEG_INF;   break;
+        case "rr":
+          va = rrNumeric(a.entry ?? null, a.stop ?? null, a.target_1 ?? null);
+          vb = rrNumeric(b.entry ?? null, b.stop ?? null, b.target_1 ?? null);
+          break;
+        case "vol":       va = a.volume_ratio ?? NEG_INF; vb = b.volume_ratio ?? NEG_INF; break;
+      }
+      if (va < vb) return -1 * dir;
+      if (va > vb) return  1 * dir;
+      return 0;
+    });
+  }, [alerts, dirFilter, symFilter, sortKey, sortDir]);
 
   const counts = useMemo(() => {
     const c = { all: 0, BUY: 0, SHORT: 0 } as Record<string, number>;
@@ -293,16 +346,16 @@ export default function PublicEODReportPage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-border-subtle text-left text-xs uppercase text-text-muted">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Time</th>
-                    <th className="px-3 py-2 font-medium">Symbol</th>
-                    <th className="px-3 py-2 font-medium">Dir</th>
-                    <th className="px-3 py-2 font-medium">Reason</th>
-                    <th className="px-3 py-2 text-right font-medium">Entry</th>
-                    <th className="px-3 py-2 text-right font-medium">Stop</th>
-                    <th className="px-3 py-2 text-right font-medium">T1</th>
-                    <th className="px-3 py-2 text-right font-medium">T2</th>
-                    <th className="px-3 py-2 text-right font-medium">R:R</th>
-                    <th className="px-3 py-2 text-right font-medium">Vol×</th>
+                    <SortableHeader k="time"      label="Time"   align="left"   sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="symbol"    label="Symbol" align="left"   sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="direction" label="Dir"    align="left"   sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="reason"    label="Reason" align="left"   sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="entry"     label="Entry"  align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="stop"      label="Stop"   align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="t1"        label="T1"     align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="t2"        label="T2"     align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="rr"        label="R:R"    align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                    <SortableHeader k="vol"       label="Vol×"   align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
                     <th className="px-3 py-2 text-center font-medium">Chart</th>
                   </tr>
                 </thead>
@@ -379,9 +432,39 @@ export default function PublicEODReportPage() {
         <p className="text-xs text-text-muted">
           <span className="font-medium">R:R</span> = reward-to-risk against T1 (green ≥ 3, amber 1.5–3, red &lt; 1.5).{" "}
           <span className="font-medium">Vol×</span> = fire-bar volume vs average (green ≥ 2.0×, amber 1.0–2.0×, red &lt; 1.0×).{" "}
-          Click <span className="font-medium">📈 View</span> for the chart replay with entry/stop/T1/T2 overlays.
+          Click <span className="font-medium">📈 View</span> for the chart replay with entry/stop/T1/T2 overlays.{" "}
+          Click any column header to sort.
         </p>
       </div>
     </div>
+  );
+}
+
+interface SortableHeaderProps {
+  k: SortKey;
+  label: string;
+  align: "left" | "right" | "center";
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (k: SortKey) => void;
+}
+
+function SortableHeader({ k, label, align, sortKey, sortDir, onSort }: SortableHeaderProps) {
+  const active = sortKey === k;
+  const arrow = active ? (sortDir === "asc" ? "↑" : "↓") : "";
+  const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  return (
+    <th className={`px-3 py-2 font-medium ${alignClass}`}>
+      <button
+        onClick={() => onSort(k)}
+        className={`inline-flex items-center gap-1 transition hover:text-text-primary ${
+          active ? "text-accent" : ""
+        }`}
+        type="button"
+      >
+        {label}
+        <span className="text-[10px] opacity-70">{arrow || "↕"}</span>
+      </button>
+    </th>
   );
 }
