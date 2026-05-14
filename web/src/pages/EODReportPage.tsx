@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAlertSessionDates, useAlertsForDate } from "../api/hooks";
 import Card from "../components/ui/Card";
 import Badge from "../components/ui/Badge";
@@ -128,6 +129,33 @@ export default function EODReportPage() {
   }, [alerts]);
 
   const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
+  const [shareStatus, setShareStatus] = useState<"idle" | "ok" | "fail">("idle");
+
+  async function copyShareLink() {
+    // Build a public URL the user can paste anywhere — matches the public
+    // EOD report's route shape so the recipient lands on the same date.
+    const base = window.location.origin;
+    const url = activeDate ? `${base}/public/eod-report/${activeDate}` : `${base}/public/eod-report`;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setShareStatus("ok");
+      setTimeout(() => setShareStatus("idle"), 2000);
+    } catch {
+      setShareStatus("fail");
+      setTimeout(() => setShareStatus("idle"), 3000);
+    }
+  }
 
   async function copyAsTSV() {
     const header = ["Time", "Symbol", "Direction", "Reason", "Entry", "Stop", "T1", "T2", "R:R", "Vol×", "CVD"];
@@ -180,20 +208,35 @@ export default function EODReportPage() {
             Full review of every alert fired in the selected session — entry, levels, and rule that triggered.
           </p>
         </div>
-        <button
-          onClick={copyAsTSV}
-          className={`rounded px-3 py-1.5 text-xs font-medium text-white transition ${
-            copyStatus === "ok"   ? "bg-bullish hover:bg-bullish/90"     :
-            copyStatus === "fail" ? "bg-bearish-text hover:bg-bearish-text/90" :
-                                    "bg-accent hover:bg-accent-hover"
-          }`}
-          disabled={rows.length === 0}
-          title="Copy as tab-separated values — paste into Sheets/Excel/Notion"
-        >
-          {copyStatus === "ok"   ? `✓ Copied ${rows.length} rows` :
-           copyStatus === "fail" ? "✗ Copy failed"                :
-                                   `Copy as TSV (${rows.length})`}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={copyShareLink}
+            className={`rounded px-3 py-1.5 text-xs font-medium text-white transition ${
+              shareStatus === "ok"   ? "bg-bullish hover:bg-bullish/90" :
+              shareStatus === "fail" ? "bg-bearish-text" :
+                                       "bg-accent hover:bg-accent-hover"
+            }`}
+            title="Copy a public, shareable link to this session's report"
+          >
+            {shareStatus === "ok"   ? "✓ Link copied" :
+             shareStatus === "fail" ? "✗ Copy failed" :
+                                      "🔗 Share public link"}
+          </button>
+          <button
+            onClick={copyAsTSV}
+            className={`rounded px-3 py-1.5 text-xs font-medium text-white transition ${
+              copyStatus === "ok"   ? "bg-bullish hover:bg-bullish/90"     :
+              copyStatus === "fail" ? "bg-bearish-text hover:bg-bearish-text/90" :
+                                      "bg-accent hover:bg-accent-hover"
+            }`}
+            disabled={rows.length === 0}
+            title="Copy as tab-separated values — paste into Sheets/Excel/Notion"
+          >
+            {copyStatus === "ok"   ? `✓ Copied ${rows.length} rows` :
+             copyStatus === "fail" ? "✗ Copy failed"                :
+                                     `Copy as TSV (${rows.length})`}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -256,6 +299,7 @@ export default function EODReportPage() {
                   <SortableHeader  k="rr"        label="R:R"    align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
                   <SortableHeader  k="vol"       label="Vol×"   align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
                   <SortableHeader  k="cvd"       label="CVD"    align="center" sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+                  <th className="px-3 py-2 text-center text-xs font-medium uppercase text-text-muted">Chart</th>
                 </tr>
               </thead>
               <tbody>
@@ -265,7 +309,15 @@ export default function EODReportPage() {
                   return (
                     <tr key={a.id} className="border-b border-border-subtle/40 last:border-0 hover:bg-surface-3/40">
                       <td className="px-3 py-2 font-mono text-xs text-text-muted">{timeOnly(a.created_at)}</td>
-                      <td className="px-3 py-2 font-semibold">{a.symbol}</td>
+                      <td className="px-3 py-2 font-semibold">
+                        <button
+                          onClick={() => setSymFilter(a.symbol)}
+                          className="hover:text-accent hover:underline"
+                          title={`Filter to just ${a.symbol}`}
+                        >
+                          {a.symbol}
+                        </button>
+                      </td>
                       <td className="px-3 py-2">
                         <Badge variant={
                           a.direction === "BUY" || a.direction === "LONG" ? "bullish" :
@@ -298,6 +350,15 @@ export default function EODReportPage() {
                         ) : (
                           <span className="text-emerald-400" title="CVD confirming">✓ confirm</span>
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-center text-xs">
+                        <Link
+                          to={`/replay/${a.id}`}
+                          className="rounded border border-border-subtle bg-surface-3 px-2 py-1 hover:border-accent hover:text-accent"
+                          title="Open chart replay with entry/stop/T1/T2 overlay"
+                        >
+                          📈
+                        </Link>
                       </td>
                     </tr>
                   );

@@ -836,6 +836,7 @@ def create_app() -> FastAPI:
         push, settings, swing, intel, learn, billing, admin, referral,
         performance, coach_history, auto_trades, ai_coach, diagnostics,
         tv_webhook,  # Phase 5a — TradingView alert ingest
+        public,      # Public (unauth) EOD report endpoints
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -863,6 +864,8 @@ def create_app() -> FastAPI:
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
     app.include_router(tv_webhook.router, prefix="/tv", tags=["tradingview"])
+    # Public (unauthenticated) EOD report — shareable links for marketing.
+    app.include_router(public.router, prefix="/api/v1/public", tags=["public"])
 
     # --- Telegram webhook route (must be before SPA catch-all) ---
     import sys as _sys

@@ -26,6 +26,7 @@ import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import TradeReviewPage from "./pages/TradeReviewPage";
 import EODReportPage from "./pages/EODReportPage";
+import PublicEODReportPage from "./pages/PublicEODReportPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
 import AIUpdatesPage from "./pages/AIUpdatesPage";
 import WatchlistPage from "./pages/WatchlistPage";
@@ -78,6 +79,9 @@ export default function App() {
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />
               <Route path="/replay/:alertId" element={<ReplayPage />} />
+              <Route path="/public/eod-report" element={<PublicEODReportPage />} />
+              <Route path="/public/eod-report/:date" element={<PublicEODReportPage />} />
+              <Route path="/public/eod-report/:date/:symbol" element={<PublicEODReportPage />} />
               <Route path="/track-record" element={<TrackRecordPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
