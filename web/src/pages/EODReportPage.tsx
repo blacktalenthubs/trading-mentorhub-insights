@@ -43,7 +43,8 @@ function rrRatio(entry: number | null, stop: number | null, t1: number | null): 
   return (Math.abs(t1 - entry) / risk).toFixed(1);
 }
 
-const DIRECTION_FILTERS = ["All", "BUY", "SHORT", "NOTICE"] as const;
+// NOTICE alerts excluded — report focuses on actionable BUY/SHORT only.
+const DIRECTION_FILTERS = ["All", "BUY", "SHORT"] as const;
 type Filter = (typeof DIRECTION_FILTERS)[number];
 
 type SortKey = "time" | "symbol" | "direction" | "reason" | "entry" | "stop" | "t1" | "t2" | "rr" | "vol" | "cvd";
@@ -86,6 +87,8 @@ export default function EODReportPage() {
   const rows = useMemo(() => {
     if (!alerts) return [];
     const filtered = alerts
+      // Drop NOTICE alerts entirely — report focuses on BUY/SHORT.
+      .filter((a) => a.direction !== "NOTICE")
       .filter((a) => dirFilter === "All" || a.direction === dirFilter)
       .filter((a) =>
         !symFilter ? true : a.symbol.toUpperCase().includes(symFilter.toUpperCase()),
@@ -120,11 +123,13 @@ export default function EODReportPage() {
   }, [alerts, dirFilter, symFilter, sortKey, sortDir]);
 
   const counts = useMemo(() => {
-    const c = { all: 0, BUY: 0, SHORT: 0, NOTICE: 0 } as Record<string, number>;
-    (alerts || []).forEach((a) => {
-      c.all += 1;
-      c[a.direction] = (c[a.direction] || 0) + 1;
-    });
+    const c = { all: 0, BUY: 0, SHORT: 0 } as Record<string, number>;
+    (alerts || [])
+      .filter((a) => a.direction !== "NOTICE")
+      .forEach((a) => {
+        c.all += 1;
+        c[a.direction] = (c[a.direction] || 0) + 1;
+      });
     return c;
   }, [alerts]);
 

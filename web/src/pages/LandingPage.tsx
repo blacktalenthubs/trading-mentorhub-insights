@@ -127,12 +127,12 @@ function Hero({ track }: { track: TrackRecord | null }) {
             Start Free — 3 Day Pro Trial
             <ArrowRight className="h-4 w-4" />
           </Link>
-          <a
-            href="#track-record"
+          <Link
+            to="/track-record"
             className="inline-flex items-center justify-center gap-2 bg-surface-2 hover:bg-surface-3 text-text-primary font-medium text-base px-8 py-4 rounded-xl border border-border-subtle transition-colors"
           >
             See Live Track Record
-          </a>
+          </Link>
         </div>
 
         {/* Live metrics ticker */}
@@ -718,51 +718,8 @@ function Pricing() {
   );
 }
 
-/* ── Trust / Track Record ───────────────────────────────────────── */
-
-function Trust({ track }: { track: TrackRecord | null }) {
-  return (
-    <section id="track-record" className="py-24 px-6 bg-surface-1/50">
-      <div className="max-w-4xl mx-auto text-center">
-        <Badge>Radical transparency</Badge>
-        <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-          We show everything.<br />Even when it's ugly.
-        </h2>
-        <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
-          Public track record. Per-pattern win rates. Alerts you skipped that would
-          have worked. Most signal services can't survive this level of honesty. We can.
-        </p>
-
-        <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {[
-            { stat: track ? `${track.win_rate}%` : "---", label: "Overall win rate", sub: "Across all entry alerts, last 90 days" },
-            { stat: track ? `${track.wins}W / ${track.losses}L` : "---", label: "Win / Loss", sub: "Target hits vs stop outs" },
-            { stat: track ? `${track.total_signals}` : "---", label: "Signals tracked", sub: "Entry alerts scored and verified" },
-          ].map((item) => (
-            <div key={item.label} className="bg-surface-1 border border-border-subtle rounded-xl p-6">
-              <span className="font-mono text-3xl font-bold text-bullish-text">{item.stat}</span>
-              <p className="text-sm font-medium text-text-primary mt-2">{item.label}</p>
-              <p className="text-xs text-text-faint mt-1">{item.sub}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-10">
-          <Link
-            to="/track-record"
-            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-hover text-white font-bold text-sm px-6 py-3 rounded-xl transition-colors"
-          >
-            See the AI's auto-pilot account — every trade, every P&L
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-          <p className="mt-3 text-[11px] text-text-faint max-w-xl mx-auto">
-            The same AI trades its own signals in a simulated $10k account. Live equity curve, every win, every loss.
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
+/* Trust / Track Record section removed 2026-05-14 — moved to its own
+   /track-record page (now backed by the EOD report). */
 
 /* ── Pattern Library Preview ─────────────────────────────────────── */
 
@@ -968,7 +925,6 @@ export default function LandingPage() {
       <DailyWorkflow />
       <TelegramDemo />
       <PatternPreview />
-      <div id="track-record"><Trust track={track} /></div>
       <div id="pricing"><Pricing /></div>
       <FAQ />
       <FinalCTA />

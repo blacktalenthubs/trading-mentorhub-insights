@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import Card from "../components/ui/Card";
@@ -79,13 +79,22 @@ function rrRatio(entry: number | null, stop: number | null, t1: number | null): 
   return (Math.abs(t1 - entry) / risk).toFixed(1);
 }
 
-const DIRECTION_FILTERS = ["All", "BUY", "SHORT", "NOTICE"] as const;
+// NOTICE alerts excluded from public report (informational, less actionable).
+const DIRECTION_FILTERS = ["All", "BUY", "SHORT"] as const;
 type Filter = (typeof DIRECTION_FILTERS)[number];
 
 export default function PublicEODReportPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { date: dateParam, symbol: symbolParam } = useParams<{ date?: string; symbol?: string }>();
   const { data: dates } = usePublicSessionDates();
+
+  // Detect base path so the same component works mounted at /track-record
+  // (replaces the old auto-pilot view) AND /public/eod-report. Date / symbol
+  // route params follow the base path's segments.
+  const basePath = location.pathname.startsWith("/track-record")
+    ? "/track-record"
+    : "/public/eod-report";
 
   // If a date is in the URL, use it; otherwise pick the latest available
   const activeDate = dateParam || dates?.[0] || "";
@@ -96,11 +105,11 @@ export default function PublicEODReportPage() {
   const [symFilter, setSymFilter] = useState("");
   const [shareStatus, setShareStatus] = useState<"idle" | "ok" | "fail">("idle");
 
-  // Sync browser back/forward with date param: navigating to /public/eod-report/X
+  // Sync browser back/forward with date param: navigating to {basePath}/X
   // updates activeDate via the route. Changing the date dropdown navigates.
   function selectDate(d: string) {
-    if (focusSymbol) navigate(`/public/eod-report/${d}/${focusSymbol}`);
-    else navigate(`/public/eod-report/${d}`);
+    if (focusSymbol) navigate(`${basePath}/${d}/${focusSymbol}`);
+    else navigate(`${basePath}/${d}`);
   }
 
   async function copyShareLink() {
@@ -132,6 +141,8 @@ export default function PublicEODReportPage() {
   const rows = useMemo(() => {
     if (!alerts) return [];
     return alerts
+      // Drop NOTICE alerts entirely — public report shows actionable BUY/SHORT only.
+      .filter((a) => a.direction !== "NOTICE")
       .filter((a) => dirFilter === "All" || a.direction === dirFilter)
       .filter((a) =>
         !symFilter ? true : a.symbol.toUpperCase().includes(symFilter.toUpperCase()),
@@ -139,11 +150,13 @@ export default function PublicEODReportPage() {
   }, [alerts, dirFilter, symFilter]);
 
   const counts = useMemo(() => {
-    const c = { all: 0, BUY: 0, SHORT: 0, NOTICE: 0 } as Record<string, number>;
-    (alerts || []).forEach((a) => {
-      c.all += 1;
-      c[a.direction] = (c[a.direction] || 0) + 1;
-    });
+    const c = { all: 0, BUY: 0, SHORT: 0 } as Record<string, number>;
+    (alerts || [])
+      .filter((a) => a.direction !== "NOTICE")
+      .forEach((a) => {
+        c.all += 1;
+        c[a.direction] = (c[a.direction] || 0) + 1;
+      });
     return c;
   }, [alerts]);
 
@@ -240,7 +253,7 @@ export default function PublicEODReportPage() {
 
           {focusSymbol && (
             <Link
-              to={`/public/eod-report/${activeDate}`}
+              to={`${basePath}/${activeDate}`}
               className="ml-auto rounded border border-border-subtle bg-surface-3 px-3 py-1.5 text-xs text-text-muted hover:text-text-primary"
             >
               ← Back to all symbols
@@ -259,7 +272,7 @@ export default function PublicEODReportPage() {
                 {symbolList.map((sym) => (
                   <Link
                     key={sym}
-                    to={`/public/eod-report/${activeDate}/${sym}`}
+                    to={`${basePath}/${activeDate}/${sym}`}
                     className="rounded bg-surface-3 px-2 py-1 text-xs font-mono font-semibold text-text-primary transition hover:bg-accent hover:text-white"
                   >
                     {sym}
@@ -302,7 +315,7 @@ export default function PublicEODReportPage() {
                         <td className="px-3 py-2 font-mono text-xs text-text-muted">{timeOnly(a.created_at)}</td>
                         <td className="px-3 py-2 font-semibold">
                           <Link
-                            to={`/public/eod-report/${activeDate}/${a.symbol}`}
+                            to={`${basePath}/${activeDate}/${a.symbol}`}
                             className="text-text-primary hover:text-accent hover:underline"
                           >
                             {a.symbol}

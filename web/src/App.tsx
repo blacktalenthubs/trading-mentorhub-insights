@@ -83,6 +83,8 @@ export default function App() {
               <Route path="/public/eod-report/:date" element={<PublicEODReportPage />} />
               <Route path="/public/eod-report/:date/:symbol" element={<PublicEODReportPage />} />
               <Route path="/track-record" element={<TrackRecordPage />} />
+              <Route path="/track-record/:date" element={<TrackRecordPage />} />
+              <Route path="/track-record/:date/:symbol" element={<TrackRecordPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
