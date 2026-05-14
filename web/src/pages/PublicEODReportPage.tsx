@@ -13,7 +13,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import Card from "../components/ui/Card";
 import Badge from "../components/ui/Badge";
 import type { Alert } from "../types";
 
@@ -213,6 +212,41 @@ export default function PublicEODReportPage() {
     return c;
   }, [alerts]);
 
+  // Headline stats for the summary banner.
+  const stats = useMemo(() => {
+    const actionable = (alerts || []).filter((a) => a.direction !== "NOTICE");
+    const rrVals: number[] = [];
+    const volVals: number[] = [];
+    let topRR = 0;
+    let topRRSymbol = "";
+    let topVol = 0;
+    let topVolSymbol = "";
+    for (const a of actionable) {
+      const rr = rrNumeric(a.entry ?? null, a.stop ?? null, a.target_1 ?? null);
+      if (Number.isFinite(rr)) {
+        rrVals.push(rr);
+        if (rr > topRR) { topRR = rr; topRRSymbol = a.symbol; }
+      }
+      if (a.volume_ratio != null) {
+        volVals.push(a.volume_ratio);
+        if (a.volume_ratio > topVol) { topVol = a.volume_ratio; topVolSymbol = a.symbol; }
+      }
+    }
+    const avg = (xs: number[]) => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0;
+    return {
+      total: actionable.length,
+      buys: actionable.filter((a) => a.direction === "BUY").length,
+      shorts: actionable.filter((a) => a.direction === "SHORT").length,
+      symbols: new Set(actionable.map((a) => a.symbol)).size,
+      avgRR: avg(rrVals),
+      topRR,
+      topRRSymbol,
+      avgVol: avg(volVals),
+      topVol,
+      topVolSymbol,
+    };
+  }, [alerts]);
+
   // Unique symbols in the day's stream — used as the per-stock review jump list
   const symbolList = useMemo(() => {
     const set = new Set<string>();
@@ -222,44 +256,70 @@ export default function PublicEODReportPage() {
 
   return (
     <div className="min-h-screen bg-surface-0 text-text-primary">
-      {/* Public hero / CTA banner */}
-      <div className="border-b border-border-subtle bg-gradient-to-r from-accent/10 via-surface-1 to-bullish/10 px-6 py-4">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-bold">
-              TradingWithAI — EOD Alert Report
-              {focusSymbol && (
-                <span className="ml-2 rounded bg-accent/20 px-2 py-1 align-middle text-base text-accent">
-                  {focusSymbol}
-                </span>
-              )}
-            </h1>
-            <p className="text-sm text-text-muted">
-              {focusSymbol
-                ? `Every alert that fired for ${focusSymbol} on this session — entry, stop, targets, and rule.`
-                : "Every alert our Pine indicators fired for this session — public view. Click any row for the chart replay."}
-            </p>
+      {/* Public hero — gradient + stats banner */}
+      <div className="relative overflow-hidden border-b border-border-subtle bg-gradient-to-br from-accent/15 via-surface-1 to-bullish/10">
+        {/* Subtle radial glow for depth */}
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,197,94,0.08),transparent_60%),radial-gradient(circle_at_bottom_left,rgba(59,130,246,0.08),transparent_55%)]" />
+
+        <div className="relative mx-auto max-w-7xl px-6 py-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-muted">
+                <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-bullish-text shadow-[0_0_8px_rgba(34,197,94,0.7)]" />
+                Public · Live trade signals
+              </div>
+              <h1 className="mt-2 font-display text-3xl font-bold leading-tight sm:text-4xl">
+                TradingWithAI <span className="text-text-muted">—</span> EOD Alert Report
+                {focusSymbol && (
+                  <span className="ml-3 inline-block rounded-md bg-accent/20 px-2.5 py-1 align-middle text-base font-semibold text-accent">
+                    {focusSymbol}
+                  </span>
+                )}
+              </h1>
+              <p className="mt-1 max-w-2xl text-sm text-text-muted">
+                {focusSymbol
+                  ? `Every alert that fired for ${focusSymbol} on this session — entry, stop, targets, and the rule that triggered.`
+                  : "Every signal our Pine indicators fired this session. Click any row for the chart replay with our levels overlaid."}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={copyShareLink}
+                className={`rounded-lg px-3.5 py-2 text-xs font-semibold text-white transition shadow-lg shadow-accent/20 ${
+                  shareStatus === "ok"   ? "bg-bullish hover:bg-bullish/90" :
+                  shareStatus === "fail" ? "bg-bearish-text" :
+                                            "bg-accent hover:bg-accent-hover"
+                }`}
+                title="Copy this page's URL to share"
+              >
+                {shareStatus === "ok"   ? "✓ Link copied" :
+                 shareStatus === "fail" ? "✗ Copy failed" :
+                                           "🔗 Copy share link"}
+              </button>
+              <Link
+                to="/register"
+                className="rounded-lg bg-bullish px-3.5 py-2 text-xs font-semibold text-white shadow-lg shadow-bullish/30 transition hover:bg-bullish/90 hover:shadow-bullish/40"
+              >
+                Get live alerts →
+              </Link>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={copyShareLink}
-              className={`rounded px-3 py-1.5 text-xs font-medium text-white transition ${
-                shareStatus === "ok" ? "bg-bullish hover:bg-bullish/90" :
-                shareStatus === "fail" ? "bg-bearish-text" :
-                                          "bg-accent hover:bg-accent-hover"
-              }`}
-              title="Copy this page's URL to share"
-            >
-              {shareStatus === "ok" ? "✓ Link copied" :
-               shareStatus === "fail" ? "✗ Copy failed" :
-                                         "🔗 Copy share link"}
-            </button>
-            <Link
-              to="/register"
-              className="rounded bg-bullish px-3 py-1.5 text-xs font-medium text-white hover:bg-bullish/90"
-            >
-              Get live alerts →
-            </Link>
+
+          {/* Stats summary */}
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <StatTile label="Alerts fired" value={String(stats.total)} accent="text-text-primary" />
+            <StatTile label="Long signals"  value={String(stats.buys)}    accent="text-bullish-text" />
+            <StatTile label="Short signals" value={String(stats.shorts)}  accent="text-rose-400" />
+            <StatTile
+              label={stats.topRRSymbol ? `Best R:R · ${stats.topRRSymbol}` : "Best R:R"}
+              value={stats.topRR ? stats.topRR.toFixed(1) : "—"}
+              accent="text-emerald-400"
+            />
+            <StatTile
+              label={stats.topVolSymbol ? `Top Vol× · ${stats.topVolSymbol}` : "Top Vol×"}
+              value={stats.topVol ? `${stats.topVol.toFixed(2)}×` : "—"}
+              accent="text-amber-400"
+            />
           </div>
         </div>
       </div>
@@ -270,7 +330,7 @@ export default function PublicEODReportPage() {
           <select
             value={activeDate}
             onChange={(e) => selectDate(e.target.value)}
-            className="rounded border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm text-text-primary"
+            className="rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-2 text-sm text-text-primary shadow-sm transition hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           >
             {(dates || []).map((d) => (
               <option key={d} value={d}>{d}</option>
@@ -282,18 +342,22 @@ export default function PublicEODReportPage() {
               type="text"
               value={symFilter}
               onChange={(e) => setSymFilter(e.target.value)}
-              placeholder="Filter symbol..."
-              className="rounded border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              placeholder="🔍 Filter symbol..."
+              className="rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-2 text-sm text-text-primary shadow-sm transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
             />
           )}
 
-          <div className="flex gap-1">
+          <div className="flex gap-1 rounded-lg border border-border-subtle bg-surface-2 p-1">
             {DIRECTION_FILTERS.map((f) => (
               <button
                 key={f}
                 onClick={() => setDirFilter(f)}
-                className={`rounded px-3 py-1.5 text-xs font-medium transition ${
-                  dirFilter === f ? "bg-accent text-white" : "bg-surface-3 text-text-muted hover:text-text-primary"
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                  dirFilter === f
+                    ? f === "BUY"   ? "bg-bullish-text/20 text-bullish-text shadow-inner"
+                    : f === "SHORT" ? "bg-rose-500/20 text-rose-300 shadow-inner"
+                    :                 "bg-accent/20 text-accent shadow-inner"
+                    : "text-text-muted hover:text-text-primary"
                 }`}
               >
                 {f}
@@ -307,7 +371,7 @@ export default function PublicEODReportPage() {
           {focusSymbol && (
             <Link
               to={`${basePath}/${activeDate}`}
-              className="ml-auto rounded border border-border-subtle bg-surface-3 px-3 py-1.5 text-xs text-text-muted hover:text-text-primary"
+              className="ml-auto rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-2 text-xs font-medium text-text-muted shadow-sm transition hover:border-accent hover:text-accent"
             >
               ← Back to all symbols
             </Link>
@@ -316,35 +380,33 @@ export default function PublicEODReportPage() {
 
         {/* Per-stock jump list (only on the full session view) */}
         {!focusSymbol && symbolList.length > 0 && (
-          <Card>
-            <div className="p-3">
-              <p className="mb-2 text-xs uppercase text-text-muted">
-                Per-stock review — click a symbol to see only its alerts for {activeDate}:
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {symbolList.map((sym) => (
-                  <Link
-                    key={sym}
-                    to={`${basePath}/${activeDate}/${sym}`}
-                    className="rounded bg-surface-3 px-2 py-1 text-xs font-mono font-semibold text-text-primary transition hover:bg-accent hover:text-white"
-                  >
-                    {sym}
-                  </Link>
-                ))}
-              </div>
+          <div className="rounded-xl border border-border-subtle bg-surface-1/60 p-4">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Per-stock review · {symbolList.length} symbols on {activeDate}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {symbolList.map((sym) => (
+                <Link
+                  key={sym}
+                  to={`${basePath}/${activeDate}/${sym}`}
+                  className="rounded-md border border-border-subtle bg-surface-2 px-2.5 py-1 text-xs font-mono font-bold text-text-primary transition hover:border-accent hover:bg-accent hover:text-white hover:shadow-md hover:shadow-accent/30"
+                >
+                  {sym}
+                </Link>
+              ))}
             </div>
-          </Card>
+          </div>
         )}
 
-        <Card>
+        <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-1 shadow-xl shadow-black/20">
           {isLoading ? (
-            <p className="p-4 text-sm text-text-muted">Loading…</p>
+            <p className="p-6 text-sm text-text-muted">Loading…</p>
           ) : rows.length === 0 ? (
-            <p className="p-4 text-sm text-text-muted">No alerts in this session matching your filters.</p>
+            <p className="p-6 text-sm text-text-muted">No alerts in this session matching your filters.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="border-b border-border-subtle text-left text-xs uppercase text-text-muted">
+                <thead className="border-b border-border-subtle bg-surface-2 text-left text-[11px] uppercase tracking-wider text-text-muted">
                   <tr>
                     <SortableHeader k="time"      label="Time"   align="left"   sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
                     <SortableHeader k="symbol"    label="Symbol" align="left"   sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
@@ -356,25 +418,26 @@ export default function PublicEODReportPage() {
                     <SortableHeader k="t2"        label="T2"     align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
                     <SortableHeader k="rr"        label="R:R"    align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
                     <SortableHeader k="vol"       label="Vol×"   align="right"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
-                    <th className="px-3 py-2 text-center font-medium">Chart</th>
+                    <th className="px-3 py-3 text-center font-medium">Chart</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((a) => {
+                  {rows.map((a, i) => {
                     const rr = rrRatio(a.entry ?? null, a.stop ?? null, a.target_1 ?? null);
                     const rrNum = parseFloat(rr);
+                    const zebra = i % 2 === 0 ? "bg-surface-1" : "bg-surface-1/40";
                     return (
-                      <tr key={a.id} className="border-b border-border-subtle/40 last:border-0 hover:bg-surface-3/40">
-                        <td className="px-3 py-2 font-mono text-xs text-text-muted">{timeOnly(a.created_at)}</td>
-                        <td className="px-3 py-2 font-semibold">
+                      <tr key={a.id} className={`${zebra} border-b border-border-subtle/30 last:border-0 transition hover:bg-accent/5`}>
+                        <td className="px-3 py-2.5 font-mono text-xs text-text-muted">{timeOnly(a.created_at)}</td>
+                        <td className="px-3 py-2.5 font-bold tracking-wide">
                           <Link
                             to={`${basePath}/${activeDate}/${a.symbol}`}
-                            className="text-text-primary hover:text-accent hover:underline"
+                            className="text-text-primary transition hover:text-accent hover:underline"
                           >
                             {a.symbol}
                           </Link>
                         </td>
-                        <td className="px-3 py-2">
+                        <td className="px-3 py-2.5">
                           <Badge variant={
                             a.direction === "BUY" || a.direction === "LONG" ? "bullish" :
                             a.direction === "SHORT" ? "bearish" :
@@ -383,25 +446,25 @@ export default function PublicEODReportPage() {
                             {a.direction}
                           </Badge>
                         </td>
-                        <td className="px-3 py-2 text-text-secondary">{prettyReason(a.alert_type)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{formatPrice(a.entry)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs text-rose-400">{formatPrice(a.stop)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs text-emerald-400">{formatPrice(a.target_1)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs text-emerald-400/80">{formatPrice(a.target_2)}</td>
-                        <td className={`px-3 py-2 text-right font-mono text-xs font-semibold ${
+                        <td className="px-3 py-2.5 text-text-secondary">{prettyReason(a.alert_type)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-xs text-text-primary">{formatPrice(a.entry)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-xs text-rose-400">{formatPrice(a.stop)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-xs text-emerald-400">{formatPrice(a.target_1)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-xs text-emerald-400/80">{formatPrice(a.target_2)}</td>
+                        <td className={`px-3 py-2.5 text-right font-mono text-xs font-bold ${
                           rr === "—" ? "text-text-muted" :
                           rrNum >= 3 ? "text-emerald-400" :
                           rrNum >= 1.5 ? "text-amber-400" : "text-rose-400"
                         }`}>{rr}</td>
-                        <td className={`px-3 py-2 text-right font-mono text-xs ${
+                        <td className={`px-3 py-2.5 text-right font-mono text-xs font-semibold ${
                           a.volume_ratio == null ? "text-text-muted" :
                           a.volume_ratio >= 2.0 ? "text-emerald-400" :
                           a.volume_ratio < 1.0 ? "text-rose-400" : "text-amber-400"
                         }`}>{a.volume_ratio != null ? `${a.volume_ratio.toFixed(2)}×` : "—"}</td>
-                        <td className="px-3 py-2 text-center text-xs">
+                        <td className="px-3 py-2.5 text-center text-xs">
                           <Link
                             to={`/replay/${a.id}`}
-                            className="rounded border border-border-subtle bg-surface-3 px-2 py-1 hover:border-accent hover:text-accent"
+                            className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-3 px-2.5 py-1 font-medium text-text-secondary transition hover:border-accent hover:bg-accent/10 hover:text-accent"
                             title="Open chart replay with entry/stop/T1/T2 overlay"
                           >
                             📈 View
@@ -414,27 +477,34 @@ export default function PublicEODReportPage() {
               </table>
             </div>
           )}
-        </Card>
-
-        <div className="rounded-lg border border-border-subtle bg-surface-1 p-4">
-          <h2 className="mb-2 font-display text-lg font-semibold">Want these alerts live in your Telegram?</h2>
-          <p className="mb-3 text-sm text-text-muted">
-            TradingWithAI fires these signals via Pine indicators on TradingView and delivers them to your phone the moment they cross — with AI triage that ranks each by sector confluence, volume, and order flow.
-          </p>
-          <Link
-            to="/register"
-            className="inline-block rounded bg-bullish px-4 py-2 text-sm font-medium text-white hover:bg-bullish/90"
-          >
-            Start free trial →
-          </Link>
         </div>
 
-        <p className="text-xs text-text-muted">
-          <span className="font-medium">R:R</span> = reward-to-risk against T1 (green ≥ 3, amber 1.5–3, red &lt; 1.5).{" "}
-          <span className="font-medium">Vol×</span> = fire-bar volume vs average (green ≥ 2.0×, amber 1.0–2.0×, red &lt; 1.0×).{" "}
-          Click <span className="font-medium">📈 View</span> for the chart replay with entry/stop/T1/T2 overlays.{" "}
-          Click any column header to sort.
-        </p>
+        <div className="relative overflow-hidden rounded-2xl border border-border-subtle bg-gradient-to-br from-bullish/15 via-surface-1 to-accent/10 p-6 shadow-lg">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,197,94,0.10),transparent_60%)]" />
+          <div className="relative flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl font-bold">Want these signals live in your Telegram?</h2>
+              <p className="mt-1 max-w-xl text-sm text-text-muted">
+                TradingWithAI fires every signal in real time via Pine indicators on TradingView, then AI-triages each one by sector confluence, volume, and order flow before it hits your phone.
+              </p>
+            </div>
+            <Link
+              to="/register"
+              className="rounded-lg bg-bullish px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-bullish/30 transition hover:bg-bullish/90 hover:shadow-bullish/50"
+            >
+              Start free trial →
+            </Link>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border-subtle/50 bg-surface-1/40 p-4 text-xs leading-relaxed text-text-muted">
+          <p className="mb-2 font-semibold uppercase tracking-wider text-text-secondary">How to read this report</p>
+          <ul className="space-y-1">
+            <li><span className="font-medium text-text-secondary">R:R</span> — reward-to-risk against T1 (<span className="text-emerald-400">green ≥ 3</span>, <span className="text-amber-400">amber 1.5–3</span>, <span className="text-rose-400">red &lt; 1.5</span>)</li>
+            <li><span className="font-medium text-text-secondary">Vol×</span> — fire-bar volume vs average (<span className="text-emerald-400">green ≥ 2.0×</span>, <span className="text-amber-400">amber 1.0–2.0×</span>, <span className="text-rose-400">red &lt; 1.0×</span>)</li>
+            <li>Click <span className="font-medium text-accent">📈 View</span> for the chart replay with entry/stop/T1/T2 overlays · Click any column header to sort · Click a symbol to see its per-stock review</li>
+          </ul>
+        </div>
       </div>
     </div>
   );
@@ -447,6 +517,15 @@ interface SortableHeaderProps {
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (k: SortKey) => void;
+}
+
+function StatTile({ label, value, accent }: { label: string; value: string; accent: string }) {
+  return (
+    <div className="rounded-xl border border-border-subtle bg-surface-1/60 px-4 py-3 backdrop-blur-sm transition hover:border-border-strong hover:bg-surface-1/80">
+      <div className={`font-mono text-2xl font-bold leading-tight ${accent}`}>{value}</div>
+      <div className="mt-0.5 text-[11px] uppercase tracking-wide text-text-muted">{label}</div>
+    </div>
+  );
 }
 
 function SortableHeader({ k, label, align, sortKey, sortDir, onSort }: SortableHeaderProps) {
