@@ -134,6 +134,12 @@ export default function StaticTradeChart({ alertId }: Props) {
         timeVisible: true,
         secondsVisible: false,
         borderColor: "rgba(148, 163, 184, 0.15)",
+        // Bar spacing controls candle width. Default ~6 squishes too tight
+        // when there are 100+ bars; ~12 gives readable bodies with wicks
+        // visible while still showing meaningful context around the alert.
+        barSpacing: 12,
+        minBarSpacing: 4,
+        rightOffset: 8,
       },
       rightPriceScale: {
         borderColor: "rgba(148, 163, 184, 0.15)",
@@ -238,7 +244,17 @@ export default function StaticTradeChart({ alertId }: Props) {
       createSeriesMarkers(series, markers);
     }
 
-    chart.timeScale().fitContent();
+    // Center the visible window on the alert bar (rather than fitting all
+    // bars across the full width, which makes individual candles tiny).
+    // Show ~30 bars before the alert + however many follow it, capped so
+    // the chart never overflows into uselessly thin candles.
+    const totalBars = candleData.length;
+    const alertIdx = data.alert_bar_index >= 0 ? data.alert_bar_index : Math.floor(totalBars / 2);
+    const PRE_BARS = 30;
+    const POST_BARS = 50;
+    const from = Math.max(0, alertIdx - PRE_BARS);
+    const to = Math.min(totalBars - 1, alertIdx + POST_BARS);
+    chart.timeScale().setVisibleLogicalRange({ from, to });
 
     return () => {
       priceLinesRef.current.forEach((l) => series.removePriceLine(l));
@@ -365,7 +381,11 @@ export default function StaticTradeChart({ alertId }: Props) {
       {/* Chart */}
       <div className="flex-1 p-4">
         <div className="mx-auto h-full max-w-7xl">
-          <div ref={containerRef} className="h-full min-h-[480px] w-full rounded-xl border border-border-subtle bg-[#0a0f1c]" />
+          <div
+            ref={containerRef}
+            className="w-full rounded-xl border border-border-subtle bg-[#0a0f1c]"
+            style={{ height: "min(70vh, 720px)", minHeight: 480 }}
+          />
         </div>
       </div>
 
