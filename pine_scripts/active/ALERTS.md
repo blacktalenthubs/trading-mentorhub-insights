@@ -131,15 +131,16 @@ Why split: when reviewing PDH/PDL setups, sometimes you want the open line invis
 
 Order of gates applied in the triage agent (`triage-agent/live.py`) after an alert hits the database:
 
-1. **TV-webhook dedup** (in `api/app/routers/tv_webhook.py`) — same `(user, symbol, direction, alert_type)` within 60 minutes is suppressed. This is the primary rate-limiter for all TV-sourced alerts (BUY / SHORT / NOTICE).
-2. **Non-index NOTICE drop** — any NOTICE-direction alert where `symbol` ∉ {SPY, QQQ, AIQ, NDX} is dropped before triage. Audited as `NOTICE_NON_INDEX_DROPPED`.
-3. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true`, all NOTICEs dropped. Default: `false` (NOTICEs delivered).
-4. **ETH MA rolling cooldown** — if alert is an ETH MA bounce/rejection AND a prior fire of the same `(symbol, alert_type)` happened within the last 4 hours, drop. Audited as `MA_COOLDOWN_HIT`. (Strictly tighter than the 60-min webhook dedup for ETH.)
-5. **Cost budget** — daily triage spend cap (default $1.50).
-6. **Triage agent runs** — LLM evaluates sector confluence, index alignment, CVD, volume, cluster. Assigns verdict (HIGH / NORMAL / MUTE) + reason.
-7. **Non-index SHORT gate** (in `analytics/intraday_rules.py`) — SHORT-direction alerts on non-SPY/QQQ/AIQ/NDX symbols are dropped at the rule evaluation stage. Crypto path unaffected.
-8. **Post mode filter** — `TRIAGE_POST_MODE=all` (default) sends everything; `high_only` / `high_mute` restricts.
-9. **Telegram delivery** — format_unified renders the message; HIGH-conviction alerts get an inline chart.
+1. **Symbol-session dedup** (in `api/app/routers/tv_webhook.py`, env flag `SYMBOL_SESSION_DEDUP=true` default) — only the **first** alert per `(user, symbol, direction, session_date)` fires; subsequent same-direction alerts for the same symbol that session are dropped regardless of `alert_type`. Opposite-direction alerts (BUY → SHORT) still pass — that's a regime change worth signaling. This is the primary noise reducer on chop days (e.g., ETH-USD bouncing off EMA5/EMA10/EMA21/EMA50/SMA50 fires ONE alert, not 5–11).
+2. **TV-webhook identity dedup** — same `(user, symbol, direction, alert_type)` within 60 minutes is suppressed. Secondary belt-and-suspenders against same-alert-type re-fires (mostly redundant with symbol-session dedup, useful when SYMBOL_SESSION_DEDUP is off).
+3. **Non-index NOTICE drop** — any NOTICE-direction alert where `symbol` ∉ {SPY, QQQ, AIQ, NDX} is dropped before triage. Audited as `NOTICE_NON_INDEX_DROPPED`.
+4. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true`, all NOTICEs dropped. Default: `false` (NOTICEs delivered).
+5. **ETH MA rolling cooldown** — if alert is an ETH MA bounce/rejection AND a prior fire of the same `(symbol, alert_type)` happened within the last 4 hours, drop. Audited as `MA_COOLDOWN_HIT`. (Strictly tighter than the 60-min webhook dedup for ETH.)
+6. **Cost budget** — daily triage spend cap (default $1.50).
+7. **Triage agent runs** — LLM evaluates sector confluence, index alignment, CVD, volume, cluster. Assigns verdict (HIGH / NORMAL / MUTE) + reason.
+8. **Non-index SHORT gate** (in `analytics/intraday_rules.py`) — SHORT-direction alerts on non-SPY/QQQ/AIQ/NDX symbols are dropped at the rule evaluation stage. Crypto path unaffected.
+9. **Post mode filter** — `TRIAGE_POST_MODE=all` (default) sends everything; `high_only` / `high_mute` restricts.
+10. **Telegram delivery** — format_unified renders the message; HIGH-conviction alerts get an inline chart.
 
 ---
 
@@ -149,6 +150,7 @@ All on the Railway `triage-agent` service:
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `SYMBOL_SESSION_DEDUP` | `true` | One alert per `(user, symbol, direction, session_date)`. Set `false` to allow multiple same-direction alerts per symbol per day (legacy behavior, only 60-min identity dedup applies). |
 | `MUTE_NOTICE_ALERTS` | `false` | Set `true` to mute all NOTICEs from Telegram |
 | `MA_COOLDOWN_HOURS` | `4` | Rolling cooldown window for MA alerts on capped symbols |
 | `MA_COOLDOWN_SYMBOLS` | `ETH-USD` | Comma-separated list of symbols subject to MA cooldown |

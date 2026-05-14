@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from alert_config import (
+    SYMBOL_SESSION_DEDUP,
     TV_WEBHOOK_ALLOWED_IPS,
     TV_WEBHOOK_ENABLED,
 )
@@ -400,7 +401,25 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         # for the notification fan-out which happens AFTER commit so we don't
         # hold the DB connection during network I/O to Telegram.
         for user in users:
-            # Per-user identity dedup against alerts table.
+            # 1. Symbol-session dedup (primary noise reducer for chop days).
+            # If ANY alert for (user, symbol, direction) already fired this
+            # session, drop subsequent ones regardless of alert_type. This
+            # collapses cases like ETH-USD firing 11 MA bounces across
+            # EMA5/10/21/50/SMA50 within hours — only the first fires.
+            # Opposite-direction alerts still pass (regime change is news).
+            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT"):
+                if await _symbol_session_already_fired(
+                    db, user.id, sig.symbol, sig.direction, session_date,
+                ):
+                    logger.info(
+                        "TV webhook: symbol-session dedup suppressed %s/%s/%s "
+                        "for user %d (alert_type=%s)",
+                        sig.symbol, sig.direction, session_date,
+                        user.id, alert_type_full,
+                    )
+                    continue
+
+            # 2. Per-user identity dedup against alerts table.
             # Key = (user_id, symbol, direction, alert_type) where alert_type
             # carries the MA tag (tv_ma_rejection_short_v3_ema100). Same MA +
             # same direction within the window = same setup, suppressed.
@@ -648,6 +667,36 @@ async def _route_alert(sig) -> tuple[bool, Optional[str]]:
     return True, "NOTICE"
 
 
+async def _symbol_session_already_fired(
+    db,
+    user_id: int,
+    symbol: str,
+    direction: str,
+    session_date: str,
+) -> bool:
+    """True if ANY alert for (user, symbol, direction) already fired this
+    session. Broader than _alert_already_fired — doesn't care about
+    alert_type, so an MA bounce gets suppressed if a PDH break already
+    fired (and vice versa) on the same symbol+direction same session.
+
+    This is the primary chop-day noise reducer: ETH-USD bouncing off
+    EMA5/EMA10/EMA21/EMA50/SMA50 across the day fires ONE alert, not 5–11.
+
+    Opposite-direction alerts (BUY → SHORT) pass through — those represent
+    a regime change worth signaling.
+    """
+    from app.models.alert import Alert
+
+    stmt = select(Alert.id).where(
+        Alert.user_id == user_id,
+        Alert.symbol == symbol,
+        Alert.direction == direction,
+        Alert.session_date == session_date,
+    ).limit(1)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none() is not None
+
+
 async def _alert_already_fired(
     db,
     user_id: int,
@@ -688,6 +737,7 @@ __all__ = [
     "_is_allowed_ip",
     "_ma_tag_to_suffix",
     "_alert_already_fired",
+    "_symbol_session_already_fired",
     "_route_alert",
     "_spy_above_8_21",
     "_fetch_spy_state_sync",

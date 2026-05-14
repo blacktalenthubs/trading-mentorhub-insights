@@ -185,6 +185,15 @@ TV_WEBHOOK_ENABLED = _get_secret("TV_WEBHOOK_ENABLED", "false").lower() == "true
 # webhook servers. Sample IPs gathered live: 52.32.178.7 (Portland, OR).
 TV_WEBHOOK_ALLOWED_IPS = _get_secret("TV_WEBHOOK_ALLOWED_IPS", "")
 
+# Symbol-session dedup: when true, only the FIRST alert per (user, symbol,
+# direction, session_date) fires; subsequent same-direction alerts for the
+# same symbol that session are dropped regardless of alert_type. Opposite-
+# direction alerts (BUY → SHORT) still pass — a regime change is new info.
+# This sits on top of the existing 60-min (user,symbol,direction,alert_type)
+# dedup and is the primary noise reducer for chop days (e.g., one symbol
+# firing 5+ MA bounces across different EMAs within an hour).
+SYMBOL_SESSION_DEDUP = _get_secret("SYMBOL_SESSION_DEDUP", "true").lower() == "true"
+
 # ---------------------------------------------------------------------------
 # Phase 1 (2026-04-22): N-bar confirmation + staleness guard for ALL breakout
 # and breakdown rules. Prevents single-bar spike alerts (the 13:31 AMD
