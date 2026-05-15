@@ -424,9 +424,12 @@ if not na(today_open) and not na(pdh) and not na(pdl)
         day_text := "GAP DOWN\nopen below PDL " + pdl_str + "\nLEAN: avoid longs, fade pops"
         day_bg   := color.new(color.red, 10)
 
-var table day_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
+// Top-center placement so the day-type label sits front-and-center on
+// the chart, not crammed against the right-side watchlist panel where
+// it's easy to miss during fast markets.
+var table day_t = table.new(position.top_center, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
 if show_stage_badge and barstate.islast
-    table.cell(day_t, 0, 0, day_text, text_color = color.white, bgcolor = day_bg, text_size = size.normal)
+    table.cell(day_t, 0, 0, day_text, text_color = color.white, bgcolor = day_bg, text_size = size.large)
 
 // =====================================================================
 // Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
