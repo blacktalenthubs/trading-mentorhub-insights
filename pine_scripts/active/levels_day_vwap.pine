@@ -539,7 +539,12 @@ if not na(today_open) and close > today_open
     ol_was_above_open := true
 
 ol_just_lost      = ol_was_above_open and not ol_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
-ol_just_reclaimed = ol_lost_today and not ol_reclaimed_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
+// open_reclaimed: not gated by ol_reclaimed_today anymore — Pine fires
+// on every fresh lose-and-reclaim cycle. Backend applies a 90-min rolling
+// dedup so chop within the same hour collapses to one alert, but a true
+// second lose-reclaim cycle later in the session (e.g., morning reclaim
+// → lunch shakeout → afternoon re-reclaim) gets its own alert.
+ol_just_reclaimed = ol_lost_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
 
 // open_support_hold: defended the open from above without ever closing
 // below. Pattern: was above earlier, current bar wicks DOWN to within
@@ -551,6 +556,10 @@ ol_just_held = ol_was_above_open and not ol_lost_today and not ol_held_today and
 if ol_just_lost
     ol_lost_today := true
 if ol_just_reclaimed
+    // Re-arm: reset ol_lost_today so a subsequent lose-reclaim cycle can
+    // fire later in the session. Pair with backend 90-min dedup window
+    // so we don't get spammed by rapid chop.
+    ol_lost_today      := false
     ol_reclaimed_today := true
 if ol_just_held
     ol_held_today := true

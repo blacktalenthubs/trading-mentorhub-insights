@@ -88,7 +88,11 @@ plot + LOST/RECL diamond markers live in the separate `open-line` indicator
 | `open_support_hold` | **BUY** | **All symbols** | Defended open from above WITHOUT closing below. Wicked down to within 0.2% of today_open, closed back above on a green bar. AVGO / ORCL-style "from high to open and hold" pattern. One-shot per session, mutually exclusive with reclaim (blocked once `ol_lost_today=true`). |
 | `open_lost` | NOTICE | SPY / QQQ / AIQ / NDX only | First close below today's open after holding above earlier. One-shot per session. Bearish session shift on the indexes. |
 
-State machine: `ol_was_above_open` flag must be set (price made a bar with `close > today_open` earlier in session) before any open alert is eligible. `ol_lost_today` must be set before `open_reclaimed` fires. `open_support_hold` only fires while `ol_lost_today` is false — the two are deliberately mutually exclusive (hold = pristine defense, reclaim = recovery after loss). All three reset at the next session open.
+State machine: `ol_was_above_open` flag must be set (price made a bar with `close > today_open` earlier in session) before any open alert is eligible. `ol_lost_today` must be set before `open_reclaimed` fires. `open_support_hold` only fires while `ol_lost_today` is false — the two are deliberately mutually exclusive (hold = pristine defense, reclaim = recovery after loss).
+
+**`open_reclaimed` re-arm (2026-05-15)**: After `open_reclaimed` fires, Pine resets `ol_lost_today=false` so a subsequent lose-and-reclaim cycle later in the session can fire too. The backend applies a **90-minute identity dedup** specifically for `tv_open_reclaimed` (rather than the standard 60-min) to collapse chop while letting distinct legs through. `open_reclaimed` is also **exempted from symbol-session dedup** — a second reclaim later in the day is a fresh signal, not a redundant one.
+
+`open_lost` and `open_support_hold` remain one-shot per session — they reset only on the next session open.
 
 ### Inside-day flag
 

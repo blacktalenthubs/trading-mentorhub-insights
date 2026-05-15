@@ -348,7 +348,7 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     notified = 0
     session_date = date.today().isoformat()
     # Identity dedup keys on (user, symbol, direction, alert_type) where
-    # alert_type carries the MA tag. Window 60 min (was 4hrs).
+    # alert_type carries the MA tag. Default window 60 min (was 4hrs).
     #
     # Pine v3 state machine was stripped 2026-05-04 — all qualifying bars
     # now fire alert(). Backend dedup is the sole rate-limiter, so the
@@ -356,13 +356,19 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     # "don't spam on chop". 60 min lets a long bounce + short rejection
     # an hour apart both fire, while a same-direction repeat 30 min later
     # gets suppressed. Tune here without redeploying Pine.
-    dedup_window = timedelta(minutes=60)
+    #
+    # Per-alert-type overrides:
+    #   tv_open_reclaimed → 90 min. Pine re-arms after fire so a true
+    #   second lose-reclaim cycle later in the session can fire — 90-min
+    #   window collapses chop while letting distinct legs through.
 
     # Build alert_type with MA-tag suffix so each MA is its own dedup key.
     # ma_tag "100E" -> "_ema100", "8E21E" -> "_ema8_ema21", "" -> "".
     # Computed once per signal — same across all subscribed users.
     rule_name = getattr(sig, "_tv_rule", "webhook")
     alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
+
+    dedup_window = timedelta(minutes=90) if alert_type_full == "tv_open_reclaimed" else timedelta(minutes=60)
 
     # Confluence twin suppression — see _check_confluence_twin docstring.
     # Open-line + level alerts firing for the same setup get collapsed to one.
@@ -413,12 +419,14 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
             # EMA5/10/21/50/SMA50 within hours — only the first fires.
             # Opposite-direction alerts still pass (regime change is news).
             #
-            # ALL alert types follow this rule uniformly — open_reclaimed /
-            # open_lost included. Earlier we exempted them since Pine already
-            # one-shots per session, but the user (2026-05-14) wants the
-            # session-level cap to apply consistently so the FIRST BUY of
-            # any kind wins per symbol per day.
-            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT"):
+            # EXEMPTION (2026-05-15): tv_open_reclaimed bypasses session
+            # dedup. Pine re-arms after fire so a fresh lose-and-reclaim
+            # cycle later in the session is a genuinely new signal — but
+            # we don't want it spammed, so a 90-min identity dedup window
+            # (set above) catches rapid chop. Net result: distinct legs
+            # of a multi-cycle day each get their own alert.
+            session_dedup_exempt = alert_type_full == "tv_open_reclaimed"
+            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT") and not session_dedup_exempt:
                 if await _symbol_session_already_fired(
                     db, user.id, sig.symbol, sig.direction, session_date,
                 ):
