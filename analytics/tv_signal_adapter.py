@@ -305,6 +305,11 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     _near_pdl_raw = (payload.get("near_pdl") or "").strip().lower()
     sig._tv_near_pdh = _near_pdh_raw == "true"  # type: ignore[attr-defined]
     sig._tv_near_pdl = _near_pdl_raw == "true"  # type: ignore[attr-defined]
+    # 2026-05-14: inside_day = today_open between PDH and PDL (range day
+    # bias). Triage agent uses this to degrade conviction.
+    _inside_day_raw = (payload.get("inside_day") or "").strip().lower()
+    sig._tv_inside_day = _inside_day_raw == "true"  # type: ignore[attr-defined]
+    sig._tv_today_open = _to_float_optional(payload.get("today_open"))  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig

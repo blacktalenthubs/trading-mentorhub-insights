@@ -398,6 +398,7 @@ _REASON_EXACT = {
     "vwap_support_hold":          "VWAP support hold ✓",
     "open_lost":                  "Lost the open ↓",
     "open_reclaimed":             "Reclaimed the open ↑",
+    "open_support_hold":          "Open support hold ✓",
 }
 
 def _pretty_reason(alert_type: str, message: str = "") -> str:

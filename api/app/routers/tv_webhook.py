@@ -187,6 +187,11 @@ class TVWebhookPayload(BaseModel):
     # Used by twin-alert suppression — see _check_confluence_twin().
     near_pdh: Optional[str] = None
     near_pdl: Optional[str] = None
+    # 2026-05-14: inside_day = today_open is between yesterday's PDH and PDL
+    # (no gap). Inside days tend to range — triage agent uses this to
+    # degrade conviction since directional setups have lower hit rate.
+    inside_day: Optional[str] = None
+    today_open: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -408,16 +413,12 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
             # EMA5/10/21/50/SMA50 within hours — only the first fires.
             # Opposite-direction alerts still pass (regime change is news).
             #
-            # EXEMPT alert types: open_reclaimed and open_lost are one-shot
-            # per session by Pine state-machine design (was_above_open /
-            # open_lost_today flags reset at next session open). They're not
-            # redundant chop — they're regime-change signals worth firing
-            # even after other BUYs already fired earlier in the session.
-            session_dedup_exempt = alert_type_full in (
-                "tv_open_reclaimed",
-                "tv_open_lost",
-            )
-            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT") and not session_dedup_exempt:
+            # ALL alert types follow this rule uniformly — open_reclaimed /
+            # open_lost included. Earlier we exempted them since Pine already
+            # one-shots per session, but the user (2026-05-14) wants the
+            # session-level cap to apply consistently so the FIRST BUY of
+            # any kind wins per symbol per day.
+            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT"):
                 if await _symbol_session_already_fired(
                     db, user.id, sig.symbol, sig.direction, session_date,
                 ):

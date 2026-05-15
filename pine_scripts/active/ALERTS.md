@@ -85,9 +85,14 @@ plot + LOST/RECL diamond markers live in the separate `open-line` indicator
 | Rule | Direction | Symbols | Trigger |
 |---|---|---|---|
 | `open_reclaimed` | **BUY** | **All symbols** | First close back above today's open after having lost it. One-shot per session. The NVDA-style trend-day signal. |
+| `open_support_hold` | **BUY** | **All symbols** | Defended open from above WITHOUT closing below. Wicked down to within 0.2% of today_open, closed back above on a green bar. AVGO / ORCL-style "from high to open and hold" pattern. One-shot per session, mutually exclusive with reclaim (blocked once `ol_lost_today=true`). |
 | `open_lost` | NOTICE | SPY / QQQ / AIQ / NDX only | First close below today's open after holding above earlier. One-shot per session. Bearish session shift on the indexes. |
 
-State machine: `ol_was_above_open` flag must be set (price made a bar with `close > today_open` earlier in session) before `open_lost` is eligible. `ol_lost_today` must be set before `open_reclaimed` is eligible. Both reset at the next session open.
+State machine: `ol_was_above_open` flag must be set (price made a bar with `close > today_open` earlier in session) before any open alert is eligible. `ol_lost_today` must be set before `open_reclaimed` fires. `open_support_hold` only fires while `ol_lost_today` is false — the two are deliberately mutually exclusive (hold = pristine defense, reclaim = recovery after loss). All three reset at the next session open.
+
+### Inside-day flag
+
+Every alert payload from this indicator carries an `inside_day` boolean. True when `today_open` sits between yesterday's PDH and PDL (no overnight gap). Inside days tend to range, so the triage agent uses this to degrade conviction on directional setups (PDH break, MA bounce, open_reclaimed/hold) — the alert still fires, just with lower confidence in the Telegram message.
 
 ### PDH/PDL confluence
 
@@ -131,7 +136,7 @@ Why split: when reviewing PDH/PDL setups, sometimes you want the open line invis
 
 Order of gates applied in the triage agent (`triage-agent/live.py`) after an alert hits the database:
 
-1. **Symbol-session dedup** (in `api/app/routers/tv_webhook.py`, env flag `SYMBOL_SESSION_DEDUP=true` default) — only the **first** alert per `(user, symbol, direction, session_date)` fires; subsequent same-direction alerts for the same symbol that session are dropped regardless of `alert_type`. Opposite-direction alerts (BUY → SHORT) still pass — that's a regime change worth signaling. This is the primary noise reducer on chop days (e.g., ETH-USD bouncing off EMA5/EMA10/EMA21/EMA50/SMA50 fires ONE alert, not 5–11). **Exempt alert types**: `tv_open_reclaimed` and `tv_open_lost` bypass this gate — Pine already enforces one-shot per session for them, and they're regime-change signals (strength returning / session bias shift) that deserve to fire even after a prior BUY/SHORT for the same symbol.
+1. **Symbol-session dedup** (in `api/app/routers/tv_webhook.py`, env flag `SYMBOL_SESSION_DEDUP=true` default) — only the **first** alert per `(user, symbol, direction, session_date)` fires; subsequent same-direction alerts for the same symbol that session are dropped regardless of `alert_type`. Opposite-direction alerts (BUY → SHORT) still pass — that's a regime change worth signaling. This is the primary noise reducer on chop days (e.g., ETH-USD bouncing off EMA5/EMA10/EMA21/EMA50/SMA50 fires ONE alert, not 5–11). All alert types follow this gate uniformly — `open_reclaimed` / `open_lost` included, so even regime-change open events get capped by the first-fire rule (Pine's one-shot semantics + this gate stack additively).
 2. **TV-webhook identity dedup** — same `(user, symbol, direction, alert_type)` within 60 minutes is suppressed. Secondary belt-and-suspenders against same-alert-type re-fires (mostly redundant with symbol-session dedup, useful when SYMBOL_SESSION_DEDUP is off).
 3. **Non-index NOTICE drop** — any NOTICE-direction alert where `symbol` ∉ {SPY, QQQ, AIQ, NDX} is dropped before triage. Audited as `NOTICE_NON_INDEX_DROPPED`.
 4. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true`, all NOTICEs dropped. Default: `false` (NOTICEs delivered).

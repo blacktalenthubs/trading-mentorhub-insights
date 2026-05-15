@@ -364,6 +364,12 @@ open_confluence_tol = 0.003  // 0.3%
 near_pdh_open = not na(today_open) and not na(pdh) and math.abs(today_open - pdh) / pdh <= open_confluence_tol
 near_pdl_open = not na(today_open) and not na(pdl) and math.abs(today_open - pdl) / pdl <= open_confluence_tol
 
+// Inside-day flag: today's open sits between yesterday's high and low.
+// These days tend to range — useful as a conviction-degrade signal for the
+// triage agent. Outside-day opens (above PDH or below PDL = gap-up/gap-down)
+// have stronger directional bias.
+is_inside_day = not na(today_open) and not na(pdh) and not na(pdl) and today_open > pdl and today_open < pdh
+
 // =====================================================================
 // Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
 // =====================================================================
@@ -401,6 +407,7 @@ build_payload_v2(rule, direction,
       + '","today_open":"' + str.tostring(today_open, format.mintick)
       + '","near_pdh":"' + (near_pdh_open ? "true" : "false")
       + '","near_pdl":"' + (near_pdl_open ? "true" : "false")
+      + '","inside_day":"' + (is_inside_day ? "true" : "false")
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
@@ -425,26 +432,34 @@ gap_held    = not na(bar1_low)   and not na(pdh) and bar1_low > pdh
 gap_context = gap_up and gap_held
 
 // =====================================================================
-// Open lost / reclaimed — alerts (one of each per session)
+// Open-line state machine: lost / reclaimed / support-hold (one each per session)
 // =====================================================================
-// Pattern: stock opens, builds above the open ("bullish session"), then
-// closes back below = bearish session shift. Symmetric reclaim after a
-// loss = bullish recovery. Both fire ONCE per session (state vars reset
-// at the next session open) to keep noise low.
+// Three patterns we care about:
+//   • open_lost        → bearish shift; was above open, then closed below
+//   • open_reclaimed   → recovery; lost then came back above
+//   • open_support_hold → defense; was above open, wicked DOWN to it, held
+//                        without ever closing below. "From high to open and
+//                        hold" — high-conviction strength signal (AVGO,
+//                        ORCL-style trend day defenses).
 //
-// open_reclaimed → BUY on every symbol (NVDA-style trend-day signal).
-// open_lost      → NOTICE on SPY/QQQ/AIQ/NDX only (bearish session shift).
+// All three are one-shot per session (state vars reset at session open).
+// Hold and reclaim are mutually exclusive: once we've closed below open,
+// hold is blocked (it's a reclaim play now, not a hold).
 //
-// Detection runs on EVERY symbol so the reclaim eligibility flag tracks
-// correctly even on non-index symbols where open_lost is gated off.
+// Routing:
+//   open_reclaimed     → BUY on every symbol
+//   open_support_hold  → BUY on every symbol (same strength bucket)
+//   open_lost          → NOTICE on SPY/QQQ/AIQ/NDX only (bearish info)
 var bool ol_was_above_open       = false
 var bool ol_lost_today           = false
 var bool ol_reclaimed_today      = false
+var bool ol_held_today           = false
 
 if session_open_now
     ol_was_above_open       := false
     ol_lost_today           := false
     ol_reclaimed_today      := false
+    ol_held_today           := false
 
 if not na(today_open) and close > today_open
     ol_was_above_open := true
@@ -452,10 +467,19 @@ if not na(today_open) and close > today_open
 ol_just_lost      = ol_was_above_open and not ol_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
 ol_just_reclaimed = ol_lost_today and not ol_reclaimed_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
 
+// open_support_hold: defended the open from above without ever closing
+// below. Pattern: was above earlier, current bar wicks DOWN to within
+// 0.2% of today_open, closes back above on a green bar. Mutually
+// exclusive with reclaim — once ol_lost_today is true, hold is blocked.
+open_hold_tol_pct = 0.002  // 0.2% — wicks within this band count as a test
+ol_just_held = ol_was_above_open and not ol_lost_today and not ol_held_today and not na(today_open) and low <= today_open * (1.0 + open_hold_tol_pct) and close > today_open and close > open
+
 if ol_just_lost
     ol_lost_today := true
 if ol_just_reclaimed
     ol_reclaimed_today := true
+if ol_just_held
+    ol_held_today := true
 
 // =====================================================================
 // Target hierarchy helpers (spec C4)
@@ -607,6 +631,19 @@ if fire_open_alerts and ol_just_reclaimed
     t1 = e * 1.0075
     t2 = e * 1.015
     alert(build_payload_v2("open_reclaimed", "BUY", e, s, t1, t2,
+                           false, 1,
+                           volume_ratio, cvd_slope_n, bearish_div),
+          alert.freq_once_per_bar_close)
+
+// open_support_hold — defended open from above (no close-below). BUY on
+// every symbol. Stop is tight, just below today_open (we entered right at
+// the defended line).
+if fire_open_alerts and ol_just_held
+    e  = close
+    s  = today_open - atr_buffer
+    t1 = e * 1.0075
+    t2 = e * 1.015
+    alert(build_payload_v2("open_support_hold", "BUY", e, s, t1, t2,
                            false, 1,
                            volume_ratio, cvd_slope_n, bearish_div),
           alert.freq_once_per_bar_close)
