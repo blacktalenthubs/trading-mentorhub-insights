@@ -401,13 +401,13 @@ is_inside_mid  = is_inside_day and not is_inside_high and not is_inside_low and 
 
 // Range midpoint — natural pivot between INSIDE HIGH and INSIDE LOW.
 // Useful as a stop/invalidation level on inside days: long bias above mid,
-// short bias below. Plotted as a thin gray solid line so it's present
-// for context without competing visually with the bold PDH/PDL/VWAP set.
+// short bias below. Plotted as a silver solid line — light enough to read
+// on dark themes, thinner than the bold PDH/PDL/VWAP so it stays secondary.
 plot(show_midpoint and not na(range_midpoint) ? range_midpoint : na,
      title = "Range Mid",
-     color = color.new(color.gray, 40),
+     color = color.new(color.silver, 0),
      style = plot.style_line,
-     linewidth = 1)
+     linewidth = 2)
 
 string day_text = "INSUFFICIENT DATA\nPDH/PDL loading\nWAIT for context"
 color  day_bg   = color.new(color.gray, 30)
