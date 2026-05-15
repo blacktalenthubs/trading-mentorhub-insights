@@ -142,9 +142,11 @@ else if is_stage1
     stage_text := "STAGE 1: BASING\ninside range + VWAP flat\nWAIT — sweeps only"
     stage_bg   := color.new(color.gray, 30)
 
-var table stage_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
-if show_stage_badge and barstate.islast
-    table.cell(stage_t, 0, 0, stage_text, text_color = color.white, bgcolor = stage_bg, text_size = size.normal)
+// stage_text is still computed (used by stage_json in the alert payload —
+// the triage agent uses it for scoring). It's no longer rendered as the
+// chart badge — the day-type classification below replaces it for the
+// visual since "GAP UP / INSIDE / TEST PDH" is more actionable than
+// "STAGE 2 ADVANCING" for instinct trading.
 
 bgcolor(show_stage_bg and is_stage2 ? color.new(color.green, 95)  : na, title = "Stage 2 bg")
 bgcolor(show_stage_bg and is_stage4 ? color.new(color.red,   95)  : na, title = "Stage 4 bg")
@@ -369,6 +371,62 @@ near_pdl_open = not na(today_open) and not na(pdl) and math.abs(today_open - pdl
 // triage agent. Outside-day opens (above PDH or below PDL = gap-up/gap-down)
 // have stronger directional bias.
 is_inside_day = not na(today_open) and not na(pdh) and not na(pdl) and today_open > pdl and today_open < pdh
+
+// =====================================================================
+// Day type — actionable session classification displayed on chart badge.
+// Replaces the Stage 1/2/3/4 labels since "GAP UP / INSIDE / TEST PDH" is
+// more directly useful for sizing + bias than "STAGE 2 ADVANCING".
+//
+// Seven buckets (mutually exclusive):
+//   GAP UP        open > PDH                trend bias, longs at pullback
+//   TEST PDH      open ≈ PDH                break-or-fail
+//   INSIDE HIGH   open in upper half of range   range, lean long
+//   INSIDE MID    open near range midpoint      true 2-sided range
+//   INSIDE LOW    open in lower half of range   range, lean short
+//   TEST PDL      open ≈ PDL                bounce-or-break
+//   GAP DOWN      open < PDL                distribution risk, avoid longs
+// =====================================================================
+gap_threshold_pct = 0.0001  // > 0.01% past PDH/PDL counts as a "gap"
+is_gap_up   = not na(today_open) and not na(pdh) and today_open > pdh * (1.0 + gap_threshold_pct)
+is_gap_down = not na(today_open) and not na(pdl) and today_open < pdl * (1.0 - gap_threshold_pct)
+is_test_pdh = near_pdh_open and not is_gap_up
+is_test_pdl = near_pdl_open and not is_gap_down
+
+range_midpoint = not na(pdh) and not na(pdl) ? (pdh + pdl) / 2.0 : float(na)
+is_inside_high = is_inside_day and not na(range_midpoint) and today_open > range_midpoint and not is_test_pdh
+is_inside_low  = is_inside_day and not na(range_midpoint) and today_open < range_midpoint and not is_test_pdl
+is_inside_mid  = is_inside_day and not is_inside_high and not is_inside_low and not is_test_pdh and not is_test_pdl
+
+string day_text = "INSUFFICIENT DATA\nPDH/PDL loading\nWAIT for context"
+color  day_bg   = color.new(color.gray, 30)
+if not na(today_open) and not na(pdh) and not na(pdl)
+    pdh_str = str.tostring(pdh, format.mintick)
+    pdl_str = str.tostring(pdl, format.mintick)
+    if is_gap_up
+        day_text := "GAP UP\nopen above PDH " + pdh_str + "\nLEAN: longs at pullbacks"
+        day_bg   := color.new(color.green, 10)
+    else if is_test_pdh
+        day_text := "TEST PDH\nopen at PDH " + pdh_str + "\nLEAN: trade the break/fail"
+        day_bg   := color.new(color.yellow, 25)
+    else if is_inside_high
+        day_text := "INSIDE HIGH\nrange " + pdl_str + " / " + pdh_str + "\nLEAN: range, upper half"
+        day_bg   := color.new(color.aqua, 40)
+    else if is_inside_mid
+        day_text := "INSIDE MID\nrange " + pdl_str + " / " + pdh_str + "\nLEAN: range, fade extremes"
+        day_bg   := color.new(color.blue, 40)
+    else if is_inside_low
+        day_text := "INSIDE LOW\nrange " + pdl_str + " / " + pdh_str + "\nLEAN: range, lower half"
+        day_bg   := color.new(color.aqua, 40)
+    else if is_test_pdl
+        day_text := "TEST PDL\nopen at PDL " + pdl_str + "\nLEAN: bounce-or-break"
+        day_bg   := color.new(color.yellow, 25)
+    else if is_gap_down
+        day_text := "GAP DOWN\nopen below PDL " + pdl_str + "\nLEAN: avoid longs, fade pops"
+        day_bg   := color.new(color.red, 10)
+
+var table day_t = table.new(position.top_right, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
+if show_stage_badge and barstate.islast
+    table.cell(day_t, 0, 0, day_text, text_color = color.white, bgcolor = day_bg, text_size = size.normal)
 
 // =====================================================================
 // Alert payload — adds volume_ratio, cvd_delta, cvd_diverging

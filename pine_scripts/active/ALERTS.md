@@ -94,6 +94,22 @@ State machine: `ol_was_above_open` flag must be set (price made a bar with `clos
 
 Every alert payload from this indicator carries an `inside_day` boolean. True when `today_open` sits between yesterday's PDH and PDL (no overnight gap). Inside days tend to range, so the triage agent uses this to degrade conviction on directional setups (PDH break, MA bounce, open_reclaimed/hold) — the alert still fires, just with lower confidence in the Telegram message.
 
+### Chart day-type badge (replaces stage badge)
+
+The top-right table cell on the chart now shows a session-type classification instead of Stage 1/2/3/4. Seven mutually exclusive buckets based on today_open vs yesterday's PDH/PDL:
+
+| Badge | Condition | Color | Trade bias hint |
+|---|---|---|---|
+| **GAP UP** | today_open > PDH (any gap) | Green | "longs at pullbacks" |
+| **TEST PDH** | within 0.3% of PDH | Yellow | "break-or-fail" |
+| **INSIDE HIGH** | between midpoint and PDH | Aqua | "range, upper half" |
+| **INSIDE MID** | near range midpoint | Blue | "range, fade extremes" |
+| **INSIDE LOW** | between PDL and midpoint | Aqua | "range, lower half" |
+| **TEST PDL** | within 0.3% of PDL | Yellow | "bounce-or-break" |
+| **GAP DOWN** | today_open < PDL | Red | "avoid longs, fade pops" |
+
+Stage logic is still computed internally and lives in the alert payload as `stage` (triage agent uses it for scoring). Just no longer the chart-badge focus — the day-type is more directly actionable for instinct trading.
+
 ### PDH/PDL confluence
 
 When today's open sits within **0.3% of PDH or PDL** (gap-up/gap-down days), the open-line alert IS the level alert — `open_reclaimed` and `staged_pdh_break` would normally fire on the same bar. The payload carries `near_pdh` / `near_pdl` flags; the webhook uses these to **suppress the twin** within a 5-min window:
