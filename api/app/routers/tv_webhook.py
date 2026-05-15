@@ -407,7 +407,17 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
             # collapses cases like ETH-USD firing 11 MA bounces across
             # EMA5/10/21/50/SMA50 within hours — only the first fires.
             # Opposite-direction alerts still pass (regime change is news).
-            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT"):
+            #
+            # EXEMPT alert types: open_reclaimed and open_lost are one-shot
+            # per session by Pine state-machine design (was_above_open /
+            # open_lost_today flags reset at next session open). They're not
+            # redundant chop — they're regime-change signals worth firing
+            # even after other BUYs already fired earlier in the session.
+            session_dedup_exempt = alert_type_full in (
+                "tv_open_reclaimed",
+                "tv_open_lost",
+            )
+            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT") and not session_dedup_exempt:
                 if await _symbol_session_already_fired(
                     db, user.id, sig.symbol, sig.direction, session_date,
                 ):
