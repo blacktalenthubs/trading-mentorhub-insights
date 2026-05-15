@@ -76,7 +76,7 @@ POST_MODE       = os.environ.get("TRIAGE_POST_MODE", "all").lower()
 # Set to true to mute NOTICEs entirely; the per-session cap still applies
 # when enabled. Old behavior was mute=true; now NOTICEs are core context
 # for SPY/QQQ macro alignment.
-MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "false").lower() == "true"
+MUTE_NOTICE_ALERTS = os.environ.get("MUTE_NOTICE_ALERTS", "true").lower() == "true"
 
 # Rolling-window cooldown on MA/EMA alerts. ETH trades 24/7 and the
 # midnight-anchored "2/day cap" was a poor fit — a fire at 23:45 ET could

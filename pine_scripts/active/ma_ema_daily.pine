@@ -62,7 +62,12 @@ label_size_in    = input.string ("tiny",       "Marker label size", options = ["
 // Catches gap-up holds where price found buyers a few ticks above the level
 // (e.g., ORCL 2026-05-04: post-gap drift to within 0.3% of EMA100, bounced).
 // NOTICE-only — informational, not a tradeable defense like strict_long.
-fire_proximity_alerts = input.bool  (true, "Fire MA proximity NOTICE alerts (bar holds near MA without touching)", group = "Proximity NOTICE")
+//
+// DEFAULT FALSE as of 2026-05-15 — these were too noisy on index ETFs.
+// Every 15m bar that hovered near any of 9 EMAs/SMAs fired a NOTICE,
+// flooding Telegram with low-value pings ("EMA 5 PROXIMITY ↓" repeated).
+// Re-enable per chart instance if you want them on a specific symbol.
+fire_proximity_alerts = input.bool  (false, "Fire MA proximity NOTICE alerts (bar holds near MA without touching)", group = "Proximity NOTICE")
 proximity_pct         = input.float (0.3,  "Proximity threshold (% of MA price)", minval = 0.05, maxval = 2.0, step = 0.05, group = "Proximity NOTICE")
 
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal

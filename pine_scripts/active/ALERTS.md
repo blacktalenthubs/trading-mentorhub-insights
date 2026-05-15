@@ -155,7 +155,7 @@ Order of gates applied in the triage agent (`triage-agent/live.py`) after an ale
 1. **Symbol-session dedup** (in `api/app/routers/tv_webhook.py`, env flag `SYMBOL_SESSION_DEDUP=true` default) — only the **first** alert per `(user, symbol, direction, session_date)` fires; subsequent same-direction alerts for the same symbol that session are dropped regardless of `alert_type`. Opposite-direction alerts (BUY → SHORT) still pass — that's a regime change worth signaling. This is the primary noise reducer on chop days (e.g., ETH-USD bouncing off EMA5/EMA10/EMA21/EMA50/SMA50 fires ONE alert, not 5–11). All alert types follow this gate uniformly — `open_reclaimed` / `open_lost` included, so even regime-change open events get capped by the first-fire rule (Pine's one-shot semantics + this gate stack additively).
 2. **TV-webhook identity dedup** — same `(user, symbol, direction, alert_type)` within 60 minutes is suppressed. Secondary belt-and-suspenders against same-alert-type re-fires (mostly redundant with symbol-session dedup, useful when SYMBOL_SESSION_DEDUP is off).
 3. **Non-index NOTICE drop** — any NOTICE-direction alert where `symbol` ∉ {SPY, QQQ, AIQ, NDX} is dropped before triage. Audited as `NOTICE_NON_INDEX_DROPPED`.
-4. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true`, all NOTICEs dropped. Default: `false` (NOTICEs delivered).
+4. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true` (now **default true** as of 2026-05-15), all NOTICEs dropped from Telegram delivery. Audited as `NOTICE_MUTED`. EOD Report still shows them. Set env to `false` to re-enable NOTICE delivery on indexes (e.g., when you want `open_lost` or VWAP NOTICEs back).
 5. **ETH MA rolling cooldown** — if alert is an ETH MA bounce/rejection AND a prior fire of the same `(symbol, alert_type)` happened within the last 4 hours, drop. Audited as `MA_COOLDOWN_HIT`. (Strictly tighter than the 60-min webhook dedup for ETH.)
 6. **Cost budget** — daily triage spend cap (default $1.50).
 7. **Triage agent runs** — LLM evaluates sector confluence, index alignment, CVD, volume, cluster. Assigns verdict (HIGH / NORMAL / MUTE) + reason.
@@ -172,7 +172,7 @@ All on the Railway `triage-agent` service:
 | Variable | Default | Purpose |
 |---|---|---|
 | `SYMBOL_SESSION_DEDUP` | `true` | One alert per `(user, symbol, direction, session_date)`. Set `false` to allow multiple same-direction alerts per symbol per day (legacy behavior, only 60-min identity dedup applies). |
-| `MUTE_NOTICE_ALERTS` | `false` | Set `true` to mute all NOTICEs from Telegram |
+| `MUTE_NOTICE_ALERTS` | `true` | All NOTICE alerts muted from Telegram by default (still hit DB / EOD Report). Set to `false` if you want them back. |
 | `MA_COOLDOWN_HOURS` | `4` | Rolling cooldown window for MA alerts on capped symbols |
 | `MA_COOLDOWN_SYMBOLS` | `ETH-USD` | Comma-separated list of symbols subject to MA cooldown |
 | `TRIAGE_POST_MODE` | `all` | `all` / `high_only` / `high_mute` |
@@ -183,6 +183,7 @@ In Pine inputs (per chart instance):
 | Input | Default | Pine |
 |---|---|---|
 | `fire_vwap_alerts` | `false` | levels-day-vwap (set true on SPY 10m chart) |
+| `fire_proximity_alerts` | `false` | ma-ema-daily — MA proximity NOTICE alerts. Default off (was true) — was the primary NOTICE noise source. Re-enable per chart if needed. |
 | `show_open` / `show_markers` | `true` | open-line (visual toggles; alerts always fire when conditions met) |
 | `show_lines` / `show_vwap` / etc. | `true` | levels-day-vwap visual toggles |
 
