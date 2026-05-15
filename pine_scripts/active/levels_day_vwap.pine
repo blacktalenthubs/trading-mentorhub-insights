@@ -24,6 +24,7 @@
 indicator("levels-day-vwap", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
+show_midpoint     = input.bool(true,  "Show range midpoint line (gray dashed)")
 fire_open_alerts  = input.bool(true,  "Fire open_lost / open_reclaimed alerts")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
@@ -398,11 +399,22 @@ is_inside_high = is_inside_day and not na(range_midpoint) and today_open > range
 is_inside_low  = is_inside_day and not na(range_midpoint) and today_open < range_midpoint and not is_test_pdl
 is_inside_mid  = is_inside_day and not is_inside_high and not is_inside_low and not is_test_pdh and not is_test_pdl
 
+// Range midpoint — natural pivot between INSIDE HIGH and INSIDE LOW.
+// Useful as a stop/invalidation level on inside days: long bias above mid,
+// short bias below. Plotted as a thin gray solid line so it's present
+// for context without competing visually with the bold PDH/PDL/VWAP set.
+plot(show_midpoint and not na(range_midpoint) ? range_midpoint : na,
+     title = "Range Mid",
+     color = color.new(color.gray, 40),
+     style = plot.style_line,
+     linewidth = 1)
+
 string day_text = "INSUFFICIENT DATA\nPDH/PDL loading\nWAIT for context"
 color  day_bg   = color.new(color.gray, 30)
 if not na(today_open) and not na(pdh) and not na(pdl)
     pdh_str = str.tostring(pdh, format.mintick)
     pdl_str = str.tostring(pdl, format.mintick)
+    mid_str = not na(range_midpoint) ? str.tostring(range_midpoint, format.mintick) : "—"
     if is_gap_up
         day_text := "GAP UP\nopen above PDH " + pdh_str + "\nLEAN: longs at pullbacks"
         day_bg   := color.new(color.green, 10)
@@ -410,13 +422,13 @@ if not na(today_open) and not na(pdh) and not na(pdl)
         day_text := "TEST PDH\nopen at PDH " + pdh_str + "\nLEAN: trade the break/fail"
         day_bg   := color.new(color.yellow, 25)
     else if is_inside_high
-        day_text := "INSIDE HIGH\nrange " + pdl_str + " / " + pdh_str + "\nLEAN: range, upper half"
+        day_text := "INSIDE HIGH\nmid " + mid_str + " · range " + pdl_str + " / " + pdh_str + "\nLEAN: range, upper half"
         day_bg   := color.new(color.aqua, 40)
     else if is_inside_mid
-        day_text := "INSIDE MID\nrange " + pdl_str + " / " + pdh_str + "\nLEAN: range, fade extremes"
+        day_text := "INSIDE MID\nmid " + mid_str + " · range " + pdl_str + " / " + pdh_str + "\nLEAN: range, fade extremes"
         day_bg   := color.new(color.blue, 40)
     else if is_inside_low
-        day_text := "INSIDE LOW\nrange " + pdl_str + " / " + pdh_str + "\nLEAN: range, lower half"
+        day_text := "INSIDE LOW\nmid " + mid_str + " · range " + pdl_str + " / " + pdh_str + "\nLEAN: range, lower half"
         day_bg   := color.new(color.aqua, 40)
     else if is_test_pdl
         day_text := "TEST PDL\nopen at PDL " + pdl_str + "\nLEAN: bounce-or-break"
