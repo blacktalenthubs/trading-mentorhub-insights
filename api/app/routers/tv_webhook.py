@@ -32,6 +32,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from alert_config import (
+    LEVEL_CONFLUENCE_PCT,
+    LEVEL_CONFLUENCE_WINDOW_MIN,
     SYMBOL_SESSION_DEDUP,
     TV_WEBHOOK_ALLOWED_IPS,
     TV_WEBHOOK_ENABLED,
@@ -128,6 +130,96 @@ def _record_confluence_fire(
     key = (symbol, session_date)
     _recent_confluence_fires.setdefault(key, []).append(
         (alert_type, datetime.utcnow(), near_pdh, near_pdl)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cross-level confluence dedup (2026-05-16)
+# ---------------------------------------------------------------------------
+# When a level alert fires on a symbol, suppress any same-side level alert
+# that arrives within LEVEL_CONFLUENCE_WINDOW_MIN minutes AND within
+# LEVEL_CONFLUENCE_PCT % of the first alert's entry price.
+#
+# Side detection: alert_type containing _pdh_/_pwh_/_pmh_ → "high" (resistance
+# events); _pdl_/_pwl_/_pml_ → "low" (support events). First-fires-wins.
+#
+# Key: (symbol, side) where side ∈ {"high", "low"}
+# Value: list of (alert_type, entry_price, fired_at)
+#
+# Example (MSTR Friday): PDL $174.64 reclaim @ entry $175.28 fires first.
+# 30 min later PWL $175.72 reclaim @ entry $176 arrives — within 1% of $175.28
+# AND within 30 min — suppressed. EOD report still logs the suppression for
+# audit ("PDL reclaim delivered · PWL reclaim stacked-suppressed").
+# ---------------------------------------------------------------------------
+
+_recent_level_fires: dict[
+    tuple[str, str],
+    list[tuple[str, float, datetime]],
+] = {}
+
+
+def _level_side(alert_type: str) -> Optional[str]:
+    """Return 'high' for *h_break/rejection/failed_short, 'low' for
+    *l_reclaim/break. None for non-level alerts (open-line, MA, VWAP,
+    proximity NOTICEs, hold/wick_reclaim which fire per-level already)."""
+    if not alert_type.startswith("tv_staged_"):
+        return None
+    # tv_staged_pdh_break / tv_staged_pwh_break / tv_staged_pmh_break / *_rejection / *_failed_short
+    if "_pdh_" in alert_type or "_pwh_" in alert_type or "_pmh_" in alert_type:
+        return "high"
+    if "_pdl_" in alert_type or "_pwl_" in alert_type or "_pml_" in alert_type:
+        return "low"
+    return None
+
+
+def _check_level_confluence(
+    symbol: str,
+    side: str,
+    entry: float,
+    alert_type: str,
+) -> Optional[dict]:
+    """If a prior same-side level alert fired on this symbol within the
+    confluence window AND within the proximity %, return suppression info.
+    None means this alert should proceed normally."""
+    if entry is None or entry == 0:
+        return None
+    key = (symbol, side)
+    now = datetime.utcnow()
+    window = timedelta(minutes=LEVEL_CONFLUENCE_WINDOW_MIN)
+    pct = LEVEL_CONFLUENCE_PCT / 100.0
+
+    fires = _recent_level_fires.get(key, [])
+    # Prune expired
+    fires = [(at, ep, t) for (at, ep, t) in fires if now - t < window]
+    _recent_level_fires[key] = fires
+
+    for prior_type, prior_entry, prior_time in fires:
+        if prior_entry == 0 or prior_type == alert_type:
+            continue  # identity dedup handles same-type re-fires
+        if abs(entry - prior_entry) / prior_entry > pct:
+            continue  # too far apart price-wise
+        return {
+            "winner_type": prior_type,
+            "winner_entry": prior_entry,
+            "winner_time": prior_time,
+            "spread_pct": abs(entry - prior_entry) / prior_entry * 100.0,
+        }
+    return None
+
+
+def _record_level_fire(
+    symbol: str,
+    side: Optional[str],
+    entry: float,
+    alert_type: str,
+) -> None:
+    """Track this level-alert fire so later same-side alerts on the same
+    symbol can dedup against it."""
+    if side is None or entry is None or entry == 0:
+        return
+    key = (symbol, side)
+    _recent_level_fires.setdefault(key, []).append(
+        (alert_type, entry, datetime.utcnow())
     )
 
 
@@ -368,7 +460,44 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     rule_name = getattr(sig, "_tv_rule", "webhook")
     alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
 
-    dedup_window = timedelta(minutes=90) if alert_type_full == "tv_open_reclaimed" else timedelta(minutes=60)
+    # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either
+    # genuinely-fresh signals on the same symbol (Pine re-arms internally)
+    # or structural-level events whose meaning is independent of any
+    # open-line alert that fired earlier in the session.
+    #   • tv_open_reclaimed   → Pine re-arms; multi-leg reclaim days
+    #   • tv_open_wick_reclaim → distinct signal from open_held (wick
+    #                            actually crossed below); user wants both
+    #   • tv_staged_p{d,w,m}h_break → structural level vs prior day/week/month
+    #   • tv_staged_p{d,w,m}l_reclaim → same logic, structural reclaim
+    #   • tv_p{w,m}{h,l}_held / wick_reclaim → HTF support holds (once per
+    #                            SESSION per level; daily-reset cadence so
+    #                            a level tested Mon + Wed both fire)
+    SESSION_DEDUP_EXEMPT_TYPES = {
+        "tv_open_reclaimed",
+        "tv_open_wick_reclaim",
+        "tv_staged_pdh_break",
+        "tv_staged_pdl_reclaim",
+        "tv_staged_pwh_break",
+        "tv_staged_pwl_reclaim",
+        "tv_staged_pmh_break",
+        "tv_staged_pml_reclaim",
+        "tv_pwh_held", "tv_pwh_wick_reclaim",
+        "tv_pwl_held", "tv_pwl_wick_reclaim",
+        "tv_pmh_held", "tv_pmh_wick_reclaim",
+        "tv_pml_held", "tv_pml_wick_reclaim",
+    }
+
+    # Per-alert-type dedup windows. Defaults to 60 min.
+    #   open_reclaimed: 90 min (Pine re-arms, multi-leg days)
+    #   htf_proximity_*: 120 min (heads-up, less spammy)
+    DEDUP_WINDOW_OVERRIDES = {
+        "tv_open_reclaimed":      timedelta(minutes=90),
+        "tv_htf_proximity_pwh":   timedelta(minutes=120),
+        "tv_htf_proximity_pwl":   timedelta(minutes=120),
+        "tv_htf_proximity_pmh":   timedelta(minutes=120),
+        "tv_htf_proximity_pml":   timedelta(minutes=120),
+    }
+    dedup_window = DEDUP_WINDOW_OVERRIDES.get(alert_type_full, timedelta(minutes=60))
 
     # Confluence twin suppression — see _check_confluence_twin docstring.
     # Open-line + level alerts firing for the same setup get collapsed to one.
@@ -391,6 +520,32 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         sig.symbol, session_date, alert_type_full, near_pdh, near_pdl,
     )
 
+    # Cross-level confluence dedup — see _check_level_confluence docstring.
+    # If staged_pdl_reclaim fired and 30 min later staged_pwl_reclaim arrives
+    # within 1% of the prior entry, suppress the second. First-fires-wins.
+    side = _level_side(alert_type_full)
+    if side is not None:
+        level_conf = _check_level_confluence(
+            sig.symbol, side, sig.entry, alert_type_full,
+        )
+        if level_conf:
+            logger.info(
+                "TV level-confluence suppressed: %s for %s @ %.4f — "
+                "%s already fired @ %.4f (%.2f%% spread, %.1fmin ago)",
+                alert_type_full, sig.symbol, sig.entry,
+                level_conf["winner_type"], level_conf["winner_entry"],
+                level_conf["spread_pct"],
+                (datetime.utcnow() - level_conf["winner_time"]).total_seconds() / 60.0,
+            )
+            return {
+                "dispatched": False,
+                "reason": "level_confluence_suppressed",
+                "winner_type": level_conf["winner_type"],
+                "winner_entry": level_conf["winner_entry"],
+                "spread_pct": round(level_conf["spread_pct"], 3),
+            }
+        _record_level_fire(sig.symbol, side, sig.entry, alert_type_full)
+
     # When this alert IS the confluence anchor (open_reclaimed/open_lost with
     # near flag set), prefix the message with a tag so the Telegram template
     # surfaces the confluence context.
@@ -398,6 +553,13 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         sig.message = "✨ OPEN+PDH CONFLUENCE — " + (sig.message or "")
     elif alert_type_full == "tv_open_lost" and near_pdl:
         sig.message = "✨ OPEN+PDL CONFLUENCE — " + (sig.message or "")
+
+    # Gap-down recovery context — staged_pdl_reclaim firing on a gap-down
+    # day (opened below PDL) means price climbed back above. Tag so the
+    # Telegram header reads "PDL reclaim — gap-down recovery ↑".
+    gap_context = bool(getattr(sig, "_tv_gap_context", False))
+    if alert_type_full == "tv_staged_pdl_reclaim" and gap_context:
+        sig.message = "🔄 GAP-DOWN RECOVERY — " + (sig.message or "")
 
     pairs: list[tuple[Any, Alert]] = []
 
@@ -419,13 +581,14 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
             # EMA5/10/21/50/SMA50 within hours — only the first fires.
             # Opposite-direction alerts still pass (regime change is news).
             #
-            # EXEMPTION (2026-05-15): tv_open_reclaimed bypasses session
-            # dedup. Pine re-arms after fire so a fresh lose-and-reclaim
-            # cycle later in the session is a genuinely new signal — but
-            # we don't want it spammed, so a 90-min identity dedup window
-            # (set above) catches rapid chop. Net result: distinct legs
-            # of a multi-cycle day each get their own alert.
-            session_dedup_exempt = alert_type_full == "tv_open_reclaimed"
+            # EXEMPTIONS (see SESSION_DEDUP_EXEMPT_TYPES above): types
+            # that bypass session-dedup because they're either genuinely
+            # fresh per Pine state machine (open_reclaimed, wick_reclaim)
+            # or structural-level alerts whose thesis is independent of
+            # any open-line alert that fired earlier (PDH break, PDL
+            # reclaim). 60-min identity dedup + confluence-twin suppression
+            # still apply to all of them.
+            session_dedup_exempt = alert_type_full in SESSION_DEDUP_EXEMPT_TYPES
             if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT") and not session_dedup_exempt:
                 if await _symbol_session_already_fired(
                     db, user.id, sig.symbol, sig.direction, session_date,

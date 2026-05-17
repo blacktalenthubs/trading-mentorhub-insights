@@ -16,8 +16,33 @@ function prettyReason(alertType: string | null | undefined): string {
   t = t.replace(/^staged_pdh_rejection$/, "PDH reject");
   t = t.replace(/^staged_pdh_failed_short$/, "PDH fail-short");
   t = t.replace(/^staged_pdl_break$/, "PDL break");
+  t = t.replace(/^staged_pwh_break$/, "PWH break ↑");
+  t = t.replace(/^staged_pwl_reclaim$/, "PWL reclaim ↑");
+  t = t.replace(/^staged_pwh_rejection$/, "PWH reject");
+  t = t.replace(/^staged_pwl_break$/, "PWL break");
+  t = t.replace(/^staged_pmh_break$/, "PMH break ↑");
+  t = t.replace(/^staged_pml_reclaim$/, "PML reclaim ↑");
+  t = t.replace(/^staged_pmh_rejection$/, "PMH reject");
+  t = t.replace(/^staged_pml_break$/, "PML break");
+  t = t.replace(/^pwh_held$/, "PWH held ✓");
+  t = t.replace(/^pwh_wick_reclaim$/, "PWH wick reclaim ↑");
+  t = t.replace(/^pwl_held$/, "PWL held ✓");
+  t = t.replace(/^pwl_wick_reclaim$/, "PWL wick reclaim ↑");
+  t = t.replace(/^pmh_held$/, "PMH held ✓");
+  t = t.replace(/^pmh_wick_reclaim$/, "PMH wick reclaim ↑");
+  t = t.replace(/^pml_held$/, "PML held ✓");
+  t = t.replace(/^pml_wick_reclaim$/, "PML wick reclaim ↑");
+  t = t.replace(/^htf_proximity_pwh$/, "Near PWH ⚠️");
+  t = t.replace(/^htf_proximity_pwl$/, "Near PWL ⚠️");
+  t = t.replace(/^htf_proximity_pmh$/, "Near PMH ⚠️");
+  t = t.replace(/^htf_proximity_pml$/, "Near PML ⚠️");
   t = t.replace(/^vwap_reclaim_long$/, "VWAP reclaim");
   t = t.replace(/^vwap_reject_short$/, "VWAP reject");
+  t = t.replace(/^open_reclaimed$/, "Open reclaim ↑");
+  t = t.replace(/^open_wick_reclaim$/, "Open wick reclaim ↑");
+  t = t.replace(/^open_held$/, "Open held ✓");
+  t = t.replace(/^open_support_hold$/, "Open support hold ✓");
+  t = t.replace(/^open_lost$/, "Open lost ↓");
   t = t.replace(/ema(\d+)_ema(\d+)/g, "EMA$1+EMA$2");
   t = t.replace(/ema(\d+)/g, "EMA$1");
   return t.replace(/_/g, " ");
@@ -30,9 +55,24 @@ function formatPrice(p: number | null | undefined): string {
 
 function timeOnly(iso: string): string {
   if (!iso) return "";
-  // Backend returns "2026-05-11 14:35:04.012345" or ISO 8601
-  const t = iso.includes("T") ? iso.split("T")[1] : (iso.split(" ")[1] || iso);
-  return t.slice(0, 5);
+  // Backend timestamps are UTC, returned as naive strings either
+  // "2026-05-11 14:35:04.012345" (Postgres) or ISO 8601 without 'Z'.
+  // Normalize to UTC-suffixed ISO so Date() parses correctly, then
+  // render in America/New_York (US market clock).
+  const normalized = iso.includes("T")
+    ? (iso.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + "Z")
+    : iso.replace(" ", "T") + "Z";
+  const d = new Date(normalized);
+  if (isNaN(d.getTime())) {
+    const t = iso.includes("T") ? iso.split("T")[1] : (iso.split(" ")[1] || iso);
+    return t.slice(0, 5);
+  }
+  return d.toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function rrRatio(entry: number | null, stop: number | null, t1: number | null): string {

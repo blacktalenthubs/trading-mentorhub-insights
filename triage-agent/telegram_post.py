@@ -393,11 +393,41 @@ _REASON_EXACT = {
     "staged_pdh_rejection":       "PDH rejection",
     "staged_pdh_failed_short":    "PDH failed (trap short)",
     "staged_pdl_break":           "PDL break",
+    # Weekly-level events (2026-05-16) — fire as BUY/SHORT on all stocks
+    "staged_pwh_break":           "PWH break ↑",
+    "staged_pwl_reclaim":         "PWL reclaim ↑",
+    "staged_pwh_rejection":       "PWH rejection ↓",
+    "staged_pwh_failed_short":    "PWH failed (trap short)",
+    "staged_pwl_break":           "PWL break ↓",
+    # Monthly-level events
+    "staged_pmh_break":           "PMH break ↑",
+    "staged_pml_reclaim":         "PML reclaim ↑",
+    "staged_pmh_rejection":       "PMH rejection ↓",
+    "staged_pmh_failed_short":    "PMH failed (trap short)",
+    "staged_pml_break":           "PML break ↓",
+    # HTF support hold / wick reclaim (per-level lifecycle)
+    "pwh_held":                   "PWH held ✓",
+    "pwh_wick_reclaim":           "PWH wick reclaim ↑",
+    "pwl_held":                   "PWL held ✓",
+    "pwl_wick_reclaim":           "PWL wick reclaim ↑",
+    "pmh_held":                   "PMH held ✓",
+    "pmh_wick_reclaim":           "PMH wick reclaim ↑",
+    "pml_held":                   "PML held ✓",
+    "pml_wick_reclaim":           "PML wick reclaim ↑",
+    # HTF proximity NOTICEs — heads-up "stock is near a key HTF level"
+    "htf_proximity_pwh":          "Near PWH ⚠️",
+    "htf_proximity_pwl":          "Near PWL ⚠️",
+    "htf_proximity_pmh":          "Near PMH ⚠️",
+    "htf_proximity_pml":          "Near PML ⚠️",
     "vwap_reclaim_long":          "VWAP reclaim ↑",
     "vwap_reject_short":          "VWAP reject ↓",
     "vwap_support_hold":          "VWAP support hold ✓",
     "open_lost":                  "Lost the open ↓",
     "open_reclaimed":             "Reclaimed the open ↑",
+    "open_wick_reclaim":          "Open wick reclaim ↑",
+    "open_held":                  "Open held ✓ (clean test)",
+    # Legacy — emitted by old Pine versions still bound to TV alerts. Kept
+    # so historic alerts and any not-yet-rebound subscribers render cleanly.
     "open_support_hold":          "Open support hold ✓",
 }
 
@@ -416,6 +446,8 @@ def _pretty_reason(alert_type: str, message: str = "") -> str:
         return "Open + PDH confluence ↑"
     if "OPEN+PDL CONFLUENCE" in msg:
         return "Open + PDL confluence ↓"
+    if "GAP-DOWN RECOVERY" in msg:
+        return "PDL reclaim — gap-down recovery ↑"
     if not alert_type:
         return "Alert"
     t = alert_type[3:] if alert_type.startswith("tv_") else alert_type

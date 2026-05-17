@@ -319,13 +319,26 @@ def process_alert(alert_id, budget, dry_run=False):
         save_cursor(alert_id)
         return
 
-    # NOTICE alerts are index-only (SPY/QQQ). Non-index NOTICE-direction
-    # alerts (e.g., a weekly-level cross on AAPL that degraded to NOTICE)
-    # are dropped before they can reach Telegram, regardless of mute flag.
-    # SPY/QQQ NOTICEs proceed to the mute check next.
+    # NOTICE alerts are index-only (SPY/QQQ/AIQ/NDX) by default. Non-index
+    # NOTICE-direction alerts (e.g., a weekly-level cross on AAPL that
+    # degraded to NOTICE) are dropped before they can reach Telegram,
+    # regardless of mute flag.
+    #
+    # ALLOWLIST (2026-05-16): tv_htf_proximity_* fire on all stocks and
+    # bypass BOTH the non-index NOTICE drop AND MUTE_NOTICE_ALERTS — they
+    # are high-signal "stock is approaching a key weekly/monthly level"
+    # heads-ups that the user explicitly wants delivered everywhere.
+    HTF_PROXIMITY_TYPES = {
+        "tv_htf_proximity_pwh",
+        "tv_htf_proximity_pwl",
+        "tv_htf_proximity_pmh",
+        "tv_htf_proximity_pml",
+    }
     _direction = (alert.get("direction") or "").upper()
     _symbol_upper = (alert.get("symbol") or "").upper()
-    if _direction == "NOTICE" and _symbol_upper not in {"SPY", "QQQ", "AIQ", "NDX"}:
+    _alert_type = alert.get("alert_type") or ""
+    _htf_proximity_bypass = _alert_type in HTF_PROXIMITY_TYPES
+    if _direction == "NOTICE" and _symbol_upper not in {"SPY", "QQQ", "AIQ", "NDX"} and not _htf_proximity_bypass:
         logger.info("NOTICE #%s %s %s — non-index NOTICE dropped",
                     alert_id, alert["symbol"], alert["alert_type"])
         write_audit({"alert_id": alert_id, "symbol": alert["symbol"],
@@ -334,7 +347,7 @@ def process_alert(alert_id, budget, dry_run=False):
         save_cursor(alert_id)
         return
 
-    if MUTE_NOTICE_ALERTS and _direction == "NOTICE":
+    if MUTE_NOTICE_ALERTS and _direction == "NOTICE" and not _htf_proximity_bypass:
         logger.info("NOTICE #%s %s %s — muted (MUTE_NOTICE_ALERTS=true)",
                     alert_id, alert["symbol"], alert["alert_type"])
         write_audit({"alert_id": alert_id, "symbol": alert["symbol"],

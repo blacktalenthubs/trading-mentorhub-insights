@@ -68,9 +68,32 @@ function prettyReason(alertType: string | null | undefined): string {
   t = t.replace(/^staged_pdh_rejection$/, "PDH reject");
   t = t.replace(/^staged_pdh_failed_short$/, "PDH fail-short");
   t = t.replace(/^staged_pdl_break$/, "PDL break");
+  t = t.replace(/^staged_pwh_break$/, "PWH break ↑");
+  t = t.replace(/^staged_pwl_reclaim$/, "PWL reclaim ↑");
+  t = t.replace(/^staged_pwh_rejection$/, "PWH reject");
+  t = t.replace(/^staged_pwl_break$/, "PWL break");
+  t = t.replace(/^staged_pmh_break$/, "PMH break ↑");
+  t = t.replace(/^staged_pml_reclaim$/, "PML reclaim ↑");
+  t = t.replace(/^staged_pmh_rejection$/, "PMH reject");
+  t = t.replace(/^staged_pml_break$/, "PML break");
+  t = t.replace(/^pwh_held$/, "PWH held ✓");
+  t = t.replace(/^pwh_wick_reclaim$/, "PWH wick reclaim ↑");
+  t = t.replace(/^pwl_held$/, "PWL held ✓");
+  t = t.replace(/^pwl_wick_reclaim$/, "PWL wick reclaim ↑");
+  t = t.replace(/^pmh_held$/, "PMH held ✓");
+  t = t.replace(/^pmh_wick_reclaim$/, "PMH wick reclaim ↑");
+  t = t.replace(/^pml_held$/, "PML held ✓");
+  t = t.replace(/^pml_wick_reclaim$/, "PML wick reclaim ↑");
+  t = t.replace(/^htf_proximity_pwh$/, "Near PWH ⚠️");
+  t = t.replace(/^htf_proximity_pwl$/, "Near PWL ⚠️");
+  t = t.replace(/^htf_proximity_pmh$/, "Near PMH ⚠️");
+  t = t.replace(/^htf_proximity_pml$/, "Near PML ⚠️");
   t = t.replace(/^vwap_reclaim_long$/, "VWAP reclaim");
   t = t.replace(/^vwap_reject_short$/, "VWAP reject");
   t = t.replace(/^open_reclaimed$/, "Open reclaim ↑");
+  t = t.replace(/^open_wick_reclaim$/, "Open wick reclaim ↑");
+  t = t.replace(/^open_held$/, "Open held ✓");
+  t = t.replace(/^open_support_hold$/, "Open support hold ✓");
   t = t.replace(/^open_lost$/, "Open lost ↓");
   t = t.replace(/ema(\d+)_ema(\d+)/g, "EMA$1+EMA$2");
   t = t.replace(/ema(\d+)/g, "EMA$1");
@@ -80,6 +103,21 @@ function prettyReason(alertType: string | null | undefined): string {
 function formatPrice(p: number | null | undefined): string {
   if (p == null) return "—";
   return `$${p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatFiredAt(iso: string): string {
+  if (!iso) return "—";
+  // Backend stores naive UTC; render in ET so the time matches the chart.
+  const normalized = iso.includes("T")
+    ? (iso.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + "Z")
+    : iso.replace(" ", "T") + "Z";
+  const d = new Date(normalized);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }) + " ET";
 }
 
 function outcomeLabel(outcome: string): { text: string; color: string } {
@@ -362,7 +400,7 @@ export default function StaticTradeChart({ alertId }: Props) {
                 <span className="text-sm font-medium text-text-secondary">{prettyReason(a.alert_type)}</span>
               </div>
               <p className="text-xs text-text-muted">
-                Fired {new Date(a.created_at).toLocaleString()} · session {a.session_date}
+                Fired {formatFiredAt(a.created_at)} · session {a.session_date}
               </p>
             </div>
           </div>

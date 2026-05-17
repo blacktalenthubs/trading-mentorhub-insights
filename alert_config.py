@@ -195,6 +195,21 @@ TV_WEBHOOK_ALLOWED_IPS = _get_secret("TV_WEBHOOK_ALLOWED_IPS", "")
 SYMBOL_SESSION_DEDUP = _get_secret("SYMBOL_SESSION_DEDUP", "true").lower() == "true"
 
 # ---------------------------------------------------------------------------
+# Cross-level confluence dedup (2026-05-16). When a level alert fires on a
+# symbol (e.g., staged_pdl_reclaim @ $174.64), suppress any same-side level
+# alert that comes within LEVEL_CONFLUENCE_WINDOW_MIN minutes AND within
+# LEVEL_CONFLUENCE_PCT % of the first alert's entry price. Prevents the
+# "3 alerts in 30 min for stacked PDL+PWL+PML at the same recovery zone"
+# flood without losing structural meaning — the EOD report still logs the
+# suppressed alerts so confluence can be audited.
+#
+# Tuning: tighten to 0.5% / 15min if too few alerts deliver. Loosen to 2.0%
+# / 60min if you still see flood at confluence-heavy zones.
+# ---------------------------------------------------------------------------
+LEVEL_CONFLUENCE_WINDOW_MIN = int(_get_secret("LEVEL_CONFLUENCE_WINDOW_MIN", "30"))
+LEVEL_CONFLUENCE_PCT = float(_get_secret("LEVEL_CONFLUENCE_PCT", "1.0"))
+
+# ---------------------------------------------------------------------------
 # Phase 1 (2026-04-22): N-bar confirmation + staleness guard for ALL breakout
 # and breakdown rules. Prevents single-bar spike alerts (the 13:31 AMD
 # inside_day_breakout at +1.8% above level case) from firing.

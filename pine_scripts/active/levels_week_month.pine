@@ -2,53 +2,98 @@
 //
 // Weekly + Monthly structural levels — VISUAL ONLY.
 //
-// Plots prior week high/low, prior month high/low, and (optionally) the
-// weekly EMA 8/21 trend filters. NO alerts fire from this indicator.
+// Plots prior week high/low and prior month high/low as right-edge
+// labeled horizontal lines. NO alerts fire from this indicator — the
+// HTF alert logic (PWH/PWL/PMH/PML break/reclaim/hold/wick/proximity)
+// lives in `levels-day-vwap` so a single watchlist alert per symbol
+// covers both daily and HTF events (TV Premium 2-indicator-alert cap).
 //
-// Why visual-only? Per 2026-05-06 user direction, weekly/monthly level
-// breaks/reclaims are UNIFIED with daily levels in the alert layer — a
-// PWL reclaim fires the same `staged_pdl_reclaim` event from
-// `levels-day-vwap` as a PDL reclaim does. Splitting visuals here means
-// the user can toggle HTF lines off the chart without losing any alert
-// signal.
+// AUTO-SCALE FIX (2026-05-16): HTF levels drawn via line.new() not
+// plot() so TV's price-axis auto-fit ignores them — keeps intraday
+// candles at natural scale even when month-old PMH/PML are far away.
 //
-// Color hierarchy: HTF lines stay LIGHTER than daily PDH/PDL lines so the
-// "daily = bold, weekly = subtle, monthly = subtler" read survives even
-// when both indicators are on the chart.
+// COLOR + WEIGHT (2026-05-16):
+//   • Weekly (PWH, PWL): GREEN — width 2
+//   • Monthly (PMH, PML): DEEP YELLOW — width 2
+//   • Labels: opaque chip in level color so right-edge "PWH 427.98"
+//     pops instead of floating as faint text
+//
+// Weekly EMAs were removed 2026-05-16 — separate `weekly-emas` Pine
+// will host weekly/monthly EMA 5/21/50 trend filters when needed.
 //
 indicator("levels-week-month", overlay = true)
 
-show_weekly_lines  = input.bool(true,  "Show PWH / PWL")
-show_weekly_emas   = input.bool(false, "Show Weekly EMA 8 / 21",
-                                 tooltip = "Off by default — toggle on for HTF trend filter")
-show_monthly_lines = input.bool(true,  "Show PMH / PML")
+// --- Per-level visibility (toggle from Inputs tab, NOT Style tab) -----
+show_pwh           = input.bool(true,  "Show PWH (Prior Week High)",  group = "Levels")
+show_pwl           = input.bool(true,  "Show PWL (Prior Week Low)",   group = "Levels")
+show_pmh           = input.bool(true,  "Show PMH (Prior Month High)", group = "Levels")
+show_pml           = input.bool(true,  "Show PML (Prior Month Low)",  group = "Levels")
+
+// --- Display options --------------------------------------------------
+line_extend_bars   = input.int(40, "Line length (bars back from current)", minval = 5, maxval = 300, group = "Display", tooltip = "How many bars the HTF level line extends to the LEFT from the current bar. Right edge always extends forward.")
+show_level_labels  = input.bool(true, "Show level value labels at right edge", group = "Display")
+line_width_input   = input.int(2, "Line width", minval = 1, maxval = 4, group = "Display")
 
 // =====================================================================
-// Prior Week High / Low + Weekly EMAs
+// Data fetches
 // =====================================================================
-[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]],
-                              lookahead = barmerge.lookahead_on)
-wema8  = request.security(syminfo.tickerid, "W", ta.ema(close, 8)[1],
-                          lookahead = barmerge.lookahead_on)
-wema21 = request.security(syminfo.tickerid, "W", ta.ema(close, 21)[1],
-                          lookahead = barmerge.lookahead_on)
-
-plot(show_weekly_lines ? pwh : na, title = "PWH",
-     color = color.new(color.green, 50), style = plot.style_linebr, linewidth = 1)
-plot(show_weekly_lines ? pwl : na, title = "PWL",
-     color = color.new(color.red, 50),   style = plot.style_linebr, linewidth = 1)
-plot(show_weekly_emas  ? wema8  : na, title = "Weekly EMA8",
-     color = color.new(#FF9800, 60), linewidth = 1)
-plot(show_weekly_emas  ? wema21 : na, title = "Weekly EMA21",
-     color = color.new(#9E9E9E, 60), linewidth = 1)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
 // =====================================================================
-// Prior Month High / Low
+// Color palette
 // =====================================================================
-[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]],
-                              lookahead = barmerge.lookahead_on)
+// Both weekly levels: green. Both monthly levels: deep yellow.
+// (User preference — level identity carried by right-edge label, not by
+// color. PWH vs PWL distinguished by "PWH" / "PWL" tag in the label.)
+weekly_line_color   = color.new(color.green, 30)
+weekly_chip_color   = color.new(color.green, 25)
+weekly_text_color   = color.new(color.white, 0)
 
-plot(show_monthly_lines ? pmh : na, title = "PMH",
-     color = color.new(color.green, 70), style = plot.style_linebr, linewidth = 1)
-plot(show_monthly_lines ? pml : na, title = "PML",
-     color = color.new(color.red, 70),   style = plot.style_linebr, linewidth = 1)
+monthly_line_color  = color.new(#FFB300, 30)
+monthly_chip_color  = color.new(#FFB300, 25)
+monthly_text_color  = color.new(color.black, 0)
+
+// =====================================================================
+// On-chart line drawings (auto-scale safe — drawn via line.new())
+// =====================================================================
+var line  ln_pwh = na
+var line  ln_pwl = na
+var line  ln_pmh = na
+var line  ln_pml = na
+var label lb_pwh = na
+var label lb_pwl = na
+var label lb_pmh = na
+var label lb_pml = na
+
+if barstate.islast
+    line.delete(ln_pwh)
+    line.delete(ln_pwl)
+    line.delete(ln_pmh)
+    line.delete(ln_pml)
+    label.delete(lb_pwh)
+    label.delete(lb_pwl)
+    label.delete(lb_pmh)
+    label.delete(lb_pml)
+
+    left_idx = bar_index - line_extend_bars
+
+    if show_pwh and not na(pwh)
+        ln_pwh := line.new(left_idx, pwh, bar_index, pwh, color = weekly_line_color, style = line.style_solid, width = line_width_input, extend = extend.right)
+        if show_level_labels
+            lb_pwh := label.new(bar_index, pwh, text = "PWH " + str.tostring(pwh, format.mintick), color = weekly_chip_color, textcolor = weekly_text_color, style = label.style_label_left, size = size.small)
+
+    if show_pwl and not na(pwl)
+        ln_pwl := line.new(left_idx, pwl, bar_index, pwl, color = weekly_line_color, style = line.style_solid, width = line_width_input, extend = extend.right)
+        if show_level_labels
+            lb_pwl := label.new(bar_index, pwl, text = "PWL " + str.tostring(pwl, format.mintick), color = weekly_chip_color, textcolor = weekly_text_color, style = label.style_label_left, size = size.small)
+
+    if show_pmh and not na(pmh)
+        ln_pmh := line.new(left_idx, pmh, bar_index, pmh, color = monthly_line_color, style = line.style_solid, width = line_width_input, extend = extend.right)
+        if show_level_labels
+            lb_pmh := label.new(bar_index, pmh, text = "PMH " + str.tostring(pmh, format.mintick), color = monthly_chip_color, textcolor = monthly_text_color, style = label.style_label_left, size = size.small)
+
+    if show_pml and not na(pml)
+        ln_pml := line.new(left_idx, pml, bar_index, pml, color = monthly_line_color, style = line.style_solid, width = line_width_input, extend = extend.right)
+        if show_level_labels
+            lb_pml := label.new(bar_index, pml, text = "PML " + str.tostring(pml, format.mintick), color = monthly_chip_color, textcolor = monthly_text_color, style = label.style_label_left, size = size.small)

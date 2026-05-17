@@ -12,7 +12,7 @@ This file describes the **4 active Pine indicators** in `pine_scripts/active/` a
 |---|---|---|
 | **BUY** | Every watchlist symbol | ETH MA bounces: 4h rolling cooldown per `(symbol, alert_type)`. Others: none. |
 | **SHORT** | **SPY / QQQ / AIQ / NDX only** (other symbol shorts dropped at the backend) | None |
-| **NOTICE** | **SPY / QQQ / AIQ / NDX only** (other symbol notices dropped at the backend) | 60-min dedup per `(symbol, direction, alert_type)` |
+| **NOTICE** | **SPY / QQQ / AIQ / NDX only** by default. Exceptions allowlisted to fire on all stocks: `htf_proximity_*` (HTF level approach heads-ups). | 60-min dedup per `(symbol, direction, alert_type)`; HTF proximity uses 120-min. |
 
 ---
 
@@ -53,17 +53,43 @@ This file describes the **4 active Pine indicators** in `pine_scripts/active/` a
 
 Each event fires when price crosses ANY of the corresponding D/W/M levels. Direction varies by TF that triggered:
 
-| Rule | Triggered by | Direction (D) | Direction (W/M) |
-|---|---|---|---|
-| `staged_pdh_break` | Close above PDH / PWH / PMH | **BUY** | NOTICE |
-| `staged_pdl_reclaim` | Close back above PDL / PWL / PML | **BUY** | NOTICE |
-| `staged_pdh_rejection` | Wick into PDH / PWH / PMH + close back under | **SHORT** | NOTICE |
-| `staged_pdh_failed_short` | Closed above PDH / PWH / PMH then back below within sweep window | **SHORT** | NOTICE |
-| `staged_pdl_break` | Close below PDL / PWL / PML | **SHORT** | NOTICE |
+**Alert types are TF-suffixed** (2026-05-16) — a weekly-high break fires `tv_staged_pwh_break`, a monthly-low reclaim fires `tv_staged_pml_reclaim`, etc. The Pine logic that *detects* the event is the same across TFs (it's "the level that was crossed"), only the emitted alert_type and Telegram label differ.
+
+| Rule (D / W / M) | Triggered by | Direction |
+|---|---|---|
+| `staged_pdh_break` / `staged_pwh_break` / `staged_pmh_break` | Close above PDH / PWH / PMH | **BUY** |
+| `staged_pdl_reclaim` / `staged_pwl_reclaim` / `staged_pml_reclaim` | Close back above PDL / PWL / PML | **BUY** |
+| `staged_pdh_rejection` / `staged_pwh_rejection` / `staged_pmh_rejection` | Wick into PDH / PWH / PMH + close back under | **SHORT** |
+| `staged_pdh_failed_short` / `staged_pwh_failed_short` / `staged_pmh_failed_short` | Closed above level then back below within sweep window | **SHORT** |
+| `staged_pdl_break` / `staged_pwl_break` / `staged_pml_break` | Close below PDL / PWL / PML | **SHORT** |
 
 **Sweep window** (for `staged_pdh_failed_short` and `staged_pdl_reclaim`'s sweep variant):
 - **SPY / QQQ**: 200 bars (covers a full RTH session)
 - All other symbols: 5 bars (default `sweep_window_bars` input)
+
+### HTF level support hold + wick reclaim (2026-05-16)
+
+When price is ABOVE a higher-timeframe level (acting as support), the following BUY alerts mirror the open-line lifecycle:
+
+| Rule | Triggered by | Cadence |
+|---|---|---|
+| `pwh_held` / `pwl_held` / `pmh_held` / `pml_held` | Low tested within 0.2% above level, never crossed below, close green | Once per session per level (daily reset) |
+| `pwh_wick_reclaim` / `pwl_wick_reclaim` / `pmh_wick_reclaim` / `pml_wick_reclaim` | Wick crossed below level, body held above, green bar bounce | Once per session per level (daily reset) |
+
+State resets at session open (daily). Critical levels can be tested multiple times in the same week/month — Monday's PWH defense and Wednesday's PWH defense are independent meaningful events, each fires its own alert. State also resets when the level value itself changes (new week locks in PWH/PWL, new month for PMH/PML). All BUY direction, fire on all stocks. Exempt from `SYMBOL_SESSION_DEDUP`.
+
+### HTF level proximity NOTICE (2026-05-16)
+
+Heads-up alerts fired when close is within **0.5%** of a key weekly/monthly level (both sides — resistance approach from below, support approach from above).
+
+| Rule | Trigger | Dedup |
+|---|---|---|
+| `htf_proximity_pwh` | close within 0.5% of PWH | 120 min |
+| `htf_proximity_pwl` | close within 0.5% of PWL | 120 min |
+| `htf_proximity_pmh` | close within 0.5% of PMH | 120 min |
+| `htf_proximity_pml` | close within 0.5% of PML | 120 min |
+
+NOTICE direction, fires on **all stocks** (allowlisted bypass of the index-only NOTICE filter), and **bypasses `MUTE_NOTICE_ALERTS`** — these are high-signal context the user wants delivered everywhere ("MSFT was rejected at PWH but I had no heads-up").
 
 ### VWAP NOTICEs
 
@@ -84,35 +110,53 @@ plot + LOST/RECL diamond markers live in the separate `open-line` indicator
 
 | Rule | Direction | Symbols | Trigger |
 |---|---|---|---|
-| `open_reclaimed` | **BUY** | **All symbols** | First close back above today's open after having lost it. One-shot per session. The NVDA-style trend-day signal. |
-| `open_support_hold` | **BUY** | **All symbols** | Defended open from above WITHOUT closing below. Wicked down to within 0.2% of today_open, closed back above on a green bar. AVGO / ORCL-style "from high to open and hold" pattern. One-shot per session, mutually exclusive with reclaim (blocked once `ol_lost_today=true`). |
+| `open_held` | **BUY** | **All symbols** | Cleanest defense: low touched WITHIN 0.2% above today_open but **never crossed below**. Weakest of the three BUY signals (no real test). One-shot per session. Gated by `not ol_wick_dipped_today` — once any bar's low crosses below, this category is dead for the day. |
+| `open_wick_reclaim` | **BUY** | **All symbols** | Wick **crossed below** today_open, body held above, green bar bounce. Mid-tier — real test happened, no close flip. One-shot per session. AAPL 2026-05-15 9:55 ET pattern. |
+| `open_reclaimed` | **BUY** | **All symbols** | First close back above today's open after a close had previously gone below. Strongest open-line BUY (genuine lose-and-reclaim cycle). NVDA-style trend-day signal. Re-arms after fire (see below). |
 | `open_lost` | NOTICE | SPY / QQQ / AIQ / NDX only | First close below today's open after holding above earlier. One-shot per session. Bearish session shift on the indexes. |
 
-State machine: `ol_was_above_open` flag must be set (price made a bar with `close > today_open` earlier in session) before any open alert is eligible. `ol_lost_today` must be set before `open_reclaimed` fires. `open_support_hold` only fires while `ol_lost_today` is false — the two are deliberately mutually exclusive (hold = pristine defense, reclaim = recovery after loss).
+**State machine** (`ol_was_above_open` flag must be set — at least one bar earlier in the session had `close > today_open` — before any BUY open alert is eligible):
 
-**`open_reclaimed` re-arm (2026-05-15)**: After `open_reclaimed` fires, Pine resets `ol_lost_today=false` so a subsequent lose-and-reclaim cycle later in the session can fire too. The backend applies a **90-minute identity dedup** specifically for `tv_open_reclaimed` (rather than the standard 60-min) to collapse chop while letting distinct legs through. `open_reclaimed` is also **exempted from symbol-session dedup** — a second reclaim later in the day is a fresh signal, not a redundant one.
+- `ol_wick_dipped_today` flips true the first time any bar's low crosses below today_open. Gates `open_held` (clean defense only fires while this is false).
+- `ol_lost_today` flips true on first `close < today_open` after holding above. Gates `open_held` and `open_wick_reclaim` (both blocked once a close has flipped below — that's reclaim territory now).
+- The three BUY events are mutually exclusive at the bar level: `open_held` requires `low >= today_open`, `open_wick_reclaim` requires `low < today_open AND close > today_open`, `open_reclaimed` requires `close[1] <= today_open AND close > today_open`.
 
-`open_lost` and `open_support_hold` remain one-shot per session — they reset only on the next session open.
+**`open_reclaimed` re-arm (2026-05-15)**: After `open_reclaimed` fires, Pine resets `ol_lost_today=false` so a subsequent lose-and-reclaim cycle later in the session can fire too. Backend applies a **90-minute identity dedup** specifically for `tv_open_reclaimed` (rather than the standard 60-min) to collapse chop while letting distinct legs through.
+
+**Session-dedup exemptions (2026-05-16)** — the following BUY alert types **bypass** `SYMBOL_SESSION_DEDUP` (one BUY per symbol per session) because they represent genuinely-distinct signals:
+- `tv_open_reclaimed` — Pine re-arms; multi-leg reclaim days produce real second-leg setups.
+- `tv_open_wick_reclaim` — different category from `open_held`; user wants both to surface when they happen on the same symbol.
+- `tv_staged_pdh_break`, `tv_staged_pdl_reclaim` — structural levels vs prior day; if `open_held` fires in the AM and PDH breaks in the PM, both are actionable on different time-frame theses.
+
+60-min identity dedup on `(symbol, direction, alert_type)` + confluence-twin suppression still apply to all of them.
+
+`open_held` and `open_lost` remain fully gated by session-dedup (one-shot, no exemption).
 
 ### Inside-day flag
 
-Every alert payload from this indicator carries an `inside_day` boolean. True when `today_open` sits between yesterday's PDH and PDL (no overnight gap). Inside days tend to range, so the triage agent uses this to degrade conviction on directional setups (PDH break, MA bounce, open_reclaimed/hold) — the alert still fires, just with lower confidence in the Telegram message.
+Every alert payload from this indicator carries an `inside_day` boolean. True when `today_open` sits between yesterday's PDH and PDL (no overnight gap). Inside days tend to range, so the triage agent uses this to degrade conviction on directional setups (PDH break, MA bounce, open_reclaimed/wick_reclaim/held) — the alert still fires, just with lower confidence in the Telegram message.
 
 ### Chart day-type badge (replaces stage badge)
 
 The top-right table cell on the chart now shows a session-type classification instead of Stage 1/2/3/4. Seven mutually exclusive buckets based on today_open vs yesterday's PDH/PDL:
 
-| Badge | Condition | Color | Trade bias hint |
-|---|---|---|---|
-| **GAP UP** | today_open > PDH (any gap) | Green | "longs at pullbacks" |
-| **TEST PDH** | within 0.3% of PDH | Yellow | "break-or-fail" |
-| **INSIDE HIGH** | between midpoint and PDH | Aqua | "range, upper half" |
-| **INSIDE MID** | near range midpoint | Blue | "range, fade extremes" |
-| **INSIDE LOW** | between PDL and midpoint | Aqua | "range, lower half" |
-| **TEST PDL** | within 0.3% of PDL | Yellow | "bounce-or-break" |
-| **GAP DOWN** | today_open < PDL | Red | "avoid longs, fade pops" |
+| Badge | Condition | Subline | Color | Trade bias hint |
+|---|---|---|---|---|
+| **GAP UP** | today_open > PDH (any gap) | `PDH X · mid Y` | Green | "longs at pullbacks" |
+| **TEST PDH** | within 0.3% of PDH | `open at PDH X` | Yellow | "break-or-fail" |
+| **INSIDE HIGH** | between midpoint and PDH | `mid Y · range PDL / PDH` | Aqua | "range, upper half" |
+| **INSIDE MID** | near range midpoint | `mid Y · range PDL / PDH` | Blue | "range, fade extremes" |
+| **INSIDE LOW** | between PDL and midpoint | `mid Y · range PDL / PDH` | Aqua | "range, lower half" |
+| **TEST PDL** | within 0.3% of PDL | `open at PDL X` | Yellow | "bounce-or-break" |
+| **GAP DOWN** | today_open < PDL | `PDL X · mid Y` | Red | "avoid longs, fade pops to mid" |
+
+**Midpoint on GAP UP / GAP DOWN (2026-05-16)**: badge text now surfaces `mid` alongside the gap level — gap stocks frequently get pulled back to the midpoint (gap-up = midpoint support, gap-down = midpoint resistance), so having it visible in the badge keeps the level top-of-mind without needing to read the chart.
 
 Stage logic is still computed internally and lives in the alert payload as `stage` (triage agent uses it for scoring). Just no longer the chart-badge focus — the day-type is more directly actionable for instinct trading.
+
+### Gap-down recovery context tag
+
+**2026-05-16**: when `staged_pdl_reclaim` fires on a day that opened below PDL (`is_gap_down=true`), Pine passes `gap_context=true` in the alert payload. The webhook prefixes the message with `🔄 GAP-DOWN RECOVERY —` so the triage agent renders the Telegram header as **"PDL reclaim — gap-down recovery ↑"** instead of plain "PDL reclaim". No behavior change — same entry, same stop, same targets — just a label upgrade so the trader knows the context (real recovery vs intraday PDL chop).
 
 ### PDH/PDL confluence
 
@@ -156,7 +200,11 @@ Why split: when reviewing PDH/PDL setups, sometimes you want the open line invis
 
 Order of gates applied in the triage agent (`triage-agent/live.py`) after an alert hits the database:
 
-1. **Symbol-session dedup** (in `api/app/routers/tv_webhook.py`, env flag `SYMBOL_SESSION_DEDUP=true` default) — only the **first** alert per `(user, symbol, direction, session_date)` fires; subsequent same-direction alerts for the same symbol that session are dropped regardless of `alert_type`. Opposite-direction alerts (BUY → SHORT) still pass — that's a regime change worth signaling. This is the primary noise reducer on chop days (e.g., ETH-USD bouncing off EMA5/EMA10/EMA21/EMA50/SMA50 fires ONE alert, not 5–11). All alert types follow this gate uniformly — `open_reclaimed` / `open_lost` included, so even regime-change open events get capped by the first-fire rule (Pine's one-shot semantics + this gate stack additively).
+1. **Symbol-session dedup** (in `api/app/routers/tv_webhook.py`, env flag `SYMBOL_SESSION_DEDUP=true` default) — only the **first** BUY/SHORT alert per `(user, symbol, direction, session_date)` fires; subsequent same-direction alerts for the same symbol that session are dropped regardless of `alert_type`. Opposite-direction alerts (BUY → SHORT) still pass — that's a regime change worth signaling. Primary noise reducer on chop days (e.g., ETH-USD bouncing off EMA5/EMA10/EMA21/EMA50/SMA50 fires ONE alert, not 5–11). **Exempt types** (`SESSION_DEDUP_EXEMPT_TYPES` set): `tv_open_reclaimed`, `tv_open_wick_reclaim`, `tv_staged_pdh_break`, `tv_staged_pdl_reclaim`, plus all weekly/monthly variants (`tv_staged_pwh_break` / `tv_staged_pwl_reclaim` / `tv_staged_pmh_break` / `tv_staged_pml_reclaim`) and HTF hold/wick (`tv_p{w,m}{h,l}_held` / `_wick_reclaim`) — these are either Pine-re-arming or structural-level events whose meaning is independent of any prior open-line alert. All other BUY alerts (`tv_open_held`, `tv_open_support_hold` legacy, `tv_ma_bounce_*`, etc.) still gated.
+
+5. **Cross-level confluence dedup** (2026-05-16, in `api/app/routers/tv_webhook.py`, env vars `LEVEL_CONFLUENCE_WINDOW_MIN=30` and `LEVEL_CONFLUENCE_PCT=1.0`) — when a `staged_*_break` / `staged_*_reclaim` / `staged_*_rejection` / `staged_*_failed_short` alert fires on a symbol, any **same-side** level alert that arrives within 30 min AND within 1% of the prior alert's entry price is **suppressed**. First-fires-wins (which naturally favors daily reclaims for low-side and weekly breaks for high-side based on price geometry). Prevents the "PDL + PWL + PML all reclaim at the same recovery zone within 30 min" flood on confluence-heavy setups. Side detection: alert_type containing `_pdh_/_pwh_/_pmh_` = "high", `_pdl_/_pwl_/_pml_` = "low". The hold/wick_reclaim variants (`pwh_held`, `pwl_wick_reclaim`, etc.) are NOT included in this dedup — they have their own per-session cadence and serve a different role. **Audit**: suppressed alerts are logged with verdict `level_confluence_suppressed` in the worker log; in-memory only (process restart loses state, but within-bar fires arrive within seconds so this is fine in practice).
+
+   **Example (MSTR Friday)**: `tv_staged_pdl_reclaim` fires at entry $175.28. If `tv_staged_pwl_reclaim` arrives 5 min later at entry $176.00 (PWL = $175.72), spread = $0.72 / $175.28 = 0.41% — within 1% → **suppressed**. EOD report on the way (V2) will show: "PDL reclaim delivered · PWL reclaim stacked-suppressed @ 0.41% spread".
 2. **TV-webhook identity dedup** — same `(user, symbol, direction, alert_type)` within 60 minutes is suppressed. Secondary belt-and-suspenders against same-alert-type re-fires (mostly redundant with symbol-session dedup, useful when SYMBOL_SESSION_DEDUP is off).
 3. **Non-index NOTICE drop** — any NOTICE-direction alert where `symbol` ∉ {SPY, QQQ, AIQ, NDX} is dropped before triage. Audited as `NOTICE_NON_INDEX_DROPPED`.
 4. **Global NOTICE mute** — if `MUTE_NOTICE_ALERTS=true` (now **default true** as of 2026-05-15), all NOTICEs dropped from Telegram delivery. Audited as `NOTICE_MUTED`. EOD Report still shows them. Set env to `false` to re-enable NOTICE delivery on indexes (e.g., when you want `open_lost` or VWAP NOTICEs back).

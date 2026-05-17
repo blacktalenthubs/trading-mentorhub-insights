@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TradingView Alerts — Expected Behavior</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1419; color: #e6e9ef; max-width: 1200px; margin: 0 auto; padding: 24px 32px; line-height: 1.55; }
+  h1 { color: #fff; border-bottom: 2px solid #2d3748; padding-bottom: 12px; margin-bottom: 4px; }
+  h2 { color: #63b3ed; margin-top: 36px; border-bottom: 1px solid #2d3748; padding-bottom: 6px; }
+  h3 { color: #a3bffa; margin-top: 24px; }
+  .meta { color: #718096; font-size: 13px; margin-bottom: 24px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 24px; font-size: 13px; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #2d3748; vertical-align: top; }
+  th { background: #1a202c; color: #cbd5e0; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+  tr:hover { background: #1a202c; }
+  code, .at { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; background: #1a202c; padding: 2px 6px; border-radius: 3px; font-size: 12px; color: #f6ad55; }
+  .dir-buy { background: #22543d; color: #9ae6b4; padding: 2px 8px; border-radius: 3px; font-weight: 600; font-size: 11px; }
+  .dir-short { background: #742a2a; color: #feb2b2; padding: 2px 8px; border-radius: 3px; font-weight: 600; font-size: 11px; }
+  .dir-notice { background: #744210; color: #fbd38d; padding: 2px 8px; border-radius: 3px; font-weight: 600; font-size: 11px; }
+  .scope { color: #a0aec0; font-size: 11px; }
+  .indicator-card { background: #1a202c; padding: 16px 20px; border-radius: 6px; margin-bottom: 16px; border-left: 4px solid #4299e1; }
+  .indicator-card.visual { border-left-color: #718096; }
+  .indicator-card h3 { margin-top: 0; }
+  .file { font-family: monospace; color: #f6ad55; font-size: 13px; }
+  .summary-num { font-size: 36px; font-weight: 700; color: #63b3ed; display: block; }
+  .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 32px; }
+  .summary-card { background: #1a202c; padding: 16px; border-radius: 6px; text-align: center; }
+  .summary-card .label { color: #a0aec0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+  .note { background: #1a202c; border-left: 3px solid #f6ad55; padding: 10px 14px; margin: 12px 0; font-size: 13px; color: #cbd5e0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; margin-left: 6px; }
+  .badge-new { background: #553c9a; color: #d6bcfa; }
+  .badge-muted { background: #2d3748; color: #718096; }
+</style>
+</head>
+<body>
+
+<h1>TradingView Alerts — Expected Behavior</h1>
+<div class="meta">Generated 2026-05-16 · trade-analytics · 4 active indicators (2 alert-emitting, 2 visual-only)</div>
+
+<div class="summary-cards">
+  <div class="summary-card"><span class="summary-num">36</span><div class="label">Distinct alert types</div></div>
+  <div class="summary-card"><span class="summary-num">25</span><div class="label">BUY (long entries)</div></div>
+  <div class="summary-card"><span class="summary-num">6</span><div class="label">SHORT (index-only)</div></div>
+  <div class="summary-card"><span class="summary-num">5+</span><div class="label">NOTICE (context)</div></div>
+</div>
+
+<h2>Indicator Inventory</h2>
+
+<div class="indicator-card">
+  <h3><span class="file">levels_day_vwap.pine</span> — levels-day-vwap</h3>
+  <p>Main alert engine. Fires all PDH/PDL/PWH/PWL/PMH/PML events + open-line lifecycle + VWAP NOTICEs + HTF proximity. <strong>One TV alert subscription on this indicator covers daily + weekly + monthly + open + VWAP.</strong></p>
+</div>
+
+<div class="indicator-card">
+  <h3><span class="file">ma_ema_daily.pine</span> — ma-ema-daily</h3>
+  <p>Daily MA bounce / rejection / proximity. Multi-EMA stack detection (EMA5/10/21/50, SMA50/200). One TV alert subscription on this indicator covers all MA events.</p>
+</div>
+
+<div class="indicator-card visual">
+  <h3><span class="file">levels_week_month.pine</span> — levels-week-month <span class="badge badge-muted">VISUAL ONLY</span></h3>
+  <p>Renders PWH / PWL / PMH / PML as right-edge labeled chips (auto-scale safe, line.new drawings). <strong>No alerts fire from this file.</strong> All weekly/monthly alerts come from <code>levels-day-vwap</code>.</p>
+</div>
+
+<div class="indicator-card visual">
+  <h3><span class="file">open_line.pine</span> — open-line <span class="badge badge-muted">VISUAL ONLY</span></h3>
+  <p>Today's open line + LOST / RECLAIM diamond markers. <strong>No alerts fire from this file.</strong> All open-line alerts come from <code>levels-day-vwap</code>.</p>
+</div>
+
+<h2>Daily-level Events (PDH / PDL)</h2>
+
+<table>
+<thead><tr><th>Alert type</th><th>Dir</th><th>Trigger</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td><span class="at">tv_staged_pdh_break</span></td><td><span class="dir-buy">BUY</span></td><td>Close above PDH</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_staged_pdl_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Close back above PDL after being below</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_staged_pdh_rejection</span></td><td><span class="dir-short">SHORT</span></td><td>Wick into PDH + close back under</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_staged_pdh_failed_short</span></td><td><span class="dir-short">SHORT</span></td><td>Closed above PDH then back below within sweep window</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_staged_pdl_break</span></td><td><span class="dir-short">SHORT</span></td><td>Close below PDL</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+</tbody>
+</table>
+
+<div class="note"><strong>Gap-down recovery tag:</strong> when <span class="at">tv_staged_pdl_reclaim</span> fires on a day that opened below PDL, the Telegram header upgrades to <em>"PDL reclaim — gap-down recovery ↑"</em>.</div>
+
+<h2>Weekly-level Events (PWH / PWL) <span class="badge badge-new">NEW 2026-05-16</span></h2>
+
+<table>
+<thead><tr><th>Alert type</th><th>Dir</th><th>Trigger</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td><span class="at">tv_staged_pwh_break</span></td><td><span class="dir-buy">BUY</span></td><td>Close above PWH (last week's high)</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_staged_pwl_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Close back above PWL after being below</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_staged_pwh_rejection</span></td><td><span class="dir-short">SHORT</span></td><td>Wick into PWH + close back under</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_staged_pwh_failed_short</span></td><td><span class="dir-short">SHORT</span></td><td>Closed above PWH then back below within sweep</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_staged_pwl_break</span></td><td><span class="dir-short">SHORT</span></td><td>Close below PWL</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_pwh_held</span></td><td><span class="dir-buy">BUY</span></td><td>Price above PWH defends from above — clean test (low touched within 0.2%, never crossed)</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_pwh_wick_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Wick crossed below PWH, body held above, green bar bounce</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_pwl_held</span></td><td><span class="dir-buy">BUY</span></td><td>Same lifecycle for PWL as support</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_pwl_wick_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Same lifecycle for PWL as support</td><td class="scope">All stocks</td></tr>
+</tbody>
+</table>
+
+<h2>Monthly-level Events (PMH / PML) <span class="badge badge-new">NEW 2026-05-16</span></h2>
+
+<table>
+<thead><tr><th>Alert type</th><th>Dir</th><th>Trigger</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td><span class="at">tv_staged_pmh_break</span></td><td><span class="dir-buy">BUY</span></td><td>Close above PMH (last month's high)</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_staged_pml_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Close back above PML after being below</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_staged_pmh_rejection</span></td><td><span class="dir-short">SHORT</span></td><td>Wick into PMH + close back under</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_staged_pmh_failed_short</span></td><td><span class="dir-short">SHORT</span></td><td>Closed above PMH then back below within sweep</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_staged_pml_break</span></td><td><span class="dir-short">SHORT</span></td><td>Close below PML</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_pmh_held</span></td><td><span class="dir-buy">BUY</span></td><td>Same hold lifecycle for PMH as support</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_pmh_wick_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Same wick lifecycle for PMH</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_pml_held</span></td><td><span class="dir-buy">BUY</span></td><td>Same lifecycle for PML</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_pml_wick_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Same lifecycle for PML</td><td class="scope">All stocks</td></tr>
+</tbody>
+</table>
+
+<h2>HTF Proximity NOTICE <span class="badge badge-new">NEW 2026-05-16</span></h2>
+
+<table>
+<thead><tr><th>Alert type</th><th>Dir</th><th>Trigger</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td><span class="at">tv_htf_proximity_pwh</span></td><td><span class="dir-notice">NOTICE</span></td><td>Close within 0.5% of PWH (both sides)</td><td class="scope">All stocks (bypasses mute)</td></tr>
+<tr><td><span class="at">tv_htf_proximity_pwl</span></td><td><span class="dir-notice">NOTICE</span></td><td>Close within 0.5% of PWL</td><td class="scope">All stocks (bypasses mute)</td></tr>
+<tr><td><span class="at">tv_htf_proximity_pmh</span></td><td><span class="dir-notice">NOTICE</span></td><td>Close within 0.5% of PMH</td><td class="scope">All stocks (bypasses mute)</td></tr>
+<tr><td><span class="at">tv_htf_proximity_pml</span></td><td><span class="dir-notice">NOTICE</span></td><td>Close within 0.5% of PML</td><td class="scope">All stocks (bypasses mute)</td></tr>
+</tbody>
+</table>
+
+<div class="note"><strong>Mute bypass:</strong> HTF proximity NOTICEs are allowlisted to fire on ALL stocks (not just SPY/QQQ/AIQ/NDX) and bypass <code>MUTE_NOTICE_ALERTS</code>. These are the "heads-up before a key HTF level is tested" alerts the user explicitly wants delivered everywhere.</div>
+
+<h2>Open-line Events</h2>
+
+<table>
+<thead><tr><th>Alert type</th><th>Dir</th><th>Trigger</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td><span class="at">tv_open_reclaimed</span></td><td><span class="dir-buy">BUY</span></td><td>Close back above today's open after a close went below. Re-arms after fire — multi-leg reclaim days get multiple alerts</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_open_held</span></td><td><span class="dir-buy">BUY</span></td><td>Clean defense — low tested within 0.2% above open, never crossed below</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_open_wick_reclaim</span></td><td><span class="dir-buy">BUY</span></td><td>Wick crossed below today's open, body held above, green bar bounce</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_open_lost</span></td><td><span class="dir-notice">NOTICE</span></td><td>First close below today's open after holding above earlier</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_open_support_hold</span> <span class="badge badge-muted">LEGACY</span></td><td><span class="dir-buy">BUY</span></td><td>Old combined hold+wick event from pre-split Pine versions; still rendered if emitted</td><td class="scope">All stocks</td></tr>
+</tbody>
+</table>
+
+<h2>MA / EMA Events (ma-ema-daily)</h2>
+
+<table>
+<thead><tr><th>Alert type</th><th>Dir</th><th>Trigger</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td><span class="at">tv_ma_bounce_long_v3_{ema|sma}{N}</span></td><td><span class="dir-buy">BUY</span></td><td>Price bounces off MA (touch + reclaim) — fires per MA. EMA5/10/21/50 and SMA50/200 each have own dedup key</td><td class="scope">All stocks</td></tr>
+<tr><td><span class="at">tv_ma_rejection_short_v3_{ema|sma}{N}</span></td><td><span class="dir-short">SHORT</span></td><td>Price rejects off MA from below</td><td class="scope">SPY/QQQ/AIQ/NDX only</td></tr>
+<tr><td><span class="at">tv_ma_proximity_long_v3_{ema|sma}{N}</span></td><td><span class="dir-notice">NOTICE</span></td><td>Holds near MA without touching — fired only when <code>fire_proximity_alerts=true</code></td><td class="scope">SPY/QQQ/AIQ/NDX only (and disabled by default)</td></tr>
+<tr><td><span class="at">tv_ma_proximity_short_v3_{ema|sma}{N}</span></td><td><span class="dir-notice">NOTICE</span></td><td>Same as above, short side</td><td class="scope">SPY/QQQ/AIQ/NDX only (and disabled by default)</td></tr>
+</tbody>
+</table>
+
+<div class="note"><strong>Stacked-MA dedup:</strong> when price bounces off two MAs simultaneously (e.g., EMA8 + EMA21), alert_type becomes <code>tv_ma_bounce_long_v3_ema8_ema21</code> — one alert covering both, not two duplicate fires.</div>
+
+<h2>VWAP Events (SPY/QQQ context)</h2>
+
+<table>
+<thead><tr><th>Alert type</th><th>Dir</th><th>Trigger</th><th>Scope</th></tr></thead>
+<tbody>
+<tr><td><span class="at">tv_vwap_reclaim_long</span></td><td><span class="dir-notice">NOTICE</span></td><td>Close back above VWAP after N consecutive bars below</td><td class="scope">SPY/QQQ/AIQ only (off by default)</td></tr>
+<tr><td><span class="at">tv_vwap_reject_short</span></td><td><span class="dir-notice">NOTICE</span></td><td>Close back below VWAP after N consecutive bars above</td><td class="scope">SPY/QQQ/AIQ only (off by default)</td></tr>
+<tr><td><span class="at">tv_vwap_support_hold</span></td><td><span class="dir-notice">NOTICE</span></td><td>VWAP defends as support (touch + bounce, no break)</td><td class="scope">SPY/QQQ/AIQ only (off by default)</td></tr>
+</tbody>
+</table>
+
+<h2>Day-type Badge (Chart Visual)</h2>
+
+<p>The top-center chart badge shows session classification based on today's open vs yesterday's PDH/PDL. Used by both the trader (visual context) and the triage agent (conviction modifier via <code>inside_day</code> flag).</p>
+
+<table>
+<thead><tr><th>Badge</th><th>Condition</th><th>Subline</th><th>Lean</th></tr></thead>
+<tbody>
+<tr><td><strong>GAP UP</strong></td><td>open &gt; PDH (any gap)</td><td>PDH X · mid Y</td><td>longs at pullbacks</td></tr>
+<tr><td><strong>TEST PDH</strong></td><td>within 0.3% of PDH</td><td>open at PDH X</td><td>break-or-fail</td></tr>
+<tr><td><strong>INSIDE HIGH</strong></td><td>between midpoint and PDH</td><td>mid Y · range PDL / PDH</td><td>range, upper half</td></tr>
+<tr><td><strong>INSIDE MID</strong></td><td>near range midpoint</td><td>mid Y · range PDL / PDH</td><td>range, fade extremes</td></tr>
+<tr><td><strong>INSIDE LOW</strong></td><td>between PDL and midpoint</td><td>mid Y · range PDL / PDH</td><td>range, lower half</td></tr>
+<tr><td><strong>TEST PDL</strong></td><td>within 0.3% of PDL</td><td>open at PDL X</td><td>bounce-or-break</td></tr>
+<tr><td><strong>GAP DOWN</strong></td><td>open &lt; PDL</td><td>PDL X · mid Y</td><td>avoid longs, fade pops to mid</td></tr>
+</tbody>
+</table>
+
+<h2>Dedup &amp; Routing Layers</h2>
+
+<h3>1. Symbol-session dedup (primary noise reducer)</h3>
+<p>Only the FIRST BUY (or SHORT) alert per <code>(user, symbol, direction, session_date)</code> fires. Subsequent same-direction alerts that day are dropped regardless of alert_type. Collapses ETH-USD bouncing off EMA5/10/21/50/SMA50 into ONE alert instead of 5–11.</p>
+
+<p><strong>Exempt types</strong> (fire even if another BUY already fired today):</p>
+<ul>
+<li><code>tv_open_reclaimed</code> — Pine re-arms; multi-leg reclaim days</li>
+<li><code>tv_open_wick_reclaim</code> — distinct signal from open_held</li>
+<li><code>tv_staged_pdh_break</code>, <code>tv_staged_pdl_reclaim</code> — structural levels vs prior day</li>
+<li><code>tv_staged_pwh_break</code>, <code>tv_staged_pwl_reclaim</code> — structural levels vs prior week</li>
+<li><code>tv_staged_pmh_break</code>, <code>tv_staged_pml_reclaim</code> — structural levels vs prior month</li>
+<li><code>tv_p{w,m}{h,l}_held / wick_reclaim</code> — HTF support holds, daily-reset cadence</li>
+</ul>
+
+<h3>2. Identity dedup window</h3>
+<p>Same <code>(symbol, direction, alert_type)</code> within the window is suppressed. Per-type overrides:</p>
+<ul>
+<li><code>tv_open_reclaimed</code>: 90 min</li>
+<li><code>tv_htf_proximity_*</code>: 120 min</li>
+<li>All others: 60 min default</li>
+</ul>
+
+<h3>3. Direction gates</h3>
+<ul>
+<li><strong>SHORT</strong>: only fires on SPY / QQQ / AIQ / NDX (other-symbol SHORTs dropped at backend)</li>
+<li><strong>NOTICE</strong>: only fires on SPY / QQQ / AIQ / NDX by default. <strong>Exception</strong>: <code>tv_htf_proximity_*</code> fires on all stocks AND bypasses <code>MUTE_NOTICE_ALERTS</code></li>
+</ul>
+
+<h3>4. Confluence twin suppression</h3>
+<p>When today's open ≈ PDH/PDL (within 0.3%), gap-up/gap-down scenarios fire both <code>open_reclaimed</code> AND <code>staged_pdh_break</code> on the same setup. The webhook suppresses the twin within a 5-min window. Telegram header upgrades to "Open + PDH confluence ↑" when both anchor to the same level.</p>
+
+<h3>4b. Cross-level confluence dedup <span class="badge badge-new">NEW 2026-05-16</span></h3>
+<p>When a level alert (<code>staged_*_break</code> / <code>staged_*_reclaim</code> / <code>staged_*_rejection</code> / <code>staged_*_failed_short</code>) fires on a symbol, any <strong>same-side</strong> level alert that arrives within <strong>30 min AND within 1%</strong> of the prior alert's entry price is suppressed. First-fires-wins. Prevents "PDL + PWL + PML all reclaim at the same recovery zone" flood.</p>
+<p>Example: MSTR Friday — <code>staged_pdl_reclaim</code> @ $175.28 fires. If <code>staged_pwl_reclaim</code> arrives 5 min later @ $176 (PWL = $175.72), spread = 0.41% &lt; 1% → suppressed.</p>
+<p>Hold/wick_reclaim variants (<code>pwh_held</code>, <code>pwl_wick_reclaim</code>, etc.) are NOT included — they have their own per-session cadence. Configurable via <code>LEVEL_CONFLUENCE_WINDOW_MIN</code> and <code>LEVEL_CONFLUENCE_PCT</code> env vars.</p>
+
+<h3>5. Mute / Allowlist</h3>
+<ul>
+<li><code>MUTE_NOTICE_ALERTS=true</code> (default): all NOTICEs blocked from Telegram <strong>except</strong> <code>tv_htf_proximity_*</code></li>
+<li><code>fire_vwap_alerts=false</code> (default): VWAP NOTICEs disabled at Pine level</li>
+<li><code>fire_proximity_alerts=false</code> (default in ma-ema-daily): MA proximity NOTICEs disabled at Pine level</li>
+</ul>
+
+<h2>Telegram Label Reference</h2>
+
+<p>What you'll see in the <strong>bold reason line</strong> at the top of each Telegram alert:</p>
+
+<table>
+<thead><tr><th>Alert type</th><th>Telegram label</th></tr></thead>
+<tbody>
+<tr><td><code>staged_pdh_break</code></td><td>PDH break</td></tr>
+<tr><td><code>staged_pdl_reclaim</code></td><td>PDL reclaim <em>(or "PDL reclaim — gap-down recovery ↑" on gap-down days)</em></td></tr>
+<tr><td><code>staged_pwh_break</code></td><td>PWH break ↑</td></tr>
+<tr><td><code>staged_pwl_reclaim</code></td><td>PWL reclaim ↑</td></tr>
+<tr><td><code>staged_pmh_break</code></td><td>PMH break ↑</td></tr>
+<tr><td><code>staged_pml_reclaim</code></td><td>PML reclaim ↑</td></tr>
+<tr><td><code>pwh_held</code> / <code>pwl_held</code> / <code>pmh_held</code> / <code>pml_held</code></td><td>P{W,M}{H,L} held ✓</td></tr>
+<tr><td><code>pwh_wick_reclaim</code> / etc.</td><td>P{W,M}{H,L} wick reclaim ↑</td></tr>
+<tr><td><code>htf_proximity_pwh</code> / etc.</td><td>Near P{W,M}{H,L} ⚠️</td></tr>
+<tr><td><code>open_reclaimed</code></td><td>Reclaimed the open ↑</td></tr>
+<tr><td><code>open_held</code></td><td>Open held ✓ (clean test)</td></tr>
+<tr><td><code>open_wick_reclaim</code></td><td>Open wick reclaim ↑</td></tr>
+<tr><td><code>open_lost</code></td><td>Lost the open ↓</td></tr>
+<tr><td><code>ma_bounce_long_v3_ema21</code></td><td>EMA 21 bounce</td></tr>
+<tr><td><code>ma_bounce_long_v3_ema8_ema21</code></td><td>EMA 8 + EMA 21 bounce</td></tr>
+<tr><td><code>ma_rejection_short_v3_ema50</code></td><td>EMA 50 rejection</td></tr>
+</tbody>
+</table>
+
+<h2>Quick Reference — All BUY Alerts (what fires on each stock)</h2>
+
+<p>For a single stock on a normal day, the maximum number of BUY alerts that can fire (assuming all conditions met):</p>
+
+<table>
+<thead><tr><th>Source</th><th>Max BUYs per session</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Daily levels (PDH/PDL)</td><td>2</td><td>PDH break + PDL reclaim (exempt from session dedup)</td></tr>
+<tr><td>Weekly levels (PWH/PWL)</td><td>4</td><td>PWH break + PWL reclaim + PWH held + PWL held (each ~1 per session)</td></tr>
+<tr><td>Monthly levels (PMH/PML)</td><td>4</td><td>Same lifecycle as weekly</td></tr>
+<tr><td>HTF wick reclaim</td><td>4</td><td>PWH/PWL/PMH/PML wick reclaim variants</td></tr>
+<tr><td>Open-line</td><td>3+</td><td>open_held + open_wick_reclaim + open_reclaimed (re-arms for multi-leg)</td></tr>
+<tr><td>MA bounce</td><td>1</td><td>First MA bounce per session (session dedup applies)</td></tr>
+<tr><td><strong>Theoretical max</strong></td><td><strong>~17-20</strong></td><td>Real-world: 3-8 alerts per active stock per session</td></tr>
+</tbody>
+</table>
+
+<h2>Environment Flags</h2>
+
+<table>
+<thead><tr><th>Variable</th><th>Default</th><th>Effect</th></tr></thead>
+<tbody>
+<tr><td><code>SYMBOL_SESSION_DEDUP</code></td><td>true</td><td>One alert per (symbol, direction, session). Set false for legacy 60-min-only dedup.</td></tr>
+<tr><td><code>LEVEL_CONFLUENCE_WINDOW_MIN</code></td><td>30</td><td>Suppress same-side level alerts within this many minutes.</td></tr>
+<tr><td><code>LEVEL_CONFLUENCE_PCT</code></td><td>1.0</td><td>Suppress same-side level alerts within this % of prior fire's entry.</td></tr>
+<tr><td><code>MUTE_NOTICE_ALERTS</code></td><td>true</td><td>Drops NOTICE alerts from Telegram. <code>htf_proximity_*</code> bypasses this.</td></tr>
+<tr><td><code>fire_open_alerts</code> (Pine)</td><td>true</td><td>Toggle open-line alerts</td></tr>
+<tr><td><code>fire_htf_alerts</code> (Pine)</td><td>true</td><td>Toggle HTF hold/wick/proximity alerts</td></tr>
+<tr><td><code>fire_vwap_alerts</code> (Pine)</td><td>false</td><td>Toggle VWAP NOTICEs</td></tr>
+<tr><td><code>fire_proximity_alerts</code> (Pine, ma-ema-daily)</td><td>false</td><td>Toggle MA proximity NOTICEs</td></tr>
+</tbody>
+</table>
+
+<h2>TV Setup Required</h2>
+
+<p>Two TradingView alert subscriptions cover everything (uses Premium's 2-indicator-alert limit):</p>
+
+<ol>
+<li><strong>levels-day-vwap</strong> on watchlist → covers daily, weekly, monthly, open-line, VWAP, HTF proximity, HTF hold/wick</li>
+<li><strong>ma-ema-daily</strong> on watchlist → covers all MA bounce / rejection / proximity</li>
+</ol>
+
+<p>Both alerts must use the LATEST saved Pine version. After re-pasting Pine code, rebind alert via Condition dropdown to pick up new alert types.</p>
+
+<div class="meta" style="margin-top: 48px; text-align: center;">
+Generated from <code>levels_day_vwap.pine</code>, <code>ma_ema_daily.pine</code>, <code>levels_week_month.pine</code>, <code>open_line.pine</code>, <code>ALERTS.md</code>, <code>tv_webhook.py</code>, <code>telegram_post.py</code>, <code>live.py</code>.
+</div>
+
+</body>
+</html>

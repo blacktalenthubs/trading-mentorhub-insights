@@ -310,6 +310,12 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     _inside_day_raw = (payload.get("inside_day") or "").strip().lower()
     sig._tv_inside_day = _inside_day_raw == "true"  # type: ignore[attr-defined]
     sig._tv_today_open = _to_float_optional(payload.get("today_open"))  # type: ignore[attr-defined]
+    # 2026-05-16: gap_context boolean — overloaded meaning per alert type:
+    #   • staged_pdh_break: gap-up (open above PDH) → tighter stop
+    #   • staged_pdl_reclaim: gap-down recovery (open below PDL) → label
+    #     upgrade in Telegram header
+    _gap_ctx_raw = (payload.get("gap_context") or "").strip().lower()
+    sig._tv_gap_context = _gap_ctx_raw == "true"  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig
