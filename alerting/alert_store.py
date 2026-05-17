@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 from db import get_db
 
 

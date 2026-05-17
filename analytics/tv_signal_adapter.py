@@ -30,7 +30,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 
 logger = logging.getLogger(__name__)
 

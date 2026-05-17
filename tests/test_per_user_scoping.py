@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 
 
 # ---------------------------------------------------------------------------

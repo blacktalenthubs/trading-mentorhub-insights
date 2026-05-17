@@ -394,7 +394,7 @@ async def telegram_test_alert(
     if not user.telegram_enabled or not user.telegram_chat_id:
         raise HTTPException(status_code=400, detail="Telegram not linked")
 
-    from analytics.intraday_rules import AlertSignal, AlertType
+    from analytics.alert_types import AlertSignal, AlertType
     from alerting.notifier import notify_user
 
     signal = AlertSignal(

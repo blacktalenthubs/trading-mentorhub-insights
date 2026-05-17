@@ -19,7 +19,7 @@ from alerting.real_trade_store import (
     stop_real_trade,
 )
 from analytics.intraday_data import fetch_prior_day, get_spy_context
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 from analytics.swing_rules import (
     categorize_symbol,
     check_spy_regime,

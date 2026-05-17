@@ -75,7 +75,7 @@ def _get_consolidation_states(symbols: list[str]) -> dict[str, dict]:
     states: dict[str, dict] = {}
     try:
         import yfinance as yf
-        from analytics.intraday_rules import detect_hourly_consolidation_break
+        from analytics.regime_gate import detect_hourly_consolidation_break
 
         for sym in symbols:
             try:

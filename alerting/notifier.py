@@ -10,7 +10,7 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from urllib.parse import quote
 
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 from alert_config import (
     ALERT_EMAIL_FROM,
     ALERT_EMAIL_TO,

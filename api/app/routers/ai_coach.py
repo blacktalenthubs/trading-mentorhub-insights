@@ -131,7 +131,7 @@ class PinAlertRequest(BaseModel):
 
 def _fire_pinned_alert(user_id: int, payload: PinAlertRequest) -> dict:
     """Sync: record alert + send Telegram with Took/Skip/Exit buttons."""
-    from analytics.intraday_rules import AlertSignal, AlertType
+    from analytics.alert_types import AlertSignal, AlertType
     from alerting.alert_store import record_alert
     from alerting.notifier import notify_user
     from db import get_db as get_sync_db
