@@ -71,69 +71,173 @@ class PriceMove:
 
 
 def fetch_premarket(symbols: list[str]) -> dict[str, PriceMove]:
-    """yfinance bulk fetch of premarket data. Returns symbol → PriceMove."""
+    """Fetch premarket data via bulk yf.download with prepost=True.
+
+    Returns symbol → PriceMove with TODAY's most-recent price (premarket bar
+    if before market open, regular bar otherwise) vs YESTERDAY's regular
+    close (4:00 PM ET bar from the prior session day).
+
+    Why not yf.Ticker.info? It's a cached endpoint that frequently returns
+    stale post-market data instead of today's premarket. Fallback chain in
+    the old code (preMarketPrice → postMarketPrice → regularMarketPrice)
+    silently served yesterday's after-hours close as if it were today's
+    premarket, producing the "looks like prior-day market data" bug. This
+    rewrite reads ACTUAL 5-min bars with prepost=True and HARD-FAILS on
+    symbols with no today-data — never silently uses yesterday.
+    """
     if not symbols:
         return {}
 
-    out: dict[str, PriceMove] = {}
-    # yfinance's pre/post market data is in info["regularMarketPrice"] vs
-    # info["preMarketPrice"]. For sector ETFs and stocks, use the 1d/1m prepost
-    # download approach; falls back gracefully when unavailable.
+    import pandas as pd
     try:
-        # Bulk fetch quotes — fast for many tickers at once
-        tickers = yf.Tickers(" ".join(symbols))
-        for sym in symbols:
-            try:
-                t = tickers.tickers.get(sym)
-                if t is None:
-                    continue
-                info = getattr(t, "info", {}) or {}
-                last_close = info.get("regularMarketPreviousClose") or info.get("previousClose")
-                pre        = info.get("preMarketPrice") or info.get("postMarketPrice")
-                # If premarket isn't available (off-hours, illiquid), use regular price
-                if pre is None:
-                    pre = info.get("regularMarketPrice")
-                if last_close is None or pre is None:
-                    continue
-                volume     = info.get("regularMarketVolume", 0) or 0
-                avg_vol    = info.get("averageDailyVolume10Day", 0) or info.get("averageVolume", 1) or 1
-                rel_vol    = (volume / avg_vol) if avg_vol else 0.0
-                pct_change = (pre - last_close) / last_close * 100.0 if last_close else 0.0
-
-                out[sym] = PriceMove(
-                    symbol=sym,
-                    last_close=float(last_close),
-                    premarket_price=float(pre),
-                    pct_change=float(pct_change),
-                    volume=int(volume),
-                    avg_volume=float(avg_vol),
-                    rel_volume=float(rel_vol),
-                )
-            except Exception as e:
-                logger.warning("fetch_premarket: failed for %s: %s", sym, e)
-                continue
+        import pytz
+        et_tz = pytz.timezone("America/New_York")
+        now_et = datetime.now(et_tz)
     except Exception:
-        logger.exception("fetch_premarket: bulk fetch failed; falling back per-symbol")
-        # Fallback: one-by-one
-        for sym in symbols:
-            try:
-                t = yf.Ticker(sym)
-                info = t.info or {}
-                last = info.get("regularMarketPreviousClose")
-                pre  = info.get("preMarketPrice") or info.get("regularMarketPrice")
-                if last is None or pre is None:
+        et_tz = None
+        now_et = datetime.utcnow() - timedelta(hours=4)  # rough ET fallback
+
+    today_et = now_et.date()
+    out: dict[str, PriceMove] = {}
+
+    # Bulk-download last 2 trading days at 5m resolution, including pre+post bars.
+    # period="5d" covers weekends/holidays; we filter to today/yesterday below.
+    try:
+        df = yf.download(
+            tickers=" ".join(symbols),
+            period="5d",
+            interval="5m",
+            prepost=True,
+            group_by="ticker",
+            progress=False,
+            threads=True,
+            auto_adjust=False,
+        )
+    except Exception:
+        logger.exception("fetch_premarket: yf.download failed")
+        return {}
+
+    if df is None or df.empty:
+        logger.warning("fetch_premarket: yf.download returned empty frame")
+        return {}
+
+    # df has a MultiIndex column when multiple tickers; single-level if one.
+    is_multi = isinstance(df.columns, pd.MultiIndex)
+
+    # Daily-close lookup (for yesterday's regular-session close, anchored to
+    # the 4:00 PM ET bar). Use a separate daily-bar fetch — more reliable
+    # than reconstructing from 5m bars across weekends.
+    try:
+        daily = yf.download(
+            tickers=" ".join(symbols),
+            period="5d",
+            interval="1d",
+            group_by="ticker",
+            progress=False,
+            threads=True,
+            auto_adjust=False,
+        )
+    except Exception:
+        daily = None
+        logger.exception("fetch_premarket: daily-bar fetch failed")
+
+    daily_multi = daily is not None and isinstance(daily.columns, pd.MultiIndex)
+
+    for sym in symbols:
+        try:
+            # Per-symbol slice of the 5m bars
+            if is_multi:
+                if sym not in df.columns.get_level_values(0):
+                    logger.warning("fetch_premarket: no 5m bars for %s", sym)
                     continue
-                out[sym] = PriceMove(
-                    symbol=sym,
-                    last_close=float(last),
-                    premarket_price=float(pre),
-                    pct_change=(pre - last) / last * 100.0,
-                    volume=info.get("regularMarketVolume", 0) or 0,
-                    avg_volume=info.get("averageVolume", 1) or 1,
-                    rel_volume=0.0,
-                )
-            except Exception as e:
-                logger.warning("fetch_premarket fallback: failed for %s: %s", sym, e)
+                sym_df = df[sym].dropna(how="all")
+            else:
+                sym_df = df.dropna(how="all")
+            if sym_df.empty:
+                logger.warning("fetch_premarket: %s has empty 5m bars", sym)
+                continue
+
+            # Convert index to ET so we can filter by today's date
+            idx = sym_df.index
+            if et_tz is not None:
+                try:
+                    if idx.tz is None:
+                        idx = idx.tz_localize("UTC").tz_convert(et_tz)
+                    else:
+                        idx = idx.tz_convert(et_tz)
+                    sym_df = sym_df.copy()
+                    sym_df.index = idx
+                except Exception:
+                    pass
+
+            # Today's bars (in ET) — must have AT LEAST ONE for symbol to qualify.
+            today_bars = sym_df[sym_df.index.date == today_et]
+            if today_bars.empty:
+                logger.info("fetch_premarket: %s has no today-bars (ET=%s) — skipping",
+                            sym, today_et)
+                continue
+
+            latest = today_bars.iloc[-1]
+            pre_price = float(latest["Close"])
+            today_vol = int(today_bars["Volume"].sum() or 0)
+
+            # Yesterday's regular-session close — prefer daily-bar lookup.
+            last_close = None
+            if daily is not None:
+                try:
+                    sym_daily = daily[sym].dropna(how="all") if daily_multi else daily.dropna(how="all")
+                    # Daily index is date-anchored to session day (no intra-day).
+                    # Take the most recent bar STRICTLY before today.
+                    prior = sym_daily[sym_daily.index.date < today_et]
+                    if not prior.empty:
+                        last_close = float(prior.iloc[-1]["Close"])
+                except Exception:
+                    pass
+
+            # Fallback: use first 5m bar from prior session day in our 5m frame.
+            if last_close is None:
+                prior_bars = sym_df[sym_df.index.date < today_et]
+                if not prior_bars.empty:
+                    # Take the last bar of the prior session (closest to 4 PM ET close)
+                    last_close = float(prior_bars.iloc[-1]["Close"])
+
+            if last_close is None or last_close == 0:
+                logger.warning("fetch_premarket: %s no prior close — skipping", sym)
+                continue
+
+            pct_change = (pre_price - last_close) / last_close * 100.0
+
+            # Average volume — use prior session's total volume as proxy.
+            # (averageVolume from .info would require a separate call; for the
+            # premarket brief, comparing today-so-far vs yesterday-full is
+            # a reasonable rel-vol heuristic.)
+            avg_vol = 1.0
+            if daily is not None:
+                try:
+                    sym_daily = daily[sym].dropna(how="all") if daily_multi else daily.dropna(how="all")
+                    prior_vols = sym_daily[sym_daily.index.date < today_et]["Volume"].tail(5)
+                    if not prior_vols.empty:
+                        avg_vol = float(prior_vols.mean()) or 1.0
+                except Exception:
+                    pass
+
+            rel_vol = (today_vol / avg_vol) if avg_vol else 0.0
+
+            out[sym] = PriceMove(
+                symbol=sym,
+                last_close=last_close,
+                premarket_price=pre_price,
+                pct_change=float(pct_change),
+                volume=today_vol,
+                avg_volume=float(avg_vol),
+                rel_volume=float(rel_vol),
+            )
+        except Exception as e:
+            logger.warning("fetch_premarket: failed for %s: %s", sym, e)
+            continue
+
+    logger.info("fetch_premarket: resolved %d/%d symbols with today-data",
+                len(out), len(symbols))
     return out
 
 
