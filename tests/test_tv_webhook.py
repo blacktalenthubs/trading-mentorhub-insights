@@ -22,7 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from analytics.intraday_rules import AlertType
+from analytics.alert_types import AlertType
 from analytics.tv_signal_adapter import (
     INTERVAL_MAP,
     TVAdapterError,

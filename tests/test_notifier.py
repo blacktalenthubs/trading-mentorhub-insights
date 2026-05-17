@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 from alerting.notifier import _format_email_body, _format_sms_body, notify
 
 

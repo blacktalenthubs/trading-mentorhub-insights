@@ -510,6 +510,16 @@ SPY_SHORT_ENABLED = True       # feature flag
 SPY_SHORT_STOP_OFFSET_PCT = 0.003  # 0.3% above broken level for stop
 SPY_SHORT_SYMBOLS = {"SPY", "QQQ", "AIQ", "NDX"}    # index/index-style symbols for short entries + NOTICE alerts
 
+# Crypto symbols (moved from root config.py per Spec 49 A10 — config.py deleted with V1)
+# yfinance-format crypto tickers for the alert pipeline (24h markets)
+CRYPTO_ALERT_SYMBOLS = {"BTC-USD", "ETH-USD"}
+
+
+def is_crypto_alert_symbol(symbol: str) -> bool:
+    """Return True if symbol is a crypto ticker tracked by the alert pipeline."""
+    return symbol.upper() in CRYPTO_ALERT_SYMBOLS
+
+
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
 WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level

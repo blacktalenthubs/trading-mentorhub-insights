@@ -31,7 +31,7 @@ from alert_config import (
     SWING_RSI_OVERBOUGHT,
     SWING_RSI_OVERSOLD,
 )
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 
 logger = logging.getLogger("swing_rules")
 

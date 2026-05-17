@@ -79,7 +79,7 @@ def test_db(tmp_path, monkeypatch):
 
 def _signal(symbol, price=100.0):
     """Create a test AlertSignal."""
-    from analytics.intraday_rules import AlertSignal, AlertType
+    from analytics.alert_types import AlertSignal, AlertType
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.MA_BOUNCE_20,

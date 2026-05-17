@@ -12,7 +12,7 @@ from alert_config import (
     CLAUDE_NARRATIVE_ENABLED,
     NARRATIVE_SONNET_MIN_SCORE,
 )
-from analytics.intraday_rules import AlertSignal, AlertType
+from analytics.alert_types import AlertSignal, AlertType
 from db import get_db
 
 logger = logging.getLogger(__name__)

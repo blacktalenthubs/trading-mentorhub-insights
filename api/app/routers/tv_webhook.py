@@ -38,7 +38,7 @@ from alert_config import (
     TV_WEBHOOK_ALLOWED_IPS,
     TV_WEBHOOK_ENABLED,
 )
-from analytics.intraday_rules import AlertType
+from analytics.alert_types import AlertType
 from analytics.tv_signal_adapter import (
     TVAdapterError,
     payload_to_alert_signal,
@@ -375,8 +375,8 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         fetch_intraday_crypto,
         fetch_prior_day,
     )
-    from analytics.intraday_rules import _targets_for_long, _targets_for_short
-    from config import is_crypto_alert_symbol
+    from analytics.alert_types import targets_for_long, targets_for_short
+    from alert_config import is_crypto_alert_symbol
 
     is_crypto = is_crypto_alert_symbol(sig.symbol)
 
@@ -419,12 +419,12 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     if direction in ("BUY", "LONG") and sig.entry and not (sig.target_1 and sig.target_2):
         stop = sig.stop if sig.stop else round(sig.entry * 0.995, 2)
         sig.stop = stop
-        t1, t2 = _targets_for_long(sig.entry, stop, prior_day)
+        t1, t2 = targets_for_long(sig.entry, stop, prior_day)
         sig.target_1, sig.target_2 = t1, t2
     elif direction == "SHORT" and sig.entry and not (sig.target_1 and sig.target_2):
         stop = sig.stop if sig.stop else round(sig.entry * 1.005, 2)
         sig.stop = stop
-        t1, t2 = _targets_for_short(sig.entry, stop, prior_day)
+        t1, t2 = targets_for_short(sig.entry, stop, prior_day)
         sig.target_1, sig.target_2 = t1, t2
 
     # 4. Stamp confluence score (Phase 2) — kept for non-TV consumers, but

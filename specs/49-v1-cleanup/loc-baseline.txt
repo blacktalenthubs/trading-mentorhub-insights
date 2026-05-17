@@ -1,0 +1,8 @@
+  228404 total
+
+By language:
+  *.py: 485 files, 188124 lines
+  *.ts: 28 files, 4573 lines
+  *.tsx: 125 files, 35617 lines
+  *.js: 8 files, 90 lines
+  *.jsx: 0 files, 0 lines

@@ -1,171 +1,148 @@
-"""Constants and stock category definitions."""
+"""V2-minimal config shim.
+
+The original `config.py` (Streamlit-era, ~150 LOC) was deleted as part of
+Spec 49. This shim retains only the symbols still consumed by V2-live code:
+`db.py` (DB_PATH + admin/watchlist seeds) and `analytics/intel_hub.py`
+(MEGA_CAP + categorize_symbol).
+
+- `is_crypto_alert_symbol` was moved to `alert_config.py` in Phase A; this
+  shim re-exports it for the small number of V2-live importers that still
+  point here (`analytics/market_data.py`, `analytics/market_hours.py`).
+  Those importers should be migrated to `from alert_config import ...` in a
+  follow-up commit; doing so here would scope-creep this cleanup.
+
+Long-term: consolidate this shim into `alert_config.py`. That refactor is
+deferred to a future spec.
+"""
 
 from __future__ import annotations
 
 import os
-from typing import Optional
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "data", "trades.db")
+# Re-export from the new home so existing V2 importers keep working.
+from alert_config import (  # noqa: F401  (re-export)
+    CRYPTO_ALERT_SYMBOLS,
+    is_crypto_alert_symbol,
+)
 
-# Default admin credentials (for data migration — set via env vars or use defaults)
-DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@tradecopilot.local")
-DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme123")
+# --- DB ---------------------------------------------------------------
+# Local-dev SQLite path. Production uses DATABASE_URL → Railway Postgres
+# and never touches DB_PATH at runtime.
+# Resolve relative to THIS file (the trade-analytics root) so it works
+# regardless of where uvicorn / pytest / streamlit was invoked from.
+_TA_ROOT = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.environ.get("DB_PATH", os.path.join(_TA_ROOT, "data", "trades.db"))
 
-# Account numbers
-ACCOUNTS = {
-    "145610192": "Main Brokerage",
-    "496636044": "Recurring Investment",
-    "818537748": "Options Account",
-    "145610192C": "Crypto",
-}
+# --- Admin seeding (used by db.py at first-boot) -----------------------
+DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
+DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "change-me-on-first-login")
 
-RECURRING_ACCOUNT = "496636044"
+# --- Default watchlist -------------------------------------------------
+# Seed list for a fresh user account. Operator can override via env var.
+DEFAULT_WATCHLIST: tuple[str, ...] = tuple(
+    s.strip().upper()
+    for s in os.environ.get(
+        "DEFAULT_WATCHLIST",
+        "SPY,QQQ,AAPL,MSFT,NVDA,TSLA,AMZN,GOOGL,META,AMD",
+    ).split(",")
+    if s.strip()
+)
 
-# The individual trading account to focus dashboard on
-FOCUS_ACCOUNT = "145610192"
-
-# Stock categorization
-MEGA_CAP = {
-    "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA",
-    "AVGO", "BRK.B", "LLY", "JPM", "V", "UNH", "XOM", "MA", "JNJ",
-    "PG", "COST", "HD", "ABBV", "NFLX", "CRM", "BAC", "ORCL", "AMD",
-    "KO", "MRK", "PEP", "TMO", "ACN", "WMT", "LIN", "ADBE", "MCD",
-    "CSCO", "QCOM", "INTC",
-}
-
-SPECULATIVE = {
-    "RGTI", "AEVA", "BKSY", "DWAVE", "DM", "DWAV", "JOBY", "SERV",
-    "SOUN", "TXG", "VSAT", "BULL", "AFRM", "SOFI", "HOOD", "SMR",
-    "CRSP", "ABAT", "PLTR", "FIG", "COIN", "RKT", "TEM",
-}
-
-INDEX_ETF = {
-    "SPY", "QQQ", "VTI", "IWB", "RSP", "SPXL", "TQQQ",
-    "XLF", "XLE", "XLI", "XLP", "XLK", "XLV", "XLY", "XLB", "XLU",
-    "XLRE", "XLC",
-}
-
-CRYPTO_SYMBOLS = {"BTC", "ETH", "DOGE", "SOL", "ADA", "XRP"}
-
-# yfinance-format crypto tickers for the alert pipeline (24h markets)
-CRYPTO_ALERT_SYMBOLS = {"BTC-USD", "ETH-USD"}
-
-
-def is_crypto_alert_symbol(symbol: str) -> bool:
-    """Return True if symbol is a crypto ticker tracked by the alert pipeline."""
-    return symbol.upper() in CRYPTO_ALERT_SYMBOLS
-
-# Holding period thresholds (days)
-DAY_TRADE_MAX = 0  # bought and sold same day
-SWING_TRADE_MAX = 30
-
-# Recommended stop loss % by holding period (support/resistance style)
-STOP_LOSS_PCT = {
-    "day_trade": 1.5,   # tight stop for intraday
-    "swing": 2.5,       # moderate stop for multi-day
-    "position": 4.0,    # wider stop for longer holds
-    "unknown": 2.5,     # default to swing-style
-}
-
-# Loss severity thresholds (% of trade value)
-LOSS_ACCEPTABLE_PCT = 2.0    # small, disciplined loss
-LOSS_CAUTION_PCT = 5.0       # getting too large
-# Above LOSS_CAUTION_PCT = danger zone
-
-# Strategy tags for trade annotation
-STRATEGY_TAGS = [
-    "support_bounce",
-    "ma_bounce",
-    "key_level",
-    "breakout",
-    "pullback_buy",
-    "gap_play",
-    "momentum",
-    "earnings",
-    "other",
-]
+# --- Symbol categorization (used by intel_hub) --------------------------
+# Operator-curated mega-cap list. Adjust as the market evolves.
+MEGA_CAP: frozenset[str] = frozenset({
+    "AAPL", "MSFT", "NVDA", "GOOGL", "GOOG", "AMZN", "META", "TSLA",
+    "BRK.B", "AVGO", "LLY", "JPM", "V", "MA", "WMT", "XOM", "UNH", "ORCL",
+})
 
 
 def categorize_symbol(symbol: str) -> str:
-    """Return category for a ticker symbol."""
-    sym = symbol.upper().strip()
-    if sym in CRYPTO_SYMBOLS or sym in CRYPTO_ALERT_SYMBOLS:
-        return "crypto"
-    if sym in INDEX_ETF:
-        return "index_etf"
-    if sym in MEGA_CAP:
-        return "mega_cap"
-    if sym in SPECULATIVE:
-        return "speculative"
-    return "other"
+    """Coarse market-cap bucket: 'mega_cap' | 'other'.
+
+    The V1 version had finer-grained buckets (large/mid/small/etc.); V2
+    only needs the binary "mega vs. not" distinction for intel_hub
+    edge-scoring. Restore the full taxonomy here if a future spec needs it.
+    """
+    if not symbol:
+        return "other"
+    return "mega_cap" if symbol.upper() in MEGA_CAP else "other"
 
 
-def classify_holding_period(days: Optional[int]) -> str:
-    """Classify trade by holding period."""
-    if days is None:
-        return "unknown"
-    if days <= DAY_TRADE_MAX:
-        return "day_trade"
-    if days <= SWING_TRADE_MAX:
+# --- Trade-import helpers (parsers/) ---------------------------------
+# Used by parsers/parser_1099.py + parsers/parser_statement.py for PDF
+# tax/brokerage import flows behind the React /trades page.
+
+# Holding period thresholds (calendar days). Used by classify_holding_period
+# to bucket realized trades into "day" / "swing" / "position" / "investment".
+DAY_TRADE_MAX = 0     # bought + sold same day
+SWING_TRADE_MAX = 30  # held ≤ 30 days
+# Beyond SWING_TRADE_MAX up to ~365 days = "position"; beyond ~365 = "investment".
+
+
+def classify_holding_period(days_held: int) -> str:
+    """Bucket a holding period in days into a trade-style label.
+
+    Returns one of: 'day', 'swing', 'position', 'investment'.
+    """
+    if days_held is None or days_held < 0:
+        return "day"
+    if days_held <= DAY_TRADE_MAX:
+        return "day"
+    if days_held <= SWING_TRADE_MAX:
         return "swing"
-    return "position"
+    if days_held <= 365:
+        return "position"
+    return "investment"
 
 
-# --- Signal Scanner constants ---
-
-DEFAULT_WATCHLIST = [
-    "SPY", "NVDA", "AAPL", "GOOGL", "TSLA", "PLTR",
-]
-
-# Scoring weights (each factor 0-25, total 0-100)
-SIGNAL_WEIGHTS = {
-    "candle_pattern": 25,
-    "ma_position": 25,
-    "support_proximity": 25,
-    "volume": 25,
-}
-
-SCORE_THRESHOLDS = {
-    "BUY": 75,    # >= 75
-    "WAIT": 50,   # 50-74
-    "AVOID": 0,   # < 50
-}
-
-DEFAULT_POSITION_SIZE = 150_000
-
-CUSIP_TO_SYMBOL = {
-    "007903107": "AMD", "00827B106": "AFRM", "00835Q202": "AEVA",
-    "02079K305": "GOOGL", "023135106": "AMZN", "02451V309": "ABAT",
-    "037833100": "AAPL", "04626A103": "ALAB", "09263B207": "BKSY",
-    "11135F101": "AVGO", "19260Q107": "COIN", "26740W109": "DWAVE",
-    "30303M102": "META", "349381103": "FIG", "46137V357": "RSP",
-    "464287622": "IWB", "512807306": "LRCX", "594918104": "MSFT",
-    "64110L106": "NFLX", "67066G104": "NVDA", "67079K100": "SMR",
-    "68389X105": "ORCL", "69608A108": "PLTR", "74347X831": "TQQQ",
-    "76655K103": "RGTI", "770700102": "HOOD", "77311W101": "RKT",
-    "78462F103": "SPY", "81369Y308": "XLP", "81369Y506": "XLE",
-    "81369Y605": "XLF", "81369Y704": "XLI", "81758H106": "SERV",
-    "833445109": "SNOW", "83406F102": "SOFI", "836100107": "SOUN",
-    "88023B103": "TEM", "88025U109": "TXG", "88160R101": "TSLA",
-    "922908769": "VTI", "92552V100": "VSAT", "25459W862": "SPXL",
-    "74347W601": "UGL",
-    "G65163100": "JOBY", "G9572D103": "BULL", "H17182108": "CRSP",
-}
+# Crude asset-type heuristics used by the brokerage-statement parsers.
+# Option contract descriptions usually contain CALL/PUT and a strike; ETF
+# symbols are checked against a small known list before falling through.
+_KNOWN_ETFS: frozenset[str] = frozenset({
+    "SPY", "QQQ", "DIA", "IWM", "VOO", "VTI", "VEA", "VWO", "AGG", "BND",
+    "GLD", "SLV", "USO", "TLT", "HYG", "LQD", "EEM", "EFA", "XLK", "XLF",
+    "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "AIQ", "SOXX",
+    "ARKK", "ARKW", "TQQQ", "SQQQ", "UPRO", "SPXU",
+})
 
 
-def detect_asset_type(description: str, symbol: str) -> str:
-    """Detect whether a security is stock, option, ETF, or crypto."""
-    desc_upper = description.upper()
-    sym_upper = symbol.upper()
-    # Check for option keywords - be specific to avoid false positives
-    if "CALL" in desc_upper or "PUT" in desc_upper:
+def detect_asset_type(symbol: str, description: str = "") -> str:
+    """Coarse asset-type bucket: 'option' | 'etf' | 'stock' | 'crypto' | 'other'.
+
+    Used by trade-import parsers to categorize executed transactions. This
+    is a best-effort heuristic; the V1 original may have had a finer
+    taxonomy (futures, mutual fund, etc.) — restore from git history if a
+    consumer needs more granularity.
+    """
+    desc = (description or "").upper()
+    sym = (symbol or "").upper()
+    if not sym:
+        return "other"
+    # Option contracts almost always say CALL or PUT in the description.
+    if " CALL" in desc or " PUT" in desc or "CALL " in desc or "PUT " in desc:
         return "option"
-    # Check symbol pattern for options: "AAPL 11/14/25 C 260.000"
-    import re
-    if re.search(r"[A-Z]+\s+\d{2}/\d{2}/\d{2}\s+[CP]\s+[\d.]+", sym_upper):
-        return "option"
-    if sym_upper in CRYPTO_SYMBOLS or "BITCOIN" in desc_upper or "CRYPTO" in desc_upper:
+    # yfinance-style crypto tickers end with -USD.
+    if sym.endswith("-USD"):
         return "crypto"
-    if sym_upper in INDEX_ETF or "ETF" in desc_upper or "TRUST" in desc_upper or "SPDR" in desc_upper:
+    if sym in _KNOWN_ETFS:
         return "etf"
     return "stock"
+
+
+# --- CUSIP → symbol map (used by parsers/parser_1099.py) ---------------
+# The V1 original maintained a hand-curated CUSIP → ticker mapping for
+# 1099 imports that surface CUSIPs but not tickers. This shim starts
+# empty; the parser will fall back to using whatever symbol field the
+# 1099 row exposes. Restore the original dict from git history if you
+# need richer CUSIP coverage.
+CUSIP_TO_SYMBOL: dict[str, str] = {}
+
+
+# --- Recurring account allowlist (used by parsers/parser_statement.py) -
+# Account numbers (or labels) treated as "recurring" (e.g., the user's
+# own brokerage account vs. an external mirror). The V1 original was a
+# small operator-curated list; defaulting to empty keeps the parser
+# functional but treats everything as non-recurring.
+RECURRING_ACCOUNT: frozenset[str] = frozenset(
+    s.strip() for s in os.environ.get("RECURRING_ACCOUNT", "").split(",") if s.strip()
+)
