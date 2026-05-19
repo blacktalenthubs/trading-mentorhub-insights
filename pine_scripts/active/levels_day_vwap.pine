@@ -26,11 +26,18 @@ indicator("levels-day-vwap", overlay = true)
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
 show_level_labels = input.bool(true,  "Show PDH/PDL value labels at right edge")
 show_midpoint     = input.bool(true,  "Show range midpoint line (gray dashed)")
-fire_open_alerts  = input.bool(true,  "Fire open-line alerts (held / wick-reclaim / reclaim / lost)")
+fire_open_alerts        = input.bool(true,  "Fire open-line alerts (MASTER toggle — overrides per-type below)")
+fire_open_held          = input.bool(true,  "  → open_held (clean defense)", group = "Open-line per-type")
+fire_open_wick_reclaim  = input.bool(true,  "  → open_wick_reclaim (wick crossed below)", group = "Open-line per-type")
+fire_open_reclaimed     = input.bool(true,  "  → open_reclaimed (full close-flip cycle)", group = "Open-line per-type")
+fire_open_lost          = input.bool(true,  "  → open_lost (NOTICE, indexes only)", group = "Open-line per-type")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
-show_stage_badge  = input.bool(true,  "Show day-type badge (top-center)")
+show_stage_badge   = input.bool(true,  "Show day-type badge (top-center)")
+show_regime_rows   = input.bool(true,  "Show SPY regime row on day-type badge")
+show_symbol_regime = input.bool(true,  "Show this symbol's EMA position on day-type badge")
+ema_proximity_pct  = input.float(0.3,  "EMA proximity threshold (%) — flag as 'at EMA' if within", minval = 0.1, maxval = 2.0, step = 0.1)
 fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/support alerts (NOTICE — SPY/QQQ only; ignored on other symbols)")
 // HTF level alerts (2026-05-16) — hold/wick-reclaim per HTF level + proximity NOTICE.
 fire_htf_alerts   = input.bool(true,  "Fire HTF level alerts (PWH/PWL/PMH/PML hold + wick reclaim + proximity NOTICE)")
@@ -463,12 +470,142 @@ if not na(today_open) and not na(pdh) and not na(pdl)
         day_text := "GAP DOWN\nPDL " + pdl_str + " · mid " + mid_str + "\nLEAN: avoid longs, fade pops to mid"
         day_bg   := color.new(color.red, 10)
 
+// =====================================================================
+// EMA regime — honest position description (no misleading state labels).
+//
+// Action tier is based on WHICH EMA is broken (longer = bigger concern):
+//   below SMA200          → scalp only, NO OVERNIGHT (true weakness)
+//   below EMA100          → day trades only, no swings/overnight
+//   below EMA50           → day trades · no overnight
+//   below EMA10/21 only   → day trades · manage tight (normal pullback)
+//   below EMA5 only       → day trades · stay nimble (momentum cool)
+//   above all EMAs        → full size · swings/overnight OK
+//
+// We DO NOT call AMZN-below-EMA10 "WEAK" — that's misleading. True
+// weakness is below SMA200. AMZN below EMA10 is just a normal pullback
+// in a healthy trend.
+//
+// Display: shows AT EMA(n) if price within proximity threshold of any
+// EMA, otherwise the position description (which EMAs are below).
+// =====================================================================
+get_regime(string sym) =>
+    _ema5  = request.security(sym, "D", ta.ema(close, 5)[1])
+    _ema10 = request.security(sym, "D", ta.ema(close, 10)[1])
+    _ema21 = request.security(sym, "D", ta.ema(close, 21)[1])
+    _close = request.security(sym, timeframe.period, close)
+
+    // Track per-EMA was-below state for the session (reclaim recognition).
+    _sess_reset = ta.change(time("D")) != 0
+    var bool _was_below_5  = false
+    var bool _was_below_10 = false
+    var bool _was_below_21 = false
+    if _sess_reset
+        _was_below_5  := false
+        _was_below_10 := false
+        _was_below_21 := false
+
+    _above_5  = not na(_ema5)  and not na(_close) and _close > _ema5
+    _above_10 = not na(_ema10) and not na(_close) and _close > _ema10
+    _above_21 = not na(_ema21) and not na(_close) and _close > _ema21
+
+    if not _above_5
+        _was_below_5 := true
+    if not _above_10
+        _was_below_10 := true
+    if not _above_21
+        _was_below_21 := true
+
+    // Reclaim count: EMAs that were below earlier today but now closed above.
+    _recl_5  = _above_5  and _was_below_5
+    _recl_10 = _above_10 and _was_below_10
+    _recl_21 = _above_21 and _was_below_21
+    _reclaim_count = (_recl_5 ? 1 : 0) + (_recl_10 ? 1 : 0) + (_recl_21 ? 1 : 0)
+
+    // State classification — descending strength.
+    _state  = "NO TREND"
+    _action = "scalp only · NO OVERNIGHT"
+    _sub    = "below EMA21"
+
+    if _above_5 and _above_10 and _above_21
+        _state  := "STRONG TREND"
+        _action := "full size · swings/overnight OK"
+        _sub    := "above all EMAs (5/10/21)"
+    else if _above_10 and _above_21
+        _state  := "PULLBACK"
+        _action := "day trades · manage tight"
+        _sub    := "below EMA5 (momentum cool)"
+    else if _above_21
+        _state  := "WEAK"
+        _action := "day trades only · no swings"
+        _sub    := "below EMA10"
+    else
+        _state  := "NO TREND"
+        _action := "scalp only · NO OVERNIGHT"
+        _sub    := _above_10 ? "below EMA21 only" : (_above_5 ? "below EMA10/21" : "below all EMAs")
+
+    // Append reclaim tag if any EMA was reclaimed this session.
+    if _reclaim_count > 0
+        _sub := _sub + " · ↑ reclaimed " + str.tostring(_reclaim_count) + " EMA"
+
+    [_state, _action, _sub]
+
+regime_bg(string state) =>
+    state == "STRONG TREND" ? color.new(color.green, 10) : state == "PULLBACK" ? color.new(color.blue, 20) : state == "WEAK" ? color.new(color.yellow, 15) : state == "NO TREND" ? color.new(color.red, 15) : color.new(color.gray, 60)
+
+regime_fg(string state) =>
+    state == "WEAK" ? color.black : color.white
+
+regime_emoji(string state) =>
+    state == "STRONG TREND" ? "🚀" : state == "PULLBACK" ? "🔵" : state == "WEAK" ? "⚠️" : state == "NO TREND" ? "🔴" : "·"
+
+[spy_state, spy_action, spy_sub] = get_regime("SPY")
+
+// Always show the SPY row.
+spy_line = show_regime_rows ? "\n────\n" + regime_emoji(spy_state) + " SPY " + spy_state + " · " + spy_action + "\n(" + spy_sub + ")" : ""
+
+// =====================================================================
+// Current-symbol EMA position — same regime classifier applied to the
+// chart's loaded symbol. Tells trader where THIS stock sits on its own
+// EMA stack + flags proximity to any specific EMA ("AT EMA10") when
+// price is within ema_proximity_pct of an EMA value.
+// =====================================================================
+[sym_state, sym_action, sym_sub] = get_regime(syminfo.tickerid)
+
+// Proximity check — flag which EMA is being tested if within threshold.
+// Includes structural longer-term EMAs (50/100) and SMA200 since price
+// often hugs these as key levels even when the 5/10/21 stack is fine
+// (e.g., MSFT in STRONG TREND but testing EMA100 from above).
+_sym_ema5   = request.security(syminfo.tickerid, "D", ta.ema(close, 5)[1])
+_sym_ema10  = request.security(syminfo.tickerid, "D", ta.ema(close, 10)[1])
+_sym_ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1])
+_sym_ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1])
+_sym_ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1])
+_sym_sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1])
+_sym_close = close
+_prox_frac = ema_proximity_pct / 100.0
+_at_5   = not na(_sym_ema5)   and _sym_ema5   != 0 and math.abs(_sym_close - _sym_ema5)   / _sym_ema5   <= _prox_frac
+_at_10  = not na(_sym_ema10)  and _sym_ema10  != 0 and math.abs(_sym_close - _sym_ema10)  / _sym_ema10  <= _prox_frac
+_at_21  = not na(_sym_ema21)  and _sym_ema21  != 0 and math.abs(_sym_close - _sym_ema21)  / _sym_ema21  <= _prox_frac
+_at_50  = not na(_sym_ema50)  and _sym_ema50  != 0 and math.abs(_sym_close - _sym_ema50)  / _sym_ema50  <= _prox_frac
+_at_100 = not na(_sym_ema100) and _sym_ema100 != 0 and math.abs(_sym_close - _sym_ema100) / _sym_ema100 <= _prox_frac
+_at_200 = not na(_sym_sma200) and _sym_sma200 != 0 and math.abs(_sym_close - _sym_sma200) / _sym_sma200 <= _prox_frac
+// Priority: longer/structural EMAs first (more meaningful when tested).
+// SMA200 > EMA100 > EMA50 > EMA21 > EMA10 > EMA5.
+sym_at_tag = _at_200 ? " · AT SMA200 (key structural)" : _at_100 ? " · AT EMA100 (key structural)" : _at_50 ? " · AT EMA50 (trend filter)" : _at_21 ? " · AT EMA21 (testing)" : _at_10 ? " · AT EMA10 (testing)" : _at_5 ? " · AT EMA5 (testing)" : ""
+
+// Skip the symbol row when chart symbol IS SPY (already covered by SPY row above).
+_is_spy_chart = syminfo.ticker == "SPY"
+sym_line = (show_symbol_regime and not _is_spy_chart) ? "\n────\n" + regime_emoji(sym_state) + " " + syminfo.ticker + " " + sym_state + sym_at_tag + "\n(" + sym_sub + ")" : ""
+
+combined_day_text = day_text + spy_line + sym_line
+
 // Top-center placement so the day-type label sits front-and-center on
 // the chart, not crammed against the right-side watchlist panel where
-// it's easy to miss during fast markets.
+// it's easy to miss during fast markets. Single-cell table; SPY discipline
+// action appended to the cell text on every bar.
 var table day_t = table.new(position.top_center, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
 if show_stage_badge and barstate.islast
-    table.cell(day_t, 0, 0, day_text, text_color = color.white, bgcolor = day_bg, text_size = size.large)
+    table.cell(day_t, 0, 0, combined_day_text, text_color = color.white, bgcolor = day_bg, text_size = size.large)
 
 // =====================================================================
 // Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
@@ -763,7 +900,7 @@ if pdl_reclaim
 // (NOTICE), open_reclaimed is standard long-side projection. The triage
 // agent re-ranks based on confluence. near_pdh / near_pdl flags ride on
 // build_payload_v2 so the webhook can collapse confluence twins.
-if fire_open_alerts and ol_just_lost and is_macro_symbol
+if fire_open_alerts and fire_open_lost and ol_just_lost and is_macro_symbol
     e  = close
     s  = math.max(high, high[1]) + atr_buffer
     t1 = e * 0.9925
@@ -773,7 +910,7 @@ if fire_open_alerts and ol_just_lost and is_macro_symbol
                            volume_ratio, cvd_slope_n, bullish_div),
           alert.freq_once_per_bar_close)
 
-if fire_open_alerts and ol_just_reclaimed
+if fire_open_alerts and fire_open_reclaimed and ol_just_reclaimed
     e  = close
     s  = math.min(low, low[1]) - atr_buffer
     t1 = e * 1.0075
@@ -786,7 +923,7 @@ if fire_open_alerts and ol_just_reclaimed
 // open_held — clean defense, low never crossed below today_open. BUY on
 // every symbol. Weakest of the three (no real test), still useful as
 // confirmation the level is respected.
-if fire_open_alerts and ol_just_held
+if fire_open_alerts and fire_open_held and ol_just_held
     e  = close
     s  = today_open - atr_buffer
     t1 = e * 1.0075
@@ -799,7 +936,7 @@ if fire_open_alerts and ol_just_held
 // open_wick_reclaim — wick crossed below today_open, body held above,
 // green bar bounce. Mid-tier signal. Stop is just below today_open since
 // the wick already tested below.
-if fire_open_alerts and ol_just_wick_reclaimed
+if fire_open_alerts and fire_open_wick_reclaim and ol_just_wick_reclaimed
     e  = close
     s  = math.min(low, today_open) - atr_buffer
     t1 = e * 1.0075
