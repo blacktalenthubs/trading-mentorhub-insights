@@ -21,9 +21,7 @@ Behind env flag `TV_WEBHOOK_ENABLED` (default false). Endpoint returns
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-import time
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -485,17 +483,32 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         "tv_pwl_held", "tv_pwl_wick_reclaim",
         "tv_pmh_held", "tv_pmh_wick_reclaim",
         "tv_pml_held", "tv_pml_wick_reclaim",
+        # SPY SHORT structural rules — exempted so each of the 4 types can fire
+        # once per session independently (otherwise PDH rejection at 10:00 would
+        # block PDL break at 14:00 via the symbol-direction-session check).
+        # Identity dedup with a 16h window (see DEDUP_WINDOW_OVERRIDES) still
+        # caps each individual type at once-per-session.
+        "tv_staged_pdh_rejection",
+        "tv_staged_pdh_failed_short",
+        "tv_staged_pdl_break",
+        "tv_vwap_reject_short",
     }
 
     # Per-alert-type dedup windows. Defaults to 60 min.
     #   open_reclaimed: 90 min (Pine re-arms, multi-leg days)
     #   htf_proximity_*: 120 min (heads-up, less spammy)
+    #   SPY SHORT structural rules: 16h (full session) — at most one alert
+    #     per type per day, no matter how many times Pine re-triggers on chop.
     DEDUP_WINDOW_OVERRIDES = {
         "tv_open_reclaimed":      timedelta(minutes=90),
         "tv_htf_proximity_pwh":   timedelta(minutes=120),
         "tv_htf_proximity_pwl":   timedelta(minutes=120),
         "tv_htf_proximity_pmh":   timedelta(minutes=120),
         "tv_htf_proximity_pml":   timedelta(minutes=120),
+        "tv_staged_pdh_rejection":    timedelta(hours=16),
+        "tv_staged_pdh_failed_short": timedelta(hours=16),
+        "tv_staged_pdl_break":        timedelta(hours=16),
+        "tv_vwap_reject_short":       timedelta(hours=16),
     }
     dedup_window = DEDUP_WINDOW_OVERRIDES.get(alert_type_full, timedelta(minutes=60))
 
@@ -741,72 +754,23 @@ def _ma_tag_to_suffix(raw_ma_tag: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Routing logic — A1 (SPY 8/21 long-bias gate) + A2 (SPY short whitelist)
-# Spec: specs/41-tv-trading-system/v2-routing-notices-patterns.md
+# Routing logic — SPY-only SHORT gate.
+# User direction 2026-05-18: equity SHORTs are pure noise on chop days
+# regardless of SPY regime. Hard-drop all non-SPY shorts. On SPY, only
+# the 4 structural rules below fire (max 4 SPY SHORTs/day, one per type).
 # ---------------------------------------------------------------------------
 
 
-# SPY-state cache. yfinance is slow + flaky — refresh at most once per
-# 5 minutes during a webhook burst. In-process; resets on container start.
-_SPY_STATE_TTL_SEC = 300
-_spy_state_cache: dict[str, Any] = {"value": None, "expires_at": 0.0}
-
-
-# SPY SHORT whitelist (A2). Rules NOT in this set drop to NOTICE when
-# SPY is in long-bias regime.
-#
-# Note: `vwap_lose_short` was added briefly 2026-05-05 and removed the
-# same day — single bar-close VWAP cross was too noisy on charts where
-# candles hug VWAP (AAPL 1h showed 7 false triggers in a session). The
-# actionable VWAP-from-above case is already covered by vwap_reject_short
-# (which requires `vwap_setup_bars` confirmation).
+# SPY SHORT structural whitelist. Only these alert_types fire ACTION on SPY;
+# everything else (incl. MA/EMA rejections) is dropped to keep chop noise out.
+# Once-per-session per type enforced via SESSION_DEDUP_EXEMPT_TYPES +
+# DEDUP_WINDOW_OVERRIDES (session-length window) — see ingest path.
 _SPY_SHORT_ACTION_RULES = {
     "tv_staged_pdh_rejection",
-    "tv_staged_pdh_failed_short",  # added 2026-05-07 — failed-breakout reversal
+    "tv_staged_pdh_failed_short",
     "tv_staged_pdl_break",
     "tv_vwap_reject_short",
 }
-
-
-def _fetch_spy_state_sync() -> bool:
-    """Sync helper: SPY's last close > both daily 8 EMA and 21 EMA.
-
-    Returns True (long-bias=permissive) on insufficient data.
-    Called from a thread pool so it doesn't block the event loop.
-    """
-    import yfinance as yf
-
-    spy = yf.Ticker("SPY")
-    hist = spy.history(period="60d", interval="1d")
-    if len(hist) < 22:
-        return True  # not enough data — fail-open
-    closes = hist["Close"]
-    ema8 = closes.ewm(span=8, adjust=False).mean().iloc[-1]
-    ema21 = closes.ewm(span=21, adjust=False).mean().iloc[-1]
-    last = closes.iloc[-1]
-    return bool(last > ema8 and last > ema21)
-
-
-async def _spy_above_8_21() -> bool:
-    """True if SPY closed above both daily 8 EMA and 21 EMA.
-
-    Cached for 5 min. Fails open (returns True = long-bias permissive)
-    on any error so a yfinance hiccup doesn't silently block alerts.
-    """
-    now = time.time()
-    if _spy_state_cache["expires_at"] > now and _spy_state_cache["value"] is not None:
-        return _spy_state_cache["value"]
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _fetch_spy_state_sync)
-    except Exception:
-        logger.exception(
-            "SPY 8/21 fetch failed — failing open (long-bias=True permissive)"
-        )
-        return True
-    _spy_state_cache["value"] = result
-    _spy_state_cache["expires_at"] = now + _SPY_STATE_TTL_SEC
-    return result
 
 
 async def _route_alert(sig) -> tuple[bool, Optional[str]]:
@@ -814,39 +778,28 @@ async def _route_alert(sig) -> tuple[bool, Optional[str]]:
 
     Returns:
         (deliver, downgrade)
-        - (True, None)        → deliver as-is (ACTION)
-        - (True, "NOTICE")    → deliver but override sig.direction to NOTICE
-        - (False, None)       → suppress entirely (no DB row, no Telegram)
+        - (True, None)   → deliver as-is (ACTION)
+        - (False, None)  → suppress entirely (no DB row, no Telegram)
 
-    Rules implemented:
-        A1. When SPY > daily 8 AND 21 EMAs (long-bias regime):
-            - non-SPY SHORTs → suppress
-        A2. When SPY > 8/21 AND symbol == SPY AND direction == SHORT:
-            - whitelisted rule → ACTION
-            - other SPY short rules → NOTICE
-        Otherwise (LONGs, NOTICEs, shorts with weak SPY) → ACTION as-is.
+    Rules:
+        - BUY / LONG / NOTICE              → ACTION
+        - SHORT, symbol != SPY             → DROP
+        - SHORT, symbol == SPY, whitelist  → ACTION
+        - SHORT, symbol == SPY, other      → DROP
     """
     direction = (sig.direction or "").upper()
 
-    # LONG / BUY / NOTICE pass through unchanged in v1.
     if direction not in ("SHORT", "SELL"):
         return True, None
 
-    spy_long_bias = await _spy_above_8_21()
-    if not spy_long_bias:
-        # SPY weak — all shorts (including single-name) restored to ACTION.
-        return True, None
-
-    rule = (getattr(sig, "_tv_rule", "") or "").strip()
-
     if sig.symbol != "SPY":
-        # A1: non-SPY shorts in long-bias regime are noise. Suppress.
         return False, None
 
-    # A2: SPY shorts. Whitelisted rules pass through; others NOTICE-downgrade.
-    if rule in _SPY_SHORT_ACTION_RULES:
+    rule = (getattr(sig, "_tv_rule", "") or "").strip()
+    rule_full = f"tv_{rule}" if rule and not rule.startswith("tv_") else rule
+    if rule_full in _SPY_SHORT_ACTION_RULES:
         return True, None
-    return True, "NOTICE"
+    return False, None
 
 
 async def _symbol_session_already_fired(
@@ -921,7 +874,5 @@ __all__ = [
     "_alert_already_fired",
     "_symbol_session_already_fired",
     "_route_alert",
-    "_spy_above_8_21",
-    "_fetch_spy_state_sync",
     "_SPY_SHORT_ACTION_RULES",
 ]

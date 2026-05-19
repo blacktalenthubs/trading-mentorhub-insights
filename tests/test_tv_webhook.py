@@ -422,14 +422,19 @@ class TestMaTagToSuffix:
 
 
 # -----------------------------------------------------------------------------
-# Routing logic — A1 (SPY 8/21 long-bias gate) + A2 (SPY short whitelist)
-# Spec: specs/41-tv-trading-system/v2-routing-notices-patterns.md
-# Plan: plan/tv-routing-a1-a2.md
+# Routing logic — SPY-only SHORT gate (2026-05-18 simplification).
+# All non-SPY SHORTs are dropped unconditionally. SPY SHORTs fire only on
+# the 4 structural rules; everything else (incl. MA/EMA rejections) drops.
 # -----------------------------------------------------------------------------
 
 
 class _FakeSig:
-    """Minimal stand-in for AlertSignal — only fields _route_alert reads."""
+    """Minimal stand-in for AlertSignal — only fields _route_alert reads.
+
+    Note: production sets _tv_rule to the BARE name (e.g. "staged_pdl_break")
+    via tv_signal_adapter line 221. _route_alert handles both bare and
+    "tv_"-prefixed forms; tests below use the bare form to match production.
+    """
 
     def __init__(self, symbol: str, direction: str, rule: str = ""):
         self.symbol = symbol
@@ -443,133 +448,127 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _mock_spy_state(monkeypatch, value: bool):
-    """Replace _spy_above_8_21 with a coroutine returning a fixed value."""
-    async def _stub():
-        return value
-    monkeypatch.setattr("api.app.routers.tv_webhook._spy_above_8_21", _stub)
-
-
 class TestRoutingLogic:
-    """A1: suppress non-SPY shorts when SPY > 8/21.
-    A2: SPY shorts only ACTION on whitelist; others → NOTICE.
-    """
+    """Non-SPY shorts dropped always. SPY shorts ACTION only on the 4
+    structural rules; non-whitelisted SPY shorts also dropped."""
 
-    def test_long_passes_unchanged(self, monkeypatch):
+    def test_buy_passes_unchanged(self):
         from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, True)  # bullish SPY shouldn't matter for longs
-        sig = _FakeSig("AAPL", "BUY", "tv_staged_pdh_break")
+        sig = _FakeSig("AAPL", "BUY", "staged_pdh_break")
         deliver, downgrade = _run(_route_alert(sig))
         assert deliver is True
         assert downgrade is None
 
-    def test_notice_passes_unchanged(self, monkeypatch):
+    def test_notice_passes_unchanged(self):
         from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, True)
-        sig = _FakeSig("AAPL", "NOTICE", "tv_vwap_reclaim_long")
+        sig = _FakeSig("AAPL", "NOTICE", "vwap_reclaim_long")
         deliver, downgrade = _run(_route_alert(sig))
         assert deliver is True
         assert downgrade is None
 
-    def test_non_spy_short_suppressed_when_spy_strong(self, monkeypatch):
-        """A1 — NVDA SHORT in long-bias regime is fully suppressed."""
+    def test_non_spy_short_always_dropped(self):
+        """Equity shorts are noise regardless of regime — hard-drop."""
         from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, True)
-        sig = _FakeSig("NVDA", "SHORT", "tv_staged_pdl_break")
-        deliver, downgrade = _run(_route_alert(sig))
-        assert deliver is False
-        assert downgrade is None
+        for symbol in ("NVDA", "AAPL", "AMD", "GOOGL", "QQQ", "TSLA"):
+            sig = _FakeSig(symbol, "SHORT", "staged_pdl_break")
+            deliver, downgrade = _run(_route_alert(sig))
+            assert deliver is False, f"{symbol} SHORT should drop"
+            assert downgrade is None
 
-    def test_non_spy_short_allowed_when_spy_weak(self, monkeypatch):
-        """A1 — when SPY < 8/21, single-name shorts restored."""
+    def test_spy_short_whitelisted_rules_action(self):
+        """The 4 structural SPY SHORT rules pass through as ACTION."""
         from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, False)
-        sig = _FakeSig("NVDA", "SHORT", "tv_staged_pdl_break")
-        deliver, downgrade = _run(_route_alert(sig))
-        assert deliver is True
-        assert downgrade is None
-
-    def test_spy_short_whitelisted_rule_actions(self, monkeypatch):
-        """A2 — staged_pdh_rejection / staged_pdh_failed_short /
-        staged_pdl_break / vwap_reject_short on SPY pass through as ACTION
-        even in long-bias."""
-        from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, True)
         for rule in (
-            "tv_staged_pdh_rejection",
-            "tv_staged_pdh_failed_short",
-            "tv_staged_pdl_break",
-            "tv_vwap_reject_short",
+            "staged_pdh_rejection",
+            "staged_pdh_failed_short",
+            "staged_pdl_break",
+            "vwap_reject_short",
         ):
             sig = _FakeSig("SPY", "SHORT", rule)
             deliver, downgrade = _run(_route_alert(sig))
             assert deliver is True, f"{rule} should pass through"
             assert downgrade is None, f"{rule} should not downgrade"
 
-    def test_spy_short_non_whitelisted_downgrades(self, monkeypatch):
-        """A2 — SPY shorts NOT in whitelist drop to NOTICE."""
+    def test_spy_short_non_whitelisted_dropped(self):
+        """SPY shorts NOT in the structural whitelist (e.g. MA rejections)
+        drop entirely — no NOTICE downgrade. Keeps chop noise out."""
         from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, True)
-        sig = _FakeSig("SPY", "SHORT", "tv_ma_rejection_short_v3_ema50")
-        deliver, downgrade = _run(_route_alert(sig))
-        assert deliver is True
-        assert downgrade == "NOTICE"
+        for rule in (
+            "ma_rejection_short_v3_ema50",
+            "ma_rejection_short_v3_ema100",
+            "ma_rejection_short_v3_sma200",
+            "ema_rejection_short",
+            "open_lost",
+        ):
+            sig = _FakeSig("SPY", "SHORT", rule)
+            deliver, downgrade = _run(_route_alert(sig))
+            assert deliver is False, f"SPY {rule} should drop"
 
-    def test_unknown_direction_passes_through(self, monkeypatch):
+    def test_spy_short_accepts_tv_prefixed_rule(self):
+        """Defensive — if a caller passes already-prefixed rule it still works."""
+        from api.app.routers.tv_webhook import _route_alert
+        sig = _FakeSig("SPY", "SHORT", "tv_staged_pdl_break")
+        deliver, _ = _run(_route_alert(sig))
+        assert deliver is True
+
+    def test_unknown_direction_passes_through(self):
         """Defensive — unknown directions shouldn't trip the gate."""
         from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, True)
-        sig = _FakeSig("AAPL", "FLAT", "tv_unknown")
+        sig = _FakeSig("AAPL", "FLAT", "unknown")
         deliver, downgrade = _run(_route_alert(sig))
         assert deliver is True
         assert downgrade is None
 
-    def test_short_lowercase_normalized(self, monkeypatch):
+    def test_short_lowercase_normalized(self):
         """Direction 'short' (lowercase) must hit the same gate as 'SHORT'."""
         from api.app.routers.tv_webhook import _route_alert
-        _mock_spy_state(monkeypatch, True)
-        sig = _FakeSig("NVDA", "short", "tv_staged_pdl_break")
-        deliver, downgrade = _run(_route_alert(sig))
-        assert deliver is False  # gated same as SHORT
+        sig = _FakeSig("NVDA", "short", "staged_pdl_break")
+        deliver, _ = _run(_route_alert(sig))
+        assert deliver is False
+
+    def test_sell_treated_as_short(self):
+        """SELL direction (synonym for SHORT) hits the same gate."""
+        from api.app.routers.tv_webhook import _route_alert
+        sig = _FakeSig("NVDA", "SELL", "staged_pdl_break")
+        deliver, _ = _run(_route_alert(sig))
+        assert deliver is False
 
 
-class TestSpyStateCache:
-    """The 5-min in-process cache around yfinance lookups."""
+class TestSpyShortSessionDedup:
+    """Session-level dedup config — the 4 SPY SHORT rules must be exempt
+    from symbol-direction-session dedup (so each type can fire once
+    independently) AND have a 16h identity-dedup window (so each TYPE caps
+    at once per session)."""
 
-    def test_cache_hit_avoids_yfinance(self, monkeypatch):
-        """Within TTL, second call returns cached value without re-fetch."""
-        import api.app.routers.tv_webhook as mod
-        # Reset cache to fresh
-        mod._spy_state_cache["value"] = None
-        mod._spy_state_cache["expires_at"] = 0.0
+    def test_spy_short_rules_in_session_dedup_exempt(self):
+        """SPY SHORT structural rules bypass SYMBOL_SESSION_DEDUP — otherwise
+        PDH rejection at 10:00 would block PDL break at 14:00."""
+        import inspect
+        from api.app.routers import tv_webhook
+        src = inspect.getsource(tv_webhook._dispatch_signal)
+        for rule in (
+            "tv_staged_pdh_rejection",
+            "tv_staged_pdh_failed_short",
+            "tv_staged_pdl_break",
+            "tv_vwap_reject_short",
+        ):
+            assert rule in src, f"{rule} must be in SESSION_DEDUP_EXEMPT_TYPES"
 
-        call_count = {"n": 0}
-
-        def _fake_fetch():
-            call_count["n"] += 1
-            return True
-
-        monkeypatch.setattr(mod, "_fetch_spy_state_sync", _fake_fetch)
-
-        # First call hits yfinance, second call within TTL should not
-        v1 = _run(mod._spy_above_8_21())
-        v2 = _run(mod._spy_above_8_21())
-        assert v1 is True
-        assert v2 is True
-        assert call_count["n"] == 1, "second call should hit cache"
-
-    def test_yfinance_failure_fails_open(self, monkeypatch):
-        """If yfinance raises, default to long-bias=True (permissive)."""
-        import api.app.routers.tv_webhook as mod
-        mod._spy_state_cache["value"] = None
-        mod._spy_state_cache["expires_at"] = 0.0
-
-        def _explode():
-            raise RuntimeError("yfinance is down")
-
-        monkeypatch.setattr(mod, "_fetch_spy_state_sync", _explode)
-
-        result = _run(mod._spy_above_8_21())
-        assert result is True, "fail-open default for yfinance errors"
+    def test_spy_short_rules_have_session_length_dedup_window(self):
+        """Each of the 4 SPY SHORT rules should have a 16h identity dedup
+        window — caps each TYPE at once per session."""
+        import inspect
+        from api.app.routers import tv_webhook
+        src = inspect.getsource(tv_webhook._dispatch_signal)
+        # We just check the override block mentions hours=16 for each rule.
+        assert "timedelta(hours=16)" in src, "16h window override must exist"
+        for rule in (
+            "tv_staged_pdh_rejection",
+            "tv_staged_pdh_failed_short",
+            "tv_staged_pdl_break",
+            "tv_vwap_reject_short",
+        ):
+            # rule appears twice (exempt + window override) — both required.
+            assert src.count(rule) >= 2, f"{rule} needs entries in both dicts"
 
 
