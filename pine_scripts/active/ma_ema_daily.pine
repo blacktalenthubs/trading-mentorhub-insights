@@ -64,6 +64,14 @@ cvd_lookback     = input.int    (10,           "CVD divergence lookback (bars)",
 conf_tol_atr     = input.float  (0.5,          "PDH/PDL confluence tolerance (× chart ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 label_size_in    = input.string ("tiny",       "Marker label size", options = ["tiny", "small", "normal", "large"])
 
+// Uptrend pullback continuation (2026-05-20) — catches what ma_bounce misses:
+// a shallow dip in a steep uptrend that resumes WITHOUT price reaching a
+// daily MA. Pure price-action: trend filter + N down bars + resume bar.
+fire_pullback_alerts  = input.bool (true, "Fire uptrend pullback continuation alerts", group = "Pullback continuation")
+pullback_lookback     = input.int  (3,    "Pullback lookback (bars before the resume bar)", minval = 2, maxval = 8, group = "Pullback continuation")
+pullback_min_down     = input.int  (2,    "Min down-close bars within lookback", minval = 1, maxval = 6, group = "Pullback continuation")
+pullback_require_ema50 = input.bool(false, "Stricter uptrend: also require price above EMA50", group = "Pullback continuation")
+
 // Proximity NOTICE alerts — fires when bar holds NEAR an MA without touching.
 // Catches gap-up holds where price found buyers a few ticks above the level
 // (e.g., ORCL 2026-05-04: post-gap drift to within 0.3% of EMA100, bounced).
@@ -443,3 +451,34 @@ if fire_alerts and any_prox_short
     e = close
     msg_prox_short = build_v3_payload("ma_proximity_short_v3", "NOTICE", prox_short_tag, e, e, e, e, false, near_pdh)
     alert(msg_prox_short, alert.freq_once_per_bar_close)
+
+// Uptrend pullback continuation ----------------------------------------------
+// Setup: stock cleanly trending up (close > EMA8 > EMA21), pulled back for a
+// few bars, then a green bar resumes by closing above the prior bar's high.
+// Catches steep-trend dips that never reach a daily MA (so ma_bounce misses
+// them). Stop = lowest low of the lookback window - ATR buffer (tight,
+// structural — sits under the dip). Targets = nearest MAs above entry.
+pb_uptrend = not na(ema8) and not na(ema21) and close > ema8 and ema8 > ema21 and (not pullback_require_ema50 or (not na(ema50) and close > ema50))
+pb_down_count = 0
+for pb_i = 1 to pullback_lookback
+    if close[pb_i] < close[pb_i + 1]
+        pb_down_count := pb_down_count + 1
+pb_pulled_back = pb_down_count >= pullback_min_down
+pb_resume = close > open and not na(high[1]) and close > high[1]
+fire_pullback = fire_pullback_alerts and pb_uptrend and pb_pulled_back and pb_resume
+// ta.lowest computed at top level (not inside the conditional) — ta.* funcs
+// need to run every bar to keep their historical buffer consistent.
+pb_low = ta.lowest(low, pullback_lookback + 1)
+
+plotshape(show_markers and fire_pullback, title = "Pullback LONG", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup, size = size.small)
+
+if fire_alerts and fire_pullback
+    e = close
+    s = pb_low - atr_chart * 0.3
+    rsk = e - s
+    ups_pb = ma_targets_above(e)
+    n_up_pb = array.size(ups_pb)
+    t1_pb = n_up_pb >= 1 ? array.get(ups_pb, 0) : e + rsk * r_t1
+    t2_pb = n_up_pb >= 2 ? array.get(ups_pb, 1) : e + rsk * r_t2
+    msg_pb = build_v3_payload("pullback_long", "BUY", "", e, s, t1_pb, t2_pb, near_pdl, false)
+    alert(msg_pb, alert.freq_once_per_bar_close)

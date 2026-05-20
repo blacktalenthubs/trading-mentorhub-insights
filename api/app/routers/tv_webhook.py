@@ -859,6 +859,8 @@ _ALLOWED_ALERT_TYPES = {
     # per-level proximity NOTICEs fire as one tv_htf_proximity (NOTICE).
     "tv_htf_support_held",
     "tv_htf_proximity",
+    # Uptrend pullback continuation (2026-05-20) — BUY, from ma-ema-daily.
+    "tv_pullback_long",
 }
 
 # Prefix matches for the allow-list. Alert types with these prefixes

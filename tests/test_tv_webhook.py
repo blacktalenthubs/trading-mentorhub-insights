@@ -571,7 +571,13 @@ class TestAllowList:
             "tv_staged_pml_reclaim",
             "tv_htf_support_held",
             "tv_htf_proximity",
+            "tv_pullback_long",
         }
+
+    def test_pullback_long_allowed(self):
+        """Uptrend pullback continuation alert (2026-05-20) passes the allow-list."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        assert _is_allowed_alert_type("tv_pullback_long")
 
     def test_weekly_monthly_staged_allowed(self):
         """W/M staged types (S1 item 2) pass the allow-list."""
