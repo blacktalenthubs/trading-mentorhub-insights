@@ -35,8 +35,13 @@ MARKET_OPEN_MINUTE = 30
 MARKET_CLOSE_HOUR = 16
 MARKET_CLOSE_MINUTE = 0
 
-# 65-min candle close notifications: 6 candles per RTH session
-# Closes at 10:35, 11:40, 12:45, 13:50, 14:55, 16:00 ET
+# 60-min candle close notifications: 6 candles per RTH session.
+# Switched from 65-min to 60-min 2026-05-19. Matches TradingView's "1h"
+# bar boundaries on US equities: opens 09:30 → closes at 10:30, 11:30,
+# 12:30, 13:30, 14:30, 15:30 ET. The 16:00 market close itself signals
+# the final 30-min partial bar.
+# Env var name kept as CANDLE_65_NOTIFICATIONS_ENABLED for Railway
+# backward compat — renaming would silently disable any false override.
 CANDLE_65_NOTIFICATIONS_ENABLED = _get_secret(
     "CANDLE_65_NOTIFICATIONS_ENABLED", "true"
 ).lower() == "true"

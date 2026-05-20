@@ -649,13 +649,13 @@ def _maybe_run_eod() -> None:
         logger.exception("Weekly journal failed")
 
 
-CANDLE_65_CLOSES = [
-    (1, 10, 35),
-    (2, 11, 40),
-    (3, 12, 45),
-    (4, 13, 50),
-    (5, 14, 55),
-    (6, 16, 0),
+CANDLE_60_CLOSES = [
+    (1, 10, 30),
+    (2, 11, 30),
+    (3, 12, 30),
+    (4, 13, 30),
+    (5, 14, 30),
+    (6, 15, 30),
 ]
 
 
@@ -665,7 +665,7 @@ def _notify_candle_close(idx: int, hour: int, minute: int) -> None:
     if not is_market_hours():
         return
     body = (
-        f"<b>65-min candle {idx}/6 closed</b>\n"
+        f"<b>60-min candle {idx}/6 closed</b>\n"
         f"Time: {hour:02d}:{minute:02d} ET\n"
         f"Check your charts."
     )
@@ -763,20 +763,21 @@ def run_monitor():
 
     scheduler.add_job(scheduled_poll, "interval", minutes=POLL_INTERVAL_MINUTES)
 
+    # Env var kept as CANDLE_65_NOTIFICATIONS_ENABLED for Railway backward compat.
     if CANDLE_65_NOTIFICATIONS_ENABLED:
         from apscheduler.triggers.cron import CronTrigger
         import pytz as _pytz
         et_tz = _pytz.timezone("America/New_York")
-        for idx, hour, minute in CANDLE_65_CLOSES:
+        for idx, hour, minute in CANDLE_60_CLOSES:
             scheduler.add_job(
                 _notify_candle_close,
                 CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=et_tz),
                 args=[idx, hour, minute],
-                id=f"candle_65_close_{idx}",
+                id=f"candle_60_close_{idx}",
                 misfire_grace_time=30,
                 replace_existing=True,
             )
-        logger.info("Registered 6 cron jobs for 65-min candle close notifications")
+        logger.info("Registered 6 cron jobs for 60-min candle close notifications")
 
     if ETH_CANDLE_NOTIFICATIONS_ENABLED:
         from apscheduler.triggers.cron import CronTrigger

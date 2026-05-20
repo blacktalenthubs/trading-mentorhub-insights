@@ -561,50 +561,55 @@ async def lifespan(app: FastAPI):
                     logger.exception("CANDLE PING %s: broadcast exception", label)
                 return sent
 
-            # 65-min RTH candle pings: 5 per session.
-            # - Candles 1-4: ping on each close.
-            # - Candle 5: ping at 14:55 (its close = start of final candle 6).
-            #   The 14:55 ping signals "FINAL HOUR starting" since 6 closes at
-            #   16:00 with the market — no separate close ping needed.
-            # Tuple: (idx, hour, minute, is_final_hour_starting)
-            _CANDLE_65_SCHEDULE = [
-                (1, 10, 35, False),
-                (2, 11, 40, False),
-                (3, 12, 45, False),
-                (4, 13, 50, False),
-                (5, 14, 55, True),  # final hour starting
+            # 60-min RTH candle pings (switched from 65-min 2026-05-19): 6 per session.
+            # Matches TradingView's "1h" bar boundaries for US equities — opens at
+            # 09:30 ET, so 60-min bars close at 10:30, 11:30, 12:30, 13:30, 14:30, 15:30.
+            # The 16:00 market close itself signals the final 30-min partial bar.
+            # 15:30 ping tagged "FINAL 30 MIN remaining" (mirrors the prior
+            # 14:55 "FINAL HOUR starting" anchor).
+            # Tuple: (idx, hour, minute, is_final)
+            _CANDLE_60_SCHEDULE = [
+                (1, 10, 30, False),
+                (2, 11, 30, False),
+                (3, 12, 30, False),
+                (4, 13, 30, False),
+                (5, 14, 30, False),
+                (6, 15, 30, True),  # final 30 min remaining
             ]
 
             def _notify_candle_close(idx: int, hour: int, minute: int, is_final: bool) -> None:
                 if not is_market_hours():
-                    logger.info("CANDLE PING SKIP: 65-min #%d outside market hours", idx)
+                    logger.info("CANDLE PING SKIP: 60-min #%d outside market hours", idx)
                     return
                 if is_final:
                     body = (
-                        f"<b>65-min candle 5 closed — FINAL HOUR starting</b>\n"
+                        f"<b>60-min candle 6 closed — FINAL 30 MIN remaining</b>\n"
                         f"Time: {hour:02d}:{minute:02d} ET → 16:00 ET market close\n"
-                        f"Last 65-min candle in session."
+                        f"Last hourly close in session."
                     )
                 else:
                     body = (
-                        f"<b>65-min candle {idx} closed</b>\n"
+                        f"<b>60-min candle {idx} closed</b>\n"
                         f"Time: {hour:02d}:{minute:02d} ET\n"
                         f"Check your charts."
                     )
-                _broadcast_telegram(body, f"65min#{idx}")
+                _broadcast_telegram(body, f"60min#{idx}")
 
+            # Env var kept as CANDLE_65_NOTIFICATIONS_ENABLED for Railway
+            # backward compat — renaming would silently disable any
+            # explicit-false override that's currently set.
             if CANDLE_65_NOTIFICATIONS_ENABLED:
                 _et_tz = _pytz.timezone("America/New_York")
-                for idx, hour, minute, is_final in _CANDLE_65_SCHEDULE:
+                for idx, hour, minute, is_final in _CANDLE_60_SCHEDULE:
                     scheduler.add_job(
                         _notify_candle_close,
                         CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=_et_tz),
                         args=[idx, hour, minute, is_final],
-                        id=f"candle_65_close_{idx}",
+                        id=f"candle_60_close_{idx}",
                         misfire_grace_time=30,
                         replace_existing=True,
                     )
-                logger.info("Registered 5 cron jobs for 65-min candle ping schedule")
+                logger.info("Registered 6 cron jobs for 60-min candle ping schedule")
 
             # ETH 4h candle closes (UTC, 24/7): 6/day at 00, 04, 08, 12, 16, 20.
             # No "final candle" framing since crypto trades continuously.
