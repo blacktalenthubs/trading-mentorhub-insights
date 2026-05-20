@@ -348,16 +348,21 @@ class TestWatchlistQuery:
 
 
 class TestEndpointAcceptsValidPayload:
-    """Smoke test: with all gates passing and dispatch mocked, route returns 200.
+    """Smoke test: with all gates passing, route returns 200 FAST and queues
+    the heavy pipeline as a background task (2026-05-20 fast-response change).
 
     We monkeypatch the dispatcher to avoid yfinance / DB / Telegram calls.
     """
 
-    def test_accepts_valid_payload(self, monkeypatch, base_payload):
+    def test_accepts_valid_payload_returns_queued(self, monkeypatch, base_payload):
+        """Handler returns 200 immediately with {accepted, queued} — the real
+        work is deferred to a BackgroundTask, not awaited inline."""
         app, mod = _make_app(monkeypatch, enabled=True)
 
-        async def fake_dispatch(sig, request):
-            return {"dispatched": True, "persisted": 0, "notified": 0}
+        dispatched = {"called": False}
+
+        async def fake_dispatch(sig):
+            dispatched["called"] = True
 
         monkeypatch.setattr(mod, "_dispatch_signal", fake_dispatch)
 
@@ -366,21 +371,26 @@ class TestEndpointAcceptsValidPayload:
         assert response.status_code == 200
         body = response.json()
         assert body["accepted"] is True
-        assert body["dispatched"] is True
+        assert body["queued"] is True
+        # TestClient runs background tasks after the response — so by the time
+        # .post() returns, the background dispatch has executed.
+        assert dispatched["called"] is True
 
-    def test_dispatch_error_swallowed_returns_200(self, monkeypatch, base_payload):
-        """TV retries on 5xx — dispatch errors must be swallowed to avoid spam."""
+    def test_background_dispatch_error_does_not_break_response(self, monkeypatch, base_payload):
+        """A dispatch error in the background task must not affect the already-
+        sent 200 response — _dispatch_background swallows + logs it."""
         app, mod = _make_app(monkeypatch, enabled=True)
 
-        async def boom(sig, request):
+        async def boom(sig):
             raise RuntimeError("intentional failure")
 
         monkeypatch.setattr(mod, "_dispatch_signal", boom)
 
         client = TestClient(app)
+        # Should not raise even though the background task throws.
         response = client.post("/tv/webhook", json=base_payload)
         assert response.status_code == 200
-        assert response.json()["dispatched"] is False
+        assert response.json()["accepted"] is True
 
 
 # -----------------------------------------------------------------------------
@@ -449,8 +459,10 @@ def _run(coro):
 
 
 class TestRoutingLogic:
-    """Non-SPY shorts dropped always. SPY shorts ACTION only on the 4
-    structural rules; non-whitelisted SPY shorts also dropped."""
+    """SHORT gate — non-SPY shorts dropped always; SPY shorts ACTION only
+    on the 3 structural PDH/PDL rules. NOTE: _route_alert is downstream of
+    the allow-list filter, so it never sees non-PDH/PDL types in practice.
+    The tests below use only allow-listed types where relevant."""
 
     def test_buy_passes_unchanged(self):
         from api.app.routers.tv_webhook import _route_alert
@@ -460,8 +472,10 @@ class TestRoutingLogic:
         assert downgrade is None
 
     def test_notice_passes_unchanged(self):
+        """NOTICE direction always passes through — allow-list filter is
+        upstream so _route_alert never gets a non-allowlisted NOTICE."""
         from api.app.routers.tv_webhook import _route_alert
-        sig = _FakeSig("AAPL", "NOTICE", "vwap_reclaim_long")
+        sig = _FakeSig("SPY", "NOTICE", "staged_pdl_reclaim")
         deliver, downgrade = _run(_route_alert(sig))
         assert deliver is True
         assert downgrade is None
@@ -476,33 +490,26 @@ class TestRoutingLogic:
             assert downgrade is None
 
     def test_spy_short_whitelisted_rules_action(self):
-        """The 4 structural SPY SHORT rules pass through as ACTION."""
+        """The 3 structural SPY SHORT rules pass through as ACTION."""
         from api.app.routers.tv_webhook import _route_alert
         for rule in (
             "staged_pdh_rejection",
             "staged_pdh_failed_short",
             "staged_pdl_break",
-            "vwap_reject_short",
         ):
             sig = _FakeSig("SPY", "SHORT", rule)
             deliver, downgrade = _run(_route_alert(sig))
             assert deliver is True, f"{rule} should pass through"
             assert downgrade is None, f"{rule} should not downgrade"
 
-    def test_spy_short_non_whitelisted_dropped(self):
-        """SPY shorts NOT in the structural whitelist (e.g. MA rejections)
-        drop entirely — no NOTICE downgrade. Keeps chop noise out."""
+    def test_spy_short_vwap_dropped(self):
+        """tv_vwap_reject_short was removed from the SPY SHORT whitelist
+        2026-05-19 — VWAP isn't in the PDH/PDL allow-list anyway, but the
+        whitelist itself shouldn't include it as a defensive measure."""
         from api.app.routers.tv_webhook import _route_alert
-        for rule in (
-            "ma_rejection_short_v3_ema50",
-            "ma_rejection_short_v3_ema100",
-            "ma_rejection_short_v3_sma200",
-            "ema_rejection_short",
-            "open_lost",
-        ):
-            sig = _FakeSig("SPY", "SHORT", rule)
-            deliver, downgrade = _run(_route_alert(sig))
-            assert deliver is False, f"SPY {rule} should drop"
+        sig = _FakeSig("SPY", "SHORT", "vwap_reject_short")
+        deliver, _ = _run(_route_alert(sig))
+        assert deliver is False
 
     def test_spy_short_accepts_tv_prefixed_rule(self):
         """Defensive — if a caller passes already-prefixed rule it still works."""
@@ -512,9 +519,11 @@ class TestRoutingLogic:
         assert deliver is True
 
     def test_unknown_direction_passes_through(self):
-        """Defensive — unknown directions shouldn't trip the gate."""
+        """Defensive — unknown directions shouldn't trip the SHORT gate.
+        (Allow-list filter is upstream so they wouldn't reach here in
+        practice for non-allowlisted types.)"""
         from api.app.routers.tv_webhook import _route_alert
-        sig = _FakeSig("AAPL", "FLAT", "unknown")
+        sig = _FakeSig("AAPL", "FLAT", "staged_pdh_break")
         deliver, downgrade = _run(_route_alert(sig))
         assert deliver is True
         assert downgrade is None
@@ -534,11 +543,186 @@ class TestRoutingLogic:
         assert deliver is False
 
 
+class TestAllowList:
+    """Allow-list (2026-05-19) — PDH/PDL exact + MA/EMA prefix only.
+    Everything else (VWAP, open-line, weekly/monthly HTF, proximity NOTICEs)
+    drops at the webhook level regardless of what Pine fires.
+    """
+
+    def test_allow_list_exact_match_set(self):
+        """Exact-match set: 5 daily + 10 weekly/monthly staged types +
+        2 collapsed HTF types (S1 item 2, 2026-05-20)."""
+        from api.app.routers.tv_webhook import _ALLOWED_ALERT_TYPES
+        assert _ALLOWED_ALERT_TYPES == {
+            "tv_staged_pdh_break",
+            "tv_staged_pdh_rejection",
+            "tv_staged_pdh_failed_short",
+            "tv_staged_pdl_break",
+            "tv_staged_pdl_reclaim",
+            "tv_staged_pwh_break",
+            "tv_staged_pwh_rejection",
+            "tv_staged_pwh_failed_short",
+            "tv_staged_pwl_break",
+            "tv_staged_pwl_reclaim",
+            "tv_staged_pmh_break",
+            "tv_staged_pmh_rejection",
+            "tv_staged_pmh_failed_short",
+            "tv_staged_pml_break",
+            "tv_staged_pml_reclaim",
+            "tv_htf_support_held",
+            "tv_htf_proximity",
+        }
+
+    def test_weekly_monthly_staged_allowed(self):
+        """W/M staged types (S1 item 2) pass the allow-list."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in (
+            "tv_staged_pwh_break", "tv_staged_pwl_reclaim",
+            "tv_staged_pmh_rejection", "tv_staged_pml_break",
+        ):
+            assert _is_allowed_alert_type(t), f"{t} should be allowed"
+
+    def test_collapsed_htf_types_allowed(self):
+        """S1 collapsed HTF alerts pass the allow-list."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        assert _is_allowed_alert_type("tv_htf_support_held")
+        assert _is_allowed_alert_type("tv_htf_proximity")
+
+    def test_old_per_level_htf_types_still_dropped(self):
+        """The OLD per-level HTF alerts (pre-collapse) must NOT pass — if a
+        stale chart fires tv_pwh_held etc., the allow-list drops them."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in (
+            "tv_pwh_held", "tv_pwl_held", "tv_pmh_held", "tv_pml_held",
+            "tv_pwh_wick_reclaim", "tv_htf_proximity_pwh",
+        ):
+            assert not _is_allowed_alert_type(t), f"{t} should still drop"
+
+    def test_allow_list_prefixes_for_ma_family(self):
+        """Prefix set: MA bounce + rejection + proximity families (any MA tag)."""
+        from api.app.routers.tv_webhook import _ALLOWED_ALERT_TYPE_PREFIXES
+        assert "tv_ma_bounce_long_v3" in _ALLOWED_ALERT_TYPE_PREFIXES
+        assert "tv_ma_rejection_short_v3" in _ALLOWED_ALERT_TYPE_PREFIXES
+        assert "tv_ma_proximity_long_v3" in _ALLOWED_ALERT_TYPE_PREFIXES
+        assert "tv_ma_proximity_short_v3" in _ALLOWED_ALERT_TYPE_PREFIXES
+
+    def test_ma_proximity_variants_allowed(self):
+        """MA proximity NOTICE alerts (S3, 2026-05-20) pass the allow-list."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in (
+            "tv_ma_proximity_long_v3",
+            "tv_ma_proximity_long_v3_ema8",
+            "tv_ma_proximity_long_v3_ema50_ema100",
+            "tv_ma_proximity_short_v3",
+            "tv_ma_proximity_short_v3_sma200",
+        ):
+            assert _is_allowed_alert_type(t), f"{t} should be allowed"
+
+    def test_pdh_pdl_types_allowed(self):
+        """All 5 PDH/PDL exact-match types pass _is_allowed_alert_type."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in (
+            "tv_staged_pdh_break",
+            "tv_staged_pdh_rejection",
+            "tv_staged_pdh_failed_short",
+            "tv_staged_pdl_break",
+            "tv_staged_pdl_reclaim",
+        ):
+            assert _is_allowed_alert_type(t), f"{t} should be allowed"
+
+    def test_ma_bounce_variants_allowed(self):
+        """MA bounce with any MA-tag suffix passes via prefix match."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in (
+            "tv_ma_bounce_long_v3",              # no MA tag
+            "tv_ma_bounce_long_v3_ema5",
+            "tv_ma_bounce_long_v3_ema50",
+            "tv_ma_bounce_long_v3_ema200",
+            "tv_ma_bounce_long_v3_sma100",
+            "tv_ma_bounce_long_v3_ema8_ema21",   # confluence — multiple MAs same bar
+        ):
+            assert _is_allowed_alert_type(t), f"{t} should be allowed"
+
+    def test_ma_rejection_variants_allowed(self):
+        """MA rejection (SHORT side) with any MA-tag suffix is also on
+        the allow-list. Note: SHORT gate still filters non-SPY shorts
+        downstream — that's separate from the allow-list."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in (
+            "tv_ma_rejection_short_v3",
+            "tv_ma_rejection_short_v3_ema10",
+            "tv_ma_rejection_short_v3_sma200",
+            "tv_ma_rejection_short_v3_ema50_ema100",
+        ):
+            assert _is_allowed_alert_type(t), f"{t} should be allowed"
+
+    def test_non_allowed_types_dropped(self):
+        """Sanity checks — types that should NOT pass the allow-list."""
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in (
+            "tv_vwap_reclaim_long",
+            "tv_vwap_reject_short",
+            "tv_vwap_support_hold",
+            "tv_open_held",
+            "tv_open_reclaimed",
+            "tv_open_wick_reclaim",
+            "tv_open_lost",
+            "tv_pwh_held",
+            "tv_pwl_held",
+            "tv_pmh_held",
+            "tv_pml_held",
+            "tv_pwh_wick_reclaim",
+            "tv_htf_proximity_pwh",               # old per-level — collapsed to tv_htf_proximity
+            "tv_intraday_ema_rejection_short",    # intraday EMA — not v3 daily
+            "tv_hourly_resistance_rejection_short",
+            "tv_unknown_rule",
+        ):
+            assert not _is_allowed_alert_type(t), f"{t} should be dropped"
+
+    def test_spy_short_whitelist_subset_of_allow_list(self):
+        """Every SPY SHORT whitelisted rule must also pass the allow-list.
+        Otherwise SHORT alerts would be dropped upstream before
+        _route_alert can ACTION them."""
+        from api.app.routers.tv_webhook import (
+            _SPY_SHORT_ACTION_RULES,
+            _is_allowed_alert_type,
+        )
+        for t in _SPY_SHORT_ACTION_RULES:
+            assert _is_allowed_alert_type(t), f"SPY SHORT rule {t} blocked by allow-list"
+
+    def test_spy_short_whitelist_is_9_structural_rules(self):
+        """Post-2026-05-20 (S1 item 2): SPY SHORT whitelist = the 9 structural
+        rejection/break rules across daily + weekly + monthly levels. MA
+        rejection is NOT included (per user: 'leave ema for nw could be
+        noisy there lots of chops')."""
+        from api.app.routers.tv_webhook import _SPY_SHORT_ACTION_RULES
+        assert _SPY_SHORT_ACTION_RULES == {
+            "tv_staged_pdh_rejection",
+            "tv_staged_pdh_failed_short",
+            "tv_staged_pdl_break",
+            "tv_staged_pwh_rejection",
+            "tv_staged_pwh_failed_short",
+            "tv_staged_pwl_break",
+            "tv_staged_pmh_rejection",
+            "tv_staged_pmh_failed_short",
+            "tv_staged_pml_break",
+        }
+
+    def test_dispatch_drops_non_allowed_types(self):
+        """The dispatch path must short-circuit on non-allow-listed types.
+        Source-level check since end-to-end DB mocking is heavy."""
+        import inspect
+        from api.app.routers import tv_webhook
+        src = inspect.getsource(tv_webhook._dispatch_signal)
+        assert "_is_allowed_alert_type" in src, "_dispatch_signal must call _is_allowed_alert_type"
+        assert "not_in_allowlist" in src, "drop must use allow-list reason code"
+
+
 class TestSpyShortSessionDedup:
-    """Session-level dedup config — the 4 SPY SHORT rules must be exempt
-    from symbol-direction-session dedup (so each type can fire once
-    independently) AND have a 16h identity-dedup window (so each TYPE caps
-    at once per session)."""
+    """Session-level dedup config — SPY SHORT rules must be exempt from
+    symbol-direction-session dedup (so each type can fire once
+    independently) AND have a 16h identity-dedup window (so each TYPE
+    caps at once per session)."""
 
     def test_spy_short_rules_in_session_dedup_exempt(self):
         """SPY SHORT structural rules bypass SYMBOL_SESSION_DEDUP — otherwise
@@ -550,25 +734,115 @@ class TestSpyShortSessionDedup:
             "tv_staged_pdh_rejection",
             "tv_staged_pdh_failed_short",
             "tv_staged_pdl_break",
-            "tv_vwap_reject_short",
         ):
             assert rule in src, f"{rule} must be in SESSION_DEDUP_EXEMPT_TYPES"
 
     def test_spy_short_rules_have_session_length_dedup_window(self):
-        """Each of the 4 SPY SHORT rules should have a 16h identity dedup
-        window — caps each TYPE at once per session."""
+        """Each SPY SHORT rule should have a 16h identity dedup window —
+        caps each TYPE at once per session."""
         import inspect
         from api.app.routers import tv_webhook
         src = inspect.getsource(tv_webhook._dispatch_signal)
-        # We just check the override block mentions hours=16 for each rule.
         assert "timedelta(hours=16)" in src, "16h window override must exist"
         for rule in (
             "tv_staged_pdh_rejection",
             "tv_staged_pdh_failed_short",
             "tv_staged_pdl_break",
-            "tv_vwap_reject_short",
         ):
             # rule appears twice (exempt + window override) — both required.
             assert src.count(rule) >= 2, f"{rule} needs entries in both dicts"
 
 
+class TestIsChopRefire:
+    """R-distance price-band check (pure helper used by _alert_already_fired).
+
+    Level alerts re-firing within 1R of the prior entry = chop (True, suppress).
+    Beyond 1R = price genuinely moved (False, allow fresh re-test).
+    """
+
+    def test_level_within_1r_is_chop(self):
+        """AAPL today: prior 296.56/295.89 (R=$0.67), new 297.06.
+        Distance $0.50 < R $0.67 → chop, suppress."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        assert _is_chop_refire(
+            "tv_staged_pdl_reclaim",
+            new_entry=297.06, prior_entry=296.56, prior_stop=295.89,
+        ) is True
+
+    def test_level_beyond_1r_is_fresh(self):
+        """Same setup but new entry $298.00 → distance $1.44 > R $0.67 →
+        price moved more than 1R, fresh re-test."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        assert _is_chop_refire(
+            "tv_staged_pdl_reclaim",
+            new_entry=298.00, prior_entry=296.56, prior_stop=295.89,
+        ) is False
+
+    def test_nflx_same_price_is_chop(self):
+        """NFLX today: PDH break 14:50 @ 89.68, again 20:00 @ 89.68 (0%
+        spread). Distance $0 < R $0.32 → chop."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        assert _is_chop_refire(
+            "tv_staged_pdh_break",
+            new_entry=89.68, prior_entry=89.68, prior_stop=89.36,
+        ) is True
+
+    def test_meta_pdl_reclaim_is_chop(self):
+        """META today: 15:00 @ 609.32 stop 607.37 (R=$1.95), re-fire 16:20
+        @ 610.00 distance $0.68 < R $1.95 → chop."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        assert _is_chop_refire(
+            "tv_staged_pdl_reclaim",
+            new_entry=610.00, prior_entry=609.32, prior_stop=607.37,
+        ) is True
+
+    def test_non_level_alert_returns_true(self):
+        """MA bounce isn't in the level scope — the band check doesn't apply.
+        Helper returns True so the caller falls back to time-window dedup."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        # Even with new entry $50 away from prior (way beyond 1R), a non-level
+        # alert type returns True (defer to time dedup).
+        assert _is_chop_refire(
+            "tv_ma_bounce_v3_ema50",
+            new_entry=150.0, prior_entry=100.0, prior_stop=99.0,
+        ) is True
+
+    def test_missing_new_entry_returns_true(self):
+        """No new_entry → can't compute band, return True (time-dedup only)."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        assert _is_chop_refire(
+            "tv_staged_pdl_reclaim",
+            new_entry=None, prior_entry=100.0, prior_stop=99.0,
+        ) is True
+
+    def test_missing_prior_data_returns_true(self):
+        """Prior entry or stop is None → can't compute R, return True."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        assert _is_chop_refire(
+            "tv_staged_pdl_reclaim",
+            new_entry=100.0, prior_entry=None, prior_stop=99.0,
+        ) is True
+        assert _is_chop_refire(
+            "tv_staged_pdl_reclaim",
+            new_entry=100.0, prior_entry=100.0, prior_stop=None,
+        ) is True
+
+    def test_zero_r_returns_true(self):
+        """Prior entry == prior stop → R=0 → can't band-check, return True."""
+        from api.app.routers.tv_webhook import _is_chop_refire
+        assert _is_chop_refire(
+            "tv_staged_pdl_reclaim",
+            new_entry=100.5, prior_entry=100.0, prior_stop=100.0,
+        ) is True
+
+    def test_all_level_types_covered(self):
+        """The level whitelist matches the alert types we want band-checked."""
+        from api.app.routers.tv_webhook import _LEVEL_ALERT_TYPES_FOR_PRICE_BAND
+        for t in (
+            "tv_staged_pdh_break", "tv_staged_pdh_rejection",
+            "tv_staged_pdh_failed_short", "tv_staged_pdl_break",
+            "tv_staged_pdl_reclaim",
+            "tv_staged_pwh_break", "tv_staged_pwl_reclaim",
+            "tv_staged_pmh_break", "tv_staged_pml_reclaim",
+        ):
+            assert t in _LEVEL_ALERT_TYPES_FOR_PRICE_BAND, f"{t} missing"

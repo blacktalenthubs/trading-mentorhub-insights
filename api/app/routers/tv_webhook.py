@@ -21,11 +21,12 @@ Behind env flag `TV_WEBHOOK_ENABLED` (default false). Endpoint returns
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -306,10 +307,19 @@ def _is_allowed_ip(client_ip: str) -> bool:
 async def tv_webhook(
     payload: TVWebhookPayload,
     request: Request,
+    background_tasks: BackgroundTasks,
 ) -> dict[str, Any]:
     """Ingest a TradingView alert and route it through the alerting pipeline.
 
-    Returns 200 on accepted alerts, 400 on bad payload, 403 on disallowed IP,
+    FAST RESPONSE (2026-05-20): TradingView times the webhook out at ~3s.
+    The heavy pipeline — fetch_prior_day (yfinance), dedup, DB persist,
+    Telegram notify — used to run synchronously here and routinely blew past
+    3s under alert bursts, so TV marked deliveries "failed — timed out" and
+    the alert was lost before reaching the backend. Now the handler only does
+    the fast bits (validate, IP check, adapter parse) and hands the rest to a
+    background task that runs AFTER the 200 is sent.
+
+    Returns 200 on accepted, 400 on bad payload, 403 on disallowed IP,
     503 when feature is disabled.
     """
     if not TV_WEBHOOK_ENABLED:
@@ -340,20 +350,26 @@ async def tv_webhook(
         sig.direction, float(sig.price), client_ip,
     )
 
-    # Defer to a small dispatcher function so the request handler stays thin.
-    # Any exception during dispatch is swallowed + logged to keep TV happy
-    # (TV retries 5xx; we don't want spurious retries on transient issues).
+    # Heavy pipeline runs AFTER the response is sent — keeps the webhook fast
+    # so TradingView never times out. See _dispatch_background.
+    background_tasks.add_task(_dispatch_background, sig)
+    return {"accepted": True, "queued": True}
+
+
+async def _dispatch_background(sig) -> None:
+    """Background wrapper around _dispatch_signal. The HTTP 200 is already
+    sent by the time this runs, so any error is logged, never raised — there
+    is no response left to attach it to."""
     try:
-        result = await _dispatch_signal(sig, request)
+        await _dispatch_signal(sig)
     except Exception:
-        logger.exception("TV webhook: dispatch failed for %s", sig.symbol)
-        # Return 200 so TV doesn't retry; we'll have logged the failure.
-        return {"accepted": True, "dispatched": False, "reason": "dispatch_error"}
+        logger.exception(
+            "TV webhook: background dispatch failed for %s",
+            getattr(sig, "symbol", "?"),
+        )
 
-    return {"accepted": True, **result}
 
-
-async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
+async def _dispatch_signal(sig) -> dict[str, Any]:
     """Apply HTF gate + structural targets + level dedup, then persist + notify.
 
     Pipeline mirrors api/app/background/monitor.py epilogue (Phase 1–4) but
@@ -379,8 +395,14 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     is_crypto = is_crypto_alert_symbol(sig.symbol)
 
     # 1. Pull prior_day for structural target computation.
+    # fetch_prior_day is a synchronous yfinance call (1-5s). Run it in a
+    # worker thread so it doesn't block the event loop — otherwise one
+    # background dispatch would stall every other webhook's response during
+    # a burst and re-trip TradingView's timeout.
     try:
-        prior_day = fetch_prior_day(sig.symbol, is_crypto=is_crypto)
+        prior_day = await asyncio.to_thread(
+            fetch_prior_day, sig.symbol, is_crypto=is_crypto
+        )
     except Exception:
         logger.exception("TV webhook: fetch_prior_day failed for %s", sig.symbol)
         prior_day = None
@@ -458,6 +480,16 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     rule_name = getattr(sig, "_tv_rule", "webhook")
     alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
 
+    # ---------------------------------------------------------------
+    # Alert allow-list (2026-05-19) — PDH/PDL + MA/EMA families only.
+    # ---------------------------------------------------------------
+    # Drop anything not on the allow-list (exact match for PDH/PDL,
+    # prefix match for MA bounce/rejection). VWAP, open-line, weekly/monthly
+    # HTF, proximity NOTICEs all drop here regardless of what Pine fires.
+    if not _is_allowed_alert_type(alert_type_full):
+        logger.info("TV webhook: non-allowed type %s dropped for %s (allow-list = PDH/PDL + MA/EMA)", alert_type_full, sig.symbol)
+        return {"dispatched": False, "reason": "not_in_allowlist"}
+
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either
     # genuinely-fresh signals on the same symbol (Pine re-arms internally)
     # or structural-level events whose meaning is independent of any
@@ -483,15 +515,23 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         "tv_pwl_held", "tv_pwl_wick_reclaim",
         "tv_pmh_held", "tv_pmh_wick_reclaim",
         "tv_pml_held", "tv_pml_wick_reclaim",
-        # SPY SHORT structural rules — exempted so each of the 4 types can fire
-        # once per session independently (otherwise PDH rejection at 10:00 would
+        # SPY SHORT structural rules — exempted so each type can fire once
+        # per session independently (otherwise PDH rejection at 10:00 would
         # block PDL break at 14:00 via the symbol-direction-session check).
         # Identity dedup with a 16h window (see DEDUP_WINDOW_OVERRIDES) still
         # caps each individual type at once-per-session.
+        # `tv_vwap_reject_short` removed 2026-05-19 — not in the PDH/PDL
+        # allow-list, so it never reaches this code path.
         "tv_staged_pdh_rejection",
         "tv_staged_pdh_failed_short",
         "tv_staged_pdl_break",
-        "tv_vwap_reject_short",
+        # Weekly + Monthly SHORT structural rules (S1 item 2, 2026-05-20).
+        "tv_staged_pwh_rejection",
+        "tv_staged_pwh_failed_short",
+        "tv_staged_pwl_break",
+        "tv_staged_pmh_rejection",
+        "tv_staged_pmh_failed_short",
+        "tv_staged_pml_break",
     }
 
     # Per-alert-type dedup windows. Defaults to 60 min.
@@ -499,6 +539,10 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
     #   htf_proximity_*: 120 min (heads-up, less spammy)
     #   SPY SHORT structural rules: 16h (full session) — at most one alert
     #     per type per day, no matter how many times Pine re-triggers on chop.
+    #
+    # The open_* and htf_* / pwh-pml entries below are now dead code (the
+    # allow-list drops them upstream) but kept here for clarity in case the
+    # allow-list is widened later.
     DEDUP_WINDOW_OVERRIDES = {
         "tv_open_reclaimed":      timedelta(minutes=90),
         "tv_htf_proximity_pwh":   timedelta(minutes=120),
@@ -508,7 +552,12 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
         "tv_staged_pdh_rejection":    timedelta(hours=16),
         "tv_staged_pdh_failed_short": timedelta(hours=16),
         "tv_staged_pdl_break":        timedelta(hours=16),
-        "tv_vwap_reject_short":       timedelta(hours=16),
+        "tv_staged_pwh_rejection":    timedelta(hours=16),
+        "tv_staged_pwh_failed_short": timedelta(hours=16),
+        "tv_staged_pwl_break":        timedelta(hours=16),
+        "tv_staged_pmh_rejection":    timedelta(hours=16),
+        "tv_staged_pmh_failed_short": timedelta(hours=16),
+        "tv_staged_pml_break":        timedelta(hours=16),
     }
     dedup_window = DEDUP_WINDOW_OVERRIDES.get(alert_type_full, timedelta(minutes=60))
 
@@ -620,9 +669,15 @@ async def _dispatch_signal(sig, request: Request) -> dict[str, Any]:
             # same direction within the window = same setup, suppressed.
             # Different MAs (ema50 vs ema100) and opposite directions still
             # fire — they're genuinely different events.
+            #
+            # For level alerts (PDH/PDL break/reclaim variants), pass new
+            # entry+stop so the dedup also checks R-distance: a re-fire
+            # within 1R of the prior entry is treated as chop and dropped.
+            # Moves beyond 1R pass through as a fresh re-test.
             if await _alert_already_fired(
                 db, user.id, sig.symbol, sig.direction,
                 alert_type_full, dedup_window,
+                new_entry=sig.entry, new_stop=sig.stop,
             ):
                 logger.info(
                     "TV webhook: identity dedup suppressed %s/%s for user %d",
@@ -761,15 +816,88 @@ def _ma_tag_to_suffix(raw_ma_tag: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-# SPY SHORT structural whitelist. Only these alert_types fire ACTION on SPY;
-# everything else (incl. MA/EMA rejections) is dropped to keep chop noise out.
-# Once-per-session per type enforced via SESSION_DEDUP_EXEMPT_TYPES +
-# DEDUP_WINDOW_OVERRIDES (session-length window) — see ingest path.
+# Alert allow-list (2026-05-19) — only PDH/PDL exact types AND MA/EMA
+# bounce/rejection prefix matches are delivered. Everything else (VWAP,
+# open-line, weekly/monthly HTF, proximity NOTICEs, etc.) is dropped
+# server-side regardless of what Pine fires.
+#
+# User directives:
+#   • 2026-05-19a: "disable all alerts except pdh, pdl, that's it."
+#   • 2026-05-19b: "also allow mas/ema alerts" — added MA prefixes below.
+#
+# Combined with the SHORT gate, the effective delivery matrix is:
+#   • BUY  on any symbol  → tv_staged_pdh_break, tv_staged_pdl_reclaim,
+#                           tv_ma_bounce_long_v3_<MA suffix>
+#   • SHORT on SPY only   → tv_staged_pdh_rejection, tv_staged_pdh_failed_short,
+#                           tv_staged_pdl_break
+#                           (MA rejection SHORT NOT in SPY whitelist per
+#                           prior "leave ema for nw could be noisy" guidance)
+#   • SHORT on non-SPY    → all dropped
+#   • Anything else       → dropped
+_ALLOWED_ALERT_TYPES = {
+    # Daily PDH/PDL staged events.
+    "tv_staged_pdh_break",
+    "tv_staged_pdh_rejection",
+    "tv_staged_pdh_failed_short",
+    "tv_staged_pdl_break",
+    "tv_staged_pdl_reclaim",
+    # Weekly + Monthly staged events (S1 item 2, 2026-05-20) — re-enabled
+    # now that S0 position-relative direction is correct. W/M crossings are
+    # low-frequency structural events, not noise.
+    "tv_staged_pwh_break",
+    "tv_staged_pwh_rejection",
+    "tv_staged_pwh_failed_short",
+    "tv_staged_pwl_break",
+    "tv_staged_pwl_reclaim",
+    "tv_staged_pmh_break",
+    "tv_staged_pmh_rejection",
+    "tv_staged_pmh_failed_short",
+    "tv_staged_pml_break",
+    "tv_staged_pml_reclaim",
+    # S1 (2026-05-20) — collapsed HTF level alerts. The 8 per-level
+    # hold/wick alerts fire as one tv_htf_support_held (BUY); the 4
+    # per-level proximity NOTICEs fire as one tv_htf_proximity (NOTICE).
+    "tv_htf_support_held",
+    "tv_htf_proximity",
+}
+
+# Prefix matches for the allow-list. Alert types with these prefixes
+# (regardless of MA-tag suffix like `_ema50` or `_ema8_ema21`) are allowed.
+# Proximity variants (2026-05-20) deliver as NOTICE — informational
+# "price holding near an MA" heads-ups, no trade box.
+_ALLOWED_ALERT_TYPE_PREFIXES = (
+    "tv_ma_bounce_long_v3",
+    "tv_ma_rejection_short_v3",
+    "tv_ma_proximity_long_v3",
+    "tv_ma_proximity_short_v3",
+)
+
+
+def _is_allowed_alert_type(alert_type: str) -> bool:
+    """True if the alert_type is in the exact-match allow-list OR matches
+    one of the family prefixes (MA bounce/rejection variants)."""
+    if alert_type in _ALLOWED_ALERT_TYPES:
+        return True
+    return any(alert_type.startswith(p) for p in _ALLOWED_ALERT_TYPE_PREFIXES)
+
+
+# SPY SHORT structural whitelist — subset of _ALLOWED_ALERT_TYPES that are
+# valid SHORT entries. Non-whitelisted SPY shorts are dropped (no NOTICE
+# downgrade). VWAP reject was removed 2026-05-19 alongside the PDH/PDL-only
+# allow-list switch.
+# Weekly + Monthly SHORT structural rules added 2026-05-20 (S1 item 2) —
+# "SPY shorts at any structural level" applies to W/M levels too, not just
+# daily. Each fires once per session (16h dedup window, see below).
 _SPY_SHORT_ACTION_RULES = {
     "tv_staged_pdh_rejection",
     "tv_staged_pdh_failed_short",
     "tv_staged_pdl_break",
-    "tv_vwap_reject_short",
+    "tv_staged_pwh_rejection",
+    "tv_staged_pwh_failed_short",
+    "tv_staged_pwl_break",
+    "tv_staged_pmh_rejection",
+    "tv_staged_pmh_failed_short",
+    "tv_staged_pml_break",
 }
 
 
@@ -832,6 +960,53 @@ async def _symbol_session_already_fired(
     return result.scalar_one_or_none() is not None
 
 
+# Level alert types that get the R-distance price-band check on identity dedup.
+# When one of these re-fires within the time window, we ALSO check whether the
+# new entry is more than 1R away from the prior entry (R = prior |entry-stop|).
+# Inside 1R = same chop, suppress. Outside 1R = price genuinely moved, allow.
+# Rationale (2026-05-18): NFLX PDH break fired 14:50 @ 89.68 and 20:00 @ 89.68
+# (0% spread, 5h apart) — pure time dedup was too permissive. R-scaling means
+# a $0.50 spread is huge on NFLX (R≈$0.32) but tiny on SPY (R≈$1.60).
+_LEVEL_ALERT_TYPES_FOR_PRICE_BAND = {
+    "tv_staged_pdh_break",
+    "tv_staged_pdh_rejection",
+    "tv_staged_pdh_failed_short",
+    "tv_staged_pdl_break",
+    "tv_staged_pdl_reclaim",
+    "tv_staged_pwh_break",
+    "tv_staged_pwl_reclaim",
+    "tv_staged_pmh_break",
+    "tv_staged_pml_reclaim",
+}
+
+
+def _is_chop_refire(
+    alert_type: str,
+    new_entry: Optional[float],
+    prior_entry: Optional[float],
+    prior_stop: Optional[float],
+) -> bool:
+    """Pure R-distance band check. Returns True if a re-fire should be
+    suppressed as chop (within 1R of prior entry).
+
+    Decision tree:
+      • alert_type not in level scope → True  (defer to time dedup)
+      • can't compute prior R (missing data or zero distance) → True
+      • |new_entry - prior_entry| < prior_R → True  (chop, suppress)
+      • >= prior_R → False  (price moved beyond 1R, allow re-fire)
+    """
+    if (
+        alert_type not in _LEVEL_ALERT_TYPES_FOR_PRICE_BAND
+        or new_entry is None
+        or prior_entry is None
+        or prior_stop is None
+        or prior_entry == prior_stop
+    ):
+        return True
+    prior_r = abs(prior_entry - prior_stop)
+    return abs(new_entry - prior_entry) < prior_r
+
+
 async def _alert_already_fired(
     db,
     user_id: int,
@@ -839,30 +1014,38 @@ async def _alert_already_fired(
     direction: str,
     alert_type: str,
     window: timedelta,
+    new_entry: Optional[float] = None,
+    new_stop: Optional[float] = None,
 ) -> bool:
     """True if this exact (user, symbol, direction, alert_type) fired recently.
 
-    Identity-based dedup. The alert_type carries the MA tag (e.g.,
+    Identity-based dedup with optional R-distance price-band check for
+    level alerts (see _is_chop_refire): a re-fire within 1R of the prior
+    entry is suppressed as chop; >= 1R away is treated as a fresh re-test
+    and passes through.
+
+    The alert_type carries the MA tag (e.g.,
     tv_ma_rejection_short_v3_ema100), so same MA + same direction = same
     setup. Different MAs (ema50 vs ema100) and opposite directions get
     different alert_types and fire independently.
-
-    Replaces the old price-band approach — same setup at slightly different
-    prices (e.g., ETH EMA100 short at $2338 then $2322) was the noise we
-    actually wanted to suppress, and identity captures it cleanly.
     """
     from app.models.alert import Alert
 
     cutoff = datetime.utcnow() - window
-    stmt = select(Alert.id).where(
+    stmt = select(Alert.entry, Alert.stop).where(
         Alert.user_id == user_id,
         Alert.symbol == symbol,
         Alert.direction == direction,
         Alert.alert_type == alert_type,
         Alert.created_at >= cutoff,
-    ).limit(1)
+    ).order_by(Alert.created_at.desc()).limit(1)
     result = await db.execute(stmt)
-    return result.scalar_one_or_none() is not None
+    row = result.first()
+    if row is None:
+        return False
+
+    prior_entry, prior_stop = row
+    return _is_chop_refire(alert_type, new_entry, prior_entry, prior_stop)
 
 
 # Public exports for tests
@@ -875,4 +1058,9 @@ __all__ = [
     "_symbol_session_already_fired",
     "_route_alert",
     "_SPY_SHORT_ACTION_RULES",
+    "_is_chop_refire",
+    "_LEVEL_ALERT_TYPES_FOR_PRICE_BAND",
+    "_ALLOWED_ALERT_TYPES",
+    "_ALLOWED_ALERT_TYPE_PREFIXES",
+    "_is_allowed_alert_type",
 ]
