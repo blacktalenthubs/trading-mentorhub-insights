@@ -1148,7 +1148,7 @@ if not na(pwh) and close > pwh
     pwh_was_above := true
 if not na(pwh) and low < pwh
     pwh_wick_dipped := true
-pwh_just_held = pwh_was_above and not pwh_lost and not pwh_held_fired and not pwh_wick_dipped and not na(pwh) and low <= pwh * (1.0 + htf_test_tol_pct) and low >= pwh and close > pwh and close > open
+pwh_just_held = pwh_was_above and not pwh_lost and not pwh_held_fired and not pwh_wick_dipped and not na(pwh) and low <= pwh * (1.0 + htf_test_tol_pct / 100.0) and low >= pwh and close > pwh and close > open
 pwh_just_wick = pwh_was_above and not pwh_lost and not pwh_wick_recl_fired and not na(pwh) and low < pwh and close > pwh and close > open
 if pwh_just_held
     pwh_held_fired := true
@@ -1171,7 +1171,7 @@ if not na(pwl) and close > pwl
     pwl_was_above := true
 if not na(pwl) and low < pwl
     pwl_wick_dipped := true
-pwl_just_held = pwl_was_above and not pwl_lost and not pwl_held_fired and not pwl_wick_dipped and not na(pwl) and low <= pwl * (1.0 + htf_test_tol_pct) and low >= pwl and close > pwl and close > open
+pwl_just_held = pwl_was_above and not pwl_lost and not pwl_held_fired and not pwl_wick_dipped and not na(pwl) and low <= pwl * (1.0 + htf_test_tol_pct / 100.0) and low >= pwl and close > pwl and close > open
 pwl_just_wick = pwl_was_above and not pwl_lost and not pwl_wick_recl_fired and not na(pwl) and low < pwl and close > pwl and close > open
 if pwl_just_held
     pwl_held_fired := true
@@ -1194,7 +1194,7 @@ if not na(pmh) and close > pmh
     pmh_was_above := true
 if not na(pmh) and low < pmh
     pmh_wick_dipped := true
-pmh_just_held = pmh_was_above and not pmh_lost and not pmh_held_fired and not pmh_wick_dipped and not na(pmh) and low <= pmh * (1.0 + htf_test_tol_pct) and low >= pmh and close > pmh and close > open
+pmh_just_held = pmh_was_above and not pmh_lost and not pmh_held_fired and not pmh_wick_dipped and not na(pmh) and low <= pmh * (1.0 + htf_test_tol_pct / 100.0) and low >= pmh and close > pmh and close > open
 pmh_just_wick = pmh_was_above and not pmh_lost and not pmh_wick_recl_fired and not na(pmh) and low < pmh and close > pmh and close > open
 if pmh_just_held
     pmh_held_fired := true
@@ -1217,7 +1217,7 @@ if not na(pml) and close > pml
     pml_was_above := true
 if not na(pml) and low < pml
     pml_wick_dipped := true
-pml_just_held = pml_was_above and not pml_lost and not pml_held_fired and not pml_wick_dipped and not na(pml) and low <= pml * (1.0 + htf_test_tol_pct) and low >= pml and close > pml and close > open
+pml_just_held = pml_was_above and not pml_lost and not pml_held_fired and not pml_wick_dipped and not na(pml) and low <= pml * (1.0 + htf_test_tol_pct / 100.0) and low >= pml and close > pml and close > open
 pml_just_wick = pml_was_above and not pml_lost and not pml_wick_recl_fired and not na(pml) and low < pml and close > pml and close > open
 if pml_just_held
     pml_held_fired := true
@@ -1234,27 +1234,24 @@ if pml_just_wick
 // staged break/rejection path handles it).
 //
 // confluence_count carries HOW MANY HTF levels held this bar (1-4 = stronger
-// confluence). Stop = the lowest held level - buffer, so it sits under every
-// level that held.
+// confluence).
+//
+// STOP (fixed 2026-05-20): stop is the FIRING BAR's wick low - atr_buffer —
+// a tight structural stop. The previous "lowest held level - buffer" logic
+// produced absurd stops (e.g. INTC entry 115.62, stop 95.23 = -17%) because
+// a held level can sit far from price. A genuine `*_just_held` means the bar
+// low IS within tolerance of the level, so `low - atr_buffer` is the correct
+// tight stop right under the bounce.
+//
 // Item-1 suppression (2026-05-20): a staged break/reject/reclaim event is the
-// richer, primary signal for the bar (it carries proper stops/targets +
-// confluence count). When one fired, the HTF held/proximity alerts are
-// redundant — suppress them so a bar produces ONE alert, not two.
+// richer, primary signal for the bar. When one fired, the HTF held/proximity
+// alerts are redundant — suppress them so a bar produces ONE alert, not two.
 any_staged_event = pdh_break or pdh_rejection or sweep_reversal_short or pdl_break or pdl_reclaim
 
 htf_held_count = (pwh_just_held or pwh_just_wick ? 1 : 0) + (pwl_just_held or pwl_just_wick ? 1 : 0) + (pmh_just_held or pmh_just_wick ? 1 : 0) + (pml_just_held or pml_just_wick ? 1 : 0)
-float htf_lowest_held = na
-if pwh_just_held or pwh_just_wick
-    htf_lowest_held := na(htf_lowest_held) ? pwh : math.min(htf_lowest_held, pwh)
-if pwl_just_held or pwl_just_wick
-    htf_lowest_held := na(htf_lowest_held) ? pwl : math.min(htf_lowest_held, pwl)
-if pmh_just_held or pmh_just_wick
-    htf_lowest_held := na(htf_lowest_held) ? pmh : math.min(htf_lowest_held, pmh)
-if pml_just_held or pml_just_wick
-    htf_lowest_held := na(htf_lowest_held) ? pml : math.min(htf_lowest_held, pml)
 if fire_htf_alerts and htf_held_count > 0 and not any_staged_event
     e = close
-    s = (na(htf_lowest_held) ? low : htf_lowest_held) - atr_buffer
+    s = low - atr_buffer
     alert(build_payload_v2("htf_support_held", "BUY", e, s, e * 1.0075, e * 1.015, false, htf_held_count, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // --- Alert fire: HTF proximity — COLLAPSED to ONE NOTICE (S1, 2026-05-20)
