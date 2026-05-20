@@ -14,11 +14,15 @@
 //     with 60-min window — same MA + same direction within 60 min collapses
 //     to one Telegram. Setups >1hr apart all fire.
 //
-// Detection covers BOTH bounce AND reclaim of every MA (and the symmetric
-// rejection + lose for shorts). v3 was previously missing the reclaim case
-// — gap-and-go through an MA on momentum, no wick into the level — which
-// silently muted breakouts like ETH 2026-05-03 ($2,330 → $2,360 cleanly
-// above EMA100 with no test). See strict_long/reclaim_long block below.
+// S0 position-relative model (2026-05-20): an MA is SUPPORT when price is
+// above it, RESISTANCE when price is below it. Only two setups fire —
+// strict_long (bounce off support from above) and strict_short (rejection
+// off resistance from below). The old cross-through events (reclaim_long /
+// lose_short) were removed — crossing an MA is just price moving between
+// support and resistance, not a setup, and reclaim_long was firing false
+// longs as price ground UP through stacks of overhead-resistance MAs.
+// Targets are the nearest MAs on the far side of entry (overhead MAs for
+// longs, underfoot MAs for shorts).
 //
 // Unified MA bounce/rejection Pine — works at ANY intraday or daily TF
 // via the TV alert "Interval" setting. Merges:
@@ -46,6 +50,8 @@
 indicator("ma-ema-daily", overlay = true, max_labels_count = 500)
 
 // Inputs ---------------------------------------------------------------------
+// Re-enabled 2026-05-19 after "also allow mas/ema alerts" directive.
+// Backend allow-list in tv_webhook.py also accepts these via prefix match.
 fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to webhook")
 show_lines       = input.bool   (true,         "Show daily MA lines")
 show_markers     = input.bool   (true,         "Show BOUNCE/REJECT markers")
@@ -75,8 +81,10 @@ label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? si
 is_intraday_mode = mode == "intraday"
 
 // Daily MAs (yesterday's settled value via [1] offset) -----------------------
-ema5   = request.security(syminfo.tickerid, "D", ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on)
-ema10  = request.security(syminfo.tickerid, "D", ta.ema(close, 10)[1],  lookahead = barmerge.lookahead_on)
+// EMA 8 replaces the previous EMA 5 + EMA 10 pair (2026-05-19) — single
+// short-term trend MA; 5/10 were redundant with each other and added MA-tag
+// noise to the alert payload (e.g. "5E10E" confluence on routine moves).
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
 ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
 ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
 ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
@@ -101,8 +109,7 @@ vwap_v = ta.vwap(hlc3)
 tol = atr_chart * tolerance_atr
 
 // Plot daily MAs -------------------------------------------------------------
-plot(show_lines ? ema5   : na, "EMA 5 (D)",   color = color.new(#9C27B0,      0), linewidth = 2)
-plot(show_lines ? ema10  : na, "EMA 10 (D)",  color = color.new(color.red,    0), linewidth = 2)
+plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(#9C27B0,      0), linewidth = 2)
 plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
 plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
 plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
@@ -113,29 +120,26 @@ plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0)
 
 // Detection helpers — strict (intraday) and band (swing) ---------------------
 //
-// Two distinct LONG setups, both bullish, both worth alerting:
-//   • strict_long  — DEFENSE: price comes down to MA from above, holds, closes
-//                    back above. The "MA defended" case.
-//   • reclaim_long — RECLAIM: price was below MA on prev close, this bar's
-//                    close crosses back above. The "broke through MA on
-//                    momentum" / "gap-up reclaim" case. Without this v3 misses
-//                    every gap-and-go through an MA — exactly the setup we
-//                    want most for SPY/QQQ/MSFT-style breakouts.
+// S0 position-relative model (2026-05-20). A moving average is SUPPORT when
+// price sits ABOVE it and RESISTANCE when price sits BELOW it — the MA's
+// role follows price position, not its name. Only two setups are real:
 //
-// Symmetric SHORT pair: strict_short (rejection from below — resistance test)
-// and lose_short (price was above MA, now closes below — losing structure).
+//   • strict_long  — price is ABOVE the MA (it's support), pulls DOWN to it,
+//                    wicks it, closes back above on a green bar = bounce.
+//   • strict_short — price is BELOW the MA (it's resistance), rallies UP into
+//                    it, wicks it, closes back below on a red bar = rejection.
+//
+// `reclaim_long` and `lose_short` (price CROSSING through an MA) were removed
+// 2026-05-20. Under S0, crossing an MA is just price moving between support
+// and resistance — not a bounce or a rejection. `reclaim_long` was the source
+// of the false longs when price grinds UP through a stack of overhead MAs
+// (INTC → 8EMA): those MAs are resistance / targets, not buy triggers.
 //
 strict_long(float ma) =>
     not na(ma) and low <= ma and close > ma and close > open
 
-reclaim_long(float ma) =>
-    not na(ma) and not na(close[1]) and close[1] <= ma and close > ma
-
 strict_short(float ma) =>
     not na(ma) and high >= ma and close < ma and close < open
-
-lose_short(float ma) =>
-    not na(ma) and not na(close[1]) and close[1] >= ma and close < ma
 
 band_long(float ma) =>
     not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
@@ -154,37 +158,34 @@ proximity_short(float ma, float pct) =>
     not na(ma) and ma > 0 and high < ma and (ma - high) / ma * 100.0 <= pct and close < open
 
 // Active condition per MA × direction ----------------------------------------
-// Intraday: defense (strict_long) OR reclaim (close crosses above MA).
+// Intraday: strict bounce/reject only (S0 — no cross-through events).
 // Swing:    band touch — wider entry zone.
 // alert.freq_once_per_bar_close at the alert call site prevents same-bar
 // refire. Backend identity dedup (60-min window per alert_type+direction)
 // prevents same-MA same-direction repeats within an hour.
-fire_e5   = is_intraday_mode ? (strict_long(ema5)   or reclaim_long(ema5))   : band_long(ema5)
-fire_e10  = is_intraday_mode ? (strict_long(ema10)  or reclaim_long(ema10))  : band_long(ema10)
-fire_e21  = is_intraday_mode ? (strict_long(ema21)  or reclaim_long(ema21))  : band_long(ema21)
-fire_e50  = is_intraday_mode ? (strict_long(ema50)  or reclaim_long(ema50))  : band_long(ema50)
-fire_e100 = is_intraday_mode ? (strict_long(ema100) or reclaim_long(ema100)) : band_long(ema100)
-fire_e200 = is_intraday_mode ? (strict_long(ema200) or reclaim_long(ema200)) : band_long(ema200)
-fire_s50  = is_intraday_mode ? (strict_long(sma50)  or reclaim_long(sma50))  : band_long(sma50)
-fire_s100 = is_intraday_mode ? (strict_long(sma100) or reclaim_long(sma100)) : band_long(sma100)
-fire_s200 = is_intraday_mode ? (strict_long(sma200) or reclaim_long(sma200)) : band_long(sma200)
+fire_e8   = is_intraday_mode ? strict_long(ema8)   : band_long(ema8)
+fire_e21  = is_intraday_mode ? strict_long(ema21)  : band_long(ema21)
+fire_e50  = is_intraday_mode ? strict_long(ema50)  : band_long(ema50)
+fire_e100 = is_intraday_mode ? strict_long(ema100) : band_long(ema100)
+fire_e200 = is_intraday_mode ? strict_long(ema200) : band_long(ema200)
+fire_s50  = is_intraday_mode ? strict_long(sma50)  : band_long(sma50)
+fire_s100 = is_intraday_mode ? strict_long(sma100) : band_long(sma100)
+fire_s200 = is_intraday_mode ? strict_long(sma200) : band_long(sma200)
 
-s_fire_e5   = is_intraday_mode ? (strict_short(ema5)   or lose_short(ema5))   : band_short(ema5)
-s_fire_e10  = is_intraday_mode ? (strict_short(ema10)  or lose_short(ema10))  : band_short(ema10)
-s_fire_e21  = is_intraday_mode ? (strict_short(ema21)  or lose_short(ema21))  : band_short(ema21)
-s_fire_e50  = is_intraday_mode ? (strict_short(ema50)  or lose_short(ema50))  : band_short(ema50)
-s_fire_e100 = is_intraday_mode ? (strict_short(ema100) or lose_short(ema100)) : band_short(ema100)
-s_fire_e200 = is_intraday_mode ? (strict_short(ema200) or lose_short(ema200)) : band_short(ema200)
-s_fire_s50  = is_intraday_mode ? (strict_short(sma50)  or lose_short(sma50))  : band_short(sma50)
-s_fire_s100 = is_intraday_mode ? (strict_short(sma100) or lose_short(sma100)) : band_short(sma100)
-s_fire_s200 = is_intraday_mode ? (strict_short(sma200) or lose_short(sma200)) : band_short(sma200)
+s_fire_e8   = is_intraday_mode ? strict_short(ema8)   : band_short(ema8)
+s_fire_e21  = is_intraday_mode ? strict_short(ema21)  : band_short(ema21)
+s_fire_e50  = is_intraday_mode ? strict_short(ema50)  : band_short(ema50)
+s_fire_e100 = is_intraday_mode ? strict_short(ema100) : band_short(ema100)
+s_fire_e200 = is_intraday_mode ? strict_short(ema200) : band_short(ema200)
+s_fire_s50  = is_intraday_mode ? strict_short(sma50)  : band_short(sma50)
+s_fire_s100 = is_intraday_mode ? strict_short(sma100) : band_short(sma100)
+s_fire_s200 = is_intraday_mode ? strict_short(sma200) : band_short(sma200)
 
-// Proximity NOTICE per MA × direction. Suppressed when a real defense fired
-// on the same MA same bar — strict_long/lose_short already say more than a
-// proximity hint, no point spamming both. Cross-MA bleed is fine: e.g., a
+// Proximity NOTICE per MA × direction. Suppressed when a real bounce/reject
+// fired on the same MA same bar — strict_long/strict_short already say more
+// than a proximity hint, no point spamming both. Cross-MA bleed is fine: a
 // strict_long on EMA50 doesn't suppress a proximity_long on EMA100.
-prox_e5_l   = fire_proximity_alerts and proximity_long(ema5,   proximity_pct) and not (fire_e5   or s_fire_e5)
-prox_e10_l  = fire_proximity_alerts and proximity_long(ema10,  proximity_pct) and not (fire_e10  or s_fire_e10)
+prox_e8_l   = fire_proximity_alerts and proximity_long(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
 prox_e21_l  = fire_proximity_alerts and proximity_long(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
 prox_e50_l  = fire_proximity_alerts and proximity_long(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
 prox_e100_l = fire_proximity_alerts and proximity_long(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
@@ -193,8 +194,7 @@ prox_s50_l  = fire_proximity_alerts and proximity_long(sma50,  proximity_pct) an
 prox_s100_l = fire_proximity_alerts and proximity_long(sma100, proximity_pct) and not (fire_s100 or s_fire_s100)
 prox_s200_l = fire_proximity_alerts and proximity_long(sma200, proximity_pct) and not (fire_s200 or s_fire_s200)
 
-prox_e5_s   = fire_proximity_alerts and proximity_short(ema5,   proximity_pct) and not (fire_e5   or s_fire_e5)
-prox_e10_s  = fire_proximity_alerts and proximity_short(ema10,  proximity_pct) and not (fire_e10  or s_fire_e10)
+prox_e8_s   = fire_proximity_alerts and proximity_short(ema8,   proximity_pct) and not (fire_e8   or s_fire_e8)
 prox_e21_s  = fire_proximity_alerts and proximity_short(ema21,  proximity_pct) and not (fire_e21  or s_fire_e21)
 prox_e50_s  = fire_proximity_alerts and proximity_short(ema50,  proximity_pct) and not (fire_e50  or s_fire_e50)
 prox_e100_s = fire_proximity_alerts and proximity_short(ema100, proximity_pct) and not (fire_e100 or s_fire_e100)
@@ -205,17 +205,17 @@ prox_s200_s = fire_proximity_alerts and proximity_short(sma200, proximity_pct) a
 
 
 // Aggregate fires + tags -----------------------------------------------------
-any_long  = fire_e5   or fire_e10   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
-any_short = s_fire_e5 or s_fire_e10 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
+any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
+any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
 
-any_prox_long  = prox_e5_l or prox_e10_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
-any_prox_short = prox_e5_s or prox_e10_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
+any_prox_long  = prox_e8_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
+any_prox_short = prox_e8_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
 
-long_tag  = (fire_e5   ? "5E "  : "") + (fire_e10   ? "10E " : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
-short_tag = (s_fire_e5 ? "5E "  : "") + (s_fire_e10 ? "10E " : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
+short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
 
-prox_long_tag  = (prox_e5_l   ? "5E "  : "") + (prox_e10_l  ? "10E " : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
-prox_short_tag = (prox_e5_s   ? "5E "  : "") + (prox_e10_s  ? "10E " : "") + (prox_e21_s  ? "21E " : "") + (prox_e50_s  ? "50E " : "") + (prox_e100_s ? "100E " : "") + (prox_e200_s ? "200E " : "") + (prox_s50_s  ? "50S " : "") + (prox_s100_s ? "100S " : "") + (prox_s200_s ? "200S " : "")
+prox_long_tag  = (prox_e8_l   ? "8E "  : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
+prox_short_tag = (prox_e8_s   ? "8E "  : "") + (prox_e21_s  ? "21E " : "") + (prox_e50_s  ? "50E " : "") + (prox_e100_s ? "100E " : "") + (prox_e200_s ? "200E " : "") + (prox_s50_s  ? "50S " : "") + (prox_s100_s ? "100S " : "") + (prox_s200_s ? "200S " : "")
 
 // Markers --------------------------------------------------------------------
 plotshape(show_markers and any_long,
@@ -258,10 +258,8 @@ bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
 
 // MA value to anchor swing-mode stop -----------------------------------------
 float bounced_ma_long = na
-if fire_e5
-    bounced_ma_long := ema5
-else if fire_e10
-    bounced_ma_long := ema10
+if fire_e8
+    bounced_ma_long := ema8
 else if fire_e21
     bounced_ma_long := ema21
 else if fire_e50
@@ -278,10 +276,8 @@ else if fire_s200
     bounced_ma_long := sma200
 
 float rejected_ma_short = na
-if s_fire_e5
-    rejected_ma_short := ema5
-else if s_fire_e10
-    rejected_ma_short := ema10
+if s_fire_e8
+    rejected_ma_short := ema8
 else if s_fire_e21
     rejected_ma_short := ema21
 else if s_fire_e50
@@ -350,18 +346,63 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","cvd_diverging":"' + ((direction == "BUY" ? bearish_div : bullish_div) ? "true" : "false")
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
+// S0 targets — the MAs on the far side of entry are the structural targets.
+//   LONG  → the nearest MAs ABOVE entry (overhead resistance to aim for).
+//   SHORT → the nearest MAs BELOW entry (underfoot support to aim for).
+// Returns a sorted array (ascending for above, descending for below) so
+// element [0] is the nearest target, [1] the next. R-multiple fallback
+// when fewer than 2 MAs sit on the target side.
+ma_targets_above(float p) =>
+    arr = array.new<float>()
+    if not na(ema8)   and ema8   > p
+        array.push(arr, ema8)
+    if not na(ema21)  and ema21  > p
+        array.push(arr, ema21)
+    if not na(ema50)  and ema50  > p
+        array.push(arr, ema50)
+    if not na(ema100) and ema100 > p
+        array.push(arr, ema100)
+    if not na(ema200) and ema200 > p
+        array.push(arr, ema200)
+    if not na(sma50)  and sma50  > p
+        array.push(arr, sma50)
+    if not na(sma100) and sma100 > p
+        array.push(arr, sma100)
+    if not na(sma200) and sma200 > p
+        array.push(arr, sma200)
+    array.sort(arr, order.ascending)
+    arr
+
+ma_targets_below(float p) =>
+    arr = array.new<float>()
+    if not na(ema8)   and ema8   < p
+        array.push(arr, ema8)
+    if not na(ema21)  and ema21  < p
+        array.push(arr, ema21)
+    if not na(ema50)  and ema50  < p
+        array.push(arr, ema50)
+    if not na(ema100) and ema100 < p
+        array.push(arr, ema100)
+    if not na(ema200) and ema200 < p
+        array.push(arr, ema200)
+    if not na(sma50)  and sma50  < p
+        array.push(arr, sma50)
+    if not na(sma100) and sma100 < p
+        array.push(arr, sma100)
+    if not na(sma200) and sma200 < p
+        array.push(arr, sma200)
+    array.sort(arr, order.descending)
+    arr
+
 // Fire alerts ----------------------------------------------------------------
 // Stop placement varies by mode:
 //   intraday → wick low - 0.3 × chart-TF ATR (tight, scales with the bar
-//              you're actually trading — daily ATR was too wide on volatile
-//              symbols like ETH where 0.2×daily ≈ $16 buffer above wick)
+//              you're actually trading)
 //   swing    → MA       - 0.3 × chart-TF ATR (lets the level breathe)
 //
-// T1/T2 use STRUCTURAL levels when available, R-multiples as fallback:
-//   LONG  → T1 = PDH (if PDH > entry), T2 = PDH extension
-//   SHORT → T1 = VWAP (if VWAP < entry), T2 = PDL (if PDL < VWAP)
-//   Fallback to R-multiples (r_t1 / r_t2 inputs) when structural target
-//   isn't on the right side of entry (e.g., entry already extended past PDH).
+// T1/T2 are the nearest MAs on the far side of entry (S0 — overhead MAs are
+// the resistance a long aims for; underfoot MAs the support a short aims
+// for). R-multiple fallback (r_t1 / r_t2) when fewer than 2 MAs sit there.
 //
 // Multi-line alert() args are flaky in Pine v5 — build payload into a var
 // first, then call alert() on a single line.
@@ -369,15 +410,10 @@ if fire_alerts and any_long
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
-    pdh_above_entry = not na(pdh) and pdh > e
-    float t1_long = na
-    float t2_long = na
-    if pdh_above_entry
-        t1_long := pdh
-        t2_long := pdh + (pdh - e) * 0.5
-    else
-        t1_long := e + rsk * r_t1
-        t2_long := e + rsk * r_t2
+    ups = ma_targets_above(e)
+    n_up = array.size(ups)
+    t1_long = n_up >= 1 ? array.get(ups, 0) : e + rsk * r_t1
+    t2_long = n_up >= 2 ? array.get(ups, 1) : e + rsk * r_t2
     msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
     alert(msg_long, alert.freq_once_per_bar_close)
 
@@ -385,22 +421,10 @@ if fire_alerts and any_short
     e = close
     s = is_intraday_mode ? (high + atr_chart * 0.3) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
     rsk = s - e
-    vwap_below_entry = not na(vwap_v) and vwap_v < e
-    pdl_below_entry  = not na(pdl) and pdl < e
-    float t1_short = na
-    float t2_short = na
-    if vwap_below_entry and pdl_below_entry and pdl < vwap_v
-        t1_short := vwap_v
-        t2_short := pdl
-    else if vwap_below_entry
-        t1_short := vwap_v
-        t2_short := e - rsk * r_t2
-    else if pdl_below_entry
-        t1_short := pdl
-        t2_short := e - rsk * r_t2
-    else
-        t1_short := e - rsk * r_t1
-        t2_short := e - rsk * r_t2
+    downs = ma_targets_below(e)
+    n_dn = array.size(downs)
+    t1_short = n_dn >= 1 ? array.get(downs, 0) : e - rsk * r_t1
+    t2_short = n_dn >= 2 ? array.get(downs, 1) : e - rsk * r_t2
     msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, t1_short, t2_short, false, near_pdh)
     alert(msg_short, alert.freq_once_per_bar_close)
 

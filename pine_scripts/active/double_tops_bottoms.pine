@@ -1,0 +1,144 @@
+// @version=5
+//
+// Double tops / double bottoms — DAILY-anchored, ONE-line-each visual.
+//
+// Pattern matches `levels-week-month` — keep a small fixed set of named
+// drawing slots and delete+redraw on every update. Result: chart only ever
+// shows the MOST RECENT detected double-top and the MOST RECENT detected
+// double-bottom. Two lines, max. No accumulation, no clutter.
+//
+// Detection:
+//   1. Pulls daily pivot highs/lows via request.security so the script
+//      works on any chart timeframe but only reflects daily-scale swings.
+//   2. When a new daily pivot confirms, compare it against the IMMEDIATELY
+//      PRIOR pivot of the same type. Two consecutive pivot highs within
+//      `tol_pct` = double top. (The pivot-low between them is the classic
+//      neckline; no need to enumerate it.)
+//   3. If matched AND the gap is inside [min_bars, max_bars] in daily
+//      bars, delete the existing DT/DB line and draw a new one connecting
+//      the two pivots at the higher (top) / lower (bottom) of the two
+//      prices. `xloc.bar_time` so the line lands on the right bars no
+//      matter the chart TF.
+//
+// Defaults tuned for clean daily charts:
+//   • pivot_left = 2, pivot_right = 2 → 5-day swing window
+//   • tol_pct = 0.5%
+//   • min_bars = 2, max_bars = 30 (≈6 trading weeks)
+//
+// Pine v5 quirk notes (see also `pine-v5-gotchas` memory):
+//   • All function calls on a single line.
+//   • `and` / `or` are NOT short-circuited.
+//   • if/else branches must have matching return types — using standalone
+//     `if` sidesteps that.
+//
+indicator("double-tops-bottoms", overlay = true, max_lines_count = 4, max_labels_count = 4)
+
+// =====================================================================
+// Inputs — detection (all in DAILY bars)
+// =====================================================================
+pivot_left  = input.int(2,   "Daily pivot left bars",  minval = 1, maxval = 10, group = "Detection", tooltip = "Daily bars on the LEFT of a pivot that must be lower (highs) / higher (lows).")
+pivot_right = input.int(2,   "Daily pivot right bars", minval = 1, maxval = 10, group = "Detection", tooltip = "Daily bars on the RIGHT — confirmation lag. 2 = pivot confirms 2 days AFTER the actual high.")
+tol_pct     = input.float(0.5, "Price tolerance (%)", minval = 0.05, maxval = 3.0, step = 0.05, group = "Detection", tooltip = "Two consecutive pivots within this % of each other count as a double.")
+min_bars    = input.int(2,   "Min DAILY bars between pivots", minval = 1, maxval = 20, group = "Detection")
+max_bars    = input.int(30,  "Max DAILY bars between pivots", minval = 5, maxval = 120, group = "Detection", tooltip = "Older patterns disappear when this many daily bars pass without confirmation. 30 ≈ 6 trading weeks.")
+
+// =====================================================================
+// Inputs — display
+// =====================================================================
+show_tops    = input.bool(true, "Draw double TOP line",    group = "Display")
+show_bots    = input.bool(true, "Draw double BOTTOM line", group = "Display")
+show_labels  = input.bool(true, "Show DT/DB labels",       group = "Display")
+top_color    = input.color(color.new(color.red, 0),   "Double top color",    group = "Display")
+bot_color    = input.color(color.new(color.green, 0), "Double bottom color", group = "Display")
+line_width   = input.int(2, "Line width", minval = 1, maxval = 4, group = "Display")
+extend_right = input.bool(true, "Extend line to the right (use as S/R)", group = "Display")
+
+// =====================================================================
+// Daily pivot lookup
+// =====================================================================
+// Pull both the daily pivot value AND the daily-bar time of the actual
+// pivot (time[pivot_right] in daily context = the high/low bar's time).
+// Returns na on non-pivot days; non-na on the day a pivot confirms.
+[d_ph, d_ph_t] = request.security(syminfo.tickerid, "D", [ta.pivothigh(high, pivot_left, pivot_right), time[pivot_right]], lookahead = barmerge.lookahead_off)
+[d_pl, d_pl_t] = request.security(syminfo.tickerid, "D", [ta.pivotlow(low,  pivot_left, pivot_right), time[pivot_right]], lookahead = barmerge.lookahead_off)
+
+// =====================================================================
+// State — the prior pivot (only one slot each, no array)
+// =====================================================================
+var float prev_ph_price = na
+var int   prev_ph_time  = na
+var float prev_pl_price = na
+var int   prev_pl_time  = na
+
+// Persistent drawing handles — at most ONE line + ONE label per type.
+var line  ln_dt = na
+var label lb_dt = na
+var line  ln_db = na
+var label lb_db = na
+
+// Suppress duplicate firing — request.security replays the same daily
+// pivot on every intraday bar within the day; we only act on first sight.
+var int last_seen_ph = 0
+var int last_seen_pl = 0
+
+// =====================================================================
+// Window in ms (calendar-day approximation — daily-bar gaps are <=
+// calendar-day gaps, so weekends/holidays just make the band tighter).
+// =====================================================================
+ms_per_day = 86400000
+min_ms = min_bars * ms_per_day
+max_ms = max_bars * ms_per_day
+
+// =====================================================================
+// Detection — double top
+// =====================================================================
+if not na(d_ph) and d_ph_t != last_seen_ph
+    last_seen_ph := d_ph_t
+    if not na(prev_ph_price)
+        gap_ms = d_ph_t - prev_ph_time
+        if gap_ms >= min_ms and gap_ms <= max_ms
+            diff_pct = math.abs(d_ph - prev_ph_price) / prev_ph_price * 100.0
+            if diff_pct <= tol_pct and show_tops
+                line.delete(ln_dt)
+                label.delete(lb_dt)
+                level = math.max(d_ph, prev_ph_price)
+                ln_dt := line.new(prev_ph_time, level, d_ph_t, level, xloc = xloc.bar_time, color = top_color, width = line_width, extend = extend_right ? extend.right : extend.none)
+                if show_labels
+                    lb_dt := label.new(d_ph_t, level, text = "DT " + str.tostring(level, format.mintick), xloc = xloc.bar_time, color = color.new(top_color, 75), textcolor = top_color, style = label.style_label_left, size = size.small)
+    prev_ph_price := d_ph
+    prev_ph_time  := d_ph_t
+
+// =====================================================================
+// Detection — double bottom
+// =====================================================================
+if not na(d_pl) and d_pl_t != last_seen_pl
+    last_seen_pl := d_pl_t
+    if not na(prev_pl_price)
+        gap_ms = d_pl_t - prev_pl_time
+        if gap_ms >= min_ms and gap_ms <= max_ms
+            diff_pct = math.abs(d_pl - prev_pl_price) / prev_pl_price * 100.0
+            if diff_pct <= tol_pct and show_bots
+                line.delete(ln_db)
+                label.delete(lb_db)
+                level = math.min(d_pl, prev_pl_price)
+                ln_db := line.new(prev_pl_time, level, d_pl_t, level, xloc = xloc.bar_time, color = bot_color, width = line_width, extend = extend_right ? extend.right : extend.none)
+                if show_labels
+                    lb_db := label.new(d_pl_t, level, text = "DB " + str.tostring(level, format.mintick), xloc = xloc.bar_time, color = color.new(bot_color, 75), textcolor = bot_color, style = label.style_label_left, size = size.small)
+    prev_pl_price := d_pl
+    prev_pl_time  := d_pl_t
+
+// =====================================================================
+// Auto-expire stale patterns
+// =====================================================================
+// If max_bars days pass without a new matching pair, the line on the
+// chart still hangs around forever. Clear it once `time` is more than
+// max_ms past the second pivot. Matches the "rolling window" feel of
+// levels-week-month, where prior-week levels disappear when a new week
+// rolls in.
+if barstate.islast
+    if not na(ln_dt) and time - line.get_x2(ln_dt) > max_ms
+        line.delete(ln_dt)
+        label.delete(lb_dt)
+    if not na(ln_db) and time - line.get_x2(ln_db) > max_ms
+        line.delete(ln_db)
+        label.delete(lb_db)

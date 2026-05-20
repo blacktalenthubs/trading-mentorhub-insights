@@ -26,7 +26,9 @@ indicator("levels-day-vwap", overlay = true)
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
 show_level_labels = input.bool(true,  "Show PDH/PDL value labels at right edge")
 show_midpoint     = input.bool(true,  "Show range midpoint line (gray dashed)")
-fire_open_alerts        = input.bool(true,  "Fire open-line alerts (MASTER toggle — overrides per-type below)")
+// Open-line alerts default-off 2026-05-19 (per "PDH/PDL only" directive).
+// Backend also drops these via the allow-list in tv_webhook.py.
+fire_open_alerts        = input.bool(false, "Fire open-line alerts (MASTER toggle — overrides per-type below)")
 fire_open_held          = input.bool(true,  "  → open_held (clean defense)", group = "Open-line per-type")
 fire_open_wick_reclaim  = input.bool(true,  "  → open_wick_reclaim (wick crossed below)", group = "Open-line per-type")
 fire_open_reclaimed     = input.bool(true,  "  → open_reclaimed (full close-flip cycle)", group = "Open-line per-type")
@@ -40,7 +42,17 @@ show_symbol_regime = input.bool(true,  "Show this symbol's EMA position on day-t
 ema_proximity_pct  = input.float(0.3,  "EMA proximity threshold (%) — flag as 'at EMA' if within", minval = 0.1, maxval = 2.0, step = 0.1)
 fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/support alerts (NOTICE — SPY/QQQ only; ignored on other symbols)")
 // HTF level alerts (2026-05-16) — hold/wick-reclaim per HTF level + proximity NOTICE.
-fire_htf_alerts   = input.bool(true,  "Fire HTF level alerts (PWH/PWL/PMH/PML hold + wick reclaim + proximity NOTICE)")
+// Re-enabled 2026-05-20 (S1) — the 8 hold/wick alerts now COLLAPSE to one
+// `htf_support_held` BUY and the 4 proximity NOTICEs to one `htf_proximity`,
+// so re-enabling no longer means chop-day spam. See collapse block below.
+fire_htf_alerts   = input.bool(true,  "Fire HTF level alerts (collapsed: htf_support_held + htf_proximity)")
+// HTF staged alerts — when a WEEKLY or MONTHLY level is broken or reclaimed,
+// the `pdh_break` / `pdl_reclaim` / etc. blocks emit `staged_pwh_break` /
+// `staged_pml_reclaim` / etc. via tf_high_prefix().
+// Re-enabled 2026-05-20 (S1 item 2): with S0 position-relative direction
+// now correct, W/M crossings are structurally-significant low-frequency
+// events, not noise — a weekly/monthly level only gets crossed occasionally.
+fire_htf_staged   = input.bool(true,  "Fire HTF staged break/reclaim alerts (PWH/PWL/PMH/PML break/rejection/reclaim)")
 htf_proximity_pct = input.float(0.5,  "HTF proximity threshold (%)", minval = 0.1, maxval = 2.0, step = 0.1)
 htf_test_tol_pct  = input.float(0.2,  "HTF hold tolerance (%)",      minval = 0.05, maxval = 1.0, step = 0.05)
 // Note: macro-symbol gate is shared across VWAP alerts and the
@@ -603,9 +615,16 @@ combined_day_text = day_text + spy_line + sym_line
 // the chart, not crammed against the right-side watchlist panel where
 // it's easy to miss during fast markets. Single-cell table; SPY discipline
 // action appended to the cell text on every bar.
+//
+// Visual unification (2026-05-18): single semi-transparent gray background
+// for all day types (was: green/yellow/aqua/red per state). At-a-glance
+// state signal is in the text itself; uniform color stops drawing the eye
+// away from price action. Text size reduced from large → small.
+// `day_bg` assignments above are kept (no-op) in case state-aware coloring
+// is wanted back later.
 var table day_t = table.new(position.top_center, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
 if show_stage_badge and barstate.islast
-    table.cell(day_t, 0, 0, combined_day_text, text_color = color.white, bgcolor = day_bg, text_size = size.large)
+    table.cell(day_t, 0, 0, combined_day_text, text_color = color.white, bgcolor = color.new(color.gray, 50), text_size = size.small)
 
 // =====================================================================
 // Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
@@ -828,6 +847,13 @@ tf_high_prefix(string tf) =>
 tf_low_prefix(string tf) =>
     tf == "W" ? "staged_pwl_" : tf == "M" ? "staged_pml_" : "staged_pdl_"
 
+// HTF gate: daily (tf == "D") always fires; weekly/monthly only when
+// the user explicitly opts in via fire_htf_staged. Default-off 2026-05-19
+// for noise reduction — W/M crossings overlap heavily with daily and the
+// `staged_p[wm][hl]_*` family was the dominant duplicate source.
+htf_allowed(string tf) =>
+    tf == "D" or fire_htf_staged
+
 if pdh_break
     e   = close
     s_default = broken_resistance - atr_buffer
@@ -835,11 +861,9 @@ if pdh_break
     t1  = t1_long_hier(e, pwh, pmh, atr_d)
     t2  = t2_extend_long(e, t1)
     tf  = level_tf(broken_resistance, pdh, pwh, pmh)
-    dir = dir_for_tf(tf, "BUY")
-    alert(build_payload_v2(tf_high_prefix(tf) + "break", dir, e, s, t1, t2,
-                           gap_context, confluence_resistance,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+    if htf_allowed(tf)
+        dir = dir_for_tf(tf, "BUY")
+        alert(build_payload_v2(tf_high_prefix(tf) + "break", dir, e, s, t1, t2, gap_context, confluence_resistance, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 if pdh_rejection
     e   = close
     s   = high + atr_buffer
@@ -847,11 +871,9 @@ if pdh_rejection
     t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
     t2  = t2_extend_short(e, t1)
     tf  = level_tf(rejected_resistance, pdh, pwh, pmh)
-    dir = dir_for_tf(tf, "SHORT")
-    alert(build_payload_v2(tf_high_prefix(tf) + "rejection", dir, e, s, t1, t2,
-                           false, confluence_rej,
-                           volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
+    if htf_allowed(tf)
+        dir = dir_for_tf(tf, "SHORT")
+        alert(build_payload_v2(tf_high_prefix(tf) + "rejection", dir, e, s, t1, t2, false, confluence_rej, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
 if sweep_reversal_short
     e   = close
     s   = math.max(high, high[1]) + atr_buffer
@@ -859,22 +881,18 @@ if sweep_reversal_short
     t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
     t2  = t2_extend_short(e, t1)
     tf  = level_tf(failed_resistance, pdh, pwh, pmh)
-    dir = dir_for_tf(tf, "SHORT")
-    alert(build_payload_v2(tf_high_prefix(tf) + "failed_short", dir, e, s, t1, t2,
-                           false, confluence_failed,
-                           volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
+    if htf_allowed(tf)
+        dir = dir_for_tf(tf, "SHORT")
+        alert(build_payload_v2(tf_high_prefix(tf) + "failed_short", dir, e, s, t1, t2, false, confluence_failed, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
 if pdl_break
     e   = close
     s   = broken_support + atr_buffer
     t1  = t1_short_hier(e, pwl, pml, atr_d)
     t2  = t2_extend_short(e, t1)
     tf  = level_tf(broken_support, pdl, pwl, pml)
-    dir = dir_for_tf(tf, "SHORT")
-    alert(build_payload_v2(tf_low_prefix(tf) + "break", dir, e, s, t1, t2,
-                           false, confluence_brk_sup,
-                           volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
+    if htf_allowed(tf)
+        dir = dir_for_tf(tf, "SHORT")
+        alert(build_payload_v2(tf_low_prefix(tf) + "break", dir, e, s, t1, t2, false, confluence_brk_sup, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
@@ -882,15 +900,13 @@ if pdl_reclaim
     t1 = not na(t1_struct) ? t1_struct : t1_long_hier(e, pdh, pmh, atr_d)
     t2 = not na(pwh) and pwh > t1 ? pwh : (not na(pmh) and pmh > t1 ? pmh : t2_extend_long(e, t1))
     tf  = level_tf(reclaimed_support, pdl, pwl, pml)
-    dir = dir_for_tf(tf, "BUY")
-    // gap_context=true marks this as a gap-down recovery reclaim — opened
-    // below PDL, now closing back above. Backend uses the flag to label
-    // the Telegram header as "PDL reclaim — gap-down recovery ↑".
-    // Only meaningful for tf=="D" (gap context applies to today's open).
-    alert(build_payload_v2(tf_low_prefix(tf) + "reclaim", dir, e, s, t1, t2,
-                           tf == "D" and is_gap_down, confluence_support,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+    if htf_allowed(tf)
+        dir = dir_for_tf(tf, "BUY")
+        // gap_context=true marks this as a gap-down recovery reclaim — opened
+        // below PDL, now closing back above. Backend uses the flag to label
+        // the Telegram header as "PDL reclaim — gap-down recovery ↑".
+        // Only meaningful for tf=="D" (gap context applies to today's open).
+        alert(build_payload_v2(tf_low_prefix(tf) + "reclaim", dir, e, s, t1, t2, tf == "D" and is_gap_down, confluence_support, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // =====================================================================
 // Open-line alert fires — open_lost (NOTICE, index only) +
@@ -1208,51 +1224,45 @@ if pml_just_held
 if pml_just_wick
     pml_wick_recl_fired := true
 
-// --- Alert fires: HTF hold + wick_reclaim (8 alerts, all BUY) --------
-if fire_htf_alerts and pwh_just_held
-    e = close
-    s = pwh - atr_buffer
-    alert(build_payload_v2("pwh_held", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if fire_htf_alerts and pwh_just_wick
-    e = close
-    s = math.min(low, pwh) - atr_buffer
-    alert(build_payload_v2("pwh_wick_reclaim", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if fire_htf_alerts and pwl_just_held
-    e = close
-    s = pwl - atr_buffer
-    alert(build_payload_v2("pwl_held", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if fire_htf_alerts and pwl_just_wick
-    e = close
-    s = math.min(low, pwl) - atr_buffer
-    alert(build_payload_v2("pwl_wick_reclaim", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if fire_htf_alerts and pmh_just_held
-    e = close
-    s = pmh - atr_buffer
-    alert(build_payload_v2("pmh_held", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if fire_htf_alerts and pmh_just_wick
-    e = close
-    s = math.min(low, pmh) - atr_buffer
-    alert(build_payload_v2("pmh_wick_reclaim", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if fire_htf_alerts and pml_just_held
-    e = close
-    s = pml - atr_buffer
-    alert(build_payload_v2("pml_held", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if fire_htf_alerts and pml_just_wick
-    e = close
-    s = math.min(low, pml) - atr_buffer
-    alert(build_payload_v2("pml_wick_reclaim", "BUY", e, s, e * 1.0075, e * 1.015, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+// --- Alert fire: HTF support held — COLLAPSED to ONE alert (S1, 2026-05-20)
+// The 8 prior per-level alerts (pwh/pwl/pmh/pml × held/wick_reclaim) are
+// merged into a single BUY alert. They were always the same setup — an HTF
+// level holding as SUPPORT. Each `*_just_held` already requires `*_was_above`
+// (price closed above the level earlier this session), so this is inherently
+// S0-correct: it only fires when the level is genuinely support, never when
+// price is grinding UP into the level from below (that's resistance, and the
+// staged break/rejection path handles it).
+//
+// confluence_count carries HOW MANY HTF levels held this bar (1-4 = stronger
+// confluence). Stop = the lowest held level - buffer, so it sits under every
+// level that held.
+// Item-1 suppression (2026-05-20): a staged break/reject/reclaim event is the
+// richer, primary signal for the bar (it carries proper stops/targets +
+// confluence count). When one fired, the HTF held/proximity alerts are
+// redundant — suppress them so a bar produces ONE alert, not two.
+any_staged_event = pdh_break or pdh_rejection or sweep_reversal_short or pdl_break or pdl_reclaim
 
-// --- Alert fires: HTF proximity NOTICE (4 alerts, both sides) --------
-// Fires when close is within `htf_proximity_pct` of the level. Backend
-// applies a 120-min identity dedup per (symbol, alert_type). Triage
-// bypasses MUTE_NOTICE_ALERTS for these — they're high-signal context.
+htf_held_count = (pwh_just_held or pwh_just_wick ? 1 : 0) + (pwl_just_held or pwl_just_wick ? 1 : 0) + (pmh_just_held or pmh_just_wick ? 1 : 0) + (pml_just_held or pml_just_wick ? 1 : 0)
+float htf_lowest_held = na
+if pwh_just_held or pwh_just_wick
+    htf_lowest_held := na(htf_lowest_held) ? pwh : math.min(htf_lowest_held, pwh)
+if pwl_just_held or pwl_just_wick
+    htf_lowest_held := na(htf_lowest_held) ? pwl : math.min(htf_lowest_held, pwl)
+if pmh_just_held or pmh_just_wick
+    htf_lowest_held := na(htf_lowest_held) ? pmh : math.min(htf_lowest_held, pmh)
+if pml_just_held or pml_just_wick
+    htf_lowest_held := na(htf_lowest_held) ? pml : math.min(htf_lowest_held, pml)
+if fire_htf_alerts and htf_held_count > 0 and not any_staged_event
+    e = close
+    s = (na(htf_lowest_held) ? low : htf_lowest_held) - atr_buffer
+    alert(build_payload_v2("htf_support_held", "BUY", e, s, e * 1.0075, e * 1.015, false, htf_held_count, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// --- Alert fire: HTF proximity — COLLAPSED to ONE NOTICE (S1, 2026-05-20)
+// The 4 prior per-level proximity NOTICEs merged into one. Fires when close
+// is within `htf_proximity_pct` of ANY HTF level. confluence_count = how
+// many levels are in proximity. NOTICE direction — informational context.
 near_pct(float lvl, float pct) =>
     not na(lvl) and not na(close) and lvl != 0 and (math.abs(close - lvl) / lvl) * 100.0 <= pct
-if fire_htf_alerts and near_pct(pwh, htf_proximity_pct)
-    alert(build_payload_v2("htf_proximity_pwh", "NOTICE", close, close * 0.995, close * 1.005, close * 1.01, false, 1, volume_ratio, cvd_slope_n, false), alert.freq_once_per_bar_close)
-if fire_htf_alerts and near_pct(pwl, htf_proximity_pct)
-    alert(build_payload_v2("htf_proximity_pwl", "NOTICE", close, close * 0.995, close * 1.005, close * 1.01, false, 1, volume_ratio, cvd_slope_n, false), alert.freq_once_per_bar_close)
-if fire_htf_alerts and near_pct(pmh, htf_proximity_pct)
-    alert(build_payload_v2("htf_proximity_pmh", "NOTICE", close, close * 0.995, close * 1.005, close * 1.01, false, 1, volume_ratio, cvd_slope_n, false), alert.freq_once_per_bar_close)
-if fire_htf_alerts and near_pct(pml, htf_proximity_pct)
-    alert(build_payload_v2("htf_proximity_pml", "NOTICE", close, close * 0.995, close * 1.005, close * 1.01, false, 1, volume_ratio, cvd_slope_n, false), alert.freq_once_per_bar_close)
+htf_prox_count = (near_pct(pwh, htf_proximity_pct) ? 1 : 0) + (near_pct(pwl, htf_proximity_pct) ? 1 : 0) + (near_pct(pmh, htf_proximity_pct) ? 1 : 0) + (near_pct(pml, htf_proximity_pct) ? 1 : 0)
+if fire_htf_alerts and htf_prox_count > 0 and not any_staged_event
+    alert(build_payload_v2("htf_proximity", "NOTICE", close, close * 0.995, close * 1.005, close * 1.01, false, htf_prox_count, volume_ratio, cvd_slope_n, false), alert.freq_once_per_bar_close)
