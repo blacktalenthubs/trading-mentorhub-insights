@@ -8,6 +8,7 @@ import { NavLink, Outlet, Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
 import { usePushNotifications } from "../hooks/usePushNotifications";
+import { useSignalNotifications } from "../hooks/useSignalNotifications";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   LayoutDashboard,
@@ -75,6 +76,7 @@ export default function AppLayout() {
   const { data: market } = useMarketStatus();
   const { isTrial, trialDaysLeft, tier } = useFeatureGate();
   usePushNotifications();
+  useSignalNotifications();
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
 

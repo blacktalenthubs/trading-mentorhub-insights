@@ -22,6 +22,10 @@ import {
   type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
+import {
+  signalNotificationsEnabled,
+  setSignalNotificationsEnabled,
+} from "../hooks/useSignalNotifications";
 import type { NotificationPrefs, NotificationRouting, AlertChannel } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
@@ -790,6 +794,58 @@ function AlertTypesSection() {
   );
 }
 
+/* ── Signal Notifications (browser alerts) ────────────────────────── */
+
+function SignalNotifications() {
+  const [enabled, setEnabled] = useState(() => signalNotificationsEnabled());
+  const supported = typeof Notification !== "undefined";
+
+  async function handleToggle() {
+    if (!enabled) {
+      if (!supported) {
+        toast.error("This browser doesn't support notifications.");
+        return;
+      }
+      let perm = Notification.permission;
+      if (perm === "default") perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        toast.error("Allow notifications for this site in your browser, then try again.");
+        return;
+      }
+    }
+    const next = !enabled;
+    setEnabled(next);
+    setSignalNotificationsEnabled(next);
+    toast.success(next ? "Signal notifications on" : "Signal notifications off");
+  }
+
+  return (
+    <Section title="Signal Notifications" icon={<Bell className="h-4 w-4 text-accent" />}>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-xs text-text-muted">
+          Pop a desktop notification, with a sound, when a new routed signal
+          lands — works while this app is open in any browser tab. Telegram
+          still covers you when the browser is closed.
+        </p>
+        <button
+          onClick={handleToggle}
+          role="switch"
+          aria-checked={enabled}
+          className={`shrink-0 relative w-11 h-6 rounded-full transition-colors ${
+            enabled ? "bg-accent" : "bg-surface-3"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
+              enabled ? "left-[22px]" : "left-0.5"
+            }`}
+          />
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -802,6 +858,7 @@ export default function SettingsPage() {
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
+            <SignalNotifications />
             <ChannelRouting />
             <AIAlertFilters />
             <ThemeToggle />
