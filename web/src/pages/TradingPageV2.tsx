@@ -13,6 +13,8 @@ import {
   useScanner,
   useOHLCV,
   useAlertsToday,
+  useAlertSessionDates,
+  useAlertsForDate,
   useAckAlert,
   useWatchlist,
   useAddSymbol,
@@ -202,6 +204,20 @@ function CompactWatchlistRow({
 
 /* ── Signal Feed Tab ──────────────────────────────────────────────── */
 
+/** True for alerts that belong in the Signals feed — AI scans + TV signals, no WAITs. */
+function isFeedSignal(alertType?: string): boolean {
+  const t = alertType ?? "";
+  return t !== "ai_scan_wait" && (t.startsWith("ai_") || t.startsWith("tv_"));
+}
+
+/** Format an ISO session date (YYYY-MM-DD) as e.g. "May 20". */
+function formatSessionDate(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  return isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function SignalFeedTab({
   alerts,
   alertsError,
@@ -230,16 +246,12 @@ function SignalFeedTab({
   }
 
   // AI scanner signals + every fired TradingView signal. WAITs excluded.
-  const feedAlerts = alerts?.filter((a) => {
-    const t = a.alert_type ?? "";
-    if (t === "ai_scan_wait") return false;
-    return t.startsWith("ai_") || t.startsWith("tv_");
-  }) ?? [];
+  const feedAlerts = alerts?.filter((a) => isFeedSignal(a.alert_type)) ?? [];
 
   if (feedAlerts.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-text-faint">No AI signals yet today</p>
+        <p className="text-xs text-text-faint">No signals in this session</p>
       </div>
     );
   }
@@ -447,6 +459,11 @@ export default function TradingPageV2() {
   const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
 
+  // Signals feed — which session to view ("" = today/latest)
+  const [signalDate, setSignalDate] = useState<string>("");
+  const { data: sessionDates } = useAlertSessionDates();
+  const { data: pastAlerts, error: pastAlertsError } = useAlertsForDate(signalDate);
+
   // Asset class filter for AI Signals + AI Updates tabs (persists in localStorage)
   type AssetFilter = "all" | "stocks" | "crypto";
   const [assetFilter, setAssetFilter] = useState<AssetFilter>(
@@ -617,11 +634,10 @@ export default function TradingPageV2() {
       return a.symbol.localeCompare(b.symbol);
     });
 
-  // Count actionable AI + TradingView signals for the badge — not WAITs
-  const alertCount = todayAlerts?.filter((a) => {
-    const t = a.alert_type ?? "";
-    return t !== "ai_scan_wait" && (t.startsWith("ai_") || t.startsWith("tv_"));
-  }).length ?? 0;
+  // The signals shown in the right panel — today/latest, or a chosen past session.
+  const activeAlerts = signalDate ? (pastAlerts ?? []) : todayAlerts;
+  const activeAlertsError = signalDate ? pastAlertsError : alertsError;
+  const feedCount = (activeAlerts ?? []).filter((a) => isFeedSignal(a.alert_type)).length;
 
   const watchlistWidth = watchlistCollapsed ? 48 : 180;
 
@@ -1018,15 +1034,26 @@ export default function TradingPageV2() {
       {/* ── RIGHT: Signals feed (desktop) ── */}
       {showRightPanel && (
         <aside className="hidden lg:flex flex-col w-[320px] bg-surface-0 border-l border-border-subtle shrink-0">
-          {/* Header */}
+          {/* Header — title, count, session picker */}
           <div className="flex items-center gap-2 border-b border-border-subtle shrink-0 h-14 px-3">
             <Zap className="h-4 w-4 text-accent" />
             <span className="text-sm font-bold text-text-primary">Signals</span>
-            {alertCount > 0 && (
+            {feedCount > 0 && (
               <span className="text-[9px] font-bold min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-accent/15 text-accent px-1">
-                {alertCount}
+                {feedCount}
               </span>
             )}
+            <select
+              value={signalDate}
+              onChange={(e) => setSignalDate(e.target.value)}
+              title="Review a past session"
+              className="ml-auto bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
+            >
+              <option value="">Today</option>
+              {(sessionDates ?? []).slice(1).map((d) => (
+                <option key={d} value={d}>{formatSessionDate(d)}</option>
+              ))}
+            </select>
           </div>
 
           {/* Asset filter */}
@@ -1049,8 +1076,8 @@ export default function TradingPageV2() {
           {/* Signal feed — AI scanner + TradingView signals */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <SignalFeedTab
-              alerts={filterAlertsByAsset(todayAlerts)}
-              alertsError={alertsError}
+              alerts={filterAlertsByAsset(activeAlerts)}
+              alertsError={activeAlertsError}
               onSelectSymbol={selectSymbol}
             />
           </div>
@@ -1062,11 +1089,21 @@ export default function TradingPageV2() {
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border-subtle">
           <Zap className="h-3.5 w-3.5 text-accent" />
           <span className="text-xs font-bold text-text-primary">Signals</span>
+          <select
+            value={signalDate}
+            onChange={(e) => setSignalDate(e.target.value)}
+            className="ml-auto bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
+          >
+            <option value="">Today</option>
+            {(sessionDates ?? []).slice(1).map((d) => (
+              <option key={d} value={d}>{formatSessionDate(d)}</option>
+            ))}
+          </select>
         </div>
         <div className="flex flex-col h-[240px] overflow-hidden">
           <SignalFeedTab
-            alerts={filterAlertsByAsset(todayAlerts)}
-            alertsError={alertsError}
+            alerts={filterAlertsByAsset(activeAlerts)}
+            alertsError={activeAlertsError}
             onSelectSymbol={selectSymbol}
           />
         </div>
