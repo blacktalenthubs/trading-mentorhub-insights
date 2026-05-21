@@ -12,7 +12,6 @@ import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   LayoutDashboard,
   Crosshair,
-  Brain,
   ArrowLeftRight,
   Settings,
   LogOut,
@@ -20,7 +19,6 @@ import {
   PlayCircle,
   PanelLeftClose,
   PanelLeftOpen,
-  FileText,
   Star,
   Activity,
   ListChecks,
@@ -41,19 +39,17 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/watchlist", label: "Watchlist", icon: Star },
   { to: "/focus-list", label: "Focus List", icon: Target },
   { to: "/premarket", label: "Premarket", icon: Activity },
-  { to: "/copilot", label: "AI CoPilot", icon: Brain },
   { to: "/review", label: "Review", icon: PlayCircle },
   { to: "/eod-report", label: "EOD Report", icon: ListChecks },
   { to: "/track-record", label: "AI Auto-Pilot", icon: Sparkles },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight, badge: "0" },
-  { to: "/ai-updates", label: "AI Updates", icon: FileText },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 const MOBILE_TABS: NavItem[] = [
   { to: "/dashboard", label: "Home", icon: LayoutDashboard },
   { to: "/trading", label: "Trade", icon: Crosshair },
-  { to: "/copilot", label: "CoPilot", icon: Brain },
+  { to: "/focus-list", label: "Focus", icon: Target },
   { to: "/review", label: "Review", icon: PlayCircle },
   { to: "/trades", label: "Trades", icon: ArrowLeftRight },
   { to: "/settings", label: "Settings", icon: Settings },

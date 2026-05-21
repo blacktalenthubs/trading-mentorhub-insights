@@ -21,14 +21,12 @@ import TradingPage from "./pages/TradingPage";
 import TradingPageV2 from "./pages/TradingPageV2";
 import RealTradesPage from "./pages/RealTradesPage";
 import SettingsPage from "./pages/SettingsPage";
-import AICoPilotPage from "./pages/AICoPilotPage";
 import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import TradeReviewPage from "./pages/TradeReviewPage";
 import EODReportPage from "./pages/EODReportPage";
 import PublicEODReportPage from "./pages/PublicEODReportPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
-import AIUpdatesPage from "./pages/AIUpdatesPage";
 import WatchlistPage from "./pages/WatchlistPage";
 import PremarketPage from "./pages/PremarketPage";
 import FocusListPage from "./pages/FocusListPage";
@@ -102,14 +100,12 @@ export default function App() {
                 <Route path="dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
                 <Route path="trading" element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
                 <Route path="trading-v1" element={<ErrorBoundary><TradingPage /></ErrorBoundary>} />
-                <Route path="copilot" element={<ErrorBoundary><AICoPilotPage /></ErrorBoundary>} />
                 <Route path="review" element={<ErrorBoundary><TradeReviewPage /></ErrorBoundary>} />
                 <Route path="eod-report" element={<ErrorBoundary><EODReportPage /></ErrorBoundary>} />
                 <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
                 <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
                 <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
                 <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
-                <Route path="ai-updates" element={<ErrorBoundary><AIUpdatesPage /></ErrorBoundary>} />
 
                 <Route path="watchlist" element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
                 <Route path="premarket" element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />

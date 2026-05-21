@@ -18,18 +18,13 @@ import {
   useAddSymbol,
   useRemoveSymbol,
   useLivePrices,
-  useOptionsFlow,
   useWatchlistRank,
 } from "../api/hooks";
 import type { WatchlistRankItem } from "../types";
-import { useCoachStream } from "../hooks/useCoachStream";
-import { useFeatureGate } from "../hooks/useFeatureGate";
-import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import CandlestickChart from "../components/CandlestickChart";
-import BestSetupsCard from "../components/BestSetupsCard";
 import {
   Search,
   Target,
@@ -39,10 +34,7 @@ import {
   Loader2,
   SlidersHorizontal,
   Brain,
-  Sparkles,
   Zap,
-  Eye,
-  Send,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -208,288 +200,6 @@ function CompactWatchlistRow({
   );
 }
 
-/* ── AI Coach Tab ─────────────────────────────────────────────────── */
-
-function AICoachTab({
-  symbol,
-  ohlcv,
-  timeframe,
-}: {
-  symbol: string | null;
-  ohlcv?: import("../api/hooks").OHLCBar[];
-  timeframe?: string;
-}) {
-  const { messages, streaming, sendMessage, stopStreaming, clearMessages, setChartContext } =
-    useCoachStream();
-  const [input, setInput] = useState("");
-  const [lastAutoSymbol, setLastAutoSymbol] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (symbol && ohlcv && ohlcv.length > 0) {
-      setChartContext({ symbol, timeframe: timeframe || "D", bars: ohlcv });
-    }
-  }, [symbol, ohlcv, timeframe, setChartContext]);
-
-  // Track symbol changes — update context but DON'T clear messages.
-  // Users want their conversation history to persist across symbol switches.
-  useEffect(() => {
-    if (symbol && symbol !== lastAutoSymbol) {
-      setLastAutoSymbol(symbol);
-    }
-  }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, streaming]);
-
-  function getCurrentChartContext() {
-    if (symbol && ohlcv && ohlcv.length > 0) {
-      return { symbol, timeframe: timeframe || "D", bars: ohlcv };
-    }
-    return undefined;
-  }
-
-  function handleSend() {
-    if (!input.trim()) return;
-    const prompt = symbol ? `[Looking at ${symbol}] ${input.trim()}` : input.trim();
-    sendMessage(prompt, getCurrentChartContext());
-    setInput("");
-  }
-
-  return (
-    <div className="flex h-full flex-col">
-      {/* Quick prompts when empty */}
-      {messages.length === 0 && symbol && !streaming && (
-        <div className="px-3 py-3 space-y-1.5 shrink-0">
-          <p className="text-[10px] font-semibold uppercase text-text-faint tracking-wider mb-1">
-            Ask about {symbol}
-          </p>
-          {[
-            { tag: "Entry", q: "What's the best entry strategy here?" },
-            { tag: "Stop", q: "Where should I set my stop?" },
-            { tag: "Bias", q: "Is this setup high conviction?" },
-          ].map(({ tag, q }) => (
-            <button
-              key={q}
-              onClick={() =>
-                sendMessage(`[Looking at ${symbol}] ${q}`, getCurrentChartContext())
-              }
-              className="flex items-center gap-2 w-full rounded-lg bg-surface-2/60 border border-border-subtle/50 px-3 py-2 text-left text-xs text-text-muted hover:bg-accent/[0.06] hover:border-accent/20 hover:text-text-secondary transition-all duration-150"
-            >
-              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-accent bg-accent/10 px-1.5 py-0.5 rounded">
-                {tag}
-              </span>
-              {q}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-3 min-h-0">
-        {messages.map((m, i) => {
-          if (i === 0 && m.role === "user") return null;
-          return (
-            <div
-              key={i}
-              className={`text-[13px] leading-[1.6] ${m.role === "user" ? "text-accent" : "text-text-secondary"}`}
-            >
-              {m.role === "user" ? (
-                <p className="font-medium bg-accent/[0.06] rounded-lg px-3 py-2 border border-accent/10">
-                  {m.content}
-                </p>
-              ) : m.content.toLowerCase().includes("limit reached") || m.content.toLowerCase().includes("upgrade") ? (
-                <div className="bg-surface-2/60 rounded-lg border border-accent/20 p-4 text-center">
-                  <p className="text-text-secondary text-sm mb-3">{m.content}</p>
-                  <Link
-                    to="/billing"
-                    className="inline-block px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors"
-                  >
-                    Upgrade Plan →
-                  </Link>
-                </div>
-              ) : (
-                <div className="bg-surface-2/60 rounded-lg border border-border-subtle p-3 relative">
-                  <p
-                    className="whitespace-pre-wrap text-[13px]"
-                    dangerouslySetInnerHTML={{
-                      __html: m.content
-                        .replace(
-                          /\*\*(.+?)\*\*/g,
-                          "<strong class='text-text-primary font-semibold'>$1</strong>"
-                        )
-                        .replace(/^• /gm, "&#8226; "),
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {streaming && (
-          <div className="flex items-center gap-2 text-xs bg-surface-2/40 rounded-lg px-3 py-2 border border-border-subtle/50">
-            <span className="flex gap-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: "300ms" }} />
-            </span>
-            <span className="text-text-muted">Analyzing...</span>
-            <button onClick={stopStreaming} className="ml-auto text-bearish-text hover:text-bearish text-[10px] font-medium">
-              Stop
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-border-subtle p-2.5 shrink-0">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder={symbol ? `Ask about ${symbol}...` : "Ask the AI coach..."}
-            disabled={streaming}
-            className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-1.5 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none disabled:opacity-50 transition-all"
-          />
-          <button
-            onClick={handleSend}
-            disabled={streaming || !input.trim()}
-            className="rounded-lg bg-accent px-2.5 py-1.5 text-white transition-all hover:bg-accent-hover disabled:opacity-40"
-          >
-            <Send className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="flex items-center justify-between mt-1.5">
-          <span
-            className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full ring-1 ring-inset uppercase flex items-center gap-1 ${
-              streaming
-                ? "bg-accent/10 text-accent ring-accent/20"
-                : "bg-bullish/10 text-bullish-text ring-bullish/20"
-            }`}
-          >
-            <span className={`w-1 h-1 rounded-full ${streaming ? "bg-accent animate-pulse" : "bg-bullish"}`} />
-            {streaming ? "Thinking" : "Live"}
-          </span>
-          {messages.length > 0 && (
-            <button
-              onClick={() => {
-                clearMessages();
-                setLastAutoSymbol(null);
-              }}
-              className="text-[10px] text-text-faint hover:text-text-muted"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── AI WAITs Feed Tab ─────────────────────────────────────────────
- *  WAIT signals only — informational, shows what AI is ignoring.
- *  Used to build trust (AI is disciplined, not noisy).
- */
-
-function AIScanFeedTab({
-  alerts,
-  onSelectSymbol,
-}: {
-  alerts?: Alert[];
-  onSelectSymbol: (sym: string) => void;
-}) {
-  const { tier } = useFeatureGate();
-  const isFree = tier === "free";
-  const visibleLimit = isFree ? 5 : null;
-  // WAIT alerts only — LONG/SHORT/RESISTANCE/EXIT live in the Signals tab
-  const aiAlerts = (alerts?.filter((a) => a.alert_type === "ai_scan_wait") ?? [])
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-  if (aiAlerts.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-text-faint">No AI updates yet today</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-      {aiAlerts.map((a, idx) => {
-        // Free tier: blur alerts beyond limit
-        if (visibleLimit && idx >= visibleLimit) {
-          return (
-            <div key={a.id} className="relative">
-              <div className="blur-sm opacity-40 bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5">
-                <div className="text-[11px] text-text-muted">AI Scan alert</div>
-              </div>
-              {idx === visibleLimit && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Link to="/billing" className="bg-accent text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-accent-hover transition-colors">
-                    Upgrade for unlimited AI scans
-                  </Link>
-                </div>
-              )}
-            </div>
-          );
-        }
-        const time = new Date(a.created_at).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-        const isWait = a.alert_type === "ai_scan_wait" || a.direction === "NOTICE";
-        const isLong = a.direction === "BUY";
-        const badge = isWait
-          ? "bg-gray-500/10 text-gray-400 border-gray-500/20"
-          : isLong
-            ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
-            : "bg-orange-500/10 text-orange-400 border-orange-500/20";
-        const label = isWait ? "AI UPDATE" : isLong ? "AI LONG" : "AI RESISTANCE";
-
-        return (
-          <div
-            key={a.id}
-            className={`border border-border-subtle/60 rounded-lg p-2.5 cursor-pointer transition-colors ${
-              isWait ? "bg-surface-2/20 opacity-60" : "bg-surface-2/40 hover:border-purple-500/20"
-            }`}
-            onClick={() => onSelectSymbol(a.symbol)}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold text-text-primary">{a.symbol}</span>
-                <span className={`text-[9px] font-semibold px-1 py-0.5 rounded border ${badge}`}>
-                  {label}
-                </span>
-                {a.price > 0 && (
-                  <span className="text-[10px] font-mono text-text-muted">${a.price?.toFixed(2)}</span>
-                )}
-              </div>
-              <span className="text-[10px] font-mono text-text-faint">{time}</span>
-            </div>
-            <p className="text-[11px] text-text-muted leading-relaxed line-clamp-2">
-              {a.message}
-            </p>
-            {!isWait && a.entry && (
-              <div className="flex gap-3 mt-1 text-[10px] text-text-faint">
-                <span>Entry: <span className="text-purple-400 font-mono">${a.entry?.toFixed(2)}</span></span>
-                {a.stop && <span>Stop: <span className="text-red-400 font-mono">${a.stop?.toFixed(2)}</span></span>}
-                {a.target_1 && <span>T1: <span className="text-emerald-400 font-mono">${a.target_1?.toFixed(2)}</span></span>}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-
 /* ── Signal Feed Tab ──────────────────────────────────────────────── */
 
 function SignalFeedTab({
@@ -519,15 +229,14 @@ function SignalFeedTab({
     );
   }
 
-  // Show actionable AI alerts only — LONG / SHORT / RESISTANCE / EXIT.
-  // WAIT lives in the AI Waits tab. Rule-based alerts are deprecated (Spec 34).
-  const ruleAlerts = alerts?.filter((a) => {
-    if (!a.alert_type?.startsWith("ai_")) return false;  // no rule-based
-    if (a.alert_type === "ai_scan_wait") return false;   // WAITs go to the other tab
-    return true;
+  // AI scanner signals + every fired TradingView signal. WAITs excluded.
+  const feedAlerts = alerts?.filter((a) => {
+    const t = a.alert_type ?? "";
+    if (t === "ai_scan_wait") return false;
+    return t.startsWith("ai_") || t.startsWith("tv_");
   }) ?? [];
 
-  if (ruleAlerts.length === 0) {
+  if (feedAlerts.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-xs text-text-faint">No AI signals yet today</p>
@@ -537,20 +246,27 @@ function SignalFeedTab({
 
   return (
     <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-      {ruleAlerts.map((a) => {
+      {feedAlerts.map((a) => {
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
         });
         const isAIScan = a.alert_type?.startsWith("ai_");
-        const dirLabel = isAIScan ? "AI SCAN" : a.direction === "SHORT" ? "RESISTANCE" : a.direction;
+        const isTV = a.alert_type?.startsWith("tv_");
+        const dirLabel = isAIScan
+          ? "AI SCAN"
+          : isTV
+            ? "TV"
+            : a.direction === "SHORT" ? "RESISTANCE" : a.direction;
         const dirBadge = isAIScan
             ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
-            : a.direction === "BUY"
-              ? "bg-bullish/10 text-bullish-text border-bullish/20"
-              : a.direction === "SHORT"
-                ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
-                : "bg-warning/10 text-warning-text border-warning/20";
+            : isTV
+              ? "bg-sky-500/10 text-sky-400 border-sky-500/20"
+              : a.direction === "BUY"
+                ? "bg-bullish/10 text-bullish-text border-bullish/20"
+                : a.direction === "SHORT"
+                  ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+                  : "bg-warning/10 text-warning-text border-warning/20";
 
         return (
           <div
@@ -607,67 +323,6 @@ function SignalFeedTab({
           </div>
         );
       })}
-    </div>
-  );
-}
-
-/* ── Options Flow Tab ─────────────────────────────────────────────── */
-
-function OptionsFlowTab({ symbols }: { symbols: string }) {
-  const { data: flowItems, isLoading } = useOptionsFlow(symbols);
-
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center gap-2">
-        <Loader2 className="h-3 w-3 animate-spin text-text-faint" />
-        <span className="text-xs text-text-faint">Scanning options chains...</span>
-      </div>
-    );
-  }
-
-  if (!flowItems || flowItems.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-text-faint">No unusual options activity detected</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-      {flowItems.map((item, i) => (
-        <div
-          key={`${item.symbol}-${item.type}-${item.strike}-${item.expiry}-${i}`}
-          className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-2/40 border border-border-subtle/60 hover:border-accent/20 transition-colors"
-        >
-          <span className="text-[11px] font-bold text-text-primary w-10 shrink-0">
-            {item.symbol}
-          </span>
-          <span
-            className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
-              item.type === "CALL"
-                ? "bg-bullish/10 text-bullish-text border border-bullish/20"
-                : "bg-bearish/10 text-bearish-text border border-bearish/20"
-            }`}
-          >
-            {item.type}
-          </span>
-          <div className="flex flex-col flex-1 min-w-0">
-            <span className="font-mono text-[11px] text-text-secondary">${item.strike}</span>
-            <span className="text-[10px] text-text-faint">{item.expiry}</span>
-          </div>
-          <div className="flex flex-col items-end shrink-0">
-            <span className="font-mono text-[11px] text-text-primary">
-              {item.volume.toLocaleString()}
-            </span>
-            <span
-              className={`text-[10px] font-bold ${item.volume_oi_ratio >= 10 ? "text-accent" : "text-text-muted"}`}
-            >
-              {item.volume_oi_ratio.toFixed(1)}x
-            </span>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -750,10 +405,6 @@ function BottomStrip({ signal: s }: { signal: SignalResult }) {
   );
 }
 
-/* ── Right Panel Tabs ─────────────────────────────────────────────── */
-
-type RightTab = "ai" | "best" | "signals" | "flow" | "aiscan";
-
 /* ── Main TradingPage V2 ─────────────────────────────────────────── */
 
 export default function TradingPageV2() {
@@ -794,9 +445,7 @@ export default function TradingPageV2() {
 
   /* ── Panel state ── */
   const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
-  const [rightTab, setRightTab] = useState<RightTab>("ai");
   const [showRightPanel, setShowRightPanel] = useState(true);
-  const [mobileTab, setMobileTab] = useState<RightTab>("ai");
 
   // Asset class filter for AI Signals + AI Updates tabs (persists in localStorage)
   type AssetFilter = "all" | "stocks" | "crypto";
@@ -968,17 +617,11 @@ export default function TradingPageV2() {
       return a.symbol.localeCompare(b.symbol);
     });
 
-  // Count only actionable AI signals for the badge — not rules, not WAITs
-  const alertCount = todayAlerts?.filter((a) =>
-    a.alert_type?.startsWith("ai_") && a.alert_type !== "ai_scan_wait"
-  ).length ?? 0;
-  const flowSymbols =
-    selected?.symbol ||
-    (signals ?? [])
-      .map((s) => s.symbol)
-      .slice(0, 5)
-      .join(",") ||
-    "SPY";
+  // Count actionable AI + TradingView signals for the badge — not WAITs
+  const alertCount = todayAlerts?.filter((a) => {
+    const t = a.alert_type ?? "";
+    return t !== "ai_scan_wait" && (t.startsWith("ai_") || t.startsWith("tv_"));
+  }).length ?? 0;
 
   const watchlistWidth = watchlistCollapsed ? 48 : 180;
 
@@ -1372,132 +1015,60 @@ export default function TradingPageV2() {
         {selected && <BottomStrip signal={selected} />}
       </section>
 
-      {/* ── RIGHT: Tabbed Sidebar (desktop) ── */}
+      {/* ── RIGHT: Signals feed (desktop) ── */}
       {showRightPanel && (
         <aside className="hidden lg:flex flex-col w-[320px] bg-surface-0 border-l border-border-subtle shrink-0">
-          {/* Tab bar — vertical icon+short-label stack, tooltip on hover */}
-          <div className="flex border-b border-border-subtle shrink-0 h-14 bg-surface-1/40">
-            {(
-              [
-                { key: "ai" as RightTab, label: "Coach", full: "AI Coach", icon: Brain, badge: 0 },
-                { key: "best" as RightTab, label: "Best", full: "Best Setups Today", icon: Sparkles, badge: 0 },
-                { key: "signals" as RightTab, label: "Signals", full: "AI Signals", icon: Zap, badge: alertCount },
-                { key: "aiscan" as RightTab, label: "Updates", full: "AI Updates", icon: Eye, badge: 0 },
-              ]
-            ).map(({ key, label, full, icon: Icon, badge }) => (
+          {/* Header */}
+          <div className="flex items-center gap-2 border-b border-border-subtle shrink-0 h-14 px-3">
+            <Zap className="h-4 w-4 text-accent" />
+            <span className="text-sm font-bold text-text-primary">Signals</span>
+            {alertCount > 0 && (
+              <span className="text-[9px] font-bold min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-accent/15 text-accent px-1">
+                {alertCount}
+              </span>
+            )}
+          </div>
+
+          {/* Asset filter */}
+          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-subtle shrink-0">
+            {(["all", "stocks", "crypto"] as const).map((k) => (
               <button
-                key={key}
-                onClick={() => setRightTab(key)}
-                title={full}
-                className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors relative px-1 ${
-                  rightTab === key
-                    ? "text-accent bg-accent/5"
-                    : "text-text-muted hover:text-text-secondary hover:bg-surface-2/40"
+                key={k}
+                onClick={() => changeAssetFilter(k)}
+                className={`text-[10px] px-2.5 py-0.5 rounded-full border transition-colors ${
+                  assetFilter === k
+                    ? "bg-accent/15 text-accent border-accent/40"
+                    : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
                 }`}
               >
-                <div className="flex items-center gap-1">
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  {badge != null && badge > 0 && (
-                    <span className="text-[8px] font-bold min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-bearish/15 text-bearish-text ring-1 ring-inset ring-bearish/20 px-0.5">
-                      {badge}
-                    </span>
-                  )}
-                </div>
-                <span className="whitespace-nowrap leading-none">{label}</span>
-                {rightTab === key && (
-                  <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-accent rounded-t" />
-                )}
+                {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
               </button>
             ))}
           </div>
 
-          {/* Tab content */}
+          {/* Signal feed — AI scanner + TradingView signals */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <div className={rightTab === "ai" ? "flex-1 flex flex-col min-h-0" : "hidden"}>
-              <AICoachTab
-                symbol={selected?.symbol ?? null}
-                ohlcv={ohlcv}
-                timeframe={tf.label}
-              />
-            </div>
-            {(rightTab === "signals" || rightTab === "aiscan") && (
-              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-subtle shrink-0">
-                {(["all", "stocks", "crypto"] as const).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => changeAssetFilter(k)}
-                    className={`text-[10px] px-2.5 py-0.5 rounded-full border transition-colors ${
-                      assetFilter === k
-                        ? "bg-accent/15 text-accent border-accent/40"
-                        : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
-                    }`}
-                  >
-                    {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
-                  </button>
-                ))}
-              </div>
-            )}
-            {rightTab === "best" && (
-              <BestSetupsCard onSelectSymbol={selectSymbol} />
-            )}
-            {rightTab === "signals" && (
-              <SignalFeedTab
-                alerts={filterAlertsByAsset(todayAlerts)}
-                alertsError={alertsError}
-                onSelectSymbol={selectSymbol}
-              />
-            )}
-            {rightTab === "aiscan" && (
-              <AIScanFeedTab
-                alerts={filterAlertsByAsset(todayAlerts)}
-                onSelectSymbol={selectSymbol}
-              />
-            )}
+            <SignalFeedTab
+              alerts={filterAlertsByAsset(todayAlerts)}
+              alertsError={alertsError}
+              onSelectSymbol={selectSymbol}
+            />
           </div>
         </aside>
       )}
 
-      {/* ── Mobile bottom tabs (AI / Signals) — visible below lg ── */}
+      {/* ── Mobile signals panel — visible below lg ── */}
       <div className="fixed inset-x-0 bottom-14 z-20 lg:hidden bg-surface-1 border-t border-border-subtle">
-        {/* Mobile tab content */}
-        <div className="h-[280px] overflow-hidden">
-          {mobileTab === "ai" && (
-            <AICoachTab
-              symbol={selected?.symbol ?? null}
-              ohlcv={ohlcv}
-              timeframe={tf.label}
-            />
-          )}
-          {mobileTab === "signals" && (
-            <SignalFeedTab
-              alerts={todayAlerts}
-              alertsError={alertsError}
-              onSelectSymbol={selectSymbol}
-            />
-          )}
-          {mobileTab === "flow" && <OptionsFlowTab symbols={flowSymbols} />}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border-subtle">
+          <Zap className="h-3.5 w-3.5 text-accent" />
+          <span className="text-xs font-bold text-text-primary">Signals</span>
         </div>
-
-        {/* Mobile tab bar */}
-        <div className="flex border-t border-border-subtle">
-          {(
-            [
-              { key: "ai" as RightTab, label: "AI", icon: Brain },
-              { key: "signals" as RightTab, label: "Signals", icon: Zap },
-              { key: "aiscan" as RightTab, label: "Updates", icon: Eye },
-            ] as const
-          ).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setMobileTab(key)}
-              className={`flex-1 flex items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors ${
-                mobileTab === key ? "text-accent" : "text-text-muted"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-col h-[240px] overflow-hidden">
+          <SignalFeedTab
+            alerts={filterAlertsByAsset(todayAlerts)}
+            alertsError={alertsError}
+            onSelectSymbol={selectSymbol}
+          />
         </div>
       </div>
     </div>

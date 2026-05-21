@@ -687,19 +687,6 @@ export function useAlertsForDate(date: string) {
   });
 }
 
-export function useAIUpdatesForDate(date: string, symbols?: string[]) {
-  const symbolsParam = symbols && symbols.length > 0 ? symbols.join(",") : "";
-  return useQuery({
-    queryKey: ["ai-updates", date, symbolsParam],
-    queryFn: () => {
-      const qs = new URLSearchParams({ session_date: date });
-      if (symbolsParam) qs.set("symbols", symbolsParam);
-      return api.get<Alert[]>(`/diagnostics/ai-updates?${qs.toString()}`);
-    },
-    enabled: !!date,
-  });
-}
-
 // --- Performance Breakdown ---
 
 export function usePerformanceBreakdown() {
@@ -1077,44 +1064,6 @@ export function useTradeJournal(date?: string) {
     queryKey: ["trade-journal", date],
     queryFn: () => api.get<JournalEntry[]>(`/intel/trade-journal${date ? `?date=${date}` : ""}`),
     staleTime: 5 * 60_000,
-  });
-}
-
-// --- AI Coach: pinned Best Setup alerts ---
-// The on-demand scan now persists via the Focus List hooks above
-// (spec 55) — the old useBestSetups live-scan hook was removed.
-
-export interface PinAlertPayload {
-  symbol: string;
-  timeframe: "day" | "swing";
-  direction: "LONG" | "SHORT";
-  setup_type: string;
-  entry: number;
-  stop: number | null;
-  t1: number | null;
-  t2: number | null;
-  conviction: string;
-  why_now: string;
-  current_price: number;
-}
-
-export function usePinBestSetupAlert() {
-  return useMutation({
-    mutationFn: (payload: PinAlertPayload) =>
-      api.post<{ ok: boolean; alert_id: number; telegram_sent: boolean }>(
-        "/ai/best-setups/alert",
-        payload,
-      ),
-    onSuccess: (data) => {
-      if (data.telegram_sent) {
-        toast.success("Alert sent to Telegram");
-      } else {
-        toast.info("Alert recorded (Telegram not enabled)");
-      }
-    },
-    onError: (err: { message?: string; detail?: { message?: string } }) => {
-      toast.error(err.detail?.message || err.message || "Failed to send alert");
-    },
   });
 }
 
