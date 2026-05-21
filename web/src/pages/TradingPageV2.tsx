@@ -220,6 +220,43 @@ function formatSessionDate(iso: string): string {
     : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** Short, human-readable setup name from a raw alert_type. */
+function formatSetup(alertType?: string): string {
+  const t = (alertType ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
+  if (!t) return "Signal";
+  // MA families — ma_bounce_long_v3_ema8_ema21 -> "EMA 8 + EMA 21 bounce"
+  const ma = t.match(/^ma_(bounce_long|rejection_short|proximity_long|proximity_short)_v3_(.+)$/);
+  if (ma) {
+    const kind = ma[1] === "bounce_long" ? "bounce"
+      : ma[1] === "rejection_short" ? "rejection" : "proximity";
+    const mas = ma[2].split("_")
+      .map((m) => m.toUpperCase().replace(/^(EMA|SMA)/, "$1 "))
+      .join(" + ");
+    return `${mas} ${kind}`;
+  }
+  // Staged level events — staged_pdh_break -> "PDH break", staged_pwl_reclaim -> "Weekly low reclaim"
+  const sm = t.match(/^staged_p([dwm])([hl])_(.+)$/);
+  if (sm) {
+    const lvl = sm[1] === "d"
+      ? "PD" + sm[2].toUpperCase()
+      : (sm[1] === "w" ? "Weekly " : "Monthly ") + (sm[2] === "h" ? "high" : "low");
+    return `${lvl} ${sm[3].replace(/_/g, " ")}`;
+  }
+  const NAMES: Record<string, string> = {
+    open_reclaimed: "Open reclaimed",
+    open_held: "Open held",
+    open_wick_reclaim: "Open wick reclaim",
+    open_lost: "Open lost",
+    htf_support_held: "HTF support held",
+    htf_proximity: "HTF proximity",
+    pullback_long: "Pullback continuation",
+  };
+  return NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const fmtPrice = (v: number | null | undefined) =>
+  v != null ? `$${v.toFixed(2)}` : "—";
+
 function SignalFeedTab({
   alerts,
   alertsError,
@@ -275,20 +312,15 @@ function SignalFeedTab({
         const isAIScan = a.alert_type?.startsWith("ai_");
         const isTV = a.alert_type?.startsWith("tv_");
         const notRouted = a.suppressed_reason === "type_not_enabled";
-        const dirLabel = isAIScan
-          ? "AI SCAN"
-          : isTV
-            ? "TV"
-            : a.direction === "SHORT" ? "RESISTANCE" : a.direction;
-        const dirBadge = isAIScan
-            ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
-            : isTV
-              ? "bg-sky-500/10 text-sky-400 border-sky-500/20"
-              : a.direction === "BUY"
-                ? "bg-bullish/10 text-bullish-text border-bullish/20"
-                : a.direction === "SHORT"
-                  ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
-                  : "bg-warning/10 text-warning-text border-warning/20";
+        const dirText = a.direction === "BUY" ? "LONG"
+          : a.direction === "SHORT" ? "SHORT"
+          : a.direction === "NOTICE" ? "NOTICE" : (a.direction || "—");
+        const dirCls = a.direction === "BUY"
+          ? "bg-bullish/10 text-bullish-text border-bullish/20"
+          : a.direction === "SHORT"
+            ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+            : "bg-warning/10 text-warning-text border-warning/20";
+        const src = isTV ? "TV" : isAIScan ? "AI" : "";
 
         return (
           <div
@@ -298,12 +330,18 @@ function SignalFeedTab({
             }`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
-            <div className="flex items-center justify-between mb-1">
+            {/* Header — symbol, direction, source, time */}
+            <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold text-text-primary">{a.symbol}</span>
-                <span className={`text-[9px] font-semibold px-1 py-0.5 rounded border ${dirBadge}`}>
-                  {dirLabel}
+                <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
+                <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirCls}`}>
+                  {dirText}
                 </span>
+                {src && (
+                  <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-surface-3 text-text-faint">
+                    {src}
+                  </span>
+                )}
                 {notRouted && (
                   <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-3 text-text-faint uppercase tracking-wide">
                     not routed
@@ -312,12 +350,43 @@ function SignalFeedTab({
               </div>
               <span className="text-[10px] font-mono text-text-faint">{time}</span>
             </div>
-            <p className="text-[11px] text-text-muted leading-relaxed line-clamp-2">
-              {a.message}
-            </p>
+
+            {/* Setup name */}
+            <div className="text-[11px] font-medium text-text-secondary mb-1.5">
+              {formatSetup(a.alert_type)}
+            </div>
+
+            {/* Trade levels — entry / stop / T1 / T2 */}
+            {a.entry != null ? (
+              <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+                <div>
+                  <div className="text-text-faint">Entry</div>
+                  <div className="font-mono font-bold text-accent">{fmtPrice(a.entry)}</div>
+                </div>
+                <div>
+                  <div className="text-text-faint">Stop</div>
+                  <div className="font-mono text-bearish-text">{fmtPrice(a.stop)}</div>
+                </div>
+                <div>
+                  <div className="text-text-faint">T1</div>
+                  <div className="font-mono text-bullish-text">{fmtPrice(a.target_1)}</div>
+                </div>
+                <div>
+                  <div className="text-text-faint">T2</div>
+                  <div className="font-mono text-text-secondary">{fmtPrice(a.target_2)}</div>
+                </div>
+              </div>
+            ) : (
+              a.message && (
+                <p className="text-[10px] text-text-muted leading-relaxed line-clamp-2">
+                  {a.message}
+                </p>
+              )
+            )}
+
             {/* Action buttons — not shown on non-routed (review-only) rows */}
             {!notRouted && a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
-              <div className="flex gap-2 mt-1.5">
+              <div className="flex gap-2 mt-2">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -340,7 +409,7 @@ function SignalFeedTab({
             )}
             {a.user_action && (
               <span
-                className={`mt-1.5 inline-flex text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                className={`mt-2 inline-flex text-[9px] font-bold px-1.5 py-0.5 rounded ${
                   a.user_action === "took"
                     ? "text-bullish-text bg-bullish/10 border border-bullish/20"
                     : "text-text-muted bg-surface-3 border border-border-subtle"
