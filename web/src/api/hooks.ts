@@ -346,6 +346,9 @@ export function useAlertsToday() {
     queryKey: ["alerts-today"],
     queryFn: () => api.get<Alert[]>("/alerts/today"),
     refetchInterval: 20_000, // refresh every 20s to catch new alerts
+    // Keep polling even when the tab is backgrounded — otherwise signal
+    // notifications would only fire while you're looking at the tab.
+    refetchIntervalInBackground: true,
   });
 }
 

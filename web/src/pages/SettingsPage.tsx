@@ -798,20 +798,25 @@ function AlertTypesSection() {
 
 function SignalNotifications() {
   const [enabled, setEnabled] = useState(() => signalNotificationsEnabled());
-  const supported = typeof Notification !== "undefined";
+  const [perm, setPerm] = useState<string>(
+    typeof Notification !== "undefined" ? Notification.permission : "unsupported",
+  );
+
+  async function requestPerm(): Promise<boolean> {
+    if (typeof Notification === "undefined") {
+      toast.error("This browser doesn't support notifications.");
+      return false;
+    }
+    let p = Notification.permission;
+    if (p === "default") p = await Notification.requestPermission();
+    setPerm(p);
+    return p === "granted";
+  }
 
   async function handleToggle() {
-    if (!enabled) {
-      if (!supported) {
-        toast.error("This browser doesn't support notifications.");
-        return;
-      }
-      let perm = Notification.permission;
-      if (perm === "default") perm = await Notification.requestPermission();
-      if (perm !== "granted") {
-        toast.error("Allow notifications for this site in your browser, then try again.");
-        return;
-      }
+    if (!enabled && !(await requestPerm())) {
+      toast.error("Allow notifications for this site, then try again.");
+      return;
     }
     const next = !enabled;
     setEnabled(next);
@@ -819,13 +824,40 @@ function SignalNotifications() {
     toast.success(next ? "Signal notifications on" : "Signal notifications off");
   }
 
+  async function sendTest() {
+    if (!(await requestPerm())) {
+      toast.error("Permission not granted — allow notifications in your browser.");
+      return;
+    }
+    toast.info("Test — TradeCoPilot signal notification");
+    try {
+      const n = new Notification("TradeCoPilot · test signal", {
+        body: "If you see this, signal notifications are working.",
+        icon: "/logo-profile.svg",
+      });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    } catch {
+      toast.error(
+        "Couldn't show the popup — check macOS System Settings → Notifications for your browser.",
+      );
+    }
+  }
+
+  const permLabel = perm === "granted" ? "granted"
+    : perm === "denied" ? "blocked"
+    : perm === "unsupported" ? "unsupported"
+    : "not asked yet";
+
   return (
     <Section title="Signal Notifications" icon={<Bell className="h-4 w-4 text-accent" />}>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 mb-3">
         <p className="text-xs text-text-muted">
           Pop a desktop notification, with a sound, when a new routed signal
-          lands — works while this app is open in any browser tab. Telegram
-          still covers you when the browser is closed.
+          lands — works while this app is open in any browser tab (even a
+          background tab). Telegram still covers you when the browser is closed.
         </p>
         <button
           onClick={handleToggle}
@@ -842,6 +874,37 @@ function SignalNotifications() {
           />
         </button>
       </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 border border-border-subtle px-3 py-2">
+        <span className="text-[11px] text-text-muted">
+          Browser permission:{" "}
+          <span
+            className={`font-semibold ${
+              perm === "granted"
+                ? "text-bullish-text"
+                : perm === "denied"
+                ? "text-bearish-text"
+                : "text-text-secondary"
+            }`}
+          >
+            {permLabel}
+          </span>
+        </span>
+        <button
+          onClick={sendTest}
+          className="text-[11px] px-3 py-1 rounded-md bg-accent/15 text-accent hover:bg-accent/25 transition-colors font-medium"
+        >
+          Send test
+        </button>
+      </div>
+
+      {perm === "denied" && (
+        <p className="text-[10px] text-bearish-text/80 mt-2">
+          Notifications are blocked. Re-allow them for this site in your
+          browser's site settings, and make sure your browser is allowed in
+          macOS System Settings → Notifications.
+        </p>
+      )}
     </Section>
   );
 }
