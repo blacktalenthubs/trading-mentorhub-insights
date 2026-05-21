@@ -77,8 +77,8 @@ interface IndicatorDef {
 }
 
 const ALL_INDICATORS: IndicatorDef[] = [
-  { key: "ema5", label: "EMA 5", color: "#f472b6", group: "ema" },
-  { key: "ema20", label: "EMA 20", color: "#60a5fa", group: "ema" },
+  { key: "ema8", label: "EMA 8", color: "#f472b6", group: "ema" },
+  { key: "ema21", label: "EMA 21", color: "#60a5fa", group: "ema" },
   { key: "ema50", label: "EMA 50", color: "#f59e0b", group: "ema" },
   { key: "ema100", label: "EMA 100", color: "#a78bfa", group: "ema" },
   { key: "ema200", label: "EMA 200", color: "#34d399", group: "ema" },
@@ -89,11 +89,13 @@ const ALL_INDICATORS: IndicatorDef[] = [
   { key: "vwap", label: "VWAP", color: "#e879f9", group: "other" },
 ];
 
-const DEFAULT_INDICATORS = new Set(["ema5", "ema20", "ema100", "ema200"]);
+// Key EMAs always on by default: 8 / 21 / 50 / 100 / 200.
+const DEFAULT_INDICATORS = new Set(["ema8", "ema21", "ema50", "ema100", "ema200"]);
 
 function loadSavedIndicators(): Set<string> | null {
   try {
-    const raw = localStorage.getItem("chart_indicators");
+    // v2 key — bumped 2026-05-21 when the EMA defaults changed to 8/21/50/100/200.
+    const raw = localStorage.getItem("chart_indicators_v2");
     if (!raw) return null;
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr) || arr.length === 0) return null;
@@ -512,7 +514,7 @@ export default function TradingPageV2() {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      localStorage.setItem("chart_indicators", JSON.stringify([...next]));
+      localStorage.setItem("chart_indicators_v2", JSON.stringify([...next]));
       return next;
     });
   }
