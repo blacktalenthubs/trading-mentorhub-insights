@@ -490,22 +490,32 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     try:
         from app.models.alert_type_config import AlertTypeConfig
         async with async_session_factory() as _cfg_db:
-            _enabled_rows = (await _cfg_db.execute(
-                select(AlertTypeConfig.alert_type).where(
-                    AlertTypeConfig.enabled.is_(True)
-                )
-            )).scalars().all()
-        enabled_types: Optional[set[str]] = set(_enabled_rows)
+            _cfg_rows = (await _cfg_db.execute(
+                select(AlertTypeConfig.alert_type, AlertTypeConfig.enabled)
+            )).all()
+        enabled_types: Optional[set[str]] = {at for at, en in _cfg_rows if en}
+        known_types: Optional[set[str]] = {at for at, _ in _cfg_rows}
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
+        known_types = None
 
     if not _is_allowed_alert_type(alert_type_full, enabled_types):
+        # Known type, just toggled OFF → record it (deduped) for EOD review:
+        # no Telegram, hidden from the live feed, and NOT run through the
+        # twin/level dedup so the routed pipeline's state stays clean.
+        # Unknown type (stale chart, typo) → drop entirely.
+        if _is_allowed_alert_type(alert_type_full, known_types):
+            logger.info(
+                "TV webhook: type %s not routed — recording for review (%s)",
+                alert_type_full, sig.symbol,
+            )
+            return await _persist_unrouted(sig, alert_type_full, session_date)
         logger.info(
-            "TV webhook: type %s not enabled — dropped for %s",
+            "TV webhook: unknown type %s dropped for %s",
             alert_type_full, sig.symbol,
         )
-        return {"dispatched": False, "reason": "not_enabled"}
+        return {"dispatched": False, "reason": "unknown_type"}
 
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either
     # genuinely-fresh signals on the same symbol (Pine re-arms internally)
@@ -773,6 +783,57 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         "htf_1h": bias.htf_1h,
         "confluence_score": getattr(sig, "_confluence_score", 0),
     }
+
+
+async def _persist_unrouted(sig, alert_type_full: str, session_date: str) -> dict[str, Any]:
+    """Record-only path for alert types that fired but are toggled OFF.
+
+    The alert is persisted (one row per user/symbol/type/direction/session)
+    with suppressed_reason set, so it can be reviewed at EOD — but it gets
+    no Telegram, is hidden from the live Signals feed, and never touches the
+    twin/level dedup state of the routed pipeline.
+    """
+    from app.database import async_session_factory
+    from app.models.alert import Alert
+
+    direction = sig.direction or "NOTICE"
+    recorded = 0
+    async with async_session_factory() as db:
+        users = await _users_watching(db, sig.symbol)
+        for user in users:
+            already = (await db.execute(
+                select(Alert.id).where(
+                    Alert.user_id == user.id,
+                    Alert.symbol == sig.symbol,
+                    Alert.alert_type == alert_type_full,
+                    Alert.direction == direction,
+                    Alert.session_date == session_date,
+                ).limit(1)
+            )).first()
+            if already:
+                continue
+            db.add(Alert(
+                user_id=user.id,
+                symbol=sig.symbol,
+                alert_type=alert_type_full,
+                direction=direction,
+                price=float(sig.price),
+                entry=sig.entry,
+                stop=sig.stop,
+                target_1=sig.target_1,
+                target_2=sig.target_2,
+                confidence=sig.confidence,
+                message=sig.message,
+                session_date=session_date,
+                suppressed_reason="type_not_enabled",
+            ))
+            recorded += 1
+        await db.commit()
+    logger.info(
+        "TV webhook: recorded %d non-routed %s rows for %s (review only)",
+        recorded, alert_type_full, sig.symbol,
+    )
+    return {"dispatched": False, "reason": "not_routed", "recorded": recorded}
 
 
 async def _users_watching(db, symbol: str):

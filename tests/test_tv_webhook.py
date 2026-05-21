@@ -723,7 +723,9 @@ class TestAllowList:
         from api.app.routers import tv_webhook
         src = inspect.getsource(tv_webhook._dispatch_signal)
         assert "_is_allowed_alert_type" in src, "_dispatch_signal must call _is_allowed_alert_type"
-        assert "not_enabled" in src, "drop must use the per-type enablement reason code"
+        # Non-routed known types are recorded for review; unknown types dropped.
+        assert "_persist_unrouted" in src, "non-routed types must take the record-only path"
+        assert "unknown_type" in src, "unknown types must be dropped"
 
 
 class TestPerTypeEnablement:

@@ -70,6 +70,7 @@ export interface Alert {
   volume_ratio?: number | null;
   cvd_delta?: number | null;
   cvd_diverging?: number | null;
+  suppressed_reason?: string | null;
 }
 
 // --- Options Trade ---

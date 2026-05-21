@@ -29,6 +29,7 @@ class AlertResponse(BaseModel):
     volume_ratio: Optional[float] = None
     cvd_delta: Optional[float] = None
     cvd_diverging: Optional[int] = None
+    suppressed_reason: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +57,7 @@ class AlertResponse(BaseModel):
             volume_ratio=getattr(alert, "volume_ratio", None),
             cvd_delta=getattr(alert, "cvd_delta", None),
             cvd_diverging=getattr(alert, "cvd_diverging", None),
+            suppressed_reason=getattr(alert, "suppressed_reason", None),
         )
 
 

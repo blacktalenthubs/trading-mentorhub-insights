@@ -224,10 +224,12 @@ function SignalFeedTab({
   alerts,
   alertsError,
   onSelectSymbol,
+  showNonRouted = false,
 }: {
   alerts?: Alert[];
   alertsError: unknown;
   onSelectSymbol: (sym: string) => void;
+  showNonRouted?: boolean;
 }) {
   const ack = useAckAlert();
 
@@ -248,7 +250,12 @@ function SignalFeedTab({
   }
 
   // AI scanner signals + every fired TradingView signal. WAITs excluded.
-  const feedAlerts = alerts?.filter((a) => isFeedSignal(a.alert_type)) ?? [];
+  // Non-routed alerts (recorded for review) are hidden unless showNonRouted.
+  const feedAlerts = (alerts ?? []).filter((a) => {
+    if (!isFeedSignal(a.alert_type)) return false;
+    if (a.suppressed_reason === "type_not_enabled" && !showNonRouted) return false;
+    return true;
+  });
 
   if (feedAlerts.length === 0) {
     return (
@@ -267,6 +274,7 @@ function SignalFeedTab({
         });
         const isAIScan = a.alert_type?.startsWith("ai_");
         const isTV = a.alert_type?.startsWith("tv_");
+        const notRouted = a.suppressed_reason === "type_not_enabled";
         const dirLabel = isAIScan
           ? "AI SCAN"
           : isTV
@@ -285,7 +293,9 @@ function SignalFeedTab({
         return (
           <div
             key={a.id}
-            className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/20 transition-colors cursor-pointer"
+            className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/20 transition-colors cursor-pointer ${
+              notRouted ? "opacity-55" : ""
+            }`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
             <div className="flex items-center justify-between mb-1">
@@ -294,14 +304,19 @@ function SignalFeedTab({
                 <span className={`text-[9px] font-semibold px-1 py-0.5 rounded border ${dirBadge}`}>
                   {dirLabel}
                 </span>
+                {notRouted && (
+                  <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-3 text-text-faint uppercase tracking-wide">
+                    not routed
+                  </span>
+                )}
               </div>
               <span className="text-[10px] font-mono text-text-faint">{time}</span>
             </div>
             <p className="text-[11px] text-text-muted leading-relaxed line-clamp-2">
               {a.message}
             </p>
-            {/* Action buttons */}
-            {a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
+            {/* Action buttons — not shown on non-routed (review-only) rows */}
+            {!notRouted && a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
               <div className="flex gap-2 mt-1.5">
                 <button
                   onClick={(e) => {
@@ -463,6 +478,7 @@ export default function TradingPageV2() {
 
   // Signals feed — which session to view ("" = today/latest)
   const [signalDate, setSignalDate] = useState<string>("");
+  const [showNonRouted, setShowNonRouted] = useState(false);
   const { data: sessionDates } = useAlertSessionDates();
   const { data: pastAlerts, error: pastAlertsError } = useAlertsForDate(signalDate);
 
@@ -639,7 +655,9 @@ export default function TradingPageV2() {
   // The signals shown in the right panel — today/latest, or a chosen past session.
   const activeAlerts = signalDate ? (pastAlerts ?? []) : todayAlerts;
   const activeAlertsError = signalDate ? pastAlertsError : alertsError;
-  const feedCount = (activeAlerts ?? []).filter((a) => isFeedSignal(a.alert_type)).length;
+  const feedCount = (activeAlerts ?? []).filter(
+    (a) => isFeedSignal(a.alert_type) && a.suppressed_reason !== "type_not_enabled",
+  ).length;
 
   const watchlistWidth = watchlistCollapsed ? 48 : 180;
 
@@ -1058,7 +1076,7 @@ export default function TradingPageV2() {
             </select>
           </div>
 
-          {/* Asset filter */}
+          {/* Asset filter + non-routed review toggle */}
           <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-subtle shrink-0">
             {(["all", "stocks", "crypto"] as const).map((k) => (
               <button
@@ -1073,6 +1091,17 @@ export default function TradingPageV2() {
                 {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
               </button>
             ))}
+            <button
+              onClick={() => setShowNonRouted((v) => !v)}
+              title="Show alert types that fired but aren't routed — review only"
+              className={`ml-auto text-[10px] px-2.5 py-0.5 rounded-full border transition-colors ${
+                showNonRouted
+                  ? "bg-accent/15 text-accent border-accent/40"
+                  : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+              }`}
+            >
+              Non-routed
+            </button>
           </div>
 
           {/* Signal feed — AI scanner + TradingView signals */}
@@ -1081,6 +1110,7 @@ export default function TradingPageV2() {
               alerts={filterAlertsByAsset(activeAlerts)}
               alertsError={activeAlertsError}
               onSelectSymbol={selectSymbol}
+              showNonRouted={showNonRouted}
             />
           </div>
         </aside>
@@ -1107,6 +1137,7 @@ export default function TradingPageV2() {
             alerts={filterAlertsByAsset(activeAlerts)}
             alertsError={activeAlertsError}
             onSelectSymbol={selectSymbol}
+            showNonRouted={showNonRouted}
           />
         </div>
       </div>
