@@ -230,6 +230,7 @@ function SignalFeedTab({
   showNonRouted?: boolean;
 }) {
   const ack = useAckAlert();
+  const [search, setSearch] = useState("");
 
   if (alertsError) {
     return (
@@ -254,18 +255,32 @@ function SignalFeedTab({
     if (a.suppressed_reason === "type_not_enabled" && !showNonRouted) return false;
     return true;
   });
-
-  if (feedAlerts.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-text-faint">No signals in this session</p>
-      </div>
-    );
-  }
+  const q = search.trim().toUpperCase();
+  const visible = q
+    ? feedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
+    : feedAlerts;
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-      {feedAlerts.map((a) => {
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Symbol search */}
+      <div className="px-3 pt-2 pb-1 shrink-0">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search symbol…"
+          className="w-full bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
+        />
+      </div>
+
+      {visible.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-xs text-text-faint">
+            {q ? `No ${q} signals in this session` : "No signals in this session"}
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+          {visible.map((a) => {
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
@@ -382,6 +397,8 @@ function SignalFeedTab({
           </div>
         );
       })}
+        </div>
+      )}
     </div>
   );
 }
