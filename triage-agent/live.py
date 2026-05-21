@@ -151,7 +151,7 @@ def write_audit(record):
 ALERT_COLUMNS = """id, symbol, alert_type, direction, price,
                    entry, stop, target_1, target_2,
                    volume_ratio, cvd_diverging, confidence,
-                   user_id, session_date, created_at"""
+                   user_id, session_date, created_at, suppressed_reason"""
 
 def fetch_alert_by_id(alert_id):
     with psycopg2.connect(DATABASE_URL) as conn:
@@ -316,6 +316,21 @@ def process_alert(alert_id, budget, dry_run=False):
 
     if alert["user_id"] != USER_ID:
         # Not our user — still bump the cursor so we don't re-evaluate it.
+        save_cursor(alert_id)
+        return
+
+    # Per-type enablement gate. Alerts whose type the user toggled OFF in
+    # Settings > Alert Types are persisted by the webhook with
+    # suppressed_reason set — recorded for in-app review only. Never triage
+    # or post them to Telegram.
+    if alert.get("suppressed_reason"):
+        logger.info("NOT_ROUTED #%s %s %s — suppressed_reason=%s, skipping",
+                    alert_id, alert.get("symbol"), alert.get("alert_type"),
+                    alert["suppressed_reason"])
+        write_audit({"alert_id": alert_id, "symbol": alert.get("symbol"),
+                     "alert_type": alert.get("alert_type"),
+                     "verdict": "NOT_ROUTED",
+                     "reason": f"suppressed_reason={alert['suppressed_reason']}"})
         save_cursor(alert_id)
         return
 
