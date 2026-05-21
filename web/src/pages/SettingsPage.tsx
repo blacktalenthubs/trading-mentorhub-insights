@@ -716,54 +716,75 @@ function AlertTypesSection() {
   return (
     <Section title="Alert Types" icon={<Zap className="h-4 w-4 text-accent" />}>
       <p className="text-xs text-text-muted mb-4">
-        Enable an alert type to deliver it to your Signals feed; disable the rest
-        to test one type at a time. Changes take effect on the next fired alert —
-        nothing to remember, the state persists.
+        Tap a card to route that alert type to Telegram + your Signals feed.
+        Disabled types still fire and record silently for review. Changes take
+        effect on the next alert.
         {types && (
           <span className="text-text-faint">
-            {" "}· {enabledCount} of {types.length} enabled
+            {" "}· {enabledCount} of {types.length} on
           </span>
         )}
       </p>
 
       {isLoading && <p className="text-xs text-text-faint">Loading…</p>}
 
-      <div className="space-y-4">
-        {Object.entries(grouped).map(([category, items]) => (
-          <div key={category}>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-text-faint mb-1.5">
-              {category}
-            </div>
-            <div className="space-y-0.5">
-              {items.map((t) => (
-                <div
-                  key={t.alert_type}
-                  className="flex items-center justify-between gap-3 py-1.5"
+      <div className="space-y-5">
+        {Object.entries(grouped).map(([category, items]) => {
+          const onCount = items.filter((i) => i.enabled).length;
+          return (
+            <div key={category}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-text-secondary">
+                  {category}
+                </span>
+                <span
+                  className={`text-[10px] font-semibold ${
+                    onCount > 0 ? "text-accent" : "text-text-faint"
+                  }`}
                 >
-                  <span className="text-xs text-text-secondary">{t.label}</span>
+                  {onCount}/{items.length} on
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {items.map((t) => (
                   <button
+                    key={t.alert_type}
                     onClick={() =>
                       toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })
                     }
                     disabled={toggle.isPending}
                     role="switch"
                     aria-checked={t.enabled}
-                    title={t.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
-                    className={`shrink-0 relative w-9 h-5 rounded-full transition-colors disabled:opacity-50 ${
-                      t.enabled ? "bg-accent" : "bg-surface-3"
+                    className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
+                      t.enabled
+                        ? "border-accent/50 bg-accent/10"
+                        : "border-border-subtle bg-surface-1 hover:bg-surface-2"
                     }`}
                   >
                     <span
-                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${
-                        t.enabled ? "left-[18px]" : "left-0.5"
+                      className={`mt-0.5 shrink-0 h-4 w-4 rounded flex items-center justify-center ${
+                        t.enabled
+                          ? "bg-accent"
+                          : "bg-surface-3 border border-border-subtle"
                       }`}
-                    />
+                    >
+                      {t.enabled && <Check className="h-3 w-3 text-white" />}
+                    </span>
+                    <span
+                      className={`text-[11px] leading-snug ${
+                        t.enabled
+                          ? "text-text-primary font-medium"
+                          : "text-text-muted"
+                      }`}
+                    >
+                      {t.label}
+                    </span>
                   </button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Section>
   );
