@@ -1173,3 +1173,36 @@ export function useRunFocusList() {
     },
   });
 }
+
+// --- Alert Type toggles (per-type enable/disable) ---
+
+export interface AlertTypeConfigItem {
+  alert_type: string;
+  label: string;
+  category: string;
+  enabled: boolean;
+}
+
+export function useAlertConfig() {
+  return useQuery({
+    queryKey: ["alert-config"],
+    queryFn: () => api.get<AlertTypeConfigItem[]>("/alert-config"),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+export function useToggleAlertConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { alert_type: string; enabled: boolean }) =>
+      api.put<{ alert_type: string; enabled: boolean }>(
+        `/alert-config/${v.alert_type}`,
+        { enabled: v.enabled },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-config"] }),
+    onError: (err: { message?: string; detail?: { message?: string } }) => {
+      toast.error(err.detail?.message || err.message || "Failed to update alert type");
+    },
+  });
+}

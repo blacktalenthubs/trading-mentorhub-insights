@@ -32,6 +32,14 @@ async def lifespan(app: FastAPI):
     # Auto-create new tables (usage_limits etc.) and add missing columns
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Seed the alert-type enablement catalogue (idempotent — never
+        # overwrites existing rows, so user toggles persist).
+        try:
+            from app.models.alert_type_config import seed_alert_type_config
+            await seed_alert_type_config(conn)
+            logger.info("Alert type config seeded/verified")
+        except Exception as e:
+            logger.warning("Alert type config seed skipped: %s", e)
         # Migration: add trial_ends_at column if missing (idempotent)
         from sqlalchemy import text
         try:
@@ -843,6 +851,7 @@ def create_app() -> FastAPI:
         tv_webhook,  # Phase 5a — TradingView alert ingest
         public,      # Public (unauth) EOD report endpoints
         focus_list,  # Persisted daily focus list from AI Best Setups
+        alert_config,  # Per-alert-type enable/disable toggles
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -866,6 +875,7 @@ def create_app() -> FastAPI:
     app.include_router(coach_history.router, prefix="/api/v1", tags=["coach"])
     app.include_router(auto_trades.router, prefix="/api/v1/auto-trades", tags=["auto-trades"])
     app.include_router(focus_list.router, prefix="/api/v1/ai", tags=["focus-list"])
+    app.include_router(alert_config.router, prefix="/api/v1/alert-config", tags=["alert-config"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
     app.include_router(tv_webhook.router, prefix="/tv", tags=["tradingview"])

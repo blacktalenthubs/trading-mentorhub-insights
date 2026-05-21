@@ -550,8 +550,9 @@ class TestAllowList:
     """
 
     def test_allow_list_exact_match_set(self):
-        """Exact-match set: 5 daily + 10 weekly/monthly staged types +
-        2 collapsed HTF types (S1 item 2, 2026-05-20)."""
+        """Static fallback set: 5 daily + 10 weekly/monthly staged + 2 HTF +
+        pullback + 4 open-line types (re-added 2026-05-21). This is only the
+        DB-read-failure fallback — per-type gating is alert_type_config."""
         from api.app.routers.tv_webhook import _ALLOWED_ALERT_TYPES
         assert _ALLOWED_ALERT_TYPES == {
             "tv_staged_pdh_break",
@@ -572,6 +573,10 @@ class TestAllowList:
             "tv_htf_support_held",
             "tv_htf_proximity",
             "tv_pullback_long",
+            "tv_open_reclaimed",
+            "tv_open_held",
+            "tv_open_wick_reclaim",
+            "tv_open_lost",
         }
 
     def test_pullback_long_allowed(self):
@@ -669,10 +674,6 @@ class TestAllowList:
             "tv_vwap_reclaim_long",
             "tv_vwap_reject_short",
             "tv_vwap_support_hold",
-            "tv_open_held",
-            "tv_open_reclaimed",
-            "tv_open_wick_reclaim",
-            "tv_open_lost",
             "tv_pwh_held",
             "tv_pwl_held",
             "tv_pmh_held",
@@ -684,6 +685,7 @@ class TestAllowList:
             "tv_unknown_rule",
         ):
             assert not _is_allowed_alert_type(t), f"{t} should be dropped"
+
 
     def test_spy_short_whitelist_subset_of_allow_list(self):
         """Every SPY SHORT whitelisted rule must also pass the allow-list.
@@ -721,7 +723,40 @@ class TestAllowList:
         from api.app.routers import tv_webhook
         src = inspect.getsource(tv_webhook._dispatch_signal)
         assert "_is_allowed_alert_type" in src, "_dispatch_signal must call _is_allowed_alert_type"
-        assert "not_in_allowlist" in src, "drop must use allow-list reason code"
+        assert "not_enabled" in src, "drop must use the per-type enablement reason code"
+
+
+class TestPerTypeEnablement:
+    """Per-alert-type gating via the alert_type_config enabled set (2026-05-21)."""
+
+    def test_open_line_types_pass_static_fallback(self):
+        # enabled=None -> static allow-list. Open-line types are now included
+        # so a DB-read failure never silently drops them.
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        for t in ("tv_open_reclaimed", "tv_open_held",
+                  "tv_open_wick_reclaim", "tv_open_lost"):
+            assert _is_allowed_alert_type(t), f"{t} should pass the static fallback"
+
+    def test_enabled_set_is_authoritative(self):
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        enabled = {"open_reclaimed", "open_held"}
+        assert _is_allowed_alert_type("tv_open_reclaimed", enabled)
+        assert _is_allowed_alert_type("tv_open_held", enabled)
+        # known types not in the enabled set are dropped
+        assert not _is_allowed_alert_type("tv_open_wick_reclaim", enabled)
+        assert not _is_allowed_alert_type("tv_staged_pdh_break", enabled)
+
+    def test_enabled_set_prefix_match(self):
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        enabled = {"ma_bounce_long_v3"}
+        assert _is_allowed_alert_type("tv_ma_bounce_long_v3_ema50", enabled)
+        assert _is_allowed_alert_type("tv_ma_bounce_long_v3", enabled)
+        assert not _is_allowed_alert_type("tv_ma_rejection_short_v3_ema50", enabled)
+
+    def test_empty_enabled_set_drops_everything(self):
+        from api.app.routers.tv_webhook import _is_allowed_alert_type
+        assert not _is_allowed_alert_type("tv_open_reclaimed", set())
+        assert not _is_allowed_alert_type("tv_staged_pdh_break", set())
 
 
 class TestSpyShortSessionDedup:

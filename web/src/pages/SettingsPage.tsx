@@ -17,13 +17,16 @@ import {
   useTelegramStatus,
   useTelegramLink,
   useTelegramUnlink,
+  useAlertConfig,
+  useToggleAlertConfig,
+  type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import type { NotificationPrefs, NotificationRouting, AlertChannel } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Filter,
+  Sun, Moon, Filter, Zap,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -698,6 +701,74 @@ function ThemeToggle() {
   );
 }
 
+/* ── Alert Types (per-type enable/disable) ────────────────────────── */
+
+function AlertTypesSection() {
+  const { data: types, isLoading } = useAlertConfig();
+  const toggle = useToggleAlertConfig();
+
+  const grouped: Record<string, AlertTypeConfigItem[]> = {};
+  for (const t of types ?? []) {
+    (grouped[t.category] ??= []).push(t);
+  }
+  const enabledCount = (types ?? []).filter((t) => t.enabled).length;
+
+  return (
+    <Section title="Alert Types" icon={<Zap className="h-4 w-4 text-accent" />}>
+      <p className="text-xs text-text-muted mb-4">
+        Enable an alert type to deliver it to your Signals feed; disable the rest
+        to test one type at a time. Changes take effect on the next fired alert —
+        nothing to remember, the state persists.
+        {types && (
+          <span className="text-text-faint">
+            {" "}· {enabledCount} of {types.length} enabled
+          </span>
+        )}
+      </p>
+
+      {isLoading && <p className="text-xs text-text-faint">Loading…</p>}
+
+      <div className="space-y-4">
+        {Object.entries(grouped).map(([category, items]) => (
+          <div key={category}>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-text-faint mb-1.5">
+              {category}
+            </div>
+            <div className="space-y-0.5">
+              {items.map((t) => (
+                <div
+                  key={t.alert_type}
+                  className="flex items-center justify-between gap-3 py-1.5"
+                >
+                  <span className="text-xs text-text-secondary">{t.label}</span>
+                  <button
+                    onClick={() =>
+                      toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })
+                    }
+                    disabled={toggle.isPending}
+                    role="switch"
+                    aria-checked={t.enabled}
+                    title={t.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                    className={`shrink-0 relative w-9 h-5 rounded-full transition-colors disabled:opacity-50 ${
+                      t.enabled ? "bg-accent" : "bg-surface-3"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${
+                        t.enabled ? "left-[18px]" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -721,6 +792,9 @@ export default function SettingsPage() {
             <TradingSettings />
           </div>
         </div>
+
+        {/* Per-alert-type enable/disable */}
+        <AlertTypesSection />
 
         {/* Referral program */}
         <ReferralSection />

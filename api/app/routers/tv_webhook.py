@@ -481,14 +481,31 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
 
     # ---------------------------------------------------------------
-    # Alert allow-list (2026-05-19) — PDH/PDL + MA/EMA families only.
+    # Per-type enablement (2026-05-21) — the alert_type_config table.
     # ---------------------------------------------------------------
-    # Drop anything not on the allow-list (exact match for PDH/PDL,
-    # prefix match for MA bounce/rejection). VWAP, open-line, weekly/monthly
-    # HTF, proximity NOTICEs all drop here regardless of what Pine fires.
-    if not _is_allowed_alert_type(alert_type_full):
-        logger.info("TV webhook: non-allowed type %s dropped for %s (allow-list = PDH/PDL + MA/EMA)", alert_type_full, sig.symbol)
-        return {"dispatched": False, "reason": "not_in_allowlist"}
+    # The Pine scripts fire every alert they can; this table decides what
+    # is actually delivered, so each type is enabled/tested independently
+    # from Settings > Alert Types. A DB-read failure falls back to the
+    # static allow-list so delivery never goes fully dark.
+    try:
+        from app.models.alert_type_config import AlertTypeConfig
+        async with async_session_factory() as _cfg_db:
+            _enabled_rows = (await _cfg_db.execute(
+                select(AlertTypeConfig.alert_type).where(
+                    AlertTypeConfig.enabled.is_(True)
+                )
+            )).scalars().all()
+        enabled_types: Optional[set[str]] = set(_enabled_rows)
+    except Exception:
+        logger.exception("TV webhook: alert_type_config read failed — static fallback")
+        enabled_types = None
+
+    if not _is_allowed_alert_type(alert_type_full, enabled_types):
+        logger.info(
+            "TV webhook: type %s not enabled — dropped for %s",
+            alert_type_full, sig.symbol,
+        )
+        return {"dispatched": False, "reason": "not_enabled"}
 
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either
     # genuinely-fresh signals on the same symbol (Pine re-arms internally)
@@ -861,6 +878,12 @@ _ALLOWED_ALERT_TYPES = {
     "tv_htf_proximity",
     # Uptrend pullback continuation (2026-05-20) — BUY, from ma-ema-daily.
     "tv_pullback_long",
+    # Open-line alerts (2026-05-21) — re-enabled, gated per-type by the
+    # alert_type_config table. Listed here only as the static fallback.
+    "tv_open_reclaimed",
+    "tv_open_held",
+    "tv_open_wick_reclaim",
+    "tv_open_lost",
 }
 
 # Prefix matches for the allow-list. Alert types with these prefixes
@@ -874,13 +897,33 @@ _ALLOWED_ALERT_TYPE_PREFIXES = (
     "tv_ma_proximity_short_v3",
 )
 
+# Prefix families as base keys (no tv_ prefix) — mirrors PREFIX_FAMILIES in
+# app/models/alert_type_config.py. Kept local so this module has no
+# top-level app.* import (preserves test-import isolation).
+_PREFIX_FAMILIES = (
+    "ma_bounce_long_v3",
+    "ma_rejection_short_v3",
+    "ma_proximity_long_v3",
+    "ma_proximity_short_v3",
+)
 
-def _is_allowed_alert_type(alert_type: str) -> bool:
-    """True if the alert_type is in the exact-match allow-list OR matches
-    one of the family prefixes (MA bounce/rejection variants)."""
-    if alert_type in _ALLOWED_ALERT_TYPES:
+
+def _is_allowed_alert_type(alert_type: str, enabled: set[str] | None = None) -> bool:
+    """True if the alert_type should be delivered.
+
+    When `enabled` is given (the set of enabled base keys from the
+    alert_type_config table) it is authoritative — per-type toggles. When
+    None (a DB read failed) fall back to the static allow-list so delivery
+    never goes fully dark.
+    """
+    if enabled is None:
+        if alert_type in _ALLOWED_ALERT_TYPES:
+            return True
+        return any(alert_type.startswith(p) for p in _ALLOWED_ALERT_TYPE_PREFIXES)
+    base = alert_type[3:] if alert_type.startswith("tv_") else alert_type
+    if base in enabled:
         return True
-    return any(alert_type.startswith(p) for p in _ALLOWED_ALERT_TYPE_PREFIXES)
+    return any(base.startswith(p) and p in enabled for p in _PREFIX_FAMILIES)
 
 
 # SPY SHORT structural whitelist — subset of _ALLOWED_ALERT_TYPES that are

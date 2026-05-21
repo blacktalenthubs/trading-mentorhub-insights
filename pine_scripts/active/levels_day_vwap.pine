@@ -26,9 +26,9 @@ indicator("levels-day-vwap", overlay = true)
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
 show_level_labels = input.bool(true,  "Show PDH/PDL value labels at right edge")
 show_midpoint     = input.bool(true,  "Show range midpoint line (gray dashed)")
-// Open-line alerts default-off 2026-05-19 (per "PDH/PDL only" directive).
-// Backend also drops these via the allow-list in tv_webhook.py.
-fire_open_alerts        = input.bool(false, "Fire open-line alerts (MASTER toggle — overrides per-type below)")
+// Open-line alerts re-enabled 2026-05-21. Pine fires all four; the backend
+// alert_type_config table (Settings > Alert Types) decides which are delivered.
+fire_open_alerts        = input.bool(true, "Fire open-line alerts (MASTER toggle — overrides per-type below)")
 fire_open_held          = input.bool(true,  "  → open_held (clean defense)", group = "Open-line per-type")
 fire_open_wick_reclaim  = input.bool(true,  "  → open_wick_reclaim (wick crossed below)", group = "Open-line per-type")
 fire_open_reclaimed     = input.bool(true,  "  → open_reclaimed (full close-flip cycle)", group = "Open-line per-type")
