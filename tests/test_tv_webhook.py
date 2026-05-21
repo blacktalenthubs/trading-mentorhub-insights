@@ -748,12 +748,21 @@ class TestPerTypeEnablement:
         assert not _is_allowed_alert_type("tv_open_wick_reclaim", enabled)
         assert not _is_allowed_alert_type("tv_staged_pdh_break", enabled)
 
-    def test_enabled_set_prefix_match(self):
+    def test_ma_per_ma_gating(self):
+        """MA families gate per moving average; a confluence alert routes if
+        ANY of its MAs is enabled; all SMAs share one grouped key."""
         from api.app.routers.tv_webhook import _is_allowed_alert_type
-        enabled = {"ma_bounce_long_v3"}
-        assert _is_allowed_alert_type("tv_ma_bounce_long_v3_ema50", enabled)
-        assert _is_allowed_alert_type("tv_ma_bounce_long_v3", enabled)
-        assert not _is_allowed_alert_type("tv_ma_rejection_short_v3_ema50", enabled)
+        enabled = {"ma_bounce_long_v3_ema8", "ma_bounce_long_v3_sma"}
+        # exact EMA match routes
+        assert _is_allowed_alert_type("tv_ma_bounce_long_v3_ema8", enabled)
+        # a different EMA does NOT route
+        assert not _is_allowed_alert_type("tv_ma_bounce_long_v3_ema50", enabled)
+        # confluence routes if any constituent MA is enabled
+        assert _is_allowed_alert_type("tv_ma_bounce_long_v3_ema8_ema50", enabled)
+        # every SMA maps to the shared grouped key
+        assert _is_allowed_alert_type("tv_ma_bounce_long_v3_sma200", enabled)
+        # a different family is untouched
+        assert not _is_allowed_alert_type("tv_ma_rejection_short_v3_ema8", enabled)
 
     def test_empty_enabled_set_drops_everything(self):
         from api.app.routers.tv_webhook import _is_allowed_alert_type

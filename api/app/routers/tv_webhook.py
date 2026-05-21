@@ -968,20 +968,52 @@ _PREFIX_FAMILIES = (
     "ma_proximity_short_v3",
 )
 
+# MA families split per moving average — each EMA has its own toggle, all SMAs
+# share one. Mirrors MA_SPLIT_FAMILIES in app/models/alert_type_config.py.
+_MA_SPLIT_FAMILIES = (
+    "ma_bounce_long_v3",
+    "ma_proximity_long_v3",
+    "ma_rejection_short_v3",
+)
+
+
+def _ma_config_keys(base: str) -> Optional[list[str]]:
+    """Map an MA-split-family alert base (no `tv_` prefix) to its
+    alert_type_config keys — one per MA. Confluence alerts (e.g.
+    `..._ema8_ema21`) carry several; each EMA maps to its own key, every SMA
+    to the shared `<family>_sma` key. Returns None if `base` is not a
+    split-family alert.
+    """
+    for fam in _MA_SPLIT_FAMILIES:
+        if base == fam or base.startswith(fam + "_"):
+            suffix = base[len(fam):].lstrip("_")  # "ema8" / "ema8_ema21" / "sma50"
+            keys: list[str] = []
+            for tok in (t for t in suffix.split("_") if t):
+                if tok.startswith("sma"):
+                    keys.append(fam + "_sma")
+                elif tok.startswith("ema"):
+                    keys.append(fam + "_" + tok)
+            return keys or [fam]
+    return None
+
 
 def _is_allowed_alert_type(alert_type: str, enabled: set[str] | None = None) -> bool:
     """True if the alert_type should be delivered.
 
     When `enabled` is given (the set of enabled base keys from the
-    alert_type_config table) it is authoritative — per-type toggles. When
-    None (a DB read failed) fall back to the static allow-list so delivery
-    never goes fully dark.
+    alert_type_config table) it is authoritative — per-type toggles. MA
+    families are matched per moving average; a confluence alert routes if
+    ANY of its MAs is enabled. When `enabled` is None (a DB read failed)
+    fall back to the static allow-list so delivery never goes fully dark.
     """
     if enabled is None:
         if alert_type in _ALLOWED_ALERT_TYPES:
             return True
         return any(alert_type.startswith(p) for p in _ALLOWED_ALERT_TYPE_PREFIXES)
     base = alert_type[3:] if alert_type.startswith("tv_") else alert_type
+    ma_keys = _ma_config_keys(base)
+    if ma_keys is not None:
+        return any(k in enabled for k in ma_keys)
     if base in enabled:
         return True
     return any(base.startswith(p) and p in enabled for p in _PREFIX_FAMILIES)
