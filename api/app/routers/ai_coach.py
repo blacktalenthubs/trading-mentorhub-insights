@@ -60,6 +60,9 @@ async def best_setups(
 ):
     """Ranked best setups across the user's watchlist for today.
 
+    DEPRECATED (spec 55): superseded by POST /api/v1/ai/focus-lists/run, which
+    persists every scan as a focus list. Kept for backward compatibility.
+
     Cached 15 min per (user, watchlist_hash). Tier-gated:
     free=1/day, pro=20/day, premium unlimited.
     """

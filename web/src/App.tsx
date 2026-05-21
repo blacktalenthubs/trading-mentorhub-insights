@@ -31,6 +31,7 @@ import TrackRecordPage from "./pages/TrackRecordPage";
 import AIUpdatesPage from "./pages/AIUpdatesPage";
 import WatchlistPage from "./pages/WatchlistPage";
 import PremarketPage from "./pages/PremarketPage";
+import FocusListPage from "./pages/FocusListPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -112,6 +113,7 @@ export default function App() {
 
                 <Route path="watchlist" element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
                 <Route path="premarket" element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
+                <Route path="focus-list" element={<ErrorBoundary><FocusListPage /></ErrorBoundary>} />
 
                 {/* Legacy redirects */}
                 <Route path="scanner" element={<Navigate to="/trading" replace />} />

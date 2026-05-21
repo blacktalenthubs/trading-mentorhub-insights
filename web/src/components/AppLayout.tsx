@@ -24,6 +24,7 @@ import {
   Star,
   Activity,
   ListChecks,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/trading", label: "Trading", icon: Crosshair },
   { to: "/watchlist", label: "Watchlist", icon: Star },
+  { to: "/focus-list", label: "Focus List", icon: Target },
   { to: "/premarket", label: "Premarket", icon: Activity },
   { to: "/copilot", label: "AI CoPilot", icon: Brain },
   { to: "/review", label: "Review", icon: PlayCircle },

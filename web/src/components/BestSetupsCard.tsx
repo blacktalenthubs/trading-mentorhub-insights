@@ -1,24 +1,50 @@
-/** Best Setups — on-demand proximity-based entry finder (day + swing). */
+/** Best Setups — compact preview of the persisted focus list (spec 55).
+ *  Reads the saved latest focus list (no AI run on view); the Run button
+ *  triggers a fresh scan. Full review lives on the dedicated /focus-list page.
+ */
 
-import { useBestSetups, usePinBestSetupAlert, type EntryCandidate } from "../api/hooks";
-import { toast } from "./Toast";
-import { Sparkles, RefreshCw, ArrowUp, ArrowDown, Zap, Calendar, Bell, Copy, BarChart3 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  useLatestFocusList,
+  useRunFocusList,
+  usePinBestSetupAlert,
+  type FocusRecommendation,
+} from "../api/hooks";
+import { toast } from "./Toast";
+import {
+  Sparkles,
+  RefreshCw,
+  ArrowUp,
+  ArrowDown,
+  ArrowRight,
+  Zap,
+  Calendar,
+  Bell,
+  Copy,
+  BarChart3,
+} from "lucide-react";
 
 export default function BestSetupsCard({
   onSelectSymbol,
 }: {
   onSelectSymbol?: (symbol: string) => void;
 }) {
-  const [triggered, setTriggered] = useState(false);
-  const { data, isLoading, isFetching, refetch, error } = useBestSetups(triggered);
+  const { data: list, isLoading } = useLatestFocusList();
+  const runMut = useRunFocusList();
+  const [cadencePrompt, setCadencePrompt] = useState(false);
 
-  function handleRun() {
-    setTriggered(true);
-    if (triggered) refetch();
+  async function handleRun(force = false) {
+    try {
+      const res = await runMut.mutateAsync({ force });
+      setCadencePrompt(!!res.cadence_check);
+    } catch {
+      /* error toast handled by the hook */
+    }
   }
 
-  const err = error as { message?: string; detail?: { message?: string } } | null;
+  const day = list?.recommendations.filter((r) => r.trade_horizon === "day_trade") ?? [];
+  const swing = list?.recommendations.filter((r) => r.trade_horizon === "swing") ?? [];
 
   return (
     <div className="flex flex-col h-full">
@@ -27,18 +53,58 @@ export default function BestSetupsCard({
           <Sparkles className="h-3.5 w-3.5 text-accent" />
           <span className="text-[11px] font-bold text-text-primary">Best Setups</span>
         </div>
-        <button
-          onClick={handleRun}
-          disabled={isFetching}
-          className="text-[10px] px-2.5 py-1 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1"
-        >
-          <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-          {triggered ? "Refresh" : "Analyze watchlist"}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/focus-list"
+            className="text-[10px] text-text-muted hover:text-accent flex items-center gap-0.5"
+          >
+            Focus list
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+          <button
+            onClick={() => handleRun(false)}
+            disabled={runMut.isPending}
+            className="text-[10px] px-2.5 py-1 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1"
+          >
+            <RefreshCw className={`h-3 w-3 ${runMut.isPending ? "animate-spin" : ""}`} />
+            {list ? "Refresh" : "Analyze watchlist"}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {!triggered && (
+        {cadencePrompt && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 text-[10px]">
+            <p className="text-amber-300 mb-1.5">
+              {runMut.data?.message ||
+                "You've already run two scans today. Saved lists are still available."}
+            </p>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setCadencePrompt(false)}
+                className="flex-1 px-2 py-1 rounded bg-surface-2 text-text-secondary hover:bg-surface-3 transition-colors"
+              >
+                Keep list
+              </button>
+              <button
+                onClick={() => handleRun(true)}
+                disabled={runMut.isPending}
+                className="flex-1 px-2 py-1 rounded bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-50 transition-colors"
+              >
+                Run anyway
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="text-center py-8 text-xs text-text-muted">
+            <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-accent" />
+            Loading…
+          </div>
+        )}
+
+        {!isLoading && !list && !cadencePrompt && (
           <div className="text-center py-8 text-xs text-text-muted">
             <p>AI scans your watchlist for symbols near key entry levels</p>
             <p className="text-[10px] text-text-faint mt-1">
@@ -47,52 +113,57 @@ export default function BestSetupsCard({
           </div>
         )}
 
-        {triggered && isLoading && (
-          <div className="text-center py-8 text-xs text-text-muted">
-            <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-accent" />
-            Scanning watchlist…
-          </div>
-        )}
-
-        {err && (
-          <div className="text-center py-4 text-xs text-red-400">
-            {err.detail?.message || err.message || "Failed to scan"}
-          </div>
-        )}
-
-        {data && !isLoading && (
+        {list && (
           <>
             <div className="text-[10px] text-text-faint mb-1">
-              {data.day_trade_picks.length} day · {data.swing_trade_picks.length} swing
-              {" "}· watchlist {data.watchlist_size}
-              {data.error && <span className="text-red-400 ml-2">({data.error})</span>}
+              {day.length} day · {swing.length} swing · watchlist {list.watchlist_size}
+              {list.is_stale && (
+                <span className="text-amber-400 ml-2">(previous session)</span>
+              )}
             </div>
 
-            <SectionBlock
-              label="Day Trade Candidates"
-              icon={<Zap className="h-3 w-3 text-yellow-400" />}
-              picks={data.day_trade_picks}
-              emptyHint="No symbols near intraday levels right now."
-              onSelectSymbol={onSelectSymbol}
-            />
+            {list.status === "failed" && (
+              <div className="text-center py-3 text-[11px] text-red-400">
+                Scan failed — {list.message || "could not complete"}
+              </div>
+            )}
 
-            <SectionBlock
-              label="Swing Trade Candidates"
-              icon={<Calendar className="h-3 w-3 text-accent" />}
-              picks={data.swing_trade_picks}
-              emptyHint="No symbols near daily levels right now."
-              onSelectSymbol={onSelectSymbol}
-            />
+            {list.status === "no_setups" && (
+              <div className="text-center py-3 text-[11px] text-text-muted">
+                {list.message || "No qualifying setups in this scan."}
+              </div>
+            )}
 
-            {data.skipped && data.skipped.length > 0 && (
+            {list.status === "has_setups" && (
+              <>
+                <SectionBlock
+                  label="Day Trade Candidates"
+                  icon={<Zap className="h-3 w-3 text-yellow-400" />}
+                  picks={day}
+                  emptyHint="No symbols near intraday levels right now."
+                  onSelectSymbol={onSelectSymbol}
+                />
+                <SectionBlock
+                  label="Swing Trade Candidates"
+                  icon={<Calendar className="h-3 w-3 text-accent" />}
+                  picks={swing}
+                  emptyHint="No symbols near daily levels right now."
+                  onSelectSymbol={onSelectSymbol}
+                />
+              </>
+            )}
+
+            {list.skipped && list.skipped.length > 0 && (
               <details className="text-[10px] text-text-faint mt-3">
                 <summary className="cursor-pointer hover:text-text-muted">
-                  Skipped {data.skipped.length} symbol{data.skipped.length !== 1 ? "s" : ""}
+                  Skipped {list.skipped.length} symbol
+                  {list.skipped.length !== 1 ? "s" : ""}
                 </summary>
                 <ul className="mt-1 space-y-0.5 pl-2">
-                  {data.skipped.map((s, i) => (
+                  {list.skipped.map((s, i) => (
                     <li key={i} className="truncate">
-                      <span className="font-mono text-text-muted">{s.symbol}</span> — {s.reason}
+                      <span className="font-mono text-text-muted">{s.symbol}</span> —{" "}
+                      {s.reason}
                     </li>
                   ))}
                 </ul>
@@ -114,7 +185,7 @@ function SectionBlock({
 }: {
   label: string;
   icon: React.ReactNode;
-  picks: EntryCandidate[];
+  picks: FocusRecommendation[];
   emptyHint: string;
   onSelectSymbol?: (symbol: string) => void;
 }) {
@@ -131,7 +202,9 @@ function SectionBlock({
           {emptyHint}
         </div>
       ) : (
-        picks.map((p, i) => <PickCard key={`${p.symbol}-${i}`} pick={p} onSelectSymbol={onSelectSymbol} />)
+        picks.map((p, i) => (
+          <PickCard key={`${p.symbol}-${i}`} pick={p} onSelectSymbol={onSelectSymbol} />
+        ))
       )}
     </div>
   );
@@ -141,7 +214,7 @@ function PickCard({
   pick,
   onSelectSymbol,
 }: {
-  pick: EntryCandidate;
+  pick: FocusRecommendation;
   onSelectSymbol?: (symbol: string) => void;
 }) {
   const isLong = pick.direction === "LONG";
@@ -167,7 +240,7 @@ function PickCard({
     e.stopPropagation();
     pinAlert.mutate({
       symbol: pick.symbol,
-      timeframe: pick.timeframe,
+      timeframe: pick.trade_horizon === "day_trade" ? "day" : "swing",
       direction: pick.direction,
       setup_type: pick.setup_type,
       entry: pick.entry,
@@ -200,7 +273,11 @@ function PickCard({
                 : "bg-bearish/15 text-bearish-text border border-bearish/25"
             }`}
           >
-            {isLong ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />}
+            {isLong ? (
+              <ArrowUp className="h-2.5 w-2.5" />
+            ) : (
+              <ArrowDown className="h-2.5 w-2.5" />
+            )}
             {pick.direction}
           </span>
         </div>
@@ -222,9 +299,7 @@ function PickCard({
         </div>
       </div>
 
-      <div className="text-[11px] text-text-secondary mb-2">
-        {pick.setup_type}
-      </div>
+      <div className="text-[11px] text-text-secondary mb-2">{pick.setup_type}</div>
 
       <div className="grid grid-cols-4 gap-2 text-[10px] mb-2">
         <div>
@@ -254,7 +329,10 @@ function PickCard({
       {pick.confluence.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {pick.confluence.map((c, j) => (
-            <span key={j} className="text-[9px] bg-accent/10 text-accent px-1.5 py-0.5 rounded">
+            <span
+              key={j}
+              className="text-[9px] bg-accent/10 text-accent px-1.5 py-0.5 rounded"
+            >
               {c}
             </span>
           ))}

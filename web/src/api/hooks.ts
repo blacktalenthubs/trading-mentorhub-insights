@@ -1080,42 +1080,9 @@ export function useTradeJournal(date?: string) {
   });
 }
 
-// --- AI Coach: Best Setups ---
-
-export interface EntryCandidate {
-  symbol: string;
-  timeframe: "day" | "swing";
-  direction: "LONG" | "SHORT";
-  setup_type: string;
-  entry: number;
-  stop: number | null;
-  t1: number | null;
-  t2: number | null;
-  conviction: "HIGH" | "MEDIUM" | "LOW";
-  confluence: string[];
-  why_now: string;
-  current_price: number;
-  distance_to_entry_pct: number;
-}
-
-export interface BestSetupsResponse {
-  generated_at: string;
-  watchlist_size: number;
-  day_trade_picks: EntryCandidate[];
-  swing_trade_picks: EntryCandidate[];
-  skipped: { symbol: string; reason: string }[];
-  error: string | null;
-}
-
-export function useBestSetups(enabled = false) {
-  return useQuery({
-    queryKey: ["best-setups"],
-    queryFn: () => api.get<BestSetupsResponse>("/ai/best-setups"),
-    enabled,
-    staleTime: 14 * 60_000,  // match server cache of 15 min
-    retry: false,
-  });
-}
+// --- AI Coach: pinned Best Setup alerts ---
+// The on-demand scan now persists via the Focus List hooks above
+// (spec 55) — the old useBestSetups live-scan hook was removed.
 
 export interface PinAlertPayload {
   symbol: string;
@@ -1147,6 +1114,113 @@ export function usePinBestSetupAlert() {
     },
     onError: (err: { message?: string; detail?: { message?: string } }) => {
       toast.error(err.detail?.message || err.message || "Failed to send alert");
+    },
+  });
+}
+
+// --- Focus List (persisted Best Setups, spec 55) ---
+
+export type TradeHorizon = "day_trade" | "swing";
+export type MarketWindow = "pre_open" | "pre_close" | "other";
+export type FocusListStatus = "has_setups" | "no_setups" | "failed";
+
+export interface QualifyingCriteria {
+  entry_trigger: string;
+  conviction_drivers: string[];
+  horizon_fit: TradeHorizon;
+}
+
+export interface FocusRecommendation {
+  symbol: string;
+  setup_type: string;
+  direction: "LONG" | "SHORT";
+  trade_horizon: TradeHorizon;
+  conviction: "HIGH" | "MEDIUM" | "LOW";
+  entry: number;
+  stop: number | null;
+  t1: number | null;
+  t2: number | null;
+  current_price: number;
+  distance_to_entry_pct: number;
+  confluence: string[];
+  why_now: string;
+  qualifying_criteria: QualifyingCriteria;
+}
+
+export interface FocusList {
+  id: number;
+  generated_at: string;
+  session_date: string;
+  market_window: MarketWindow;
+  status: FocusListStatus;
+  watchlist_size: number;
+  recommendations: FocusRecommendation[];
+  skipped: { symbol: string; reason: string }[];
+  message: string | null;
+  is_stale?: boolean;
+}
+
+export interface FocusListRunResponse extends Partial<FocusList> {
+  cadence_check: boolean;
+  cadence_exceeded?: boolean;
+  runs_today?: number;
+}
+
+export interface FocusListHistoryItem {
+  id: number;
+  generated_at: string;
+  session_date: string;
+  market_window: MarketWindow;
+  status: FocusListStatus;
+  recommendation_count: number;
+}
+
+/** The current saved focus list. Returns undefined when none exists (HTTP 204). */
+export function useLatestFocusList() {
+  return useQuery({
+    queryKey: ["focus-list", "latest"],
+    queryFn: () => api.get<FocusList | undefined>("/ai/focus-lists/latest"),
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useFocusListHistory() {
+  return useQuery({
+    queryKey: ["focus-list", "history"],
+    queryFn: () =>
+      api.get<{ items: FocusListHistoryItem[]; total: number }>("/ai/focus-lists"),
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useFocusListDetail(id: number | null) {
+  return useQuery({
+    queryKey: ["focus-list", "detail", id],
+    queryFn: () => api.get<FocusList>(`/ai/focus-lists/${id}`),
+    enabled: id != null,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Run the scan + persist. Pass { force: true } to proceed past the cadence check. */
+export function useRunFocusList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (opts?: { force?: boolean }) =>
+      api.post<FocusListRunResponse>(
+        `/ai/focus-lists/run${opts?.force ? "?force=true" : ""}`,
+      ),
+    onSuccess: (data) => {
+      // A cadence pre-check returns without running — nothing to invalidate.
+      if (!data.cadence_check) {
+        qc.invalidateQueries({ queryKey: ["focus-list"] });
+      }
+    },
+    onError: (err: { message?: string; detail?: { message?: string } }) => {
+      toast.error(err.detail?.message || err.message || "Scan failed");
     },
   });
 }

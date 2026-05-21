@@ -842,6 +842,7 @@ def create_app() -> FastAPI:
         performance, coach_history, auto_trades, ai_coach, diagnostics,
         tv_webhook,  # Phase 5a — TradingView alert ingest
         public,      # Public (unauth) EOD report endpoints
+        focus_list,  # Persisted daily focus list from AI Best Setups
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -865,6 +866,7 @@ def create_app() -> FastAPI:
     app.include_router(coach_history.router, prefix="/api/v1", tags=["coach"])
     app.include_router(auto_trades.router, prefix="/api/v1/auto-trades", tags=["auto-trades"])
     app.include_router(ai_coach.router, prefix="/api/v1/ai", tags=["ai-coach"])
+    app.include_router(focus_list.router, prefix="/api/v1/ai", tags=["focus-list"])
     app.include_router(diagnostics.router, prefix="/api/v1/diagnostics", tags=["diagnostics"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
