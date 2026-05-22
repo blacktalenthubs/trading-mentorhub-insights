@@ -22,9 +22,9 @@ from datetime import date
 
 logger = logging.getLogger(__name__)
 
-# Dedup: fingerprints already fired this session, keyed by symbol.
-_swing_fired: dict[str, set[tuple]] = {}
-_swing_session: str = ""
+# Per (symbol, alert_type) cooldown — the same swing alert won't re-fire
+# within this many minutes. DB-backed, so it survives process restarts.
+_COOLDOWN_MINUTES = 60
 
 # Persistent rate-limit feature keys (shared usage_limits table)
 _FEATURE_SWING = "swing_telegram"
@@ -109,6 +109,29 @@ def _enabled_alert_types(db) -> set[str]:
     except Exception:
         logger.exception("swing scan: alert_type_config read failed — fail closed")
         return set()
+
+
+def _on_cooldown(db, symbol: str, alert_type: str) -> bool:
+    """True if this symbol+alert_type already fired within the cooldown window.
+    Fails open (allows the fire) on error — better a possible dup than a miss."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import select
+    from app.models.alert import Alert
+    cutoff = datetime.utcnow() - timedelta(minutes=_COOLDOWN_MINUTES)
+    try:
+        hit = db.execute(
+            select(Alert.id)
+            .where(
+                Alert.symbol == symbol,
+                Alert.alert_type == alert_type,
+                Alert.created_at >= cutoff,
+            )
+            .limit(1)
+        ).scalars().first()
+        return hit is not None
+    except Exception:
+        logger.exception("swing cooldown check failed %s %s", symbol, alert_type)
+        return False
 
 
 # ── Market data ──────────────────────────────────────────────────────
@@ -221,12 +244,10 @@ def _deliver_entry(db, q, users, session: str, get_limits, enabled_types) -> int
             )
             return 0
 
-    # Dedup — one entry per symbol/type/level per session.
-    fp = (alert_type, round(entry, 0))
-    if fp in _swing_fired.setdefault(q.symbol, set()):
-        logger.info("swing %s: entry dedup skip (%s)", q.symbol, alert_type)
+    # Cooldown — the same symbol+type won't re-fire within _COOLDOWN_MINUTES.
+    if _on_cooldown(db, q.symbol, alert_type):
+        logger.info("swing %s: %s on cooldown", q.symbol, alert_type)
         return 0
-    _swing_fired[q.symbol].add(fp)
 
     body = _format_entry_msg(q)
     score = {"HIGH": 85, "MEDIUM": 65}.get(conviction, 65)
@@ -375,8 +396,6 @@ def _process_exits(db, symbol: str, hist, users, session: str, enabled_types) ->
 
 def swing_scan_cycle(sync_session_factory) -> int:
     """Run one swing scan pass — entries + exits. Returns Telegram deliveries."""
-    global _swing_fired, _swing_session
-
     if os.environ.get("SWING_SCAN_ENABLED", "true").lower() in ("0", "false", "no"):
         logger.info("swing scan: disabled via env")
         return 0
@@ -393,9 +412,6 @@ def swing_scan_cycle(sync_session_factory) -> int:
         pass  # if helper unavailable, run anyway
 
     session = date.today().isoformat()
-    if _swing_session != session:
-        _swing_fired.clear()
-        _swing_session = session
 
     # The only market gate: SPY above its 21 EMA -> bounce mode; below -> RSI
     # mode. In a weak market we switch the qualifier rather than skip swings.
