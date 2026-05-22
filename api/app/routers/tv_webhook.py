@@ -843,11 +843,12 @@ async def _users_watching(db, symbol: str):
     users via user_id. This mirrors the rule-engine poll loop in
     api/app/background/monitor.py which also joins through WatchlistItem.
 
-    Production note: not gating by tier/subscription here; the poll loop
-    does that filtering. For TV ingest in v1 we deliver to anyone watching
-    the symbol — fits the "TV is additive" philosophy. Add tier gating if
-    we see TV alerts going to free users we want to exclude.
+    Scoped to SCAN_USER_EMAIL (default vbolofinde@gmail.com) — the whole
+    alert system serves a single user while alert quality is evaluated, the
+    same gate the swing/day scanners and db.py already apply. One inbound TV
+    alert then writes one Alert row, not one per subscribed account.
     """
+    import os
     from app.models.user import User
     from app.models.watchlist import WatchlistItem
 
@@ -857,6 +858,9 @@ async def _users_watching(db, symbol: str):
         .where(WatchlistItem.symbol == symbol)
         .distinct()
     )
+    scan_email = (os.environ.get("SCAN_USER_EMAIL") or "vbolofinde@gmail.com").strip().lower()
+    if scan_email:
+        stmt = stmt.where(User.email == scan_email)
     result = await db.execute(stmt)
     return result.scalars().all()
 
