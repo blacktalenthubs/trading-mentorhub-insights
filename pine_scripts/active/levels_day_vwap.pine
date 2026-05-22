@@ -208,12 +208,13 @@ else if is_stage1
 // reference for stops — that's the level price actually defended/broke.
 
 // Helpers — return the just-crossed level (na if no cross this bar).
-// Lowest resistance just broken: lowest level above prior close that's
-// now below current close.
+// Lowest resistance just broken AND HELD: a level price has now closed above
+// for 2 consecutive bars (and was at/below the bar before) — filters the
+// single-bar poke that closes straight back through. na if no confirmed break.
 lowest_res_just_broken() =>
-    p_pdh = not na(pdh) and close > pdh and close[1] <= pdh ? pdh : 9.0e15
-    p_pwh = not na(pwh) and close > pwh and close[1] <= pwh ? pwh : 9.0e15
-    p_pmh = not na(pmh) and close > pmh and close[1] <= pmh ? pmh : 9.0e15
+    p_pdh = not na(pdh) and not na(close[2]) and close > pdh and close[1] > pdh and close[2] <= pdh ? pdh : 9.0e15
+    p_pwh = not na(pwh) and not na(close[2]) and close > pwh and close[1] > pwh and close[2] <= pwh ? pwh : 9.0e15
+    p_pmh = not na(pmh) and not na(close[2]) and close > pmh and close[1] > pmh and close[2] <= pmh ? pmh : 9.0e15
     m = math.min(p_pdh, math.min(p_pwh, p_pmh))
     m == 9.0e15 ? float(na) : m
 
