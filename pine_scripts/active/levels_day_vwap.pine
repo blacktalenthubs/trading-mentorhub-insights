@@ -698,8 +698,8 @@ gap_context = gap_up and gap_held
 //                         green bar bounce. Mid-tier — real test happened,
 //                         no close flip (AAPL 2026-05-15 9:55 ET pattern).
 //   • open_reclaimed    → full recovery; a close flipped below open, then
-//                         a later close came back above. Strongest open
-//                         signal (genuine lose-reclaim cycle).
+//                         price reclaimed AND HELD it for 2 consecutive
+//                         closes (~30 min). Strongest open signal.
 //   • open_lost         → bearish shift; was above open, then closed below.
 //                         NOTICE on indexes only.
 //
@@ -722,6 +722,7 @@ var bool ol_reclaimed_today      = false
 var bool ol_held_today           = false
 var bool ol_wick_reclaimed_today = false
 var bool ol_wick_dipped_today    = false
+var int  ol_bars_above           = 0
 
 if session_open_now
     ol_was_above_open       := false
@@ -730,6 +731,7 @@ if session_open_now
     ol_held_today           := false
     ol_wick_reclaimed_today := false
     ol_wick_dipped_today    := false
+    ol_bars_above           := 0
 
 if not na(today_open) and close > today_open
     ol_was_above_open := true
@@ -739,13 +741,18 @@ if not na(today_open) and close > today_open
 if not na(today_open) and low < today_open
     ol_wick_dipped_today := true
 
+// Bars-held-above-open counter — consecutive closes above today_open, reset
+// to 0 on any close at/below it. Gates open_reclaimed: the reclaim must HOLD.
+if not na(today_open)
+    ol_bars_above := close > today_open ? ol_bars_above + 1 : 0
+
 ol_just_lost      = ol_was_above_open and not ol_lost_today and not na(today_open) and not na(close[1]) and close < today_open and close[1] >= today_open
-// open_reclaimed: not gated by ol_reclaimed_today anymore — Pine fires
-// on every fresh lose-and-reclaim cycle. Backend applies a 90-min rolling
-// dedup so chop within the same hour collapses to one alert, but a true
-// second lose-reclaim cycle later in the session (e.g., morning reclaim
-// → lunch shakeout → afternoon re-reclaim) gets its own alert.
-ol_just_reclaimed = ol_lost_today and not na(today_open) and not na(close[1]) and close > today_open and close[1] <= today_open
+// open_reclaimed: lost the open, then RECLAIMED AND HELD — fires only once
+// price has closed above today_open for 2 consecutive bars (~30 min). A
+// single choppy cross is one bar that falls back the next -> never reaches
+// 2 -> no alert. Re-arms after fire (ol_lost_today reset below) so a genuine
+// later lose-reclaim cycle still gets its own confirmed alert.
+ol_just_reclaimed = ol_lost_today and not na(today_open) and ol_bars_above == 2
 
 // open_held: clean defense — low tested within 0.2% ABOVE today_open but
 // never crossed below. Weakest of the three BUY signals (no real test).
