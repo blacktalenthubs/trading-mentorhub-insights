@@ -6,7 +6,7 @@ import { toast } from "../components/Toast";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
-  SpyRegime, SwingTrade,
+  SpyRegime, SwingTrade, ScorecardItem,
   WinRateData, SetupAnalysis, MTFContext, NotificationPrefs,
   NotificationRouting,
   PerformanceBreakdown,
@@ -663,6 +663,44 @@ export function useAckAlert() {
       qc.invalidateQueries({ queryKey: ["session-summary"] });
       qc.invalidateQueries({ queryKey: ["real-trades-open"] });
     },
+  });
+}
+
+export function useSetAlertOutcome() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, outcome }: { id: number; outcome: "worked" | "failed" | "clear" }) =>
+      api.post(`/alerts/${id}/outcome?outcome=${outcome}`),
+    onMutate: async ({ id, outcome }) => {
+      await qc.cancelQueries({ queryKey: ["alerts-today"] });
+      const prev = qc.getQueryData<Alert[]>(["alerts-today"]);
+      qc.setQueryData<Alert[]>(["alerts-today"], (old) =>
+        (old ?? []).map((a) =>
+          a.id === id ? { ...a, outcome: outcome === "clear" ? null : outcome } : a),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["alerts-today"], ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const k = String(query.queryKey?.[0] ?? "");
+          return k.startsWith("alerts") || k === "scorecard";
+        },
+      });
+    },
+  });
+}
+
+export function useScorecard(date = "") {
+  return useQuery({
+    queryKey: ["scorecard", date],
+    queryFn: () =>
+      api.get<{ session_date: string; items: ScorecardItem[] }>(
+        `/alerts/scorecard?session_date=${date}`,
+      ),
   });
 }
 

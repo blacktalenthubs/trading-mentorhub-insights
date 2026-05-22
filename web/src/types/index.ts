@@ -67,10 +67,20 @@ export interface Alert {
   created_at: string;
   session_date: string;
   user_action?: string | null;
+  outcome?: string | null;          // manual grade — "worked" | "failed" | null
   volume_ratio?: number | null;
   cvd_delta?: number | null;
   cvd_diverging?: number | null;
   suppressed_reason?: string | null;
+}
+
+export interface ScorecardItem {
+  alert_type: string;
+  worked: number;
+  failed: number;
+  graded: number;
+  win_rate: number;
+  group: string;                    // "day" | "swing"
 }
 
 // --- Options Trade ---

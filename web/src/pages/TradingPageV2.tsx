@@ -16,6 +16,8 @@ import {
   useAlertSessionDates,
   useAlertsForDate,
   useAckAlert,
+  useSetAlertOutcome,
+  useScorecard,
   useWatchlist,
   useAddSymbol,
   useRemoveSymbol,
@@ -25,7 +27,7 @@ import {
 import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { SignalResult, Alert } from "../types";
+import type { SignalResult, Alert, ScorecardItem } from "../types";
 import { formatSetup, isFeedSignal } from "../lib/alertFormat";
 import CandlestickChart from "../components/CandlestickChart";
 import {
@@ -218,19 +220,81 @@ function formatSessionDate(iso: string): string {
 const fmtPrice = (v: number | null | undefined) =>
   v != null ? `$${v.toFixed(2)}` : "—";
 
+/* ── EOD Scorecard — win rate by setup from the manual ✓/✗ marks ───── */
+
+function Scorecard({ date }: { date: string }) {
+  const { data } = useScorecard(date);
+  const items: ScorecardItem[] = data?.items ?? [];
+
+  if (items.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center px-4">
+        <p className="text-xs text-text-faint text-center">
+          No graded signals for this session yet — mark ✓ / ✗ on the cards.
+        </p>
+      </div>
+    );
+  }
+
+  const renderGroup = (title: string, group: string) => {
+    const rows = items.filter((i) => i.group === group);
+    if (rows.length === 0) return null;
+    return (
+      <div className="mb-3">
+        <div className="text-[10px] font-bold uppercase tracking-wide text-text-faint mb-1">
+          {title}
+        </div>
+        {rows.map((i) => (
+          <div
+            key={i.alert_type}
+            className="flex items-center justify-between py-1 border-b border-border-subtle/30 text-[11px]"
+          >
+            <span className="text-text-secondary truncate mr-2">
+              {formatSetup(i.alert_type)}
+            </span>
+            <span className="font-mono shrink-0">
+              <span className="text-bullish-text">{i.worked}</span>
+              <span className="text-text-faint"> · </span>
+              <span className="text-bearish-text">{i.failed}</span>
+              <span
+                className={`ml-2 font-bold ${
+                  i.win_rate >= 50 ? "text-bullish-text" : "text-bearish-text"
+                }`}
+              >
+                {i.win_rate}%
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto px-3 py-2">
+      {renderGroup("Day setups", "day")}
+      {renderGroup("Swing setups", "swing")}
+    </div>
+  );
+}
+
 function SignalFeedTab({
   alerts,
   alertsError,
   onSelectSymbol,
   showNonRouted = false,
+  signalDate = "",
 }: {
   alerts?: Alert[];
   alertsError: unknown;
   onSelectSymbol: (sym: string) => void;
   showNonRouted?: boolean;
+  signalDate?: string;
 }) {
   const ack = useAckAlert();
+  const setOutcome = useSetAlertOutcome();
   const [search, setSearch] = useState("");
+  const [showScorecard, setShowScorecard] = useState(false);
 
   if (alertsError) {
     return (
@@ -249,10 +313,11 @@ function SignalFeedTab({
   }
 
   // AI scanner signals + every fired TradingView signal. WAITs excluded.
-  // Non-routed alerts (recorded for review) are hidden unless showNonRouted.
+  // "Non-routed" is an exclusive view — on: only non-routed; off: only routed.
   const feedAlerts = (alerts ?? []).filter((a) => {
     if (!isFeedSignal(a.alert_type)) return false;
-    if (a.suppressed_reason === "type_not_enabled" && !showNonRouted) return false;
+    const notRouted = a.suppressed_reason === "type_not_enabled";
+    if (showNonRouted ? !notRouted : notRouted) return false;
     return true;
   });
   const q = search.trim().toUpperCase();
@@ -262,17 +327,30 @@ function SignalFeedTab({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Symbol search */}
-      <div className="px-3 pt-2 pb-1 shrink-0">
+      {/* Symbol search + scorecard toggle */}
+      <div className="px-3 pt-2 pb-1 shrink-0 flex items-center gap-1.5">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search symbol…"
-          className="w-full bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
+          className="flex-1 bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
         />
+        <button
+          onClick={() => setShowScorecard((v) => !v)}
+          title="End-of-day scorecard — win rate by setup from your ✓/✗ marks"
+          className={`shrink-0 text-[10px] px-2 py-1 rounded border transition-colors ${
+            showScorecard
+              ? "bg-accent/15 text-accent border-accent/40"
+              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+          }`}
+        >
+          Scorecard
+        </button>
       </div>
 
-      {visible.length === 0 ? (
+      {showScorecard ? (
+        <Scorecard date={signalDate} />
+      ) : visible.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-text-faint">
             {q ? `No ${q} signals in this session` : "No signals in this session"}
@@ -394,6 +472,37 @@ function SignalFeedTab({
                 {a.user_action === "took" ? "Took" : "Skipped"}
               </span>
             )}
+
+            {/* Outcome grade — on every card, routed + non-routed */}
+            <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border-subtle/40">
+              <span className="text-[9px] text-text-faint mr-auto">Did it work?</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOutcome.mutate({ id: a.id, outcome: a.outcome === "worked" ? "clear" : "worked" });
+                }}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-bold border transition-colors ${
+                  a.outcome === "worked"
+                    ? "bg-bullish/25 text-bullish-text border-bullish/30"
+                    : "bg-surface-4 text-text-faint border-border-subtle hover:bg-surface-3"
+                }`}
+              >
+                ✓ Worked
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOutcome.mutate({ id: a.id, outcome: a.outcome === "failed" ? "clear" : "failed" });
+                }}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-bold border transition-colors ${
+                  a.outcome === "failed"
+                    ? "bg-bearish/25 text-bearish-text border-bearish/30"
+                    : "bg-surface-4 text-text-faint border-border-subtle hover:bg-surface-3"
+                }`}
+              >
+                ✗ Didn't
+              </button>
+            </div>
           </div>
         );
       })}
@@ -1158,6 +1267,7 @@ export default function TradingPageV2() {
               alertsError={activeAlertsError}
               onSelectSymbol={selectSymbol}
               showNonRouted={showNonRouted}
+              signalDate={signalDate}
             />
           </div>
         </aside>
@@ -1185,6 +1295,7 @@ export default function TradingPageV2() {
             alertsError={activeAlertsError}
             onSelectSymbol={selectSymbol}
             showNonRouted={showNonRouted}
+            signalDate={signalDate}
           />
         </div>
       </div>

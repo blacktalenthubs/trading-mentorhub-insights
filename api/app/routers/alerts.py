@@ -233,6 +233,61 @@ async def ack_alert(
     return {"id": alert_id, "user_action": action, "trade_id": trade_id}
 
 
+@router.post("/{alert_id}/outcome")
+async def set_alert_outcome(
+    alert_id: int,
+    outcome: str = Query(..., regex="^(worked|failed|clear)$"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually grade an alert's outcome — worked / failed / clear (un-mark)."""
+    result = await db.execute(
+        select(Alert).where(Alert.id == alert_id, Alert.user_id == user.id)
+    )
+    alert = result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.outcome = None if outcome == "clear" else outcome
+    return {"id": alert_id, "outcome": alert.outcome}
+
+
+@router.get("/scorecard")
+async def alert_scorecard(
+    session_date: str = Query(default=""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Win rate by alert_type from the manual outcome marks, for one session."""
+    sd = session_date or _today()
+    rows = (await db.execute(
+        select(Alert.alert_type, Alert.outcome).where(
+            Alert.user_id == user.id,
+            Alert.session_date == sd,
+            Alert.outcome.isnot(None),
+        )
+    )).all()
+    agg: dict[str, dict] = {}
+    for at, oc in rows:
+        d = agg.setdefault(at, {"worked": 0, "failed": 0})
+        if oc == "worked":
+            d["worked"] += 1
+        elif oc == "failed":
+            d["failed"] += 1
+    items = []
+    for at, d in agg.items():
+        graded = d["worked"] + d["failed"]
+        items.append({
+            "alert_type": at,
+            "worked": d["worked"],
+            "failed": d["failed"],
+            "graded": graded,
+            "win_rate": round(d["worked"] / graded * 100, 1) if graded else 0.0,
+            "group": "swing" if at.startswith("swing_") else "day",
+        })
+    items.sort(key=lambda x: (-x["graded"], x["alert_type"]))
+    return {"session_date": sd, "items": items}
+
+
 @router.get("/session-dates")
 async def session_dates(
     user: User = Depends(get_current_user),
