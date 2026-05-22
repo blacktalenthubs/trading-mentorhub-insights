@@ -17,8 +17,8 @@ def test_ai_update_types_covers_wait_and_resistance():
 def test_ai_update_types_excludes_entries():
     assert "ai_day_long" not in AI_UPDATE_TYPES
     assert "ai_day_short" not in AI_UPDATE_TYPES
-    assert "ai_swing_long" not in AI_UPDATE_TYPES
-    assert "ai_swing_short" not in AI_UPDATE_TYPES
+    assert "swing_long" not in AI_UPDATE_TYPES
+    assert "swing_exit" not in AI_UPDATE_TYPES
     assert "ai_exit_signal" not in AI_UPDATE_TYPES
 
 

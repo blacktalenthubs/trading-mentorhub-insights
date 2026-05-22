@@ -6,7 +6,7 @@ import { toast } from "../components/Toast";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
-  SpyRegime, SwingCategory, SwingTrade,
+  SpyRegime, SwingTrade,
   WinRateData, SetupAnalysis, MTFContext, NotificationPrefs,
   NotificationRouting,
   PerformanceBreakdown,
@@ -898,13 +898,6 @@ export function useSpyRegime() {
   });
 }
 
-export function useSwingCategories(date = "") {
-  return useQuery({
-    queryKey: ["swing-categories", date],
-    queryFn: () => api.get<SwingCategory[]>(`/swing/categories?session_date=${date}`),
-  });
-}
-
 export function useActiveSwingTrades() {
   return useQuery({
     queryKey: ["swing-active"],
@@ -925,7 +918,7 @@ export function useTriggerSwingScan() {
     mutationFn: () => api.post<{ alerts_fired: number }>("/swing/scan"),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["swing-active"] });
-      qc.invalidateQueries({ queryKey: ["swing-categories"] });
+      qc.invalidateQueries({ queryKey: ["swing-history"] });
     },
   });
 }

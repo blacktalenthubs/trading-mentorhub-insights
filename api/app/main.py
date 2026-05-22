@@ -254,6 +254,8 @@ async def lifespan(app: FastAPI):
             sync_engine = create_engine(sync_url, pool_pre_ping=True)
 
         sync_session_factory = sessionmaker(bind=sync_engine)
+        # Expose to routers (e.g. the manual /swing/scan trigger).
+        app.state.sync_session_factory = sync_session_factory
 
         scheduler = BackgroundScheduler()
 
@@ -411,23 +413,21 @@ async def lifespan(app: FastAPI):
                     _day_scan_min,
                 )
 
-            # AI Swing Scanner (Spec 38) — runs on 15-min interval during market hours.
-            # Fires only when price is actually AT a daily/weekly level right now,
-            # not at arbitrary pre-market/EOD cron times. Daily levels don't move
-            # fast enough to warrant tighter cadence.
-            def _ai_swing_scan():
+            # Swing Scanner (spec 56) — deterministic, runs on a 15-min interval
+            # during market hours. Not an AI/LLM scan; pure math on daily bars.
+            def _swing_scan():
                 try:
-                    from analytics.ai_swing_scanner import swing_scan_cycle
+                    from analytics.swing_scanner import swing_scan_cycle
                     fired = swing_scan_cycle(sync_session_factory)
                     logger.info("Swing scan: %d deliveries", fired)
                 except Exception:
                     logger.exception("Swing scan failed")
 
             scheduler.add_job(
-                _ai_swing_scan,
+                _swing_scan,
                 "interval",
                 minutes=15,
-                id="ai_swing_scan",
+                id="swing_scan",
                 replace_existing=True,
             )
         else:

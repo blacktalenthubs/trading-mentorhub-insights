@@ -31,7 +31,7 @@ TIER_LIMITS: dict[str, dict] = {
         "ai_queries_per_day": 3,        # AI Coach + CoPilot combined (real per-user AI cost)
         "ai_scan_alerts_per_day": 3,    # LONG/SHORT/RESISTANCE/EXIT — taste, then upgrade pull
         "ai_wait_alerts_per_day": 3,    # WAIT Telegram delivery
-        "ai_swing_alerts_per_day": 2,   # Spec 38 — swing alerts for free tier (taste)
+        "swing_alerts_per_day": 2,   # swing alerts for free tier (taste)
         "best_setups_per_day": 1,       # Spec 40 — morning planning scan
         "telegram_commands_per_day": 3, # /spy, /eth, /btc commands (real per-user AI cost)
         "alert_history_days": 0,        # today only
@@ -52,7 +52,7 @@ TIER_LIMITS: dict[str, dict] = {
         "ai_queries_per_day": 3,         # same as free — dashboard AI Coach limited
         "ai_scan_alerts_per_day": None,  # unlimited Telegram
         "ai_wait_alerts_per_day": None,  # unlimited
-        "ai_swing_alerts_per_day": None, # unlimited
+        "swing_alerts_per_day": None, # unlimited
         "best_setups_per_day": 1,        # same as free — dashboard feature limited
         "telegram_commands_per_day": 3,  # same as free — per-user AI cost control
         "alert_history_days": 30,
@@ -72,7 +72,7 @@ TIER_LIMITS: dict[str, dict] = {
         "ai_queries_per_day": 50,
         "ai_scan_alerts_per_day": None, # unlimited
         "ai_wait_alerts_per_day": None, # unlimited — Pro sees full AI transparency
-        "ai_swing_alerts_per_day": None, # unlimited
+        "swing_alerts_per_day": None, # unlimited
         "best_setups_per_day": 20,
         "telegram_commands_per_day": 50,
         "alert_history_days": 30,
@@ -92,7 +92,7 @@ TIER_LIMITS: dict[str, dict] = {
         "ai_queries_per_day": None,     # unlimited
         "ai_scan_alerts_per_day": None,
         "ai_wait_alerts_per_day": None,
-        "ai_swing_alerts_per_day": None,
+        "swing_alerts_per_day": None,
         "best_setups_per_day": None,
         "telegram_commands_per_day": None,
         "alert_history_days": None,     # full history

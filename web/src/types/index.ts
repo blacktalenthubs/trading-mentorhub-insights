@@ -124,37 +124,27 @@ export interface OptionsFlowItem {
 // --- Swing Trades ---
 
 export interface SpyRegime {
-  regime_bullish: boolean;
+  regime: string;              // "bounce" | "rsi"
+  bounce_mode: boolean;        // true when SPY is at/above its 21 EMA
   spy_close: number | null;
-  spy_ema20: number | null;
-  spy_rsi: number | null;
-}
-
-export interface SwingCategory {
-  symbol: string;
-  category: string;
-  rsi: number | null;
-  session_date: string;
+  spy_ema21: number | null;
 }
 
 export interface SwingTrade {
   id: number;
   symbol: string;
-  direction: string;
-  alert_type?: string;
-  entry_price: number;
-  stop_price: number | null;
-  target_price: number | null;
-  current_price: number | null;
-  current_rsi: number | null;
-  entry_rsi: number | null;
-  stop_type?: string;
-  target_type?: string;
-  status: string;
+  alert_type: string;          // swing_bounce_ema50 / swing_rsi_30
+  setup: string;               // human label, e.g. "EMA 50 bounce"
+  entry: number | null;
+  stop: number | null;
+  target_1: number | null;
+  target_2: number | null;
+  conviction: string | null;
   opened_date: string;
+  status: string;              // "active" | "closed"
   closed_date: string | null;
   exit_price: number | null;
-  pnl: number | null;
+  pnl_pct: number | null;
 }
 
 // --- Intel / AI ---

@@ -94,9 +94,24 @@ _MA_CATALOG: list[tuple[str, str, str, bool]] = [
     for suffix, malabel in _MA_TOGGLES
 ]
 
+# Swing scanner (spec 56) — one toggle per defended MA, plus the RSI-recovery
+# and exit types. All default OFF; enable a type in Settings to route it.
+_SWING_CATALOG: list[tuple[str, str, str, bool]] = [
+    ("swing_bounce_ema21", "Swing bounce · EMA 21", "Swing · Bounce", False),
+    ("swing_bounce_ema50", "Swing bounce · EMA 50", "Swing · Bounce", False),
+    ("swing_bounce_sma50", "Swing bounce · SMA 50", "Swing · Bounce", False),
+    ("swing_bounce_ema100", "Swing bounce · EMA 100", "Swing · Bounce", False),
+    ("swing_bounce_sma100", "Swing bounce · SMA 100", "Swing · Bounce", False),
+    ("swing_bounce_ema200", "Swing bounce · EMA 200", "Swing · Bounce", False),
+    ("swing_bounce_sma200", "Swing bounce · SMA 200", "Swing · Bounce", False),
+    ("swing_rsi_30", "Swing RSI-30 recovery (SPY-weak regime)", "Swing", False),
+    ("swing_exit", "Swing exit — daily close below the stop", "Swing", False),
+]
+
 ALERT_TYPE_CATALOG: list[tuple[str, str, str, bool]] = (
     _BASE_CATALOG
     + _MA_CATALOG
+    + _SWING_CATALOG
     + [("ma_proximity_short_v3", "MA proximity short (NOTICE)", "MA / EMA · Proximity Short", False)]
 )
 
