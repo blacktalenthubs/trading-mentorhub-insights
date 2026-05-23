@@ -313,6 +313,19 @@ class TestUptrendGateRefined:
     def test_pmh_held_downtrend_passes(self):
         assert is_uptrend_gate_rejected("tv_staged_pmh_held", "BUY", False) is False
 
+    # ── Spec 58 (2026-05-23) — symmetric low-held types ─────────────
+
+    def test_pdl_held_downtrend_passes(self):
+        """ETH 2026-05-23 case: wicked PML, bounced. New `pml_held` alert
+        type fires regardless of MA stack (level play, not MA-based)."""
+        assert is_uptrend_gate_rejected("tv_staged_pdl_held", "BUY", False) is False
+
+    def test_pwl_held_downtrend_passes(self):
+        assert is_uptrend_gate_rejected("tv_staged_pwl_held", "BUY", False) is False
+
+    def test_pml_held_downtrend_passes(self):
+        assert is_uptrend_gate_rejected("tv_staged_pml_held", "BUY", False) is False
+
     # ── Uptrend regime: nothing is gated ────────────────────────────
 
     def test_ma_bounce_uptrend_passes(self):

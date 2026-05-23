@@ -190,6 +190,17 @@ s58_pdh_held = not na(pdh) and not na(close[1]) and close[1] > pdh and low <= pd
 s58_pwh_held = not na(pwh) and not na(close[1]) and close[1] > pwh and low <= pwh and close >= pwh
 s58_pmh_held = not na(pmh) and not na(close[1]) and close[1] > pmh and low <= pmh and close >= pmh
 
+// Spec 58 (2026-05-23) — symmetric low-held-from-above detection.
+// Wick tested the prior low and closed back above without closing below
+// it. ETH on 2026-05-23 wicked PML 2016.5, bounced hard, never closed
+// below — the existing pml_reclaim doesn't fire (needs a close-below
+// first), but the wick-and-hold is a real event the trader wants to take.
+// Strict touch: low <= level. No tolerance noise. If the level fails on
+// a future bar, the existing _reclaim/_break alerts cover the next event.
+s58_pdl_held = not na(pdl) and not na(close[1]) and close[1] > pdl and low <= pdl and close >= pdl
+s58_pwl_held = not na(pwl) and not na(close[1]) and close[1] > pwl and low <= pwl and close >= pwl
+s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pml and close >= pml
+
 // =====================================================================
 // VWAP + slope
 // =====================================================================
@@ -1053,6 +1064,34 @@ if s58_pmh_held and (not uptrend_pass_58 or chop_gate_pass_58)
     t1_pmh = e_pmh * 1.0075
     t2_pmh = e_pmh * 1.015
     alert(build_payload_v2("staged_pmh_held", "BUY", e_pmh, s_pmh, t1_pmh, t2_pmh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// =====================================================================
+// Spec 58 (2026-05-23) — Buy 2: prior-low held-from-above (wick test)
+// =====================================================================
+// Entry = the level itself (the wick-tested low — much tighter fill than
+// the corresponding _reclaim alert that fires later if the level fails).
+// Stop = wick low − ATR buffer. Targets stack to nearest overhead PDH/PWH/PMH.
+// Same gate as held-highs: bypass chop gate in downtrends (reversal play).
+if s58_pdl_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pdl_h  = pdl
+    s_pdl_h  = low - atr_buffer
+    t1_pdl_h = not na(pdh) and pdh > e_pdl_h ? pdh : (not na(pwh) and pwh > e_pdl_h ? pwh : e_pdl_h * 1.015)
+    t2_pdl_h = not na(pwh) and pwh > t1_pdl_h ? pwh : (not na(pmh) and pmh > t1_pdl_h ? pmh : t2_extend_long(e_pdl_h, t1_pdl_h))
+    alert(build_payload_v2("staged_pdl_held", "BUY", e_pdl_h, s_pdl_h, t1_pdl_h, t2_pdl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pwl_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pwl_h  = pwl
+    s_pwl_h  = low - atr_buffer
+    t1_pwl_h = not na(pdh) and pdh > e_pwl_h ? pdh : (not na(pwh) and pwh > e_pwl_h ? pwh : e_pwl_h * 1.02)
+    t2_pwl_h = not na(pwh) and pwh > t1_pwl_h ? pwh : (not na(pmh) and pmh > t1_pwl_h ? pmh : t2_extend_long(e_pwl_h, t1_pwl_h))
+    alert(build_payload_v2("staged_pwl_held", "BUY", e_pwl_h, s_pwl_h, t1_pwl_h, t2_pwl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pml_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pml_h  = pml
+    s_pml_h  = low - atr_buffer
+    t1_pml_h = not na(pwh) and pwh > e_pml_h ? pwh : (not na(pmh) and pmh > e_pml_h ? pmh : e_pml_h * 1.03)
+    t2_pml_h = not na(pmh) and pmh > t1_pml_h ? pmh : t2_extend_long(e_pml_h, t1_pml_h)
+    alert(build_payload_v2("staged_pml_held", "BUY", e_pml_h, s_pml_h, t1_pml_h, t2_pml_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // =====================================================================
 // Open-line alert fires — open_lost (NOTICE, index only) +

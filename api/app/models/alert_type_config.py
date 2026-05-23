@@ -79,6 +79,15 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdh_held", "PDH held as support (Buy 2 — spec 58)", "Daily PDH/PDL", False),
     ("staged_pwh_held", "PWH held as support (Buy 2 — spec 58)", "Weekly / Monthly", False),
     ("staged_pmh_held", "PMH held as support (Buy 2 — spec 58)", "Weekly / Monthly", False),
+    # Spec 58 NEW (2026-05-23) — symmetric "low held from above" types. Fires
+    # when a wick tests a prior low and price closes back above it without
+    # ever closing below. The wick-and-hold pattern (ETH wicking PML on
+    # 2026-05-23 — bounced hard, but no _reclaim fired because no close
+    # below PML). Trusts the low levels to hold; if they fail, we know
+    # structurally where the floor broke.
+    ("staged_pdl_held", "PDL held as support — wick test (spec 58)", "Daily PDH/PDL", False),
+    ("staged_pwl_held", "PWL held as support — wick test (spec 58)", "Weekly / Monthly", False),
+    ("staged_pml_held", "PML held as support — wick test (spec 58)", "Weekly / Monthly", False),
     ("staged_pwh_break", "Weekly high break (retired — spec 58)", "Weekly / Monthly", False),
     ("staged_pwh_rejection", "Weekly high rejection", "Weekly / Monthly", False),
     ("staged_pwh_failed_short", "Weekly high failed short", "Weekly / Monthly", False),
