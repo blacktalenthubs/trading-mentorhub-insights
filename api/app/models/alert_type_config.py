@@ -62,30 +62,63 @@ OBSOLETE_ALERT_TYPES = (
 
 # Canonical catalogue. (alert_type, label, category, default_enabled).
 # default_enabled only applies on first insert — `enabled` is never overwritten.
+# Spec 58 (2026-05-22): retired LONG entries marked "(retired — spec 58)";
+# their default_enabled is False here AND the startup migration in main.py
+# soft-disables existing rows so the change takes effect on first deploy.
 _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
-    ("open_reclaimed", "Open reclaimed — close flipped back above the day open", "Open Line", True),
-    ("open_held", "Open held — day open defended as support", "Open Line", True),
-    ("open_wick_reclaim", "Open wick reclaim — wick crossed below, body held", "Open Line", False),
-    ("open_lost", "Open lost — closed below the day open (NOTICE)", "Open Line", False),
-    ("staged_pdh_break", "PDH break", "Daily PDH/PDL", False),
+    ("open_reclaimed", "Open reclaimed (retired — spec 58, visual-only)", "Open Line", False),
+    ("open_held", "Open held (retired — spec 58, visual-only)", "Open Line", False),
+    ("open_wick_reclaim", "Open wick reclaim (retired — spec 58)", "Open Line", False),
+    ("open_lost", "Open lost (retired — spec 58)", "Open Line", False),
+    ("staged_pdh_break", "PDH break (retired — spec 58 FR-005, breakout-into-resistance)", "Daily PDH/PDL", False),
     ("staged_pdh_rejection", "PDH rejection", "Daily PDH/PDL", False),
     ("staged_pdh_failed_short", "PDH failed short", "Daily PDH/PDL", False),
     ("staged_pdl_break", "PDL break", "Daily PDH/PDL", False),
     ("staged_pdl_reclaim", "PDL reclaim", "Daily PDH/PDL", False),
-    ("staged_pwh_break", "Weekly high break", "Weekly / Monthly", False),
+    # Spec 58 NEW (FR-004) — Buy 2 prior-high support hold.
+    ("staged_pdh_held", "PDH held as support (Buy 2 — spec 58)", "Daily PDH/PDL", False),
+    ("staged_pwh_held", "PWH held as support (Buy 2 — spec 58)", "Weekly / Monthly", False),
+    ("staged_pmh_held", "PMH held as support (Buy 2 — spec 58)", "Weekly / Monthly", False),
+    ("staged_pwh_break", "Weekly high break (retired — spec 58)", "Weekly / Monthly", False),
     ("staged_pwh_rejection", "Weekly high rejection", "Weekly / Monthly", False),
     ("staged_pwh_failed_short", "Weekly high failed short", "Weekly / Monthly", False),
     ("staged_pwl_break", "Weekly low break", "Weekly / Monthly", False),
     ("staged_pwl_reclaim", "Weekly low reclaim", "Weekly / Monthly", False),
-    ("staged_pmh_break", "Monthly high break", "Weekly / Monthly", False),
+    ("staged_pmh_break", "Monthly high break (retired — spec 58)", "Weekly / Monthly", False),
     ("staged_pmh_rejection", "Monthly high rejection", "Weekly / Monthly", False),
     ("staged_pmh_failed_short", "Monthly high failed short", "Weekly / Monthly", False),
     ("staged_pml_break", "Monthly low break", "Weekly / Monthly", False),
     ("staged_pml_reclaim", "Monthly low reclaim", "Weekly / Monthly", False),
     ("htf_support_held", "HTF support held", "HTF Levels", False),
     ("htf_proximity", "HTF proximity (NOTICE)", "HTF Levels", False),
-    ("pullback_long", "Uptrend pullback continuation — long", "Pullback", False),
+    ("pullback_long", "Uptrend pullback continuation (retired — spec 58, replaced by Buy 1)", "Pullback", False),
 ]
+
+# Spec 58 — alert types soft-disabled at startup by the migration in main.py.
+# Soft-disable rather than DELETE so existing `alerts` rows keep resolvable
+# types for audit. Listed without the `tv_` prefix; the migration prepends it.
+SPEC_58_RETIRED_ENTRY_TYPES: tuple[str, ...] = (
+    "open_reclaimed",
+    "open_held",
+    "open_wick_reclaim",
+    "open_lost",
+    "staged_pdh_break",
+    "staged_pwh_break",
+    "staged_pmh_break",
+    "pullback_long",
+    "ma_proximity_long_v3_ema8",
+    "ma_proximity_long_v3_ema21",
+    "ma_proximity_long_v3_ema50",
+    "ma_proximity_long_v3_ema100",
+    "ma_proximity_long_v3_ema200",
+    "ma_proximity_long_v3_sma",
+    # Spec 58 — htf_support_held superseded by granular per-level types
+    # (staged_pdh_held / staged_pwh_held / staged_pmh_held). The new types
+    # carry the uptrend gate + chop gate; htf_support_held is pre-spec-58
+    # logic without them, so it's retired to avoid duplicate alerts on the
+    # same setup.
+    "htf_support_held",
+)
 
 # Per-MA toggles for the three split families.
 _MA_CATALOG: list[tuple[str, str, str, bool]] = [

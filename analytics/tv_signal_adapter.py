@@ -316,6 +316,47 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     #     upgrade in Telegram header
     _gap_ctx_raw = (payload.get("gap_context") or "").strip().lower()
     sig._tv_gap_context = _gap_ctx_raw == "true"  # type: ignore[attr-defined]
+    # Spec 58 (2026-05-22) — uptrend gate + nearby-levels for confluence
+    # annotation. All optional; legacy Pine alerts omit them.
+    #   • uptrend_pass: "true"/"false" string from Pine
+    #   • overhead_mas: list of MA labels above price (empty = clean uptrend)
+    #   • nearby_levels: list of {kind, value, label} dicts for confluence check
+    #   • mtd_avwap: month-to-date anchored VWAP value (also in nearby_levels)
+    _uptrend_raw = (payload.get("uptrend_pass") or "").strip().lower()
+    sig._tv_uptrend_pass = (_uptrend_raw == "true") if _uptrend_raw in ("true", "false") else None  # type: ignore[attr-defined]
+    _overhead_raw = payload.get("overhead_mas")
+    if isinstance(_overhead_raw, list):
+        sig._tv_overhead_mas = [str(x) for x in _overhead_raw if x]  # type: ignore[attr-defined]
+    elif isinstance(_overhead_raw, str) and _overhead_raw.strip():
+        # Pine often sends comma-separated strings — handle that too.
+        sig._tv_overhead_mas = [s.strip() for s in _overhead_raw.split(",") if s.strip()]  # type: ignore[attr-defined]
+    else:
+        sig._tv_overhead_mas = []  # type: ignore[attr-defined]
+    _nearby_raw = payload.get("nearby_levels")
+    if isinstance(_nearby_raw, list):
+        # Native JSON list from a future Pine version sending nested JSON.
+        sig._tv_nearby_levels = [lvl for lvl in _nearby_raw if isinstance(lvl, dict)]  # type: ignore[attr-defined]
+    elif isinstance(_nearby_raw, str) and _nearby_raw.strip():
+        # CSV format from current ma_ema_daily.pine (avoids JSON-in-string
+        # escaping hell): "kind|value|label,kind|value|label,..."
+        levels: list[dict] = []
+        for chunk in _nearby_raw.split(","):
+            parts = chunk.split("|", 2)
+            if len(parts) < 2:
+                continue
+            try:
+                value = float(parts[1])
+            except (ValueError, TypeError):
+                continue
+            kind = parts[0].strip()
+            label = (parts[2] if len(parts) > 2 else kind).strip()
+            if not kind:
+                continue
+            levels.append({"kind": kind, "value": value, "label": label})
+        sig._tv_nearby_levels = levels  # type: ignore[attr-defined]
+    else:
+        sig._tv_nearby_levels = []  # type: ignore[attr-defined]
+    sig._tv_mtd_avwap = _to_float_optional(payload.get("mtd_avwap"))  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig

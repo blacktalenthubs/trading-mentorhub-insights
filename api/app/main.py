@@ -40,6 +40,30 @@ async def lifespan(app: FastAPI):
             logger.info("Alert type config seeded/verified")
         except Exception as e:
             logger.warning("Alert type config seed skipped: %s", e)
+
+        # Spec 58 (2026-05-22) — retire open-line and breakout-into-resistance
+        # entry types. Idempotent UPDATE: existing DB rows for these types are
+        # soft-disabled (enabled=false). New deployments get default_enabled=False
+        # from the catalog. Soft-disable (not DELETE) preserves the alerts-table
+        # foreign reference and lets the EOD scorecard still surface them as
+        # "retired (review only)" for audit.
+        try:
+            from app.models.alert_type_config import SPEC_58_RETIRED_ENTRY_TYPES
+            from sqlalchemy import text as _text58
+            _result = await conn.execute(
+                _text58(
+                    "UPDATE alert_type_config SET enabled = false "
+                    "WHERE alert_type = ANY(:types) AND enabled = true"
+                ),
+                {"types": [f"tv_{at}" for at in SPEC_58_RETIRED_ENTRY_TYPES]},
+            )
+            if _result.rowcount and _result.rowcount > 0:
+                logger.info(
+                    "Spec 58 — retired %d entry alert type(s) (open-line + breakout-into-resistance)",
+                    _result.rowcount,
+                )
+        except Exception as e:
+            logger.warning("Spec 58 retire-types migration skipped: %s", e)
         # Migration: add trial_ends_at column if missing (idempotent)
         from sqlalchemy import text
         try:
