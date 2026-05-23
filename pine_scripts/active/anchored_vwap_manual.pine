@@ -33,10 +33,12 @@ f_pctStr(float level) =>
     (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
 
 // ── Helper: AVWAP from a fixed anchor bar_index ─────────────────────
+// Fixed 2026-05-23 — guard against pre-anchor bars so the line is na
+// (no plot) before the anchor instead of hugging price.
 f_avwap_from_anchor(int anchorBar) =>
     pvSum = 0.0
     vvSum = 0.0
-    if not na(anchorBar)
+    if not na(anchorBar) and bar_index >= anchorBar
         offset = bar_index - anchorBar
         for i = offset to 0
             pvSum := pvSum + nz(src[i] * volume[i], 0.0)

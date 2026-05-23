@@ -47,10 +47,15 @@ f_pctStr(float level) =>
     (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
 
 // ── Helper: AVWAP computed from a fixed bar_index anchor ────────────
+// Fixed 2026-05-23 — on bars BEFORE the anchor, the for-loop walked
+// negative offsets where src[-N] is na, falling back to nz(.., 0.0) which
+// kept only the current bar's hlc3 in the sum and made the line appear to
+// hug price prior to the anchor. The `bar_index >= anchorBar` guard now
+// short-circuits so the function returns na on pre-anchor bars (no line).
 f_avwap_from_anchor(int anchorBar) =>
     pvSum = 0.0
     vvSum = 0.0
-    if not na(anchorBar)
+    if not na(anchorBar) and bar_index >= anchorBar
         offset = bar_index - anchorBar
         for i = offset to 0
             pvSum := pvSum + nz(src[i] * volume[i], 0.0)
