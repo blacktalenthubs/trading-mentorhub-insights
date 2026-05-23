@@ -42,6 +42,14 @@ labelTz  = input.string("America/New_York", "Label timezone", group="Style")
 
 src = hlc3
 
+// ── Helper: format % distance from current close to a level ─────────
+// Same convention as anchored_vwap_manual.pine: "+X.XX%" if price above,
+// "-X.XX%" if below. Lets you see at a glance which anchor is the
+// nearest decision point — the smallest |%| is what's in play right now.
+f_pctStr(float level) =>
+    pct = (close - level) / level * 100
+    (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
+
 // ── Helper: AVWAP from a fixed anchor bar_index ─────────────────────
 // Guarded against pre-anchor bars — returns na (no plot) until bar_index
 // catches up to the anchor.
@@ -89,9 +97,9 @@ if barstate.islast and showLbl
     label.delete(lblHi)
     label.delete(lblLo)
     if showHigh and not na(avwapHi) and not na(hiAnchorTime)
-        lblHi := label.new(bar_index, avwapHi, str.format_time(hiAnchorTime, "M/d", labelTz) + " Pivot HIGH · $" + str.tostring(avwapHi, "#.##"), style=label.style_label_left, color=cHigh, textcolor=color.white, size=size.small)
+        lblHi := label.new(bar_index, avwapHi, str.format_time(hiAnchorTime, "M/d", labelTz) + " Pivot HIGH · $" + str.tostring(avwapHi, "#.##") + " (" + f_pctStr(avwapHi) + ")", style=label.style_label_left, color=cHigh, textcolor=color.white, size=size.small)
     if showLow and not na(avwapLo) and not na(loAnchorTime)
-        lblLo := label.new(bar_index, avwapLo, str.format_time(loAnchorTime, "M/d", labelTz) + " Pivot LOW · $" + str.tostring(avwapLo, "#.##"), style=label.style_label_left, color=cLow, textcolor=color.white, size=size.small)
+        lblLo := label.new(bar_index, avwapLo, str.format_time(loAnchorTime, "M/d", labelTz) + " Pivot LOW · $" + str.tostring(avwapLo, "#.##") + " (" + f_pctStr(avwapLo) + ")", style=label.style_label_left, color=cLow, textcolor=color.white, size=size.small)
 
 // ── Tag the anchor bar (Jake's "3/17 Pivot" style annotation) ───────
 var label tagHi = na
@@ -104,3 +112,12 @@ if barstate.islast and showAnchorTag
         tagHi := label.new(hiAnchorBar, hiAnchorPrice, str.format_time(hiAnchorTime, "M/d", labelTz) + " Pivot", style=label.style_label_down, color=cHigh, textcolor=color.white, size=size.small, yloc=yloc.price)
     if showLow and not na(loAnchorBar) and not na(loAnchorTime) and not na(loAnchorPrice)
         tagLo := label.new(loAnchorBar, loAnchorPrice, str.format_time(loAnchorTime, "M/d", labelTz) + " Pivot", style=label.style_label_up, color=cLow, textcolor=color.white, size=size.small, yloc=yloc.price)
+
+// ── Status label when no pivots found (e.g., recent IPOs like SWMR) ──
+// Surfaces WHY nothing's drawn so the user doesn't think the script broke.
+var label statusLbl = na
+hasAnyAnchor = (showHigh and not na(hiAnchorBar)) or (showLow and not na(loAnchorBar))
+if barstate.islast
+    label.delete(statusLbl)
+    if (showHigh or showLow) and not hasAnyAnchor
+        statusLbl := label.new(bar_index, high, "No " + str.tostring(pivotL) + "/" + str.tostring(pivotR) + " pivots in this stock's history.\nTry lowering Pivot bars to 5/5 or 10/10\n(e.g., recent IPOs need shorter lookback).", style=label.style_label_lower_left, color=color.new(color.gray, 20), textcolor=color.white, size=size.small, yloc=yloc.abovebar)
