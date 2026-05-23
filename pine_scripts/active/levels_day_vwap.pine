@@ -134,16 +134,39 @@ uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close
 
 overhead_mas_str_58 = (close < nz(ema8_d, -1e9) ? "EMA 8," : "") + (close < nz(ema21_d, -1e9) ? "EMA 21," : "") + (close < nz(ema50_d, -1e9) ? "EMA 50," : "") + (close < nz(sma50_d, -1e9) ? "SMA 50," : "") + (close < nz(ema100_d, -1e9) ? "EMA 100," : "") + (close < nz(sma100_d, -1e9) ? "SMA 100," : "") + (close < nz(ema200_d, -1e9) ? "EMA 200," : "") + (close < nz(sma200_d, -1e9) ? "SMA 200," : "")
 
-// MTD anchored VWAP — resets on month change.
-var float mtd_pv_58 = 0.0
-var float mtd_vv_58 = 0.0
+// Monthly anchored VWAPs — MTD + PM (prior month) + -2M (2 months prior).
+// Rolling-shift pattern: on each new month the accumulators shift down
+//   (PM becomes -2M, MTD becomes PM, MTD restarts), then ALL three keep
+//   accumulating the new bar going forward. So PM AVWAP = "anchored to
+//   the 1st of last month, continues through today" — matches the
+//   anchored_vwap_manual.pine visual exactly.
+var float mtd_pv_58  = 0.0
+var float mtd_vv_58  = 0.0
+var float pm_pv_58   = 0.0
+var float pm_vv_58   = 0.0
+var float p2m_pv_58  = 0.0
+var float p2m_vv_58  = 0.0
 if month != nz(month[1], month)
+    p2m_pv_58 := pm_pv_58
+    p2m_vv_58 := pm_vv_58
+    pm_pv_58  := mtd_pv_58
+    pm_vv_58  := mtd_vv_58
     mtd_pv_58 := nz(hlc3 * volume, 0.0)
     mtd_vv_58 := nz(volume, 0.0)
+    pm_pv_58  := pm_pv_58  + nz(hlc3 * volume, 0.0)
+    pm_vv_58  := pm_vv_58  + nz(volume, 0.0)
+    p2m_pv_58 := p2m_pv_58 + nz(hlc3 * volume, 0.0)
+    p2m_vv_58 := p2m_vv_58 + nz(volume, 0.0)
 else
     mtd_pv_58 := mtd_pv_58 + nz(hlc3 * volume, 0.0)
     mtd_vv_58 := mtd_vv_58 + nz(volume, 0.0)
+    pm_pv_58  := pm_pv_58  + nz(hlc3 * volume, 0.0)
+    pm_vv_58  := pm_vv_58  + nz(volume, 0.0)
+    p2m_pv_58 := p2m_pv_58 + nz(hlc3 * volume, 0.0)
+    p2m_vv_58 := p2m_vv_58 + nz(volume, 0.0)
 mtd_avwap_58 = mtd_vv_58 > 0 ? mtd_pv_58 / mtd_vv_58 : na
+pm_avwap_58  = pm_vv_58  > 0 ? pm_pv_58  / pm_vv_58  : na
+p2m_avwap_58 = p2m_vv_58 > 0 ? p2m_pv_58 / p2m_vv_58 : na
 
 // nearby_levels CSV — pipe between fields ("kind|value|label"), comma
 // between entries. The backend adapter parses this for confluence detection.
@@ -200,6 +223,17 @@ s58_pmh_held = not na(pmh) and not na(close[1]) and close[1] > pmh and low <= pm
 s58_pdl_held = not na(pdl) and not na(close[1]) and close[1] > pdl and low <= pdl and close >= pdl
 s58_pwl_held = not na(pwl) and not na(close[1]) and close[1] > pwl and low <= pwl and close >= pwl
 s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pml and close >= pml
+
+// Spec 58 (2026-05-23 evening) — monthly AVWAP defense detection.
+// Combined trigger: EITHER wick-and-hold (price was at/above the AVWAP,
+// wicked to it, closed above) OR lost-and-reclaim (price closed below
+// the AVWAP on the prior bar, closed back above on this bar). Both are
+// "the AVWAP was defended" — one alert per defense, regardless of path.
+// Live validation 2026-05-23 on ETH MTD Apr $2,246.15 — price stalled
+// exactly at that level after the PWL reclaim cascade.
+s58_mtd_avwap_held = not na(mtd_avwap_58) and not na(close[1]) and ((close[1] >= mtd_avwap_58 and low <= mtd_avwap_58 and close >= mtd_avwap_58) or (close[1] < mtd_avwap_58 and close >= mtd_avwap_58))
+s58_pm_avwap_held  = not na(pm_avwap_58)  and not na(close[1]) and ((close[1] >= pm_avwap_58  and low <= pm_avwap_58  and close >= pm_avwap_58)  or (close[1] < pm_avwap_58  and close >= pm_avwap_58))
+s58_p2m_avwap_held = not na(p2m_avwap_58) and not na(close[1]) and ((close[1] >= p2m_avwap_58 and low <= p2m_avwap_58 and close >= p2m_avwap_58) or (close[1] < p2m_avwap_58 and close >= p2m_avwap_58))
 
 // =====================================================================
 // VWAP + slope
@@ -1092,6 +1126,35 @@ if s58_pml_held and (not uptrend_pass_58 or chop_gate_pass_58)
     t1_pml_h = not na(pwh) and pwh > e_pml_h ? pwh : (not na(pmh) and pmh > e_pml_h ? pmh : e_pml_h * 1.03)
     t2_pml_h = not na(pmh) and pmh > t1_pml_h ? pmh : t2_extend_long(e_pml_h, t1_pml_h)
     alert(build_payload_v2("staged_pml_held", "BUY", e_pml_h, s_pml_h, t1_pml_h, t2_pml_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// =====================================================================
+// Spec 58 (2026-05-23 evening) — monthly AVWAP defense alerts
+// =====================================================================
+// Entry = the AVWAP itself (the dynamic level that's being defended).
+// Stop  = day's low − ATR buffer (tight, structural).
+// Targets stack to the next overhead AVWAP, then next PWH/PMH.
+// Same gate as the held-low alerts: bypass chop gate in downtrends since
+// AVWAP defenses in downtrend regimes are reversal plays.
+if s58_mtd_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_mtd  = mtd_avwap_58
+    s_mtd  = low - atr_buffer
+    t1_mtd = not na(pm_avwap_58) and pm_avwap_58 > e_mtd ? pm_avwap_58 : (not na(pwh) and pwh > e_mtd ? pwh : e_mtd * 1.015)
+    t2_mtd = not na(pwh) and pwh > t1_mtd ? pwh : (not na(pmh) and pmh > t1_mtd ? pmh : t2_extend_long(e_mtd, t1_mtd))
+    alert(build_payload_v2("staged_mtd_avwap_held", "BUY", e_mtd, s_mtd, t1_mtd, t2_mtd, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pm_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pm  = pm_avwap_58
+    s_pm  = low - atr_buffer
+    t1_pm = not na(p2m_avwap_58) and p2m_avwap_58 > e_pm ? p2m_avwap_58 : (not na(pwh) and pwh > e_pm ? pwh : e_pm * 1.02)
+    t2_pm = not na(pwh) and pwh > t1_pm ? pwh : (not na(pmh) and pmh > t1_pm ? pmh : t2_extend_long(e_pm, t1_pm))
+    alert(build_payload_v2("staged_pm_avwap_held", "BUY", e_pm, s_pm, t1_pm, t2_pm, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_p2m_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_p2m  = p2m_avwap_58
+    s_p2m  = low - atr_buffer
+    t1_p2m = not na(pwh) and pwh > e_p2m ? pwh : (not na(pmh) and pmh > e_p2m ? pmh : e_p2m * 1.03)
+    t2_p2m = not na(pmh) and pmh > t1_p2m ? pmh : t2_extend_long(e_p2m, t1_p2m)
+    alert(build_payload_v2("staged_p2m_avwap_held", "BUY", e_p2m, s_p2m, t1_p2m, t2_p2m, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // =====================================================================
 // Open-line alert fires — open_lost (NOTICE, index only) +

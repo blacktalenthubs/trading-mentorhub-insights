@@ -88,6 +88,16 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdl_held", "PDL held as support — wick test (spec 58)", "Daily PDH/PDL", False),
     ("staged_pwl_held", "PWL held as support — wick test (spec 58)", "Weekly / Monthly", False),
     ("staged_pml_held", "PML held as support — wick test (spec 58)", "Weekly / Monthly", False),
+    # Spec 58 NEW (2026-05-23 evening) — monthly anchored-VWAP defense alerts.
+    # Fires when an AVWAP is defended either by a wick-and-hold OR a
+    # lost-and-reclaim cycle (combined trigger). The AVWAP is the dynamic
+    # breakeven of that month's buyers — defending it = bullish institutional
+    # signal. Validated live on ETH 2026-05-23: PDL trade ran through PWL
+    # and tagged MTD Apr AVWAP at $2,246 exactly, where price stalled —
+    # the AVWAP wall held as predicted.
+    ("staged_mtd_avwap_held", "MTD AVWAP defended (Buy 2 — spec 58)", "Anchored VWAP", False),
+    ("staged_pm_avwap_held", "Prior-month AVWAP defended (spec 58)", "Anchored VWAP", False),
+    ("staged_p2m_avwap_held", "2-months-prior AVWAP defended (spec 58)", "Anchored VWAP", False),
     ("staged_pwh_break", "Weekly high break (retired — spec 58)", "Weekly / Monthly", False),
     ("staged_pwh_rejection", "Weekly high rejection", "Weekly / Monthly", False),
     ("staged_pwh_failed_short", "Weekly high failed short", "Weekly / Monthly", False),

@@ -326,6 +326,19 @@ class TestUptrendGateRefined:
     def test_pml_held_downtrend_passes(self):
         assert is_uptrend_gate_rejected("tv_staged_pml_held", "BUY", False) is False
 
+    # ── Spec 58 (2026-05-23 evening) — monthly AVWAP defense types ──
+
+    def test_mtd_avwap_held_downtrend_passes(self):
+        """ETH 2026-05-23: stalled exactly at MTD Apr AVWAP $2,246.15 — the
+        live validation case. Level-based alert, fires in any regime."""
+        assert is_uptrend_gate_rejected("tv_staged_mtd_avwap_held", "BUY", False) is False
+
+    def test_pm_avwap_held_downtrend_passes(self):
+        assert is_uptrend_gate_rejected("tv_staged_pm_avwap_held", "BUY", False) is False
+
+    def test_p2m_avwap_held_downtrend_passes(self):
+        assert is_uptrend_gate_rejected("tv_staged_p2m_avwap_held", "BUY", False) is False
+
     # ── Uptrend regime: nothing is gated ────────────────────────────
 
     def test_ma_bounce_uptrend_passes(self):
