@@ -1,0 +1,51 @@
+// @version=5
+//
+// Toggle Wicks — Pine-drawn candles with wick visibility toggle.
+//
+// Why this exists: TradingView has a native wick toggle (Settings → Symbol
+// → Wick) but it's buried 3 clicks deep. This indicator lifts it to a
+// single Inputs-tab checkbox + adds bull/bear color customization.
+//
+// Setup (one-time per chart):
+//   1. Add this indicator to the chart.
+//   2. Hide the native candles ONCE so they don't render under the Pine
+//      candles. Two options:
+//        a) Right-click chart → Settings → Symbol tab → uncheck Body,
+//           Border, AND Wick (cleanest).
+//        b) OR change chart type to "Line" / "Area" so candles vanish
+//           (then this indicator's plotcandle is what you see).
+//   3. From now on, use the "Show wicks" checkbox in this indicator's
+//      Inputs tab to toggle wick visibility instantly.
+//
+// Visual identity: defaults to TV's classic green/red (#26a69a / #ef5350).
+// Override via Style inputs if you want a different palette.
+//
+indicator("toggle-wicks", overlay = true, max_bars_back = 500)
+
+// --- Toggles ---------------------------------------------------------
+show_wicks   = input.bool(true,  "Show wicks", group = "Display")
+show_borders = input.bool(true,  "Show candle borders", group = "Display")
+
+// --- Colors ----------------------------------------------------------
+bull_color   = input.color(#26a69a, "Bull candle color",  group = "Colors")
+bear_color   = input.color(#ef5350, "Bear candle color",  group = "Colors")
+doji_color   = input.color(color.gray, "Doji candle color (open == close)", group = "Colors")
+
+// --- Render ----------------------------------------------------------
+// plotcandle() lets us set body / wick / border colors independently.
+// Setting wickcolor to fully transparent (alpha 100) effectively hides
+// the wick without affecting body rendering — same trick as Settings →
+// Symbol → uncheck Wick.
+
+is_bull = close > open
+is_bear = close < open
+
+body_color = is_bull ? bull_color : (is_bear ? bear_color : doji_color)
+wick_color = show_wicks ? body_color : color.new(color.gray, 100)
+border_color = show_borders ? body_color : color.new(color.gray, 100)
+
+plotcandle(open, high, low, close,
+           title       = "Toggle-Wick Candle",
+           color       = body_color,
+           wickcolor   = wick_color,
+           bordercolor = border_color)

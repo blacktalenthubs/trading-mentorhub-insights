@@ -1,0 +1,124 @@
+// @version=5
+//
+// SPY Regime — discipline badge visible on ALL charts.
+//
+// Purpose: forces trade-sizing discipline by surfacing SPY's intraday
+// macro state ON ANY chart you're looking at. When you're trading AAPL
+// but SPY is below EMA21 + PDL (CAUTION), the badge reminds you to size
+// down and avoid swings. When SPY reclaims back to all three (EMA10 +
+// EMA21 + PDL together), the badge flips to STRENGTH BACK — sizing can
+// resume.
+//
+// Not an alert. Pure visual. Updates every bar as SPY's state shifts.
+//
+// State machine (4 states, worst-state-wins priority):
+//
+//   FULL TREND    close > PDH AND above EMA10/EMA21/PDL
+//   STANDARD      above EMA10 + EMA21 + PDL
+//   CAUTION       below ANY of EMA10 / EMA21 / PDL
+//   STRENGTH BACK was CAUTION this session, now reclaimed ALL three
+//
+// EMA5 deliberately dropped — too noisy for regime classification.
+// EMA10 = short-term trend, EMA21 = intraday trend, PDL = key support.
+//
+// Pine v5 quirk note: ALL function calls kept on single lines (no
+// multi-line continuation) because Pine's indent-based continuation
+// parser is finicky and routinely errors on otherwise-valid syntax.
+//
+indicator("spy-regime", overlay = true, max_labels_count = 5)
+
+// --- Inputs ----------------------------------------------------------
+show_spy      = input.bool(true, "Show SPY regime", group = "Symbols")
+show_qqq      = input.bool(true, "Show QQQ regime (2nd row)", group = "Symbols")
+badge_pos_in  = input.string("top_left", "Badge position", options = ["top_left", "top_center", "top_right", "middle_left", "middle_right", "bottom_left", "bottom_center", "bottom_right"], group = "Display", tooltip = "top_left = clearest (away from right-side watchlist). top_center conflicts with day-type badge from levels-day-vwap. middle_left puts it eye-level on the left.")
+text_size_in  = input.string("normal", "Badge text size", options = ["tiny", "small", "normal", "large"], group = "Display")
+
+// Resolve string inputs to Pine constants — single-line ternary chains.
+badge_pos = badge_pos_in == "top_left" ? position.top_left : badge_pos_in == "top_center" ? position.top_center : badge_pos_in == "top_right" ? position.top_right : badge_pos_in == "middle_left" ? position.middle_left : badge_pos_in == "middle_right" ? position.middle_right : badge_pos_in == "bottom_left" ? position.bottom_left : badge_pos_in == "bottom_center" ? position.bottom_center : position.bottom_right
+text_sz   = text_size_in == "tiny" ? size.tiny : text_size_in == "normal" ? size.normal : text_size_in == "large" ? size.large : size.small
+
+// ---------------------------------------------------------------------
+// Per-symbol regime computation
+// ---------------------------------------------------------------------
+// Fetches via request.security so this works on ANY chart. Same TF as
+// the host chart — load on 5m → SPY EMAs on 5m; load on 1h → 1h.
+
+get_regime(string sym) =>
+    [pdh_, pdl_] = request.security(sym, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+    ema10_ = request.security(sym, timeframe.period, ta.ema(close, 10))
+    ema21_ = request.security(sym, timeframe.period, ta.ema(close, 21))
+    close_ = request.security(sym, timeframe.period, close)
+
+    session_reset = ta.change(time("D")) != 0
+    var bool was_caution = false
+    if session_reset
+        was_caution := false
+
+    above_ema10 = not na(ema10_) and not na(close_) and close_ > ema10_
+    above_ema21 = not na(ema21_) and not na(close_) and close_ > ema21_
+    above_pdl   = not na(pdl_)   and not na(close_) and close_ > pdl_
+    above_pdh   = not na(pdh_)   and not na(close_) and close_ > pdh_
+    all_three_above = above_ema10 and above_ema21 and above_pdl
+
+    is_caution = not all_three_above
+    if is_caution
+        was_caution := true
+
+    state = "STANDARD"
+    sub   = ""
+    if is_caution
+        state := "CAUTION"
+        parts = ""
+        if not above_ema10
+            parts := parts == "" ? "EMA10" : parts + " " + "EMA10"
+        if not above_ema21
+            parts := parts == "" ? "EMA21" : parts + " " + "EMA21"
+        if not above_pdl
+            parts := parts == "" ? "PDL" : parts + " " + "PDL"
+        sub := "below " + parts
+    else if was_caution and all_three_above
+        state := "STRENGTH BACK"
+        sub   := "all reclaimed"
+    else if above_pdh
+        state := "FULL TREND"
+        sub   := "above PDH + EMAs"
+    else
+        sub := "above EMA10/21/PDL"
+
+    [state, sub]
+
+// ---------------------------------------------------------------------
+// Compute regimes — always compute both. Pine v5 doesn't allow tuple
+// destructuring from a ternary expression (`[a, b] = cond ? func() :
+// [d1, d2]` errors), so we always run get_regime and gate rendering
+// only. request.security cost is negligible (cached per bar).
+// ---------------------------------------------------------------------
+[spy_state, spy_sub] = get_regime("SPY")
+[qqq_state, qqq_sub] = get_regime("NASDAQ:QQQ")
+
+// ---------------------------------------------------------------------
+// Colors
+// ---------------------------------------------------------------------
+regime_bg(string state) =>
+    state == "FULL TREND" ? color.new(color.green, 10) : state == "STANDARD" ? color.new(color.blue, 20) : state == "CAUTION" ? color.new(color.yellow, 15) : state == "STRENGTH BACK" ? color.new(color.lime, 15) : color.new(color.gray, 60)
+
+regime_fg(string state) =>
+    state == "CAUTION" ? color.black : color.white
+
+// ---------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------
+rows_needed = (show_spy ? 1 : 0) + (show_qqq ? 1 : 0)
+
+var table regime_t = table.new(badge_pos, 2, 2, frame_color = color.gray, frame_width = 1, border_width = 1)
+
+if barstate.islast and rows_needed > 0
+    row_idx = 0
+    if show_spy
+        table.cell(regime_t, 0, row_idx, "SPY: " + spy_state, bgcolor = regime_bg(spy_state), text_color = regime_fg(spy_state), text_size = text_sz)
+        table.cell(regime_t, 1, row_idx, spy_sub, bgcolor = color.new(color.gray, 80), text_color = color.white, text_size = text_sz)
+        row_idx += 1
+    if show_qqq
+        table.cell(regime_t, 0, row_idx, "QQQ: " + qqq_state, bgcolor = regime_bg(qqq_state), text_color = regime_fg(qqq_state), text_size = text_sz)
+        table.cell(regime_t, 1, row_idx, qqq_sub, bgcolor = color.new(color.gray, 80), text_color = color.white, text_size = text_sz)
+        row_idx += 1
