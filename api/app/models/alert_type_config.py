@@ -3,6 +3,12 @@
 The Pine scripts fire every alert they can. This table decides which types
 are actually delivered, so each alert type can be enabled/disabled and tested
 independently from the Settings UI — no code change, no redeploy.
+
+Spec 58 final state (2026-05-23) — Pine is long-only. The catalog below
+mirrors that: only the 19 BUY alert types the Pine actively emits. Every
+historical/retired type lives in OBSOLETE_ALERT_TYPES below and is DELETED
+from the catalog table on each startup, so the Settings UI never shows
+dead toggles.
 """
 
 from __future__ import annotations
@@ -26,145 +32,114 @@ class AlertTypeConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# Legacy prefix families (pre per-MA split) — still used by the webhook's
-# static DB-down fallback only.
-PREFIX_FAMILIES = (
-    "ma_bounce_long_v3",
-    "ma_rejection_short_v3",
-    "ma_proximity_long_v3",
-    "ma_proximity_short_v3",
-)
-
-# MA families split per moving average — one toggle per EMA + one grouped SMA
-# toggle, so each MA can be enabled/tested on its own. (family, label, category)
+# ── Active MA family — only ma_bounce_long_v3 survives spec 58 ───────────
+# Generates 6 per-MA toggles: ma_bounce_long_v3_{ema8,ema21,ema50,ema100,ema200,sma}.
+# The SHORT (rejection) and NOTICE (proximity) families were removed from
+# Pine — they get cleaned out of the catalog via OBSOLETE_ALERT_TYPES below.
 MA_SPLIT_FAMILIES = (
     ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
-    ("ma_proximity_long_v3", "MA proximity long (NOTICE)", "MA / EMA · Proximity Long"),
-    ("ma_rejection_short_v3", "MA rejection short", "MA / EMA · Rejection Short"),
 )
-# (suffix key, label). "sma" is the grouped SMA 50/100/200 toggle.
 _MA_TOGGLES = (
-    ("ema8", "EMA 8"),
-    ("ema21", "EMA 21"),
-    ("ema50", "EMA 50"),
+    ("ema8",   "EMA 8"),
+    ("ema21",  "EMA 21"),
+    ("ema50",  "EMA 50"),
     ("ema100", "EMA 100"),
     ("ema200", "EMA 200"),
-    ("sma", "SMA 50/100/200"),
+    ("sma",    "SMA 50/100/200"),
 )
 
-# Bare MA family keys obsoleted by the per-MA split — deleted on seed so the
-# Settings UI doesn't show dead toggles.
-OBSOLETE_ALERT_TYPES = (
-    "ma_bounce_long_v3",
-    "ma_proximity_long_v3",
-    "ma_rejection_short_v3",
-)
 
-# Canonical catalogue. (alert_type, label, category, default_enabled).
-# default_enabled only applies on first insert — `enabled` is never overwritten.
-# Spec 58 (2026-05-22): retired LONG entries marked "(retired — spec 58)";
-# their default_enabled is False here AND the startup migration in main.py
-# soft-disables existing rows so the change takes effect on first deploy.
+# ── The canonical 19 (active alert types only) ──────────────────────────
+# (alert_type, label, category, default_enabled)
+# default_enabled only applies on FIRST insert — `enabled` is never
+# overwritten by seeding, so user toggles persist across deploys.
 _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
-    ("open_reclaimed", "Open reclaimed (retired — spec 58, visual-only)", "Open Line", False),
-    ("open_held", "Open held (retired — spec 58, visual-only)", "Open Line", False),
-    ("open_wick_reclaim", "Open wick reclaim (retired — spec 58)", "Open Line", False),
-    ("open_lost", "Open lost (retired — spec 58)", "Open Line", False),
-    ("staged_pdh_break", "PDH break (retired — spec 58 FR-005, breakout-into-resistance)", "Daily PDH/PDL", False),
-    ("staged_pdh_rejection", "PDH rejection", "Daily PDH/PDL", False),
-    ("staged_pdh_failed_short", "PDH failed short", "Daily PDH/PDL", False),
-    ("staged_pdl_break", "PDL break", "Daily PDH/PDL", False),
+    # Pullback continuation (uptrend-gated long entry — companion to MA bounce)
+    ("pullback_long", "Uptrend pullback continuation (Buy 1)", "Pullback", False),
+
+    # Buy 2 — Prior-high held as support (spec 58 FR-004)
+    ("staged_pdh_held", "PDH held as support (Buy 2)", "Daily PDH/PDL", False),
+    ("staged_pwh_held", "PWH held as support (Buy 2)", "Weekly / Monthly", False),
+    ("staged_pmh_held", "PMH held as support (Buy 2)", "Weekly / Monthly", False),
+
+    # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
+    ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
+    ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly / Monthly", False),
+    ("staged_pml_held", "PML held — wick test (Buy 2)", "Weekly / Monthly", False),
+
+    # Buy 2 — Prior-low reclaim (existing — lost-and-recovered)
     ("staged_pdl_reclaim", "PDL reclaim", "Daily PDH/PDL", False),
-    # Spec 58 NEW (FR-004) — Buy 2 prior-high support hold.
-    ("staged_pdh_held", "PDH held as support (Buy 2 — spec 58)", "Daily PDH/PDL", False),
-    ("staged_pwh_held", "PWH held as support (Buy 2 — spec 58)", "Weekly / Monthly", False),
-    ("staged_pmh_held", "PMH held as support (Buy 2 — spec 58)", "Weekly / Monthly", False),
-    # Spec 58 NEW (2026-05-23) — symmetric "low held from above" types. Fires
-    # when a wick tests a prior low and price closes back above it without
-    # ever closing below. The wick-and-hold pattern (ETH wicking PML on
-    # 2026-05-23 — bounced hard, but no _reclaim fired because no close
-    # below PML). Trusts the low levels to hold; if they fail, we know
-    # structurally where the floor broke.
-    ("staged_pdl_held", "PDL held as support — wick test (spec 58)", "Daily PDH/PDL", False),
-    ("staged_pwl_held", "PWL held as support — wick test (spec 58)", "Weekly / Monthly", False),
-    ("staged_pml_held", "PML held as support — wick test (spec 58)", "Weekly / Monthly", False),
-    # Spec 58 NEW (2026-05-23 evening) — monthly anchored-VWAP defense alerts.
-    # Fires when an AVWAP is defended either by a wick-and-hold OR a
-    # lost-and-reclaim cycle (combined trigger). The AVWAP is the dynamic
-    # breakeven of that month's buyers — defending it = bullish institutional
-    # signal. Validated live on ETH 2026-05-23: PDL trade ran through PWL
-    # and tagged MTD Apr AVWAP at $2,246 exactly, where price stalled —
-    # the AVWAP wall held as predicted.
-    ("staged_mtd_avwap_held", "MTD AVWAP defended (Buy 2 — spec 58)", "Anchored VWAP", False),
-    ("staged_pm_avwap_held", "Prior-month AVWAP defended (spec 58)", "Anchored VWAP", False),
-    ("staged_p2m_avwap_held", "2-months-prior AVWAP defended (spec 58)", "Anchored VWAP", False),
-    ("staged_pwh_break", "Weekly high break (retired — spec 58)", "Weekly / Monthly", False),
-    ("staged_pwh_rejection", "Weekly high rejection", "Weekly / Monthly", False),
-    ("staged_pwh_failed_short", "Weekly high failed short", "Weekly / Monthly", False),
-    ("staged_pwl_break", "Weekly low break", "Weekly / Monthly", False),
-    ("staged_pwl_reclaim", "Weekly low reclaim", "Weekly / Monthly", False),
-    ("staged_pmh_break", "Monthly high break (retired — spec 58)", "Weekly / Monthly", False),
-    ("staged_pmh_rejection", "Monthly high rejection", "Weekly / Monthly", False),
-    ("staged_pmh_failed_short", "Monthly high failed short", "Weekly / Monthly", False),
-    ("staged_pml_break", "Monthly low break", "Weekly / Monthly", False),
-    ("staged_pml_reclaim", "Monthly low reclaim", "Weekly / Monthly", False),
-    ("htf_support_held", "HTF support held", "HTF Levels", False),
-    ("htf_proximity", "HTF proximity (NOTICE)", "HTF Levels", False),
-    ("pullback_long", "Uptrend pullback continuation (retired — spec 58, replaced by Buy 1)", "Pullback", False),
+    ("staged_pwl_reclaim", "PWL reclaim", "Weekly / Monthly", False),
+    ("staged_pml_reclaim", "PML reclaim", "Weekly / Monthly", False),
+
+    # Buy 2 — Monthly anchored-VWAP defended (spec 58, 2026-05-23 evening)
+    ("staged_mtd_avwap_held", "MTD AVWAP defended (Buy 2)", "Anchored VWAP", False),
+    ("staged_pm_avwap_held",  "Prior-month AVWAP defended", "Anchored VWAP", False),
+    ("staged_p2m_avwap_held", "2-months-prior AVWAP defended", "Anchored VWAP", False),
 ]
 
-# Spec 58 — alert types soft-disabled at startup by the migration in main.py.
-# Soft-disable rather than DELETE so existing `alerts` rows keep resolvable
-# types for audit. Listed without the `tv_` prefix; the migration prepends it.
-SPEC_58_RETIRED_ENTRY_TYPES: tuple[str, ...] = (
-    "open_reclaimed",
-    "open_held",
-    "open_wick_reclaim",
-    "open_lost",
-    "staged_pdh_break",
-    "staged_pwh_break",
-    "staged_pmh_break",
-    "pullback_long",
-    "ma_proximity_long_v3_ema8",
-    "ma_proximity_long_v3_ema21",
-    "ma_proximity_long_v3_ema50",
-    "ma_proximity_long_v3_ema100",
-    "ma_proximity_long_v3_ema200",
-    "ma_proximity_long_v3_sma",
-    # Spec 58 — htf_support_held superseded by granular per-level types
-    # (staged_pdh_held / staged_pwh_held / staged_pmh_held). The new types
-    # carry the uptrend gate + chop gate; htf_support_held is pre-spec-58
-    # logic without them, so it's retired to avoid duplicate alerts on the
-    # same setup.
-    "htf_support_held",
-)
-
-# Per-MA toggles for the three split families.
+# Per-MA toggles for the surviving MA-bounce family.
 _MA_CATALOG: list[tuple[str, str, str, bool]] = [
     (f"{fam}_{suffix}", f"{flabel} · {malabel}", fcat, False)
     for fam, flabel, fcat in MA_SPLIT_FAMILIES
     for suffix, malabel in _MA_TOGGLES
 ]
 
-# Swing scanner (spec 56) — one toggle per defended MA, plus the RSI-recovery
-# and exit types. All default OFF; enable a type in Settings to route it.
-_SWING_CATALOG: list[tuple[str, str, str, bool]] = [
-    ("swing_bounce_ema21", "Swing bounce · EMA 21", "Swing · Bounce", False),
-    ("swing_bounce_ema50", "Swing bounce · EMA 50", "Swing · Bounce", False),
-    ("swing_bounce_sma50", "Swing bounce · SMA 50", "Swing · Bounce", False),
-    ("swing_bounce_ema100", "Swing bounce · EMA 100", "Swing · Bounce", False),
-    ("swing_bounce_sma100", "Swing bounce · SMA 100", "Swing · Bounce", False),
-    ("swing_bounce_ema200", "Swing bounce · EMA 200", "Swing · Bounce", False),
-    ("swing_bounce_sma200", "Swing bounce · SMA 200", "Swing · Bounce", False),
-    ("swing_rsi_30", "Swing RSI-30 recovery (SPY-weak regime)", "Swing", False),
-    ("swing_exit", "Swing exit — daily close below the stop", "Swing", False),
-]
+ALERT_TYPE_CATALOG: list[tuple[str, str, str, bool]] = _BASE_CATALOG + _MA_CATALOG
 
-ALERT_TYPE_CATALOG: list[tuple[str, str, str, bool]] = (
-    _BASE_CATALOG
-    + _MA_CATALOG
-    + _SWING_CATALOG
-    + [("ma_proximity_short_v3", "MA proximity short (NOTICE)", "MA / EMA · Proximity Short", False)]
+
+# ── Cleanup — every retired/obsoleted alert type ────────────────────────
+# These types are DELETED from the alert_type_config table on every startup
+# (see seed_alert_type_config below). Soft-disable was tried first but the
+# user wanted them GONE from the Settings UI dropdown, not just hidden.
+#
+# Historical alerts in the `alerts` table that reference these types stay
+# intact — alert_type is just a String column with no FK, so deleting from
+# the catalog doesn't orphan anything. The EOD scorecard can still surface
+# historical alerts by name; they just won't have a toggle anymore.
+OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # Bare prefixes (pre per-MA split)
+    "ma_bounce_long_v3",
+    "ma_proximity_long_v3",
+    "ma_rejection_short_v3",
+
+    # Open-line entries — retired spec 58 FR-007 (open line stays visual)
+    "open_reclaimed", "open_held", "open_wick_reclaim", "open_lost",
+
+    # Breakout-into-resistance LONG — retired spec 58 FR-005
+    "staged_pdh_break", "staged_pwh_break", "staged_pmh_break",
+
+    # All SHORT alerts — removed from Pine 2026-05-23 (long-only Pine)
+    "staged_pdh_rejection", "staged_pdh_failed_short", "staged_pdl_break",
+    "staged_pwh_rejection", "staged_pwh_failed_short", "staged_pwl_break",
+    "staged_pmh_rejection", "staged_pmh_failed_short", "staged_pml_break",
+
+    # MA SHORT (per-MA) — Pine no longer emits
+    "ma_rejection_short_v3_ema8", "ma_rejection_short_v3_ema21",
+    "ma_rejection_short_v3_ema50", "ma_rejection_short_v3_ema100",
+    "ma_rejection_short_v3_ema200", "ma_rejection_short_v3_sma",
+
+    # MA proximity NOTICEs (long + short, per-MA) — Pine no longer emits
+    "ma_proximity_long_v3_ema8", "ma_proximity_long_v3_ema21",
+    "ma_proximity_long_v3_ema50", "ma_proximity_long_v3_ema100",
+    "ma_proximity_long_v3_ema200", "ma_proximity_long_v3_sma",
+    "ma_proximity_short_v3",
+    "ma_proximity_short_v3_ema8", "ma_proximity_short_v3_ema21",
+    "ma_proximity_short_v3_ema50", "ma_proximity_short_v3_ema100",
+    "ma_proximity_short_v3_ema200", "ma_proximity_short_v3_sma",
+
+    # HTF NOTICEs / superseded held — spec 58
+    "htf_support_held",  # superseded by granular staged_p[dwm]h_held
+    "htf_proximity",     # NOTICE — removed Pine, long-only
+
+    # VWAP NOTICEs — Pine no longer emits
+    "vwap_reclaim_long", "vwap_reject_short", "vwap_support_hold",
+
+    # Spec 56 swing scanner — retired (Pine MA-bounce covers swing too)
+    "swing_bounce_ema21", "swing_bounce_ema50", "swing_bounce_sma50",
+    "swing_bounce_ema100", "swing_bounce_sma100",
+    "swing_bounce_ema200", "swing_bounce_sma200",
+    "swing_rsi_30", "swing_exit",
 )
 
 
