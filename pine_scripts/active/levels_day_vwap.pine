@@ -1012,35 +1012,14 @@ if false and pdh_break
     if htf_allowed(tf)
         dir = dir_for_tf(tf, "BUY")
         alert(build_payload_v2(tf_high_prefix(tf) + "break", dir, e, s, t1, t2, gap_context, confluence_resistance, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if pdh_rejection
-    e   = close
-    s   = high + atr_buffer
-    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
-    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
-    t2  = t2_extend_short(e, t1)
-    tf  = level_tf(rejected_resistance, pdh, pwh, pmh)
-    if htf_allowed(tf)
-        dir = dir_for_tf(tf, "SHORT")
-        alert(build_payload_v2(tf_high_prefix(tf) + "rejection", dir, e, s, t1, t2, false, confluence_rej, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
-if sweep_reversal_short
-    e   = close
-    s   = math.max(high, high[1]) + atr_buffer
-    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
-    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
-    t2  = t2_extend_short(e, t1)
-    tf  = level_tf(failed_resistance, pdh, pwh, pmh)
-    if htf_allowed(tf)
-        dir = dir_for_tf(tf, "SHORT")
-        alert(build_payload_v2(tf_high_prefix(tf) + "failed_short", dir, e, s, t1, t2, false, confluence_failed, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
-if pdl_break
-    e   = close
-    s   = broken_support + atr_buffer
-    t1  = t1_short_hier(e, pwl, pml, atr_d)
-    t2  = t2_extend_short(e, t1)
-    tf  = level_tf(broken_support, pdl, pwl, pml)
-    if htf_allowed(tf)
-        dir = dir_for_tf(tf, "SHORT")
-        alert(build_payload_v2(tf_low_prefix(tf) + "break", dir, e, s, t1, t2, false, confluence_brk_sup, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — SHORT alerts removed from Pine.
+// This script now fires LONG entries only. The deleted blocks were:
+//   • pdh_rejection (SHORT — wick to PDH/PWH/PMH from below, closes back below)
+//   • sweep_reversal_short / pdh_failed (SHORT — close-above-then-below trap)
+//   • pdl_break (SHORT — close below PDL/PWL/PML)
+// Detection variables (pdh_rejection, pdh_failed, pdl_break, broken_support
+// etc.) remain in the file as dead code in case the alerts are revived.
+
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
@@ -1154,15 +1133,7 @@ if s58_p2m_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
 // (NOTICE), open_reclaimed is standard long-side projection. The triage
 // agent re-ranks based on confluence. near_pdh / near_pdl flags ride on
 // build_payload_v2 so the webhook can collapse confluence twins.
-if fire_open_alerts and fire_open_lost and ol_just_lost and is_macro_symbol
-    e  = close
-    s  = math.max(high, high[1]) + atr_buffer
-    t1 = e * 0.9925
-    t2 = e * 0.985
-    alert(build_payload_v2("open_lost", "NOTICE", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — open_lost NOTICE removed (Pine is long-only).
 
 if fire_open_alerts and fire_open_reclaimed and ol_just_reclaimed
     e  = close
@@ -1293,39 +1264,9 @@ if show_signals and vwap_reject_short
 // context). Only the alert() calls are restricted.
 // (is_macro_symbol declared near top, alongside fire_vwap_alerts input)
 
-if fire_vwap_alerts and is_macro_symbol and vwap_reclaim_long
-    e = close
-    s = math.min(low, low[1]) - atr_buffer
-    t1 = pdh
-    t2 = pdh + (pdh - e) * 0.5
-    msg_vwap_long = build_payload_v2("vwap_reclaim_long", "NOTICE", e, s, t1, t2,
-                                     false, 1,
-                                     volume_ratio, cvd_slope_n, bearish_div)
-    alert(msg_vwap_long, alert.freq_once_per_bar_close)
-
-if fire_vwap_alerts and is_macro_symbol and vwap_reject_short
-    e = close
-    s = math.max(high, high[1]) + atr_buffer
-    t1 = pdl
-    t2 = pdl - (e - pdl) * 0.5
-    msg_vwap_short = build_payload_v2("vwap_reject_short", "NOTICE", e, s, t1, t2,
-                                      false, 1,
-                                      volume_ratio, cvd_slope_n, bullish_div)
-    alert(msg_vwap_short, alert.freq_once_per_bar_close)
-
-// VWAP support hold — defended pullback to VWAP, NOTICE only. Stop below
-// the wick low of the holding bar; T1 = next overhead (PDH); T2 = PDH +
-// projection. Most useful on SPY 10m chart: when SPY's VWAP holds during
-// a pullback, the broader long bias for the day is intact.
-if fire_vwap_alerts and is_macro_symbol and vwap_support_hold
-    e = close
-    s = low - atr_buffer
-    t1 = pdh
-    t2 = not na(pdh) ? pdh + (pdh - e) * 0.5 : e * 1.005
-    msg_vwap_hold = build_payload_v2("vwap_support_hold", "NOTICE", e, s, t1, t2,
-                                     false, 1,
-                                     volume_ratio, cvd_slope_n, bearish_div)
-    alert(msg_vwap_hold, alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — VWAP NOTICE alerts removed (Pine is long-only).
+// The deleted blocks were vwap_reclaim_long, vwap_reject_short, vwap_support_hold.
+// VWAP visual plot remains for chart context (see `show_vwap` input above).
 
 // vwap_lose_short was added briefly 2026-05-05 and removed same day.
 // AAPL 1h chart showed 7 LOSE VWAP labels in a single session because
@@ -1499,5 +1440,5 @@ if fire_htf_alerts and htf_held_count > 0 and not any_staged_event
 near_pct(float lvl, float pct) =>
     not na(lvl) and not na(close) and lvl != 0 and (math.abs(close - lvl) / lvl) * 100.0 <= pct
 htf_prox_count = (near_pct(pwh, htf_proximity_pct) ? 1 : 0) + (near_pct(pwl, htf_proximity_pct) ? 1 : 0) + (near_pct(pmh, htf_proximity_pct) ? 1 : 0) + (near_pct(pml, htf_proximity_pct) ? 1 : 0)
-if fire_htf_alerts and htf_prox_count > 0 and not any_staged_event
-    alert(build_payload_v2("htf_proximity", "NOTICE", close, close * 0.995, close * 1.005, close * 1.01, false, htf_prox_count, volume_ratio, cvd_slope_n, false), alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — htf_proximity NOTICE alert removed (long-only).
+// htf_prox_count still computed in case htf_support_held wants confluence context.

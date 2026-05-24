@@ -485,34 +485,16 @@ if fire_alerts and any_long and uptrend_pass
     msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
     alert(msg_long, alert.freq_once_per_bar_close)
 
-if fire_alerts and any_short
-    e = close
-    s = is_intraday_mode ? (high + atr_chart * 0.3) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
-    rsk = s - e
-    downs = ma_targets_below(e)
-    n_dn = array.size(downs)
-    t1_short = n_dn >= 1 ? array.get(downs, 0) : e - rsk * r_t1
-    t2_short = n_dn >= 2 ? array.get(downs, 1) : e - rsk * r_t2
-    msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, t1_short, t2_short, false, near_pdh)
-    alert(msg_short, alert.freq_once_per_bar_close)
-
-// Proximity NOTICE alerts ----------------------------------------------------
-// Direction = NOTICE, entry/stop/targets set to close as placeholder — the
-// notifier's NOTICE formatter ignores these. Backend dedup buckets these as
-// alert_type=tv_ma_proximity_{long|short}_v3_{ma_suffix}, fully separate from
-// the BUY/SHORT defense buckets — so a real EMA100 defense and an EMA50
-// proximity NOTICE on the same bar produce two distinct Telegram messages.
-// Spec 58 — gate proximity-LONG NOTICEs on uptrend_pass too (FR-003 — no
-// long signal of any kind on a stock with overhead MAs).
-if fire_alerts and any_prox_long and uptrend_pass
-    e = close
-    msg_prox_long = build_v3_payload("ma_proximity_long_v3", "NOTICE", prox_long_tag, e, e, e, e, near_pdl, false)
-    alert(msg_prox_long, alert.freq_once_per_bar_close)
-
-if fire_alerts and any_prox_short
-    e = close
-    msg_prox_short = build_v3_payload("ma_proximity_short_v3", "NOTICE", prox_short_tag, e, e, e, e, false, near_pdh)
-    alert(msg_prox_short, alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — SHORT + NOTICE alerts removed entirely.
+// This Pine now fires LONG entries only. The deleted blocks were:
+//   • ma_rejection_short_v3  (SHORT — high tags MA, closes back below)
+//   • ma_proximity_long_v3   (NOTICE — bar near MA from above)
+//   • ma_proximity_short_v3  (NOTICE — bar near MA from below)
+// Detection helpers (strict_short, band_short, proximity_long/short) and
+// aggregate vars (any_short, any_prox_*) remain in the file as dead code
+// in case any future signal is built on them. Visual SHORT/proximity
+// markers (plotshape calls + bgcolor) are also retained as toggleable
+// chart context — disable via the show_markers input if not wanted.
 
 // Uptrend pullback continuation ----------------------------------------------
 // Setup: stock cleanly trending up (close > EMA8 > EMA21), pulled back for a
