@@ -1133,43 +1133,13 @@ if s58_p2m_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
 // (NOTICE), open_reclaimed is standard long-side projection. The triage
 // agent re-ranks based on confluence. near_pdh / near_pdl flags ride on
 // build_payload_v2 so the webhook can collapse confluence twins.
-// Spec 58 (2026-05-23 night) — open_lost NOTICE removed (Pine is long-only).
-
-if fire_open_alerts and fire_open_reclaimed and ol_just_reclaimed
-    e  = close
-    s  = math.min(low, low[1]) - atr_buffer
-    t1 = e * 1.0075
-    t2 = e * 1.015
-    alert(build_payload_v2("open_reclaimed", "BUY", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
-
-// open_held — clean defense, low never crossed below today_open. BUY on
-// every symbol. Weakest of the three (no real test), still useful as
-// confirmation the level is respected.
-if fire_open_alerts and fire_open_held and ol_just_held
-    e  = close
-    s  = today_open - atr_buffer
-    t1 = e * 1.0075
-    t2 = e * 1.015
-    alert(build_payload_v2("open_held", "BUY", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
-
-// open_wick_reclaim — wick crossed below today_open, body held above,
-// green bar bounce. Mid-tier signal. Stop is just below today_open since
-// the wick already tested below.
-if fire_open_alerts and fire_open_wick_reclaim and ol_just_wick_reclaimed
-    e  = close
-    s  = math.min(low, today_open) - atr_buffer
-    t1 = e * 1.0075
-    t2 = e * 1.015
-    alert(build_payload_v2("open_wick_reclaim", "BUY", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — open-line entry alerts removed entirely
+// (open_lost NOTICE, plus open_reclaimed / open_held / open_wick_reclaim
+// BUYs that were already disabled via fire_open_* input defaults). The
+// open-line plot lives in visual/open_line.pine for chart context only.
+// Open-line state-machine variables (ol_just_*, ol_was_above_open, etc.)
+// remain in the file as dead code — harmless and easy to revive if ever
+// wanted.
 
 // =====================================================================
 // VWAP reclaim → PDH (LONG) / VWAP reject → PDL (SHORT)
@@ -1428,10 +1398,11 @@ if pml_just_wick
 any_staged_event = pdh_break or pdh_rejection or sweep_reversal_short or pdl_break or pdl_reclaim
 
 htf_held_count = (pwh_just_held or pwh_just_wick ? 1 : 0) + (pwl_just_held or pwl_just_wick ? 1 : 0) + (pmh_just_held or pmh_just_wick ? 1 : 0) + (pml_just_held or pml_just_wick ? 1 : 0)
-if fire_htf_alerts and htf_held_count > 0 and not any_staged_event
-    e = close
-    s = low - atr_buffer
-    alert(build_payload_v2("htf_support_held", "BUY", e, s, e * 1.0075, e * 1.015, false, htf_held_count, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — htf_support_held BUY removed entirely.
+// Superseded by the granular staged_p[dwm]h_held (highs) + staged_p[dwm]l_held
+// (lows wick test) types, which carry the spec-58 payload (uptrend_pass,
+// nearby_levels for confluence). htf_held_count still computed above as
+// dead code in case any future signal wants it.
 
 // --- Alert fire: HTF proximity — COLLAPSED to ONE NOTICE (S1, 2026-05-20)
 // The 4 prior per-level proximity NOTICEs merged into one. Fires when close
