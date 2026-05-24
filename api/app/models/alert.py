@@ -54,6 +54,9 @@ class Alert(Base):
     volume_ratio: Mapped[Optional[float]] = mapped_column(Float)
     cvd_delta: Mapped[Optional[float]] = mapped_column(Float)
     cvd_diverging: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    # Spec 58 — Pine's day-type stage classifier + VWAP slope, surfaced to Telegram
+    stage: Mapped[Optional[str]] = mapped_column(String)
+    vwap_slope_pct: Mapped[Optional[float]] = mapped_column(Float)
 
 
 class ActiveEntry(Base):

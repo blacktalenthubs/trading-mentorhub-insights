@@ -322,7 +322,15 @@ def _fmt_levels_block(alert):
 
 
 def _fmt_vitals_block(alert):
-    """Return a <pre> block with Vol + CVD lines, status flags aligned right."""
+    """Return a <pre> block with Vol / Stage / CVD lines, status flags aligned right.
+
+    Stage (spec 58, 2026-05-24): surfaces Pine's day-type classifier + VWAP
+    slope so the trader sees the regime context the same way the filter does.
+    BASING + |slope| < 0.3 gets a "chop warning" tag — that's the exact basing-
+    chop filter trigger condition; seeing it tagged on a fired alert means the
+    setup *almost* got filtered (made it through because of scope, e.g. not a
+    staged_* type, or — future — because of a volume override).
+    """
     lines = []
     vr = alert.get("volume_ratio")
     if vr is not None:
@@ -332,6 +340,23 @@ def _fmt_vitals_block(alert):
             lines.append(f"Vol     {vr:.2f}× ✅")
         else:
             lines.append(f"Vol     {vr:.2f}×")
+    stage_raw = alert.get("stage")
+    if stage_raw:
+        # Pine ships stage as 3 segments joined by " — " (newer) or "\n"
+        # (older). Take just the badge name for clean display.
+        stage_first = stage_raw.split("\n", 1)[0].split(" — ", 1)[0].strip()
+        slope = alert.get("vwap_slope_pct")
+        if slope is None:
+            stage_line = f"Stage   {stage_first}"
+        else:
+            slope_word = ("rising"  if slope >  0.1
+                          else "falling" if slope < -0.1
+                          else "flat")
+            stage_line = f"Stage   {stage_first} · VWAP {slope_word} {slope:+.2f}%"
+            # Tag the chop case — same trigger as the basing-chop filter
+            if "BASING" in stage_first.upper() and abs(slope) < 0.3:
+                stage_line += "   ← chop warning"
+        lines.append(stage_line)
     cvd_div = alert.get("cvd_diverging")
     if cvd_div is True:
         lines.append("CVD     diverging ⚠️")

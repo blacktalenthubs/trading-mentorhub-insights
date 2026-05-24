@@ -927,6 +927,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 volume_ratio=getattr(sig, "_tv_volume_ratio", None),
                 cvd_delta=getattr(sig, "_tv_cvd_delta", None),
                 cvd_diverging=1 if getattr(sig, "_tv_cvd_diverging", False) else 0,
+                stage=getattr(sig, "_tv_stage", None) or None,
+                vwap_slope_pct=getattr(sig, "_tv_vwap_slope_pct", None),
             )
             db.add(alert)
             pairs.append((user, alert))
@@ -1033,6 +1035,12 @@ async def _persist_unrouted(
                 message=sig.message,
                 session_date=session_date,
                 suppressed_reason=suppressed_reason,
+                # Carry stage + slope through to the unrouted audit row so the
+                # 'Not routed' feed shows WHY each basing_chop / uptrend_gate
+                # suppression fired — not just the reason code.
+                stage=getattr(sig, "_tv_stage", None) or None,
+                vwap_slope_pct=getattr(sig, "_tv_vwap_slope_pct", None),
+                volume_ratio=getattr(sig, "_tv_volume_ratio", None),
             ))
             recorded += 1
         await db.commit()

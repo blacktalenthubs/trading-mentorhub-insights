@@ -131,6 +131,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS volume_ratio REAL",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cvd_delta REAL",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cvd_diverging INTEGER DEFAULT 0",
+            # Spec 58 (2026-05-24) — surface day-type stage + VWAP slope on the
+            # Telegram message. Stored numerically so the EOD analytics can
+            # correlate stage/slope thresholds with outcomes.
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS stage TEXT",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS vwap_slope_pct REAL",
             # Coach message history persistence
             """CREATE TABLE IF NOT EXISTS coach_messages (
                 id SERIAL PRIMARY KEY,
