@@ -357,11 +357,6 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     else:
         sig._tv_nearby_levels = []  # type: ignore[attr-defined]
     sig._tv_mtd_avwap = _to_float_optional(payload.get("mtd_avwap"))  # type: ignore[attr-defined]
-    # Spec 58 (2026-05-24) — basing/chop regime filter inputs. Pine sends
-    # both fields already; we just attach them so tv_webhook's is_basing_chop()
-    # gate can read them.
-    sig._tv_stage = (payload.get("stage") or "").strip()  # type: ignore[attr-defined]
-    sig._tv_vwap_slope_pct = _to_float_optional(payload.get("vwap_slope_pct"))  # type: ignore[attr-defined]
     sig._source = "tradingview"  # type: ignore[attr-defined]
 
     return sig
