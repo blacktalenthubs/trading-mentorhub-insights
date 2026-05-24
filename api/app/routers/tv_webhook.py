@@ -149,39 +149,6 @@ def _record_confluence_fire(
 CONFLUENCE_BAND_PCT = 1.0  # % distance within which two levels count as confluent
 
 
-def is_basing_chop(
-    stage: Optional[str],
-    vwap_slope_pct: Optional[float],
-) -> bool:
-    """Spec 58 (2026-05-24) — pure basing/chop regime detection.
-
-    Returns True iff BOTH signals agree the regime is "WAIT, no edge":
-      • stage classifier contains 'BASING' (Pine's day-type machine)
-      • |vwap_slope_pct| < 0.3 (VWAP essentially flat — no directional bias)
-
-    Refined 2026-05-24: dropped the `inside_day` requirement after user
-    observation that inside-day is too common a flag — many real PDL/PWL
-    holds happen on inside days. Inside-day alone isn't noise; only when
-    the stage AND the VWAP both say "no momentum" do we suppress.
-
-    Originated from the BTC 2026-05-23 case: 12+ staged_pwl_held alerts
-    fired in basing chop over 70 minutes because price kept wicking PWL
-    by pennies. The payload already encoded the regime ('STAGE 1: BASING
-    — inside range + VWAP flat — WAIT — sweeps only') — we just hadn't
-    used it to gate.
-
-    Missing data (Pine pre-spec-58 sending no stage / no vwap_slope) →
-    returns False (let alert through, backward compat).
-    """
-    if not stage or "BASING" not in stage:
-        return False
-    if vwap_slope_pct is None:
-        return False
-    if abs(vwap_slope_pct) >= 0.3:
-        return False
-    return True
-
-
 def is_uptrend_gate_rejected(
     alert_type: str,
     direction: Optional[str],
@@ -669,34 +636,6 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return await _persist_unrouted(
             sig, alert_type_full, session_date,
             suppressed_reason="uptrend_gate_failed",
-        )
-
-    # ──────────────────────────────────────────────────────────────────
-    # Spec 58 — basing-chop filter (2026-05-24, refined drop inside_day)
-    # ──────────────────────────────────────────────────────────────────
-    # Suppress staged_* level entries when BOTH signals agree the regime
-    # is pure chop: stage='BASING' AND |vwap_slope_pct| < 0.3.
-    # The alert still records (suppressed_reason='basing_chop') so the
-    # 'Not routed' filter surfaces it for EOD review — just no Telegram.
-    # Scoped to staged_* (level + AVWAP) BUY alerts; MA bounces have their
-    # own uptrend gate and can still be valid in slow grinds.
-    if (
-        (sig.direction or "").upper() == "BUY"
-        and alert_type_full.startswith("tv_staged_")
-        and is_basing_chop(
-            getattr(sig, "_tv_stage", ""),
-            getattr(sig, "_tv_vwap_slope_pct", None),
-        )
-    ):
-        logger.info(
-            "TV webhook: basing-chop suppressed %s for %s (stage=%s, vwap_slope=%.2f)",
-            alert_type_full, sig.symbol,
-            getattr(sig, "_tv_stage", "")[:40],
-            getattr(sig, "_tv_vwap_slope_pct", 0) or 0,
-        )
-        return await _persist_unrouted(
-            sig, alert_type_full, session_date,
-            suppressed_reason="basing_chop",
         )
 
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either
