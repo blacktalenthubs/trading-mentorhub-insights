@@ -57,6 +57,7 @@ class Alert(Base):
     # Spec 58 — Pine's day-type stage classifier + VWAP slope, surfaced to Telegram
     stage: Mapped[Optional[str]] = mapped_column(String)
     vwap_slope_pct: Mapped[Optional[float]] = mapped_column(Float)
+    inside_day: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
 
 
 class ActiveEntry(Base):

@@ -136,6 +136,10 @@ async def lifespan(app: FastAPI):
             # correlate stage/slope thresholds with outcomes.
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS stage TEXT",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS vwap_slope_pct REAL",
+            # Inside-day flag (today_open between PDH and PDL) — surfaces on
+            # Telegram so the trader knows the day is structurally range-bound,
+            # which means scalp levels rather than chase breakouts.
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS inside_day INTEGER DEFAULT 0",
             # Coach message history persistence
             """CREATE TABLE IF NOT EXISTS coach_messages (
                 id SERIAL PRIMARY KEY,

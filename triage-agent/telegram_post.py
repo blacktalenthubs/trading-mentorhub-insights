@@ -357,6 +357,14 @@ def _fmt_vitals_block(alert):
             if "BASING" in stage_first.upper() and abs(slope) < 0.3:
                 stage_line += "   ← chop warning"
         lines.append(stage_line)
+    # Range line — inside_day is the structural fact (today_open between
+    # yesterday's PDH and PDL). When TRUE, the day is rotating within prior
+    # range — scalp the levels, don't expect breakouts. Pine inside_day can
+    # be True alongside any stage (BASING / TRANSITIONING / etc); separate
+    # line keeps the dimensions distinct: Stage = regime, Range = structure.
+    inside_day = alert.get("inside_day")
+    if inside_day:  # truthy: 1 / True / "1"; explicit False/0/None → skip
+        lines.append("Range   ⚠️ inside day — rotating within PDH-PDL")
     cvd_div = alert.get("cvd_diverging")
     if cvd_div is True:
         lines.append("CVD     diverging ⚠️")

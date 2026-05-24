@@ -151,7 +151,7 @@ def write_audit(record):
 ALERT_COLUMNS = """id, symbol, alert_type, direction, price,
                    entry, stop, target_1, target_2,
                    volume_ratio, cvd_diverging, confidence,
-                   stage, vwap_slope_pct,
+                   stage, vwap_slope_pct, inside_day,
                    user_id, session_date, created_at, suppressed_reason"""
 
 def fetch_alert_by_id(alert_id):
