@@ -1,0 +1,123 @@
+//@version=5
+indicator("Anchored VWAP — Jake Wu style", overlay=true, max_labels_count=10, max_bars_back=500)
+
+// VISUAL-ONLY — learning/study indicator. No alerts.
+//
+// Jake Wu / Brian Shannon style — anchors VWAP to MAJOR confirmed swing
+// pivots only. Default pivot lookback is 20/20 (a bar must dominate the
+// 20 bars on each side to count), which filters out the small intraday
+// pivots that anchored_vwap.pine catches and keeps only event-grade
+// swings (earnings reactions, major reversals, multi-week trend tops).
+//
+// What Jake does on his charts (NFLX 4/18 pivot, NKE 3/17 pivot, SWMR
+// 4/2 pivot):
+//   • Anchor to a major swing HIGH → AVWAP slopes DOWN as resistance
+//     ("Target" line — where trapped buyers from the top get back to
+//      breakeven and sell). Approach from below = expect rejection.
+//   • Anchor to a major swing LOW → AVWAP slopes UP as support
+//     (dynamic floor — where bottom-buyers defend their cost). Approach
+//     from above = expect bounce.
+//
+// Two anchors only — major pivot HIGH (red) and major pivot LOW (blue).
+// No clutter. Best on daily charts. Tune the pivot bars up if you want
+// even bigger swings (try 30-40 for monster anchors); tune down to 10-15
+// if 20 misses pivots you care about.
+
+// ── Pivot detection (major-swing default) ────────────────────────────
+pivotL = input.int(20, "Pivot left bars",  minval=5, maxval=60, group="Pivot detection", tooltip="20 = MAJOR swing pivots only (Jake-style). Higher = even bigger pivots (30-40 for monster swings). Lower = more pivots (10-15).")
+pivotR = input.int(20, "Pivot right bars", minval=5, maxval=60, group="Pivot detection", tooltip="Same as left. Pivot 'confirms' this many bars after the actual swing — on a daily chart, a 20-right pivot confirms ~4 weeks after the bar.")
+
+// ── Toggles ─────────────────────────────────────────────────────────
+showHigh = input.bool(true, "AVWAP from major pivot HIGH (resistance/target)", group="Anchors", inline="hi")
+cHigh    = input.color(color.red,  "", group="Anchors", inline="hi")
+
+showLow  = input.bool(true, "AVWAP from major pivot LOW (dynamic support)",  group="Anchors", inline="lo")
+cLow     = input.color(color.blue, "", group="Anchors", inline="lo")
+
+// ── Style ───────────────────────────────────────────────────────────
+lw       = input.int(3, "Line width", minval=1, maxval=6, group="Style", tooltip="Jake uses thick lines for emphasis — default 3")
+showLbl  = input.bool(true, "End-of-line label",  group="Style")
+showAnchorTag = input.bool(true, "Tag the anchor bar (Jake-style)", group="Style", tooltip="Marks the pivot bar with a label like '3/17 Pivot' so you can see at a glance where the AVWAP started.")
+labelTz  = input.string("America/New_York", "Label timezone", group="Style")
+
+src = hlc3
+
+// ── Helper: format % distance from current close to a level ─────────
+// Same convention as anchored_vwap_manual.pine: "+X.XX%" if price above,
+// "-X.XX%" if below. Lets you see at a glance which anchor is the
+// nearest decision point — the smallest |%| is what's in play right now.
+f_pctStr(float level) =>
+    pct = (close - level) / level * 100
+    (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
+
+// ── Helper: AVWAP from a fixed anchor bar_index ─────────────────────
+// Guarded against pre-anchor bars — returns na (no plot) until bar_index
+// catches up to the anchor.
+f_avwap_from_anchor(int anchorBar) =>
+    pvSum = 0.0
+    vvSum = 0.0
+    if not na(anchorBar) and bar_index >= anchorBar
+        offset = bar_index - anchorBar
+        for i = offset to 0
+            pvSum := pvSum + nz(src[i] * volume[i], 0.0)
+            vvSum := vvSum + nz(volume[i], 0.0)
+    vvSum > 0 ? pvSum / vvSum : na
+
+// ── Major pivot HIGH anchor ─────────────────────────────────────────
+ph = ta.pivothigh(high, pivotL, pivotR)
+var int hiAnchorBar  = na
+var int hiAnchorTime = na
+var float hiAnchorPrice = na
+if not na(ph)
+    hiAnchorBar   := bar_index - pivotR
+    hiAnchorTime  := time[pivotR]
+    hiAnchorPrice := high[pivotR]
+avwapHi = f_avwap_from_anchor(hiAnchorBar)
+
+// ── Major pivot LOW anchor ──────────────────────────────────────────
+pl = ta.pivotlow(low, pivotL, pivotR)
+var int loAnchorBar  = na
+var int loAnchorTime = na
+var float loAnchorPrice = na
+if not na(pl)
+    loAnchorBar   := bar_index - pivotR
+    loAnchorTime  := time[pivotR]
+    loAnchorPrice := low[pivotR]
+avwapLo = f_avwap_from_anchor(loAnchorBar)
+
+// ── Plots ───────────────────────────────────────────────────────────
+plot(showHigh ? avwapHi : na, "AVWAP HIGH", color=cHigh, linewidth=lw)
+plot(showLow  ? avwapLo : na, "AVWAP LOW",  color=cLow,  linewidth=lw)
+
+// ── End-of-line labels (Jake-style "Target" / "Support") ─────────────
+var label lblHi = na
+var label lblLo = na
+
+if barstate.islast and showLbl
+    label.delete(lblHi)
+    label.delete(lblLo)
+    if showHigh and not na(avwapHi) and not na(hiAnchorTime)
+        lblHi := label.new(bar_index, avwapHi, str.format_time(hiAnchorTime, "M/d", labelTz) + " Pivot HIGH · $" + str.tostring(avwapHi, "#.##") + " (" + f_pctStr(avwapHi) + ")", style=label.style_label_left, color=cHigh, textcolor=color.white, size=size.small)
+    if showLow and not na(avwapLo) and not na(loAnchorTime)
+        lblLo := label.new(bar_index, avwapLo, str.format_time(loAnchorTime, "M/d", labelTz) + " Pivot LOW · $" + str.tostring(avwapLo, "#.##") + " (" + f_pctStr(avwapLo) + ")", style=label.style_label_left, color=cLow, textcolor=color.white, size=size.small)
+
+// ── Tag the anchor bar (Jake's "3/17 Pivot" style annotation) ───────
+var label tagHi = na
+var label tagLo = na
+
+if barstate.islast and showAnchorTag
+    label.delete(tagHi)
+    label.delete(tagLo)
+    if showHigh and not na(hiAnchorBar) and not na(hiAnchorTime) and not na(hiAnchorPrice)
+        tagHi := label.new(hiAnchorBar, hiAnchorPrice, str.format_time(hiAnchorTime, "M/d", labelTz) + " Pivot", style=label.style_label_down, color=cHigh, textcolor=color.white, size=size.small, yloc=yloc.price)
+    if showLow and not na(loAnchorBar) and not na(loAnchorTime) and not na(loAnchorPrice)
+        tagLo := label.new(loAnchorBar, loAnchorPrice, str.format_time(loAnchorTime, "M/d", labelTz) + " Pivot", style=label.style_label_up, color=cLow, textcolor=color.white, size=size.small, yloc=yloc.price)
+
+// ── Status label when no pivots found (e.g., recent IPOs like SWMR) ──
+// Surfaces WHY nothing's drawn so the user doesn't think the script broke.
+var label statusLbl = na
+hasAnyAnchor = (showHigh and not na(hiAnchorBar)) or (showLow and not na(loAnchorBar))
+if barstate.islast
+    label.delete(statusLbl)
+    if (showHigh or showLow) and not hasAnyAnchor
+        statusLbl := label.new(bar_index, high, "No " + str.tostring(pivotL) + "/" + str.tostring(pivotR) + " pivots in this stock's history.\nTry lowering Pivot bars to 5/5 or 10/10\n(e.g., recent IPOs need shorter lookback).", style=label.style_label_lower_left, color=color.new(color.gray, 20), textcolor=color.white, size=size.small, yloc=yloc.abovebar)

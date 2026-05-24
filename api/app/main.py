@@ -40,6 +40,12 @@ async def lifespan(app: FastAPI):
             logger.info("Alert type config seeded/verified")
         except Exception as e:
             logger.warning("Alert type config seed skipped: %s", e)
+
+        # Spec 58 (2026-05-23) — retirement is now handled by
+        # OBSOLETE_ALERT_TYPES in alert_type_config.py, which DELETES
+        # retired rows during seed_alert_type_config() above. The earlier
+        # soft-disable migration here had a tv_ prefix bug AND was
+        # superseded by the cleaner DELETE approach. Block removed.
         # Migration: add trial_ends_at column if missing (idempotent)
         from sqlalchemy import text
         try:

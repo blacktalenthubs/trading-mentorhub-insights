@@ -1,0 +1,144 @@
+//@version=5
+indicator("Anchored VWAP", overlay=true, max_labels_count=20, max_bars_back=500)
+
+// VISUAL-ONLY — learning/study indicator. No alerts.
+// Auto-detects useful anchors using CONFIRMED swing pivots — the anchor
+// freezes on each real pivot until the next one prints, giving clean growing
+// lines (not EMA-like curves). Brian Shannon / Jake Wu style.
+//
+//   • Recent pivot High → anchored to the latest confirmed swing high
+//   • Recent pivot Low  → anchored to the latest confirmed swing low
+//   • YTD               → anchored to Jan 1 of the current year
+//   • Earnings          → anchored to the most recent earnings release (stocks)
+//   • Manual            → optional, for a specific event (Fed day, etc.)
+
+// ── Pivot detection ─────────────────────────────────────────────────
+pivotL = input.int(5, "Pivot left bars",  minval=1, maxval=30, group="Pivot detection", tooltip="Bars to the LEFT a swing must dominate. Higher = stronger pivots, fewer anchors.")
+pivotR = input.int(5, "Pivot right bars", minval=1, maxval=30, group="Pivot detection", tooltip="Bars to the RIGHT a swing must dominate before it counts as confirmed. The anchor 'snaps' this many bars after the actual swing.")
+
+// ── Toggles ─────────────────────────────────────────────────────────
+showHigh = input.bool(true,  "AVWAP from recent pivot High", group="Auto anchors", inline="hi")
+cHigh    = input.color(color.red,    "", group="Auto anchors", inline="hi")
+
+showLow  = input.bool(true,  "AVWAP from recent pivot Low",  group="Auto anchors", inline="lo")
+cLow     = input.color(color.green,  "", group="Auto anchors", inline="lo")
+
+showYTD  = input.bool(true,  "AVWAP YTD (Jan 1)",            group="Auto anchors", inline="ytd")
+cYTD     = input.color(color.blue,   "", group="Auto anchors", inline="ytd")
+
+showEarn = input.bool(false, "AVWAP from last Earnings",     group="Auto anchors", inline="earn")
+cEarn    = input.color(color.purple, "", group="Auto anchors", inline="earn")
+
+// ── Optional manual anchor ──────────────────────────────────────────
+showMan  = input.bool(false, "AVWAP from manual date", group="Manual anchor", inline="man")
+manTs    = input.time(timestamp("2026-04-02T13:30"), "Date", group="Manual anchor", inline="man")
+cMan     = input.color(color.orange, "", group="Manual anchor", inline="man")
+
+// ── Style ───────────────────────────────────────────────────────────
+lw       = input.int(2, "Line width", minval=1, maxval=5, group="Style")
+showLbl  = input.bool(true, "Label at last bar", group="Style")
+labelTz  = input.string("America/New_York", "Label timezone", group="Style")
+
+src = hlc3
+
+// ── Helper: format % distance from current close to a level ─────────
+f_pctStr(float level) =>
+    pct = (close - level) / level * 100
+    (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
+
+// ── Helper: AVWAP computed from a fixed bar_index anchor ────────────
+// Fixed 2026-05-23 — on bars BEFORE the anchor, the for-loop walked
+// negative offsets where src[-N] is na, falling back to nz(.., 0.0) which
+// kept only the current bar's hlc3 in the sum and made the line appear to
+// hug price prior to the anchor. The `bar_index >= anchorBar` guard now
+// short-circuits so the function returns na on pre-anchor bars (no line).
+f_avwap_from_anchor(int anchorBar) =>
+    pvSum = 0.0
+    vvSum = 0.0
+    if not na(anchorBar) and bar_index >= anchorBar
+        offset = bar_index - anchorBar
+        for i = offset to 0
+            pvSum := pvSum + nz(src[i] * volume[i], 0.0)
+            vvSum := vvSum + nz(volume[i], 0.0)
+    vvSum > 0 ? pvSum / vvSum : na
+
+// ── Confirmed pivot HIGH anchor ─────────────────────────────────────
+ph = ta.pivothigh(high, pivotL, pivotR)
+var int hiAnchorBar  = na
+var int hiAnchorTime = na
+if not na(ph)
+    hiAnchorBar  := bar_index - pivotR
+    hiAnchorTime := time[pivotR]
+avwapHi = f_avwap_from_anchor(hiAnchorBar)
+
+// ── Confirmed pivot LOW anchor ──────────────────────────────────────
+pl = ta.pivotlow(low, pivotL, pivotR)
+var int loAnchorBar  = na
+var int loAnchorTime = na
+if not na(pl)
+    loAnchorBar  := bar_index - pivotR
+    loAnchorTime := time[pivotR]
+avwapLo = f_avwap_from_anchor(loAnchorBar)
+
+// ── YTD AVWAP (fixed anchor, resets each Jan 1) ─────────────────────
+var float pvYTD = 0.0
+var float vvYTD = 0.0
+var int   tsYTD = na
+if year != nz(year[1], year)
+    pvYTD := nz(src * volume, 0.0)
+    vvYTD := nz(volume, 0.0)
+    tsYTD := time
+else
+    pvYTD := pvYTD + nz(src * volume, 0.0)
+    vvYTD := vvYTD + nz(volume, 0.0)
+    if na(tsYTD)
+        tsYTD := time
+avwapYTD = vvYTD > 0 ? pvYTD / vvYTD : na
+
+// ── Earnings AVWAP (anchored at the last earnings release) ──────────
+earnVal = request.earnings(syminfo.tickerid, earnings.actual, ignore_invalid_symbol=true)
+var int earnBar = na
+var int tsEarn  = na
+if not na(earnVal)
+    earnBar := bar_index
+    tsEarn  := time
+avwapEarn = f_avwap_from_anchor(earnBar)
+
+// ── Manual anchor (accumulates from manTs) ──────────────────────────
+var float pvMan = na
+var float vvMan = na
+if time >= manTs
+    pvMan := (na(pvMan) ? 0.0 : pvMan) + nz(src * volume, 0.0)
+    vvMan := (na(vvMan) ? 0.0 : vvMan) + nz(volume, 0.0)
+avwapMan = vvMan > 0 ? pvMan / vvMan : na
+
+// ── Plots ───────────────────────────────────────────────────────────
+plot(showHigh ? avwapHi   : na, "AVWAP pivot High", color=cHigh, linewidth=lw)
+plot(showLow  ? avwapLo   : na, "AVWAP pivot Low",  color=cLow,  linewidth=lw)
+plot(showYTD  ? avwapYTD  : na, "AVWAP YTD",        color=cYTD,  linewidth=lw)
+plot(showEarn ? avwapEarn : na, "AVWAP Earnings",   color=cEarn, linewidth=lw)
+plot(showMan  ? avwapMan  : na, "AVWAP Manual",     color=cMan,  linewidth=lw)
+
+// ── Labels at the last bar (replaced each tick) ─────────────────────
+var label lblHi   = na
+var label lblLo   = na
+var label lblYTD  = na
+var label lblEarn = na
+var label lblMan  = na
+
+if barstate.islast and showLbl
+    label.delete(lblHi)
+    label.delete(lblLo)
+    label.delete(lblYTD)
+    label.delete(lblEarn)
+    label.delete(lblMan)
+    if showHigh and not na(avwapHi) and not na(hiAnchorTime)
+        lblHi := label.new(bar_index, avwapHi, "HIGH " + str.format_time(hiAnchorTime, "MMM dd", labelTz) + " · $" + str.tostring(avwapHi, "#.##") + " (" + f_pctStr(avwapHi) + ")", style=label.style_label_left, color=cHigh, textcolor=color.white, size=size.small)
+    if showLow and not na(avwapLo) and not na(loAnchorTime)
+        lblLo := label.new(bar_index, avwapLo, "LOW " + str.format_time(loAnchorTime, "MMM dd", labelTz) + " · $" + str.tostring(avwapLo, "#.##") + " (" + f_pctStr(avwapLo) + ")", style=label.style_label_left, color=cLow, textcolor=color.white, size=size.small)
+    if showYTD and not na(avwapYTD) and not na(tsYTD)
+        lblYTD := label.new(bar_index, avwapYTD, "YTD " + str.format_time(tsYTD, "MMM dd", labelTz) + " · $" + str.tostring(avwapYTD, "#.##") + " (" + f_pctStr(avwapYTD) + ")", style=label.style_label_left, color=cYTD, textcolor=color.white, size=size.small)
+    if showEarn and not na(avwapEarn) and not na(tsEarn)
+        lblEarn := label.new(bar_index, avwapEarn, "EARN " + str.format_time(tsEarn, "MMM dd", labelTz) + " · $" + str.tostring(avwapEarn, "#.##") + " (" + f_pctStr(avwapEarn) + ")", style=label.style_label_left, color=cEarn, textcolor=color.white, size=size.small)
+    if showMan and not na(avwapMan)
+        lblMan := label.new(bar_index, avwapMan, "MANUAL " + str.format_time(manTs, "MMM dd", labelTz) + " · $" + str.tostring(avwapMan, "#.##") + " (" + f_pctStr(avwapMan) + ")", style=label.style_label_left, color=cMan, textcolor=color.white, size=size.small)

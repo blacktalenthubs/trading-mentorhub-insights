@@ -1,0 +1,97 @@
+//@version=5
+indicator("Anchored VWAP Monthly", overlay=true, max_labels_count=10, max_bars_back=500)
+
+// VISUAL-ONLY — anchors a VWAP to the first trading bar of each month,
+// automatically. Always shows the last 3 monthly AVWAPs (current MTD +
+// prior + 2 prior). No date entry needed.
+//
+// Why monthly anchors track price well: institutional rebalancing,
+// fund-flow cycles, and options expiry all hit at the turn of the month —
+// so the average price paid since the 1st becomes a meaningful breakeven
+// for monthly participants.
+
+// ── Toggles ─────────────────────────────────────────────────────────
+showM0 = input.bool(true, "Current month (MTD)",  group="Monthly anchors", inline="m0")
+cM0    = input.color(color.yellow,  "", group="Monthly anchors", inline="m0")
+
+showM1 = input.bool(true, "Prior month",          group="Monthly anchors", inline="m1")
+cM1    = input.color(color.aqua,    "", group="Monthly anchors", inline="m1")
+
+showM2 = input.bool(true, "2 months ago",         group="Monthly anchors", inline="m2")
+cM2    = input.color(color.fuchsia, "", group="Monthly anchors", inline="m2")
+
+// ── Style ───────────────────────────────────────────────────────────
+lw      = input.int(2, "Line width", minval=1, maxval=5, group="Style")
+showLbl = input.bool(true, "Label at last bar", group="Style")
+labelTz = input.string("America/New_York", "Label timezone", group="Style")
+
+src = hlc3
+
+// ── Helper: format % distance from current close to a level ─────────
+f_pctStr(float level) =>
+    pct = (close - level) / level * 100
+    (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
+
+// ── Helper: AVWAP from a fixed anchor bar_index ─────────────────────
+// Fixed 2026-05-23 — guard against pre-anchor bars so the line is na
+// (no plot) before the anchor instead of hugging price.
+f_avwap_from_anchor(int anchorBar) =>
+    pvSum = 0.0
+    vvSum = 0.0
+    if not na(anchorBar) and bar_index >= anchorBar
+        offset = bar_index - anchorBar
+        for i = offset to 0
+            pvSum := pvSum + nz(src[i] * volume[i], 0.0)
+            vvSum := vvSum + nz(volume[i], 0.0)
+    vvSum > 0 ? pvSum / vvSum : na
+
+// ── Track month-start anchors (shift on each new month) ─────────────
+// When the month changes, the rotation is:
+//   2 months ago  ← prior month
+//   prior month   ← current month (which just ended)
+//   current month ← this new bar
+var int m0Bar  = na  // current month start bar
+var int m1Bar  = na  // prior month start bar
+var int m2Bar  = na  // 2 months ago start bar
+var int m0Time = na
+var int m1Time = na
+var int m2Time = na
+
+monthChanged = month != nz(month[1], month)
+if monthChanged
+    m2Bar  := m1Bar
+    m2Time := m1Time
+    m1Bar  := m0Bar
+    m1Time := m0Time
+    m0Bar  := bar_index
+    m0Time := time
+else
+    if na(m0Bar)
+        m0Bar  := bar_index
+        m0Time := time
+
+// ── Compute AVWAPs ──────────────────────────────────────────────────
+avwapM0 = f_avwap_from_anchor(m0Bar)
+avwapM1 = f_avwap_from_anchor(m1Bar)
+avwapM2 = f_avwap_from_anchor(m2Bar)
+
+// ── Plots ───────────────────────────────────────────────────────────
+plot(showM0 ? avwapM0 : na, "AVWAP MTD",   color=cM0, linewidth=lw)
+plot(showM1 ? avwapM1 : na, "AVWAP Prior", color=cM1, linewidth=lw)
+plot(showM2 ? avwapM2 : na, "AVWAP -2 mo", color=cM2, linewidth=lw)
+
+// ── Labels at the last bar ──────────────────────────────────────────
+var label lblM0 = na
+var label lblM1 = na
+var label lblM2 = na
+
+if barstate.islast and showLbl
+    label.delete(lblM0)
+    label.delete(lblM1)
+    label.delete(lblM2)
+    if showM0 and not na(avwapM0) and not na(m0Time)
+        lblM0 := label.new(bar_index, avwapM0, "MTD " + str.format_time(m0Time, "MMM", labelTz) + " · $" + str.tostring(avwapM0, "#.##") + " (" + f_pctStr(avwapM0) + ")", style=label.style_label_left, color=cM0, textcolor=color.black, size=size.small)
+    if showM1 and not na(avwapM1) and not na(m1Time)
+        lblM1 := label.new(bar_index, avwapM1, "PM " + str.format_time(m1Time, "MMM", labelTz) + " · $" + str.tostring(avwapM1, "#.##") + " (" + f_pctStr(avwapM1) + ")", style=label.style_label_left, color=cM1, textcolor=color.black, size=size.small)
+    if showM2 and not na(avwapM2) and not na(m2Time)
+        lblM2 := label.new(bar_index, avwapM2, "-2M " + str.format_time(m2Time, "MMM", labelTz) + " · $" + str.tostring(avwapM2, "#.##") + " (" + f_pctStr(avwapM2) + ")", style=label.style_label_left, color=cM2, textcolor=color.black, size=size.small)

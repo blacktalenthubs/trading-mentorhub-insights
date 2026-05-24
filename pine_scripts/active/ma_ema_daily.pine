@@ -116,6 +116,59 @@ vwap_v = ta.vwap(hlc3)
 
 tol = atr_chart * tolerance_atr
 
+// Spec 58 (2026-05-22) — MTD anchored VWAP -----------------------------------
+// Accumulated from the first trading bar of the current month. Resets each
+// new month. Same logic as anchored_vwap_manual.pine — used here both as a
+// nearby_levels entry for the confluence detector AND as a standalone payload
+// field so the backend can flag confluence vs the MTD breakeven.
+var float mtd_pv = 0.0
+var float mtd_vv = 0.0
+if month != nz(month[1], month)
+    mtd_pv := nz(hlc3 * volume, 0.0)
+    mtd_vv := nz(volume, 0.0)
+else
+    mtd_pv := mtd_pv + nz(hlc3 * volume, 0.0)
+    mtd_vv := mtd_vv + nz(volume, 0.0)
+mtd_avwap = mtd_vv > 0 ? mtd_pv / mtd_vv : na
+
+// Spec 58 — uptrend gate (FR-001) --------------------------------------------
+// Price MUST be above EVERY key MA. Any MA overhead disqualifies — the
+// bounce has no runway. Defensive nz() so na MAs fail safely.
+uptrend_pass = close > nz(ema8, 1e9) and close > nz(ema21, 1e9) and close > nz(ema50, 1e9) and close > nz(sma50, 1e9) and close > nz(ema100, 1e9) and close > nz(sma100, 1e9) and close > nz(ema200, 1e9) and close > nz(sma200, 1e9)
+
+// overhead_mas_str — comma-separated list of MAs sitting above price. Empty
+// string when uptrend_pass is true (zero MAs overhead).
+overhead_mas_str = (close < nz(ema8, -1e9) ? "EMA 8," : "") + (close < nz(ema21, -1e9) ? "EMA 21," : "") + (close < nz(ema50, -1e9) ? "EMA 50," : "") + (close < nz(sma50, -1e9) ? "SMA 50," : "") + (close < nz(ema100, -1e9) ? "EMA 100," : "") + (close < nz(sma100, -1e9) ? "SMA 100," : "") + (close < nz(ema200, -1e9) ? "EMA 200," : "") + (close < nz(sma200, -1e9) ? "SMA 200," : "")
+
+// Spec 58 — nearby_levels for confluence detection (FR-013) -------------------
+// CSV format: "kind|value|label,kind|value|label,..." — pipe between fields
+// in an entry, comma between entries. The backend adapter splits and rebuilds
+// the level dicts. Pipe avoids ":" collisions in labels.
+nearby_parts = array.new<string>()
+if not na(ema8)
+    array.push(nearby_parts, "ema8|" + str.tostring(ema8, "#.##") + "|EMA 8")
+if not na(ema21)
+    array.push(nearby_parts, "ema21|" + str.tostring(ema21, "#.##") + "|EMA 21")
+if not na(ema50)
+    array.push(nearby_parts, "ema50|" + str.tostring(ema50, "#.##") + "|EMA 50")
+if not na(sma50)
+    array.push(nearby_parts, "sma50|" + str.tostring(sma50, "#.##") + "|SMA 50")
+if not na(ema100)
+    array.push(nearby_parts, "ema100|" + str.tostring(ema100, "#.##") + "|EMA 100")
+if not na(sma100)
+    array.push(nearby_parts, "sma100|" + str.tostring(sma100, "#.##") + "|SMA 100")
+if not na(ema200)
+    array.push(nearby_parts, "ema200|" + str.tostring(ema200, "#.##") + "|EMA 200")
+if not na(sma200)
+    array.push(nearby_parts, "sma200|" + str.tostring(sma200, "#.##") + "|SMA 200")
+if not na(pdh)
+    array.push(nearby_parts, "pdh|" + str.tostring(pdh, "#.##") + "|PDH")
+if not na(pdl)
+    array.push(nearby_parts, "pdl|" + str.tostring(pdl, "#.##") + "|PDL")
+if not na(mtd_avwap)
+    array.push(nearby_parts, "mtd_avwap|" + str.tostring(mtd_avwap, "#.##") + "|MTD AVWAP")
+nearby_levels_csv = array.join(nearby_parts, ",")
+
 // Plot daily MAs -------------------------------------------------------------
 plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(#9C27B0,      0), linewidth = 2)
 plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
@@ -352,7 +405,11 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","volume_ratio":"' + str.tostring(volume_ratio, "#.##")
       + '","cvd_delta":"' + str.tostring(cvd_slope_n, "#.##")
       + '","cvd_diverging":"' + ((direction == "BUY" ? bearish_div : bullish_div) ? "true" : "false")
-      + '","fired_at":"' + str.tostring(timenow) + '"}'
+      + '","fired_at":"' + str.tostring(timenow)
+      + '","uptrend_pass":"' + (uptrend_pass ? "true" : "false")
+      + '","overhead_mas":"' + overhead_mas_str
+      + '","nearby_levels":"' + nearby_levels_csv
+      + '","mtd_avwap":"' + (na(mtd_avwap) ? "" : str.tostring(mtd_avwap, "#.##")) + '"}'
 
 // S0 targets — the MAs on the far side of entry are the structural targets.
 //   LONG  → the nearest MAs ABOVE entry (overhead resistance to aim for).
@@ -414,7 +471,10 @@ ma_targets_below(float p) =>
 //
 // Multi-line alert() args are flaky in Pine v5 — build payload into a var
 // first, then call alert() on a single line.
-if fire_alerts and any_long
+// Spec 58 — gate LONG entries on uptrend_pass (FR-001/FR-002/FR-003).
+// SHORT entries are NOT gated — they're out of scope for spec 58 and a short
+// setup REQUIRES MAs overhead (the rejection level).
+if fire_alerts and any_long and uptrend_pass
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
@@ -425,32 +485,16 @@ if fire_alerts and any_long
     msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
     alert(msg_long, alert.freq_once_per_bar_close)
 
-if fire_alerts and any_short
-    e = close
-    s = is_intraday_mode ? (high + atr_chart * 0.3) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
-    rsk = s - e
-    downs = ma_targets_below(e)
-    n_dn = array.size(downs)
-    t1_short = n_dn >= 1 ? array.get(downs, 0) : e - rsk * r_t1
-    t2_short = n_dn >= 2 ? array.get(downs, 1) : e - rsk * r_t2
-    msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e, s, t1_short, t2_short, false, near_pdh)
-    alert(msg_short, alert.freq_once_per_bar_close)
-
-// Proximity NOTICE alerts ----------------------------------------------------
-// Direction = NOTICE, entry/stop/targets set to close as placeholder — the
-// notifier's NOTICE formatter ignores these. Backend dedup buckets these as
-// alert_type=tv_ma_proximity_{long|short}_v3_{ma_suffix}, fully separate from
-// the BUY/SHORT defense buckets — so a real EMA100 defense and an EMA50
-// proximity NOTICE on the same bar produce two distinct Telegram messages.
-if fire_alerts and any_prox_long
-    e = close
-    msg_prox_long = build_v3_payload("ma_proximity_long_v3", "NOTICE", prox_long_tag, e, e, e, e, near_pdl, false)
-    alert(msg_prox_long, alert.freq_once_per_bar_close)
-
-if fire_alerts and any_prox_short
-    e = close
-    msg_prox_short = build_v3_payload("ma_proximity_short_v3", "NOTICE", prox_short_tag, e, e, e, e, false, near_pdh)
-    alert(msg_prox_short, alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — SHORT + NOTICE alerts removed entirely.
+// This Pine now fires LONG entries only. The deleted blocks were:
+//   • ma_rejection_short_v3  (SHORT — high tags MA, closes back below)
+//   • ma_proximity_long_v3   (NOTICE — bar near MA from above)
+//   • ma_proximity_short_v3  (NOTICE — bar near MA from below)
+// Detection helpers (strict_short, band_short, proximity_long/short) and
+// aggregate vars (any_short, any_prox_*) remain in the file as dead code
+// in case any future signal is built on them. Visual SHORT/proximity
+// markers (plotshape calls + bgcolor) are also retained as toggleable
+// chart context — disable via the show_markers input if not wanted.
 
 // Uptrend pullback continuation ----------------------------------------------
 // Setup: stock cleanly trending up (close > EMA8 > EMA21), pulled back for a
@@ -472,7 +516,9 @@ pb_low = ta.lowest(low, pullback_lookback + 1)
 
 plotshape(show_markers and fire_pullback, title = "Pullback LONG", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup, size = size.small)
 
-if fire_alerts and fire_pullback
+// Spec 58 — pullback continuation also gated on the strict uptrend filter.
+// pb_uptrend (8 > 21, optional > 50) is weaker than the full 8-MA gate.
+if fire_alerts and fire_pullback and uptrend_pass
     e = close
     s = pb_low - atr_chart * 0.3
     rsk = e - s

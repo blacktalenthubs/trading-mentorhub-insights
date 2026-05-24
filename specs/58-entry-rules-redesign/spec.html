@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day-Trade Entry Rules Redesign — Spec 58</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --text: #1f1f1f;
+    --muted: #5a5a5a;
+    --rule: #e5e5e0;
+    --accent: #0f4c81;
+    --accent-soft: #e8f0f8;
+    --quote: #f5f3ee;
+    --code-bg: #f2efe9;
+    --fr-bg: #e8f0f8;
+    --fr-fg: #0f4c81;
+    --sc-bg: #ecf6ec;
+    --sc-fg: #1d6b1d;
+    --us-bg: #fbf2e0;
+    --us-fg: #8a5a00;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  article {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 32px 96px 32px;
+  }
+
+  /* ── Header / metadata ──────────────────────────── */
+  header.spec-header {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 32px;
+    margin-bottom: 40px;
+  }
+
+  h1 {
+    font-size: 36px;
+    line-height: 1.25;
+    font-weight: 700;
+    margin: 0 0 24px 0;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .metadata {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 16px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .metadata dt { font-weight: 600; color: var(--text); }
+  .metadata dd { margin: 0; }
+  .metadata code {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+
+  .input-quote {
+    margin-top: 24px;
+    padding: 12px 16px;
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    font-size: 14px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .input-quote strong { font-style: normal; color: var(--text); }
+
+  /* ── Section headings ───────────────────────────── */
+  h2 {
+    font-size: 26px;
+    font-weight: 700;
+    margin: 56px 0 16px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+    letter-spacing: -0.01em;
+  }
+  h2 .mandatory {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    font-style: italic;
+    margin-left: 8px;
+  }
+
+  h3 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 36px 0 12px 0;
+    color: var(--text);
+  }
+  h3 .priority {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--us-bg);
+    color: var(--us-fg);
+    font-size: 12px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+
+  h4 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 8px 0;
+    color: var(--text);
+  }
+
+  /* ── Body text ──────────────────────────────────── */
+  p { margin: 12px 0; }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; color: var(--text); }
+
+  /* ── Lists ──────────────────────────────────────── */
+  ul, ol {
+    margin: 12px 0;
+    padding-left: 28px;
+  }
+  li { margin: 8px 0; }
+  li > strong:first-child { color: var(--text); }
+
+  /* ── Blockquote (the north-star quote) ──────────── */
+  blockquote {
+    margin: 24px 0;
+    padding: 16px 24px;
+    background: var(--quote);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    font-size: 18px;
+    font-style: italic;
+    color: var(--text);
+  }
+  blockquote strong { font-style: normal; }
+
+  /* ── Code ───────────────────────────────────────── */
+  code {
+    font-family: "SF Mono", Monaco, Menlo, Consolas, "Liberation Mono", monospace;
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+
+  /* ── Horizontal rule ────────────────────────────── */
+  hr {
+    border: none;
+    border-top: 1px dashed var(--rule);
+    margin: 32px 0;
+  }
+
+  /* ── Requirement / success / story labels ───────── */
+  .fr-id, .sc-id, .us-id {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 4px;
+    font-family: "SF Mono", Monaco, Menlo, Consolas, monospace;
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .fr-id { background: var(--fr-bg); color: var(--fr-fg); }
+  .sc-id { background: var(--sc-bg); color: var(--sc-fg); }
+  .us-id { background: var(--us-bg); color: var(--us-fg); }
+
+  /* ── Acceptance scenarios ───────────────────────── */
+  .acceptance ol {
+    counter-reset: scen;
+    list-style: none;
+    padding-left: 0;
+  }
+  .acceptance li {
+    counter-increment: scen;
+    position: relative;
+    padding-left: 36px;
+    margin: 12px 0;
+  }
+  .acceptance li::before {
+    content: counter(scen);
+    position: absolute;
+    left: 0;
+    top: 4px;
+    width: 24px;
+    height: 24px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 50%;
+    text-align: center;
+    line-height: 24px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .why, .test {
+    margin: 8px 0;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-left: 3px solid var(--rule);
+    border-radius: 0 4px 4px 0;
+    font-size: 15px;
+  }
+  .why strong, .test strong { color: var(--accent); }
+
+  /* ── Footer ─────────────────────────────────────── */
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  /* ── Print ──────────────────────────────────────── */
+  @media print {
+    body { background: white; font-size: 12pt; }
+    article { padding: 0; max-width: none; }
+    h2 { page-break-after: avoid; }
+    h3, h4 { page-break-after: avoid; }
+    blockquote, .why, .test, .input-quote { background: #f8f8f8; }
+  }
+</style>
+</head>
+<body>
+<article>
+
+<header class="spec-header">
+  <h1>Day-Trade Entry Rules Redesign</h1>
+
+  <dl class="metadata">
+    <dt>Spec</dt><dd>58</dd>
+    <dt>Feature branch</dt><dd><code>012-entry-rules-redesign</code></dd>
+    <dt>Created</dt><dd>2026-05-22</dd>
+    <dt>Status</dt><dd>Draft (ready to plan)</dd>
+  </dl>
+
+  <div class="input-quote">
+    <strong>Input.</strong> Redesign the day-trade intraday entry rules — the system has too many entry alert types and is hard to trust. Shrink to ~5-6 high-conviction rules built on: buy support in an uptrend, sell at resistance; never chase breakouts.
+  </div>
+</header>
+
+<h2>Overview</h2>
+
+<p>The intraday day-trade alert system has accumulated too many entry rules (~15+ alert types) and fires too much low-quality noise — a week of live evaluation showed the trader cannot trust it. This redesign collapses the entry rules to a small, high-conviction set (≤ 6) built on one principle:</p>
+
+<blockquote>
+  <strong>Buy support in an uptrend; sell at resistance. Never chase breakouts.</strong>
+</blockquote>
+
+<p>A stock that fires an entry should be genuinely worth looking at. Validated by chart research (see <code>trade-analytics/specs/alert-quality-feedback.md</code>).</p>
+
+<h2>User Scenarios &amp; Testing <span class="mandatory">(mandatory)</span></h2>
+
+<h3>User Story 1 — Only uptrend stocks, only support pullbacks <span class="priority">P1 · MVP</span></h3>
+
+<p>The trader gets a moving-average pullback entry <strong>only</strong> when the stock is in a confirmed uptrend — its MA stack is bullish-ordered and price is not below the whole stack — and price has pulled back to a key MA and held. A stock with its MAs stacked above price (a downtrend) produces no entry at all.</p>
+
+<div class="why"><strong>Why this priority:</strong> This is the foundation and the single biggest noise cut. Most of today's MA/EMA-alert noise comes from firing on downtrend stocks; gating every entry on a real uptrend removes it. It is the MVP — it alone makes the feed materially more trustworthy.</div>
+
+<div class="test"><strong>Independent test:</strong> Run against a stock with a bullish-ordered MA stack pulling back to a key MA → it fires, citing the MA. Run against a stock whose MAs are stacked above price → it fires nothing.</div>
+
+<h4>Acceptance scenarios</h4>
+<div class="acceptance">
+<ol>
+  <li><strong>Given</strong> a stock with price <strong>above every key MA</strong> (zero MAs overhead), <strong>When</strong> price pulls back to a key MA and closes back above it, <strong>Then</strong> a Buy-1 entry fires citing that MA.</li>
+  <li><strong>Given</strong> a stock with <strong>any MA overhead</strong> (even just one), <strong>When</strong> price touches or closes above any other MA, <strong>Then</strong> no entry fires — the overhead MA caps the runway.</li>
+  <li><strong>Given</strong> any entry fires, <strong>When</strong> the trader reads it, <strong>Then</strong> it names the rule and the support level it is based on.</li>
+</ol>
+</div>
+
+<hr>
+
+<h3>User Story 2 — Buy 2: reclaimed-high support, chop-filtered <span class="priority">P2</span></h3>
+
+<p>For a strong uptrend where price is above all its MAs — so there is no MA close enough to pull back to — the trader still gets an entry: when price pulls back to a <strong>reclaimed prior high</strong> (a PDH/PWH/PMH that price is now above, acting as support) and holds it. This entry only fires while the stock is still making new session highs (the chop filter).</p>
+
+<div class="why"><strong>Why this priority:</strong> It catches the entries Buy 1 structurally misses — the best trending names never pull back to a MA. Validated on real bar data (INTC held its PDH as support on every bar of the session). It builds on US1's uptrend concept.</div>
+
+<div class="test"><strong>Independent test:</strong> A stock above all MAs, still making higher highs, pulls back to a reclaimed PDH that holds → a Buy-2 entry fires. The same stock after it stops making new session highs → no entry.</div>
+
+<h4>Acceptance scenarios</h4>
+<div class="acceptance">
+<ol>
+  <li><strong>Given</strong> a stock in a strong uptrend (price above all MAs) still making new session highs, <strong>When</strong> price pulls back to a reclaimed prior high (PDH/PWH/PMH it is above) and holds, <strong>Then</strong> a Buy-2 entry fires citing that level as support.</li>
+  <li><strong>Given</strong> a stock rising <em>into</em> a prior high from below, <strong>When</strong> it reaches that high, <strong>Then</strong> no long entry fires — the high is a target/resistance, not an entry.</li>
+  <li><strong>Given</strong> a stock that has stopped making new session highs, <strong>When</strong> price pulls back to a level, <strong>Then</strong> no continuation entry fires (chop filter).</li>
+</ol>
+</div>
+
+<hr>
+
+<h3>User Story 3 — Shrink the catalog; retire the open-line entries <span class="priority">P3</span></h3>
+
+<p>The entry-rule catalog is cut to ≤ 6 rules. The open-line alerts are removed as entry triggers — the open line stays only as a chart visual. Breakout-into-resistance entries (a long fired as price rises into a prior high) are removed.</p>
+
+<div class="why"><strong>Why this priority:</strong> The cleanup that delivers the "small, trustworthy set" end state. It depends on US1 + US2 existing as the replacement.</div>
+
+<div class="test"><strong>Independent test:</strong> Count the entry-rule types — ≤ 6. Confirm no entry fires from the open line, and no long fires from price breaking into a prior high from below.</div>
+
+<h4>Acceptance scenarios</h4>
+<div class="acceptance">
+<ol>
+  <li><strong>Given</strong> the redesigned system, <strong>When</strong> the entry-rule catalog is listed, <strong>Then</strong> it contains no more than 6 entry rules.</li>
+  <li><strong>Given</strong> price is chopping around the day's open line, <strong>When</strong> it crosses the open line, <strong>Then</strong> no entry fires (open line is visual-only).</li>
+  <li><strong>Given</strong> price breaks above a prior high from below, <strong>When</strong> the break occurs, <strong>Then</strong> no breakout long fires.</li>
+</ol>
+</div>
+
+<hr>
+
+<h3>Edge cases</h3>
+
+<ul>
+  <li><strong>Strong uptrend, no MA pullback and no reclaimed high nearby</strong> → no entry. Acceptable — not every trending stock offers a clean entry; the goal is quality, not coverage.</li>
+  <li><strong>Trend breaks mid-session</strong> (MA stack inverts, or price drops below the stack) → no further entries on that stock.</li>
+  <li><strong>Price hovering exactly at a prior high</strong> → resolved by the dual-role rule: if price was above the level it is support; if below, it is resistance.</li>
+  <li><strong>Many stocks qualify on a strong-market day</strong> → all surfaced, ranked by conviction; the trader picks the few highest.</li>
+  <li><strong>A stock makes one new high then reverses</strong> → the higher-high gate keeps it eligible only while new highs continue; the reversal stops further continuation entries.</li>
+  <li><strong>Confluent supports</strong> (a key MA sitting right next to a prior low, or two MAs clustered) → <strong>one</strong> entry alert, with the confluence flagged inline in the message. Two close support levels do NOT trigger two alerts (the AVGO case, 2026-05-22).</li>
+</ul>
+
+<h2>Requirements <span class="mandatory">(mandatory)</span></h2>
+
+<h3>Functional requirements</h3>
+
+<ul>
+  <li><span class="fr-id">FR-001</span> System MUST classify a stock as an uptrend ONLY when price is <strong>above every key moving average</strong> (the 8/21/50/100/200 EMA and the 50/100/200 SMA) — i.e., <strong>zero MAs overhead as resistance</strong>. Any MA above current price disqualifies the stock as an uptrend, no matter how the MAs themselves are ordered. <em>(Validated 2026-05-22 against the day's 8 MA alerts: this single rule blocks 6 of 8 — PLTR/MSFT×2/META/V/MSTR — and keeps AAOI + AVGO, the only two with clean runway.)</em></li>
+
+  <li><span class="fr-id">FR-002</span> System MUST fire a Buy-1 entry only when the stock is in an uptrend AND price has pulled back to a key MA from above and closed back above it.</li>
+
+  <li><span class="fr-id">FR-003</span> System MUST NOT fire any <strong>MA-based entry</strong> (MA bounce / pullback continuation) on a stock with any moving average overhead. <strong>Level-based entries</strong> (PDH/PDL/PWH/PWL/PMH/PML reclaim or hold) MAY fire regardless of MA stack — in downtrend regimes, the trader plays the levels with the overhead MAs as <strong>targets / resistance</strong>, not as entry blockers. <em>(Refined 2026-05-23 — original FR-003 blocked all entries on downtrend stocks; SWMR/PLTR demonstrated this filtered out valid level plays. The MA stack determines which class of entry applies; it does not silence the stock entirely.)</em></li>
+
+  <li><span class="fr-id">FR-004</span> System MUST fire a Buy-2 entry when price pulls back to a reclaimed prior high (a PDH/PWH/PMH that price is currently above) and holds it as support. The held-from-above pattern itself (price was above the level on the prior bar, retraces to it, closes back above) encodes the relevant precondition — <strong>no separate uptrend gate is required</strong>. <em>(Refined 2026-05-23 — original FR-004 required "strong uptrend" which over-filtered: in downtrend regimes, a stock briefly above a prior high and holding it is a valid reversal play, e.g., SWMR holding WH 38.06 with overhead MA stack.)</em></li>
+
+  <li><span class="fr-id">FR-005</span> System MUST treat a prior high (PDH/PWH/PMH) as an entry level ONLY as support — only when price was above it and retraced down to it. It MUST NOT fire a long when price is rising into a prior high from below.</li>
+
+  <li><span class="fr-id">FR-006</span> The higher-high chop gate (30-min new-session-high requirement) MUST be applied to Buy-2 entries <strong>only in uptrend regimes</strong> (price above every key MA). In downtrend regimes, Buy-2 alerts are reversal plays — the chop gate (a continuation filter) does NOT apply, and a stale 30-min-without-a-new-high condition MUST NOT suppress them. <em>(Refined 2026-05-23 — original FR-006 was scoped too broadly; chop gate exists to silence late-day chop in trending stocks, not to filter reversal setups.)</em></li>
+
+  <li><span class="fr-id">FR-007</span> System MUST NOT use the day's open line as an entry trigger; the open line remains a visual chart reference only.</li>
+
+  <li><span class="fr-id">FR-008</span> System MUST present a total day-trade entry-rule set of no more than 6 rules.</li>
+
+  <li><span class="fr-id">FR-009</span> Every entry alert MUST state which rule fired and the support level it is based on.</li>
+
+  <li><span class="fr-id">FR-010</span> Every entry MUST carry an entry price, a structural stop, and targets (existing behavior preserved).</li>
+
+  <li><span class="fr-id">FR-011</span> An entry's targets MUST be set to the next structural resistance above the entry (the nearest prior high) — encoding "sell at resistance."</li>
+
+  <li><span class="fr-id">FR-012</span> System MUST surface entry candidates for the trader's manual evaluation only — no auto-trading.</li>
+
+  <li><span class="fr-id">FR-013</span> When an entry's support level is <strong>confluent</strong> with another support — a second key MA, a reclaimed prior high (PDH/PWH/PMH), a prior low (PDL/PWL/PML), or a <strong>monthly anchored VWAP</strong> (MTD or prior-month) — within a small price band, the alert MUST flag the confluence inline in its message (e.g., <em>"EMA 21 bounce · confluent with PDL $410.50 · MTD AVWAP $420.92"</em>). Confluence MUST be surfaced as an annotation on a single entry alert — it MUST NOT trigger a second alert for the same setup. <em>(Validation examples, 2026-05-22: AVGO — daily 21 EMA $413.02 confluent with PDL $410.50, one EMA 21 alert covered both; AAOI — daily 21 EMA $171.47 confluent with weekly 21 EMA and MTD AVWAP $180.28 — a triple-confluence bounce that was the strongest setup of the day.)</em></li>
+</ul>
+
+<h3>Key entities</h3>
+
+<ul>
+  <li><strong>Entry Rule</strong>: one of the ≤ 6 high-conviction setups (Buy 1 — MA hold; Buy 2 — reclaimed-high support; and the few others retained). Each has a trigger condition, the support it is based on, and the gates (uptrend, chop) it must pass.</li>
+
+  <li><strong>Trend State</strong>: a stock's classification from its MA stack — uptrend (bullish-ordered, price not below the stack) or not.</li>
+
+  <li><strong>Support Level</strong>: the price level an entry is based on — a key MA, or a reclaimed prior high (PDH/PWH/PMH) that price is above. A prior high is <strong>dual-role</strong>: a target/resistance when approached from below, support when retraced to from above. Multiple supports can cluster in the same narrow price band — a key MA confluent with a prior low (PDL/PWL/PML), or two MAs close together — strengthening the setup; the entry alert names the confluence inline instead of firing a separate alert.</li>
+
+  <li><strong>Chop Gate</strong>: the higher-high check — continuation entries fire only while the stock is still making new session highs.</li>
+</ul>
+
+<h2>Success Criteria <span class="mandatory">(mandatory)</span></h2>
+
+<h3>Measurable outcomes</h3>
+
+<ul>
+  <li><span class="sc-id">SC-001</span> The day-trade entry-rule set is <strong>≤ 6 rules</strong> (down from ~15+).</li>
+
+  <li><span class="sc-id">SC-002</span> <strong>No entry fires on a stock whose MAs are stacked above price</strong> (a downtrend) — verified against the chart.</li>
+
+  <li><span class="sc-id">SC-003</span> <strong>No entry fires from the open line, and no long fires from a breakout into a prior high from below.</strong></li>
+
+  <li><span class="sc-id">SC-004</span> On the trader's review (the ✓/✗ scorecard), <strong>at least 70% of surfaced entries are judged genuinely worth looking at</strong> — a materially higher rate than the current rules.</li>
+
+  <li><span class="sc-id">SC-005</span> <strong>Delivered entry-alert volume drops by at least 50%</strong> versus the current system, while genuine trending setups are still caught.</li>
+
+  <li><span class="sc-id">SC-006</span> Every entry alert names its rule and its support level, so the trader can judge it without opening the chart.</li>
+</ul>
+
+<h2>Assumptions</h2>
+
+<ul>
+  <li>The MA stack uses the platform's existing daily 8/21/50/100/200 moving averages.</li>
+
+  <li>"Reclaimed prior high" uses the existing PDH / PWH / PMH levels.</li>
+
+  <li>The higher-high chop gate uses the current session's high.</li>
+
+  <li><strong>Scope unifies day-trade and swing</strong>: tonight's research (2026-05-22) confirmed the Pine MA-bounce script (<code>ma_ema_daily.pine</code>) already fires off <strong>daily</strong> MAs — i.e., it is functionally the swing scanner too (AAOI's daily-21-EMA bounce alert that fired today is a swing-quality entry). The Python <code>swing_scanner.py</code> built in spec 56 is redundant with Pine and will be retired. So this spec's entry-rule framework (uptrend gate, Buy 1, Buy 2, confluence annotation) applies to <strong>both day-trade and swing entries</strong> — the only difference is the timeframe of the MA/AVWAP being defended.</li>
+
+  <li><strong>Still out of scope</strong>: the RSI-30 sell-off rule (separate behavior, manually evaluated for now).</li>
+
+  <li>Open-line alerts are removed as <strong>entry</strong> triggers; the open line stays as a chart visual. Whether non-routed recording of any retired rule continues is a planning detail.</li>
+
+  <li>This redesign <strong>replaces</strong> the current entry-rule catalog — alert-type toggles for retired rules are removed.</li>
+
+  <li>The system surfaces entry candidates for manual evaluation — no auto-trading — consistent with the platform's current validation phase.</li>
+
+  <li>Feature is <strong>ready to plan</strong> — next step <code>/speckit-plan</code>.</li>
+</ul>
+
+<footer>
+  Spec 58 · Day-Trade Entry Rules Redesign · Generated 2026-05-22
+</footer>
+
+</article>
+</body>
+</html>

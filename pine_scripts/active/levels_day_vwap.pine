@@ -29,16 +29,20 @@ show_midpoint     = input.bool(true,  "Show range midpoint line (gray dashed)")
 // Open-line alerts re-enabled 2026-05-21. Pine fires all four; the backend
 // alert_type_config table (Settings > Alert Types) decides which are delivered.
 fire_open_alerts        = input.bool(true, "Fire open-line alerts (MASTER toggle — overrides per-type below)")
-fire_open_held          = input.bool(true,  "  → open_held (clean defense)", group = "Open-line per-type")
-fire_open_wick_reclaim  = input.bool(true,  "  → open_wick_reclaim (wick crossed below)", group = "Open-line per-type")
-fire_open_reclaimed     = input.bool(true,  "  → open_reclaimed (full close-flip cycle)", group = "Open-line per-type")
-fire_open_lost          = input.bool(true,  "  → open_lost (NOTICE, indexes only)", group = "Open-line per-type")
+// Spec 58 (2026-05-22) — open-line entries RETIRED (FR-007). Defaults to
+// false; the open-line plot is still drawn as a visual reference. Re-enable
+// from indicator settings ONLY if you want to bring the alerts back.
+fire_open_held          = input.bool(false, "  → open_held (retired — spec 58)", group = "Open-line per-type")
+fire_open_wick_reclaim  = input.bool(false, "  → open_wick_reclaim (retired — spec 58)", group = "Open-line per-type")
+fire_open_reclaimed     = input.bool(false, "  → open_reclaimed (retired — spec 58)", group = "Open-line per-type")
+fire_open_lost          = input.bool(false, "  → open_lost (retired — spec 58)", group = "Open-line per-type")
 show_signals      = input.bool(true,  "Show LONG/SHORT entry markers")
 show_sweep        = input.bool(true,  "Show SWEEP composite markers")
 show_vwap         = input.bool(true,  "Show VWAP")
-show_stage_badge   = input.bool(true,  "Show day-type badge (top-center)")
-show_regime_rows   = input.bool(true,  "Show SPY regime row on day-type badge")
-show_symbol_regime = input.bool(true,  "Show this symbol's EMA position on day-type badge")
+// Day-type badge / SPY regime banner removed 2026-05-23 — visual clutter,
+// not actionable. The underlying day_text / spy_line / sym_line / day_bg
+// state computations below are kept as dead code (they don't fire any
+// alerts) in case the banner is wanted back later.
 ema_proximity_pct  = input.float(0.3,  "EMA proximity threshold (%) — flag as 'at EMA' if within", minval = 0.1, maxval = 2.0, step = 0.1)
 fire_vwap_alerts  = input.bool(false, "Fire VWAP reclaim/reject/support alerts (NOTICE — SPY/QQQ only; ignored on other symbols)")
 // HTF level alerts (2026-05-16) — hold/wick-reclaim per HTF level + proximity NOTICE.
@@ -108,6 +112,129 @@ if barstate.islast
                               lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]],
                               lookahead = barmerge.lookahead_on)
+
+// =====================================================================
+// Spec 58 (2026-05-22) — uptrend gate + nearby levels + MTD AVWAP
+// =====================================================================
+// Mirrors the same computation in ma_ema_daily.pine so the new pdh_held /
+// pwh_held / pmh_held entry alerts can carry the spec-58 payload fields
+// (uptrend_pass, overhead_mas, nearby_levels, mtd_avwap). The backend
+// uptrend gate enforces FR-001/FR-003 against `uptrend_pass=false`.
+// Names suffixed `_d` (daily) and `_58` (spec 58) to avoid collisions with
+// the file's existing pwh_held_fired / pwh_was_above HTF logic.
+ema8_d   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21_d  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50_d  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100_d = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200_d = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50_d  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100_d = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200_d = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close > nz(ema50_d, 1e9) and close > nz(sma50_d, 1e9) and close > nz(ema100_d, 1e9) and close > nz(sma100_d, 1e9) and close > nz(ema200_d, 1e9) and close > nz(sma200_d, 1e9)
+
+overhead_mas_str_58 = (close < nz(ema8_d, -1e9) ? "EMA 8," : "") + (close < nz(ema21_d, -1e9) ? "EMA 21," : "") + (close < nz(ema50_d, -1e9) ? "EMA 50," : "") + (close < nz(sma50_d, -1e9) ? "SMA 50," : "") + (close < nz(ema100_d, -1e9) ? "EMA 100," : "") + (close < nz(sma100_d, -1e9) ? "SMA 100," : "") + (close < nz(ema200_d, -1e9) ? "EMA 200," : "") + (close < nz(sma200_d, -1e9) ? "SMA 200," : "")
+
+// Monthly anchored VWAPs — MTD + PM (prior month) + -2M (2 months prior).
+// Rolling-shift pattern: on each new month the accumulators shift down
+//   (PM becomes -2M, MTD becomes PM, MTD restarts), then ALL three keep
+//   accumulating the new bar going forward. So PM AVWAP = "anchored to
+//   the 1st of last month, continues through today" — matches the
+//   anchored_vwap_manual.pine visual exactly.
+var float mtd_pv_58  = 0.0
+var float mtd_vv_58  = 0.0
+var float pm_pv_58   = 0.0
+var float pm_vv_58   = 0.0
+var float p2m_pv_58  = 0.0
+var float p2m_vv_58  = 0.0
+if month != nz(month[1], month)
+    p2m_pv_58 := pm_pv_58
+    p2m_vv_58 := pm_vv_58
+    pm_pv_58  := mtd_pv_58
+    pm_vv_58  := mtd_vv_58
+    mtd_pv_58 := nz(hlc3 * volume, 0.0)
+    mtd_vv_58 := nz(volume, 0.0)
+    pm_pv_58  := pm_pv_58  + nz(hlc3 * volume, 0.0)
+    pm_vv_58  := pm_vv_58  + nz(volume, 0.0)
+    p2m_pv_58 := p2m_pv_58 + nz(hlc3 * volume, 0.0)
+    p2m_vv_58 := p2m_vv_58 + nz(volume, 0.0)
+else
+    mtd_pv_58 := mtd_pv_58 + nz(hlc3 * volume, 0.0)
+    mtd_vv_58 := mtd_vv_58 + nz(volume, 0.0)
+    pm_pv_58  := pm_pv_58  + nz(hlc3 * volume, 0.0)
+    pm_vv_58  := pm_vv_58  + nz(volume, 0.0)
+    p2m_pv_58 := p2m_pv_58 + nz(hlc3 * volume, 0.0)
+    p2m_vv_58 := p2m_vv_58 + nz(volume, 0.0)
+mtd_avwap_58 = mtd_vv_58 > 0 ? mtd_pv_58 / mtd_vv_58 : na
+pm_avwap_58  = pm_vv_58  > 0 ? pm_pv_58  / pm_vv_58  : na
+p2m_avwap_58 = p2m_vv_58 > 0 ? p2m_pv_58 / p2m_vv_58 : na
+
+// nearby_levels CSV — pipe between fields ("kind|value|label"), comma
+// between entries. The backend adapter parses this for confluence detection.
+nearby_parts_58 = array.new<string>()
+if not na(ema8_d)
+    array.push(nearby_parts_58, "ema8|" + str.tostring(ema8_d, "#.##") + "|EMA 8")
+if not na(ema21_d)
+    array.push(nearby_parts_58, "ema21|" + str.tostring(ema21_d, "#.##") + "|EMA 21")
+if not na(ema50_d)
+    array.push(nearby_parts_58, "ema50|" + str.tostring(ema50_d, "#.##") + "|EMA 50")
+if not na(sma50_d)
+    array.push(nearby_parts_58, "sma50|" + str.tostring(sma50_d, "#.##") + "|SMA 50")
+if not na(ema100_d)
+    array.push(nearby_parts_58, "ema100|" + str.tostring(ema100_d, "#.##") + "|EMA 100")
+if not na(sma100_d)
+    array.push(nearby_parts_58, "sma100|" + str.tostring(sma100_d, "#.##") + "|SMA 100")
+if not na(ema200_d)
+    array.push(nearby_parts_58, "ema200|" + str.tostring(ema200_d, "#.##") + "|EMA 200")
+if not na(sma200_d)
+    array.push(nearby_parts_58, "sma200|" + str.tostring(sma200_d, "#.##") + "|SMA 200")
+if not na(pdh)
+    array.push(nearby_parts_58, "pdh|" + str.tostring(pdh, "#.##") + "|PDH")
+if not na(pdl)
+    array.push(nearby_parts_58, "pdl|" + str.tostring(pdl, "#.##") + "|PDL")
+if not na(pwh)
+    array.push(nearby_parts_58, "pwh|" + str.tostring(pwh, "#.##") + "|PWH")
+if not na(pwl)
+    array.push(nearby_parts_58, "pwl|" + str.tostring(pwl, "#.##") + "|PWL")
+if not na(pmh)
+    array.push(nearby_parts_58, "pmh|" + str.tostring(pmh, "#.##") + "|PMH")
+if not na(pml)
+    array.push(nearby_parts_58, "pml|" + str.tostring(pml, "#.##") + "|PML")
+if not na(mtd_avwap_58)
+    array.push(nearby_parts_58, "mtd_avwap|" + str.tostring(mtd_avwap_58, "#.##") + "|MTD AVWAP")
+nearby_levels_csv_58 = array.join(nearby_parts_58, ",")
+
+// Spec 58 — Buy 2 prior-high held-from-above detection (FR-004/FR-005).
+// Price was above the level on the prior bar, retraced to it intraday
+// (low <= level), and closed back above it (close >= level). The held-
+// from-above pattern. Distinct from staged_pwh_break/pmh_break (retired
+// breakout-into-resistance) and from the existing htf_support_held (which
+// uses a wider tolerance band and no uptrend gate).
+s58_pdh_held = not na(pdh) and not na(close[1]) and close[1] > pdh and low <= pdh and close >= pdh
+s58_pwh_held = not na(pwh) and not na(close[1]) and close[1] > pwh and low <= pwh and close >= pwh
+s58_pmh_held = not na(pmh) and not na(close[1]) and close[1] > pmh and low <= pmh and close >= pmh
+
+// Spec 58 (2026-05-23) — symmetric low-held-from-above detection.
+// Wick tested the prior low and closed back above without closing below
+// it. ETH on 2026-05-23 wicked PML 2016.5, bounced hard, never closed
+// below — the existing pml_reclaim doesn't fire (needs a close-below
+// first), but the wick-and-hold is a real event the trader wants to take.
+// Strict touch: low <= level. No tolerance noise. If the level fails on
+// a future bar, the existing _reclaim/_break alerts cover the next event.
+s58_pdl_held = not na(pdl) and not na(close[1]) and close[1] > pdl and low <= pdl and close >= pdl
+s58_pwl_held = not na(pwl) and not na(close[1]) and close[1] > pwl and low <= pwl and close >= pwl
+s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pml and close >= pml
+
+// Spec 58 (2026-05-23 evening) — monthly AVWAP defense detection.
+// Combined trigger: EITHER wick-and-hold (price was at/above the AVWAP,
+// wicked to it, closed above) OR lost-and-reclaim (price closed below
+// the AVWAP on the prior bar, closed back above on this bar). Both are
+// "the AVWAP was defended" — one alert per defense, regardless of path.
+// Live validation 2026-05-23 on ETH MTD Apr $2,246.15 — price stalled
+// exactly at that level after the PWL reclaim cascade.
+s58_mtd_avwap_held = not na(mtd_avwap_58) and not na(close[1]) and ((close[1] >= mtd_avwap_58 and low <= mtd_avwap_58 and close >= mtd_avwap_58) or (close[1] < mtd_avwap_58 and close >= mtd_avwap_58))
+s58_pm_avwap_held  = not na(pm_avwap_58)  and not na(close[1]) and ((close[1] >= pm_avwap_58  and low <= pm_avwap_58  and close >= pm_avwap_58)  or (close[1] < pm_avwap_58  and close >= pm_avwap_58))
+s58_p2m_avwap_held = not na(p2m_avwap_58) and not na(close[1]) and ((close[1] >= p2m_avwap_58 and low <= p2m_avwap_58 and close >= p2m_avwap_58) or (close[1] < p2m_avwap_58 and close >= p2m_avwap_58))
 
 // =====================================================================
 // VWAP + slope
@@ -410,6 +537,22 @@ if session_open_now
 else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
     bar1_low := math.min(nz(bar1_low, low), low)
 
+// Spec 58 (FR-006) — higher-high chop gate. Buy 2 alerts only fire while
+// the stock is still making new session highs OR within 30 minutes of the
+// last new high. Stops Buy 2 alerts in the afternoon chop that follows
+// a strong morning run (validation: INTC 2026-05-22 made its high on bar
+// 5, then 21 bars of chop — chop gate would have stood down ~30 min in).
+var float session_high_58       = na
+var int   last_new_high_time_58 = na
+if session_open_now
+    session_high_58       := high
+    last_new_high_time_58 := time
+else
+    if high > nz(session_high_58, -1e9)
+        session_high_58       := high
+        last_new_high_time_58 := time
+chop_gate_pass_58 = not na(last_new_high_time_58) and (time - last_new_high_time_58) <= 30 * 60 * 1000
+
 open_confluence_tol = 0.003  // 0.3%
 near_pdh_open = not na(today_open) and not na(pdh) and math.abs(today_open - pdh) / pdh <= open_confluence_tol
 near_pdl_open = not na(today_open) and not na(pdl) and math.abs(today_open - pdl) / pdl <= open_confluence_tol
@@ -573,8 +716,8 @@ regime_emoji(string state) =>
 
 [spy_state, spy_action, spy_sub] = get_regime("SPY")
 
-// Always show the SPY row.
-spy_line = show_regime_rows ? "\n────\n" + regime_emoji(spy_state) + " SPY " + spy_state + " · " + spy_action + "\n(" + spy_sub + ")" : ""
+// Banner removed 2026-05-23 — spy_line kept as empty for dead-code safety.
+spy_line = ""
 
 // =====================================================================
 // Current-symbol EMA position — same regime classifier applied to the
@@ -606,26 +749,15 @@ _at_200 = not na(_sym_sma200) and _sym_sma200 != 0 and math.abs(_sym_close - _sy
 // SMA200 > EMA100 > EMA50 > EMA21 > EMA10 > EMA5.
 sym_at_tag = _at_200 ? " · AT SMA200 (key structural)" : _at_100 ? " · AT EMA100 (key structural)" : _at_50 ? " · AT EMA50 (trend filter)" : _at_21 ? " · AT EMA21 (testing)" : _at_10 ? " · AT EMA10 (testing)" : _at_5 ? " · AT EMA5 (testing)" : ""
 
-// Skip the symbol row when chart symbol IS SPY (already covered by SPY row above).
-_is_spy_chart = syminfo.ticker == "SPY"
-sym_line = (show_symbol_regime and not _is_spy_chart) ? "\n────\n" + regime_emoji(sym_state) + " " + syminfo.ticker + " " + sym_state + sym_at_tag + "\n(" + sym_sub + ")" : ""
+// Banner removed 2026-05-23 — sym_line kept as empty for dead-code safety.
+sym_line = ""
 
 combined_day_text = day_text + spy_line + sym_line
 
-// Top-center placement so the day-type label sits front-and-center on
-// the chart, not crammed against the right-side watchlist panel where
-// it's easy to miss during fast markets. Single-cell table; SPY discipline
-// action appended to the cell text on every bar.
-//
-// Visual unification (2026-05-18): single semi-transparent gray background
-// for all day types (was: green/yellow/aqua/red per state). At-a-glance
-// state signal is in the text itself; uniform color stops drawing the eye
-// away from price action. Text size reduced from large → small.
-// `day_bg` assignments above are kept (no-op) in case state-aware coloring
-// is wanted back later.
-var table day_t = table.new(position.top_center, 1, 1, frame_color = color.gray, frame_width = 1, border_width = 1)
-if show_stage_badge and barstate.islast
-    table.cell(day_t, 0, 0, combined_day_text, text_color = color.white, bgcolor = color.new(color.gray, 50), text_size = size.small)
+// Day-type badge / SPY regime banner removed 2026-05-23 — visual clutter,
+// not actionable for the trader. The state-text computations above
+// (day_text, spy_line, sym_line, combined_day_text, day_bg) are unused
+// now; left in place so they can be revived if the banner ever returns.
 
 // =====================================================================
 // Alert payload — adds volume_ratio, cvd_delta, cvd_diverging
@@ -665,7 +797,11 @@ build_payload_v2(rule, direction,
       + '","near_pdh":"' + (near_pdh_open ? "true" : "false")
       + '","near_pdl":"' + (near_pdl_open ? "true" : "false")
       + '","inside_day":"' + (is_inside_day ? "true" : "false")
-      + '","fired_at":"' + str.tostring(timenow) + '"}'
+      + '","fired_at":"' + str.tostring(timenow)
+      + '","uptrend_pass":"' + (uptrend_pass_58 ? "true" : "false")
+      + '","overhead_mas":"' + overhead_mas_str_58
+      + '","nearby_levels":"' + nearby_levels_csv_58
+      + '","mtd_avwap":"' + (na(mtd_avwap_58) ? "" : str.tostring(mtd_avwap_58, "#.##")) + '"}'
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
 atr_buffer = atr14 * atr_buffer_mult
@@ -862,7 +998,11 @@ tf_low_prefix(string tf) =>
 htf_allowed(string tf) =>
     tf == "D" or fire_htf_staged
 
-if pdh_break
+// Spec 58 — pdh_break LONG retired (FR-005, breakout-into-resistance).
+// The `if false and pdh_break` neutralizes the alert while leaving the
+// block in place for easy revert. The SHORT-side pdh_rejection block
+// below is unchanged (shorts are out of spec-58 scope).
+if false and pdh_break
     e   = close
     s_default = broken_resistance - atr_buffer
     s   = gap_context and not na(bar1_low) ? bar1_low - atr_buffer * 0.5 : s_default
@@ -872,35 +1012,14 @@ if pdh_break
     if htf_allowed(tf)
         dir = dir_for_tf(tf, "BUY")
         alert(build_payload_v2(tf_high_prefix(tf) + "break", dir, e, s, t1, t2, gap_context, confluence_resistance, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-if pdh_rejection
-    e   = close
-    s   = high + atr_buffer
-    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
-    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
-    t2  = t2_extend_short(e, t1)
-    tf  = level_tf(rejected_resistance, pdh, pwh, pmh)
-    if htf_allowed(tf)
-        dir = dir_for_tf(tf, "SHORT")
-        alert(build_payload_v2(tf_high_prefix(tf) + "rejection", dir, e, s, t1, t2, false, confluence_rej, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
-if sweep_reversal_short
-    e   = close
-    s   = math.max(high, high[1]) + atr_buffer
-    t1_a = not na(vwap_v) and vwap_v < e ? vwap_v : pdl
-    t1  = na(t1_a) ? t1_short_hier(e, pdl, pwl, atr_d) : t1_a
-    t2  = t2_extend_short(e, t1)
-    tf  = level_tf(failed_resistance, pdh, pwh, pmh)
-    if htf_allowed(tf)
-        dir = dir_for_tf(tf, "SHORT")
-        alert(build_payload_v2(tf_high_prefix(tf) + "failed_short", dir, e, s, t1, t2, false, confluence_failed, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
-if pdl_break
-    e   = close
-    s   = broken_support + atr_buffer
-    t1  = t1_short_hier(e, pwl, pml, atr_d)
-    t2  = t2_extend_short(e, t1)
-    tf  = level_tf(broken_support, pdl, pwl, pml)
-    if htf_allowed(tf)
-        dir = dir_for_tf(tf, "SHORT")
-        alert(build_payload_v2(tf_low_prefix(tf) + "break", dir, e, s, t1, t2, false, confluence_brk_sup, volume_ratio, cvd_slope_n, bullish_div), alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — SHORT alerts removed from Pine.
+// This script now fires LONG entries only. The deleted blocks were:
+//   • pdh_rejection (SHORT — wick to PDH/PWH/PMH from below, closes back below)
+//   • sweep_reversal_short / pdh_failed (SHORT — close-above-then-below trap)
+//   • pdl_break (SHORT — close below PDL/PWL/PML)
+// Detection variables (pdh_rejection, pdh_failed, pdl_break, broken_support
+// etc.) remain in the file as dead code in case the alerts are revived.
+
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
@@ -917,6 +1036,96 @@ if pdl_reclaim
         alert(build_payload_v2(tf_low_prefix(tf) + "reclaim", dir, e, s, t1, t2, tf == "D" and is_gap_down, confluence_support, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // =====================================================================
+// Spec 58 — Buy 2: prior-high held-from-above (FR-004, refined 2026-05-23)
+// =====================================================================
+// One alert per held level (PDH / PWH / PMH). The pattern itself encodes
+// the relevant precondition (price was above the level on the prior bar).
+// Gate logic:
+//   • In an uptrend (uptrend_pass_58 = true) → require chop_gate_pass_58
+//     so we don't fire late-day continuation alerts in afternoon chop.
+//   • In a downtrend (uptrend_pass_58 = false) → bypass the chop gate.
+//     Held-from-above in a downtrend is a REVERSAL play, not continuation
+//     (e.g., SWMR holding WH 38.06 with overhead MA stack — valid setup).
+// Targets stack to the next higher level. Stop = day's low − ATR buffer.
+if s58_pdh_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pdh  = pdh
+    s_pdh  = low - atr_buffer
+    t1_pdh = not na(pwh) and pwh > e_pdh ? pwh : (not na(pmh) and pmh > e_pdh ? pmh : e_pdh * 1.0075)
+    t2_pdh = not na(pmh) and pmh > t1_pdh ? pmh : t2_extend_long(e_pdh, t1_pdh)
+    alert(build_payload_v2("staged_pdh_held", "BUY", e_pdh, s_pdh, t1_pdh, t2_pdh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pwh_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pwh  = pwh
+    s_pwh  = low - atr_buffer
+    t1_pwh = not na(pmh) and pmh > e_pwh ? pmh : e_pwh * 1.0075
+    t2_pwh = t2_extend_long(e_pwh, t1_pwh)
+    alert(build_payload_v2("staged_pwh_held", "BUY", e_pwh, s_pwh, t1_pwh, t2_pwh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pmh_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pmh  = pmh
+    s_pmh  = low - atr_buffer
+    t1_pmh = e_pmh * 1.0075
+    t2_pmh = e_pmh * 1.015
+    alert(build_payload_v2("staged_pmh_held", "BUY", e_pmh, s_pmh, t1_pmh, t2_pmh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// =====================================================================
+// Spec 58 (2026-05-23) — Buy 2: prior-low held-from-above (wick test)
+// =====================================================================
+// Entry = the level itself (the wick-tested low — much tighter fill than
+// the corresponding _reclaim alert that fires later if the level fails).
+// Stop = wick low − ATR buffer. Targets stack to nearest overhead PDH/PWH/PMH.
+// Same gate as held-highs: bypass chop gate in downtrends (reversal play).
+if s58_pdl_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pdl_h  = pdl
+    s_pdl_h  = low - atr_buffer
+    t1_pdl_h = not na(pdh) and pdh > e_pdl_h ? pdh : (not na(pwh) and pwh > e_pdl_h ? pwh : e_pdl_h * 1.015)
+    t2_pdl_h = not na(pwh) and pwh > t1_pdl_h ? pwh : (not na(pmh) and pmh > t1_pdl_h ? pmh : t2_extend_long(e_pdl_h, t1_pdl_h))
+    alert(build_payload_v2("staged_pdl_held", "BUY", e_pdl_h, s_pdl_h, t1_pdl_h, t2_pdl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pwl_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pwl_h  = pwl
+    s_pwl_h  = low - atr_buffer
+    t1_pwl_h = not na(pdh) and pdh > e_pwl_h ? pdh : (not na(pwh) and pwh > e_pwl_h ? pwh : e_pwl_h * 1.02)
+    t2_pwl_h = not na(pwh) and pwh > t1_pwl_h ? pwh : (not na(pmh) and pmh > t1_pwl_h ? pmh : t2_extend_long(e_pwl_h, t1_pwl_h))
+    alert(build_payload_v2("staged_pwl_held", "BUY", e_pwl_h, s_pwl_h, t1_pwl_h, t2_pwl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pml_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pml_h  = pml
+    s_pml_h  = low - atr_buffer
+    t1_pml_h = not na(pwh) and pwh > e_pml_h ? pwh : (not na(pmh) and pmh > e_pml_h ? pmh : e_pml_h * 1.03)
+    t2_pml_h = not na(pmh) and pmh > t1_pml_h ? pmh : t2_extend_long(e_pml_h, t1_pml_h)
+    alert(build_payload_v2("staged_pml_held", "BUY", e_pml_h, s_pml_h, t1_pml_h, t2_pml_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// =====================================================================
+// Spec 58 (2026-05-23 evening) — monthly AVWAP defense alerts
+// =====================================================================
+// Entry = the AVWAP itself (the dynamic level that's being defended).
+// Stop  = day's low − ATR buffer (tight, structural).
+// Targets stack to the next overhead AVWAP, then next PWH/PMH.
+// Same gate as the held-low alerts: bypass chop gate in downtrends since
+// AVWAP defenses in downtrend regimes are reversal plays.
+if s58_mtd_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_mtd  = mtd_avwap_58
+    s_mtd  = low - atr_buffer
+    t1_mtd = not na(pm_avwap_58) and pm_avwap_58 > e_mtd ? pm_avwap_58 : (not na(pwh) and pwh > e_mtd ? pwh : e_mtd * 1.015)
+    t2_mtd = not na(pwh) and pwh > t1_mtd ? pwh : (not na(pmh) and pmh > t1_mtd ? pmh : t2_extend_long(e_mtd, t1_mtd))
+    alert(build_payload_v2("staged_mtd_avwap_held", "BUY", e_mtd, s_mtd, t1_mtd, t2_mtd, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pm_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pm  = pm_avwap_58
+    s_pm  = low - atr_buffer
+    t1_pm = not na(p2m_avwap_58) and p2m_avwap_58 > e_pm ? p2m_avwap_58 : (not na(pwh) and pwh > e_pm ? pwh : e_pm * 1.02)
+    t2_pm = not na(pwh) and pwh > t1_pm ? pwh : (not na(pmh) and pmh > t1_pm ? pmh : t2_extend_long(e_pm, t1_pm))
+    alert(build_payload_v2("staged_pm_avwap_held", "BUY", e_pm, s_pm, t1_pm, t2_pm, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_p2m_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_p2m  = p2m_avwap_58
+    s_p2m  = low - atr_buffer
+    t1_p2m = not na(pwh) and pwh > e_p2m ? pwh : (not na(pmh) and pmh > e_p2m ? pmh : e_p2m * 1.03)
+    t2_p2m = not na(pmh) and pmh > t1_p2m ? pmh : t2_extend_long(e_p2m, t1_p2m)
+    alert(build_payload_v2("staged_p2m_avwap_held", "BUY", e_p2m, s_p2m, t1_p2m, t2_p2m, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// =====================================================================
 // Open-line alert fires — open_lost (NOTICE, index only) +
 // open_reclaimed (BUY, all symbols)
 // =====================================================================
@@ -924,51 +1133,13 @@ if pdl_reclaim
 // (NOTICE), open_reclaimed is standard long-side projection. The triage
 // agent re-ranks based on confluence. near_pdh / near_pdl flags ride on
 // build_payload_v2 so the webhook can collapse confluence twins.
-if fire_open_alerts and fire_open_lost and ol_just_lost and is_macro_symbol
-    e  = close
-    s  = math.max(high, high[1]) + atr_buffer
-    t1 = e * 0.9925
-    t2 = e * 0.985
-    alert(build_payload_v2("open_lost", "NOTICE", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bullish_div),
-          alert.freq_once_per_bar_close)
-
-if fire_open_alerts and fire_open_reclaimed and ol_just_reclaimed
-    e  = close
-    s  = math.min(low, low[1]) - atr_buffer
-    t1 = e * 1.0075
-    t2 = e * 1.015
-    alert(build_payload_v2("open_reclaimed", "BUY", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
-
-// open_held — clean defense, low never crossed below today_open. BUY on
-// every symbol. Weakest of the three (no real test), still useful as
-// confirmation the level is respected.
-if fire_open_alerts and fire_open_held and ol_just_held
-    e  = close
-    s  = today_open - atr_buffer
-    t1 = e * 1.0075
-    t2 = e * 1.015
-    alert(build_payload_v2("open_held", "BUY", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
-
-// open_wick_reclaim — wick crossed below today_open, body held above,
-// green bar bounce. Mid-tier signal. Stop is just below today_open since
-// the wick already tested below.
-if fire_open_alerts and fire_open_wick_reclaim and ol_just_wick_reclaimed
-    e  = close
-    s  = math.min(low, today_open) - atr_buffer
-    t1 = e * 1.0075
-    t2 = e * 1.015
-    alert(build_payload_v2("open_wick_reclaim", "BUY", e, s, t1, t2,
-                           false, 1,
-                           volume_ratio, cvd_slope_n, bearish_div),
-          alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — open-line entry alerts removed entirely
+// (open_lost NOTICE, plus open_reclaimed / open_held / open_wick_reclaim
+// BUYs that were already disabled via fire_open_* input defaults). The
+// open-line plot lives in visual/open_line.pine for chart context only.
+// Open-line state-machine variables (ol_just_*, ol_was_above_open, etc.)
+// remain in the file as dead code — harmless and easy to revive if ever
+// wanted.
 
 // =====================================================================
 // VWAP reclaim → PDH (LONG) / VWAP reject → PDL (SHORT)
@@ -1063,39 +1234,9 @@ if show_signals and vwap_reject_short
 // context). Only the alert() calls are restricted.
 // (is_macro_symbol declared near top, alongside fire_vwap_alerts input)
 
-if fire_vwap_alerts and is_macro_symbol and vwap_reclaim_long
-    e = close
-    s = math.min(low, low[1]) - atr_buffer
-    t1 = pdh
-    t2 = pdh + (pdh - e) * 0.5
-    msg_vwap_long = build_payload_v2("vwap_reclaim_long", "NOTICE", e, s, t1, t2,
-                                     false, 1,
-                                     volume_ratio, cvd_slope_n, bearish_div)
-    alert(msg_vwap_long, alert.freq_once_per_bar_close)
-
-if fire_vwap_alerts and is_macro_symbol and vwap_reject_short
-    e = close
-    s = math.max(high, high[1]) + atr_buffer
-    t1 = pdl
-    t2 = pdl - (e - pdl) * 0.5
-    msg_vwap_short = build_payload_v2("vwap_reject_short", "NOTICE", e, s, t1, t2,
-                                      false, 1,
-                                      volume_ratio, cvd_slope_n, bullish_div)
-    alert(msg_vwap_short, alert.freq_once_per_bar_close)
-
-// VWAP support hold — defended pullback to VWAP, NOTICE only. Stop below
-// the wick low of the holding bar; T1 = next overhead (PDH); T2 = PDH +
-// projection. Most useful on SPY 10m chart: when SPY's VWAP holds during
-// a pullback, the broader long bias for the day is intact.
-if fire_vwap_alerts and is_macro_symbol and vwap_support_hold
-    e = close
-    s = low - atr_buffer
-    t1 = pdh
-    t2 = not na(pdh) ? pdh + (pdh - e) * 0.5 : e * 1.005
-    msg_vwap_hold = build_payload_v2("vwap_support_hold", "NOTICE", e, s, t1, t2,
-                                     false, 1,
-                                     volume_ratio, cvd_slope_n, bearish_div)
-    alert(msg_vwap_hold, alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — VWAP NOTICE alerts removed (Pine is long-only).
+// The deleted blocks were vwap_reclaim_long, vwap_reject_short, vwap_support_hold.
+// VWAP visual plot remains for chart context (see `show_vwap` input above).
 
 // vwap_lose_short was added briefly 2026-05-05 and removed same day.
 // AAPL 1h chart showed 7 LOSE VWAP labels in a single session because
@@ -1257,10 +1398,11 @@ if pml_just_wick
 any_staged_event = pdh_break or pdh_rejection or sweep_reversal_short or pdl_break or pdl_reclaim
 
 htf_held_count = (pwh_just_held or pwh_just_wick ? 1 : 0) + (pwl_just_held or pwl_just_wick ? 1 : 0) + (pmh_just_held or pmh_just_wick ? 1 : 0) + (pml_just_held or pml_just_wick ? 1 : 0)
-if fire_htf_alerts and htf_held_count > 0 and not any_staged_event
-    e = close
-    s = low - atr_buffer
-    alert(build_payload_v2("htf_support_held", "BUY", e, s, e * 1.0075, e * 1.015, false, htf_held_count, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — htf_support_held BUY removed entirely.
+// Superseded by the granular staged_p[dwm]h_held (highs) + staged_p[dwm]l_held
+// (lows wick test) types, which carry the spec-58 payload (uptrend_pass,
+// nearby_levels for confluence). htf_held_count still computed above as
+// dead code in case any future signal wants it.
 
 // --- Alert fire: HTF proximity — COLLAPSED to ONE NOTICE (S1, 2026-05-20)
 // The 4 prior per-level proximity NOTICEs merged into one. Fires when close
@@ -1269,5 +1411,5 @@ if fire_htf_alerts and htf_held_count > 0 and not any_staged_event
 near_pct(float lvl, float pct) =>
     not na(lvl) and not na(close) and lvl != 0 and (math.abs(close - lvl) / lvl) * 100.0 <= pct
 htf_prox_count = (near_pct(pwh, htf_proximity_pct) ? 1 : 0) + (near_pct(pwl, htf_proximity_pct) ? 1 : 0) + (near_pct(pmh, htf_proximity_pct) ? 1 : 0) + (near_pct(pml, htf_proximity_pct) ? 1 : 0)
-if fire_htf_alerts and htf_prox_count > 0 and not any_staged_event
-    alert(build_payload_v2("htf_proximity", "NOTICE", close, close * 0.995, close * 1.005, close * 1.01, false, htf_prox_count, volume_ratio, cvd_slope_n, false), alert.freq_once_per_bar_close)
+// Spec 58 (2026-05-23 night) — htf_proximity NOTICE alert removed (long-only).
+// htf_prox_count still computed in case htf_support_held wants confluence context.

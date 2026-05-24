@@ -133,6 +133,101 @@ def _record_confluence_fire(
 
 
 # ---------------------------------------------------------------------------
+# Spec 58 — confluence annotation (2026-05-22)
+# ---------------------------------------------------------------------------
+# When an entry's support level clusters within CONFLUENCE_BAND_PCT % of
+# another support (a second MA, a prior high/low, or a monthly AVWAP), we
+# flag the confluence INLINE in the alert message — never as a second alert.
+# Pure functions; no I/O. The Pine script passes `nearby_levels` in the
+# webhook payload; this module checks them against the entry level.
+# Validation examples (2026-05-22):
+#   AVGO  — EMA 21 $413.02 confluent with PDL $410.50 (0.61% spread)
+#   AAOI  — EMA 21 $171.47 confluent with weekly 21 EMA (~$171, sub-1%)
+#   NVDA  — MTD $217.02 NOT confluent with PM $205.10 (5.6% spread, outside band)
+# ---------------------------------------------------------------------------
+
+CONFLUENCE_BAND_PCT = 1.0  # % distance within which two levels count as confluent
+
+
+def is_uptrend_gate_rejected(
+    alert_type: str,
+    direction: Optional[str],
+    uptrend_pass: Optional[bool],
+) -> bool:
+    """Spec 58 (FR-001 / FR-003, refined 2026-05-23) — uptrend gate predicate.
+
+    Returns True iff the alert should be rejected for failing the gate.
+
+    Only **MA-based BUY entries** (alert types prefixed `tv_ma_`) are gated
+    by `uptrend_pass=False`. Level-based BUYs (PDH/PDL/PWH/PWL/PMH/PML
+    reclaim or hold) pass through regardless of MA stack — per the
+    refinement, downtrend stocks remain tradeable via levels with the
+    overhead MAs acting as targets / resistance.
+
+    Backward-compat: `uptrend_pass=None` (legacy Pine sending no field)
+    is treated as "let through" so a Pine rollback doesn't kill delivery.
+    """
+    if uptrend_pass is not False:
+        return False  # legacy (None) or explicit True → pass
+    if not alert_type.startswith("tv_ma_"):
+        return False  # level-based — refined FR-003, fires in any regime
+    if (direction or "").upper() != "BUY":
+        return False  # shorts / NOTICEs not in spec-58 scope
+    if alert_type.endswith("_short_v3"):
+        return False  # belt-and-suspenders against mis-tagged shorts
+    return True
+
+
+def find_confluences(
+    entry_level: float, nearby_levels: list[dict]
+) -> list[dict]:
+    """Return the subset of nearby_levels within CONFLUENCE_BAND_PCT of
+    entry_level. The entry's own level (exact value match) is filtered out
+    so the EMA 21 alert doesn't list "confluent with EMA 21".
+
+    Each input level is a dict with at least {"value": float, "label": str}
+    (and typically "kind": str). The returned list preserves the input shape.
+    """
+    if not entry_level or not nearby_levels:
+        return []
+    band = abs(entry_level) * (CONFLUENCE_BAND_PCT / 100.0)
+    out: list[dict] = []
+    for lvl in nearby_levels:
+        v = lvl.get("value") if isinstance(lvl, dict) else None
+        if v is None:
+            continue
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if v == float(entry_level):
+            continue  # the entry's own level
+        if abs(v - float(entry_level)) <= band:
+            out.append(lvl)
+    return out
+
+
+def format_confluence_annotation(confluences: list[dict]) -> str:
+    """Render the confluence list as a single-line annotation. Returns ""
+    when empty (caller appends nothing). Example output:
+        Confluence: PDL ($410.50), MTD AVWAP ($420.92)
+    """
+    if not confluences:
+        return ""
+    parts: list[str] = []
+    for c in confluences:
+        label = c.get("label") or c.get("kind") or "level"
+        try:
+            value = float(c.get("value"))
+        except (TypeError, ValueError):
+            continue
+        parts.append(f"{label} (${value:.2f})")
+    if not parts:
+        return ""
+    return "Confluence: " + ", ".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Cross-level confluence dedup (2026-05-16)
 # ---------------------------------------------------------------------------
 # When a level alert fires on a symbol, suppress any same-side level alert
@@ -517,6 +612,32 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         )
         return {"dispatched": False, "reason": "unknown_type"}
 
+    # ──────────────────────────────────────────────────────────────────
+    # Spec 58 — uptrend gate enforcement (FR-001 / FR-003, refined 2026-05-23)
+    # ──────────────────────────────────────────────────────────────────
+    # The uptrend gate applies ONLY to MA-based entries (`tv_ma_*` family).
+    # Level-based entries (PDH/PDL/PWH/PWL/PMH/PML reclaim / held) MAY fire
+    # regardless of MA stack — in downtrend regimes the trader plays the
+    # levels with the overhead MAs as targets / resistance, not as entry
+    # blockers (FR-003 refined). SWMR / PLTR case from 2026-05-22 — they
+    # have overhead MA stacks but valid level plays the user wants to take.
+    #
+    # Pine already gates MA-bounce on uptrend_pass=true; this is belt-and-
+    # suspenders against a Pine-side regression. Backward-compat: legacy
+    # alerts with no `uptrend_pass` field treated as None → let through.
+    _uptrend_pass = getattr(sig, "_tv_uptrend_pass", None)
+    if is_uptrend_gate_rejected(alert_type_full, sig.direction, _uptrend_pass):
+        _overhead = getattr(sig, "_tv_overhead_mas", []) or []
+        logger.info(
+            "TV webhook: uptrend gate rejected %s for %s — overhead MAs: %s",
+            alert_type_full, sig.symbol,
+            ", ".join(_overhead) or "(none reported)",
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason="uptrend_gate_failed",
+        )
+
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either
     # genuinely-fresh signals on the same symbol (Pine re-arms internally)
     # or structural-level events whose meaning is independent of any
@@ -649,6 +770,21 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     gap_context = bool(getattr(sig, "_tv_gap_context", False))
     if alert_type_full == "tv_staged_pdl_reclaim" and gap_context:
         sig.message = "🔄 GAP-DOWN RECOVERY — " + (sig.message or "")
+
+    # ──────────────────────────────────────────────────────────────────
+    # Spec 58 — confluence annotation (FR-013)
+    # ──────────────────────────────────────────────────────────────────
+    # When the entry's support level clusters within 1% of another known
+    # level (a second MA / a prior high or low / the monthly AVWAP), append
+    # a "Confluence:" line to the message. Single alert covers both setups
+    # — never fire a second alert for a confluent twin.
+    _nearby_levels = getattr(sig, "_tv_nearby_levels", []) or []
+    _entry_for_confluence = sig.entry if sig.entry not in (None, 0) else None
+    if _nearby_levels and _entry_for_confluence:
+        _confluences = find_confluences(float(_entry_for_confluence), _nearby_levels)
+        _confluence_str = format_confluence_annotation(_confluences)
+        if _confluence_str:
+            sig.message = (sig.message or "").rstrip() + "\n" + _confluence_str
 
     pairs: list[tuple[Any, Alert]] = []
 
@@ -785,13 +921,23 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     }
 
 
-async def _persist_unrouted(sig, alert_type_full: str, session_date: str) -> dict[str, Any]:
-    """Record-only path for alert types that fired but are toggled OFF.
+async def _persist_unrouted(
+    sig,
+    alert_type_full: str,
+    session_date: str,
+    suppressed_reason: str = "type_not_enabled",
+) -> dict[str, Any]:
+    """Record-only path for alerts that are suppressed before delivery.
 
     The alert is persisted (one row per user/symbol/type/direction/session)
-    with suppressed_reason set, so it can be reviewed at EOD — but it gets
+    with `suppressed_reason` set, so it can be reviewed at EOD — but it gets
     no Telegram, is hidden from the live Signals feed, and never touches the
     twin/level dedup state of the routed pipeline.
+
+    `suppressed_reason` defaults to `type_not_enabled` (the original use case —
+    a toggled-OFF alert type). Spec 58 (2026-05-22) also uses this for
+    `uptrend_gate_failed` (an entry on a downtrend stock) so the user can see
+    in the EOD scorecard which alerts were correctly filtered.
     """
     from app.database import async_session_factory
     from app.models.alert import Alert
@@ -825,15 +971,15 @@ async def _persist_unrouted(sig, alert_type_full: str, session_date: str) -> dic
                 confidence=sig.confidence,
                 message=sig.message,
                 session_date=session_date,
-                suppressed_reason="type_not_enabled",
+                suppressed_reason=suppressed_reason,
             ))
             recorded += 1
         await db.commit()
     logger.info(
-        "TV webhook: recorded %d non-routed %s rows for %s (review only)",
-        recorded, alert_type_full, sig.symbol,
+        "TV webhook: recorded %d %s/%s rows for %s (review only)",
+        recorded, alert_type_full, suppressed_reason, sig.symbol,
     )
-    return {"dispatched": False, "reason": "not_routed", "recorded": recorded}
+    return {"dispatched": False, "reason": suppressed_reason, "recorded": recorded}
 
 
 async def _users_watching(db, symbol: str):
