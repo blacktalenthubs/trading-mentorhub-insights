@@ -362,6 +362,7 @@ function SignalFeedTab({
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
+          timeZone: "America/Chicago",
         });
         const isAIScan = a.alert_type?.startsWith("ai_");
         const isTV = a.alert_type?.startsWith("tv_");

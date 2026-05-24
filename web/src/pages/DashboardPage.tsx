@@ -661,7 +661,7 @@ export default function DashboardPage() {
                           const patSkipped = patAlerts.filter((a) => a.user_action === "skipped").length;
                           const dir = patAlerts[0]?.direction || "";
                           const latestAlert = patAlerts[0]; // most recent
-                          const time = new Date(latestAlert.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+                          const time = new Date(latestAlert.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago" });
 
                           return (
                             <div key={pattern} className="px-4 py-2.5 flex items-center gap-3 hover:bg-surface-2/20 transition-colors group">

@@ -52,7 +52,7 @@ function Stat({ label, value, sub, color, icon }: {
 
 function AlertHistoryRow({ alert: a }: { alert: Alert }) {
   const [expanded, setExpanded] = useState(false);
-  const time = new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const time = new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago" });
   const rr = a.entry && a.stop && a.target_1
     ? ((a.target_1 - a.entry) / Math.abs(a.entry - a.stop)).toFixed(1)
     : null;

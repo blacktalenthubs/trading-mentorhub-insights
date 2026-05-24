@@ -283,6 +283,7 @@ export default function TradeReviewPage() {
                       const time = new Date(alert.created_at).toLocaleTimeString("en-US", {
                         hour: "2-digit",
                         minute: "2-digit",
+                        timeZone: "America/Chicago",
                       });
                       const typeName = alert.alert_type?.replace(/_/g, " ") || "unknown";
                       const reasonOpen = expandedRowReason.has(alert.id);
