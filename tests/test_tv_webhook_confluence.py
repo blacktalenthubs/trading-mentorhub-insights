@@ -345,65 +345,59 @@ class TestUptrendGateRefined:
 
 
 class TestBasingChopFilter:
-    """Suppress level-based BUYs in pure basing chop. BOTH signals
-    (stage='BASING', |vwap_slope_pct|<0.3) must agree before the gate
-    triggers. Refined 2026-05-24 — dropped inside_day requirement (too
-    common a flag; real PDL/PWL holds happen on inside days too)."""
+    """Suppress level-based BUYs in pure basing/inside-day chop. All three
+    signals (stage='BASING', inside_day=true, |vwap_slope_pct|<0.3) must
+    agree before the gate triggers — conservative."""
 
     STAGE_BASING = "STAGE 1: BASING — inside range + VWAP flat — WAIT — sweeps only"
 
     def test_btc_2026_05_23_case_suppressed(self):
-        """The exact BTC payload from 2026-05-23 — both signals say wait."""
-        assert is_basing_chop(self.STAGE_BASING, 0.04) is True
+        """The exact BTC payload from 2026-05-23 — all three signals say
+        wait. Filter should trigger."""
+        assert is_basing_chop(self.STAGE_BASING, True, 0.04) is True
 
     def test_clean_uptrend_passes(self):
-        """STAGE 2 ADVANCING + rising VWAP → not basing."""
-        assert is_basing_chop("STAGE 2: ADVANCING — above PDH + VWAP rising", 0.8) is False
+        """STAGE 2 ADVANCING + outside day + rising VWAP → not basing."""
+        assert is_basing_chop("STAGE 2: ADVANCING — above PDH + VWAP rising", False, 0.8) is False
 
-    def test_basing_but_strong_vwap_slope_passes(self):
-        """Basing classifier but VWAP slope material → directional bias →
-        let through. Stage can lag — VWAP slope is the live signal."""
-        assert is_basing_chop(self.STAGE_BASING, 0.8) is False
+    def test_basing_but_outside_day_passes(self):
+        """Basing classifier but outside day → only 1 of 3 signals → let through."""
+        assert is_basing_chop(self.STAGE_BASING, False, 0.04) is False
 
-    def test_basing_with_inside_day_no_longer_blocks(self):
-        """Refinement 2026-05-24 — inside_day is NOT a filter input anymore.
-        A PDL hold on an inside day with flat VWAP still gets suppressed
-        (basing + flat VWAP); but with material VWAP slope, it fires."""
-        # Flat VWAP — suppressed
-        assert is_basing_chop(self.STAGE_BASING, 0.04) is True
-        # Material slope — let through (was previously blocked when inside_day=true)
-        assert is_basing_chop(self.STAGE_BASING, 0.5) is False
+    def test_basing_inside_but_strong_vwap_slope_passes(self):
+        """Basing + inside but VWAP slope material → directional bias → let through."""
+        assert is_basing_chop(self.STAGE_BASING, True, 0.8) is False
 
     def test_vwap_slope_at_threshold_passes(self):
         """Exactly 0.3% slope is the boundary — passes through (>=0.3)."""
-        assert is_basing_chop(self.STAGE_BASING, 0.3) is False
+        assert is_basing_chop(self.STAGE_BASING, True, 0.3) is False
 
     def test_vwap_slope_just_under_threshold_suppressed(self):
-        assert is_basing_chop(self.STAGE_BASING, 0.29) is True
+        assert is_basing_chop(self.STAGE_BASING, True, 0.29) is True
 
     def test_negative_vwap_slope_uses_abs(self):
         """Falling VWAP at -0.04 is still flat-ish — counts as basing."""
-        assert is_basing_chop(self.STAGE_BASING, -0.04) is True
+        assert is_basing_chop(self.STAGE_BASING, True, -0.04) is True
 
     def test_negative_vwap_slope_steep_passes(self):
         """-0.8 is materially falling — not basing, alerts still flow."""
-        assert is_basing_chop(self.STAGE_BASING, -0.8) is False
+        assert is_basing_chop(self.STAGE_BASING, True, -0.8) is False
 
     def test_missing_stage_passes(self):
         """Legacy Pine sends no stage field → let through (backward-compat)."""
-        assert is_basing_chop("", 0.04) is False
-        assert is_basing_chop(None, 0.04) is False
+        assert is_basing_chop("", True, 0.04) is False
+        assert is_basing_chop(None, True, 0.04) is False
 
     def test_missing_vwap_slope_passes(self):
         """Defensive — if vwap_slope is None, no suppression."""
-        assert is_basing_chop(self.STAGE_BASING, None) is False
+        assert is_basing_chop(self.STAGE_BASING, True, None) is False
 
     def test_stage2_passes(self):
-        assert is_basing_chop("STAGE 2: ADVANCING", 0.04) is False
+        assert is_basing_chop("STAGE 2: ADVANCING", True, 0.04) is False
 
     def test_transitioning_passes(self):
         """TRANSITIONING isn't BASING — let through."""
-        assert is_basing_chop("TRANSITIONING\nno clean regime", 0.04) is False
+        assert is_basing_chop("TRANSITIONING\nno clean regime", True, 0.04) is False
 
     # ── Uptrend regime: nothing is gated ────────────────────────────
 

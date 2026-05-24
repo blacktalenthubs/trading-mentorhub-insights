@@ -151,29 +151,28 @@ CONFLUENCE_BAND_PCT = 1.0  # % distance within which two levels count as conflue
 
 def is_basing_chop(
     stage: Optional[str],
+    inside_day: Optional[bool],
     vwap_slope_pct: Optional[float],
 ) -> bool:
     """Spec 58 (2026-05-24) — pure basing/chop regime detection.
 
-    Returns True iff BOTH signals agree the regime is "WAIT, no edge":
+    Returns True iff ALL THREE signals agree the regime is "WAIT, no edge":
       • stage classifier contains 'BASING' (Pine's day-type machine)
+      • inside_day = True (today opened between PDH and PDL — range day)
       • |vwap_slope_pct| < 0.3 (VWAP essentially flat — no directional bias)
 
-    Refined 2026-05-24: dropped the `inside_day` requirement after user
-    observation that inside-day is too common a flag — many real PDL/PWL
-    holds happen on inside days. Inside-day alone isn't noise; only when
-    the stage AND the VWAP both say "no momentum" do we suppress.
-
-    Originated from the BTC 2026-05-23 case: 12+ staged_pwl_held alerts
-    fired in basing chop over 70 minutes because price kept wicking PWL
-    by pennies. The payload already encoded the regime ('STAGE 1: BASING
-    — inside range + VWAP flat — WAIT — sweeps only') — we just hadn't
-    used it to gate.
+    Conservative — only triggers when everything-says-wait. Originated from
+    the BTC 2026-05-23 case: 12+ staged_pwl_held alerts fired in basing chop
+    over 70 minutes because price kept wicking PWL by pennies. The payload
+    already encoded the regime ('STAGE 1: BASING — inside range + VWAP flat
+    — WAIT — sweeps only') — we just hadn't used it to gate.
 
     Missing data (Pine pre-spec-58 sending no stage / no vwap_slope) →
     returns False (let alert through, backward compat).
     """
     if not stage or "BASING" not in stage:
+        return False
+    if not inside_day:
         return False
     if vwap_slope_pct is None:
         return False
@@ -672,10 +671,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         )
 
     # ──────────────────────────────────────────────────────────────────
-    # Spec 58 — basing-chop filter (2026-05-24, refined drop inside_day)
+    # Spec 58 — basing-chop filter (2026-05-24)
     # ──────────────────────────────────────────────────────────────────
-    # Suppress staged_* level entries when BOTH signals agree the regime
-    # is pure chop: stage='BASING' AND |vwap_slope_pct| < 0.3.
+    # Suppress staged_* level entries when the regime is pure chop:
+    # stage='BASING' AND inside_day=true AND |vwap_slope_pct| < 0.3.
     # The alert still records (suppressed_reason='basing_chop') so the
     # 'Not routed' filter surfaces it for EOD review — just no Telegram.
     # Scoped to staged_* (level + AVWAP) BUY alerts; MA bounces have their
@@ -685,11 +684,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         and alert_type_full.startswith("tv_staged_")
         and is_basing_chop(
             getattr(sig, "_tv_stage", ""),
+            getattr(sig, "_tv_inside_day", False),
             getattr(sig, "_tv_vwap_slope_pct", None),
         )
     ):
         logger.info(
-            "TV webhook: basing-chop suppressed %s for %s (stage=%s, vwap_slope=%.2f)",
+            "TV webhook: basing-chop suppressed %s for %s (stage=%s, inside_day=true, vwap_slope=%.2f)",
             alert_type_full, sig.symbol,
             getattr(sig, "_tv_stage", "")[:40],
             getattr(sig, "_tv_vwap_slope_pct", 0) or 0,
