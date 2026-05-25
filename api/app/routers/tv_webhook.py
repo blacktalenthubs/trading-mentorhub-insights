@@ -149,6 +149,56 @@ def _record_confluence_fire(
 CONFLUENCE_BAND_PCT = 1.0  # % distance within which two levels count as confluent
 
 
+# ---------------------------------------------------------------------------
+# Futures session-window filter (spec 2026-05-24)
+# ---------------------------------------------------------------------------
+# Globex (CME's electronic session) runs Sun 5pm CT → Fri 4pm CT — 23 hours
+# a day. Most overnight fires are algorithmic noise; the actionable window
+# for a discretionary trader is roughly European-mature → US RTH close.
+#
+# Window: 04:00 – 16:00 America/New_York, Monday-Friday only.
+#   • 04:00 ET = European session is mature, US pre-market is starting
+#   • 16:00 ET = US stock close + futures cool-down
+#   • Mon-Fri = no Sunday-night/weekend chop (futures DO trade Sun 5pm CT
+#     onwards, but we treat that as outside the practical attention window;
+#     can expand later if it proves valuable)
+#
+# Stocks already self-gate to RTH via Pine alert config. Crypto is left
+# 24/7 per user preference (could be added to this list if BTC/ETH overnight
+# chop becomes intolerable post-Monday data).
+FUTURES_SESSION_SYMBOLS: frozenset[str] = frozenset({
+    "ES1!", "NQ1!", "MES1!", "MNQ1!",
+})
+
+
+def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bool:
+    """Returns True if a futures symbol's alert fires outside the trading window.
+
+    For symbols in FUTURES_SESSION_SYMBOLS, suppress alerts outside of
+    04:00 – 16:00 America/New_York, Mon-Fri. All other symbols always
+    return False (no window applied — they use their own existing routing).
+
+    `now` is optional for testability — defaults to current ET time.
+    """
+    if symbol not in FUTURES_SESSION_SYMBOLS:
+        return False
+    try:
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+    except ImportError:
+        # Py < 3.9 fallback — unlikely in our env, but defensive
+        return False
+    if now is None:
+        now = datetime.now(et)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=et)
+    now_et = now.astimezone(et)
+    # weekday(): Mon=0 … Sun=6
+    if now_et.weekday() >= 5:  # Saturday or Sunday
+        return True
+    return now_et.hour < 4 or now_et.hour >= 16
+
+
 def is_basing_chop(
     stage: Optional[str],
     vwap_slope_pct: Optional[float],
@@ -697,6 +747,23 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return await _persist_unrouted(
             sig, alert_type_full, session_date,
             suppressed_reason="basing_chop",
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Futures session-window filter (2026-05-24)
+    # ──────────────────────────────────────────────────────────────────
+    # /ES /NQ and their micros trade 23 hr/day. Suppress alerts outside
+    # 04:00–16:00 ET Mon-Fri so overnight Asian/Sunday-night chop doesn't
+    # blow up Telegram. Suppressed alerts still persist (unrouted), visible
+    # in the 'Not routed' feed for review.
+    if is_outside_session_window(sig.symbol):
+        logger.info(
+            "TV webhook: outside session suppressed %s for %s",
+            alert_type_full, sig.symbol,
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason="outside_session",
         )
 
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either

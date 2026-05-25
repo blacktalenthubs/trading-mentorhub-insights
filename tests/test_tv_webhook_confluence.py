@@ -18,9 +18,11 @@ if str(_API_ROOT) not in sys.path:
 
 from app.routers.tv_webhook import (  # noqa: E402
     CONFLUENCE_BAND_PCT,
+    FUTURES_SESSION_SYMBOLS,
     find_confluences,
     format_confluence_annotation,
     is_basing_chop,
+    is_outside_session_window,
     is_uptrend_gate_rejected,
 )
 
@@ -433,3 +435,117 @@ class TestBasingChopFilter:
 
     def test_none_direction_not_gated(self):
         assert is_uptrend_gate_rejected("tv_ma_bounce_long_v3_ema21", None, False) is False
+
+
+# ── is_outside_session_window (futures filter) ─────────────────────────
+class TestFuturesSessionWindow:
+    """Spec 2026-05-24 — suppress /ES /NQ alerts outside 04:00-16:00 ET Mon-Fri."""
+
+    def _et(self, year, month, day, hour, minute=0):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        return datetime(year, month, day, hour, minute, tzinfo=ZoneInfo("America/New_York"))
+
+    # ── Symbol scope: only futures gated ────────────────────────────
+
+    def test_non_futures_symbol_always_passes(self):
+        """Stocks + crypto unaffected by the futures window — return False at any time."""
+        # 3 AM ET Sunday — would be "outside" for futures, but stocks pass
+        sunday_3am = self._et(2026, 5, 24, 3, 0)
+        assert is_outside_session_window("AAPL", sunday_3am) is False
+        assert is_outside_session_window("BTC-USD", sunday_3am) is False
+        assert is_outside_session_window("ETH-USD", sunday_3am) is False
+        assert is_outside_session_window("IREN", sunday_3am) is False
+
+    def test_futures_symbols_in_scope(self):
+        """The frozenset includes ES1!, NQ1!, MES1!, MNQ1! — nothing else."""
+        assert "ES1!" in FUTURES_SESSION_SYMBOLS
+        assert "NQ1!" in FUTURES_SESSION_SYMBOLS
+        assert "MES1!" in FUTURES_SESSION_SYMBOLS
+        assert "MNQ1!" in FUTURES_SESSION_SYMBOLS
+        # Verify scope is narrow — not accidentally including crypto/stocks
+        assert "BTC-USD" not in FUTURES_SESSION_SYMBOLS
+        assert "AAPL" not in FUTURES_SESSION_SYMBOLS
+
+    # ── Inside window: should pass (return False) ───────────────────
+
+    def test_es_passes_during_premarket(self):
+        """5 AM ET Tuesday = US pre-market, futures actively trading → pass."""
+        tuesday_5am = self._et(2026, 5, 26, 5, 0)
+        assert is_outside_session_window("ES1!", tuesday_5am) is False
+
+    def test_es_passes_during_rth(self):
+        """10 AM ET Wednesday = US RTH → pass."""
+        wed_10am = self._et(2026, 5, 27, 10, 0)
+        assert is_outside_session_window("ES1!", wed_10am) is False
+
+    def test_es_passes_at_3_30pm(self):
+        """3:30 PM ET = inside the 4 PM close cutoff → pass."""
+        thurs_3_30pm = self._et(2026, 5, 28, 15, 30)
+        assert is_outside_session_window("ES1!", thurs_3_30pm) is False
+
+    def test_es_passes_at_exactly_4am(self):
+        """4:00 AM ET sharp = first minute of window → pass."""
+        mon_4am = self._et(2026, 5, 25, 4, 0)
+        assert is_outside_session_window("ES1!", mon_4am) is False
+
+    # ── Outside window: should suppress (return True) ───────────────
+
+    def test_es_suppressed_at_3am(self):
+        """3 AM ET Tuesday = before 4 AM window → suppress."""
+        tues_3am = self._et(2026, 5, 26, 3, 0)
+        assert is_outside_session_window("ES1!", tues_3am) is True
+
+    def test_es_suppressed_at_4pm(self):
+        """4 PM ET sharp = first minute past close → suppress."""
+        wed_4pm = self._et(2026, 5, 27, 16, 0)
+        assert is_outside_session_window("ES1!", wed_4pm) is True
+
+    def test_es_suppressed_at_9pm(self):
+        """9 PM ET = Asian session = noise → suppress."""
+        thurs_9pm = self._et(2026, 5, 28, 21, 0)
+        assert is_outside_session_window("ES1!", thurs_9pm) is True
+
+    def test_es_suppressed_at_midnight(self):
+        """Midnight ET = deep overnight → suppress."""
+        fri_midnight = self._et(2026, 5, 29, 0, 0)
+        assert is_outside_session_window("ES1!", fri_midnight) is True
+
+    # ── Weekend: always outside ─────────────────────────────────────
+
+    def test_es_suppressed_saturday(self):
+        """Saturday at any time → suppress (futures partially closed anyway)."""
+        sat_noon = self._et(2026, 5, 23, 12, 0)
+        assert is_outside_session_window("ES1!", sat_noon) is True
+
+    def test_es_suppressed_sunday_evening(self):
+        """Sunday 7 PM ET = Globex reopens but outside our practical window."""
+        sun_7pm = self._et(2026, 5, 24, 19, 0)
+        assert is_outside_session_window("ES1!", sun_7pm) is True
+
+    # ── Other futures symbols use same rules ────────────────────────
+
+    def test_nq_uses_same_window(self):
+        """NQ1! follows the same window as ES1!."""
+        tues_3am = self._et(2026, 5, 26, 3, 0)
+        tues_10am = self._et(2026, 5, 26, 10, 0)
+        assert is_outside_session_window("NQ1!", tues_3am) is True
+        assert is_outside_session_window("NQ1!", tues_10am) is False
+
+    def test_micros_use_same_window(self):
+        """MES1! and MNQ1! follow the same window."""
+        tues_2am = self._et(2026, 5, 26, 2, 0)
+        tues_11am = self._et(2026, 5, 26, 11, 0)
+        assert is_outside_session_window("MES1!", tues_2am) is True
+        assert is_outside_session_window("MES1!", tues_11am) is False
+        assert is_outside_session_window("MNQ1!", tues_2am) is True
+        assert is_outside_session_window("MNQ1!", tues_11am) is False
+
+    # ── Timezone-naive datetime support ─────────────────────────────
+
+    def test_naive_datetime_interpreted_as_et(self):
+        """If caller passes a naive datetime (no tzinfo), treat it as ET."""
+        from datetime import datetime
+        # 3 AM 'local' (assumed ET) on a Tuesday → suppress
+        naive_3am = datetime(2026, 5, 26, 3, 0)
+        assert is_outside_session_window("ES1!", naive_3am) is True
