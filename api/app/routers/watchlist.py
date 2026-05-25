@@ -41,17 +41,26 @@ DEFAULT_GROUPS: list[dict] = [
     {
         "name": "Mega Tech",
         "color": "#1f6feb",
-        "symbols": ["NVDA", "MSFT", "GOOGL", "META", "AMZN"],
+        # Expanded 2026-05-24: added AAPL/NFLX/TSLA — all $500B+ caps the
+        # user actually trades. TSLA folded here rather than its own EV-Auto
+        # bucket because single-symbol "sectors" have no peer-analysis value.
+        "symbols": ["NVDA", "MSFT", "GOOGL", "META", "AMZN", "AAPL", "NFLX", "TSLA"],
     },
     {
         "name": "Chips",
         "color": "#a371f7",
-        "symbols": ["AVGO", "AMD", "TSM", "ASML", "MRVL"],
+        # Expanded 2026-05-24: added ARM/QCOM/INTC/ALAB/CRDO/SMH — the
+        # broader semi peer set in the user's watchlist. SMH is the ETF
+        # but trades like a stock and is a useful sector breadth gauge.
+        "symbols": ["AVGO", "AMD", "TSM", "ASML", "MRVL", "ARM", "QCOM", "INTC", "ALAB", "CRDO", "SMH"],
     },
     {
         "name": "Memory",
         "color": "#bf8700",
-        "symbols": ["MU", "SNDK"],
+        # Expanded 2026-05-24: added WDC/STX — storage cousins of MU/SNDK.
+        # Strictly speaking DRAM/NAND vs HDD, but the cycle drivers (data
+        # center demand, hyperscaler capex) are the same → real peer flow.
+        "symbols": ["MU", "SNDK", "WDC", "STX"],
     },
     {
         "name": "Optics",
@@ -61,12 +70,41 @@ DEFAULT_GROUPS: list[dict] = [
     {
         "name": "Cloud",
         "color": "#218bff",
-        "symbols": ["ORCL", "CRWD", "NOW", "DDOG", "SNOW"],
+        # CRWV (CoreWeave) added 2026-05-24 — AI-infra cloud, fits naturally.
+        "symbols": ["ORCL", "CRWD", "CRWV", "NOW", "DDOG", "SNOW"],
     },
     {
-        "name": "BTC",
+        # Renamed from "BTC" → "Crypto" 2026-05-24 to reflect that the group
+        # now spans both proxies (MSTR / IREN miner) AND spot pairs that
+        # trade on the user's TV watchlist. BTCUSD/ETHUSD give the actual
+        # underlying for peer-flow comparison against the equity proxies.
+        "name": "Crypto",
         "color": "#f78166",
-        "symbols": ["MSTR", "COIN"],
+        "symbols": ["BTCUSD", "ETHUSD", "MSTR", "COIN", "IREN"],
+    },
+    {
+        # New 2026-05-24 — payments + brokerage + crypto-fintech cluster.
+        # Real peer group: V's flow + HOOD's volume + SHOP's print all
+        # reflect the consumer/risk-on cycle differently than Mega Tech.
+        "name": "Fintech",
+        "color": "#8957e5",
+        "symbols": ["V", "SHOP", "HOOD", "COIN"],
+    },
+    {
+        # New 2026-05-24 — small but cohesive. Both names are
+        # high-beta speculative aerospace; they often move together on
+        # NASA/DoD contract news or broader risk-on rotations.
+        "name": "Space",
+        "color": "#0969da",
+        "symbols": ["RKLB", "SPCE"],
+    },
+    {
+        # New 2026-05-24 — AI infrastructure / data layer plays.
+        # PLTR and SWMR (and CRWV when wearing that hat) move on the
+        # "AI buildout" narrative independently of Mega Tech earnings.
+        "name": "AI Data",
+        "color": "#fb8500",
+        "symbols": ["PLTR", "SWMR"],
     },
     {
         "name": "Power",

@@ -71,7 +71,7 @@ export function useSeedDefaultGroups() {
   return useMutation({
     mutationFn: () => api.post<WatchlistGroup[]>("/watchlist/groups/seed-defaults", {}),
     onSuccess: () => {
-      toast.success("Default groups seeded — Mega Tech, Chips, Memory, Optics, Cloud, BTC, Power");
+      toast.success("Default groups seeded — Mega Tech, Chips, Memory, Optics, Cloud, Crypto, Fintech, Space, AI Data, Power");
       qc.invalidateQueries({ queryKey: ["watchlist"] });
       qc.invalidateQueries({ queryKey: ["watchlist-groups"] });
     },
