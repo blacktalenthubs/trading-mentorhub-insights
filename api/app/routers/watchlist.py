@@ -112,6 +112,27 @@ DEFAULT_GROUPS: list[dict] = [
         "symbols": ["VST", "CEG", "TLN", "POWL", "OKLO"],
     },
     {
+        # 2026-05-25 — thematic bet on the nuclear renaissance / AI power
+        # demand cycle. One pick per layer of the value chain, weighted to
+        # names with actual earnings + EPS + growth (skips pre-revenue
+        # SMR story stocks like OKLO/SMR/NNE).
+        #   Layer 1 (miners):       CCJ — Cameco, only profitable uranium
+        #                                  producer with utility contracts
+        #                                  repricing higher
+        #   Layer 2 (fuel cycle):   LEU — Centrus, US HALEU monopoly,
+        #                                  DOE contracts, EPS inflecting
+        #   Layer 3 (SMR + adv):    GEV — GE Vernova, BWRX-300 SMR with
+        #                                  real industrial cash flow base
+        #   Layer 4 (utilities):    CEG — Constellation, largest US
+        #                                  nuclear fleet + AI PPA momentum
+        # Named "Speculation" because while individual names are real
+        # businesses, the thematic exposure is concentrated and theme-
+        # dependent — treat as a basket bet, not a portfolio diversifier.
+        "name": "Speculation",
+        "color": "#f59e0b",
+        "symbols": ["CCJ", "LEU", "GEV", "CEG"],
+    },
+    {
         "name": "Macro",
         "color": "#6e7681",
         "symbols": ["SPY", "QQQ", "IWM", "DIA", "XLK", "XLE", "XLF", "XLV"],
