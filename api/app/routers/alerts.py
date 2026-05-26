@@ -401,7 +401,8 @@ async def alerts_pdf(
             "direction": a.direction, "price": a.price, "entry": a.entry,
             "stop": a.stop, "target_1": a.target_1, "target_2": a.target_2,
             "confidence": a.confidence, "message": a.message,
-            "created_at": str(a.created_at), "session_date": a.session_date,
+            "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
+            "session_date": a.session_date,
         })
 
     # Group by date for summaries

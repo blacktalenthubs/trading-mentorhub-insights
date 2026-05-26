@@ -52,7 +52,11 @@ class AlertResponse(BaseModel):
             confluence_label=getattr(alert, "confluence_label", None),
             entry_guidance=getattr(alert, "entry_guidance", None),
             message=alert.message,
-            created_at=str(alert.created_at) if alert.created_at else "",
+            # ISO 8601 with explicit Z = UTC marker. Without it, the frontend's
+            # `new Date(string)` parses as LOCAL time → display in CT looks ~5hr
+            # off (alert fired at 10:45 CT shows as 15:45 CT). User-reported
+            # 2026-05-26.
+            created_at=alert.created_at.isoformat() + "Z" if alert.created_at else "",
             session_date=alert.session_date or "",
             user_action=alert.user_action,
             outcome=getattr(alert, "outcome", None),
