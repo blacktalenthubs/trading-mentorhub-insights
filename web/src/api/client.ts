@@ -30,14 +30,26 @@ async function attemptRefresh(): Promise<boolean> {
   if (_refreshing) return _refreshing;
   _refreshing = (async () => {
     try {
+      // Send refresh token in BOTH cookie (web) AND body (Capacitor mobile).
+      // The cookie path is browser-only; cross-origin WebView can't set the
+      // cookie reliably, so we also include it in the body when we have one
+      // stored in Capacitor Preferences.
+      const stored = useAuthStore.getState().refreshToken;
       const res = await fetch(`${BASE_URL}/auth/refresh`, {
         method: "POST",
-        credentials: "include", // send refresh_token cookie
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: stored ? JSON.stringify({ refresh_token: stored }) : undefined,
       });
       if (!res.ok) return false;
       const data = await res.json();
       if (data.access_token) {
         useAuthStore.getState().setAccessToken(data.access_token);
+        if (data.refresh_token) {
+          // Backend rotated the refresh token — update storage so next refresh
+          // uses the new one. Critical for Capacitor where cookie path doesn't work.
+          useAuthStore.getState().setRefreshToken(data.refresh_token);
+        }
         return true;
       }
       return false;

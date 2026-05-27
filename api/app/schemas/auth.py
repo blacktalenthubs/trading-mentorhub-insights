@@ -38,11 +38,15 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+    # Refresh token returned in body too — needed for Capacitor mobile
+    # where cookies don't survive across cross-origin WebView restarts.
+    refresh_token: Optional[str] = None
 
 
 class TokenRefreshResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    refresh_token: Optional[str] = None
 
 
 class ForgotPasswordRequest(BaseModel):

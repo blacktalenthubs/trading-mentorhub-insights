@@ -130,6 +130,7 @@ async def register(
 
     return AuthResponse(
         access_token=access_token,
+        refresh_token=refresh_token,  # mobile clients store this; cookie still set for web
         user=_build_user_response(user, tier),
     )
 
@@ -156,6 +157,7 @@ async def login(
 
     return AuthResponse(
         access_token=access_token,
+        refresh_token=refresh_token,  # mobile clients store this; cookie still set for web
         user=_build_user_response(user, tier),
     )
 
@@ -166,7 +168,20 @@ async def refresh(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
+    # Accept refresh token from EITHER:
+    #   (a) cookie (web browser flow — cookies set on /login)
+    #   (b) request body JSON {"refresh_token": "..."} (Capacitor mobile —
+    #       cookies don't survive cross-origin WebView; client stores token
+    #       in Capacitor Preferences and sends explicitly)
+    # Fix 2026-05-26: mobile app was auto-logging out after backgrounding
+    # because cookie-based refresh failed in WebView.
     token = request.cookies.get(REFRESH_COOKIE)
+    if not token:
+        try:
+            body = await request.json()
+            token = body.get("refresh_token")
+        except Exception:
+            token = None
     if not token:
         raise HTTPException(status_code=401, detail="No refresh token")
 
@@ -193,7 +208,9 @@ async def refresh(
     new_refresh = _create_refresh_token(user.id)
     _set_refresh_cookie(response, new_refresh)
 
-    return TokenRefreshResponse(access_token=new_access)
+    # Return the new refresh token in the response body too — mobile clients
+    # store it in Capacitor Preferences (the cookie path is browser-only).
+    return TokenRefreshResponse(access_token=new_access, refresh_token=new_refresh)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
