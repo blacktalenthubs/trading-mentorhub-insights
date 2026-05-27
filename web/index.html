@@ -4,7 +4,9 @@
     <script>if(localStorage.getItem("theme")==="light")document.documentElement.classList.add("light")</script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0, user-scalable=yes, viewport-fit=cover" />
+    <!-- Fixed scale, no pinch-zoom — Webull-style native-app feel.
+         Chart still pinches via Lightweight Charts touch handlers (different layer). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <!-- PWA / iOS install support (vite-plugin-pwa injects manifest) -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
