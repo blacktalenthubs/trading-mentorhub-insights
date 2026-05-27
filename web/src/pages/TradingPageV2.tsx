@@ -9,6 +9,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   useScanner,
   useOHLCV,
@@ -611,6 +612,22 @@ export default function TradingPageV2() {
     localStorage.setItem("chart_selected_symbol", sym);
     setMobileWatchlistOpen(false);  // close drawer when symbol picked on mobile
   }, []);
+
+  /* ── Deep-link from push notification: /trading?alert=<id> ──
+     When user taps a native push, Capacitor opens the app and routes here
+     with the alert ID. We look up the alert in today's signals, switch the
+     chart to that symbol, and clear the query param so refresh doesn't re-trigger. */
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const alertId = searchParams.get("alert");
+    if (!alertId || !todayAlerts) return;
+    const target = todayAlerts.find((a) => String(a.id) === alertId);
+    if (target) {
+      selectSymbol(target.symbol);
+    }
+    searchParams.delete("alert");
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, todayAlerts, selectSymbol, setSearchParams]);
 
   /* ── Timeframe ── */
   const [tfIdx, setTfIdx] = useState(() => {

@@ -21,9 +21,11 @@
  *   • iOS native app, first launch: shows iOS permission prompt
  */
 import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 
 export function usePushRegistration() {
+  const navigate = useNavigate();
   useEffect(() => {
     let cancelled = false;
 
@@ -78,12 +80,14 @@ export function usePushRegistration() {
           console.warn("[push] APNs registration error:", err);
         });
 
-        // Optional: handle taps so we can deep-link into the right alert
+        // Handle taps — deep-link into the alert's chart on the Trading page
         PushNotifications.addListener("pushNotificationActionPerformed", (notification: any) => {
           const alertId = notification?.notification?.data?.alert_id;
           if (alertId) {
-            // Deep link to the trading page focused on that alert
-            window.location.href = `/trading?alert=${alertId}`;
+            // SPA navigation (preserves auth state, no full reload)
+            navigate(`/trading?alert=${alertId}`);
+          } else {
+            navigate("/trading");
           }
         });
 
