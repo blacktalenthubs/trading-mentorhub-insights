@@ -170,6 +170,14 @@ html.light ::-webkit-scrollbar-thumb:hover {
    BASE STYLES
    ============================================================ */
 
+/* Prevent iOS WebView from auto-inflating text on mobile.
+   Without this, iOS sees small text in long containers and scales it 2-3x,
+   making the whole UI look huge. 2026-05-26 — mobile sizing fix. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   font-family: var(--font-body);
   background-color: var(--color-surface-1);

@@ -89,15 +89,23 @@ function TelegramSetup() {
           <button
             onClick={async () => {
               try {
-                await api.post("/settings/telegram-test");
-                toast.success("Test alert sent to your Telegram");
+                const res = await api.post<{ telegram: boolean; apns: boolean; telegram_error: string | null; apns_error: string | null }>(
+                  "/settings/test-notification"
+                );
+                const parts = [];
+                if (res.telegram) parts.push("✓ Telegram");
+                else if (res.telegram_error) parts.push(`✗ Telegram: ${res.telegram_error}`);
+                if (res.apns) parts.push("✓ iOS push");
+                else if (res.apns_error) parts.push(`✗ iOS push: ${res.apns_error}`);
+                const ok = res.telegram || res.apns;
+                (ok ? toast.success : toast.error)(parts.join(" · ") || "No channels configured");
               } catch {
                 toast.error("Failed to send test alert");
               }
             }}
             className="text-xs text-accent hover:text-accent-hover transition-colors ml-3"
           >
-            Send Test Alert
+            Send Test (all channels)
           </button>
         </div>
       ) : (

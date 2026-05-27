@@ -72,7 +72,7 @@ function LandingNav() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link to="/login" className="text-sm text-text-muted hover:text-text-primary transition-colors">
+          <Link to="/login" className="text-sm font-medium text-text-primary hover:text-accent transition-colors px-3 py-2 rounded-lg border border-border-subtle hover:border-accent">
             Sign in
           </Link>
           <Link

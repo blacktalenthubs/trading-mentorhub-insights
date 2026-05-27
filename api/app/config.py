@@ -17,8 +17,11 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days for dev
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # Long-lived tokens for mobile app — single-user trader use case where
+    # frequent re-login on iOS is friction. Refresh still works inside the
+    # window; the long TTL just avoids cold-start re-auth.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 90
 
     # Redis (optional — falls back to in-memory cache if empty)
     REDIS_URL: str = ""

@@ -377,6 +377,50 @@ async def clear_apns_token(
     return {"registered": False}
 
 
+@router.post("/test-notification")
+async def test_notification(
+    user: User = Depends(get_current_user),
+):
+    """Fire a sample alert to all configured channels (Telegram + APNs).
+
+    Used from the Settings page to verify notification delivery without
+    waiting for a real alert to fire. Returns per-channel status.
+    """
+    results = {"telegram": False, "apns": False, "telegram_error": None, "apns_error": None}
+    body = (
+        "🧪 <b>Test alert from TradeCoPilot</b>\n"
+        "If you can see this, notifications are working.\n"
+        "Sent: {now}".format(now=__import__("datetime").datetime.now().strftime("%H:%M %Z"))
+    )
+
+    # Telegram
+    if user.telegram_enabled and user.telegram_chat_id:
+        try:
+            from alerting.notifier import _send_telegram_to
+            results["telegram"] = bool(_send_telegram_to(body, user.telegram_chat_id, parse_mode="HTML"))
+        except Exception as exc:
+            results["telegram_error"] = str(exc)[:200]
+    else:
+        results["telegram_error"] = "telegram not linked (chat_id empty)"
+
+    # APNs
+    if getattr(user, "apns_enabled", False) and getattr(user, "apns_token", None):
+        try:
+            from app.services.apns import send_apns_push
+            results["apns"] = await send_apns_push(
+                user.apns_token,
+                "Test alert",
+                "If you see this, iOS push works.",
+                payload={"test": True},
+            )
+        except Exception as exc:
+            results["apns_error"] = str(exc)[:200]
+    else:
+        results["apns_error"] = "apns not registered (open iOS app to register token)"
+
+    return results
+
+
 @router.put("/auto-analysis")
 async def update_auto_analysis(
     body: dict,
