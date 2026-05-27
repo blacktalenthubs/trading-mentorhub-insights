@@ -42,6 +42,7 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  Menu,
 } from "lucide-react";
 
 /* ── Constants ──────────────────────────────────────────────────────── */
@@ -608,6 +609,7 @@ export default function TradingPageV2() {
   const selectSymbol = useCallback((sym: string) => {
     setSelectedSymbol(sym);
     localStorage.setItem("chart_selected_symbol", sym);
+    setMobileWatchlistOpen(false);  // close drawer when symbol picked on mobile
   }, []);
 
   /* ── Timeframe ── */
@@ -631,6 +633,8 @@ export default function TradingPageV2() {
 
   /* ── Panel state ── */
   const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
+  // Mobile drawer — slides watchlist in from left on small screens
+  const [mobileWatchlistOpen, setMobileWatchlistOpen] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
 
   // Signals feed — which session to view ("" = today/latest)
@@ -822,10 +826,21 @@ export default function TradingPageV2() {
 
   return (
     <div className="flex h-full overflow-hidden">
+      {/* ── Mobile backdrop when drawer open ── */}
+      {mobileWatchlistOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+          onClick={() => setMobileWatchlistOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* ── LEFT: Compact Watchlist ── */}
       <aside
-        className="hidden md:flex flex-col bg-surface-1 border-r border-border-subtle shrink-0 transition-all duration-200"
-        style={{ width: watchlistWidth }}
+        className={`flex flex-col bg-surface-1 border-r border-border-subtle shrink-0 transition-all duration-200 fixed inset-y-0 left-0 z-40 md:static md:translate-x-0 ${
+          mobileWatchlistOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        }`}
+        style={{ width: typeof window !== "undefined" && window.innerWidth < 768 ? 280 : watchlistWidth }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-2 py-2 border-b border-border-subtle shrink-0 h-10">
@@ -940,8 +955,15 @@ export default function TradingPageV2() {
       <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 overflow-hidden">
         {/* Top bar */}
         <header className="h-11 border-b border-border-subtle px-3 flex items-center justify-between shrink-0 bg-surface-0">
-          {/* Left: Symbol + Price + Change */}
+          {/* Left: Mobile menu + Symbol + Price + Change */}
           <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={() => setMobileWatchlistOpen(true)}
+              className="md:hidden p-1.5 -ml-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-surface-2/60 transition-colors"
+              aria-label="Open watchlist"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
             {selected ? (
               <>
                 <span className="text-lg font-bold tracking-tight text-text-primary font-display">

@@ -66,6 +66,19 @@ function CandlestickChartInner({
         rightOffset: 5,
         minBarSpacing: 3,
       },
+      // Touch + wheel zoom enabled for mobile (2026-05-26 user request).
+      // Lightweight Charts default disables pinch on touch — explicitly enable.
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
     });
 
     const series = chart.addSeries(CandlestickSeries, {

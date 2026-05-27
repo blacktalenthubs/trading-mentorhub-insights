@@ -47,12 +47,13 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
+// Mobile bottom tab bar — kept to 5 essential destinations.
+// Removed "Trades" (duplicate of Review's purpose) per user 2026-05-26.
 const MOBILE_TABS: NavItem[] = [
   { to: "/dashboard", label: "Home", icon: LayoutDashboard },
   { to: "/trading", label: "Trade", icon: Crosshair },
   { to: "/focus-list", label: "Focus", icon: Target },
   { to: "/review", label: "Review", icon: PlayCircle },
-  { to: "/trades", label: "Trades", icon: ArrowLeftRight },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -293,12 +294,15 @@ export default function AppLayout() {
             </Link>
           </div>
         )}
-        <main className="flex-1 overflow-hidden bg-surface-0 pb-14 md:pb-0">
+        <main
+          className="flex-1 overflow-hidden bg-surface-0 md:pb-0"
+          style={{ paddingBottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+        >
           <Outlet />
         </main>
 
-        {/* Mobile bottom tab bar */}
-        <nav role="navigation" aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-surface-0 pb-[env(safe-area-inset-bottom)] md:hidden">
+        {/* Mobile bottom tab bar — z-50 so it's never covered by chart overlays or drawer backdrops */}
+        <nav role="navigation" aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-50 flex border-t border-border-subtle bg-surface-0 pb-[env(safe-area-inset-bottom)] md:hidden">
           {MOBILE_TABS.map((tab) => {
             const Icon = tab.icon;
             return (
