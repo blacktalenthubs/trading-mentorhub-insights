@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { useNativePlatform } from "./hooks/useNativePlatform";
+import { usePushRegistration } from "./lib/usePushRegistration";
 
 import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -63,6 +64,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   useNativePlatform();
+  usePushRegistration();
 
   return (
     <ErrorBoundary>

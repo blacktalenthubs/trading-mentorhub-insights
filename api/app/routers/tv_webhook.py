@@ -1035,6 +1035,23 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 except Exception:
                     logger.warning("TV notify_user FAILED for user=%d %s",
                                    user.id, sig.symbol, exc_info=True)
+
+                # iOS APNs push (Capacitor app) — graceful no-op until env
+                # vars are set. Sent alongside Telegram, not as a replacement.
+                if getattr(user, "apns_enabled", False) and getattr(user, "apns_token", None):
+                    try:
+                        from app.services.apns import send_apns_push, build_alert_push
+                        title, body = build_alert_push(
+                            sig.symbol, alert_type_full, sig.direction or "BUY", sig.entry
+                        )
+                        apns_ok = await send_apns_push(
+                            user.apns_token, title, body,
+                            payload={"alert_id": alert.id, "symbol": sig.symbol},
+                        )
+                        if apns_ok:
+                            logger.info("APNs NOTIFY: user=%d %s ok=True", user.id, sig.symbol)
+                    except Exception:
+                        logger.warning("APNs send failed user=%d", user.id, exc_info=True)
         except Exception:
             logger.exception("TV webhook: notify fan-out failed for %s", sig.symbol)
 

@@ -343,6 +343,40 @@ async def set_telegram_chat_id_direct(
     return {"linked": True, "chat_id": chat_id}
 
 
+# ── iOS APNs push (Capacitor mobile app) ────────────────────────────
+# Spec 2026-05-26 — Stage 2 of mobile rollout. Capacitor iOS app
+# registers for push, receives an APNs device token, POSTs here.
+# Backend stores token and uses it when alerts fire to send native push.
+# Until APNS_AUTH_KEY env var is set, token is stored but no push is sent.
+
+@router.put("/apns-token")
+async def set_apns_token(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register an iOS APNs device token for native push notifications."""
+    token = str(body.get("token", "")).strip()
+    if not token or len(token) < 32:
+        raise HTTPException(status_code=422, detail="valid apns token required")
+    user.apns_token = token
+    user.apns_enabled = True
+    await db.flush()
+    return {"registered": True}
+
+
+@router.delete("/apns-token")
+async def clear_apns_token(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unregister the iOS APNs token (user uninstalled app or opted out)."""
+    user.apns_token = None
+    user.apns_enabled = False
+    await db.flush()
+    return {"registered": False}
+
+
 @router.put("/auto-analysis")
 async def update_auto_analysis(
     body: dict,

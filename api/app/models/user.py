@@ -25,6 +25,9 @@ class User(Base):
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(50))
     email_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
     push_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
+    # iOS APNs push (Capacitor native app) — device token + opt-in flag
+    apns_token: Mapped[Optional[str]] = mapped_column(String(200))
+    apns_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
     quiet_hours_start: Mapped[Optional[str]] = mapped_column(String(10))
     quiet_hours_end: Mapped[Optional[str]] = mapped_column(String(10))
     min_alert_score: Mapped[int] = mapped_column(Integer, server_default="0", default=0)

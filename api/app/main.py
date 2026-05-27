@@ -140,6 +140,9 @@ async def lifespan(app: FastAPI):
             # Telegram so the trader knows the day is structurally range-bound,
             # which means scalp levels rather than chase breakouts.
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS inside_day INTEGER DEFAULT 0",
+            # iOS APNs push notifications (Capacitor mobile app) — 2026-05-26
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_token VARCHAR(200)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_enabled BOOLEAN DEFAULT FALSE",
             # Coach message history persistence
             """CREATE TABLE IF NOT EXISTS coach_messages (
                 id SERIAL PRIMARY KEY,
