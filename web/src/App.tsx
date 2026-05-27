@@ -62,9 +62,15 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Inner component — placed inside BrowserRouter so useNavigate() in
+// usePushRegistration has Router context. Returns null (no UI).
+function PushRegistrationListener() {
+  usePushRegistration();
+  return null;
+}
+
 export default function App() {
   useNativePlatform();
-  usePushRegistration();
 
   return (
     <ErrorBoundary>
@@ -72,6 +78,7 @@ export default function App() {
         <ToastContainer />
         <AuthGate>
           <BrowserRouter>
+            <PushRegistrationListener />
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
