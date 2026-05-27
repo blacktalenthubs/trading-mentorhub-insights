@@ -243,6 +243,7 @@ function channelLabel(c: AlertChannel): string {
   }
 }
 
+// @ts-expect-error — kept for rollback; removed from render per 2026-05-27 cleanup
 function ChannelRouting() {
   const { data } = useNotificationRouting();
   const update = useUpdateNotificationRouting();
@@ -351,6 +352,7 @@ function ChannelRouting() {
 const ALL_DIRECTIONS = ["LONG", "SHORT", "RESISTANCE", "EXIT"] as const;
 type Direction = (typeof ALL_DIRECTIONS)[number];
 
+// @ts-expect-error — kept for rollback; removed from render per 2026-05-27 cleanup
 function AIAlertFilters() {
   const { data: prefs } = useNotificationPrefs();
   const update = useUpdateNotificationPrefs();
@@ -926,12 +928,13 @@ export default function SettingsPage() {
         {/* Two-column on desktop: alerts left, account right */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Left column: Alerts + preferences */}
+          {/* Removed 2026-05-27 per user — focus on essential settings:
+             - ChannelRouting: redundant with TelegramSetup + AlertTypesSection
+             - AIAlertFilters: AI Updates not actively used; clutters UI */}
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
             <SignalNotifications />
-            <ChannelRouting />
-            <AIAlertFilters />
             <ThemeToggle />
           </div>
 

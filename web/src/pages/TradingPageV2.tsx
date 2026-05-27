@@ -1172,6 +1172,26 @@ export default function TradingPageV2() {
           </div>
         </header>
 
+        {/* Mobile: timeframe pills (above symbol strip — desktop has them in header) */}
+        <div className="flex gap-1 overflow-x-auto px-3 py-1.5 md:hidden shrink-0 no-scrollbar border-b border-border-subtle bg-surface-1/40">
+          {TIMEFRAMES.map((t, i) => (
+            <button
+              key={t.label}
+              onClick={() => {
+                setTfIdx(i);
+                localStorage.setItem("chart_timeframe", String(i));
+              }}
+              className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                i === tfIdx
+                  ? "bg-accent text-white"
+                  : "bg-surface-3 text-text-secondary"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         {/* Mobile: horizontal symbol pills */}
         <div className="flex gap-1.5 overflow-x-auto px-3 py-1.5 md:hidden shrink-0 no-scrollbar">
           {signals?.map((s) => (

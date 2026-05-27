@@ -148,7 +148,11 @@ export default function TradeReviewPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-5 p-4 md:p-6">
+    // h-full + overflow-y-auto so Review scrolls properly when Expand all
+    // pushes content beyond viewport. AppLayout's main has overflow-hidden,
+    // so each page that needs scrolling sets it here. 2026-05-27 fix.
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto space-y-5 p-4 md:p-6">
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-text-primary">Trade Review</h1>
@@ -404,6 +408,7 @@ export default function TradeReviewPage() {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }
