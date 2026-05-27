@@ -10,7 +10,7 @@ import { Link } from "react-router-dom";
 import {
   Crosshair, Brain, Send, BarChart3, Play,
   Check, Zap, Clock,
-  ArrowRight, MessageSquare, BookOpen,
+  ArrowRight, BookOpen,
   Scan, Target, ChevronRight,
 } from "lucide-react";
 
@@ -92,7 +92,7 @@ function LandingNav() {
 
 /* ── Hero Section ─────────────────────────────────────────────────── */
 
-function Hero({ track }: { track: TrackRecord | null }) {
+function Hero({ track: _track }: { track: TrackRecord | null }) {
   return (
     <section className="relative pt-32 pb-16 flex flex-col items-center px-6 overflow-hidden">
       {/* Background grid + glow */}
@@ -107,18 +107,19 @@ function Hero({ track }: { track: TrackRecord | null }) {
       <div className="relative z-10 max-w-4xl mx-auto text-center">
         <Badge variant="green">
           <div className="w-1.5 h-1.5 rounded-full bg-bullish animate-pulse" />
-          AI scanning continuously during market hours
+          Built for self-directed investors with day jobs
         </Badge>
 
         <h1 className="mt-8 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-text-primary leading-[1.08]">
-          AI finds the trade.
+          Market research
           <br />
-          <span className="text-gradient-ai">You decide.</span>
+          <span className="text-gradient-ai">for people with day jobs.</span>
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto leading-relaxed">
-          AI performs automated scans on your watchlist, identifies entries at key levels,
-          and delivers complete trade plans. Entry. Stop. Target. Education.
+          A research toolkit that scans your watchlist during market hours, maps every
+          setup to a documented pattern, and publishes transparent daily reports so you
+          can study what worked — and what didn't.
         </p>
 
         {/* CTA */}
@@ -127,24 +128,27 @@ function Hero({ track }: { track: TrackRecord | null }) {
             to="/register"
             className="inline-flex items-center justify-center gap-2 bg-bullish hover:bg-bullish/90 text-surface-0 font-bold text-base px-8 py-4 rounded-xl transition-all shadow-[0_0_30px_rgba(34,197,94,0.25)] hover:shadow-[0_0_40px_rgba(34,197,94,0.35)]"
           >
-            Start Free — 3 Day Pro Trial
+            Try free for 3 days
             <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
             to="/track-record"
             className="inline-flex items-center justify-center gap-2 bg-surface-2 hover:bg-surface-3 text-text-primary font-medium text-base px-8 py-4 rounded-xl border border-border-subtle transition-colors"
           >
-            See Live Track Record
+            See yesterday's EOD report
           </Link>
         </div>
 
-        {/* Live metrics ticker */}
+        <p className="mt-4 text-xs text-text-faint">
+          No card required · For educational and informational purposes only
+        </p>
+
+        {/* What the toolkit covers */}
         <div className="mt-16 flex flex-wrap justify-center gap-6 sm:gap-10">
           {[
-            { label: "Signals tracked", value: track ? `${track.total_signals}` : "---", color: "text-text-primary" },
-            { label: "Win rate", value: track ? `${track.win_rate}%` : "---", color: "text-bullish-text" },
-            { label: "Patterns", value: "14", color: "text-accent" },
-            { label: "Crypto coverage", value: "24/7", color: "text-purple-400" },
+            { label: "Documented patterns", value: "14", color: "text-accent" },
+            { label: "Daily EOD reports", value: "Public", color: "text-bullish-text" },
+            { label: "Coverage", value: "Stocks + Crypto", color: "text-text-primary" },
           ].map((m) => (
             <div key={m.label} className="flex flex-col items-center">
               <span className={`font-mono text-2xl sm:text-3xl font-bold ${m.color}`}>{m.value}</span>
@@ -217,16 +221,16 @@ function Problem() {
       <div className="max-w-4xl mx-auto text-center">
         <Badge>The problem</Badge>
         <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-          You know <span className="italic text-text-secondary">what</span> to trade.
+          You can't watch charts <span className="italic text-text-secondary">9-to-5.</span>
           <br />
-          You just can't watch charts all day.
+          You don't want to either.
         </h2>
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
           {[
-            { icon: Clock, text: "Chart analysis takes hours -- scanning 10+ symbols across multiple timeframes every morning" },
-            { icon: Target, text: "Setups fire while you're at work -- the PDL bounce at $2,277 happened during your meeting" },
-            { icon: Send, text: "Alert services give noise, not plans -- 'ETH crossed $2,280' is useless without entry, stop, and targets" },
-            { icon: Brain, text: "You learn patterns on YouTube but struggle to spot them live -- education and execution are separated" },
+            { icon: Clock, text: "Real chart analysis takes hours — scanning multiple symbols across timeframes is a full-time job, and you already have one." },
+            { icon: Target, text: "Setups form during meetings. The pattern you studied last weekend triggers at 11:30 AM Tuesday while you're heads-down at work." },
+            { icon: Send, text: "Most platforms sell noise. 'ETH crossed $2,280' tells you nothing useful — you need context, structure, and a record of what worked." },
+            { icon: Brain, text: "You learn patterns on YouTube but struggle to recognize them live. Education and analysis live in separate apps." },
           ].map((item, i) => (
             <div key={i} className="bg-surface-1 border border-border-subtle rounded-xl p-5 flex gap-4">
               <div className="shrink-0 w-10 h-10 rounded-lg bg-bearish/10 border border-bearish/20 flex items-center justify-center">
@@ -244,70 +248,47 @@ function Problem() {
 /* ── 5 AI Pillars ────────────────────────────────────────────────── */
 
 function AIPillars() {
+  // Three-pillar repositioning (2026-05-27): AI Analysis / Education /
+  // Public Strategy Evaluation. Replaces the old "5 AI capabilities" framing
+  // which leaned too hard on the "alert service" positioning.
   const pillars = [
     {
-      icon: MessageSquare,
-      title: "AI Coach",
-      subtitle: "Live Trading Guidance",
-      color: "accent",
-      desc: "Ask any question about any chart. Get a structured trade plan in seconds -- not generic commentary.",
-      bullets: [
-        "\"Should I buy ETH here?\" -- Entry $2,245, Stop $2,233, T1 $2,275",
-        "Knows your open positions -- won't tell you to buy what you hold",
-        "Web chat + Telegram commands (/spy, /eth, /btc)",
-        "Computes real VWAP from session data -- no hallucinated prices",
-      ],
-    },
-    {
-      icon: Brain,
-      title: "AI CoPilot",
-      subtitle: "Deep Chart Analysis & Education",
-      color: "purple-400",
-      desc: "Multi-timeframe analysis with confluence scoring. Learn WHY patterns work -- not just WHERE to enter.",
-      bullets: [
-        "Analyzes 5m, 1H, Daily, and Weekly for full context",
-        "Confluence score (0-10) quantifies trade quality",
-        "Matches against 14 playbook patterns automatically",
-        "Pattern education: what it is, why it works, risk management",
-      ],
-    },
-    {
       icon: Scan,
-      title: "AI Scan",
-      subtitle: "Automated Entry/Exit Detection",
-      color: "bullish-text",
-      desc: "Automated scans on your watchlist. Fires when price hits a key level. Says WAIT when there's no trade.",
+      title: "AI Market Analysis",
+      subtitle: "Automated scanning during market hours",
+      color: "accent",
+      desc: "Pattern recognition runs on your watchlist while you work. Results delivered in plain English — observations with entry, stop, target levels. You make the call.",
       bullets: [
-        "14 patterns: PDL bounce, VWAP hold, MA bounce, breakouts, more",
-        "WAIT signals -- AI tells you when NOT to trade (only we do this)",
-        "Position-aware -- won't send duplicate entries for trades you took",
-        "24/7 crypto coverage with Coinbase data",
-      ],
-    },
-    {
-      icon: Play,
-      title: "Trade Review",
-      subtitle: "Replay & Validate Every Trade",
-      color: "yellow-400",
-      desc: "Cinematic animated replay of every alert -- entry to outcome. Share your wins. Learn from losses.",
-      bullets: [
-        "Full-screen replay with entry, stop, and target lines on chart",
-        "Filter by AI vs Rules, Took vs Skipped, by date",
-        "Shareable links -- build your public track record",
-        "Auto-generated after market close every day",
+        "Scans across stocks + crypto with multi-timeframe context",
+        "Maps every observation to a documented pattern",
+        "Volume + structure context built into every setup",
+        "Position-aware — won't duplicate setups you're already in",
       ],
     },
     {
       icon: BookOpen,
-      title: "Pattern Library",
-      subtitle: "14 Setups Taught With Real Data",
-      color: "blue-400",
-      desc: "Learn support bounces, breakouts, and reversals with difficulty ratings and live win rate data.",
+      title: "Pattern Education",
+      subtitle: "14 documented setups, taught with real data",
+      color: "purple-400",
+      desc: "Every signal links to a teachable pattern. Study the structure, see real historical examples, and replay any past setup bar-by-bar.",
       bullets: [
-        "Beginner to Advanced difficulty levels",
-        "Click any pattern for deep education: what, why, how, risk",
-        "Win rates from real production signals -- not theory",
-        "Free access at /learn -- no login required",
+        "14 patterns from beginner to advanced",
+        "Each one: what it is, why it works, risk management",
+        "Replay any past setup to study the structure",
+        "Free pattern library at /learn — no account required",
+      ],
+    },
+    {
+      icon: Play,
+      title: "Public EOD Reports",
+      subtitle: "Transparent strategy evaluation",
+      color: "bullish-text",
+      desc: "Daily reports published after market close. See what triggered, what worked, what didn't — with full data, not curated highlights. Learn from transparent outcomes.",
+      bullets: [
+        "Published daily — every signal, every outcome",
+        "Filter by pattern, symbol, or your own took/skipped decisions",
+        "Build a personal track record over time",
+        "Public archive at /track-record — no login required",
       ],
     },
   ];
@@ -316,21 +297,19 @@ function AIPillars() {
     "accent": { bg: "bg-accent/10", border: "border-accent/20", text: "text-accent" },
     "purple-400": { bg: "bg-purple-500/10", border: "border-purple-500/20", text: "text-purple-400" },
     "bullish-text": { bg: "bg-bullish/10", border: "border-bullish/20", text: "text-bullish-text" },
-    "yellow-400": { bg: "bg-yellow-500/10", border: "border-yellow-500/20", text: "text-yellow-400" },
-    "blue-400": { bg: "bg-blue-500/10", border: "border-blue-500/20", text: "text-blue-400" },
   };
 
   return (
     <section id="pillars" className="py-24 px-6 bg-surface-1/50">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
-          <Badge variant="blue">5 AI capabilities</Badge>
+          <Badge variant="blue">Three pillars</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-            AI-powered trading strategies
+            Analysis. Education. Transparency.
           </h2>
           <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
-            Five AI systems working together: find entries, analyze charts,
-            coach you through decisions, replay every trade, and teach you patterns.
+            A toolkit built around what serious self-directed investors actually need —
+            not another inbox of buy/sell calls.
           </p>
         </div>
 
@@ -890,22 +869,37 @@ function FinalCTA() {
 function Footer() {
   return (
     <footer className="border-t border-border-subtle py-12 px-6">
-      <div className="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-accent/20 flex items-center justify-center">
-            <Crosshair className="h-3 w-3 text-accent" />
+      <div className="max-w-5xl mx-auto space-y-8">
+        {/* Top row: logo, links */}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded bg-accent/20 flex items-center justify-center">
+              <Crosshair className="h-3 w-3 text-accent" />
+            </div>
+            <span className="text-sm text-text-muted">
+              <span className="text-accent">Trade</span>CoPilot
+            </span>
           </div>
-          <span className="text-sm text-text-muted">
-            <span className="text-accent">Trade</span>CoPilot
-          </span>
+          <div className="flex gap-6 text-xs text-text-faint">
+            <Link to="/learn" className="hover:text-text-muted">Pattern Library</Link>
+            <Link to="/track-record" className="hover:text-text-muted">EOD Reports</Link>
+            <a href="#" className="hover:text-text-muted">Terms</a>
+            <a href="#" className="hover:text-text-muted">Privacy</a>
+          </div>
         </div>
-        <p className="text-xs text-text-faint text-center">
-          Educational platform. Not financial advice. Past performance does not guarantee future results. Trade responsibly.
-        </p>
-        <div className="flex gap-6 text-xs text-text-faint">
-          <Link to="/learn" className="hover:text-text-muted">Pattern Library</Link>
-          <a href="#" className="hover:text-text-muted">Terms</a>
-          <a href="#" className="hover:text-text-muted">Privacy</a>
+
+        {/* Legal disclaimer block — clear self-directed / educational language */}
+        <div className="border-t border-border-subtle/50 pt-6">
+          <p className="text-[11px] text-text-faint leading-relaxed max-w-3xl mx-auto text-center">
+            <span className="font-semibold text-text-muted">Important disclosures.</span>{" "}
+            TradeCoPilot is a research and education platform for self-directed investors.
+            Content on this site is provided for educational and informational purposes only
+            and does not constitute investment advice, a recommendation, or an offer to buy
+            or sell any security. Self-directed investors should conduct their own research
+            and consult a qualified professional before making investment decisions. Past
+            performance, including any analytics or track-record data shown, does not
+            guarantee future results. Trading involves risk of loss.
+          </p>
         </div>
       </div>
     </footer>
