@@ -1,8 +1,6 @@
-/** Landing Page — AI Trading Education & Intelligence Platform.
- *
- *  Rebuilt around 5 AI pillars: Coach, CoPilot, Scan, Review, Pattern Library.
- *  Only markets features that are LIVE in production.
- *  Dark terminal aesthetic. Mobile-first.
+/** Landing Page — Research toolkit for self-directed investors.
+ *  Repositioned 2026-05-27: three pillars (AI Market Analysis, Pattern
+ *  Education, Public EOD Reports). Dark terminal aesthetic. Mobile-first.
  */
 
 import { useEffect, useState } from "react";
@@ -68,7 +66,7 @@ function LandingNav() {
         </div>
 
         <div className="hidden md:flex items-center gap-8 text-sm text-text-muted">
-          <a href="#pillars" className="hover:text-text-primary transition-colors">AI Features</a>
+          <a href="#pillars" className="hover:text-text-primary transition-colors">Toolkit</a>
           <a href="#pricing" className="hover:text-text-primary transition-colors">Pricing</a>
           <Link to="/learn" className="hover:text-text-primary transition-colors">Pattern Library</Link>
           <Link to="/track-record" className="hover:text-text-primary transition-colors">Track Record</Link>
@@ -171,7 +169,7 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-bold text-text-primary">ETH-USD</span>
                   <span className="bg-bullish/10 text-bullish-text text-[10px] font-bold px-2 py-0.5 rounded border border-bullish/20">LONG</span>
-                  <span className="text-[8px] font-bold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded">AI SCAN</span>
+                  <span className="text-[8px] font-bold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded">SETUP</span>
                 </div>
                 <span className="text-xs text-text-muted">PDL Bounce -- Prior Day Low held with volume</span>
               </div>
@@ -360,20 +358,20 @@ function HowItWorks() {
   const steps = [
     {
       num: "01",
-      title: "Set your watchlist",
-      desc: "Add up to 25 symbols. SPY, AAPL, ETH, BTC -- whatever you trade. AI monitors all of them. 24/7 for crypto.",
+      title: "Build your watchlist",
+      desc: "Add the names you actually follow — stocks, ETFs, crypto. The platform monitors price action across multiple timeframes while you work.",
       icon: Crosshair,
     },
     {
       num: "02",
-      title: "AI scans continuously",
-      desc: "When price hits a key level, AI identifies the setup and sends a complete plan: entry, stop, T1, T2, conviction. When there's no trade, it says WAIT.",
+      title: "Setups surface with full context",
+      desc: "When price interacts with a key structural level, you get an observation: entry zone, stop reference, target levels, and which pattern it matches. You make the call.",
       icon: Scan,
     },
     {
       num: "03",
-      title: "Decide, track, improve",
-      desc: "Took It -- track P&L automatically. Skip -- see if you were right to pass. Review -- replay every trade, learn patterns, build your edge.",
+      title: "Review the public EOD report",
+      desc: "Daily report shows every observation, outcome, and your own took/skipped decisions. Replay any setup bar-by-bar. Learn the structure from real data.",
       icon: BarChart3,
     },
   ];
@@ -384,7 +382,7 @@ function HowItWorks() {
         <div className="text-center mb-16">
           <Badge variant="green">How it works</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-            Three steps to AI-powered trading
+            Build your watchlist, watch the analysis, learn from the data
           </h2>
         </div>
 
@@ -411,23 +409,23 @@ function HowItWorks() {
 
 function AIvsManual() {
   const rows = [
-    { aspect: "Watching charts", manual: "Hours every day", ai: "AI scans automatically" },
-    { aspect: "Missing setups", manual: "Constantly", ai: "Catches setups 24/7" },
-    { aspect: "Entry timing", manual: "Emotional / chasing", ai: "At the structural level" },
-    { aspect: "Stop placement", manual: "Arbitrary %", ai: "Below support structure" },
-    { aspect: "Alert noise", manual: "100+ alerts/day", ai: "3-5 quality setups" },
-    { aspect: "Position tracking", manual: "Spreadsheets", ai: "Auto from Took/Skip" },
-    { aspect: "Education", manual: "YouTube + trial/error", ai: "AI explains every trade" },
-    { aspect: "Track record", manual: "\"Trust me\"", ai: "Public, auditable" },
+    { aspect: "Time spent scanning", manual: "Hours every day", ai: "Automated during market hours" },
+    { aspect: "Setups while you work", manual: "You miss them", ai: "Surfaced when they happen" },
+    { aspect: "Entry context", manual: "Gut feel, chasing", ai: "Structural level with pattern match" },
+    { aspect: "Stop reference", manual: "Arbitrary %", ai: "Below structure (suggested, not mandated)" },
+    { aspect: "Signal noise", manual: "100+ generic alerts/day", ai: "Filtered to documented setups" },
+    { aspect: "Outcome tracking", manual: "Spreadsheets, memory", ai: "Took/Skipped logged automatically" },
+    { aspect: "Pattern learning", manual: "YouTube + trial and error", ai: "Every setup linked to library" },
+    { aspect: "Track record visibility", manual: "\"Trust me, I'm a trader\"", ai: "Public daily EOD reports" },
   ];
 
   return (
     <section className="py-24 px-6 bg-surface-1/50">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
-          <Badge>Why AI wins</Badge>
+          <Badge>Why a toolkit</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-            AI-powered vs manual trading
+            DIY analysis vs an analytical toolkit
           </h2>
         </div>
 
@@ -436,8 +434,8 @@ function AIvsManual() {
             <thead>
               <tr className="border-b border-border-subtle">
                 <th className="text-left py-3 px-4 text-text-muted font-medium w-1/3"></th>
-                <th className="py-3 px-4 text-text-faint font-medium w-1/3">Manual Trading</th>
-                <th className="py-3 px-4 text-accent font-bold w-1/3">AI Platform</th>
+                <th className="py-3 px-4 text-text-faint font-medium w-1/3">Manual / DIY</th>
+                <th className="py-3 px-4 text-accent font-bold w-1/3">TradeCoPilot</th>
               </tr>
             </thead>
             <tbody>
@@ -460,26 +458,26 @@ function AIvsManual() {
 
 function DailyWorkflow() {
   const events = [
-    { time: "09:05 AM", label: "AI Game Plan", desc: "Top 3 focus symbols + edge reasoning", color: "text-accent" },
+    { time: "09:05 AM", label: "Daily Game Plan", desc: "Top focus symbols + structural notes", color: "text-accent" },
     { time: "09:15 AM", label: "Pre-Market Brief", desc: "Market outlook, key levels, bias", color: "text-purple-400" },
-    { time: "09:30 AM", label: "AI Scan Starts", desc: "Automated scans through market close", color: "text-bullish-text" },
-    { time: "All Day", label: "AI Coach Available", desc: "Ask about any chart, anytime", color: "text-yellow-400" },
-    { time: "All Day", label: "Telegram Alerts", desc: "Took / Skip / Exit from your phone", color: "text-blue-400" },
-    { time: "04:35 PM", label: "AI EOD Review", desc: "What worked, what didn't, lessons", color: "text-orange-400" },
-    { time: "04:40 PM", label: "Trade Replay", desc: "Auto-generated for every trade", color: "text-yellow-400" },
-    { time: "Friday", label: "Weekly Edge Report", desc: "Patterns, performance, coaching", color: "text-purple-400" },
+    { time: "09:30 AM", label: "Continuous scanning", desc: "Automated pattern detection through market close", color: "text-bullish-text" },
+    { time: "All Day", label: "Chart inquiries", desc: "Pull up any chart, see live structural analysis", color: "text-yellow-400" },
+    { time: "All Day", label: "Mobile observations", desc: "Mark Took / Skipped from your phone", color: "text-blue-400" },
+    { time: "04:35 PM", label: "EOD Report (public)", desc: "What triggered, what worked, what didn't", color: "text-orange-400" },
+    { time: "04:40 PM", label: "Setup replays", desc: "Bar-by-bar replay of every observation", color: "text-yellow-400" },
+    { time: "Friday", label: "Weekly Summary", desc: "Pattern performance, recurring lessons", color: "text-purple-400" },
   ];
 
   return (
     <section className="py-24 px-6">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
-          <Badge variant="blue">The AI trading day</Badge>
+          <Badge variant="blue">A day with the toolkit</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-            AI works for you all day
+            Set it once. Review the data after close.
           </h2>
           <p className="mt-4 text-text-secondary">
-            From pre-market prep to end-of-day review. 24/7 for crypto.
+            Pre-market prep through end-of-day review — without sitting in front of charts.
           </p>
         </div>
 
@@ -497,7 +495,7 @@ function DailyWorkflow() {
         </div>
 
         <p className="text-center text-xs text-text-faint mt-6">
-          Crypto symbols (BTC, ETH) are monitored 24/7 -- AI never stops scanning.
+          Crypto symbols (BTC, ETH) are scanned around the clock — markets never close.
         </p>
       </div>
     </section>
@@ -511,13 +509,13 @@ function TelegramDemo() {
     <section className="py-24 px-6 bg-surface-1/50">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-16">
-          <Badge variant="blue">Trade from your phone</Badge>
+          <Badge variant="blue">Mobile workflow</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-            AI alerts on Telegram
+            Observations delivered to your phone
           </h2>
           <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
-            Complete trade plans delivered to your phone. Tap Took or Skip.
-            Ask AI with /spy or /eth commands. Trade from anywhere.
+            Setup notifications with structural context — entry, stop, target.
+            Mark Took or Skipped from anywhere. Pull a fresh chart on any symbol with /spy or /eth.
           </p>
         </div>
 
@@ -537,7 +535,7 @@ function TelegramDemo() {
               {/* AI Scan LONG */}
               <div className="bg-surface-2 rounded-xl p-3.5 border border-bullish/10">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[8px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">AI SCAN</span>
+                  <span className="text-[8px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">SETUP</span>
                   <span className="text-sm font-bold text-text-primary">LONG ETH-USD $2,277</span>
                 </div>
                 <p className="text-xs text-text-muted mt-1">Entry $2,277 -- Stop $2,270 -- T1 $2,298</p>
@@ -553,7 +551,7 @@ function TelegramDemo() {
               {/* AI Scan WAIT */}
               <div className="bg-surface-2 rounded-xl p-3 border border-border-subtle">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[8px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">AI SCAN</span>
+                  <span className="text-[8px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">SETUP</span>
                   <span className="text-xs font-bold text-text-secondary">ETH-USD $2,285</span>
                 </div>
                 <p className="text-xs text-text-muted">
@@ -586,15 +584,15 @@ function Pricing() {
       name: "Free",
       price: "$0",
       period: "forever",
-      desc: "3-day Pro trial, then limited access",
-      cta: "Start Free Trial",
+      desc: "3-day full-access trial, then limited",
+      cta: "Try free for 3 days",
       features: [
         "5 symbols on watchlist",
-        "AI Coach: 3 queries/day",
-        "AI Scan: 3 alerts/day",
+        "Chart inquiries: 3/day",
+        "Setup notifications: 3/day",
         "Telegram: 3 commands/day",
-        "Today's alerts only",
-        "1 replay/day",
+        "Today's observations only",
+        "1 setup replay/day",
         "Pattern Library access",
       ],
       highlight: false,
@@ -603,19 +601,19 @@ function Pricing() {
       name: "Pro",
       price: "$49",
       period: "/month",
-      desc: "For active traders who want an edge",
-      cta: "Start Free Trial",
+      desc: "For active self-directed investors",
+      cta: "Try free for 3 days",
       features: [
         "10 symbols on watchlist",
-        "AI Coach: 50 queries/day",
-        "AI Scan: unlimited alerts",
+        "Chart inquiries: 50/day",
+        "Unlimited setup notifications",
         "Telegram: 50 commands/day",
-        "Real-time Telegram alerts",
-        "Unlimited replay",
-        "Pre-market AI Brief",
-        "Daily AI EOD Review",
-        "Performance Analytics",
-        "30-day alert history",
+        "Real-time Telegram delivery",
+        "Unlimited setup replays",
+        "Pre-market brief",
+        "Daily EOD review",
+        "Personal Took/Skipped analytics",
+        "30-day observation history",
       ],
       highlight: true,
     },
@@ -623,15 +621,15 @@ function Pricing() {
       name: "Premium",
       price: "$99",
       period: "/month",
-      desc: "Full access for serious traders",
-      cta: "Start Free Trial",
+      desc: "Full access for serious self-directed investors",
+      cta: "Try free for 3 days",
       features: [
         "Everything in Pro",
         "25 symbols on watchlist",
-        "Unlimited AI Coach",
+        "Unlimited chart inquiries",
         "Unlimited Telegram",
-        "Weekly AI Edge Report",
-        "Full alert history",
+        "Weekly summary report",
+        "Full observation history",
       ],
       highlight: false,
     },
@@ -725,7 +723,7 @@ function PatternPreview() {
           </h2>
           <p className="mt-4 text-text-secondary max-w-xl mx-auto">
             Free access. Beginner to advanced. Each pattern includes what it is,
-            why it works, how to confirm, and real win rate data from our signals.
+            why it works, how to confirm, and historical performance data from the public EOD archive.
           </p>
         </div>
 
@@ -762,44 +760,44 @@ function FAQ() {
 
   const faqs = [
     {
-      q: "Is this a signal service?",
-      a: "No. We provide AI-powered analysis and education. Entry, stop, target, reasoning -- you decide whether to trade. The AI teaches you patterns so you develop your own edge over time.",
+      q: "Is this a signal or buy/sell recommendation service?",
+      a: "No. TradeCoPilot is a research toolkit and educational platform for self-directed investors. We surface structural observations with entry, stop, and target levels — you decide whether and how to act. Nothing here is investment advice.",
     },
     {
-      q: "How is this different from ChatGPT?",
-      a: "Our AI is trained on a specific trading playbook (14 patterns), sees real-time OHLCV bars, computes VWAP from live session data, knows your open positions, and gives structured trade plans -- not generic market commentary.",
+      q: "How is this different from a general AI chatbot?",
+      a: "The analysis layer is trained on a specific playbook (14 documented patterns), reads real-time OHLCV bars, computes VWAP from live session data, tracks your watchlist positions, and produces structured setup observations — not generic market commentary.",
     },
     {
-      q: "What is a WAIT signal?",
-      a: "When AI scans your watchlist and finds no valid setup, it says WAIT. This is a feature -- saving you from bad entries in choppy markets. No other platform tells you when NOT to trade.",
+      q: "What does WAIT mean on an observation?",
+      a: "When the toolkit scans your watchlist and finds no valid setup, it returns WAIT. That's intentional — it tells you nothing matched the playbook this session, which is often more useful than another low-quality signal.",
     },
     {
       q: "What markets do you cover?",
-      a: "US equities (SPY, AAPL, TSLA, NVDA, META, etc.) during market hours, and crypto (ETH, BTC) 24/7 using Coinbase data for reliable pricing.",
+      a: "US equities (SPY, AAPL, TSLA, NVDA, META, and similar) during market hours, plus crypto (ETH, BTC) around the clock using Coinbase data.",
     },
     {
-      q: "What's your win rate?",
-      a: "Our track record is live and public on this page. Win rates vary by pattern -- we show all of it transparently. Check the Pattern Library for per-setup performance data.",
+      q: "Do you publish performance numbers?",
+      a: "Yes — the public EOD reports show every observation, the outcome, and whether it was Took or Skipped. Per-pattern performance lives in the Pattern Library. We don't headline a single win rate because outcomes vary by pattern and market.",
     },
     {
       q: "Can I use it from my phone?",
-      a: "Yes. Telegram is the primary alert channel. You get trade plans with Took/Skip/Exit buttons. You can also ask the AI Coach directly via Telegram commands like /spy, /eth, or /btc.",
+      a: "Yes. Telegram is the primary delivery channel. Observations arrive with Took / Skipped / Exit buttons. You can also pull a fresh chart on any symbol via commands like /spy, /eth, or /btc.",
     },
     {
       q: "Do I need to watch charts all day?",
-      a: "No -- that's the whole point. AI scans your watchlist continuously and sends alerts to your phone only when a setup appears. Many users trade from their phone while at their day job.",
+      a: "No — that's the whole point. Scanning runs in the background and only pings you when a documented setup appears. Most users review observations between meetings and study the EOD report after close.",
     },
     {
       q: "Can I try before paying?",
-      a: "Yes. Free tier is available forever (5 symbols, 3 AI queries/day). Every new account gets 3 days of full Pro access to try everything.",
+      a: "Yes. The free tier is available forever (5 symbols, 3 inquiries/day). Every new account also gets 3 days of full Pro access to try the complete workflow — no card required.",
     },
     {
-      q: "Does the AI guarantee profits?",
-      a: "No. Trading has risk. Our track record is public -- see exactly what works and what doesn't. We help you find better entries and learn from every trade, not guarantee outcomes.",
+      q: "Are these recommendations or guarantees?",
+      a: "Neither. Trading involves risk of loss. Past performance does not guarantee future results. Self-directed investors should conduct their own research and consult a qualified professional before making investment decisions.",
     },
     {
       q: "Can I cancel anytime?",
-      a: "Yes. No contracts, no cancellation fees. Cancel from Settings and keep access until end of billing period.",
+      a: "Yes. No contracts, no cancellation fees. Cancel from Settings and keep access until the end of the billing period.",
     },
   ];
 
@@ -843,22 +841,22 @@ function FinalCTA() {
     <section className="py-24 px-6">
       <div className="max-w-3xl mx-auto text-center">
         <h2 className="text-3xl sm:text-4xl font-bold text-text-primary">
-          Stop staring at charts.<br />Let AI find your entries.
+          Stop staring at charts.<br />Let the toolkit do the watching.
         </h2>
         <p className="mt-4 text-text-secondary max-w-xl mx-auto">
-          Join traders who get AI-powered trade plans delivered to their phone --
-          with the coaching to get better every trade.
+          For self-directed investors who want structured analysis,
+          transparent EOD reports, and a pattern library — without quitting the day job.
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             to="/register"
             className="inline-flex items-center justify-center gap-2 bg-bullish hover:bg-bullish/90 text-surface-0 font-bold text-base px-8 py-4 rounded-xl transition-all shadow-[0_0_30px_rgba(34,197,94,0.25)]"
           >
-            Start Free -- 3 Day Pro Trial
+            Try free for 3 days
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        <p className="mt-4 text-xs text-text-faint">No credit card required. Free tier available forever.</p>
+        <p className="mt-4 text-xs text-text-faint">No card required · For educational and informational purposes only</p>
       </div>
     </section>
   );

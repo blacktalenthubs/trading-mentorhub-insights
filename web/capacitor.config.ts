@@ -5,11 +5,13 @@ const config: CapacitorConfig = {
   appName: "TradeSignal",
   webDir: "dist",
   server: {
-    // In production, the app loads from the built bundle (no server needed).
-    // During dev you can uncomment the url below to live-reload from Vite:
-    // url: "http://YOUR_LOCAL_IP:5173",
+    // Load from production so mobile + web stay in lockstep with every Railway
+    // deploy. Without this, the iOS app freezes on whatever dist/ was bundled
+    // at the last Xcode build. For local dev, swap to http://YOUR_LOCAL_IP:5173.
+    url: "https://www.tradingwithai.ai",
     androidScheme: "https",
     iosScheme: "https",
+    cleartext: false,
   },
   plugins: {
     SplashScreen: {

@@ -613,12 +613,19 @@ export default function TradingPageV2() {
     setMobileWatchlistOpen(false);  // close drawer when symbol picked on mobile
   }, []);
 
-  /* ── Deep-link from push notification: /trading?alert=<id> ──
-     When user taps a native push, Capacitor opens the app and routes here
-     with the alert ID. We look up the alert in today's signals, switch the
-     chart to that symbol, and clear the query param so refresh doesn't re-trigger. */
+  /* ── Deep-link routing ──
+     /trading?symbol=<SYM>  → opens the chart on that symbol (focus list, dashboard, etc.)
+     /trading?alert=<id>    → push-notification tap; resolve alert → symbol
+     Clear the query param after handling so refresh doesn't re-trigger. */
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
+    const symParam = searchParams.get("symbol");
+    if (symParam) {
+      selectSymbol(symParam.toUpperCase());
+      searchParams.delete("symbol");
+      setSearchParams(searchParams, { replace: true });
+      return;
+    }
     const alertId = searchParams.get("alert");
     if (!alertId || !todayAlerts) return;
     const target = todayAlerts.find((a) => String(a.id) === alertId);
