@@ -835,7 +835,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         "tv_staged_pmh_failed_short": timedelta(hours=16),
         "tv_staged_pml_break":        timedelta(hours=16),
     }
-    dedup_window = DEDUP_WINDOW_OVERRIDES.get(alert_type_full, timedelta(minutes=60))
+    dedup_window = DEDUP_WINDOW_OVERRIDES.get(alert_type_full, timedelta(minutes=90))
+
+    # Daily fire cap per (symbol, alert_type) — user request 2026-05-26:
+    # "2 fires max per symbol per day per alert type". Captures the legit
+    # morning-test + afternoon-retest pattern; kills 3rd+ fires as chop.
+    # pullback_long capped at 1 because user finds it too noisy already.
+    DAILY_FIRE_CAP = 1 if alert_type_full == "tv_pullback_long" else 2
 
     # Confluence twin suppression — see _check_confluence_twin docstring.
     # Open-line + level alerts firing for the same setup get collapsed to one.
@@ -927,52 +933,47 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # for the notification fan-out which happens AFTER commit so we don't
         # hold the DB connection during network I/O to Telegram.
         for user in users:
-            # 1. Symbol-session dedup (primary noise reducer for chop days).
-            # If ANY alert for (user, symbol, direction) already fired this
-            # session, drop subsequent ones regardless of alert_type. This
-            # collapses cases like ETH-USD firing 11 MA bounces across
-            # EMA5/10/21/50/SMA50 within hours — only the first fires.
-            # Opposite-direction alerts still pass (regime change is news).
+            # ──────────────────────────────────────────────────────────
+            # Time-based dedup (2026-05-26 redesign — user request)
+            # ──────────────────────────────────────────────────────────
+            # Replaces the old symbol-session dedup which was too coarse
+            # (any BUY alert blocked ALL subsequent BUYs on same symbol
+            # regardless of type — ma_bounce got collateral-damaged when
+            # staged_pdl_held fired earlier in the day).
             #
-            # EXEMPTIONS (see SESSION_DEDUP_EXEMPT_TYPES above): types
-            # that bypass session-dedup because they're either genuinely
-            # fresh per Pine state machine (open_reclaimed, wick_reclaim)
-            # or structural-level alerts whose thesis is independent of
-            # any open-line alert that fired earlier (PDH break, PDL
-            # reclaim). 60-min identity dedup + confluence-twin suppression
-            # still apply to all of them.
-            session_dedup_exempt = alert_type_full in SESSION_DEDUP_EXEMPT_TYPES
-            if SYMBOL_SESSION_DEDUP and sig.direction in ("BUY", "SHORT") and not session_dedup_exempt:
-                if await _symbol_session_already_fired(
-                    db, user.id, sig.symbol, sig.direction, session_date,
-                ):
-                    logger.info(
-                        "TV webhook: symbol-session dedup suppressed %s/%s/%s "
-                        "for user %d (alert_type=%s)",
-                        sig.symbol, sig.direction, session_date,
-                        user.id, alert_type_full,
-                    )
-                    continue
-
-            # 2. Per-user identity dedup against alerts table.
-            # Key = (user_id, symbol, direction, alert_type) where alert_type
-            # carries the MA tag (tv_ma_rejection_short_v3_ema100). Same MA +
-            # same direction within the window = same setup, suppressed.
-            # Different MAs (ema50 vs ema100) and opposite directions still
-            # fire — they're genuinely different events.
+            # Two simple rules now control noise:
+            #   1. Identity dedup with 90-min window (was 60) — same
+            #      (user, symbol, direction, alert_type) inside the window
+            #      = chop, drop.
+            #   2. Daily fire cap per (symbol, alert_type) — default 2,
+            #      pullback_long capped at 1. Captures legit morning-test
+            #      + afternoon-retest pattern; kills chop spam.
             #
-            # For level alerts (PDH/PDL break/reclaim variants), pass new
-            # entry+stop so the dedup also checks R-distance: a re-fire
-            # within 1R of the prior entry is treated as chop and dropped.
-            # Moves beyond 1R pass through as a fresh re-test.
+            # Cross-type alerts on same symbol now fire independently:
+            #   - staged_pdl_held @ 08:35 doesn't block ma_bounce @ 08:45
+            #   - staged_mtd_avwap_held doesn't block staged_pdh_held
+            # That's the design choice — each setup type is its own signal.
             if await _alert_already_fired(
                 db, user.id, sig.symbol, sig.direction,
                 alert_type_full, dedup_window,
                 new_entry=sig.entry, new_stop=sig.stop,
             ):
                 logger.info(
-                    "TV webhook: identity dedup suppressed %s/%s for user %d",
+                    "TV webhook: identity dedup suppressed %s/%s for user %d "
+                    "(within %d-min window)",
                     sig.symbol, alert_type_full, user.id,
+                    int(dedup_window.total_seconds() / 60),
+                )
+                continue
+
+            # Daily fire cap — drop if this type has already fired N times
+            # on this symbol today (regardless of time gap).
+            if await _daily_fire_cap_exceeded(
+                db, user.id, sig.symbol, alert_type_full, session_date, DAILY_FIRE_CAP,
+            ):
+                logger.info(
+                    "TV webhook: daily fire cap (%d) hit for %s/%s/%s user %d",
+                    DAILY_FIRE_CAP, sig.symbol, sig.direction, alert_type_full, user.id,
                 )
                 continue
 
@@ -1431,6 +1432,29 @@ def _is_chop_refire(
         return True
     prior_r = abs(prior_entry - prior_stop)
     return abs(new_entry - prior_entry) < prior_r
+
+
+async def _daily_fire_cap_exceeded(
+    db, user_id: int, symbol: str, alert_type: str, session_date: str, cap: int,
+) -> bool:
+    """True if this (symbol, alert_type) has already fired `cap` times today.
+
+    Counts only delivered rows (suppressed_reason IS NULL) so cap = 2 means
+    "at most 2 actual Telegram alerts per symbol per day per type". The 3rd+
+    fires are treated as chop and dropped.
+    """
+    from app.models.alert import Alert
+    from sqlalchemy import func as sa_func
+    stmt = select(sa_func.count(Alert.id)).where(
+        Alert.user_id == user_id,
+        Alert.symbol == symbol,
+        Alert.alert_type == alert_type,
+        Alert.session_date == session_date,
+        Alert.suppressed_reason.is_(None),
+    )
+    result = await db.execute(stmt)
+    count = result.scalar_one() or 0
+    return count >= cap
 
 
 async def _alert_already_fired(
