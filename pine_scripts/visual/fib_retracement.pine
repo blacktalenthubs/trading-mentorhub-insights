@@ -1,0 +1,77 @@
+//@version=5
+//
+// Auto Fibonacci Retracement — anchors the most recent swing in the
+// lookback window and draws horizontal levels at the standard fib ratios.
+// ───────────────────────────────────────────────────────────────────────
+// Direction:
+//   Auto       — picks the most recent extreme as the swing's far end
+//                (whichever of high/low printed more recently)
+//   Up swing   — force: low → high (retrace DOWN from high)
+//   Down swing — force: high → low (retrace UP from low)
+//
+// How to read it:
+//   • In an UP swing, the 38.2 / 50 / 61.8 lines are the buy-zones on a
+//     pullback. 61.8 is the deepest acceptable retrace — break of it
+//     means the swing is invalidated, no longer a continuation entry.
+//   • In a DOWN swing, mirror the same idea for short entries on a bounce.
+//   • Pair with the Bull/Bear Flag detector: the flag pullback often
+//     terminates right at 38.2 or 50 of the pole — confluence entry.
+//
+indicator("Fib Retracement — auto-swing", overlay=true, max_lines_count=20, max_labels_count=20)
+
+// ── Inputs ──────────────────────────────────────────────────────────────
+lookback     = input.int(50, "Swing detection lookback (bars)", minval=10, maxval=500)
+direction    = input.string("Auto", "Direction", options=["Auto", "Up swing", "Down swing"])
+show_labels  = input.bool(true,  "Show price labels")
+extend_right = input.bool(true,  "Extend lines right")
+
+// ── Swing detection ─────────────────────────────────────────────────────
+swing_high = ta.highest(high, lookback)
+swing_low  = ta.lowest(low,   lookback)
+high_off   = ta.highestbars(high, lookback)   // negative number = bars ago
+low_off    = ta.lowestbars(low,   lookback)
+
+auto_up    = high_off >= low_off               // most-recent extreme is the high → up swing
+is_up      = direction == "Up swing" or (direction == "Auto" and auto_up)
+
+from_price     = is_up ? swing_low  : swing_high
+to_price       = is_up ? swing_high : swing_low
+swing_left_idx = is_up ? low_off    : high_off
+
+range_ = to_price - from_price
+f236 = to_price - 0.236 * range_
+f382 = to_price - 0.382 * range_
+f500 = to_price - 0.500 * range_
+f618 = to_price - 0.618 * range_
+f786 = to_price - 0.786 * range_
+
+// ── Draw (replace each tick so the swing always reflects current data) ──
+var line[]  lines  = array.new<line>()
+var label[] lbls   = array.new<label>()
+
+if barstate.islast
+    while array.size(lines) > 0
+        line.delete(array.shift(lines))
+    while array.size(lbls) > 0
+        label.delete(array.shift(lbls))
+
+    ext     = extend_right ? extend.right : extend.none
+    left_x  = bar_index + swing_left_idx
+    right_x = bar_index
+
+    array.push(lines, line.new(x1=left_x, y1=from_price, x2=right_x, y2=from_price, color=color.new(color.gray, 30), width=1, extend=ext, style=line.style_solid))
+    array.push(lines, line.new(x1=left_x, y1=f236,       x2=right_x, y2=f236,       color=color.new(color.yellow, 30), width=1, extend=ext, style=line.style_solid))
+    array.push(lines, line.new(x1=left_x, y1=f382,       x2=right_x, y2=f382,       color=color.new(color.orange, 20), width=1, extend=ext, style=line.style_solid))
+    array.push(lines, line.new(x1=left_x, y1=f500,       x2=right_x, y2=f500,       color=color.new(color.blue, 20),   width=2, extend=ext, style=line.style_solid))
+    array.push(lines, line.new(x1=left_x, y1=f618,       x2=right_x, y2=f618,       color=color.new(color.orange, 20), width=1, extend=ext, style=line.style_solid))
+    array.push(lines, line.new(x1=left_x, y1=f786,       x2=right_x, y2=f786,       color=color.new(color.yellow, 30), width=1, extend=ext, style=line.style_solid))
+    array.push(lines, line.new(x1=left_x, y1=to_price,   x2=right_x, y2=to_price,   color=color.new(color.gray, 30),   width=1, extend=ext, style=line.style_solid))
+
+    if show_labels
+        array.push(lbls, label.new(x=right_x, y=from_price, text="0    " + str.tostring(from_price, "#.##"), style=label.style_label_left, color=color.new(color.gray, 30),   textcolor=color.white, size=size.small))
+        array.push(lbls, label.new(x=right_x, y=f236,       text="23.6 " + str.tostring(f236,       "#.##"), style=label.style_label_left, color=color.new(color.yellow, 30), textcolor=color.black, size=size.small))
+        array.push(lbls, label.new(x=right_x, y=f382,       text="38.2 " + str.tostring(f382,       "#.##"), style=label.style_label_left, color=color.new(color.orange, 20), textcolor=color.white, size=size.small))
+        array.push(lbls, label.new(x=right_x, y=f500,       text="50   " + str.tostring(f500,       "#.##"), style=label.style_label_left, color=color.new(color.blue, 20),   textcolor=color.white, size=size.small))
+        array.push(lbls, label.new(x=right_x, y=f618,       text="61.8 " + str.tostring(f618,       "#.##"), style=label.style_label_left, color=color.new(color.orange, 20), textcolor=color.white, size=size.small))
+        array.push(lbls, label.new(x=right_x, y=f786,       text="78.6 " + str.tostring(f786,       "#.##"), style=label.style_label_left, color=color.new(color.yellow, 30), textcolor=color.black, size=size.small))
+        array.push(lbls, label.new(x=right_x, y=to_price,   text="100  " + str.tostring(to_price,   "#.##"), style=label.style_label_left, color=color.new(color.gray, 30),   textcolor=color.white, size=size.small))
