@@ -174,6 +174,9 @@ def evaluate_swing_quality(
     return (
         _evaluate_bounce(symbol, df, cfg, session_date)
         or _evaluate_crossover(symbol, df, cfg, session_date)
+        or _evaluate_golden_cross_retest(symbol, df, cfg, session_date)
+        or _evaluate_52w_high_retest(symbol, df, cfg, session_date)
+        or _evaluate_5day_low_reclaim(symbol, df, cfg, session_date)
         or _evaluate_rsi(symbol, df, cfg, session_date)
     )
 
@@ -208,6 +211,119 @@ def _evaluate_crossover(
         f"— momentum flip with price above EMA 50",
     )]
     return _build(symbol, REGIME_BOUNCE, hits, "EMA 21", e21_now,
+                  latest_low, latest_close, session_date)
+
+
+def _evaluate_golden_cross_retest(
+    symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
+) -> SwingQualification | None:
+    """Daily 50 EMA above 200 EMA (golden-cross state) AND today's low
+    tagged the 50 EMA AND closed above it. The retest of the golden-cross
+    level — much higher quality than the bare cross because we wait for
+    the pullback. Cross must have happened within last 30 bars (recent).
+    """
+    _ = cfg
+    if len(df) < 230:
+        return None
+    close = df["close"].astype(float)
+    low = df["low"].astype(float)
+    ema50 = _ema(close, 50)
+    ema200 = _ema(close, 200)
+    if pd.isna(ema50.iloc[-1]) or pd.isna(ema200.iloc[-1]):
+        return None
+    if float(ema50.iloc[-1]) <= float(ema200.iloc[-1]):
+        return None  # not in golden-cross state
+    recent = 30
+    crossed_recently = False
+    for i in range(max(1, len(ema50) - recent), len(ema50)):
+        if pd.isna(ema50.iloc[i - 1]) or pd.isna(ema200.iloc[i - 1]):
+            continue
+        if float(ema50.iloc[i - 1]) <= float(ema200.iloc[i - 1]) \
+                and float(ema50.iloc[i]) > float(ema200.iloc[i]):
+            crossed_recently = True
+            break
+    if not crossed_recently:
+        return None
+    ma_now = float(ema50.iloc[-1])
+    latest_close = float(close.iloc[-1])
+    latest_low = float(low.iloc[-1])
+    if not (latest_low <= ma_now < latest_close):
+        return None
+    hits = [SwingRuleHit(
+        "golden_cross_retest", "EMA 50 (golden cross)",
+        f"50 EMA crossed above 200 EMA in the last {recent} bars and today's "
+        f"low retested the 50 EMA (${ma_now:.2f}) before closing above",
+    )]
+    return _build(symbol, REGIME_BOUNCE, hits, "EMA 50", ma_now,
+                  latest_low, latest_close, session_date)
+
+
+def _evaluate_52w_high_retest(
+    symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
+) -> SwingQualification | None:
+    """Broke to a new 52-week high within the last ~10 bars, then today's
+    pullback retested that prior 52w-high level (now support) and closed
+    above. Classic continuation entry on names that grind higher."""
+    _ = cfg
+    if len(df) < 260:
+        return None
+    close = df["close"].astype(float)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    # Prior 52w-high level = the rolling 252-bar high as of N bars ago.
+    lookback = 12
+    if len(close) < 252 + lookback:
+        return None
+    prior_52w_high = float(high.iloc[-(252 + lookback):-lookback].max())
+    # Has the latest cluster of bars (excluding today) broken above it?
+    recent_window = close.iloc[-lookback:-1]
+    if len(recent_window) == 0 or float(recent_window.max()) <= prior_52w_high:
+        return None
+    latest_close = float(close.iloc[-1])
+    latest_low = float(low.iloc[-1])
+    # Today's low retested the prior 52w-high level (now support), close > it
+    tol = prior_52w_high * 0.003  # 0.3% tolerance for "tagged"
+    if not (latest_low <= prior_52w_high + tol and latest_close > prior_52w_high):
+        return None
+    hits = [SwingRuleHit(
+        "52w_high_retest", "52w-high retest",
+        f"broke a new 52-week high recently; today's low retested the prior "
+        f"high (${prior_52w_high:.2f}) and closed above — continuation entry",
+    )]
+    return _build(symbol, REGIME_BOUNCE, hits, "52w high", prior_52w_high,
+                  latest_low, latest_close, session_date)
+
+
+def _evaluate_5day_low_reclaim(
+    symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
+) -> SwingQualification | None:
+    """Stock printed a 5-day low and closed back above it the same day
+    (intraday recovery) with above-average volume. Price-based mean
+    reversion — cleaner than RSI because it's a structural level, not
+    an oscillator reading. Requires daily volume > 1.2× 20-day avg."""
+    _ = cfg
+    if len(df) < 30:
+        return None
+    close = df["close"].astype(float)
+    low = df["low"].astype(float)
+    volume = df["volume"].astype(float) if "volume" in df.columns else None
+    latest_close = float(close.iloc[-1])
+    latest_low = float(low.iloc[-1])
+    prior_5day_low = float(low.iloc[-6:-1].min())  # 5 bars before today
+    # Today wicked below the 5-day low but closed above it
+    if not (latest_low < prior_5day_low and latest_close > prior_5day_low):
+        return None
+    # Volume confirmation
+    if volume is not None and not pd.isna(volume.iloc[-1]):
+        vol_avg = float(volume.iloc[-21:-1].mean()) if len(volume) >= 21 else None
+        if vol_avg and float(volume.iloc[-1]) < 1.2 * vol_avg:
+            return None
+    hits = [SwingRuleHit(
+        "5day_low_reclaim", "5-day-low reclaim",
+        f"wicked below the 5-day low (${prior_5day_low:.2f}) and closed back "
+        f"above with above-average volume — mean-reversion entry",
+    )]
+    return _build(symbol, REGIME_BOUNCE, hits, "5-day low", prior_5day_low,
                   latest_low, latest_close, session_date)
 
 
