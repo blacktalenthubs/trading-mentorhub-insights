@@ -4,7 +4,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
+import { useAuthStore } from "../stores/auth";
 import {
   Crosshair, Brain, Send, BarChart3, Play,
   Check, Zap, Clock,
@@ -908,6 +909,15 @@ function Footer() {
 
 export default function LandingPage() {
   const track = usePublicTrackRecord();
+  const user = useAuthStore((s) => s.user);
+
+  // If hydrate restored a session, send the user straight into the app
+  // instead of marooning them on the marketing page. This is the
+  // Capacitor / "kill the app, reopen" entrypoint — the WebView lands
+  // at "/" every cold-start regardless of where you were before.
+  if (user) {
+    return <Navigate to="/trading" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-surface-0 text-text-primary overflow-x-hidden">

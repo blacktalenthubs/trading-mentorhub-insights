@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { storage } from "../stores/storage";
 import { api } from "../api/client";
@@ -12,7 +12,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [debugReadback, setDebugReadback] = useState<string>("…");
   const setAuth = useAuthStore((s) => s.setAuth);
+  const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
+
+  // If somehow we land on /login while already authenticated (e.g., user
+  // tapped Sign In on the landing page after hydrate already restored a
+  // session), bounce straight to the app. No reason to make them type
+  // credentials when they're already in.
+  if (user) {
+    return <Navigate to="/trading" replace />;
+  }
 
   // Diagnostic — on every visit to the login screen (which only happens
   // when hydrate didn't restore a session), read the storage keys directly
