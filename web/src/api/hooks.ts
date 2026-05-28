@@ -621,6 +621,43 @@ export function usePaperAccount() {
   });
 }
 
+// --- Per-alert exit price + by-alert-type performance (Trades page) ---
+
+export interface AlertTypePerformance {
+  alert_type: string;
+  label: string;
+  took: number;
+  with_exit: number;
+  wins: number;
+  win_rate: number | null;
+  avg_r: number | null;
+  best_r: number | null;
+  worst_r: number | null;
+}
+
+export function useAlertTypePerformance() {
+  return useQuery({
+    queryKey: ["alert-type-performance"],
+    queryFn: () => api.get<{ items: AlertTypePerformance[] }>("/alerts/by-alert-type-performance"),
+  });
+}
+
+export function useSetAlertExit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ alertId, exitPrice }: { alertId: number; exitPrice: number | null }) =>
+      api.post<{ id: number; exit_price: number | null; r_multiple: number | null }>(
+        `/alerts/${alertId}/exit`,
+        { exit_price: exitPrice },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["alerts-today"] });
+      qc.invalidateQueries({ queryKey: ["alerts-history"] });
+      qc.invalidateQueries({ queryKey: ["alert-type-performance"] });
+    },
+  });
+}
+
 // --- Backtest ---
 
 export interface BacktestResult {

@@ -7,6 +7,19 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+def _compute_r(alert) -> Optional[float]:
+    """R-multiple = (exit - entry) / (entry - stop). Longs only for now."""
+    exit_price = getattr(alert, "exit_price", None)
+    entry = getattr(alert, "entry", None)
+    stop = getattr(alert, "stop", None)
+    if exit_price is None or entry is None or stop is None:
+        return None
+    risk = entry - stop
+    if risk == 0:
+        return None
+    return round((exit_price - entry) / risk, 2)
+
+
 class AlertResponse(BaseModel):
     id: int
     symbol: str
@@ -31,6 +44,9 @@ class AlertResponse(BaseModel):
     cvd_delta: Optional[float] = None
     cvd_diverging: Optional[int] = None
     suppressed_reason: Optional[str] = None
+    # Trades-page additions (2026-05-28): user records actual exit price; R is derived.
+    exit_price: Optional[float] = None
+    r_multiple: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -64,6 +80,8 @@ class AlertResponse(BaseModel):
             cvd_delta=getattr(alert, "cvd_delta", None),
             cvd_diverging=getattr(alert, "cvd_diverging", None),
             suppressed_reason=getattr(alert, "suppressed_reason", None),
+            exit_price=getattr(alert, "exit_price", None),
+            r_multiple=_compute_r(alert),
         )
 
 

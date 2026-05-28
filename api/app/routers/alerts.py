@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from functools import partial
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response as RawResponse
@@ -233,6 +233,43 @@ async def ack_alert(
     return {"id": alert_id, "user_action": action, "trade_id": trade_id}
 
 
+@router.post("/{alert_id}/exit")
+async def set_alert_exit_price(
+    alert_id: int,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record the actual exit price for a Took alert.
+
+    Body: `{"exit_price": 142.50}` — pass null/0 to clear.
+    Returns the saved exit_price plus computed r_multiple when entry+stop exist.
+    """
+    raw = body.get("exit_price")
+    new_exit: Optional[float] = None
+    if raw is not None and raw != "":
+        try:
+            v = float(raw)
+            new_exit = v if v > 0 else None
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="exit_price must be a number")
+
+    result = await db.execute(
+        select(Alert).where(Alert.id == alert_id, Alert.user_id == user.id)
+    )
+    alert = result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.exit_price = new_exit
+
+    r_mult: Optional[float] = None
+    if new_exit is not None and alert.entry and alert.stop and alert.entry != alert.stop:
+        risk = alert.entry - alert.stop  # positive for longs (entry > stop)
+        if risk != 0:
+            r_mult = round((new_exit - alert.entry) / risk, 2)
+    return {"id": alert_id, "exit_price": new_exit, "r_multiple": r_mult}
+
+
 @router.post("/{alert_id}/outcome")
 async def set_alert_outcome(
     alert_id: int,
@@ -249,6 +286,72 @@ async def set_alert_outcome(
         raise HTTPException(status_code=404, detail="Alert not found")
     alert.outcome = None if outcome == "clear" else outcome
     return {"id": alert_id, "outcome": alert.outcome}
+
+
+@router.get("/by-alert-type-performance")
+async def by_alert_type_performance(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Per-alert-type performance roll-up for the Trades page.
+
+    Source of truth: user's Took alerts that have a recorded exit_price.
+    Filters to the live spec-58 catalog only (no retired ai_*, no
+    open_*, no breakouts, no shorts). Returns R-based stats — no
+    fictional dollar P&L. R = (exit - entry) / (entry - stop).
+    """
+    from app.models.alert_type_config import ALERT_TYPE_CATALOG
+
+    live_types = {row[0] for row in ALERT_TYPE_CATALOG}
+    label_map = {row[0]: row[1] for row in ALERT_TYPE_CATALOG}
+
+    rows = (await db.execute(
+        select(
+            Alert.alert_type, Alert.entry, Alert.stop, Alert.exit_price,
+            Alert.user_action,
+        ).where(
+            Alert.user_id == user.id,
+            Alert.user_action == "took",
+        )
+    )).all()
+
+    agg: dict[str, dict] = {}
+    for at, entry, stop, exit_price, _action in rows:
+        if at not in live_types:
+            continue  # ignore retired alert types
+        d = agg.setdefault(at, {
+            "took": 0, "with_exit": 0, "wins": 0,
+            "r_sum": 0.0, "r_best": None, "r_worst": None,
+        })
+        d["took"] += 1
+        if exit_price is None or entry is None or stop is None or entry == stop:
+            continue
+        risk = entry - stop
+        if risk == 0:
+            continue
+        r = (exit_price - entry) / risk
+        d["with_exit"] += 1
+        d["r_sum"] += r
+        if r > 0:
+            d["wins"] += 1
+        d["r_best"] = r if d["r_best"] is None else max(d["r_best"], r)
+        d["r_worst"] = r if d["r_worst"] is None else min(d["r_worst"], r)
+
+    items = []
+    for at, d in agg.items():
+        items.append({
+            "alert_type": at,
+            "label": label_map.get(at, at),
+            "took": d["took"],
+            "with_exit": d["with_exit"],
+            "wins": d["wins"],
+            "win_rate": round(d["wins"] / d["with_exit"] * 100, 1) if d["with_exit"] else None,
+            "avg_r": round(d["r_sum"] / d["with_exit"], 2) if d["with_exit"] else None,
+            "best_r": round(d["r_best"], 2) if d["r_best"] is not None else None,
+            "worst_r": round(d["r_worst"], 2) if d["r_worst"] is not None else None,
+        })
+    items.sort(key=lambda x: (-(x["with_exit"] or 0), -(x["took"] or 0), x["alert_type"]))
+    return {"items": items}
 
 
 @router.get("/scorecard")

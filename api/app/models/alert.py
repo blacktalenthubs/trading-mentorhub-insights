@@ -47,6 +47,10 @@ class Alert(Base):
     session_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     user_action: Mapped[Optional[str]] = mapped_column(String(20))
     outcome: Mapped[Optional[str]] = mapped_column(String(20))
+    # User-supplied actual exit price when they closed the trade. Used to
+    # compute real R-multiple per alert for the Trades-page rollup. Null
+    # until user enters it via the inline input on the Trades page.
+    exit_price: Mapped[Optional[float]] = mapped_column(Float)
     suppressed_reason: Mapped[Optional[str]] = mapped_column(String(200))
     t1_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     t2_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

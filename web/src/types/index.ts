@@ -73,6 +73,8 @@ export interface Alert {
   cvd_delta?: number | null;
   cvd_diverging?: number | null;
   suppressed_reason?: string | null;
+  exit_price?: number | null;       // user-entered actual close price (Trades page)
+  r_multiple?: number | null;       // derived: (exit - entry) / (entry - stop)
 }
 
 export interface ScorecardItem {

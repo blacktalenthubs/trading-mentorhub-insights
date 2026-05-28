@@ -1,26 +1,22 @@
-/** Trades — Alert Outcome Analytics & Decision Quality.
+/** Trades — Manual exit-price collection + per-alert-type performance.
  *
- *  Sections:
- *    1. Performance stats (P&L, win rate, expectancy, avg win/loss)
- *    2. Equity curve
- *    3. Decision quality (took vs skipped outcomes)
- *    4. Session browser (pick a date, see all alerts + outcomes)
- *    5. Alert history table (expandable rows)
+ *  Redesigned 2026-05-28: dropped synthetic $45k/trade P&L, fake equity
+ *  curve, retired ai_* patterns. Page is now a real-data feedback loop:
+ *  user enters the actual exit price on every Took alert; R-multiple is
+ *  computed; performance rolls up per alert_type from the live spec-58
+ *  catalog. Over time this surfaces which patterns actually work.
  */
 
 import { useState } from "react";
 import {
-  useAlertsHistory, useAlertsToday, useRealTradeStats,
-  useRealTradeEquityCurve, useAlertSessionDates, useAlertsForDate,
-  usePerformanceBreakdown,
+  useAlertsHistory, useAlertsToday,
+  useAlertSessionDates, useAlertsForDate,
+  useAlertTypePerformance, useSetAlertExit,
 } from "../api/hooks";
 import SwingTradesPage from "./SwingTradesPage";
-import EquityCurve from "../components/EquityCurve";
-import PerformanceDashboard from "../components/PerformanceDashboard";
-import type { Alert, PerformanceBreakdown } from "../types";
+import type { Alert } from "../types";
 import {
-  TrendingUp, TrendingDown, Target, ShieldAlert, BarChart3,
-  Calendar, ChevronDown, ChevronRight, Download, FileText,
+  BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileText, Check,
 } from "lucide-react";
 
 /* ── helpers ──────────────────────────────────────────────────────── */
@@ -28,24 +24,6 @@ import {
 function fmt(v: number | null | undefined, d = 2): string {
   if (v == null) return "—";
   return v.toFixed(d);
-}
-
-/* ── Stat card ────────────────────────────────────────────────────── */
-
-function Stat({ label, value, sub, color, icon }: {
-  label: string; value: string; sub?: string; color?: string;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <div className="bg-surface-1 border border-border-subtle rounded-xl p-4 flex flex-col">
-      <div className="flex items-center gap-1.5 mb-1">
-        {icon}
-        <span className="text-[10px] text-text-faint uppercase tracking-wider font-medium">{label}</span>
-      </div>
-      <span className={`font-mono text-xl font-bold ${color || "text-text-primary"}`}>{value}</span>
-      {sub && <span className="text-[10px] text-text-faint mt-0.5">{sub}</span>}
-    </div>
-  );
 }
 
 /* ── Alert row (expandable) ───────────────────────────────────────── */
@@ -94,6 +72,10 @@ function AlertHistoryRow({ alert: a }: { alert: Alert }) {
               {rr && <span className="text-text-muted">R:R: <span className="font-mono text-text-primary">1:{rr}</span></span>}
             </div>
           )}
+          {/* Exit-price input — only meaningful when user actually entered the trade. */}
+          {a.user_action === "took" && a.entry != null && a.stop != null && (
+            <ExitPriceInput alert={a} />
+          )}
           {a.message && (
             <p className="text-xs text-text-secondary leading-relaxed">{a.message}</p>
           )}
@@ -103,6 +85,49 @@ function AlertHistoryRow({ alert: a }: { alert: Alert }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Exit-price input — manual real-trade close ──────────────────── */
+
+function ExitPriceInput({ alert: a }: { alert: Alert }) {
+  const [value, setValue] = useState<string>(a.exit_price != null ? String(a.exit_price) : "");
+  const setExit = useSetAlertExit();
+
+  const saved = a.exit_price != null;
+  const r = a.r_multiple;
+  const rColor = r == null ? "text-text-faint" : r > 0 ? "text-bullish-text" : "text-bearish-text";
+
+  function save() {
+    const trimmed = value.trim();
+    const parsed = trimmed === "" ? null : Number(trimmed);
+    if (parsed != null && (isNaN(parsed) || parsed <= 0)) return;
+    setExit.mutate({ alertId: a.id, exitPrice: parsed });
+  }
+
+  return (
+    <div className="flex items-center gap-2 bg-surface-0 border border-border-subtle/50 rounded px-2.5 py-1.5">
+      <span className="text-[10px] uppercase tracking-wider text-text-faint shrink-0">Exit</span>
+      <span className="text-text-faint text-xs">$</span>
+      <input
+        type="number"
+        step="0.01"
+        inputMode="decimal"
+        placeholder={a.entry != null ? fmt(a.entry) : ""}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        className="font-mono text-xs bg-transparent text-text-primary w-20 focus:outline-none placeholder:text-text-faint/40"
+      />
+      {saved && <Check className="h-3 w-3 text-bullish-text shrink-0" />}
+      {r != null && (
+        <span className={`font-mono text-xs font-semibold ${rColor}`}>
+          {r > 0 ? "+" : ""}{r.toFixed(2)}R
+        </span>
+      )}
+      {setExit.isPending && <span className="text-[10px] text-text-faint">saving…</span>}
     </div>
   );
 }
@@ -241,7 +266,7 @@ function SessionBrowser() {
   );
 }
 
-/* ── Performance Breakdown ───────────────────────────────────────── */
+/* ── Performance by Alert Type — real data only ──────────────────── */
 
 function WinRateBar({ rate, height = "h-2" }: { rate: number; height?: string }) {
   const color = rate >= 60 ? "bg-bullish" : rate >= 45 ? "bg-warning" : "bg-bearish";
@@ -252,139 +277,90 @@ function WinRateBar({ rate, height = "h-2" }: { rate: number; height?: string })
   );
 }
 
-function PerformanceBreakdownSection({ data }: { data: PerformanceBreakdown }) {
-  const topPatterns = data.by_pattern.filter((p) => p.trades >= 3).slice(0, 5);
-  const topSymbols = data.by_symbol.slice(0, 5);
-  const hoursSorted = [...data.by_hour].sort((a, b) => parseInt(a.hour) - parseInt(b.hour));
-  const daysOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-  const daysSorted = daysOrder
-    .map((d) => data.by_day.find((x) => x.day === d))
-    .filter(Boolean) as typeof data.by_day;
+function AlertTypePerformanceSection() {
+  const { data, isLoading } = useAlertTypePerformance();
 
-  const bestHour = data.by_hour.length > 0
-    ? data.by_hour.reduce((best, h) => h.win_rate > best.win_rate && h.trades >= 2 ? h : best, data.by_hour[0])
-    : null;
+  if (isLoading) {
+    return (
+      <div className="bg-surface-1 border border-border-subtle rounded-xl p-6 text-center text-xs text-text-faint">
+        Loading performance…
+      </div>
+    );
+  }
 
-  const isEmpty = data.by_pattern.length === 0 && data.by_symbol.length === 0;
-  if (isEmpty) return null;
+  const items = data?.items ?? [];
+  const tookSomething = items.some((i) => i.took > 0);
 
   return (
     <div>
       <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
         <BarChart3 className="h-3.5 w-3.5 text-accent" />
-        Performance Breakdown
+        Performance by Alert Type
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <p className="text-xs text-text-faint mb-3">
+        Real R-multiple from your recorded exit prices. Patterns you haven't Took yet won't appear.
+        Enter the exit price under any Took alert below to add data.
+      </p>
 
-        {/* Best Patterns */}
-        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
-          <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium mb-3">Best Patterns</div>
-          {topPatterns.length > 0 ? (
-            <div className="space-y-2.5">
-              {topPatterns.map((p) => (
-                <div key={p.pattern}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-text-primary font-medium truncate mr-2">{p.label}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-[10px] text-text-faint">{p.trades} trades</span>
-                      <span className={`text-xs font-mono font-bold ${p.win_rate >= 60 ? "text-bullish-text" : p.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
-                        {p.win_rate}%
-                      </span>
-                    </div>
-                  </div>
-                  <WinRateBar rate={p.win_rate} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-text-faint text-center py-4">Need 3+ trades per pattern</p>
-          )}
+      {!tookSomething ? (
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-6 text-center">
+          <p className="text-sm text-text-secondary">No Took alerts yet.</p>
+          <p className="text-xs text-text-faint mt-1">
+            When a real alert fires and you take the trade, mark it Took and come back here to record the exit.
+          </p>
         </div>
-
-        {/* Best Time */}
-        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium">Best Time</div>
-            {bestHour && bestHour.trades >= 2 && (
-              <span className="text-[10px] text-accent font-medium">Golden hour: {bestHour.label}</span>
-            )}
+      ) : (
+        <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
+          {/* Header */}
+          <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-text-faint font-medium border-b border-border-subtle/50 bg-surface-2/30">
+            <span className="col-span-5">Alert Type</span>
+            <span className="col-span-1 text-right">Took</span>
+            <span className="col-span-1 text-right">Closed</span>
+            <span className="col-span-2 text-right">Win Rate</span>
+            <span className="col-span-1 text-right">Avg R</span>
+            <span className="col-span-2 text-right">Best / Worst</span>
           </div>
-          {hoursSorted.length > 0 ? (
-            <div className="space-y-2">
-              {hoursSorted.map((h) => (
-                <div key={h.hour} className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-text-muted w-10 shrink-0">{h.label}</span>
-                  <div className="flex-1">
-                    <WinRateBar rate={h.win_rate} height="h-1.5" />
+          {items.map((it) => {
+            const wr = it.win_rate;
+            const wrColor = wr == null ? "text-text-faint"
+              : wr >= 60 ? "text-bullish-text" : wr >= 45 ? "text-warning-text" : "text-bearish-text";
+            const avgR = it.avg_r;
+            const avgRColor = avgR == null ? "text-text-faint"
+              : avgR > 0 ? "text-bullish-text" : "text-bearish-text";
+            return (
+              <div key={it.alert_type} className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-border-subtle/30 last:border-b-0 items-center text-xs">
+                <span className="col-span-5 text-text-primary truncate">{it.label}</span>
+                <span className="col-span-1 text-right font-mono text-text-secondary">{it.took}</span>
+                <span className="col-span-1 text-right font-mono text-text-secondary">{it.with_exit}</span>
+                <div className="col-span-2 flex items-center justify-end gap-2">
+                  <div className="w-12 hidden md:block">
+                    {wr != null && <WinRateBar rate={wr} height="h-1.5" />}
                   </div>
-                  <span className={`text-[10px] font-mono w-10 text-right shrink-0 ${h.win_rate >= 60 ? "text-bullish-text" : h.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
-                    {h.win_rate}%
+                  <span className={`font-mono font-semibold ${wrColor}`}>
+                    {wr == null ? "—" : `${wr}%`}
                   </span>
-                  <span className="text-[10px] text-text-faint w-6 text-right shrink-0">{h.trades}</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-text-faint text-center py-4">No time data yet</p>
-          )}
+                <span className={`col-span-1 text-right font-mono font-semibold ${avgRColor}`}>
+                  {avgR == null ? "—" : `${avgR > 0 ? "+" : ""}${avgR}R`}
+                </span>
+                <span className="col-span-2 text-right font-mono text-[11px] text-text-muted">
+                  {it.best_r == null ? "—" : (
+                    <>
+                      <span className="text-bullish-text">{it.best_r > 0 ? "+" : ""}{it.best_r}</span>
+                      {" / "}
+                      <span className="text-bearish-text">{it.worst_r}</span>
+                    </>
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
-
-        {/* By Symbol */}
-        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
-          <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium mb-3">Top Symbols by P&L</div>
-          {topSymbols.length > 0 ? (
-            <div className="space-y-2">
-              {topSymbols.map((s) => (
-                <div key={s.symbol} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-text-primary w-14">{s.symbol}</span>
-                    <span className="text-[10px] text-text-faint">{s.trades} trades</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-[10px] font-mono ${s.win_rate >= 60 ? "text-bullish-text" : s.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
-                      {s.win_rate}% WR
-                    </span>
-                    <span className={`text-xs font-mono font-bold ${s.total_pnl >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-                      {s.total_pnl >= 0 ? "+" : ""}${s.total_pnl.toFixed(0)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-text-faint text-center py-4">No closed trades yet</p>
-          )}
-        </div>
-
-        {/* By Day of Week */}
-        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
-          <div className="text-[10px] text-text-faint uppercase tracking-wider font-medium mb-3">By Day of Week</div>
-          {daysSorted.length > 0 ? (
-            <div className="flex items-end gap-2 h-24">
-              {daysSorted.map((d) => {
-                const barH = Math.max(d.win_rate * 0.8, 8);
-                const color = d.win_rate >= 60 ? "bg-bullish" : d.win_rate >= 45 ? "bg-warning" : "bg-bearish";
-                return (
-                  <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
-                    <span className={`text-[10px] font-mono font-bold ${d.win_rate >= 60 ? "text-bullish-text" : d.win_rate >= 45 ? "text-warning-text" : "text-bearish-text"}`}>
-                      {d.win_rate}%
-                    </span>
-                    <div className={`w-full rounded-t ${color}`} style={{ height: `${barH}%` }} />
-                    <span className="text-[10px] text-text-faint">{d.day.slice(0, 3)}</span>
-                    <span className="text-[9px] text-text-faint">{d.trades}t</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-xs text-text-faint text-center py-4">No day data yet</p>
-          )}
-        </div>
-
-      </div>
+      )}
     </div>
   );
 }
+
 
 /* ── Main Trades Page ─────────────────────────────────────────────── */
 
@@ -434,99 +410,57 @@ export default function RealTradesPage() {
 /* ── Day Trades Tab ──────────────────────────────────────────────── */
 
 function DayTradesContent() {
-  const { data: stats } = useRealTradeStats();
-  const { data: equityCurve } = useRealTradeEquityCurve();
   const { data: todayAlerts } = useAlertsToday();
   const { data: allAlerts } = useAlertsHistory(30);
-  const { data: breakdown } = usePerformanceBreakdown();
 
   const alertsForQuality = todayAlerts || [];
 
   return (
     <>
-        <div className="flex items-center justify-between">
-          <div /> {/* spacer */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (!allAlerts || allAlerts.length === 0) return;
-                const header = "Date,Time,Symbol,Direction,Type,Price,Entry,Stop,T1,T2,Confidence,Action,Message\n";
-                const rows = allAlerts.map((a) =>
-                  `${a.session_date},${a.created_at},${a.symbol},${a.direction},${a.alert_type},${a.price},${a.entry ?? ""},${a.stop ?? ""},${a.target_1 ?? ""},${a.target_2 ?? ""},${a.confidence ?? ""},${a.user_action ?? ""},${(a.message || "").replace(/,/g, ";")}`
-                ).join("\n");
-                const blob = new Blob([header + rows], { type: "text/csv" });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `tradesignal_history_${new Date().toISOString().slice(0, 10)}.csv`;
-                link.click();
-                URL.revokeObjectURL(url);
-              }}
-              className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary bg-surface-2 hover:bg-surface-3 border border-border-subtle px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Download className="h-3 w-3" /> Export CSV
-            </button>
-            <a
-              href="/api/v1/alerts/pdf"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary bg-surface-2 hover:bg-surface-3 border border-border-subtle px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <FileText className="h-3 w-3" /> PDF Report
-            </a>
-          </div>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-text-faint max-w-xl">
+          Mark Took / Skipped on real alerts, then enter the actual exit price when you close.
+          Performance below is real R-multiple — no synthetic P&amp;L, no retired patterns.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (!allAlerts || allAlerts.length === 0) return;
+              const header = "Date,Time,Symbol,Direction,Type,Price,Entry,Stop,Exit,R,Action,Message\n";
+              const rows = allAlerts.map((a) =>
+                `${a.session_date},${a.created_at},${a.symbol},${a.direction},${a.alert_type},${a.price},${a.entry ?? ""},${a.stop ?? ""},${a.exit_price ?? ""},${a.r_multiple ?? ""},${a.user_action ?? ""},${(a.message || "").replace(/,/g, ";")}`
+              ).join("\n");
+              const blob = new Blob([header + rows], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `tradesignal_history_${new Date().toISOString().slice(0, 10)}.csv`;
+              link.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary bg-surface-2 hover:bg-surface-3 border border-border-subtle px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Download className="h-3 w-3" /> Export CSV
+          </button>
+          <a
+            href="/api/v1/alerts/pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary bg-surface-2 hover:bg-surface-3 border border-border-subtle px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <FileText className="h-3 w-3" /> PDF Report
+          </a>
         </div>
+      </div>
 
-        {/* Performance Stats */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <Stat
-              label="Total P&L"
-              value={`$${stats.total_pnl.toFixed(2)}`}
-              color={stats.total_pnl >= 0 ? "text-bullish-text" : "text-bearish-text"}
-              icon={stats.total_pnl >= 0 ? <TrendingUp className="h-3 w-3 text-bullish-text" /> : <TrendingDown className="h-3 w-3 text-bearish-text" />}
-            />
-            <Stat label="Win Rate" value={`${stats.win_rate}%`} sub={`${stats.win_count}W / ${stats.loss_count}L`}
-              icon={<Target className="h-3 w-3 text-bullish-text" />} />
-            <Stat label="Total Trades" value={`${stats.total_trades}`} />
-            <Stat
-              label="Expectancy"
-              value={`$${stats.expectancy.toFixed(2)}`}
-              color={stats.expectancy >= 0 ? "text-bullish-text" : "text-bearish-text"}
-            />
-            <Stat label="Avg Win" value={`$${stats.avg_win.toFixed(2)}`} color="text-bullish-text" />
-            <Stat label="Avg Loss" value={`$${stats.avg_loss.toFixed(2)}`} color="text-bearish-text"
-              icon={<ShieldAlert className="h-3 w-3 text-bearish-text" />} />
-          </div>
-        )}
+      {/* Decision Quality */}
+      <DecisionQuality alerts={alertsForQuality} />
 
-        {/* Equity Curve + Decision Quality (side by side) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Equity Curve */}
-          {equityCurve && equityCurve.length > 1 && (
-            <div className="bg-surface-1 border border-border-subtle rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-text-primary mb-3 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-bullish-text" />
-                Equity Curve
-              </h3>
-              <EquityCurve data={equityCurve} height={200} />
-            </div>
-          )}
+      {/* Per-alert-type performance — real R-multiple from recorded exits */}
+      <AlertTypePerformanceSection />
 
-          {/* Decision Quality */}
-          <DecisionQuality alerts={alertsForQuality} />
-        </div>
-
-        {/* Performance Breakdown */}
-        {breakdown && <PerformanceBreakdownSection data={breakdown} />}
-
-        {/* Strategy Win Rate Dashboard */}
-        <div className="mt-6">
-          <PerformanceDashboard />
-        </div>
-
-        {/* Session Browser */}
-        <SessionBrowser />
+      {/* Session Browser — expand any Took alert to enter exit price */}
+      <SessionBrowser />
     </>
   );
 }
