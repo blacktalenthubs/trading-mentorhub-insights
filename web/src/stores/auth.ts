@@ -20,7 +20,7 @@ interface AuthState {
   refreshToken: string | null;
   /** True once we've attempted to rehydrate from storage. */
   hydrated: boolean;
-  setAuth: (user: User, token: string, refreshToken?: string) => void;
+  setAuth: (user: User, token: string, refreshToken?: string) => Promise<void>;
   setAccessToken: (token: string) => void;
   setRefreshToken: (token: string) => void;
   logout: () => void;
@@ -34,11 +34,21 @@ export const useAuthStore = create<AuthState>((set) => ({
   refreshToken: null,
   hydrated: false,
 
-  setAuth: (user, token, refreshToken) => {
+  setAuth: async (user, token, refreshToken) => {
     set({ user, accessToken: token, ...(refreshToken ? { refreshToken } : {}) });
-    storage.set(TOKEN_KEY, token);
-    storage.set(USER_KEY, JSON.stringify(user));
-    if (refreshToken) storage.set(REFRESH_KEY, refreshToken);
+    // Await the persistence writes so we can confirm Capacitor Preferences
+    // actually accepted them — without awaiting, a force-quit immediately
+    // after login could land before the iOS Keychain write committed.
+    try {
+      await Promise.all([
+        storage.set(TOKEN_KEY, token),
+        storage.set(USER_KEY, JSON.stringify(user)),
+        refreshToken ? storage.set(REFRESH_KEY, refreshToken) : Promise.resolve(),
+      ]);
+      console.info("[auth] setAuth persisted to Keychain (refresh=%s)", refreshToken ? "yes" : "no");
+    } catch (e) {
+      console.warn("[auth] setAuth FAILED to persist — next launch will be logged out:", e);
+    }
   },
 
   setAccessToken: (token) => {
@@ -65,13 +75,19 @@ export const useAuthStore = create<AuthState>((set) => ({
         storage.get(USER_KEY),
         storage.get(REFRESH_KEY),
       ]);
+      console.info(
+        "[auth] hydrate read storage: access=%s user=%s refresh=%s",
+        token ? "yes" : "no",
+        userJson ? "yes" : "no",
+        refreshToken ? "yes" : "no",
+      );
       if (token && userJson) {
         const user: User = JSON.parse(userJson);
         set({ user, accessToken: token, refreshToken, hydrated: true });
         return;
       }
-    } catch {
-      // Corrupted storage — start fresh
+    } catch (e) {
+      console.warn("[auth] hydrate threw — falling back to logged-out:", e);
     }
     set({ hydrated: true });
   },
