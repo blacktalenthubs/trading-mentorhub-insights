@@ -36,18 +36,16 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setAuth: async (user, token, refreshToken) => {
     set({ user, accessToken: token, ...(refreshToken ? { refreshToken } : {}) });
-    // Await the persistence writes so we can confirm Capacitor Preferences
-    // actually accepted them — without awaiting, a force-quit immediately
-    // after login could land before the iOS Keychain write committed.
+    // Await the persistence writes so a force-quit immediately after login
+    // doesn't land before the iOS Keychain write committed.
     try {
       await Promise.all([
         storage.set(TOKEN_KEY, token),
         storage.set(USER_KEY, JSON.stringify(user)),
         refreshToken ? storage.set(REFRESH_KEY, refreshToken) : Promise.resolve(),
       ]);
-      console.info("[auth] setAuth persisted to Keychain (refresh=%s)", refreshToken ? "yes" : "no");
     } catch (e) {
-      console.warn("[auth] setAuth FAILED to persist — next launch will be logged out:", e);
+      console.warn("[auth] setAuth failed to persist — next launch will be logged out:", e);
     }
   },
 
@@ -75,12 +73,6 @@ export const useAuthStore = create<AuthState>((set) => ({
         storage.get(USER_KEY),
         storage.get(REFRESH_KEY),
       ]);
-      console.info(
-        "[auth] hydrate read storage: access=%s user=%s refresh=%s",
-        token ? "yes" : "no",
-        userJson ? "yes" : "no",
-        refreshToken ? "yes" : "no",
-      );
       if (token && userJson) {
         const user: User = JSON.parse(userJson);
         set({ user, accessToken: token, refreshToken, hydrated: true });

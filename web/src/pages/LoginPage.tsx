@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
-import { storage } from "../stores/storage";
 import { api } from "../api/client";
 import type { AuthTokens } from "../types";
 
@@ -10,7 +9,6 @@ export default function LoginPage() {
   const passwordRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [debugReadback, setDebugReadback] = useState<string>("…");
   const setAuth = useAuthStore((s) => s.setAuth);
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
@@ -22,24 +20,6 @@ export default function LoginPage() {
   if (user) {
     return <Navigate to="/trading" replace />;
   }
-
-  // Diagnostic — on every visit to the login screen (which only happens
-  // when hydrate didn't restore a session), read the storage keys directly
-  // and show the result so we can see WHY we landed here without needing
-  // Safari Web Inspector. Removed once the 20-min-background signout is
-  // confirmed fixed end-to-end.
-  useEffect(() => {
-    (async () => {
-      const [a, u, r] = await Promise.all([
-        storage.get("ts_access_token"),
-        storage.get("ts_user"),
-        storage.get("ts_refresh_token"),
-      ]);
-      setDebugReadback(
-        `storage: access=${a ? "yes" : "no"} user=${u ? "yes" : "no"} refresh=${r ? "yes" : "no"}`
-      );
-    })();
-  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -113,11 +93,6 @@ export default function LoginPage() {
           <Link to="/register" className="text-accent hover:text-accent-hover">
             Create one
           </Link>
-        </p>
-        {/* Temporary diagnostic — shows whether storage held a session when
-            we arrived at this page. Helps diagnose force-quit signouts. */}
-        <p className="text-center text-[10px] text-text-faint font-mono">
-          {debugReadback}
         </p>
       </form>
     </div>
