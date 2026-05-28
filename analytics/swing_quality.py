@@ -23,11 +23,11 @@ import pandas as pd
 
 # Key MAs a bounce can defend: (label, kind, period).
 _KEY_MAS: list[tuple[str, str, int]] = [
+    # User-trimmed 2026-05-28 — focus on high-conviction levels only.
+    # EMA 100 / SMA 100 dropped (too noisy, redundant with 50 and 200).
     ("EMA 21", "ema", 21),
     ("EMA 50", "ema", 50),
     ("SMA 50", "sma", 50),
-    ("EMA 100", "ema", 100),
-    ("SMA 100", "sma", 100),
     ("EMA 200", "ema", 200),
     ("SMA 200", "sma", 200),
 ]
@@ -154,15 +154,61 @@ def evaluate_swing_quality(
     config: SwingQualityConfig | None = None,
     session_date: str = "",
 ) -> SwingQualification | None:
-    """Qualify one symbol on its latest daily bar for the given market regime.
-    Returns a SwingQualification when a rule is met, else None. Deterministic."""
+    """Qualify one symbol on its latest daily bar.
+
+    2026-05-28 — regime-gating removed. All three rule categories run on
+    every symbol; the SPY-regime label is now context-only (shown in the
+    UI badge) and no longer suppresses RSI or crossover rules when SPY
+    is healthy. The full live rule set (per user spec):
+      - Key-MA bounce (EMA21, EMA50, SMA50, EMA200, SMA200), gated by bullish stack
+      - EMA 8/21 bullish crossover, gated by price above EMA 50
+      - RSI(14) close back above 30 from oversold — always allowed
+    First rule to qualify produces the SwingQualification. Bounce first,
+    then crossover, then RSI — order = strongest evidence first.
+    """
+    _ = regime  # kept for backward-compat with callers
     cfg = config or DEFAULT_CONFIG
     df = _normalize(daily)
     if df is None:
         return None
-    if regime == REGIME_RSI:
-        return _evaluate_rsi(symbol, df, cfg, session_date)
-    return _evaluate_bounce(symbol, df, cfg, session_date)
+    return (
+        _evaluate_bounce(symbol, df, cfg, session_date)
+        or _evaluate_crossover(symbol, df, cfg, session_date)
+        or _evaluate_rsi(symbol, df, cfg, session_date)
+    )
+
+
+def _evaluate_crossover(
+    symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
+) -> SwingQualification | None:
+    """EMA 8/21 bullish crossover — the 8 EMA closes above the 21 EMA on
+    the most recent bar after being below it the bar before. Momentum
+    trigger (not a bounce). Gated by price above EMA 50 so we're not
+    chasing a counter-trend bounce in a clean downtrend."""
+    _ = cfg
+    if len(df) < 60:
+        return None
+    close = df["close"].astype(float)
+    ema8 = _ema(close, 8)
+    ema21 = _ema(close, 21)
+    ema50 = _ema(close, 50)
+    if pd.isna(ema8.iloc[-1]) or pd.isna(ema21.iloc[-1]) or pd.isna(ema50.iloc[-1]):
+        return None
+    e8_now, e21_now = float(ema8.iloc[-1]), float(ema21.iloc[-1])
+    e8_prev, e21_prev = float(ema8.iloc[-2]), float(ema21.iloc[-2])
+    if not (e8_prev <= e21_prev and e8_now > e21_now):
+        return None
+    latest_close = float(close.iloc[-1])
+    if latest_close < float(ema50.iloc[-1]):
+        return None  # crossover under the 50 EMA — counter-trend, skip
+    latest_low = float(df["low"].astype(float).iloc[-1])
+    hits = [SwingRuleHit(
+        "ema_8_21_cross", "EMA 8/21 cross",
+        f"EMA 8 (${e8_now:.2f}) crossed above EMA 21 (${e21_now:.2f}) "
+        f"— momentum flip with price above EMA 50",
+    )]
+    return _build(symbol, REGIME_BOUNCE, hits, "EMA 21", e21_now,
+                  latest_low, latest_close, session_date)
 
 
 def _evaluate_bounce(
