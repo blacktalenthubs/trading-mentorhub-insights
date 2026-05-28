@@ -29,19 +29,32 @@ async function attemptRefresh(): Promise<boolean> {
   // Deduplicate concurrent refresh attempts
   if (_refreshing) return _refreshing;
   _refreshing = (async () => {
+    const stored = useAuthStore.getState().refreshToken;
     try {
       // Send refresh token in BOTH cookie (web) AND body (Capacitor mobile).
       // The cookie path is browser-only; cross-origin WebView can't set the
       // cookie reliably, so we also include it in the body when we have one
       // stored in Capacitor Preferences.
-      const stored = useAuthStore.getState().refreshToken;
       const res = await fetch(`${BASE_URL}/auth/refresh`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: stored ? JSON.stringify({ refresh_token: stored }) : undefined,
       });
-      if (!res.ok) return false;
+      if (!res.ok) {
+        // Diagnostic — surface refresh failures in DevTools/Safari Web
+        // Inspector so we can see WHY auto-refresh isn't recovering before
+        // the forced logout. Status + body text + whether we had a stored
+        // token at all is enough to triage (stale token vs missing vs
+        // server-side reject).
+        let bodyText = "";
+        try { bodyText = await res.text(); } catch { /* ignore */ }
+        console.warn(
+          "[auth] refresh FAILED — status=%d had_stored_refresh=%s body=%s",
+          res.status, stored ? "yes" : "no", bodyText.slice(0, 200),
+        );
+        return false;
+      }
       const data = await res.json();
       if (data.access_token) {
         useAuthStore.getState().setAccessToken(data.access_token);
@@ -52,8 +65,10 @@ async function attemptRefresh(): Promise<boolean> {
         }
         return true;
       }
+      console.warn("[auth] refresh response had no access_token", data);
       return false;
-    } catch {
+    } catch (e) {
+      console.warn("[auth] refresh threw — network error or fetch aborted:", e);
       return false;
     } finally {
       _refreshing = null;
@@ -92,6 +107,9 @@ async function request<T>(
         return retryRes.json();
       }
     }
+    // Forced logout after refresh attempt also failed. Log the path that
+    // triggered it so we can correlate to a specific endpoint when debugging.
+    console.warn("[auth] forced logout after 401 + refresh failure path=%s", path);
     useAuthStore.getState().logout();
     throw new ApiError(401, "Session expired");
   }
