@@ -49,7 +49,9 @@ export default function LoginPage() {
           ref={emailRef}
           type="email"
           name="email"
-          autoComplete="email"
+          // iOS Password Autofill pairs "username" + "current-password";
+          // "email" alone is less reliable for the Save Password prompt.
+          autoComplete="username"
           placeholder="Email"
           className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none"
           required
