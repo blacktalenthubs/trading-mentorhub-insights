@@ -43,6 +43,8 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Menu,
 } from "lucide-react";
 
@@ -659,6 +661,23 @@ export default function TradingPageV2() {
   const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
   // Mobile drawer — slides watchlist in from left on small screens
   const [mobileWatchlistOpen, setMobileWatchlistOpen] = useState(false);
+  const [mobileSignalsCollapsed, setMobileSignalsCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem("mobile_signals_collapsed") === "1";
+  });
+  const toggleMobileSignals = useCallback(() => {
+    setMobileSignalsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("mobile_signals_collapsed", next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
+  // Chart only listens to window resize; tell it the available space changed
+  // so it re-fits when the signals panel collapses/expands on mobile.
+  useEffect(() => {
+    const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
+    return () => clearTimeout(t);
+  }, [mobileSignalsCollapsed]);
   const [showRightPanel, setShowRightPanel] = useState(true);
 
   // Signals feed — which session to view ("" = today/latest)
@@ -975,8 +994,15 @@ export default function TradingPageV2() {
         )}
       </aside>
 
-      {/* ── CENTER: Chart + Top Bar + Bottom Strip ── */}
-      <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 overflow-hidden">
+      {/* ── CENTER: Chart + Top Bar + Bottom Strip ──
+         Padding-bottom reserves space for the fixed mobile signals panel so
+         the chart no longer extends behind it (was hiding the most recent
+         candles on stocks where price sat near the bottom of the y-axis). */}
+      <section
+        className={`flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 overflow-hidden lg:pb-0 ${
+          mobileSignalsCollapsed ? "pb-9" : "pb-[17.25rem]"
+        }`}
+      >
         {/* Top bar */}
         <header className="h-11 border-b border-border-subtle px-3 flex items-center justify-between shrink-0 bg-surface-0">
           {/* Left: Mobile menu + Symbol + Price + Change */}
@@ -1340,31 +1366,45 @@ export default function TradingPageV2() {
         </aside>
       )}
 
-      {/* ── Mobile signals panel — visible below lg ── */}
+      {/* ── Mobile signals panel — visible below lg, collapsible to reclaim chart space ── */}
       <div className="fixed inset-x-0 bottom-14 z-20 lg:hidden bg-surface-1 border-t border-border-subtle">
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border-subtle">
+        <button
+          onClick={toggleMobileSignals}
+          className="w-full flex items-center gap-2 px-3 py-2 border-b border-border-subtle text-left active:bg-surface-2/40 transition-colors"
+          aria-label={mobileSignalsCollapsed ? "Expand signals" : "Collapse signals"}
+        >
           <Zap className="h-3.5 w-3.5 text-accent" />
           <span className="text-xs font-bold text-text-primary">Signals</span>
-          <select
-            value={signalDate}
-            onChange={(e) => setSignalDate(e.target.value)}
-            className="ml-auto bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
-          >
-            <option value="">Today</option>
-            {(sessionDates ?? []).slice(1).map((d) => (
-              <option key={d} value={d}>{formatSessionDate(d)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col h-[240px] overflow-hidden">
-          <SignalFeedTab
-            alerts={filterAlertsByAsset(activeAlerts)}
-            alertsError={activeAlertsError}
-            onSelectSymbol={selectSymbol}
-            showNonRouted={showNonRouted}
-            signalDate={signalDate}
-          />
-        </div>
+          {!mobileSignalsCollapsed && (
+            <select
+              value={signalDate}
+              onChange={(e) => setSignalDate(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="ml-auto bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
+            >
+              <option value="">Today</option>
+              {(sessionDates ?? []).slice(1).map((d) => (
+                <option key={d} value={d}>{formatSessionDate(d)}</option>
+              ))}
+            </select>
+          )}
+          {mobileSignalsCollapsed ? (
+            <ChevronUp className="h-4 w-4 text-text-muted ml-auto" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-text-muted" />
+          )}
+        </button>
+        {!mobileSignalsCollapsed && (
+          <div className="flex flex-col h-[240px] overflow-hidden">
+            <SignalFeedTab
+              alerts={filterAlertsByAsset(activeAlerts)}
+              alertsError={activeAlertsError}
+              onSelectSymbol={selectSymbol}
+              showNonRouted={showNonRouted}
+              signalDate={signalDate}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
