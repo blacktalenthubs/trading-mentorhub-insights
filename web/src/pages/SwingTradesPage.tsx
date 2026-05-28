@@ -1,12 +1,11 @@
 import {
-  useSpyRegime,
   useActiveSwingTrades,
   useSwingTradesHistory,
   useTriggerSwingScan,
 } from "../api/hooks";
 import Badge from "../components/ui/Badge";
-import Card from "../components/ui/Card";
 import { useFeatureGate } from "../hooks/useFeatureGate";
+import { toast } from "../components/Toast";
 import type { SwingTrade } from "../types";
 
 function fmt(n: number | null | undefined): string {
@@ -37,11 +36,24 @@ function TradeRow({ t }: { t: SwingTrade }) {
 }
 
 export default function SwingTradesPage() {
-  const { data: regime } = useSpyRegime();
   const { data: activeTrades } = useActiveSwingTrades();
   const { data: history } = useSwingTradesHistory();
   const triggerScan = useTriggerSwingScan();
   const { isPro } = useFeatureGate();
+
+  function runScan() {
+    triggerScan.mutate(undefined, {
+      onSuccess: (data) => {
+        const n = data?.alerts_fired ?? 0;
+        toast.success(
+          n > 0
+            ? `Scan complete — ${n} new swing setup${n === 1 ? "" : "s"}`
+            : "Scan complete — no setups qualified today"
+        );
+      },
+      onError: () => toast.error("Scan failed — try again"),
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -49,7 +61,7 @@ export default function SwingTradesPage() {
         <h1 className="font-display text-2xl font-bold">Swing Trades</h1>
         {isPro && (
           <button
-            onClick={() => triggerScan.mutate()}
+            onClick={runScan}
             disabled={triggerScan.isPending}
             className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
@@ -58,36 +70,12 @@ export default function SwingTradesPage() {
         )}
       </div>
 
-      {/* SPY regime — the gate that picks bounce vs RSI mode */}
-      {regime && (
-        <Card title="Market Regime">
-          <div className="flex flex-wrap items-center gap-4">
-            <Badge variant={regime.bounce_mode ? "bullish" : "bearish"}>
-              {regime.bounce_mode ? "BOUNCE MODE" : "RSI MODE"}
-            </Badge>
-            <span className="text-sm text-text-muted">
-              {regime.bounce_mode
-                ? "SPY above its 21 EMA — scanning key-MA bounces."
-                : "SPY below its 21 EMA — scanning oversold RSI-30 recoveries."}
-            </span>
-            {regime.spy_close != null && (
-              <span className="text-sm text-text-muted">
-                SPY <span className="font-mono text-text-primary">${regime.spy_close.toFixed(2)}</span>
-              </span>
-            )}
-            {regime.spy_ema21 != null && (
-              <span className="text-sm text-text-muted">
-                21 EMA <span className="font-mono text-text-primary">${regime.spy_ema21.toFixed(2)}</span>
-              </span>
-            )}
-          </div>
-        </Card>
-      )}
-
       <p className="text-xs text-text-faint">
-        Choose which setups send a notification in Settings → Alert Types
-        (categories “Swing · Bounce” and “Swing”). Disabled setups still record
-        here for end-of-day review.
+        Runs the daily-bar swing rules across your watchlist: MA bounces (21,
+        50, 200), 8/21 cross, golden-cross retest, 52-week-high retest,
+        5-day-low reclaim, RSI-30 recovery. Toggle delivery per pattern in
+        Settings → Alert Types. Setups appear here even when notifications
+        are off — for end-of-day review.
       </p>
 
       {/* Active swing trades */}

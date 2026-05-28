@@ -163,5 +163,8 @@ async def trigger_swing_scan(request: Request, user: User = Depends(require_pro)
     if factory is None:
         return SwingScanResponse(alerts_fired=0)
     loop = asyncio.get_running_loop()
-    count = await loop.run_in_executor(None, partial(swing_scan_cycle, factory))
+    # Manual button press = explicit ad-hoc request. Bypass the in-cycle
+    # market-hours gate so the scan actually runs outside RTH (the most
+    # common time a user taps the button — pre-market / after-hours review).
+    count = await loop.run_in_executor(None, partial(swing_scan_cycle, factory, True))
     return SwingScanResponse(alerts_fired=count)
