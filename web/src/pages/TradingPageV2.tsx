@@ -1001,12 +1001,15 @@ export default function TradingPageV2() {
       <section
         className="flex-1 flex flex-col min-w-0 min-h-0 bg-surface-0 overflow-hidden"
         style={{
+          // Reserve space for the signals panel (which sits above the bottom
+          // nav). Includes safe-area-inset-bottom so the chart doesn't extend
+          // into the home-indicator zone on notched iPhones.
           paddingBottom:
             typeof window !== "undefined" && window.innerWidth >= 1024
               ? 0
               : mobileSignalsCollapsed
-              ? "2.5rem"
-              : "17rem",
+              ? "calc(2.5rem + env(safe-area-inset-bottom))"
+              : "calc(17rem + env(safe-area-inset-bottom))",
         }}
       >
         {/* Top bar */}
@@ -1373,8 +1376,14 @@ export default function TradingPageV2() {
       )}
 
       {/* ── Mobile signals panel — fixed above bottom nav, collapsible.
-         z-40 to ensure it sits above the in-flow trade-box panel. */}
-      <div className="fixed inset-x-0 bottom-14 z-40 lg:hidden bg-surface-1 border-t-2 border-accent/30 shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+         Bottom offset = nav height (3.5rem) + safe-area-inset-bottom so the
+         panel sits fully ABOVE the iPhone home-indicator area. With just
+         bottom-14, the home-indicator zone covered the panel completely on
+         notched iPhones — observed 2026-05-28. */}
+      <div
+        className="fixed inset-x-0 z-40 lg:hidden bg-surface-1 border-t-2 border-accent/30 shadow-[0_-4px_12px_rgba(0,0,0,0.25)]"
+        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+      >
         <button
           onClick={toggleMobileSignals}
           className="w-full flex items-center gap-2 px-3 py-2 border-b border-border-subtle text-left active:bg-surface-2/40 transition-colors"
