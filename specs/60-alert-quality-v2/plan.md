@@ -261,6 +261,64 @@ P2d) STILL applies to all `_held` rules including PDL-side, because
 that's a structural quality check (did the level actually hold) not a
 volume check.
 
+### Phase 2.6 — AVWAP-family upgrade (MTD / PM / P2M held)
+
+Same conversation, new finding. Today's six `staged_mtd_avwap_held` /
+`staged_pm_avwap_held` / `staged_p2m_avwap_held` fires:
+
+| Sym | Vol | Sess slope | Daily action | Outcome |
+|---|---|---|---|---|
+| PLTR | 2.05× | +1.47% | +8% | ✅ worked |
+| MSFT | 2.47× | +0.10% | +3.47% | ✅ worked |
+| AMZN | 1.73× | +0.19% | +0.79% | ✅ held |
+| **LITE** | **5.98×** | +0.70% | **−4.62%** | ❌ rejected hard |
+| GOOGL | 1.97× | −0.43% | rejected at AVWAP | ❌ rejected |
+| AAOI | 3.21× | −1.07% | −6.01% | ❌ sold off |
+
+GOOGL and AAOI fail the session-VWAP-slope gate (the same gate we
+added to the breakout rules). LITE is the interesting case — slope
+positive, volume strongest of the day, **but still failed**. The 5.98×
+volume bar wasn't buyers defending — it was distribution. LITE was
+already in a daily downtrend; the AVWAP test was sellers dumping into
+the level, not buyers holding it.
+
+**Two additional gates for AVWAP-held rules** beyond the session-VWAP
+confluence we added to breakouts:
+
+1. **Higher-timeframe trend filter.** `close > daily_ema21`. Confirms
+   the stock is still in a daily-trend posture aligned with the AVWAP
+   defense thesis. LITE failed this; PLTR/MSFT/AMZN passed.
+2. **Real bullish candle body.** `(close - open) >= (high - low) × 0.4
+   AND close > open`. The "held" bar must be a meaty green candle, not
+   a doji that technically closed above. LITE's distribution bar
+   wouldn't have qualified.
+
+```
+staged_mtd_avwap_held (final form):
+   close[1] > level                            ← prior bar above (existing)
+   AND low <= level                            ← wicked to it (existing)
+   AND close >= level                          ← closed back above (existing)
+   AND (close - level)/level * 10000 >= 25     ← 25 bps buffer (P2d)
+   AND close > vwap                            ← intraday context (P2.6)
+   AND vwap_slope_pct >= +0.05                 ← session strength (P2.6)
+   AND close > daily_ema21                     ← higher-timeframe trend (P2.6)
+   AND (close - open) >= (high - low) * 0.4    ← real body (P2.6)
+   AND close > open                            ← bullish candle (P2.6)
+   AND volume_ratio >= 1.0                     ← soft floor — kills dead bars
+   AND minutes_since_session_open >= 15        ← slope warmup (P2.6)
+```
+
+Test on today's data: PLTR / MSFT / AMZN pass all gates → fire. LITE
+fails the daily-EMA21 trend gate → suppressed. GOOGL / AAOI fail the
+slope gate → suppressed. **3/3 winners retained, 3/3 losers killed.**
+Identical logic for `staged_pm_avwap_held` and `staged_p2m_avwap_held`.
+
+The real-body filter (FR-015) is interesting because it's a structural
+quality check independent of volume. Could extend it to breakout and
+gap-up rules too — distribution bars don't print meaty green bodies.
+Punted to Phase 3 measurement: see if real-body gate helps elsewhere
+in the data.
+
 ### Phase 3 — measurement (post-deploy, ongoing)
 
 The Trades page redesign (shipped 2026-05-28) already gives us the
@@ -289,6 +347,10 @@ per-alert-type R-multiple feedback loop. Two weeks after P2 ships:
 | FR-010 | All new alert types default-disabled in alert_type_config; user opts in per type | P2 |
 | FR-011 | Volume gates asymmetric by rule family: resistance-side & no-level rules require volume; support-side level rules (PDL/PWL/PML) have no floor — level IS the risk | P2.5 |
 | FR-012 | No standalone vwap_reclaim_vol rule. VWAP confluence is baked into staged_pdh_break / pwh / pmh and gap_up_continuation_long. Bare VWAP cross is too noisy to be its own trigger. | (design) |
+| FR-013 | AVWAP-held rules (staged_mtd_avwap_held / pm_avwap / p2m_avwap) require: VWAP slope + close > VWAP + close > daily_ema21 + real bullish body (close>open AND body ≥ 40% of range). Today's test: 3/3 winners retained, 3/3 losers killed. | P2.6 |
+| FR-014 | Slope-dependent rules require minutes_since_session_open ≥ 15 (slope-warmup guard). Prevents early-session false slope from 1-3 bars of data. | P2.6 |
+| FR-015 | Real-body filter (close > open AND body ≥ 40% of range) on AVWAP-held rules. Punted to Phase 3 measurement: validate whether same gate helps on breakout / gap-up rules. | P2.6 |
+| FR-016 | Per-rule VWAP slope threshold lives in an env var (default +0.05%, breakouts may use +0.10%). Single tuning knob for entire alert sensitivity. | P2 |
 
 ## Non-functional requirements
 
@@ -317,6 +379,73 @@ per-alert-type R-multiple feedback loop. Two weeks after P2 ships:
    breakouts failing. Today's data (META 10.53×, ORCL 4.61×) suggests 2.0× is
    conservative — could be 1.7×. Defaulting to 2.0× for the first 2 weeks,
    re-evaluate on Trades-page R-multiple data.
+
+## Why VWAP slope is the master gate
+
+Across every rule family in this spec, VWAP slope keeps reappearing as
+the primary session-strength filter. This isn't coincidence — it's
+because VWAP slope is the single signal that captures **direction +
+participation + session context** in one number. Every bar of the
+session contributes to VWAP, weighted by how much volume traded. The
+slope tells you where the volume-weighted average price is moving —
+which is where institutional money is flowing.
+
+Other signals describe individual bars:
+- **Volume** tells you "there was conviction on this bar" — but doesn't
+  tell you direction. A 5× volume bar can be accumulation or
+  distribution (LITE today: distribution at 5.98× vol).
+- **Price** tells you "where it ended up on this bar" — but not whether
+  the session is structurally trending or chopping.
+- **MAs** lag — they confirm trends after the fact.
+
+**VWAP slope is the only signal that combines volume and price into a
+session-wide directional indicator.** Positive slope means each
+incremental dollar bought was at higher prices than the session average
+— institutions accumulating. Negative slope means the opposite —
+distribution.
+
+Today's data demonstrated the asymmetry:
+- 6/6 setups with slope ≥ +0.10% delivered moves (META, ORCL, NVDA,
+  PLTR, SHOP, HOOD, MSFT)
+- 6/6 setups with slope ≤ −0.30% chopped or failed (BTCUSD, NFLX,
+  MRVL, AAOI, GOOGL, V)
+- LITE was the one positive-slope failure, killed by daily downtrend
+
+### Threshold as master sensitivity knob
+
+The single `vwap_slope_pct_threshold` parameter (default +0.05%)
+becomes the entire alert system's sensitivity knob:
+
+| Threshold | Effect on today's universe |
+|---|---|
+| +0.10% | Strictest — only catches obvious momentum (kills MSFT at +0.10% close call, AMZN at +0.19%) |
+| **+0.05%** | **Default — balanced (the ~6 "everything aligned" symbols + close calls)** |
+| +0.02% | Looser — surfaces borderline trends (CRWV, NKE, AMZN borderline trends) |
+| 0.00% | Permissive — any non-negative slope qualifies (lets in marginal sessions) |
+
+The architecture allows **per-rule slope thresholds** too. Breakouts
+could demand +0.10% (only chase obvious momentum); pullbacks +0.05%
+(can buy borderline trends if structure aligns); AVWAP-held +0.05%.
+Each threshold an env var, so tuning happens without code deploys.
+
+### The one rule family that opts out: PDL / PWL / PML defense
+
+The asymmetry is structural, not arbitrary. PDL defense is **the
+reversal play**, fired specifically when the session has been bleeding
+to make a new low. Slope is negative by definition. Requiring positive
+slope on PDL would kill the entire family's reason to exist.
+
+The PDL family substitutes **structural risk control** (tight stop right
+under the level — if it fails, loss is bounded to ~30 bps) for the
+slope gate. Volume floor also drops — you're not betting on continuation,
+you're betting the level holds. Different game, different rules.
+
+So the philosophy is clean:
+
+> **Continuation rules require positive slope. The reversal rule
+> (PDL family) requires tight structural stops instead.**
+
+That asymmetry is the architectural heart of v2.
 
 ## Final architecture — rule families and what's built in
 
