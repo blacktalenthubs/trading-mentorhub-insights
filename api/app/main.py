@@ -451,6 +451,34 @@ async def lifespan(app: FastAPI):
                 id="swing_scan",
                 replace_existing=True,
             )
+
+            # Daily EOD swing scan — 4:10 PM ET Mon-Fri, after the daily bar
+            # has closed so the qualifier sees a finalized close. force=True
+            # bypasses the in-cycle market-hours gate. Pairs with the 15-min
+            # intraday scan: intraday catches setups as they form, EOD gives
+            # the final-close confirmation pass for the next-day game plan.
+            # Set SWING_SCAN_SCHEDULED=0 in Railway to disable.
+            if os.environ.get("SWING_SCAN_SCHEDULED", "true").lower() not in ("0", "false", "no"):
+                from apscheduler.triggers.cron import CronTrigger
+                import pytz as _pytz
+                et_tz = _pytz.timezone("America/New_York")
+
+                def _swing_scan_eod():
+                    try:
+                        from analytics.swing_scanner import swing_scan_cycle
+                        fired = swing_scan_cycle(sync_session_factory, force=True)
+                        logger.info("Swing EOD scan: %d deliveries", fired)
+                    except Exception:
+                        logger.exception("Swing EOD scan failed")
+
+                scheduler.add_job(
+                    _swing_scan_eod,
+                    CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=et_tz),
+                    id="swing_scan_eod",
+                    misfire_grace_time=300,
+                    replace_existing=True,
+                )
+                logger.info("Registered daily swing scan cron: 16:10 ET, Mon-Fri")
         else:
             logger.info(
                 "AI scans DISABLED (AI_SCAN_ENABLED=false) — rule-based alerts only"

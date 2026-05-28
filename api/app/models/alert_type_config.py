@@ -76,6 +76,20 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_mtd_avwap_held", "MTD AVWAP defended (Buy 2)", "Anchored VWAP", False),
     ("staged_pm_avwap_held",  "Prior-month AVWAP defended", "Anchored VWAP", False),
     ("staged_p2m_avwap_held", "2-months-prior AVWAP defended", "Anchored VWAP", False),
+
+    # Swing scanner — daily-bar entries from analytics/swing_scanner.py
+    # (un-retired 2026-05-28 — scheduled scan + push delivery added).
+    # All default-disabled; user toggles per-pattern in Settings.
+    ("swing_bounce_ema21",  "Swing · 21 EMA bounce", "Swing · Bounce", False),
+    ("swing_bounce_ema50",  "Swing · 50 EMA bounce", "Swing · Bounce", False),
+    ("swing_bounce_sma50",  "Swing · 50 SMA bounce", "Swing · Bounce", False),
+    ("swing_bounce_ema200", "Swing · 200 EMA bounce", "Swing · Bounce", False),
+    ("swing_bounce_sma200", "Swing · 200 SMA bounce", "Swing · Bounce", False),
+    ("swing_8_21_cross",         "Swing · EMA 8/21 bullish crossover", "Swing", False),
+    ("swing_golden_cross_retest","Swing · Golden-cross retest (50 EMA)", "Swing", False),
+    ("swing_52w_high_retest",    "Swing · 52-week-high retest",        "Swing", False),
+    ("swing_5day_low_reclaim",   "Swing · 5-day-low reclaim",          "Swing", False),
+    ("swing_rsi_30",             "Swing · RSI 30 recovery",            "Swing", False),
 ]
 
 # Per-MA toggles for the surviving MA-bounce family.
@@ -135,11 +149,11 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # VWAP NOTICEs — Pine no longer emits
     "vwap_reclaim_long", "vwap_reject_short", "vwap_support_hold",
 
-    # Spec 56 swing scanner — retired (Pine MA-bounce covers swing too)
-    "swing_bounce_ema21", "swing_bounce_ema50", "swing_bounce_sma50",
+    # Spec 56 swing scanner — `swing_bounce_ema100`/`sma100` stay retired
+    # (per-rule trim 2026-05-28). The rest were un-retired and re-added
+    # to ALERT_TYPE_CATALOG with default-disabled for opt-in delivery.
     "swing_bounce_ema100", "swing_bounce_sma100",
-    "swing_bounce_ema200", "swing_bounce_sma200",
-    "swing_rsi_30", "swing_exit",
+    "swing_exit",
 )
 
 

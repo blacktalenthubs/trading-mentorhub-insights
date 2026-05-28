@@ -88,12 +88,27 @@ def _db_mark_notified(db, user_id: int, feature: str, usage_date: str) -> bool:
 # ── Alert-type routing (per-MA toggles in alert_type_config) ─────────
 
 
-def _alert_type_for(entry_level: str) -> str:
-    """Map a SwingQualification.entry_level to its alert_type_config key.
-    'EMA 50' -> 'swing_bounce_ema50'; 'RSI 30' -> 'swing_rsi_30'."""
-    if entry_level.upper().startswith("RSI"):
+def _alert_type_for(q) -> str:
+    """Map a SwingQualification to its alert_type_config key.
+
+    Uses the first rule hit (rules[0].rule) — entry_level alone is
+    ambiguous (e.g., both ma_bounce and golden_cross_retest can have
+    entry_level='EMA 50'). Falls back to entry_level for legacy
+    ma_hold/ma_reclaim rules which encode the MA in the level.
+    """
+    rule = q.rules[0].rule if q.rules else ""
+    if rule == "rsi_recovery":
         return "swing_rsi_30"
-    return "swing_bounce_" + entry_level.lower().replace(" ", "")
+    if rule == "ema_8_21_cross":
+        return "swing_8_21_cross"
+    if rule == "golden_cross_retest":
+        return "swing_golden_cross_retest"
+    if rule == "52w_high_retest":
+        return "swing_52w_high_retest"
+    if rule == "5day_low_reclaim":
+        return "swing_5day_low_reclaim"
+    # Legacy bounce rules — encode the MA in the type name.
+    return "swing_bounce_" + (q.entry_level or "").lower().replace(" ", "")
 
 
 def _enabled_alert_types(db) -> set[str]:
@@ -230,7 +245,7 @@ def _deliver_entry(db, q, users, session: str, get_limits, enabled_types) -> int
     conviction = "HIGH" if len(q.rules) >= 2 else "MEDIUM"
     entry = q.entry
     current = q.close
-    alert_type = _alert_type_for(q.entry_level)
+    alert_type = _alert_type_for(q)
     routed = alert_type in enabled_types
 
     # Proximity gate — only alert when price is actually near the entry level,
@@ -394,22 +409,28 @@ def _process_exits(db, symbol: str, hist, users, session: str, enabled_types) ->
 # ── Main cycle ───────────────────────────────────────────────────────
 
 
-def swing_scan_cycle(sync_session_factory) -> int:
-    """Run one swing scan pass — entries + exits. Returns Telegram deliveries."""
+def swing_scan_cycle(sync_session_factory, force: bool = False) -> int:
+    """Run one swing scan pass — entries + exits. Returns Telegram deliveries.
+
+    `force=True` bypasses the market-hours gate. Used by the daily EOD
+    cron (4:10 PM ET) where the daily bar has just closed but the
+    is_market_hours() helper already reports market closed.
+    """
     if os.environ.get("SWING_SCAN_ENABLED", "true").lower() in ("0", "false", "no"):
         logger.info("swing scan: disabled via env")
         return 0
 
-    # Only scan during market hours — swing entries need live price vs level.
-    # Skips weekends/holidays/after-hours for equities. Crypto symbols in
-    # watchlists still get scanned (they trade 24/7).
-    try:
-        from analytics.market_hours import is_market_hours
-        if not is_market_hours():
-            logger.debug("swing scan: market closed, skipping")
-            return 0
-    except Exception:
-        pass  # if helper unavailable, run anyway
+    # Only scan during market hours unless force=True — swing entries need
+    # live price vs level. Skips weekends/holidays/after-hours for equities.
+    # Crypto symbols in watchlists still get scanned (they trade 24/7).
+    if not force:
+        try:
+            from analytics.market_hours import is_market_hours
+            if not is_market_hours():
+                logger.debug("swing scan: market closed, skipping")
+                return 0
+        except Exception:
+            pass  # if helper unavailable, run anyway
 
     session = date.today().isoformat()
 
