@@ -234,16 +234,30 @@ volume must do the work):
 - `gap_up_continuation_long` — momentum-dependent; no level beneath the
   entry until the opening-range low. Floor: `>= 1.5`.
 
-**Rules where the LEVEL IS the risk control** (volume floor unnecessary
-— a tight stop right under the level limits loss regardless):
-- `staged_pdl_held` / `pwl` / `pml` — stop sits ~30 bps under the low.
-  If it fails, loss is small. Cheap to be wrong. Even quiet 0.4× volume
-  fires are risk-defined trades. **No volume floor.**
-- `staged_pdl_reclaim` / `pwl` / `pml` — same — stop = the prior wick
-  low, tight by definition. **No volume floor.**
+**Rules where the LEVEL provides structural risk control** (tight stop
+right under the level limits loss regardless of volume, so volume floor
+relaxes — but doesn't disappear entirely):
+
+- `staged_pdl_held` / `pwl_held` / `pml_held` — defense from above. Stop
+  sits ~30 bps under the low. Loss bounded if it fails. **Soft floor:
+  `>= 0.8` — even quiet bars can be tradeable risk-defined entries.**
+- `staged_pdl_reclaim` / `pwl_reclaim` / `pml_reclaim` — broken-and-
+  recovered. Different than held: the level just failed, so the reclaim
+  needs buyers to step in with conviction. **Soft floor: `>= 1.0` (a
+  notch higher than held — still well below the continuation 1.2×).**
 - `staged_mtd_avwap_held` / `pm_avwap` / `p2m_avwap` — AVWAP is slower
   decay than PDL but still acts as structural support. Soft floor:
   `>= 1.0` (just kills the dead-bar fires).
+
+**Held vs reclaim distinction (PDL family).** The held subfamily defends
+the level from above (close[1] > level); the reclaim subfamily recovers
+a broken level (close[1] ≤ level, close > level). These are structurally
+different events with different volume requirements:
+
+- Held: tighter natural stop (low ≤ level by definition). Lower volume
+  floor (0.8×) acceptable.
+- Reclaim: bar low is the stop (can be wider). Need real conviction
+  (1.0×) to validate the recovery.
 
 **Worked example from today.** ETH `staged_pdl_held` fired at vol
 **0.38×** ($2,012.50 close, stop $2,011.30). Quiet bar — but if PDL
@@ -351,6 +365,9 @@ per-alert-type R-multiple feedback loop. Two weeks after P2 ships:
 | FR-014 | Slope-dependent rules require minutes_since_session_open ≥ 15 (slope-warmup guard). Prevents early-session false slope from 1-3 bars of data. | P2.6 |
 | FR-015 | Real-body filter (close > open AND body ≥ 40% of range) on AVWAP-held rules. Punted to Phase 3 measurement: validate whether same gate helps on breakout / gap-up rules. | P2.6 |
 | FR-016 | Per-rule VWAP slope threshold lives in an env var (default +0.05%, breakouts may use +0.10%). Single tuning knob for entire alert sensitivity. | P2 |
+| FR-017 | MA bounce family (ma_bounce_long_v3_ema8/21/50/200, _sma) uses pullback continuation gates: slope ≥ +0.05%, close > vwap, volume ≥ 1.2×. Today: 2/2 retained (CRWV, COHR), 5/5 killed (GOOGL ×2, AVGO, AAOI, INTC). | P2 |
+| FR-018 | PDL/PWL/PML held — inverted slope floor (slope ≥ −0.5%, NOT positive) + bullish bar (close > open) + close in upper half of range ((close − low)/(high − low) ≥ 0.5) + volume ≥ 0.8×. Slope filter catches freefall sessions (today's AAOI at −1.07%); body filter catches dead-cat bounces. | P2 |
+| FR-019 | PDL/PWL/PML reclaim — tighter slope floor (slope ≥ −0.3%) + same body filter as FR-018 + volume ≥ 1.0× (notch higher than held — broken-level recovery needs real conviction). | P2 |
 
 ## Non-functional requirements
 
@@ -428,52 +445,84 @@ could demand +0.10% (only chase obvious momentum); pullbacks +0.05%
 (can buy borderline trends if structure aligns); AVWAP-held +0.05%.
 Each threshold an env var, so tuning happens without code deploys.
 
-### The one rule family that opts out: PDL / PWL / PML defense
+### Every rule has a slope gate — the threshold differs by trade thesis
 
-The asymmetry is structural, not arbitrary. PDL defense is **the
-reversal play**, fired specifically when the session has been bleeding
-to make a new low. Slope is negative by definition. Requiring positive
-slope on PDL would kill the entire family's reason to exist.
+Earlier draft of this section said "PDL family opts out of slope" — that
+was wrong. Slope matters universally; it's just applied differently for
+reversal rules vs continuation rules.
 
-The PDL family substitutes **structural risk control** (tight stop right
-under the level — if it fails, loss is bounded to ~30 bps) for the
-slope gate. Volume floor also drops — you're not betting on continuation,
-you're betting the level holds. Different game, different rules.
+For PDL defense, slope at the moment of the test is usually negative
+(the session has been bleeding to make a new low — that's WHY price is
+testing PDL). But **how negative** is what determines whether buyers
+will step in:
 
-So the philosophy is clean:
+- Slope **mildly negative** (−0.10% to −0.50%) → session bleeding but not
+  crashing. Buyers step in at known support. PDL defense tends to work.
+- Slope **strongly negative** (< −0.50%) → active selloff. Even known
+  support gets vaporized. PDL "defense" is just a brief stop on the way
+  down. Today's AAOI at slope −1.07% is the textbook freefall — failed.
+- Slope **positive** → unusual to be at PDL. Rare scenario.
 
-> **Continuation rules require positive slope. The reversal rule
-> (PDL family) requires tight structural stops instead.**
+The asymmetry is **inverted threshold**, not absent threshold:
 
-That asymmetry is the architectural heart of v2.
+| Rule thesis | Slope gate | Why |
+|---|---|---|
+| Continuation (pullback, breakout, MA bounce, AVWAP held, gap-up) | `slope ≥ +0.05%` | Need session to be trending up — you're riding momentum |
+| Support defense from above (PDL/PWL/PML held) | `slope ≥ −0.50%` | Slope can be negative, just not freefall — buyers willing to step in |
+| Support recovery (PDL/PWL/PML reclaim) | `slope ≥ −0.30%` | Tighter floor — session needs to be recovering, not still crashing |
+
+Same signal, three thresholds. Tunable independently per family via
+env var. The philosophical anchor is universal:
+
+> **Every rule has a slope gate. Continuation rules require positive
+> slope; reversal rules require non-freefall slope. The slope is the
+> session truth-teller for both — the threshold tells you which trade
+> thesis you're betting on.**
+
+That uniform-but-asymmetric framework is the architectural heart of v2.
 
 ## Final architecture — rule families and what's built in
 
-After v2 ships, the alert universe shrinks to **four orthogonal rule
-families**, each engineered around a distinct structural event with the
-right confluence and volume gating baked in:
+After v2 ships, the alert universe organizes into **six rule families**,
+each engineered around a distinct structural event. **Every family uses
+VWAP slope as the session truth-teller — the threshold differs by trade
+thesis (positive for continuation, mild-negative for reversal).**
 
-| Family | Rules | What's built in |
-|---|---|---|
-| **Breakout above resistance** | `staged_pdh_break`, `staged_pwh_break`, `staged_pmh_break` | level break + close > VWAP + VWAP slope ≥ +0.05% + volume ≥ 2.0 + MA stack |
-| **Defense of support** | `staged_pdl_held`, `pwl_held`, `pml_held`, `staged_pdl_reclaim`, `pwl_reclaim`, `pml_reclaim` | level test (low ≤ level × 1.003) + close buffer ≥ 25 bps + MA stack — **no volume floor** (level IS the risk) |
-| **Pullback continuation** | `pullback_long` (VWAP-anchored rewrite) | VWAP test (low ≤ vwap) + close > VWAP + slope ≥ +0.05% + volume ≥ 1.2 + PDH headroom ≥ 1.5% + MA stack |
-| **Gap-and-go (new)** | `gap_up_continuation_long` | open > PDH + close > PDH + close > VWAP + slope ≥ +0.05% + volume ≥ 1.5 + MA stack |
+| Family | Rules | Slope gate | Volume | Close>VWAP | Other |
+|---|---|---|---|---|---|
+| **Breakout above resistance** | `staged_pdh_break`, `pwh_break`, `pmh_break` | `≥ +0.05%` | `≥ 2.0×` | required | level break + MA stack |
+| **Continuation pullback** | `pullback_long` (VWAP-anchored), MA bounce family (FR-017) | `≥ +0.05%` | `≥ 1.2×` | required | VWAP test + 1.5% PDH headroom + MA stack |
+| **Gap-and-go** | `gap_up_continuation_long` | `≥ +0.05%` | `≥ 1.5×` | required | open > PDH + MA stack |
+| **AVWAP defense** | `staged_mtd_avwap_held`, `pm_avwap_held`, `p2m_avwap_held` | `≥ +0.05%` | `≥ 1.0×` | required | close > daily EMA21 + real body + 15-min warmup |
+| **Former-resistance defense** | `staged_pdh_held`, `pwh_held`, `pmh_held` | `≥ +0.05%` | `≥ 1.2×` | required | close buffer ≥ 25 bps |
+| **Support defense (reversal)** | `staged_pdl_held`, `pwl_held`, `pml_held` (FR-018) | `≥ −0.50%` | `≥ 0.8×` | NOT required | bullish bar + close in upper half + 25 bps buffer |
+| **Support recovery (reversal)** | `staged_pdl_reclaim`, `pwl_reclaim`, `pml_reclaim` (FR-019) | `≥ −0.30%` | `≥ 1.0×` | NOT required | bullish bar + close in upper half |
 
-**VWAP slope and "close > VWAP" appear in 3 of 4 families** because they
-ARE the session-strength check. The 4th family (level defense) substitutes
-structural risk (tight stop under level) for the slope gate.
+**The slope-gate threshold differs by family**, not the presence of the
+gate itself. Five families demand positive slope (continuation thesis).
+Two families (PDL/PWL/PML held + reclaim) demand non-freefall slope
+(reversal thesis — you're betting the level holds against a bleeding
+session, not a crashing one).
 
-**Volume gating is asymmetric on purpose** (P2.5). Resistance-side and
-no-level rules need volume to confirm conviction. Support-side rules
-don't — the structural stop is your protection regardless of how loud
-the bar was.
+**Volume is asymmetric** (P2.5 refined). Continuation rules need 1.2–2.0×.
+PDL family soft floors at 0.8× (held) and 1.0× (reclaim) — tight
+structural stops protect downside but volume still has to confirm buyers
+exist.
+
+**"Close > VWAP" is required only for continuation rules.** Reversal
+rules deliberately fire while price is below VWAP — that's the whole
+point of catching the session low.
+
+**Real bullish body filter** (FR-015) applies to AVWAP held, PDL held,
+PDL reclaim, and similar where doji / distribution bars could otherwise
+trigger the close-above-level condition. Catches the LITE distribution
+case and the PDL dead-cat bounces.
 
 **No standalone VWAP-only rule.** Bare VWAP reclaim without level
-confluence is too noisy on its own. The breakout-family rules above
-already capture every high-quality VWAP-cross event by virtue of the
-geometry (PDH break + above VWAP almost always co-occur). The pullback
-rewrite catches the VWAP-as-support intraday continuation.
+confluence is too noisy on its own. Breakout-family rules already capture
+high-quality VWAP-cross events via geometry (PDH break + above VWAP
+almost always co-occur). The pullback rewrite catches VWAP-as-support
+intraday continuation.
 
 ## What's NOT in this spec
 
