@@ -379,10 +379,10 @@ function StepDone() {
           Open Trading
         </button>
         <button
-          onClick={() => navigate("/dashboard", { replace: true })}
+          onClick={() => navigate("/trade-ideas", { replace: true })}
           className="flex items-center justify-center gap-2 bg-surface-3 hover:bg-surface-4 text-text-primary font-medium py-3 px-8 rounded-xl border border-border-subtle transition-colors"
         >
-          Go to Dashboard
+          See Trade Ideas
         </button>
       </div>
     </div>

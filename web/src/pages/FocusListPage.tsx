@@ -74,9 +74,9 @@ export default function FocusListPage() {
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-accent" />
             <div>
-              <h1 className="text-lg font-bold text-text-primary">Focus List</h1>
+              <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
               <p className="text-[11px] text-text-muted">
-                Your saved AI Best Setups — review and plan your session.
+                Day trade setups, swing scanner output, and AI scans — what to look at this session.
               </p>
             </div>
           </div>

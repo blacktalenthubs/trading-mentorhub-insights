@@ -17,14 +17,11 @@ import OnboardingPage from "./pages/OnboardingPage";
 import AdminPage from "./pages/AdminPage";
 import RegisterPage from "./pages/RegisterPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
-import DashboardPage from "./pages/DashboardPage";
 import TradingPageV2 from "./pages/TradingPageV2";
 import RealTradesPage from "./pages/RealTradesPage";
 import SettingsPage from "./pages/SettingsPage";
 import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
-import TradeReviewPage from "./pages/TradeReviewPage";
-import EODReportPage from "./pages/EODReportPage";
 import PublicEODReportPage from "./pages/PublicEODReportPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
 import WatchlistPage from "./pages/WatchlistPage";
@@ -105,24 +102,26 @@ export default function App() {
                   </ProtectedRoute>
                 }
               >
-                <Route path="dashboard" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
-                <Route path="trading" element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
-                <Route path="trading-v1" element={<Navigate to="/trading" replace />} />
-                <Route path="review" element={<ErrorBoundary><TradeReviewPage /></ErrorBoundary>} />
-                <Route path="eod-report" element={<ErrorBoundary><EODReportPage /></ErrorBoundary>} />
-                <Route path="trades" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
-                <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
-                <Route path="billing" element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
-                <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
+                {/* 6-menu structure (2026-05-28) */}
+                <Route path="trading"     element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
+                <Route path="trade-ideas" element={<ErrorBoundary><FocusListPage /></ErrorBoundary>} />
+                <Route path="watchlist"   element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
+                <Route path="premarket"   element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
+                <Route path="performance" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
+                <Route path="settings"    element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+                <Route path="billing"     element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
+                <Route path="admin"       element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
 
-                <Route path="watchlist" element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
-                <Route path="premarket" element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
-                <Route path="focus-list" element={<ErrorBoundary><FocusListPage /></ErrorBoundary>} />
-
-                {/* Legacy redirects */}
-                <Route path="scanner" element={<Navigate to="/trading" replace />} />
-                <Route path="charts" element={<Navigate to="/trading" replace />} />
-                <Route path="alerts" element={<Navigate to="/trading" replace />} />
+                {/* Legacy redirects — deep links + old bookmarks keep working */}
+                <Route path="dashboard"   element={<Navigate to="/trade-ideas" replace />} />
+                <Route path="focus-list"  element={<Navigate to="/trade-ideas" replace />} />
+                <Route path="trades"      element={<Navigate to="/performance" replace />} />
+                <Route path="review"      element={<Navigate to="/performance" replace />} />
+                <Route path="eod-report"  element={<Navigate to="/performance" replace />} />
+                <Route path="trading-v1"  element={<Navigate to="/trading" replace />} />
+                <Route path="scanner"     element={<Navigate to="/trading" replace />} />
+                <Route path="charts"      element={<Navigate to="/trading" replace />} />
+                <Route path="alerts"      element={<Navigate to="/trading" replace />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

@@ -374,7 +374,7 @@ export default function RealTradesPage() {
         {/* Header + Tab bar */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <h1 className="text-xl font-bold text-text-primary">Trades</h1>
+            <h1 className="text-xl font-bold text-text-primary">Performance</h1>
             <div className="flex bg-surface-2 rounded-lg p-0.5">
               <button
                 onClick={() => setActiveTab("day")}

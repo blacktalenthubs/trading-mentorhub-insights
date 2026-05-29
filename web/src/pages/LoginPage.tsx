@@ -33,7 +33,7 @@ export default function LoginPage() {
       // Await the Keychain write before navigating away — without awaiting,
       // a quick force-quit could lose the persistence.
       await setAuth(data.user, data.access_token, data.refresh_token);
-      navigate("/dashboard", { replace: true });
+      navigate("/trading", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

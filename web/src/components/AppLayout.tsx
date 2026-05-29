@@ -11,18 +11,15 @@ import { usePushNotifications } from "../hooks/usePushNotifications";
 import { useSignalNotifications } from "../hooks/useSignalNotifications";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
-  LayoutDashboard,
   Crosshair,
   ArrowLeftRight,
   Settings,
   LogOut,
   Sparkles,
-  PlayCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Star,
   Activity,
-  ListChecks,
   Target,
   type LucideIcon,
 } from "lucide-react";
@@ -34,27 +31,33 @@ interface NavItem {
   badge?: string;
 }
 
+// Consolidated 6-menu structure (2026-05-28). Each menu has a single,
+// distinct purpose:
+//   Trading      — live chart + signals (NOW)
+//   Trade Ideas  — what to look at this session (FORWARD; was Focus List)
+//   Watchlist    — symbol management
+//   Premarket    — pre-bell sector strength
+//   Performance  — post-trade retrospective (was Trades; absorbed Review +
+//                   EOD Report + AI Auto-Pilot dead-link)
+//   Settings
+// Dropped: Dashboard (90% duplicated other pages), Review, EOD Report,
+// AI Auto-Pilot (stale label, actually pointed at public EOD). Routes
+// for those still resolve via redirects in App.tsx so deep links work.
 const NAV_ITEMS: NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/trading", label: "Trading", icon: Crosshair },
-  { to: "/watchlist", label: "Watchlist", icon: Star },
-  { to: "/focus-list", label: "Focus List", icon: Target },
-  { to: "/premarket", label: "Premarket", icon: Activity },
-  { to: "/review", label: "Review", icon: PlayCircle },
-  { to: "/eod-report", label: "EOD Report", icon: ListChecks },
-  { to: "/track-record", label: "AI Auto-Pilot", icon: Sparkles },
-  { to: "/trades", label: "Trades", icon: ArrowLeftRight, badge: "0" },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/trading",     label: "Trading",     icon: Crosshair },
+  { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
+  { to: "/watchlist",   label: "Watchlist",   icon: Star },
+  { to: "/premarket",   label: "Premarket",   icon: Activity },
+  { to: "/performance", label: "Performance", icon: ArrowLeftRight },
+  { to: "/settings",    label: "Settings",    icon: Settings },
 ];
 
-// Mobile bottom tab bar — kept to 5 essential destinations.
-// Removed "Trades" (duplicate of Review's purpose) per user 2026-05-26.
 const MOBILE_TABS: NavItem[] = [
-  { to: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { to: "/trading", label: "Trade", icon: Crosshair },
-  { to: "/focus-list", label: "Focus", icon: Target },
-  { to: "/review", label: "Review", icon: PlayCircle },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/trading",     label: "Trade",  icon: Crosshair },
+  { to: "/trade-ideas", label: "Ideas",  icon: Target },
+  { to: "/premarket",   label: "AM",     icon: Activity },
+  { to: "/performance", label: "Perf",   icon: ArrowLeftRight },
+  { to: "/settings",    label: "More",   icon: Settings },
 ];
 
 const LS_KEY = "sidebar_collapsed";
