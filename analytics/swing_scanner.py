@@ -493,19 +493,35 @@ def swing_scan_cycle(sync_session_factory, force: bool = False, scan_email: Opti
 
         from analytics.swing_quality import evaluate_swing_quality
 
+        fetch_failures = 0
+        qualified = 0
         for symbol in symbols:
             hist = _fetch_daily(symbol)
             if hist is None:
+                fetch_failures += 1
                 continue
             users = symbol_users[symbol]
 
             # Entry — qualify the symbol for the current regime.
             q = evaluate_swing_quality(symbol, hist, regime, session_date=session)
             if q is not None:
+                qualified += 1
                 delivered += _deliver_entry(db, q, users, session, get_limits, enabled_types)
 
             # Exit — fire when an open swing on this symbol closed below its stop.
             delivered += _process_exits(db, symbol, hist, users, session, enabled_types)
 
-    logger.info("swing scan complete: regime=%s, %d deliveries", regime, delivered)
+    logger.info(
+        "swing scan complete: regime=%s, %d symbols, %d qualified, %d fetch fails, %d deliveries",
+        regime, len(symbols), qualified, fetch_failures, delivered,
+    )
+    # Attach diagnostics so the manual endpoint can surface them in the UI
+    # without us needing Railway log access every time a scan returns 0.
+    swing_scan_cycle.last_run = {
+        "regime": regime,
+        "symbols_scanned": len(symbols),
+        "symbols_qualified": qualified,
+        "fetch_failures": fetch_failures,
+        "delivered": delivered,
+    }
     return delivered

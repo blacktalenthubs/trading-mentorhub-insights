@@ -987,10 +987,19 @@ export function useSwingTradesHistory(limit = 50) {
   });
 }
 
+export interface SwingScanResult {
+  alerts_fired: number;
+  symbols_scanned?: number | null;
+  symbols_qualified?: number | null;
+  fetch_failures?: number | null;
+  regime?: string | null;
+  error?: string | null;
+}
+
 export function useTriggerSwingScan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<{ alerts_fired: number }>("/swing/scan"),
+    mutationFn: () => api.post<SwingScanResult>("/swing/scan"),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["swing-active"] });
       qc.invalidateQueries({ queryKey: ["swing-history"] });

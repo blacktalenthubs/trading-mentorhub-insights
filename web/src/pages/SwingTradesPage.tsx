@@ -45,11 +45,27 @@ export default function SwingTradesPage() {
     triggerScan.mutate(undefined, {
       onSuccess: (data) => {
         const n = data?.alerts_fired ?? 0;
-        toast.success(
-          n > 0
-            ? `Scan complete — ${n} new swing setup${n === 1 ? "" : "s"}`
-            : "Scan complete — no setups qualified today"
-        );
+        const scanned = data?.symbols_scanned ?? null;
+        const qualified = data?.symbols_qualified ?? null;
+        const failures = data?.fetch_failures ?? null;
+        if (data?.error) {
+          toast.error(`Scan failed: ${data.error}`);
+          return;
+        }
+        if (n > 0) {
+          toast.success(`Scan complete — ${n} new swing setup${n === 1 ? "" : "s"}`);
+          return;
+        }
+        // 0 alerts — explain why so we don't look like a broken button.
+        if (scanned === 0) {
+          toast.info("Add symbols to your watchlist first (scan found 0 symbols)");
+        } else if (failures !== null && scanned !== null && failures >= scanned && scanned > 0) {
+          toast.error(`Scan: yfinance failed for all ${scanned} symbols (rate limit or network)`);
+        } else if (qualified === 0 && scanned) {
+          toast.info(`Scan: ${scanned} symbols checked, none qualified under current rules`);
+        } else {
+          toast.info("Scan complete — no setups qualified");
+        }
       },
       onError: () => toast.error("Scan failed — try again"),
     });

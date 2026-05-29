@@ -33,3 +33,11 @@ class SwingTradeResponse(BaseModel):
 
 class SwingScanResponse(BaseModel):
     alerts_fired: int
+    # Diagnostics for the manual Run-Scan button. Lets the UI explain WHY a
+    # scan produced 0 alerts (most likely: yfinance fetch failed silently
+    # for every symbol, or no symbol qualified under the current ruleset).
+    symbols_scanned: Optional[int] = None
+    symbols_qualified: Optional[int] = None
+    fetch_failures: Optional[int] = None
+    regime: Optional[str] = None
+    error: Optional[str] = None
