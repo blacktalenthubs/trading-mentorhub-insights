@@ -1,0 +1,157 @@
+//@version=5
+indicator("Anchored VWAP — manual dates", overlay=true, max_labels_count=20, max_bars_back=500)
+
+// VISUAL-ONLY. No alerts. Lets you pick UP TO FOUR specific dates to
+// anchor a VWAP from — the recent swing high you care about, the gap-up
+// day, the earnings reversal, the 52-week low, whatever. Each anchor is
+// independently toggleable with its own date, label, and color.
+//
+// How to use:
+//   1. Add to chart.
+//   2. Open indicator settings (click the gear).
+//   3. For each anchor you want, enable it and pick the date.
+//      (Date picker is in the Settings panel — Pine doesn't expose
+//      a click-the-chart-to-pick-date, so you read the date off the
+//      chart and type it in. Use the chart crosshair to find the
+//      exact bar.)
+//   4. AVWAP draws from that date forward.
+//
+// Tips:
+//   - For an anchor at a swing HIGH (resistance / target): pick the
+//     date of the high. AVWAP will slope down from there as a ceiling.
+//   - For an anchor at a swing LOW (dynamic support): pick the date of
+//     the low. AVWAP will slope up from there as a floor.
+//   - For a major event (gap day / earnings / FOMC): anchor to the
+//     event day to see "where the average buyer/seller from that day
+//     stands now."
+//   - Multiple anchors stacked tell a story: if price is BELOW the
+//     swing-low AVWAP AND BELOW the earnings-day AVWAP, all classes of
+//     buyers since both events are underwater.
+
+// ── Anchor 1 ─────────────────────────────────────────────────────────
+a1On   = input.bool(true,  "Anchor 1", group = "Anchor 1", inline = "a1")
+a1Date = input.time(timestamp("2026-05-01T13:30:00-04:00"), "Date", group = "Anchor 1", inline = "a1")
+a1Lbl  = input.string("Anchor 1", "Label", group = "Anchor 1")
+a1Col  = input.color(color.red, "Color", group = "Anchor 1")
+
+// ── Anchor 2 ─────────────────────────────────────────────────────────
+a2On   = input.bool(false, "Anchor 2", group = "Anchor 2", inline = "a2")
+a2Date = input.time(timestamp("2026-04-01T13:30:00-04:00"), "Date", group = "Anchor 2", inline = "a2")
+a2Lbl  = input.string("Anchor 2", "Label", group = "Anchor 2")
+a2Col  = input.color(color.blue, "Color", group = "Anchor 2")
+
+// ── Anchor 3 ─────────────────────────────────────────────────────────
+a3On   = input.bool(false, "Anchor 3", group = "Anchor 3", inline = "a3")
+a3Date = input.time(timestamp("2026-03-01T13:30:00-04:00"), "Date", group = "Anchor 3", inline = "a3")
+a3Lbl  = input.string("Anchor 3", "Label", group = "Anchor 3")
+a3Col  = input.color(color.orange, "Color", group = "Anchor 3")
+
+// ── Anchor 4 ─────────────────────────────────────────────────────────
+a4On   = input.bool(false, "Anchor 4", group = "Anchor 4", inline = "a4")
+a4Date = input.time(timestamp("2026-02-01T13:30:00-04:00"), "Date", group = "Anchor 4", inline = "a4")
+a4Lbl  = input.string("Anchor 4", "Label", group = "Anchor 4")
+a4Col  = input.color(color.purple, "Color", group = "Anchor 4")
+
+// ── Style ────────────────────────────────────────────────────────────
+lw            = input.int(3, "Line width", minval = 1, maxval = 6, group = "Style")
+showEndLbl    = input.bool(true,  "End-of-line label", group = "Style")
+showAnchorTag = input.bool(true,  "Tag the anchor bar", group = "Style")
+labelTz       = input.string("America/New_York", "Label timezone", group = "Style")
+
+src = hlc3
+
+// ── % distance from current close to a level ─────────────────────────
+f_pctStr(float level) =>
+    pct = (close - level) / level * 100
+    (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
+
+// ── AVWAP from a fixed anchor bar_index. Returns na when bar_index
+// hasn't reached the anchor yet. Guarded for na anchor too.
+f_avwap_from_anchor(int anchorBar) =>
+    pvSum = 0.0
+    vvSum = 0.0
+    if not na(anchorBar) and bar_index >= anchorBar
+        offset = bar_index - anchorBar
+        for i = offset to 0
+            pvSum := pvSum + nz(src[i] * volume[i], 0.0)
+            vvSum := vvSum + nz(volume[i], 0.0)
+    vvSum > 0 ? pvSum / vvSum : na
+
+// ── Resolve each anchor date to a bar_index. The first bar whose
+// `time` reaches the anchor timestamp becomes the anchor bar. var-state
+// so it sticks once set; recomputed only when the user changes the
+// input (Pine reloads the script).
+var int a1Bar = na
+var int a2Bar = na
+var int a3Bar = na
+var int a4Bar = na
+if na(a1Bar) and time >= a1Date
+    a1Bar := bar_index
+if na(a2Bar) and time >= a2Date
+    a2Bar := bar_index
+if na(a3Bar) and time >= a3Date
+    a3Bar := bar_index
+if na(a4Bar) and time >= a4Date
+    a4Bar := bar_index
+
+avwap1 = f_avwap_from_anchor(a1Bar)
+avwap2 = f_avwap_from_anchor(a2Bar)
+avwap3 = f_avwap_from_anchor(a3Bar)
+avwap4 = f_avwap_from_anchor(a4Bar)
+
+// ── Plots ────────────────────────────────────────────────────────────
+plot(a1On ? avwap1 : na, "AVWAP 1", color = a1Col, linewidth = lw)
+plot(a2On ? avwap2 : na, "AVWAP 2", color = a2Col, linewidth = lw)
+plot(a3On ? avwap3 : na, "AVWAP 3", color = a3Col, linewidth = lw)
+plot(a4On ? avwap4 : na, "AVWAP 4", color = a4Col, linewidth = lw)
+
+// ── End-of-line labels ──────────────────────────────────────────────
+var label lbl1 = na
+var label lbl2 = na
+var label lbl3 = na
+var label lbl4 = na
+
+if barstate.islast and showEndLbl
+    label.delete(lbl1)
+    label.delete(lbl2)
+    label.delete(lbl3)
+    label.delete(lbl4)
+    if a1On and not na(avwap1)
+        lbl1 := label.new(bar_index, avwap1, a1Lbl + " · $" + str.tostring(avwap1, "#.##") + " (" + f_pctStr(avwap1) + ")", style = label.style_label_left, color = a1Col, textcolor = color.white, size = size.small)
+    if a2On and not na(avwap2)
+        lbl2 := label.new(bar_index, avwap2, a2Lbl + " · $" + str.tostring(avwap2, "#.##") + " (" + f_pctStr(avwap2) + ")", style = label.style_label_left, color = a2Col, textcolor = color.white, size = size.small)
+    if a3On and not na(avwap3)
+        lbl3 := label.new(bar_index, avwap3, a3Lbl + " · $" + str.tostring(avwap3, "#.##") + " (" + f_pctStr(avwap3) + ")", style = label.style_label_left, color = a3Col, textcolor = color.white, size = size.small)
+    if a4On and not na(avwap4)
+        lbl4 := label.new(bar_index, avwap4, a4Lbl + " · $" + str.tostring(avwap4, "#.##") + " (" + f_pctStr(avwap4) + ")", style = label.style_label_left, color = a4Col, textcolor = color.white, size = size.small)
+
+// ── Anchor-bar tags (so you can see at a glance where each line starts) ──
+var label tag1 = na
+var label tag2 = na
+var label tag3 = na
+var label tag4 = na
+
+if barstate.islast and showAnchorTag
+    label.delete(tag1)
+    label.delete(tag2)
+    label.delete(tag3)
+    label.delete(tag4)
+    if a1On and not na(a1Bar)
+        tag1 := label.new(a1Bar, high[bar_index - a1Bar], str.format_time(a1Date, "M/d", labelTz) + " · " + a1Lbl, style = label.style_label_down, color = a1Col, textcolor = color.white, size = size.small, yloc = yloc.price)
+    if a2On and not na(a2Bar)
+        tag2 := label.new(a2Bar, high[bar_index - a2Bar], str.format_time(a2Date, "M/d", labelTz) + " · " + a2Lbl, style = label.style_label_down, color = a2Col, textcolor = color.white, size = size.small, yloc = yloc.price)
+    if a3On and not na(a3Bar)
+        tag3 := label.new(a3Bar, high[bar_index - a3Bar], str.format_time(a3Date, "M/d", labelTz) + " · " + a3Lbl, style = label.style_label_down, color = a3Col, textcolor = color.white, size = size.small, yloc = yloc.price)
+    if a4On and not na(a4Bar)
+        tag4 := label.new(a4Bar, high[bar_index - a4Bar], str.format_time(a4Date, "M/d", labelTz) + " · " + a4Lbl, style = label.style_label_down, color = a4Col, textcolor = color.white, size = size.small, yloc = yloc.price)
+
+// ── Status when no anchor has been reached yet by the current data ──
+// (e.g., user picked a date in the future, or chart history doesn't go
+// back far enough to reach the picked date)
+var label statusLbl = na
+anyEnabled = a1On or a2On or a3On or a4On
+anyResolved = (a1On and not na(a1Bar)) or (a2On and not na(a2Bar)) or (a3On and not na(a3Bar)) or (a4On and not na(a4Bar))
+if barstate.islast
+    label.delete(statusLbl)
+    if anyEnabled and not anyResolved
+        statusLbl := label.new(bar_index, high, "No anchor date reached by chart data.\nCheck the dates in settings — pick a date this chart covers.", style = label.style_label_lower_left, color = color.new(color.gray, 20), textcolor = color.white, size = size.small, yloc = yloc.abovebar)
