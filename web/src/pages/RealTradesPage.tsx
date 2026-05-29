@@ -13,11 +13,14 @@ import {
   useAlertSessionDates, useAlertsForDate,
   useAlertTypePerformance, useSetAlertExit,
 } from "../api/hooks";
-import SwingTradesPage from "./SwingTradesPage";
+import EODReportPage from "./EODReportPage";
+import TradeReviewPage from "./TradeReviewPage";
 import type { Alert } from "../types";
 import {
   BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileText, Check,
 } from "lucide-react";
+
+type PerfTab = "by-pattern" | "today-eod" | "by-symbol" | "sessions";
 
 /* ── helpers ──────────────────────────────────────────────────────── */
 
@@ -364,43 +367,53 @@ function AlertTypePerformanceSection() {
 
 /* ── Main Trades Page ─────────────────────────────────────────────── */
 
+const PERF_TABS: { id: PerfTab; label: string }[] = [
+  { id: "by-pattern", label: "By Pattern" },
+  { id: "today-eod",  label: "Today's EOD" },
+  { id: "by-symbol",  label: "By Symbol" },
+  { id: "sessions",   label: "Sessions" },
+];
+
 export default function RealTradesPage() {
-  const [activeTab, setActiveTab] = useState<"day" | "swing">("day");
+  const [activeTab, setActiveTab] = useState<PerfTab>(() => {
+    if (typeof window === "undefined") return "by-pattern";
+    return (localStorage.getItem("perf_active_tab") as PerfTab) || "by-pattern";
+  });
+  function pickTab(t: PerfTab) {
+    setActiveTab(t);
+    try { localStorage.setItem("perf_active_tab", t); } catch {}
+  }
 
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-6">
 
         {/* Header + Tab bar */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-6">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-6 flex-wrap">
             <h1 className="text-xl font-bold text-text-primary">Performance</h1>
-            <div className="flex bg-surface-2 rounded-lg p-0.5">
-              <button
-                onClick={() => setActiveTab("day")}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  activeTab === "day"
-                    ? "bg-surface-4 text-text-primary shadow-sm"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                Day Trades
-              </button>
-              <button
-                onClick={() => setActiveTab("swing")}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  activeTab === "swing"
-                    ? "bg-surface-4 text-text-primary shadow-sm"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                Swing Trades
-              </button>
+            <div className="flex bg-surface-2 rounded-lg p-0.5 flex-wrap">
+              {PERF_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => pickTab(t.id)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                    activeTab === t.id
+                      ? "bg-surface-4 text-text-primary shadow-sm"
+                      : "text-text-muted hover:text-text-secondary"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
 
-        {activeTab === "day" ? <DayTradesContent /> : <SwingTradesPage />}
+        {activeTab === "by-pattern" && <DayTradesContent />}
+        {activeTab === "today-eod"  && <div className="-mx-5 -mb-5"><EODReportPage /></div>}
+        {activeTab === "by-symbol"  && <div className="-mx-5 -mb-5"><TradeReviewPage /></div>}
+        {activeTab === "sessions"   && <SessionBrowser />}
       </div>
     </div>
   );
@@ -458,9 +471,6 @@ function DayTradesContent() {
 
       {/* Per-alert-type performance — real R-multiple from recorded exits */}
       <AlertTypePerformanceSection />
-
-      {/* Session Browser — expand any Took alert to enter exit price */}
-      <SessionBrowser />
     </>
   );
 }

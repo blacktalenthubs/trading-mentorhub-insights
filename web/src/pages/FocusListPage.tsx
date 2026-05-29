@@ -1,9 +1,15 @@
-/** Focus List — dedicated page for reviewing persisted AI Best Setups scans. */
+/** Trade Ideas — forward-looking ideas grouped by source.
+ *  Tabs: Day Trades (Pine-rule alerts), Swing Trades (daily-bar scanner),
+ *  AI Scans (AI Best Setups, the original FocusListPage content).
+ *  File kept as FocusListPage.tsx for git history; the export wraps three
+ *  tab subviews. Old route /focus-list redirects to /trade-ideas in App.tsx.
+ */
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Target, History, Sparkles } from "lucide-react";
+import { RefreshCw, Target, History, Sparkles, Crosshair } from "lucide-react";
 import {
+  useAlertsToday,
   useLatestFocusList,
   useFocusListHistory,
   useFocusListDetail,
@@ -11,6 +17,9 @@ import {
   type FocusListHistoryItem,
 } from "../api/hooks";
 import FocusListView from "../components/FocusListView";
+import SwingTradesPage from "./SwingTradesPage";
+
+type IdeasTab = "day" | "swing" | "ai";
 
 function historyLabel(item: FocusListHistoryItem): string {
   const iso = item.generated_at;
@@ -33,7 +42,130 @@ function historyLabel(item: FocusListHistoryItem): string {
   return `${when} · ${win} · ${tag}`;
 }
 
+const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Crosshair }[] = [
+  { id: "day",   label: "Day Trades",   icon: Crosshair },
+  { id: "swing", label: "Swing Trades", icon: Target },
+  { id: "ai",    label: "AI Scans",     icon: Sparkles },
+];
+
 export default function FocusListPage() {
+  const [tab, setTab] = useState<IdeasTab>(() => {
+    if (typeof window === "undefined") return "day";
+    return (localStorage.getItem("ideas_active_tab") as IdeasTab) || "day";
+  });
+  function pickTab(t: IdeasTab) {
+    setTab(t);
+    try { localStorage.setItem("ideas_active_tab", t); } catch {}
+  }
+
+  return (
+    <div className="h-full overflow-y-auto bg-surface-0">
+      <div className="mx-auto max-w-4xl px-4 py-5 space-y-4">
+        {/* Header + tab bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Target className="h-5 w-5 text-accent" />
+            <div>
+              <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
+              <p className="text-[11px] text-text-muted">
+                Day trade setups, swing scanner output, and AI scans — what to look at this session.
+              </p>
+            </div>
+          </div>
+          <div className="flex bg-surface-2 rounded-lg p-0.5">
+            {IDEAS_TABS.map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => pickTab(t.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                    tab === t.id
+                      ? "bg-surface-4 text-text-primary shadow-sm"
+                      : "text-text-muted hover:text-text-secondary"
+                  }`}
+                >
+                  <Icon className="h-3 w-3" />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {tab === "day" && <DayTradesTab />}
+        {tab === "swing" && <SwingTradesPage />}
+        {tab === "ai" && <AIScansTab />}
+      </div>
+    </div>
+  );
+}
+
+/* ── Day Trades tab — today's Pine-rule alerts grouped by symbol ── */
+
+function DayTradesTab() {
+  const navigate = useNavigate();
+  const { data: alerts } = useAlertsToday();
+
+  // BUY alerts only, dedup by symbol (latest one per symbol shows up).
+  const bySymbol = new Map<string, typeof alerts extends (infer T)[] | undefined ? T : never>();
+  (alerts ?? []).forEach((a) => {
+    if (a.direction !== "BUY") return;
+    if (a.user_action === "skipped") return;
+    const prev = bySymbol.get(a.symbol);
+    // Keep the most recent fire per symbol
+    if (!prev || a.created_at > prev.created_at) bySymbol.set(a.symbol, a);
+  });
+  const ideas = [...bySymbol.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+  if (!alerts) {
+    return <div className="text-center text-xs text-text-faint py-12">Loading…</div>;
+  }
+  if (ideas.length === 0) {
+    return (
+      <div className="bg-surface-1 border border-border-subtle rounded-xl p-8 text-center">
+        <Crosshair className="h-6 w-6 text-text-faint mx-auto mb-3" />
+        <p className="text-sm text-text-secondary">No day trade ideas firing right now.</p>
+        <p className="text-xs text-text-faint mt-1">When Pine alerts fire on your watchlist, they'll show up here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-text-faint">
+        Pine-rule alerts fired today, deduped to one entry per symbol (latest fire).
+        Tap a row to open the chart.
+      </p>
+      {ideas.map((a) => {
+        const time = new Date(a.created_at).toLocaleTimeString("en-US", {
+          hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago",
+        });
+        const ruleLabel = (a.alert_type || "").replace(/^tv_/, "").replace(/_/g, " ");
+        return (
+          <button
+            key={a.id}
+            onClick={() => navigate(`/trading?symbol=${encodeURIComponent(a.symbol)}`)}
+            className="w-full flex items-center gap-3 bg-surface-1 hover:bg-surface-2 border border-border-subtle rounded-lg px-4 py-2.5 text-left transition-colors"
+          >
+            <span className="font-mono text-[10px] text-text-faint w-12">{time}</span>
+            <span className="font-bold text-sm text-text-primary w-16">{a.symbol}</span>
+            <span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span>
+            <span className="text-xs text-text-muted flex-1 truncate">{ruleLabel}</span>
+            <span className="font-mono text-xs text-text-secondary">${a.price?.toFixed(2)}</span>
+            {a.user_action === "took" && (
+              <span className="text-[10px] text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">Took</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── AI Scans tab — the original AI Best Setups focus-list flow ── */
+
+function AIScansTab() {
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [cadencePrompt, setCadencePrompt] = useState(false);
@@ -67,24 +199,13 @@ export default function FocusListPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-surface-0">
-      <div className="mx-auto max-w-4xl px-4 py-5 space-y-4">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Target className="h-5 w-5 text-accent" />
-            <div>
-              <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
-              <p className="text-[11px] text-text-muted">
-                Day trade setups, swing scanner output, and AI scans — what to look at this session.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => runScan(false)}
-            disabled={runMut.isPending}
-            className="text-xs px-3 py-1.5 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-          >
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <button
+          onClick={() => runScan(false)}
+          disabled={runMut.isPending}
+          className="text-xs px-3 py-1.5 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+        >
             <RefreshCw className={`h-3.5 w-3.5 ${runMut.isPending ? "animate-spin" : ""}`} />
             {runMut.isPending ? "Scanning…" : "Run scan"}
           </button>
@@ -142,7 +263,6 @@ export default function FocusListPage() {
         {!loading && viewing && (
           <FocusListView list={viewing} onSelectSymbol={openChart} />
         )}
-      </div>
 
       {/* Cadence confirmation dialog */}
       {cadencePrompt && (
