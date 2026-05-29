@@ -77,6 +77,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pm_avwap_held",  "Prior-month AVWAP defended", "Anchored VWAP", False),
     ("staged_p2m_avwap_held", "2-months-prior AVWAP defended", "Anchored VWAP", False),
 
+    # Spec 60 (v2 — 2026-05-28) — volume-gated breakouts + gap-up continuation.
+    # The retired _break family from spec 58 is re-introduced with built-in
+    # VWAP confluence + 2.0× volume floor. Default-disabled; user opts in.
+    ("staged_pdh_break",        "PDH break · VWAP+vol confluence", "v2 · Breakouts", False),
+    ("staged_pwh_break",        "PWH break · VWAP+vol confluence", "v2 · Breakouts", False),
+    ("staged_pmh_break",        "PMH break · VWAP+vol confluence", "v2 · Breakouts", False),
+    ("gap_up_continuation_long","Gap-up continuation (opened above PDH)", "v2 · Gap-and-go", False),
+
     # Swing scanner — daily-bar entries from analytics/swing_scanner.py
     # (un-retired 2026-05-28 — scheduled scan + push delivery added).
     # All default-disabled; user toggles per-pattern in Settings.
@@ -120,8 +128,8 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # Open-line entries — retired spec 58 FR-007 (open line stays visual)
     "open_reclaimed", "open_held", "open_wick_reclaim", "open_lost",
 
-    # Breakout-into-resistance LONG — retired spec 58 FR-005
-    "staged_pdh_break", "staged_pwh_break", "staged_pmh_break",
+    # Breakout-into-resistance LONG — RE-INTRODUCED spec 60 with built-in
+    # VWAP confluence + volume gate. NOT in OBSOLETE list anymore.
 
     # All SHORT alerts — removed from Pine 2026-05-23 (long-only Pine)
     "staged_pdh_rejection", "staged_pdh_failed_short", "staged_pdl_break",

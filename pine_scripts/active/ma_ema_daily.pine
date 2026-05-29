@@ -72,6 +72,17 @@ pullback_lookback     = input.int  (3,    "Pullback lookback (bars before the re
 pullback_min_down     = input.int  (2,    "Min down-close bars within lookback", minval = 1, maxval = 6, group = "Pullback continuation")
 pullback_require_ema50 = input.bool(false, "Stricter uptrend: also require price above EMA50", group = "Pullback continuation")
 
+// Spec 60 — alert quality v2. VWAP-anchored pullback gates (2026-05-28).
+// Replaces the level-agnostic "2 down bars + green resume" with structural
+// VWAP test + session slope + PDH headroom + volume. See server-side gates
+// in tv_webhook.py for the matching thresholds — Pine sends fields, server
+// can re-tune without Pine republish via env vars.
+pullback_v2_enable     = input.bool  (true,  "v2: require VWAP test (low ≤ VWAP, close > VWAP)", group = "Pullback continuation")
+pullback_v2_slope_min  = input.float (0.05, "v2: minimum VWAP slope (%) over slope_lookback bars", minval = -0.5, maxval = 1.0, step = 0.01, group = "Pullback continuation")
+pullback_v2_vol_min    = input.float (1.2,  "v2: minimum volume_ratio on resume bar", minval = 0.5, maxval = 3.0, step = 0.1, group = "Pullback continuation")
+pullback_v2_headroom_pct = input.float (1.5, "v2: minimum % headroom to PDH (kills overhead-resistance trades)", minval = 0.5, maxval = 5.0, step = 0.1, group = "Pullback continuation")
+vwap_slope_lookback    = input.int   (20,   "VWAP slope lookback (bars) for slope % calc", minval = 5, maxval = 60, group = "Pullback continuation")
+
 // Proximity NOTICE alerts — fires when bar holds NEAR an MA without touching.
 // Catches gap-up holds where price found buyers a few ticks above the level
 // (e.g., ORCL 2026-05-04: post-gap drift to within 0.3% of EMA100, bounced).
@@ -358,6 +369,18 @@ else if s_fire_s200
 vol_avg = ta.sma(volume, vol_avg_lookback)
 volume_ratio = vol_avg > 0 ? volume / vol_avg : na
 
+// Session VWAP + slope (spec 60 — v2 quality gates) --------------------------
+// Native session VWAP (resets at session open). Slope is % change over a
+// configurable lookback — positive means session is climbing (institutional
+// accumulation), negative means distribution. Same lens used by the staged_*
+// rules in levels_day_vwap.pine; mirroring it here so pullback_long can emit
+// these fields to the webhook payload and the server-side v2 quality gate
+// can apply slope filtering.
+session_vwap = ta.vwap(close)
+vwap_past = session_vwap[vwap_slope_lookback]
+vwap_slope_pct = not na(vwap_past) and vwap_past > 0 ? (session_vwap - vwap_past) / vwap_past * 100 : na
+above_vwap = not na(session_vwap) and close > session_vwap
+
 bar_range = high - low
 buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
 sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
@@ -409,7 +432,10 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","uptrend_pass":"' + (uptrend_pass ? "true" : "false")
       + '","overhead_mas":"' + overhead_mas_str
       + '","nearby_levels":"' + nearby_levels_csv
-      + '","mtd_avwap":"' + (na(mtd_avwap) ? "" : str.tostring(mtd_avwap, "#.##")) + '"}'
+      + '","mtd_avwap":"' + (na(mtd_avwap) ? "" : str.tostring(mtd_avwap, "#.##"))
+      + '","vwap":"' + (na(session_vwap) ? "" : str.tostring(session_vwap, "#.##"))
+      + '","vwap_slope_pct":"' + (na(vwap_slope_pct) ? "" : str.tostring(vwap_slope_pct, "#.##"))
+      + '","above_vwap":"' + (above_vwap ? "true" : "false") + '"}'
 
 // S0 targets — the MAs on the far side of entry are the structural targets.
 //   LONG  → the nearest MAs ABOVE entry (overhead resistance to aim for).
@@ -509,7 +535,20 @@ for pb_i = 1 to pullback_lookback
         pb_down_count := pb_down_count + 1
 pb_pulled_back = pb_down_count >= pullback_min_down
 pb_resume = close > open and not na(high[1]) and close > high[1]
-fire_pullback = fire_pullback_alerts and pb_uptrend and pb_pulled_back and pb_resume
+
+// Spec 60 — v2 quality gates. Only apply when pullback_v2_enable is true,
+// so the rule can be A/B'd via the input. Each sub-condition guarded
+// against na so missing payload (e.g., early-session VWAP not stable yet)
+// fails open rather than crashing the script. Pine v5 doesn't short-circuit
+// AND, so explicit na guards are required on every term that touches a
+// potentially-na series.
+pb_v2_vwap_test = (not na(session_vwap)) and low <= session_vwap and close > session_vwap
+pb_v2_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= pullback_v2_slope_min
+pb_v2_vol_ok = (not na(volume_ratio)) and volume_ratio >= pullback_v2_vol_min
+pb_v2_headroom_ok = na(pdh) or (close > 0 and (pdh - close) / close * 100 >= pullback_v2_headroom_pct)
+pb_v2_gates = (not pullback_v2_enable) or (pb_v2_vwap_test and pb_v2_slope_ok and pb_v2_vol_ok and pb_v2_headroom_ok)
+
+fire_pullback = fire_pullback_alerts and pb_uptrend and pb_pulled_back and pb_resume and pb_v2_gates
 // ta.lowest computed at top level (not inside the conditional) — ta.* funcs
 // need to run every bar to keep their historical buffer consistent.
 pb_low = ta.lowest(low, pullback_lookback + 1)

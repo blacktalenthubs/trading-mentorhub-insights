@@ -71,6 +71,13 @@ vol_avg_lookback  = input.int (20,    "Volume average lookback (bars)", minval =
 cvd_lookback      = input.int (10,    "CVD divergence lookback (bars)", minval = 3, maxval = 30)
 vwap_setup_bars   = input.int (3,     "VWAP setup: bars on wrong side before reclaim/reject fires", minval = 1, maxval = 10)
 
+// Spec 60 — v2 break rule inputs (single-bar break with confluence) ----------
+fire_break_v2     = input.bool (true,  "Fire v2 break rules (PDH/PWH/PMH break with VWAP+vol confluence)", group = "Quality v2 — breaks")
+v2_break_vol_min  = input.float(2.0,   "v2 break: minimum volume_ratio",  minval = 1.0, maxval = 5.0, step = 0.1, group = "Quality v2 — breaks")
+v2_break_slope_min = input.float(0.05, "v2 break: minimum VWAP slope (%)", minval = -0.5, maxval = 1.0, step = 0.01, group = "Quality v2 — breaks")
+fire_gap_up_v2    = input.bool (true,  "Fire v2 gap_up_continuation_long (opened above PDH, makes HH)", group = "Quality v2 — gap-up")
+v2_gap_vol_min    = input.float(1.5,   "v2 gap: minimum volume_ratio",     minval = 0.5, maxval = 5.0, step = 0.1, group = "Quality v2 — gap-up")
+
 // =====================================================================
 // PDH / PDL
 // =====================================================================
@@ -225,6 +232,39 @@ s58_pdl_held = not na(pdl) and not na(close[1]) and close[1] > pdl and low <= pd
 s58_pwl_held = not na(pwl) and not na(close[1]) and close[1] > pwl and low <= pwl and close >= pwl
 s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pml and close >= pml
 
+// Spec 60 — v2 quality gates on *_held rules. Three layered structural
+// checks applied to every held rule's firing condition below:
+//   1. Close buffer ≥ 25 bps above the level — kills the "price oscillating
+//      on the level" pattern (NFLX 86.33 → 86.34 today fired three times).
+//   2. Bullish body — close > open AND body ≥ 40% of bar range. Catches
+//      doji / distribution bars that technically meet the close ≥ level
+//      condition but don't represent real defense (LITE 5.98× volume bar
+//      today that "held" then dumped).
+//   3. Close in upper half — (close - low) / (high - low) ≥ 0.5. Belt-and-
+//      suspenders against weak closes on otherwise-valid candles.
+v2_held_buffer_bps = input.float (25.0, "v2: minimum bps buffer above held level", minval = 5.0, maxval = 100.0, step = 5.0, group = "Quality v2")
+v2_body_pct_min    = input.float (0.40, "v2: minimum bullish body as % of bar range", minval = 0.1, maxval = 0.9, step = 0.05, group = "Quality v2")
+v2_held_gates_on   = input.bool  (true, "v2: apply quality gates to *_held rules", group = "Quality v2")
+
+bar_rng = high - low
+v2_body_ok = (not v2_held_gates_on) or (bar_rng > 0 and close > open and (close - open) / bar_rng >= v2_body_pct_min and (close - low) / bar_rng >= 0.5)
+v2_buf_pdh = (not v2_held_gates_on) or (not na(pdh) and pdh > 0 and (close - pdh) / pdh * 10000 >= v2_held_buffer_bps)
+v2_buf_pwh = (not v2_held_gates_on) or (not na(pwh) and pwh > 0 and (close - pwh) / pwh * 10000 >= v2_held_buffer_bps)
+v2_buf_pmh = (not v2_held_gates_on) or (not na(pmh) and pmh > 0 and (close - pmh) / pmh * 10000 >= v2_held_buffer_bps)
+v2_buf_pdl = (not v2_held_gates_on) or (not na(pdl) and pdl > 0 and (close - pdl) / pdl * 10000 >= v2_held_buffer_bps)
+v2_buf_pwl = (not v2_held_gates_on) or (not na(pwl) and pwl > 0 and (close - pwl) / pwl * 10000 >= v2_held_buffer_bps)
+v2_buf_pml = (not v2_held_gates_on) or (not na(pml) and pml > 0 and (close - pml) / pml * 10000 >= v2_held_buffer_bps)
+
+// Apply combined gates to each held trigger. The held detector still
+// computes the underlying pattern (used by visual markers); the alert-
+// firing logic below ANDs the v2 gates on top.
+s58_pdh_held_v2 = s58_pdh_held and v2_buf_pdh and v2_body_ok
+s58_pwh_held_v2 = s58_pwh_held and v2_buf_pwh and v2_body_ok
+s58_pmh_held_v2 = s58_pmh_held and v2_buf_pmh and v2_body_ok
+s58_pdl_held_v2 = s58_pdl_held and v2_buf_pdl and v2_body_ok
+s58_pwl_held_v2 = s58_pwl_held and v2_buf_pwl and v2_body_ok
+s58_pml_held_v2 = s58_pml_held and v2_buf_pml and v2_body_ok
+
 // Spec 58 (2026-05-23 evening) — monthly AVWAP defense detection.
 // Combined trigger: EITHER wick-and-hold (price was at/above the AVWAP,
 // wicked to it, closed above) OR lost-and-reclaim (price closed below
@@ -235,6 +275,23 @@ s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pm
 s58_mtd_avwap_held = not na(mtd_avwap_58) and not na(close[1]) and ((close[1] >= mtd_avwap_58 and low <= mtd_avwap_58 and close >= mtd_avwap_58) or (close[1] < mtd_avwap_58 and close >= mtd_avwap_58))
 s58_pm_avwap_held  = not na(pm_avwap_58)  and not na(close[1]) and ((close[1] >= pm_avwap_58  and low <= pm_avwap_58  and close >= pm_avwap_58)  or (close[1] < pm_avwap_58  and close >= pm_avwap_58))
 s58_p2m_avwap_held = not na(p2m_avwap_58) and not na(close[1]) and ((close[1] >= p2m_avwap_58 and low <= p2m_avwap_58 and close >= p2m_avwap_58) or (close[1] < p2m_avwap_58 and close >= p2m_avwap_58))
+
+// Spec 60 — v2 gates on AVWAP held rules (P2.6). The 2026-05-28 LITE case:
+// MTD AVWAP "held" fired with 5.98× volume — looked great structurally —
+// but LITE was in a daily downtrend and the bar was distribution, not
+// defense. Stock dumped −4.62%. Two new gates fix this:
+//   1. close > daily EMA21 — kills counter-trend AVWAP defenses where the
+//      stock is in a clear daily downtrend.
+//   2. Real bullish body (reuses v2_body_ok from above) — kills doji /
+//      distribution bars that technically meet close ≥ level.
+// Today's worked example: 3/3 winners retained (PLTR/MSFT/AMZN),
+// 3/3 losers killed (LITE/GOOGL/AAOI). LITE killed by daily EMA21;
+// GOOGL/AAOI killed by the basing-chop slope gate already in place.
+v2_avwap_trend_ok = (not v2_held_gates_on) or (not na(ema21_d) and close > ema21_d)
+
+s58_mtd_avwap_held_v2 = s58_mtd_avwap_held and v2_avwap_trend_ok and v2_body_ok
+s58_pm_avwap_held_v2  = s58_pm_avwap_held  and v2_avwap_trend_ok and v2_body_ok
+s58_p2m_avwap_held_v2 = s58_p2m_avwap_held and v2_avwap_trend_ok and v2_body_ok
 
 // =====================================================================
 // VWAP + slope
@@ -1012,6 +1069,57 @@ if false and pdh_break
     if htf_allowed(tf)
         dir = dir_for_tf(tf, "BUY")
         alert(build_payload_v2(tf_high_prefix(tf) + "break", dir, e, s, t1, t2, gap_context, confluence_resistance, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// Spec 60 — v2 break rules. Re-introduce the retired PDH/PWH/PMH break
+// family with built-in confluence: close > level + close[1] ≤ level
+// (single-bar break, no chasing) + close > VWAP + slope ≥ +0.05% + volume
+// ≥ 2.0× + uptrend_pass. Five orthogonal confirmations on one bar — the
+// rule cannot fire on weak fakeouts (the failure mode spec 58 was right
+// to worry about) but DOES fire on textbook breakouts like SPY through
+// $751.38 today. Catalog default-disabled; user opts in per type.
+v2_break_pdh = (not na(pdh)) and (not na(close[1])) and close > pdh and close[1] <= pdh
+v2_break_pwh = (not na(pwh)) and (not na(close[1])) and close > pwh and close[1] <= pwh
+v2_break_pmh = (not na(pmh)) and (not na(close[1])) and close > pmh and close[1] <= pmh
+
+v2_break_vol_ok = (not na(volume_ratio)) and volume_ratio >= v2_break_vol_min
+v2_break_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= v2_break_slope_min
+v2_break_vwap_ok = (not na(vwap_v)) and close > vwap_v
+v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok and v2_break_vwap_ok and uptrend_pass_58
+
+if v2_break_pdh and v2_break_confluence
+    e_b = close
+    s_b = low - atr_buffer
+    t1_b = not na(pwh) and pwh > e_b ? pwh : (not na(pmh) and pmh > e_b ? pmh : e_b * 1.015)
+    t2_b = not na(pmh) and pmh > t1_b ? pmh : t2_extend_long(e_b, t1_b)
+    alert(build_payload_v2("staged_pdh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if v2_break_pwh and v2_break_confluence
+    e_b = close
+    s_b = low - atr_buffer
+    t1_b = not na(pmh) and pmh > e_b ? pmh : e_b * 1.02
+    t2_b = t2_extend_long(e_b, t1_b)
+    alert(build_payload_v2("staged_pwh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if v2_break_pmh and v2_break_confluence
+    e_b = close
+    s_b = low - atr_buffer
+    t1_b = e_b * 1.03
+    t2_b = e_b * 1.05
+    alert(build_payload_v2("staged_pmh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// Spec 60 — gap_up_continuation_long. Catches ONDS-style trades that
+// gapped over PDH at the bell and never retest. None of the held/break
+// rules fire because there's no retest bar. Stop = first-15m low (NOT
+// the alert bar's low) — gap thesis breaks when price falls back through
+// the opening range, not when this individual bar dips.
+v2_gap_up_cont = fire_gap_up_v2 and (not na(today_open)) and (not na(pdh)) and today_open > pdh and close > pdh and high > today_open and (not na(vwap_v)) and close > vwap_v and (not na(vwap_slope_pct)) and vwap_slope_pct >= v2_break_slope_min and (not na(volume_ratio)) and volume_ratio >= v2_gap_vol_min and uptrend_pass_58 and (not na(bar1_low))
+
+if v2_gap_up_cont
+    e_g = close
+    s_g = bar1_low - atr_buffer * 0.5
+    t1_g = not na(pwh) and pwh > e_g ? pwh : e_g * 1.02
+    t2_g = not na(pmh) and pmh > t1_g ? pmh : t2_extend_long(e_g, t1_g)
+    alert(build_payload_v2("gap_up_continuation_long", "BUY", e_g, s_g, t1_g, t2_g, true, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 // Spec 58 (2026-05-23 night) — SHORT alerts removed from Pine.
 // This script now fires LONG entries only. The deleted blocks were:
 //   • pdh_rejection (SHORT — wick to PDH/PWH/PMH from below, closes back below)
@@ -1047,21 +1155,21 @@ if pdl_reclaim
 //     Held-from-above in a downtrend is a REVERSAL play, not continuation
 //     (e.g., SWMR holding WH 38.06 with overhead MA stack — valid setup).
 // Targets stack to the next higher level. Stop = day's low − ATR buffer.
-if s58_pdh_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_pdh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pdh  = pdh
     s_pdh  = low - atr_buffer
     t1_pdh = not na(pwh) and pwh > e_pdh ? pwh : (not na(pmh) and pmh > e_pdh ? pmh : e_pdh * 1.0075)
     t2_pdh = not na(pmh) and pmh > t1_pdh ? pmh : t2_extend_long(e_pdh, t1_pdh)
     alert(build_payload_v2("staged_pdh_held", "BUY", e_pdh, s_pdh, t1_pdh, t2_pdh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pwh_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_pwh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pwh  = pwh
     s_pwh  = low - atr_buffer
     t1_pwh = not na(pmh) and pmh > e_pwh ? pmh : e_pwh * 1.0075
     t2_pwh = t2_extend_long(e_pwh, t1_pwh)
     alert(build_payload_v2("staged_pwh_held", "BUY", e_pwh, s_pwh, t1_pwh, t2_pwh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pmh_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_pmh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pmh  = pmh
     s_pmh  = low - atr_buffer
     t1_pmh = e_pmh * 1.0075
@@ -1075,21 +1183,21 @@ if s58_pmh_held and (not uptrend_pass_58 or chop_gate_pass_58)
 // the corresponding _reclaim alert that fires later if the level fails).
 // Stop = wick low − ATR buffer. Targets stack to nearest overhead PDH/PWH/PMH.
 // Same gate as held-highs: bypass chop gate in downtrends (reversal play).
-if s58_pdl_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_pdl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pdl_h  = pdl
     s_pdl_h  = low - atr_buffer
     t1_pdl_h = not na(pdh) and pdh > e_pdl_h ? pdh : (not na(pwh) and pwh > e_pdl_h ? pwh : e_pdl_h * 1.015)
     t2_pdl_h = not na(pwh) and pwh > t1_pdl_h ? pwh : (not na(pmh) and pmh > t1_pdl_h ? pmh : t2_extend_long(e_pdl_h, t1_pdl_h))
     alert(build_payload_v2("staged_pdl_held", "BUY", e_pdl_h, s_pdl_h, t1_pdl_h, t2_pdl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pwl_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pwl_h  = pwl
     s_pwl_h  = low - atr_buffer
     t1_pwl_h = not na(pdh) and pdh > e_pwl_h ? pdh : (not na(pwh) and pwh > e_pwl_h ? pwh : e_pwl_h * 1.02)
     t2_pwl_h = not na(pwh) and pwh > t1_pwl_h ? pwh : (not na(pmh) and pmh > t1_pwl_h ? pmh : t2_extend_long(e_pwl_h, t1_pwl_h))
     alert(build_payload_v2("staged_pwl_held", "BUY", e_pwl_h, s_pwl_h, t1_pwl_h, t2_pwl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pml_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_pml_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pml_h  = pml
     s_pml_h  = low - atr_buffer
     t1_pml_h = not na(pwh) and pwh > e_pml_h ? pwh : (not na(pmh) and pmh > e_pml_h ? pmh : e_pml_h * 1.03)
@@ -1104,21 +1212,21 @@ if s58_pml_held and (not uptrend_pass_58 or chop_gate_pass_58)
 // Targets stack to the next overhead AVWAP, then next PWH/PMH.
 // Same gate as the held-low alerts: bypass chop gate in downtrends since
 // AVWAP defenses in downtrend regimes are reversal plays.
-if s58_mtd_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_mtd_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_mtd  = mtd_avwap_58
     s_mtd  = low - atr_buffer
     t1_mtd = not na(pm_avwap_58) and pm_avwap_58 > e_mtd ? pm_avwap_58 : (not na(pwh) and pwh > e_mtd ? pwh : e_mtd * 1.015)
     t2_mtd = not na(pwh) and pwh > t1_mtd ? pwh : (not na(pmh) and pmh > t1_mtd ? pmh : t2_extend_long(e_mtd, t1_mtd))
     alert(build_payload_v2("staged_mtd_avwap_held", "BUY", e_mtd, s_mtd, t1_mtd, t2_mtd, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pm_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_pm_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pm  = pm_avwap_58
     s_pm  = low - atr_buffer
     t1_pm = not na(p2m_avwap_58) and p2m_avwap_58 > e_pm ? p2m_avwap_58 : (not na(pwh) and pwh > e_pm ? pwh : e_pm * 1.02)
     t2_pm = not na(pwh) and pwh > t1_pm ? pwh : (not na(pmh) and pmh > t1_pm ? pmh : t2_extend_long(e_pm, t1_pm))
     alert(build_payload_v2("staged_pm_avwap_held", "BUY", e_pm, s_pm, t1_pm, t2_pm, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_p2m_avwap_held and (not uptrend_pass_58 or chop_gate_pass_58)
+if s58_p2m_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     e_p2m  = p2m_avwap_58
     s_p2m  = low - atr_buffer
     t1_p2m = not na(pwh) and pwh > e_p2m ? pwh : (not na(pmh) and pmh > e_p2m ? pmh : e_p2m * 1.03)
