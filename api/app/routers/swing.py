@@ -166,5 +166,11 @@ async def trigger_swing_scan(request: Request, user: User = Depends(require_pro)
     # Manual button press = explicit ad-hoc request. Bypass the in-cycle
     # market-hours gate so the scan actually runs outside RTH (the most
     # common time a user taps the button — pre-market / after-hours review).
-    count = await loop.run_in_executor(None, partial(swing_scan_cycle, factory, True))
+    # Pass the authenticated user's email so the watchlist filter targets
+    # THEIR symbols rather than the SCAN_USER_EMAIL env default (which
+    # exists for scheduler-cost-control and may be set to a different user).
+    user_email = (user.email or "").strip().lower()
+    count = await loop.run_in_executor(
+        None, partial(swing_scan_cycle, factory, True, user_email or None)
+    )
     return SwingScanResponse(alerts_fired=count)

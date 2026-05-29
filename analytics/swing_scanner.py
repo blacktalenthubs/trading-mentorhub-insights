@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import date
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -409,12 +410,17 @@ def _process_exits(db, symbol: str, hist, users, session: str, enabled_types) ->
 # ── Main cycle ───────────────────────────────────────────────────────
 
 
-def swing_scan_cycle(sync_session_factory, force: bool = False) -> int:
+def swing_scan_cycle(sync_session_factory, force: bool = False, scan_email: Optional[str] = None) -> int:
     """Run one swing scan pass — entries + exits. Returns Telegram deliveries.
 
     `force=True` bypasses the market-hours gate. Used by the daily EOD
     cron (4:10 PM ET) where the daily bar has just closed but the
     is_market_hours() helper already reports market closed.
+
+    `scan_email` overrides the SCAN_USER_EMAIL env var — used by the
+    manual /swing/scan endpoint to scan the authenticated user's
+    watchlist instead of the default cost-control single-user filter.
+    None falls back to env var (default behaviour for scheduler runs).
     """
     if os.environ.get("SWING_SCAN_ENABLED", "true").lower() in ("0", "false", "no"):
         logger.info("swing scan: disabled via env")
@@ -455,9 +461,13 @@ def swing_scan_cycle(sync_session_factory, force: bool = False) -> int:
 
         # Build per-symbol → users-watching map from real watchlists.
         # Only scan symbols at least one Telegram-enabled user is watching.
-        # Cost-control: SCAN_USER_EMAIL restricts to one user's watchlist.
+        # Cost-control: SCAN_USER_EMAIL restricts to one user's watchlist
+        # for scheduled runs. The manual /swing/scan endpoint passes
+        # scan_email=<authenticated user> to override — so tapping the
+        # button always scans the logged-in user's own watchlist
+        # regardless of which email the env var defaults to.
         import os as _os_scan
-        _scan_email = _os_scan.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com").strip().lower()
+        _scan_email = (scan_email or _os_scan.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com") or "").strip().lower()
         _q = (
             select(WatchlistItem.symbol, WatchlistItem.user_id, User)
             .join(User, User.id == WatchlistItem.user_id)
