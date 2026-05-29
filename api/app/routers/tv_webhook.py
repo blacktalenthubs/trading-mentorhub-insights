@@ -402,6 +402,56 @@ def _record_level_fire(
 
 
 # ---------------------------------------------------------------------------
+# Spec 60 — generic same-bar confluence collapser. Existing twin
+# (_check_confluence_twin) handles open-line + level pairs; level confluence
+# (_check_level_confluence) handles same-side level pairs. This NEW
+# collapser handles the residual case: different rule families firing on
+# the same symbol within 10 min (e.g., PDH break + VWAP reclaim + MA
+# bounce all triggering on the same breakout candle). First-fires-wins;
+# later alerts persisted unrouted with suppressed_reason=
+# "confluence_collapsed:<prior_type>" so EOD review still shows them.
+# Env-tunable. Default 10 min window matches Pine bar interval.
+# ---------------------------------------------------------------------------
+
+_same_bar_fires: dict[str, list[tuple[str, datetime]]] = {}  # symbol → [(type, time)]
+
+
+def _check_same_bar_collapse(
+    symbol: str, alert_type_full: str
+) -> Optional[dict]:
+    """Look for any OTHER rule that fired for this symbol within the
+    collapse window. Returns prior fire info if found."""
+    if os.environ.get("V2_SAME_BAR_COLLAPSE_ENABLED", "true").lower() in ("0", "false", "no"):
+        return None
+    try:
+        win_min = int(_envf("V2_SAME_BAR_COLLAPSE_MIN", 10))
+    except Exception:
+        win_min = 10
+    now = datetime.utcnow()
+    window = timedelta(minutes=win_min)
+    fires = _same_bar_fires.get(symbol, [])
+    # Prune expired
+    fires = [(t_at, t_time) for (t_at, t_time) in fires if now - t_time < window]
+    _same_bar_fires[symbol] = fires
+    for prior_type, prior_time in fires:
+        if prior_type == alert_type_full:
+            continue  # identity dedup handles same-type re-fires
+        return {
+            "prior_type": prior_type,
+            "prior_time": prior_time,
+            "minutes_ago": (now - prior_time).total_seconds() / 60.0,
+        }
+    return None
+
+
+def _record_same_bar_fire(symbol: str, alert_type_full: str) -> None:
+    """Track this fire for the generic same-bar collapser."""
+    _same_bar_fires.setdefault(symbol, []).append(
+        (alert_type_full, datetime.utcnow())
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pydantic schema — matches the JSON template in pine_scripts/.
 # ---------------------------------------------------------------------------
 
@@ -1023,6 +1073,22 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 "spread_pct": round(level_conf["spread_pct"], 3),
             }
         _record_level_fire(sig.symbol, side, sig.entry, alert_type_full)
+
+    # Spec 60 — generic same-bar collapser. Catches residual cross-family
+    # confluence (e.g., staged_pdh_break + ma_bounce + pullback_long all
+    # firing within 10 min on the same breakout candle). First-fires-wins.
+    same_bar = _check_same_bar_collapse(sig.symbol, alert_type_full)
+    if same_bar:
+        logger.info(
+            "TV same-bar collapse: %s for %s — %s fired %.1f min ago",
+            alert_type_full, sig.symbol,
+            same_bar["prior_type"], same_bar["minutes_ago"],
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason=f"confluence_collapsed:{same_bar['prior_type']}",
+        )
+    _record_same_bar_fire(sig.symbol, alert_type_full)
 
     # When this alert IS the confluence anchor (open_reclaimed/open_lost with
     # near flag set), prefix the message with a tag so the Telegram template
