@@ -1,0 +1,117 @@
+//@version=5
+indicator("Anchored VWAP — auto recent high/low", overlay = true, max_labels_count = 10, max_bars_back = 1000)
+
+// VISUAL-ONLY. No alerts.
+//
+// The third sibling to anchored_vwap_jake.pine (auto pivots — laggy) and
+// anchored_vwap_manual_dates.pine (user-picked dates). This one is the
+// "Jake mental model" version: zero pivot confirmation, zero user input.
+//
+// What it does:
+//   - Finds the HIGHEST HIGH in the last `lookback` bars and anchors
+//     VWAP at that bar.
+//   - Finds the LOWEST LOW in the last `lookback` bars and anchors
+//     VWAP at that bar.
+//   - Re-anchors every bar if a new high/low is made. Sticks when not.
+//
+// Why this beats pivot detection for "recent" anchors:
+//   - ta.pivothigh(N, N) requires N bars AFTER the high to confirm,
+//     so it can never anchor inside the last N bars. With N=20 on a
+//     daily, the auto pivot can't see anything from the last month.
+//   - ta.highest doesn't care about confirmation. The 5/14 high IS the
+//     highest high in the last 60 bars right now — anchor immediately.
+//
+// Tradeoff to know:
+//   - This re-anchors when a NEW high (or low) is made. The line will
+//     "jump" on the bar after a new extreme. That's intentional — it's
+//     what Jake does mentally: "the most recent dominant high I can
+//     see." Use the manual-dates script if you want stickiness through
+//     a new extreme.
+//
+// Defaults (60-bar lookback on daily) ≈ "the last 3 months of action."
+// Reduce to 20-40 for tighter intraday anchors; bump to 120 for
+// quarter-scale context.
+
+lookback = input.int(60, "Recent-window lookback (bars)", minval = 10, maxval = 500, tooltip = "How far back to look for the recent high/low. 60 daily bars ≈ 3 months. Drop to 20-40 for intraday tightness; bump to 120 for quarter context.")
+
+// ── Toggles + style ────────────────────────────────────────────────
+showHigh = input.bool(true, "AVWAP from recent HIGH (resistance / target)", group = "Anchors", inline = "hi")
+cHigh    = input.color(color.red, "", group = "Anchors", inline = "hi")
+showLow  = input.bool(true, "AVWAP from recent LOW (dynamic support)",     group = "Anchors", inline = "lo")
+cLow     = input.color(color.blue, "", group = "Anchors", inline = "lo")
+
+lw            = input.int(3, "Line width", minval = 1, maxval = 6, group = "Style")
+showEndLbl    = input.bool(true,  "End-of-line label", group = "Style")
+showAnchorTag = input.bool(true,  "Tag the anchor bar", group = "Style")
+labelTz       = input.string("America/New_York", "Label timezone", group = "Style")
+
+src = hlc3
+
+// ── Locate recent extremes (no pivot confirmation — zero lag) ───────
+// ta.highestbars returns a non-positive offset: 0 means current bar is
+// the high, -14 means the high was 14 bars ago. Same for lowestbars.
+hi_offset = ta.highestbars(high, lookback)
+lo_offset = ta.lowestbars(low,  lookback)
+recent_high = ta.highest(high, lookback)
+recent_low  = ta.lowest(low,   lookback)
+
+hi_anchor_bar  = bar_index + hi_offset    // negative offset → earlier bar
+lo_anchor_bar  = bar_index + lo_offset
+
+// Keep anchor TIME so end-of-line labels can show the date.
+// Looking back to the anchor bar via [N] where N is the positive offset.
+hi_back = -hi_offset
+lo_back = -lo_offset
+hi_anchor_time  = na(hi_back) ? na : time[hi_back]
+lo_anchor_time  = na(lo_back) ? na : time[lo_back]
+hi_anchor_price = na(hi_back) ? na : high[hi_back]
+lo_anchor_price = na(lo_back) ? na : low[lo_back]
+
+// ── % distance helper ──────────────────────────────────────────────
+f_pctStr(float level) =>
+    pct = (close - level) / level * 100
+    (pct >= 0 ? "+" : "") + str.tostring(pct, "0.00") + "%"
+
+// ── AVWAP from a fixed anchor bar_index ─────────────────────────────
+// Sums price × volume from `anchorBar` forward to the current bar.
+// Returns na before the anchor or when no volume.
+f_avwap_from_anchor(int anchorBar) =>
+    pvSum = 0.0
+    vvSum = 0.0
+    if not na(anchorBar) and bar_index >= anchorBar
+        offset = bar_index - anchorBar
+        for i = offset to 0
+            pvSum := pvSum + nz(src[i] * volume[i], 0.0)
+            vvSum := vvSum + nz(volume[i], 0.0)
+    vvSum > 0 ? pvSum / vvSum : na
+
+avwapHi = f_avwap_from_anchor(hi_anchor_bar)
+avwapLo = f_avwap_from_anchor(lo_anchor_bar)
+
+// ── Plots ──────────────────────────────────────────────────────────
+plot(showHigh ? avwapHi : na, "AVWAP from recent HIGH", color = cHigh, linewidth = lw)
+plot(showLow  ? avwapLo : na, "AVWAP from recent LOW",  color = cLow,  linewidth = lw)
+
+// ── End-of-line labels ─────────────────────────────────────────────
+var label lblHi = na
+var label lblLo = na
+
+if barstate.islast and showEndLbl
+    label.delete(lblHi)
+    label.delete(lblLo)
+    if showHigh and not na(avwapHi) and not na(hi_anchor_time)
+        lblHi := label.new(bar_index, avwapHi, str.format_time(hi_anchor_time, "M/d", labelTz) + " High · $" + str.tostring(avwapHi, "#.##") + " (" + f_pctStr(avwapHi) + ")", style = label.style_label_left, color = cHigh, textcolor = color.white, size = size.small)
+    if showLow and not na(avwapLo) and not na(lo_anchor_time)
+        lblLo := label.new(bar_index, avwapLo, str.format_time(lo_anchor_time, "M/d", labelTz) + " Low · $" + str.tostring(avwapLo, "#.##") + " (" + f_pctStr(avwapLo) + ")", style = label.style_label_left, color = cLow, textcolor = color.white, size = size.small)
+
+// ── Anchor-bar tags (so you see the date of the high/low at a glance) ──
+var label tagHi = na
+var label tagLo = na
+
+if barstate.islast and showAnchorTag
+    label.delete(tagHi)
+    label.delete(tagLo)
+    if showHigh and not na(hi_anchor_bar) and not na(hi_anchor_time) and not na(hi_anchor_price)
+        tagHi := label.new(hi_anchor_bar, hi_anchor_price, str.format_time(hi_anchor_time, "M/d", labelTz) + " High", style = label.style_label_down, color = cHigh, textcolor = color.white, size = size.small, yloc = yloc.price)
+    if showLow and not na(lo_anchor_bar) and not na(lo_anchor_time) and not na(lo_anchor_price)
+        tagLo := label.new(lo_anchor_bar, lo_anchor_price, str.format_time(lo_anchor_time, "M/d", labelTz) + " Low", style = label.style_label_up, color = cLow, textcolor = color.white, size = size.small, yloc = yloc.price)
