@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -464,6 +465,116 @@ class TVWebhookPayload(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Alert Quality v2 — pipeline-side gates (spec 60-alert-quality-v2)
+# ---------------------------------------------------------------------------
+# All thresholds env-tunable so we can iterate without redeploys. Defaults
+# come straight from today's CSV analysis. The principle: every rule has
+# a slope gate (threshold differs by trade thesis: positive for continuation,
+# non-freefall for support reversal). Volume floors are asymmetric — tighter
+# for continuation rules, looser for level-defense rules where structural
+# stop limits downside.
+
+def _envf(name: str, default: float) -> float:
+    """Read a float env var with a default fallback."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+# Volume floors — alert_type suffix (after 'tv_') → minimum volume_ratio.
+# Resistance-side and continuation rules require real participation.
+# Support-side rules have lower floors because tight structural stop
+# already limits loss.
+def _volume_floor(alert_type_full: str) -> float:
+    name = alert_type_full.replace("tv_", "", 1)
+    # Continuation family — pullback, MA bounce. (FR-001, FR-017)
+    if name == "pullback_long" or name.startswith("ma_bounce_long_v3"):
+        return _envf("V2_VOL_FLOOR_PULLBACK", 1.2)
+    # Resistance break (P2b — once Pine emits these). Already gated in Pine
+    # logic; soft floor here as defense in depth.
+    if name.startswith("staged_") and "_break" in name:
+        return _envf("V2_VOL_FLOOR_BREAK", 2.0)
+    # Gap-and-go (P2c — Pine work). Soft floor in pipeline.
+    if name == "gap_up_continuation_long":
+        return _envf("V2_VOL_FLOOR_GAP", 1.5)
+    # AVWAP-family defense (P2.6, FR-013) — soft floor.
+    if "_avwap_held" in name:
+        return _envf("V2_VOL_FLOOR_AVWAP_HELD", 1.0)
+    # Former-resistance defense from above (PDH/PWH/PMH held).
+    if name in ("staged_pdh_held", "staged_pwh_held", "staged_pmh_held"):
+        return _envf("V2_VOL_FLOOR_HIGH_HELD", 1.2)
+    # Support defense from above (PDL/PWL/PML held). Lower floor — level
+    # IS the risk control (FR-018).
+    if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
+        return _envf("V2_VOL_FLOOR_LOW_HELD", 0.8)
+    # Support recovery (PDL/PWL/PML reclaim) — notch higher than held,
+    # since the level just broke and we need real buyers (FR-019).
+    if name in ("staged_pdl_reclaim", "staged_pwl_reclaim", "staged_pml_reclaim"):
+        return _envf("V2_VOL_FLOOR_LOW_RECLAIM", 1.0)
+    # Unknown / NOTICE — don't gate.
+    return 0.0
+
+
+# Slope thresholds — per trade thesis. Continuation = positive; reversal
+# (low-side defense) = non-freefall floor. Master tuning knob.
+def _slope_min(alert_type_full: str) -> Optional[float]:
+    name = alert_type_full.replace("tv_", "", 1)
+    # Continuation rules — slope must be positive.
+    if name == "pullback_long" or name.startswith("ma_bounce_long_v3"):
+        return _envf("V2_SLOPE_MIN_CONTINUATION", 0.05)
+    if name.startswith("staged_") and "_break" in name:
+        return _envf("V2_SLOPE_MIN_BREAK", 0.05)
+    if name == "gap_up_continuation_long":
+        return _envf("V2_SLOPE_MIN_GAP", 0.05)
+    if "_avwap_held" in name:
+        return _envf("V2_SLOPE_MIN_AVWAP", 0.05)
+    if name in ("staged_pdh_held", "staged_pwh_held", "staged_pmh_held"):
+        return _envf("V2_SLOPE_MIN_HIGH_HELD", 0.05)
+    # Reversal — support defense. Inverted floor (slope can be negative,
+    # just not freefall). (FR-018)
+    if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
+        return _envf("V2_SLOPE_MIN_LOW_HELD", -0.5)
+    # Support recovery — tighter than held; session must be recovering. (FR-019)
+    if name in ("staged_pdl_reclaim", "staged_pwl_reclaim", "staged_pml_reclaim"):
+        return _envf("V2_SLOPE_MIN_LOW_RECLAIM", -0.3)
+    # Unknown — don't gate on slope.
+    return None
+
+
+def _v2_quality_suppress(sig, alert_type_full: str) -> bool:
+    """Return True when the alert fails v2 quality gates and should be
+    persisted-but-not-delivered. False if it passes (or if the rule type
+    doesn't have v2 gates configured, or the necessary fields are absent
+    in the payload — we fail OPEN so missing data doesn't kill legitimate
+    fires while Pine catches up to emit new fields).
+
+    Master kill switch: set V2_QUALITY_GATE_ENABLED=false to disable.
+    """
+    if os.environ.get("V2_QUALITY_GATE_ENABLED", "true").lower() in ("0", "false", "no"):
+        return False
+
+    # Volume gate
+    vr = getattr(sig, "_tv_volume_ratio", None)
+    floor_v = _volume_floor(alert_type_full)
+    if vr is not None and floor_v > 0 and float(vr) < floor_v:
+        return True
+
+    # Slope gate — skip when the payload doesn't carry slope (e.g., today's
+    # pullback_long is missing it until Pine update FR-005). Don't fail
+    # closed in that case — let the volume floor do the work alone.
+    slope = getattr(sig, "_tv_vwap_slope_pct", None)
+    floor_s = _slope_min(alert_type_full)
+    if slope is not None and floor_s is not None and float(slope) < floor_s:
+        return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
 # IP allowlist helper (off by default).
 # ---------------------------------------------------------------------------
 
@@ -747,6 +858,29 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return await _persist_unrouted(
             sig, alert_type_full, session_date,
             suppressed_reason="basing_chop",
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Alert Quality v2 — asymmetric volume + slope gates (spec 60)
+    # ──────────────────────────────────────────────────────────────────
+    # Pipeline-side filters based on today's 679-alert data analysis.
+    # Each rule family has its own threshold reflecting its trade thesis:
+    #   • Continuation rules need positive slope + volume floor
+    #   • Reversal rules (PDL/PWL/PML *_held / *_reclaim) need
+    #     non-freefall slope (≥ −0.5%) + lower volume floor
+    # Every threshold is an env var so we tune from data without redeploys.
+    # Suppressed alerts still persist via _persist_unrouted; just no
+    # Telegram/APNs delivery.
+    if _v2_quality_suppress(sig, alert_type_full):
+        logger.info(
+            "TV webhook: v2 quality gate suppressed %s for %s (vol=%s slope=%s)",
+            alert_type_full, sig.symbol,
+            getattr(sig, "_tv_volume_ratio", None),
+            getattr(sig, "_tv_vwap_slope_pct", None),
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason="v2_quality_gate",
         )
 
     # ──────────────────────────────────────────────────────────────────
