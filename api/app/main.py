@@ -929,6 +929,7 @@ def create_app() -> FastAPI:
         public,      # Public (unauth) EOD report endpoints
         focus_list,  # Persisted daily focus list from AI Best Setups
         alert_config,  # Per-alert-type enable/disable toggles
+        earnings,    # Spec 61 — Watchlist earnings calendar + T-7 notifications
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -953,6 +954,7 @@ def create_app() -> FastAPI:
     app.include_router(auto_trades.router, prefix="/api/v1/auto-trades", tags=["auto-trades"])
     app.include_router(focus_list.router, prefix="/api/v1/ai", tags=["focus-list"])
     app.include_router(alert_config.router, prefix="/api/v1/alert-config", tags=["alert-config"])
+    app.include_router(earnings.router, prefix="/api/v1/earnings", tags=["earnings"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
     app.include_router(tv_webhook.router, prefix="/tv", tags=["tradingview"])

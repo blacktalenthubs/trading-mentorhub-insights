@@ -66,6 +66,35 @@ export function useWatchlistGroups() {
   });
 }
 
+// --- Earnings (spec 61) ---
+
+export interface UpcomingEarningsItem {
+  symbol: string;
+  next_earnings_date: string | null;        // YYYY-MM-DD
+  days_until: number | null;
+  time_of_day: string | null;               // BMO / AMC / DMH / null
+  eps_estimate: number | null;
+  revenue_estimate: number | null;
+  confirmed: boolean;
+  last_surprise_pct: number | null;
+  last_quarter_label: string | null;
+  last_reported_at: string | null;
+  fetched_at: string | null;
+}
+
+export interface UpcomingEarningsResponse {
+  items: UpcomingEarningsItem[];
+  last_refreshed_at: string | null;
+}
+
+export function useUpcomingEarnings() {
+  return useQuery({
+    queryKey: ["earnings-upcoming"],
+    queryFn: () => api.get<UpcomingEarningsResponse>("/earnings/upcoming"),
+    staleTime: 60 * 60_000,  // earnings calendar changes ~once a quarter; 1h cache is fine
+  });
+}
+
 export function useSeedDefaultGroups() {
   const qc = useQueryClient();
   return useMutation({

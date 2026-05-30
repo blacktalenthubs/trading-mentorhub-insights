@@ -1,4 +1,9 @@
-/** Watchlist management — grouped view with collapsible categories. */
+/** Watchlist management — grouped view with collapsible categories.
+ *
+ *  Two tabs (spec 61):
+ *    - Symbols: the existing add/remove/group UI (default)
+ *    - Earnings: upcoming earnings calendar for the watchlist
+ */
 
 import { useMemo, useState } from "react";
 import {
@@ -14,7 +19,10 @@ import {
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import Card from "../components/ui/Card";
-import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX } from "lucide-react";
+import EarningsTab from "../components/EarningsTab";
+import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX, CalendarDays } from "lucide-react";
+
+type WatchlistTab = "symbols" | "earnings";
 
 const UNGROUPED_KEY = -1;
 
@@ -29,6 +37,15 @@ export default function WatchlistPage() {
   const { maxWatchlistSize, isPro } = useFeatureGate();
   const [input, setInput] = useState("");
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [activeTab, setActiveTab] = useState<WatchlistTab>(() => {
+    if (typeof window === "undefined") return "symbols";
+    return (localStorage.getItem("watchlist_active_tab") as WatchlistTab) || "symbols";
+  });
+
+  function switchTab(t: WatchlistTab) {
+    setActiveTab(t);
+    if (typeof window !== "undefined") localStorage.setItem("watchlist_active_tab", t);
+  }
 
   const count = watchlist?.length ?? 0;
   const atLimit = count >= maxWatchlistSize;
@@ -101,6 +118,36 @@ export default function WatchlistPage() {
         )}
       </div>
 
+      {/* Tab strip */}
+      <div className="flex items-center gap-1 border-b border-border-subtle">
+        <button
+          onClick={() => switchTab("symbols")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+            activeTab === "symbols"
+              ? "border-accent text-accent"
+              : "border-transparent text-text-muted hover:text-text-secondary"
+          }`}
+        >
+          <Star className="h-3.5 w-3.5" />
+          Symbols
+        </button>
+        <button
+          onClick={() => switchTab("earnings")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+            activeTab === "earnings"
+              ? "border-accent text-accent"
+              : "border-transparent text-text-muted hover:text-text-secondary"
+          }`}
+        >
+          <CalendarDays className="h-3.5 w-3.5" />
+          Earnings
+        </button>
+      </div>
+
+      {activeTab === "earnings" ? (
+        <EarningsTab />
+      ) : (
+      <>
       {/* Add form */}
       <Card padding="md">
         <form onSubmit={handleAdd} className="flex items-center gap-3">
@@ -266,6 +313,8 @@ export default function WatchlistPage() {
             Seed 7 default groups + 27 tickers
           </button>
         </div>
+      )}
+      </>
       )}
     </div>
   );

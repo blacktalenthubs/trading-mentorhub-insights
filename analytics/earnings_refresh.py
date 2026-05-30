@@ -93,26 +93,44 @@ def _insert_history(session, history_rows) -> int:
     return inserted
 
 
-def _format_t7_message(symbol: str, e) -> tuple[str, str]:
+def _format_t7_message(symbol: str, e, days_until: int) -> tuple[str, str, str]:
     """Returns (telegram_body, push_title, push_body). The earnings row
-    `e` is the upserted Earnings record.
+    `e` is the upserted Earnings record. `days_until` is how many
+    calendar days from today to the earnings date — drives copy.
     """
     day = e.next_earnings_date.strftime("%a %b %d") if e.next_earnings_date else "TBD"
     tod = e.time_of_day or "TBD"
     est_str = f" EPS est ${e.eps_estimate:.2f}." if e.eps_estimate is not None else ""
+
+    if days_until <= 0:
+        when_phrase = "reports today"
+    elif days_until == 1:
+        when_phrase = "reports tomorrow"
+    elif days_until <= 7:
+        when_phrase = f"reports in {days_until} days"
+    else:
+        when_phrase = f"reports in {days_until} days"
+
     body = (
-        f"📅 <b>{symbol}</b> reports in 7 days "
+        f"📅 <b>{symbol}</b> {when_phrase} "
         f"({day} {tod}).{est_str}\n"
-        f"Pre-earnings drift window opens — watch for trend acceleration."
+        f"Pre-earnings drift window — watch for trend acceleration or fade."
     )
-    push_title = f"{symbol} earnings in 7 days"
+    push_title = f"{symbol} earnings {when_phrase.replace('reports ', '')}"
     push_body = f"{day} {tod}.{est_str.strip()}"
     return body, push_title, push_body
 
 
 def _send_t7_notifications(session, today: date) -> int:
-    """Find watchlist symbols whose earnings is exactly 7 days out and
-    fire Telegram + push for the user(s) holding them. Returns count sent.
+    """Find watchlist symbols whose earnings is exactly 7 days out OR
+    already inside the 0-7 day window (catches symbols added late, or
+    the first-run case where multiple users' watchlist symbols already
+    crossed T-7 before the job's first execution). Fires Telegram + push
+    for the user(s) holding them. Returns count sent.
+
+    Idempotency: the kind="t7" marker row prevents resends. Whether the
+    notification fires AT T-7 or partway through the window, only the
+    first occurrence per (user, symbol, earnings_date) goes out.
     """
     from app.models.user import User
     from app.models.watchlist import WatchlistItem
@@ -121,11 +139,15 @@ def _send_t7_notifications(session, today: date) -> int:
     from alerting.notifier import _send_telegram_to
     from app.services.push_service import send_push_sync
 
-    target_date = today + timedelta(days=7)
+    window_end = today + timedelta(days=7)
 
-    # Symbols hitting T-7 today.
+    # Symbols anywhere inside the 0..7 day window (inclusive on today's date,
+    # so an AMC earnings today still notifies if not yet sent).
     earnings_rows = session.execute(
-        select(Earnings).where(Earnings.next_earnings_date == target_date)
+        select(Earnings).where(
+            Earnings.next_earnings_date >= today,
+            Earnings.next_earnings_date <= window_end,
+        )
     ).scalars().all()
     if not earnings_rows:
         return 0
@@ -142,7 +164,8 @@ def _send_t7_notifications(session, today: date) -> int:
         if not users:
             continue
 
-        tg_body, push_title, push_body = _format_t7_message(e.symbol, e)
+        days_until = (e.next_earnings_date - today).days if e.next_earnings_date else 0
+        tg_body, push_title, push_body = _format_t7_message(e.symbol, e, days_until)
 
         for user in users:
             # Idempotency check.
