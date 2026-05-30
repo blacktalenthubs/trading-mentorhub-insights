@@ -63,7 +63,7 @@
 
 ## Phase 6: Polish & Cross-Cutting
 - [X] T034 [P] Add in-memory cache front for the latest snapshot (fast reads) in `api/app/services/screener_service.py`
-- [ ] T035 [P] Update `specs/62-in-play-screener/quickstart.md` with any field-name/entitlement findings discovered during impl
+- [X] T035 [P] Update `specs/62-in-play-screener/quickstart.md` with any field-name/entitlement findings discovered during impl
 - [X] T036 Run full suite `python3 -m pytest tests/ -v` and fix any regression (maintain 648+ baseline)
 - [X] T037 Local verification on `localhost:5173` + `localhost:8000` per quickstart; kill local processes before any production check
 

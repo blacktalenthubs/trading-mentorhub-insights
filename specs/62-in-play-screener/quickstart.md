@@ -46,6 +46,23 @@ curl -s "localhost:8000/api/v1/screener/in-play?preset=momentum_long&has_setup=t
 6. Force the data source to fail → last snapshot shown with a "stale/delayed" indicator (no crash).
 7. Free-tier account → locked teaser, no data.
 
+## Implementation findings (recorded during build)
+
+- **`compute_rvol` was a stub** — the shared `analytics/intraday_data.py::compute_rvol`
+  resolves to ~1.0 for every symbol. The screener computes its **own** time-of-day RVOL
+  (`relative_volume` + `session_fraction`) to avoid touching alert-adjacent code. The shared
+  stub is a separate future cleanup.
+- **Setup entry:** `signal_engine.analyze_symbol(hist, symbol)` (read-only, no DB writes) —
+  `scan_watchlist` also persists daily plans, so do NOT use it here.
+- **None-safe presets:** the live service sets `rs_vs_spy`/`atr_pct` to `None`; preset
+  predicates must coerce via `_num()` or the default Momentum Long preset raises `TypeError`.
+- **Validated against live data (2026-05-30):** crypto run proved fetch → RVOL → ranking →
+  read-only setup scan → serialization; a seeded-DB browser E2E proved auth → Pro gate →
+  persisted snapshot → rendered In-Play tab. Pending Monday: the **equities-only** adapters
+  (yfinance `EquityQuery` field names, Alpaca most-actives entitlement).
+- **Repo baseline note:** `pytest tests/` has ~63 pre-existing failures (swing/tier/premarket
+  + a broken `test_score_v2.py`) unrelated to this feature. Screener: 17/17 green.
+
 ## Guardrails (Constitution)
 - Do **not** modify `analytics/signal_engine.py` or any protected file — reuse read-only.
 - Run the full suite (`pytest tests/ -v`) before push; keep the 648+ baseline green.
