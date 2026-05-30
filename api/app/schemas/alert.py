@@ -41,6 +41,7 @@ class AlertResponse(BaseModel):
     user_action: Optional[str] = None
     outcome: Optional[str] = None
     volume_ratio: Optional[float] = None
+    vwap_slope_pct: Optional[float] = None
     cvd_delta: Optional[float] = None
     cvd_diverging: Optional[int] = None
     suppressed_reason: Optional[str] = None
@@ -77,6 +78,7 @@ class AlertResponse(BaseModel):
             user_action=alert.user_action,
             outcome=getattr(alert, "outcome", None),
             volume_ratio=getattr(alert, "volume_ratio", None),
+            vwap_slope_pct=getattr(alert, "vwap_slope_pct", None),
             cvd_delta=getattr(alert, "cvd_delta", None),
             cvd_diverging=getattr(alert, "cvd_diverging", None),
             suppressed_reason=getattr(alert, "suppressed_reason", None),

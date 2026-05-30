@@ -415,6 +415,41 @@ function SignalFeedTab({
               {formatSetup(a.alert_type)}
             </div>
 
+            {/* Quality strip — volume ratio + VWAP slope at a glance.
+                Color-coded so high-priority alerts pop without reading the message. */}
+            {(a.volume_ratio != null || a.vwap_slope_pct != null) && (
+              <div className="flex items-center gap-2 mb-1.5 text-[10px] font-mono">
+                {a.volume_ratio != null && (() => {
+                  const v = a.volume_ratio;
+                  const cls = v >= 2.0 ? "text-bullish-text"
+                    : v >= 1.5 ? "text-warning-text"
+                    : v >= 1.0 ? "text-text-secondary"
+                    : "text-text-faint";
+                  return (
+                    <span className={cls}>
+                      Vol <span className="font-semibold">{v.toFixed(2)}×</span>
+                    </span>
+                  );
+                })()}
+                {a.vwap_slope_pct != null && (() => {
+                  const s = a.vwap_slope_pct;
+                  const cls = s >= 0.05 ? "text-bullish-text"
+                    : s >= 0 ? "text-text-secondary"
+                    : s >= -0.30 ? "text-warning-text"
+                    : "text-bearish-text";
+                  const sign = s > 0 ? "+" : "";
+                  return (
+                    <span className={cls}>
+                      Slope <span className="font-semibold">{sign}{s.toFixed(2)}%</span>
+                    </span>
+                  );
+                })()}
+                {a.cvd_diverging === 1 && (
+                  <span className="text-warning-text">CVD div</span>
+                )}
+              </div>
+            )}
+
             {/* Trade levels — entry / stop / T1 / T2 */}
             {a.entry != null ? (
               <div className="grid grid-cols-4 gap-1.5 text-[10px]">

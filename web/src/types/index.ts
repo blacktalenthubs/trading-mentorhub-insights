@@ -70,6 +70,7 @@ export interface Alert {
   user_action?: string | null;
   outcome?: string | null;          // manual grade — "worked" | "failed" | null
   volume_ratio?: number | null;
+  vwap_slope_pct?: number | null;
   cvd_delta?: number | null;
   cvd_diverging?: number | null;
   suppressed_reason?: string | null;
