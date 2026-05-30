@@ -300,6 +300,16 @@ function SignalFeedTab({
   const setOutcome = useSetAlertOutcome();
   const [search, setSearch] = useState("");
   const [showScorecard, setShowScorecard] = useState(false);
+  // Sort options for the feed — persisted to localStorage so refresh doesn't reset.
+  type FeedSort = "time" | "grade" | "vol" | "slope" | "symbol";
+  const [sortBy, setSortBy] = useState<FeedSort>(() => {
+    if (typeof window === "undefined") return "time";
+    return (localStorage.getItem("signal_feed_sort") as FeedSort) || "time";
+  });
+  function changeSort(s: FeedSort) {
+    setSortBy(s);
+    try { localStorage.setItem("signal_feed_sort", s); } catch {}
+  }
 
   if (alertsError) {
     return (
@@ -326,9 +336,38 @@ function SignalFeedTab({
     return true;
   });
   const q = search.trim().toUpperCase();
-  const visible = q
+  const filtered = q
     ? feedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
     : feedAlerts;
+
+  // Sort applied client-side so the user can flip it without an extra fetch.
+  const GRADE_RANK: Record<string, number> = { A: 3, B: 2, C: 1 };
+  const visible = [...filtered].sort((a, b) => {
+    if (sortBy === "grade") {
+      const ga = GRADE_RANK[a.grade ?? "C"] ?? 0;
+      const gb = GRADE_RANK[b.grade ?? "C"] ?? 0;
+      if (ga !== gb) return gb - ga;
+      // Tie-break by time desc.
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (sortBy === "vol") {
+      const va = a.volume_ratio ?? -1;
+      const vb = b.volume_ratio ?? -1;
+      if (va !== vb) return vb - va;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (sortBy === "slope") {
+      const sa = a.vwap_slope_pct ?? -999;
+      const sb = b.vwap_slope_pct ?? -999;
+      if (sa !== sb) return sb - sa;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (sortBy === "symbol") {
+      return (a.symbol || "").localeCompare(b.symbol || "");
+    }
+    // default: time desc (newest first)
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -352,6 +391,32 @@ function SignalFeedTab({
           Scorecard
         </button>
       </div>
+
+      {/* Sort strip — small chips, click to switch sort order. */}
+      {!showScorecard && (
+        <div className="px-3 pb-1.5 pt-0.5 shrink-0 flex items-center gap-1 text-[10px] overflow-x-auto">
+          <span className="text-text-faint uppercase tracking-wider mr-1 shrink-0">Sort:</span>
+          {([
+            { id: "time" as const,   label: "Newest" },
+            { id: "grade" as const,  label: "Grade A→C" },
+            { id: "vol" as const,    label: "Volume ×" },
+            { id: "slope" as const,  label: "Slope %" },
+            { id: "symbol" as const, label: "Symbol" },
+          ]).map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => changeSort(opt.id)}
+              className={`shrink-0 px-1.5 py-0.5 rounded transition-colors ${
+                sortBy === opt.id
+                  ? "bg-accent/15 text-accent"
+                  : "text-text-muted hover:bg-surface-2"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {showScorecard ? (
         <Scorecard date={signalDate} />
