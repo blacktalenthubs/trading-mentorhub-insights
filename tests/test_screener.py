@@ -132,6 +132,14 @@ def test_clearing_filters_returns_full_shortlist():
     assert len(apply_refine_filters(_refine_set(), preset="any")) == 3
 
 
+def test_presets_are_none_safe():
+    # live service sets rs_vs_spy / atr_pct to None — predicates must not raise.
+    e = InPlayEntry("X", 100, 1, rvol=3.0, dollar_vol=1e8, market_cap=9e9, direction="long",
+                    refine={"above_ema50": True, "above_vwap": True, "rsi": None, "rs_vs_spy": None})
+    for preset in ("momentum_long", "pullback", "breakout", "short", "any"):
+        apply_refine_filters([e], preset=preset)  # must not raise TypeError
+
+
 def test_direction_filter_does_not_destroy_short_setups():
     # a long preset hides shorts, but they remain reachable (preserved) via 'short'
     long_view = apply_refine_filters(_refine_set(), preset="momentum_long")

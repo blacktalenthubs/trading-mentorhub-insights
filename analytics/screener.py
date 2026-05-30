@@ -231,15 +231,20 @@ def scan_setups(
 # Layer 3 — refine filters / presets (pure, direction-aware) — FR-9
 # ---------------------------------------------------------------------------
 
+def _num(v) -> float:
+    """Coerce a possibly-None/missing refine value to a number (None-safe predicates)."""
+    return v if isinstance(v, (int, float)) else 0.0
+
+
 def _is_momentum_long(e: InPlayEntry) -> bool:
     r = e.refine
     return bool(r.get("above_ema50") and r.get("above_vwap")
-                and 50 <= r.get("rsi", 0) <= 70 and r.get("rs_vs_spy", 0) > 0)
+                and 50 <= _num(r.get("rsi")) <= 70 and _num(r.get("rs_vs_spy")) > 0)
 
 
 def _is_pullback(e: InPlayEntry) -> bool:
     r = e.refine
-    return bool(r.get("above_ema50") and 35 <= r.get("rsi", 0) <= 50)
+    return bool(r.get("above_ema50") and 35 <= _num(r.get("rsi")) <= 50)
 
 
 def _is_breakout(e: InPlayEntry) -> bool:
@@ -250,7 +255,7 @@ def _is_breakout(e: InPlayEntry) -> bool:
 def _is_short(e: InPlayEntry) -> bool:
     r = e.refine
     return bool((not r.get("above_ema50")) and (not r.get("above_vwap"))
-                and 30 <= r.get("rsi", 0) <= 50)
+                and 30 <= _num(r.get("rsi")) <= 50)
 
 
 PRESETS: dict[str, dict] = {
