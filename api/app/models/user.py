@@ -31,6 +31,10 @@ class User(Base):
     quiet_hours_start: Mapped[Optional[str]] = mapped_column(String(10))
     quiet_hours_end: Mapped[Optional[str]] = mapped_column(String(10))
     min_alert_score: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    # Minimum setup grade — A/B/C. 'A' = high-conviction only, 'B' = A+B,
+    # 'C' = no filter. See analytics/alert_grade.py. Applied at
+    # /alerts/today, push delivery, and Telegram routing.
+    min_alert_grade: Mapped[str] = mapped_column(String(1), server_default="C", default="C")
     referral_code: Mapped[Optional[str]] = mapped_column(String(20), unique=True, nullable=True)
     auto_analysis_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
 

@@ -142,6 +142,12 @@ async def lifespan(app: FastAPI):
             # Telegram so the trader knows the day is structurally range-bound,
             # which means scalp levels rather than chase breakouts.
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS inside_day INTEGER DEFAULT 0",
+            # Setup grade — A/B/C from vol+slope. Spec 61 follow-up. Default 'C'
+            # for legacy rows; the startup backfill below recomputes from existing
+            # vol_ratio + vwap_slope_pct so historical fires aren't all stuck at C.
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS grade VARCHAR(1) DEFAULT 'C'",
+            # User-level minimum grade filter (A/B/C). 'C' = no filter.
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS min_alert_grade VARCHAR(1) DEFAULT 'C'",
             # iOS APNs push notifications (Capacitor mobile app) — 2026-05-26
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_token VARCHAR(200)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_enabled BOOLEAN DEFAULT FALSE",
@@ -183,6 +189,24 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text(col_def))
             except Exception as _e:
                 logger.warning("Migration step skipped: %s — %s", col_def[:80], _e)
+
+        # Backfill alerts.grade for historical rows. Pure compute from
+        # existing volume_ratio + vwap_slope_pct so the new column is
+        # populated correctly on first deploy and queries can rely on it.
+        # Idempotent — re-running gives identical results.
+        try:
+            await conn.execute(text("""
+                UPDATE alerts SET grade = CASE
+                    WHEN COALESCE(volume_ratio, 0) >= 2.0
+                         AND COALESCE(vwap_slope_pct, 0) >= 0.05 THEN 'A'
+                    WHEN COALESCE(volume_ratio, 0) >= 2.0
+                         OR  COALESCE(vwap_slope_pct, 0) >= 0.05 THEN 'B'
+                    ELSE 'C'
+                END
+            """))
+            logger.info("Migration: alerts.grade backfilled from vol+slope")
+        except Exception as e:
+            logger.warning("Migration grade backfill skipped: %s", e)
 
         # Fix: auto_analysis_enabled may exist as INTEGER on prod from older schema.
         # Must drop default first, then alter type, then set new default.

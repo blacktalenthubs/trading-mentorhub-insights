@@ -29,6 +29,8 @@ class NotificationPrefsResponse(BaseModel):
     # Spec 36 — position sizing
     default_portfolio_size: float = 50000.0
     default_risk_pct: float = 1.0
+    # Spec 61 follow-up — setup grade filter (A/B/C). 'C' = no filter.
+    min_alert_grade: str = "C"
 
 
 class UpdateNotificationPrefsRequest(BaseModel):
@@ -43,6 +45,8 @@ class UpdateNotificationPrefsRequest(BaseModel):
     alert_directions: Optional[str] = None
     default_portfolio_size: Optional[float] = None
     default_risk_pct: Optional[float] = None
+    # Spec 61 follow-up — setup grade filter
+    min_alert_grade: Optional[str] = None
 
 
 # --- Alert Category Preferences ---

@@ -1177,6 +1177,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 )
                 continue
 
+            _vol_ratio = getattr(sig, "_tv_volume_ratio", None)
+            _slope_pct = getattr(sig, "_tv_vwap_slope_pct", None)
+            from analytics.alert_grade import compute_grade as _grade
+            _alert_grade = _grade(_vol_ratio, _slope_pct)
+
             alert = Alert(
                 user_id=user.id,
                 symbol=sig.symbol,
@@ -1192,12 +1197,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 score=int(sig.score) if sig.score else 0,
                 confluence_score=int(getattr(sig, "_confluence_score", 0)) or 0,
                 session_date=session_date,
-                volume_ratio=getattr(sig, "_tv_volume_ratio", None),
+                volume_ratio=_vol_ratio,
                 cvd_delta=getattr(sig, "_tv_cvd_delta", None),
                 cvd_diverging=1 if getattr(sig, "_tv_cvd_diverging", False) else 0,
                 stage=getattr(sig, "_tv_stage", None) or None,
-                vwap_slope_pct=getattr(sig, "_tv_vwap_slope_pct", None),
+                vwap_slope_pct=_slope_pct,
                 inside_day=1 if getattr(sig, "_tv_inside_day", False) else 0,
+                grade=_alert_grade,
             )
             db.add(alert)
             pairs.append((user, alert))

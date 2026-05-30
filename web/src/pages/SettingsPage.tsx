@@ -30,7 +30,7 @@ import type { NotificationPrefs, NotificationRouting, AlertChannel } from "../ty
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Filter, Zap,
+  Sun, Moon, Filter, Zap, Award,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -804,6 +804,83 @@ function AlertTypesSection() {
   );
 }
 
+/* ── Setup Grade Filter — spec 61 follow-up ───────────────────────── */
+
+function SetupGradeFilter() {
+  const { data: prefs } = useNotificationPrefs();
+  const update = useUpdateNotificationPrefs();
+  const [grade, setGrade] = useState<"A" | "B" | "C">("C");
+  const [synced, setSynced] = useState(false);
+
+  if (prefs && !synced) {
+    setGrade((prefs.min_alert_grade as "A" | "B" | "C") || "C");
+    setSynced(true);
+  }
+
+  const dirty = synced && prefs && grade !== ((prefs.min_alert_grade as "A" | "B" | "C") || "C");
+
+  if (!prefs) return null;
+
+  const LEVELS: { id: "A" | "B" | "C"; title: string; subtitle: string }[] = [
+    { id: "A", title: "A only",  subtitle: "High conviction — vol ≥ 2× AND slope ≥ +0.05%" },
+    { id: "B", title: "A + B",   subtitle: "Either gate passed — moderate filter" },
+    { id: "C", title: "All",     subtitle: "No filter — every alert reaches you" },
+  ];
+
+  return (
+    <Section title="Setup Grade Filter" icon={<Award className="h-4 w-4 text-accent" />}>
+      <p className="text-xs text-text-faint mb-3">
+        Filter your alert feed by setup grade. Computed per-alert from volume + VWAP slope —
+        the same gates the v2 quality pipeline uses.
+      </p>
+      <div className="space-y-2">
+        {LEVELS.map((lvl) => (
+          <button
+            key={lvl.id}
+            onClick={() => setGrade(lvl.id)}
+            className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-md border text-left transition-colors ${
+              grade === lvl.id
+                ? "bg-accent/15 border-accent/40"
+                : "bg-surface-2/40 border-border-subtle hover:bg-surface-2"
+            }`}
+          >
+            <span className={`text-sm font-bold w-6 text-center ${
+              grade === lvl.id ? "text-accent" : "text-text-muted"
+            }`}>
+              {lvl.id}
+            </span>
+            <div className="flex-1">
+              <div className={`text-xs font-semibold ${
+                grade === lvl.id ? "text-accent" : "text-text-primary"
+              }`}>
+                {lvl.title}
+              </div>
+              <div className="text-[10px] text-text-faint mt-0.5">{lvl.subtitle}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+      {dirty && (
+        <button
+          onClick={() => update.mutate({
+            ...(prefs as NotificationPrefs),
+            min_alert_grade: grade,
+          })}
+          disabled={update.isPending}
+          className="mt-3 text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
+        >
+          {update.isPending ? "Saving..." : "Save filter"}
+        </button>
+      )}
+      {update.isSuccess && !dirty && (
+        <span className="mt-2 text-[10px] text-bullish-text flex items-center gap-1">
+          <Check className="h-3 w-3" /> Saved
+        </span>
+      )}
+    </Section>
+  );
+}
+
 /* ── Signal Notifications (browser alerts) ────────────────────────── */
 
 function SignalNotifications() {
@@ -934,6 +1011,7 @@ export default function SettingsPage() {
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
+            <SetupGradeFilter />
             <SignalNotifications />
             <ThemeToggle />
           </div>

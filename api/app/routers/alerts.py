@@ -32,17 +32,33 @@ def _today() -> str:
     return date.today().isoformat()
 
 
+def _grade_filter_clause(user: User):
+    """Returns a SQLAlchemy WHERE fragment for the user's min_alert_grade
+    setting. 'A' = A only; 'B' = A + B; 'C' or anything else = no filter.
+    Applied on /alerts/today and /alerts/history. Performance / Weekly
+    intentionally don't filter — those are for analysis, not feed noise
+    control.
+    """
+    mg = (user.min_alert_grade or "C").upper()
+    if mg == "A":
+        return Alert.grade == "A"
+    if mg == "B":
+        return Alert.grade.in_(["A", "B"])
+    return None  # no filter
+
+
 @router.get("/today", response_model=List[AlertResponse])
 async def alerts_today(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    grade_clause = _grade_filter_clause(user)
+
     # Try today first
-    result = await db.execute(
-        select(Alert)
-        .where(Alert.user_id == user.id, Alert.session_date == _today())
-        .order_by(Alert.created_at.desc())
-    )
+    base = select(Alert).where(Alert.user_id == user.id, Alert.session_date == _today())
+    if grade_clause is not None:
+        base = base.where(grade_clause)
+    result = await db.execute(base.order_by(Alert.created_at.desc()))
     alerts = result.scalars().all()
 
     # If no alerts today, show the most recent session (weekend/after-hours)
@@ -55,11 +71,10 @@ async def alerts_today(
         )
         last_date = latest.scalar_one_or_none()
         if last_date:
-            result2 = await db.execute(
-                select(Alert)
-                .where(Alert.user_id == user.id, Alert.session_date == last_date)
-                .order_by(Alert.created_at.desc())
-            )
+            q2 = select(Alert).where(Alert.user_id == user.id, Alert.session_date == last_date)
+            if grade_clause is not None:
+                q2 = q2.where(grade_clause)
+            result2 = await db.execute(q2.order_by(Alert.created_at.desc()))
             alerts = result2.scalars().all()
 
     # Include tier limits in response for frontend gating
@@ -93,11 +108,12 @@ async def alerts_history(
     # symbols stay in scope. Admin users get a higher ceiling.
     rows_per_day = 500 if is_admin_user(user) else 200
 
+    grade_clause = _grade_filter_clause(user)
+    q = select(Alert).where(Alert.user_id == user.id)
+    if grade_clause is not None:
+        q = q.where(grade_clause)
     result = await db.execute(
-        select(Alert)
-        .where(Alert.user_id == user.id)
-        .order_by(Alert.created_at.desc())
-        .limit(days * rows_per_day)
+        q.order_by(Alert.created_at.desc()).limit(days * rows_per_day)
     )
     return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
 

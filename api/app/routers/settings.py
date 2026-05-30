@@ -73,6 +73,7 @@ def _build_notification_response(user: User) -> NotificationPrefsResponse:
         alert_directions=getattr(user, "alert_directions", None) or "LONG,SHORT,RESISTANCE,EXIT",
         default_portfolio_size=float(getattr(user, "default_portfolio_size", None) or 50000),
         default_risk_pct=float(getattr(user, "default_risk_pct", None) or 1.0),
+        min_alert_grade=(getattr(user, "min_alert_grade", None) or "C").upper(),
     )
 
 
@@ -131,6 +132,13 @@ async def update_notification_prefs(
         if body.default_risk_pct <= 0 or body.default_risk_pct > 10:
             raise HTTPException(status_code=422, detail="default_risk_pct must be between 0 and 10")
         user.default_risk_pct = body.default_risk_pct
+
+    # Spec 61 follow-up — setup grade filter
+    if body.min_alert_grade is not None:
+        g = body.min_alert_grade.strip().upper()
+        if g not in {"A", "B", "C"}:
+            raise HTTPException(status_code=422, detail="min_alert_grade must be A, B, or C")
+        user.min_alert_grade = g
 
     await db.flush()
     return _build_notification_response(user)

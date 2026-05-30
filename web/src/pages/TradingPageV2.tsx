@@ -389,13 +389,30 @@ function SignalFeedTab({
             }`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
-            {/* Header — symbol, direction, source, time */}
+            {/* Header — symbol, direction, source, grade, time */}
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
                 <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirCls}`}>
                   {dirText}
                 </span>
+                {a.grade && (() => {
+                  const g = a.grade;
+                  const gCls = g === "A" ? "bg-bullish text-white border-bullish"
+                    : g === "B" ? "bg-warning/80 text-white border-warning"
+                    : "bg-surface-4 text-text-faint border-border-subtle";
+                  const gTitle = g === "A" ? "Grade A — high conviction (vol ≥ 2× AND slope ≥ +0.05%)"
+                    : g === "B" ? "Grade B — partial gate (one of vol/slope passes)"
+                    : "Grade C — no quality gate passed";
+                  return (
+                    <span
+                      title={gTitle}
+                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}
+                    >
+                      {g}
+                    </span>
+                  );
+                })()}
                 {src && (
                   <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-surface-3 text-text-faint">
                     {src}

@@ -72,6 +72,7 @@ export interface Alert {
   outcome?: string | null;          // manual grade — "worked" | "failed" | null
   volume_ratio?: number | null;
   vwap_slope_pct?: number | null;
+  grade?: string | null;             // A / B / C — setup conviction badge
   cvd_delta?: number | null;
   cvd_diverging?: number | null;
   suppressed_reason?: string | null;
@@ -261,6 +262,8 @@ export interface NotificationPrefs {
   alert_directions?: string;  // comma-separated: LONG,SHORT,RESISTANCE,EXIT
   default_portfolio_size?: number;
   default_risk_pct?: number;
+  // Spec 61 follow-up — setup grade filter (A/B/C; C = no filter)
+  min_alert_grade?: "A" | "B" | "C";
 }
 
 // Per-alert-type channel routing.

@@ -62,6 +62,9 @@ class Alert(Base):
     stage: Mapped[Optional[str]] = mapped_column(String)
     vwap_slope_pct: Mapped[Optional[float]] = mapped_column(Float)
     inside_day: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    # Setup grade — A/B/C computed at write time from vol_ratio + vwap_slope_pct.
+    # See analytics/alert_grade.py. Defaults to 'C' so legacy rows don't break filters.
+    grade: Mapped[Optional[str]] = mapped_column(String(1), server_default="C")
 
 
 class ActiveEntry(Base):
