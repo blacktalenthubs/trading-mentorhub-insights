@@ -105,7 +105,12 @@ function FireRow({ f, rank }: { f: WeeklyFire; rank: number }) {
     <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-border-subtle/30 last:border-b-0 items-center text-xs">
       <span className="col-span-1 text-text-faint font-mono">{rank}</span>
       <span className="col-span-2 font-semibold text-text-primary">{f.symbol}</span>
-      <span className="col-span-3 text-text-secondary truncate">{f.label}</span>
+      <span
+        className="col-span-3 text-text-secondary truncate cursor-help"
+        title={f.description || f.label}
+      >
+        {f.label}
+      </span>
       <span className="col-span-2 font-mono text-text-faint">
         {fmtTime(f.created_at)}
         <span className="text-text-faint/70 ml-1.5">
@@ -253,7 +258,12 @@ export default function WeeklyReport() {
                 key={p.alert_type}
                 className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-border-subtle/30 last:border-b-0 items-center text-xs"
               >
-                <span className="col-span-4 text-text-primary truncate">{p.label}</span>
+                <span
+                  className="col-span-4 text-text-primary truncate cursor-help"
+                  title={p.description || p.label}
+                >
+                  {p.label}
+                </span>
                 <span className="col-span-1 text-right font-mono text-text-secondary">{p.fires}</span>
                 <span className={`col-span-2 text-right font-mono font-semibold ${volColor(p.avg_vol_ratio)}`}>
                   {p.avg_vol_ratio != null ? `${p.avg_vol_ratio.toFixed(2)}×` : "—"}

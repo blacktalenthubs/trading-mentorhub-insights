@@ -209,7 +209,9 @@ from datetime import date, datetime, timedelta  # noqa: E402
 from typing import Optional  # noqa: E402
 
 from fastapi import Query  # noqa: E402
-from app.models.alert_type_config import ALERT_TYPE_CATALOG, OBSOLETE_ALERT_TYPES  # noqa: E402
+from app.models.alert_type_config import (  # noqa: E402
+    ALERT_TYPE_CATALOG, OBSOLETE_ALERT_TYPES, describe_alert_type,
+)
 
 
 def _week_bounds(week_param: Optional[str]) -> tuple[date, date]:
@@ -284,6 +286,7 @@ async def weekly_pattern_report(
         patterns.append({
             "alert_type": at,
             "label": label_map.get(at, at),
+            "description": describe_alert_type(at),
             "fires": int(fires or 0),
             "avg_vol_ratio": round(float(avg_vol), 2) if avg_vol is not None else None,
             "avg_vwap_slope_pct": round(float(avg_slope), 3) if avg_slope is not None else None,
@@ -324,6 +327,7 @@ async def weekly_pattern_report(
             "symbol": sym,
             "alert_type": at,
             "label": label_map.get(at, at),
+            "description": describe_alert_type(at),
             "direction": dirn,
             "created_at": ts.isoformat() + "Z" if ts else None,
             "volume_ratio": float(vol) if vol is not None else None,

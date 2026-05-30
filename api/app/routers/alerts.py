@@ -300,7 +300,7 @@ async def by_alert_type_performance(
     open_*, no breakouts, no shorts). Returns R-based stats — no
     fictional dollar P&L. R = (exit - entry) / (entry - stop).
     """
-    from app.models.alert_type_config import ALERT_TYPE_CATALOG
+    from app.models.alert_type_config import ALERT_TYPE_CATALOG, describe_alert_type
 
     live_types = {row[0] for row in ALERT_TYPE_CATALOG}
     label_map = {row[0]: row[1] for row in ALERT_TYPE_CATALOG}
@@ -342,6 +342,7 @@ async def by_alert_type_performance(
         items.append({
             "alert_type": at,
             "label": label_map.get(at, at),
+            "description": describe_alert_type(at),
             "took": d["took"],
             "with_exit": d["with_exit"],
             "wins": d["wins"],

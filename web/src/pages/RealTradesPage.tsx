@@ -333,7 +333,12 @@ function AlertTypePerformanceSection() {
               : avgR > 0 ? "text-bullish-text" : "text-bearish-text";
             return (
               <div key={it.alert_type} className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-border-subtle/30 last:border-b-0 items-center text-xs">
-                <span className="col-span-5 text-text-primary truncate">{it.label}</span>
+                <span
+                  className="col-span-5 text-text-primary truncate cursor-help"
+                  title={it.description || it.label}
+                >
+                  {it.label}
+                </span>
                 <span className="col-span-1 text-right font-mono text-text-secondary">{it.took}</span>
                 <span className="col-span-1 text-right font-mono text-text-secondary">{it.with_exit}</span>
                 <div className="col-span-2 flex items-center justify-end gap-2">

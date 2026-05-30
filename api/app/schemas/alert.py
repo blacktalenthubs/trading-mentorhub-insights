@@ -24,6 +24,7 @@ class AlertResponse(BaseModel):
     id: int
     symbol: str
     alert_type: str
+    description: Optional[str] = None  # plain-English pattern explanation (spec 61 follow-up)
     direction: str
     price: float
     entry: Optional[float] = None
@@ -53,10 +54,14 @@ class AlertResponse(BaseModel):
 
     @classmethod
     def from_orm_alert(cls, alert) -> "AlertResponse":
+        # Import inside the method to avoid a circular import — the
+        # alert_type_config module imports from various app/* modules.
+        from app.models.alert_type_config import describe_alert_type
         return cls(
             id=alert.id,
             symbol=alert.symbol,
             alert_type=alert.alert_type,
+            description=describe_alert_type(alert.alert_type) or None,
             direction=alert.direction,
             price=alert.price,
             entry=alert.entry,

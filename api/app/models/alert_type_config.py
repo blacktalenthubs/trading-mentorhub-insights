@@ -110,6 +110,68 @@ _MA_CATALOG: list[tuple[str, str, str, bool]] = [
 ALERT_TYPE_CATALOG: list[tuple[str, str, str, bool]] = _BASE_CATALOG + _MA_CATALOG
 
 
+# ── Plain-English explanation per alert type ────────────────────────
+# One sentence each, written for a NEW user who doesn't know PDH / AVWAP /
+# Buy-2 jargon. Tooltipped on the Weekly + By Pattern tables and shown as
+# a subline on every Signal Feed card. Keep them factual ("stock did X")
+# rather than promotional ("strong setup!") so users learn the actual
+# mechanics of each pattern.
+ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
+    # MA bounce — per moving average. Tightest to widest support.
+    "ma_bounce_long_v3_ema8":   "Intraday price pulled back to the 8 EMA in an uptrend and bounced — tightest trend support.",
+    "ma_bounce_long_v3_ema21":  "Intraday price pulled back to the 21 EMA in an uptrend and bounced — short trend support.",
+    "ma_bounce_long_v3_ema50":  "Intraday price pulled back to the 50 EMA in an uptrend and bounced — mid trend support.",
+    "ma_bounce_long_v3_ema100": "Intraday price pulled back to the 100 EMA in an uptrend and bounced — wider trend support.",
+    "ma_bounce_long_v3_ema200": "Intraday price pulled back to the 200 EMA in an uptrend and bounced — major trend support.",
+    "ma_bounce_long_v3_sma":    "Intraday price pulled back to a major SMA (50/100/200) and bounced — institutional level support.",
+
+    # Held-as-support — prior high acted as a floor after price reclaimed it.
+    "staged_pdh_held": "Stock pulled back to yesterday's high and bounced — yesterday's resistance is now acting as support.",
+    "staged_pwh_held": "Stock pulled back to last week's high and bounced — weekly resistance flipped to support.",
+    "staged_pmh_held": "Stock pulled back to last month's high and bounced — monthly resistance flipped to support.",
+
+    # Wick-rejected breakdown of a prior low.
+    "staged_pdl_held": "Stock dipped below yesterday's low briefly then closed back above — wick-rejected breakdown.",
+    "staged_pwl_held": "Stock dipped below last week's low briefly then closed back above — wick-rejected weekly breakdown.",
+    "staged_pml_held": "Stock dipped below last month's low briefly then closed back above — wick-rejected monthly breakdown.",
+
+    # Reclaim — lost a prior low then recovered it on a bullish bar.
+    "staged_pdl_reclaim": "Stock lost yesterday's low then recovered it on a bullish bar — failed breakdown long.",
+    "staged_pwl_reclaim": "Stock lost last week's low then recovered it on a bullish bar — failed weekly breakdown long.",
+    "staged_pml_reclaim": "Stock lost last month's low then recovered it on a bullish bar — failed monthly breakdown long.",
+
+    # Anchored VWAP defended — average buyer from a specific anchor still in profit.
+    "staged_mtd_avwap_held": "Price defended the month-to-date anchored VWAP — average buyer since the start of the month is back in profit.",
+    "staged_pm_avwap_held":  "Price defended the prior-month anchored VWAP — last month's average buyer holding the line.",
+    "staged_p2m_avwap_held": "Price defended the 2-months-prior anchored VWAP — older average buyer still defending.",
+
+    # Spec 60 breakouts — vol + slope confluence.
+    "staged_pdh_break":         "Stock broke above yesterday's high with above-average volume and rising VWAP — confirmed continuation.",
+    "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
+    "staged_pmh_break":         "Stock broke above last month's high with above-average volume and rising VWAP — monthly breakout.",
+    "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
+
+    # Swing scanner — daily-bar entries.
+    "swing_bounce_ema21":       "Daily price pulled back to the 21 EMA in an uptrend and bounced — short-term swing continuation.",
+    "swing_bounce_ema50":       "Daily price pulled back to the 50 EMA in an uptrend and bounced — medium-term swing continuation.",
+    "swing_bounce_sma50":       "Daily price pulled back to the 50 SMA in an uptrend and bounced — institutional swing support.",
+    "swing_bounce_ema200":      "Daily price pulled back to the 200 EMA in an uptrend and bounced — long-term trend defense.",
+    "swing_bounce_sma200":      "Daily price pulled back to the 200 SMA in an uptrend and bounced — major institutional support.",
+    "swing_8_21_cross":          "Daily 8 EMA crossed above 21 EMA — short-term bullish momentum shift.",
+    "swing_golden_cross_retest": "Daily price retested the 50 EMA after a golden cross (50 over 200) — trend confirmation.",
+    "swing_52w_high_retest":     "Daily price retested the 52-week high level as support — strongest trend continuation setup.",
+    "swing_5day_low_reclaim":    "Daily price reclaimed the 5-day low after a brief breakdown — minor pullback recovery.",
+    "swing_rsi_30":              "Daily RSI recovered from below 30 — oversold bounce setup.",
+}
+
+
+def describe_alert_type(alert_type: str) -> str:
+    """Returns the plain-English description for an alert type, or empty
+    string if unknown. UI surfaces the empty case as no tooltip / no subline.
+    """
+    return ALERT_TYPE_DESCRIPTIONS.get(alert_type, "")
+
+
 # ── Cleanup — every retired/obsoleted alert type ────────────────────────
 # These types are DELETED from the alert_type_config table on every startup
 # (see seed_alert_type_config below). Soft-disable was tried first but the

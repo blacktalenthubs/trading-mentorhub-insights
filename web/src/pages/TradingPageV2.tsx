@@ -410,9 +410,16 @@ function SignalFeedTab({
               <span className="text-[10px] font-mono text-text-faint">{time}</span>
             </div>
 
-            {/* Setup name */}
-            <div className="text-[11px] font-medium text-text-secondary mb-1.5">
-              {formatSetup(a.alert_type)}
+            {/* Setup name + plain-English description (spec 61 follow-up) */}
+            <div className="mb-1.5">
+              <div className="text-[11px] font-medium text-text-secondary">
+                {formatSetup(a.alert_type)}
+              </div>
+              {a.description && (
+                <div className="text-[10px] text-text-faint leading-snug mt-0.5">
+                  {a.description}
+                </div>
+              )}
             </div>
 
             {/* Quality strip — volume ratio + VWAP slope at a glance.

@@ -53,6 +53,7 @@ export interface Alert {
   id: number;
   symbol: string;
   alert_type: string;
+  description?: string | null;       // plain-English explanation per spec 61 follow-up
   direction: string;
   price: number;
   entry: number | null;

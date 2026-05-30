@@ -100,6 +100,7 @@ export function useUpcomingEarnings() {
 export interface WeeklyPattern {
   alert_type: string;
   label: string;
+  description?: string;
   fires: number;
   avg_vol_ratio: number | null;
   avg_vwap_slope_pct: number | null;
@@ -111,6 +112,7 @@ export interface WeeklyFire {
   symbol: string;
   alert_type: string;
   label: string;
+  description?: string;
   direction: string;
   created_at: string | null;
   volume_ratio: number | null;
@@ -700,6 +702,7 @@ export function usePaperAccount() {
 export interface AlertTypePerformance {
   alert_type: string;
   label: string;
+  description?: string;
   took: number;
   with_exit: number;
   wins: number;
