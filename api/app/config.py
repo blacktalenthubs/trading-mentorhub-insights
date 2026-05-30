@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # Feature limits
     FREE_WATCHLIST_MAX: int = 5
 
+    # In-Play Volume Screener (spec 62) — default thresholds (all adjustable)
+    SCREENER_MARKET_CAP_FLOOR: float = 2_000_000_000  # $2B
+    SCREENER_PRICE_FLOOR: float = 5.0
+    SCREENER_DOLLAR_VOL_FLOOR: float = 20_000_000  # $20M avg daily $-volume
+    SCREENER_TOP_N: int = 30
+    SCREENER_REFRESH_MINUTES: int = 10
+
     # Square billing
     SQUARE_ACCESS_TOKEN: str = ""
     SQUARE_APP_ID: str = ""
