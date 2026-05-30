@@ -673,6 +673,23 @@ async def update_user_tier(
     return {"user_id": user_id, "tier": new_tier, "status": "active"}
 
 
+@router.post("/run-weekly-retro")
+async def run_weekly_retro_now(
+    admin: User = Depends(_require_admin),
+):
+    """Fire the AI Friday retrospective on demand. Useful for previewing
+    Friday's message earlier in the week, or re-running if Friday's cron
+    misfired. Idempotency rules still apply — same user can't be retro'd
+    twice on the same calendar day.
+    """
+    from app.main import app as _app
+    from analytics.ai_weekly_retro import send_weekly_retros
+
+    sync_session_factory = _app.state.sync_session_factory
+    summary = send_weekly_retros(sync_session_factory)
+    return summary
+
+
 @router.post("/backfill-real-outcomes")
 async def backfill_real_outcomes(
     days: int = 7,

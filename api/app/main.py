@@ -539,6 +539,34 @@ async def lifespan(app: FastAPI):
                 )
                 logger.info("Registered real-outcomes cron: 16:30 ET, Mon-Fri")
 
+            # AI Friday Retrospective (Feature 5 of the spec 61 follow-up).
+            # Reads the week's alerts + real outcomes (Feature 2 must have run
+            # by now — the outcomes cron is 16:30, this is 17:00, so today's
+            # alerts are graded). Sends one personalized Telegram lessons
+            # message per user per Friday. Idempotent on (user, today, retro).
+            # Set WEEKLY_RETRO_ENABLED=0 in Railway to disable.
+            if os.environ.get("WEEKLY_RETRO_ENABLED", "true").lower() not in ("0", "false", "no"):
+                from apscheduler.triggers.cron import CronTrigger as _CT_RETRO
+                import pytz as _pytz_retro
+                _et_retro = _pytz_retro.timezone("America/New_York")
+
+                def _weekly_retro():
+                    try:
+                        from analytics.ai_weekly_retro import send_weekly_retros
+                        summary = send_weekly_retros(sync_session_factory)
+                        logger.info("Weekly retro summary: %s", summary)
+                    except Exception:
+                        logger.exception("Weekly retro failed")
+
+                scheduler.add_job(
+                    _weekly_retro,
+                    _CT_RETRO(day_of_week="fri", hour=17, minute=0, timezone=_et_retro),
+                    id="weekly_retro",
+                    misfire_grace_time=3600,
+                    replace_existing=True,
+                )
+                logger.info("Registered AI Friday retrospective cron: 17:00 ET Fri")
+
             # Earnings refresh (spec 61) — nightly @ 04:00 ET, every day
             # including weekends so Monday's tab is fresh. Pulls Finnhub
             # calendar + history for every watchlist symbol, upserts both
