@@ -304,11 +304,122 @@ async def _user_summaries(
     return summaries, macro_quotes
 
 
+async def _build_top_of_day_lines(user_id: int, db: AsyncSession) -> list[str]:
+    """Build the TOP OF DAY header section for the morning brief (Feature 4
+    of the spec 61 follow-up batch). Prepended above the existing per-group
+    premarket heat lines.
+
+    Three lines, all optional — only added when data exists:
+      1. SPY regime: bias label + price + slope %
+      2. Earnings today on this user's watchlist
+      3. Top 3 AI Best Setups from the user's most recent FocusList run
+    """
+    from app.models.earnings import Earnings
+    from app.models.focus_list import FocusList
+    from app.models.watchlist import WatchlistItem
+    from app.routers.market import _compute_spy_regime
+    from datetime import date as _date, timedelta as _td
+
+    lines: list[str] = []
+    today = _date.today()
+
+    # 1. SPY regime — single call to the same compute used by the live strip.
+    # Cached server-side 30s so this is cheap even with many users.
+    try:
+        import asyncio as _aio
+        loop = _aio.get_event_loop()
+        regime = await loop.run_in_executor(None, _compute_spy_regime)
+        if regime and regime.get("status") == "ok":
+            bias = regime.get("bias", "NEUTRAL").replace("_", " ")
+            slope = regime.get("vwap_slope_pct", 0.0)
+            sign = "+" if slope >= 0 else ""
+            extra = ""
+            if regime.get("inside_day"):
+                extra = f" · inside day (PDH {regime.get('pdh'):.2f} / PDL {regime.get('pdl'):.2f})"
+            lines.append(
+                f"SPY <b>{bias}</b> · ${regime.get('price'):.2f} · "
+                f"VWAP {sign}{slope:.2f}%{extra}"
+            )
+    except Exception:
+        logger.exception("Morning brief: SPY regime failed")
+
+    # 2. Earnings today on this user's watchlist.
+    try:
+        rows = (await db.execute(
+            select(Earnings.symbol, Earnings.time_of_day, Earnings.eps_estimate)
+            .join(WatchlistItem, WatchlistItem.symbol == Earnings.symbol)
+            .where(WatchlistItem.user_id == user_id, Earnings.next_earnings_date == today)
+        )).all()
+        if rows:
+            parts = []
+            for sym, tod, eps in rows:
+                tod_str = f" ({tod})" if tod else ""
+                parts.append(f"<b>{sym}</b>{tod_str}")
+            lines.append("Earnings today: " + ", ".join(parts))
+    except Exception:
+        logger.exception("Morning brief: earnings lookup failed")
+
+    # 3. Top 3 AI Best Setups from the most recent FocusList run (< 24h old).
+    try:
+        cutoff = today - _td(days=1)
+        latest = (await db.execute(
+            select(FocusList)
+            .where(
+                FocusList.user_id == user_id,
+                FocusList.session_date >= cutoff.isoformat(),
+                FocusList.status == "has_setups",
+            )
+            .order_by(FocusList.generated_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if latest and isinstance(latest.recommendations, list) and latest.recommendations:
+            picks = latest.recommendations[:3]
+            parts = []
+            for p in picks:
+                sym = p.get("symbol") or "?"
+                tf = (p.get("timeframe") or "day").lower()
+                tf_short = "swing" if tf.startswith("swing") else "day"
+                parts.append(f"<b>{sym}</b> ({tf_short})")
+            lines.append("AI Best Setups: " + ", ".join(parts))
+    except Exception:
+        logger.exception("Morning brief: focus list lookup failed")
+
+    return lines
+
+
+def _format_brief_with_header(
+    top_lines: list[str],
+    summaries: list[dict],
+    macro_quotes: Optional[dict[str, dict]] = None,
+) -> Optional[str]:
+    """Wrap format_brief with the TOP OF DAY prefix section. If neither
+    the top section nor the per-group section has data, returns None.
+    """
+    inner = format_brief(summaries, macro_quotes=macro_quotes)
+    has_summaries = inner is not None
+    if not top_lines and not has_summaries:
+        return None
+
+    if top_lines:
+        header_block = (
+            "🔥 <b>TOP OF DAY</b>\n"
+            + "\n".join(top_lines)
+            + "\n──────────────"
+        )
+        if has_summaries:
+            # Inner is wrapped in <pre> for column alignment — splice header
+            # ABOVE the <pre> block so the header renders as rich text.
+            return f"{header_block}\n{inner}"
+        return header_block
+    return inner
+
+
 async def build_user_sector_brief(user_id: int) -> Optional[str]:
     """Build the formatted Telegram message for a single user. None if no data."""
     async with async_session_factory() as db:
+        top_lines = await _build_top_of_day_lines(user_id, db)
         summaries, macro_quotes = await _user_summaries(user_id, db)
-    return format_brief(summaries, macro_quotes=macro_quotes)
+    return _format_brief_with_header(top_lines, summaries, macro_quotes=macro_quotes)
 
 
 async def send_sector_briefs() -> tuple[int, int]:
