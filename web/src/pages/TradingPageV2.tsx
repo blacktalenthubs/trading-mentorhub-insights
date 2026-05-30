@@ -31,6 +31,7 @@ import { api } from "../api/client";
 import type { SignalResult, Alert, ScorecardItem } from "../types";
 import { formatSetup, isFeedSignal } from "../lib/alertFormat";
 import CandlestickChart from "../components/CandlestickChart";
+import SpyRegimeStrip from "../components/SpyRegimeStrip";
 import {
   Search,
   Target,
@@ -927,7 +928,13 @@ export default function TradingPageV2() {
   /* ────────────────────────────────────────────────────────────────── */
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* ── SPY Regime strip — pinned top, polls 60s ── */}
+      <div className="shrink-0 px-2 pt-1.5 pb-1">
+        <SpyRegimeStrip />
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
       {/* ── Mobile backdrop when drawer open ── */}
       {mobileWatchlistOpen && (
         <div
@@ -1480,6 +1487,7 @@ export default function TradingPageV2() {
             />
           </div>
         )}
+      </div>
       </div>
     </div>
   );

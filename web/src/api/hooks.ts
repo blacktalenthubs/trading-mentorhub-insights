@@ -224,6 +224,33 @@ export function useGroupsPremarket() {
   });
 }
 
+// --- SPY Regime (Feature 3) ---
+
+export interface SpyRegimeSnapshot {
+  status: "ok" | "unavailable";
+  reason?: string;
+  price?: number;
+  vwap?: number;
+  vwap_slope_pct?: number;
+  today_open?: number;
+  pdh?: number | null;
+  pdl?: number | null;
+  inside_day?: boolean;
+  bias?: "LONG" | "WAIT" | "NEUTRAL" | "STAND_DOWN";
+  bias_label?: string;
+  bias_color?: "green" | "amber" | "red" | "gray";
+  last_bar_time?: string;
+}
+
+export function useSpyLiveRegime() {
+  return useQuery({
+    queryKey: ["spy-live-regime"],
+    queryFn: () => api.get<SpyRegimeSnapshot>("/market/spy-regime"),
+    refetchInterval: 60_000,   // 60s — server caches 30s, so worst-case 2 Alpaca pulls/min
+    staleTime: 30_000,
+  });
+}
+
 /** Live prices — polls every 15 seconds during market hours. */
 export function useLivePrices() {
   return useQuery({

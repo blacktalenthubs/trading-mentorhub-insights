@@ -672,3 +672,117 @@ async def fire_sector_brief_test(
 
     ok = _send_telegram_to(body, user.telegram_chat_id, parse_mode="HTML")
     return {"sent": ok, "preview": body}
+
+
+# ── SPY Regime Gauge (Feature 3) ─────────────────────────────────────
+# Polled every ~60s by the Trading page top strip. Gives the busy user
+# one-glance "is today engageable" context.
+#
+# Bias label decision tree:
+#   inside_day AND |slope| < 0.05%  →  "INSIDE DAY · WAIT · scalp edges"
+#   slope >= +0.05% AND price > VWAP →  "LONG BIAS"
+#   slope <= -0.05% AND price < VWAP →  "STAND DOWN"
+#   else                              →  "NEUTRAL"
+
+_SPY_REGIME_TTL = 30  # server-side cache TTL in seconds; clients poll ~60s
+
+
+@router.get("/spy-regime")
+@limiter.limit("60/minute")
+async def spy_regime(request: Request, user: User = Depends(get_current_user)):
+    """Returns the live SPY regime snapshot for the Trading page top strip.
+
+    Server caches the computed snapshot for 30s — 60s client poll means
+    typical worst-case 2 Alpaca calls/min/server regardless of user count.
+    """
+    cached = cache_get("spy_regime")
+    if cached is not None:
+        return cached
+
+    loop = asyncio.get_event_loop()
+    snapshot = await loop.run_in_executor(None, _compute_spy_regime)
+    cache_set("spy_regime", snapshot, _SPY_REGIME_TTL)
+    return snapshot
+
+
+def _compute_spy_regime() -> dict:
+    """Pull SPY intraday + prior-day, compute VWAP slope + inside-day,
+    classify the regime. Returns a dict for the cache. Failure modes
+    return a safe 'unknown' regime so the UI degrades gracefully.
+    """
+    from analytics.intraday_data import _fetch_alpaca_bars, fetch_prior_day
+
+    try:
+        bars = _fetch_alpaca_bars("SPY", interval="5m", hours_back=8)
+        prior = fetch_prior_day("SPY") or {}
+    except Exception:
+        return {"status": "unavailable", "reason": "data fetch failed"}
+
+    if bars is None or len(bars) == 0:
+        return {"status": "unavailable", "reason": "no SPY bars yet (premarket?)"}
+
+    # Use only TODAY's session bars (the last date in the index) so VWAP
+    # is session-anchored, not a multi-day average.
+    last_date = bars.index[-1].date()
+    today_bars = bars[bars.index.date == last_date]
+    if len(today_bars) == 0:
+        return {"status": "unavailable", "reason": "no today bars"}
+
+    # Session VWAP from today's bars.
+    typical = (today_bars["High"] + today_bars["Low"] + today_bars["Close"]) / 3.0
+    pv = typical * today_bars["Volume"]
+    cum_pv = pv.cumsum()
+    cum_vol = today_bars["Volume"].cumsum().replace(0, float("nan"))
+    vwap_series = (cum_pv / cum_vol).dropna()
+    if len(vwap_series) == 0:
+        return {"status": "unavailable", "reason": "vwap math failed"}
+
+    last_vwap = float(vwap_series.iloc[-1])
+    last_price = float(today_bars["Close"].iloc[-1])
+
+    # Slope as % over the last ~30 minutes (6 × 5m bars) — short enough to
+    # react to regime shifts, long enough to ignore single-bar noise.
+    look = min(6, len(vwap_series) - 1)
+    slope_pct = 0.0
+    if look > 0 and vwap_series.iloc[-1 - look] != 0:
+        prev = float(vwap_series.iloc[-1 - look])
+        slope_pct = (last_vwap - prev) / prev * 100.0
+
+    today_open = float(today_bars["Open"].iloc[0])
+    pdh = float(prior.get("high")) if prior.get("high") is not None else None
+    pdl = float(prior.get("low")) if prior.get("low") is not None else None
+    inside_day = bool(pdh is not None and pdl is not None and pdl < today_open < pdh)
+
+    # Bias.
+    abs_slope = abs(slope_pct)
+    if inside_day and abs_slope < 0.05:
+        bias = "WAIT"
+        bias_label = "Inside day — scalp edges, wait for break"
+        bias_color = "amber"
+    elif slope_pct >= 0.05 and last_price > last_vwap:
+        bias = "LONG"
+        bias_label = "Long bias — VWAP rising, price above"
+        bias_color = "green"
+    elif slope_pct <= -0.05 and last_price < last_vwap:
+        bias = "STAND_DOWN"
+        bias_label = "Stand down — VWAP falling, price below"
+        bias_color = "red"
+    else:
+        bias = "NEUTRAL"
+        bias_label = "Neutral — no clean direction"
+        bias_color = "gray"
+
+    return {
+        "status": "ok",
+        "price": round(last_price, 2),
+        "vwap": round(last_vwap, 2),
+        "vwap_slope_pct": round(slope_pct, 3),
+        "today_open": round(today_open, 2),
+        "pdh": pdh,
+        "pdl": pdl,
+        "inside_day": inside_day,
+        "bias": bias,
+        "bias_label": bias_label,
+        "bias_color": bias_color,
+        "last_bar_time": today_bars.index[-1].isoformat(),
+    }
