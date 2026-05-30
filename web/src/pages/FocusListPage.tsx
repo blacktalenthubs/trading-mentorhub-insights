@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Target, History, Sparkles, Crosshair } from "lucide-react";
+import { RefreshCw, Target, History, Sparkles, Crosshair, Activity } from "lucide-react";
 import {
   useAlertsToday,
   useLatestFocusList,
@@ -18,8 +18,10 @@ import {
 } from "../api/hooks";
 import FocusListView from "../components/FocusListView";
 import SwingTradesPage from "./SwingTradesPage";
+import InPlayView from "../components/InPlayView";
+import TierGate from "../components/TierGate";
 
-type IdeasTab = "day" | "swing" | "ai";
+type IdeasTab = "day" | "swing" | "ai" | "inplay";
 
 function historyLabel(item: FocusListHistoryItem): string {
   const iso = item.generated_at;
@@ -46,6 +48,7 @@ const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Crosshair }[] = [
   { id: "day",   label: "Day Trades",   icon: Crosshair },
   { id: "swing", label: "Swing Trades", icon: Target },
   { id: "ai",    label: "AI Scans",     icon: Sparkles },
+  { id: "inplay", label: "In Play",     icon: Activity },
 ];
 
 export default function FocusListPage() {
@@ -96,6 +99,11 @@ export default function FocusListPage() {
         {tab === "day" && <DayTradesTab />}
         {tab === "swing" && <SwingTradesPage />}
         {tab === "ai" && <AIScansTab />}
+        {tab === "inplay" && (
+          <TierGate require="pro" featureName="In-Play Volume Screener">
+            <InPlayView />
+          </TierGate>
+        )}
       </div>
     </div>
   );

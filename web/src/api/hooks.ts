@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
+import type { InPlaySnapshot } from "../pages/InPlay.types";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -11,6 +12,20 @@ import type {
   NotificationRouting,
   PerformanceBreakdown,
 } from "../types";
+
+// --- In-Play Volume Screener (spec 62) ---
+
+export function useInPlay(preset: string, hasSetup: boolean) {
+  return useQuery({
+    queryKey: ["in-play", preset, hasSetup],
+    queryFn: () =>
+      api.get<InPlaySnapshot>(
+        `/screener/in-play?preset=${encodeURIComponent(preset)}&has_setup=${hasSetup}`,
+      ),
+    // Refresh roughly with the server's ~10-min cadence; the snapshot is cached server-side.
+    refetchInterval: 60_000,
+  });
+}
 
 // --- Auth ---
 

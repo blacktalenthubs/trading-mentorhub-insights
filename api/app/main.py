@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     # Import all models so Base.metadata knows about them
     import app.models  # noqa: F401
     import app.models.journal  # noqa: F401
+    import app.models.screener  # noqa: F401  # spec 62 — screener_universe + screener_snapshot
 
     # Auto-create new tables (usage_limits etc.) and add missing columns
     async with engine.begin() as conn:
@@ -912,6 +913,25 @@ async def lifespan(app: FastAPI):
                 replace_existing=True,
             )
 
+        # In-Play Volume Screener (spec 62): weekly universe rebuild + market-hours
+        # refresh. Sync wrappers drive the async DB via asyncio.run. Market-hours
+        # gating is inside the job; the interval fires year-round but no-ops when closed.
+        try:
+            from app.services.screener_service import refresh_in_play_job, rebuild_universe_job
+            _scr_min = int(settings.SCREENER_REFRESH_MINUTES)
+            scheduler.add_job(
+                rebuild_universe_job, "cron", hour=6, minute=0,
+                timezone="America/New_York", day_of_week="sun",
+                id="screener_universe_rebuild", replace_existing=True,
+            )
+            scheduler.add_job(
+                refresh_in_play_job, "interval", minutes=_scr_min,
+                id="screener_in_play_refresh", replace_existing=True,
+            )
+            logger.info("Screener jobs registered (weekly rebuild + %d-min refresh)", _scr_min)
+        except Exception:
+            logger.exception("Failed to register screener jobs")
+
         scheduler.start()
         logger.info("Background monitor started (3-min poll + EOD/premarket/weekly jobs)")
     except Exception:
@@ -1038,6 +1058,7 @@ def create_app() -> FastAPI:
         focus_list,  # Persisted daily focus list from AI Best Setups
         alert_config,  # Per-alert-type enable/disable toggles
         earnings,    # Spec 61 — Watchlist earnings calendar + T-7 notifications
+        screener,    # Spec 62 — In-Play Volume Screener
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -1058,6 +1079,7 @@ def create_app() -> FastAPI:
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
     app.include_router(performance.router, prefix="/api/v1/performance", tags=["performance"])
+    app.include_router(screener.router, prefix="/api/v1/screener", tags=["screener"])
     app.include_router(coach_history.router, prefix="/api/v1", tags=["coach"])
     app.include_router(auto_trades.router, prefix="/api/v1/auto-trades", tags=["auto-trades"])
     app.include_router(focus_list.router, prefix="/api/v1/ai", tags=["focus-list"])

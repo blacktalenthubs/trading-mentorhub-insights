@@ -14,9 +14,9 @@
 ## Phase 2: Foundational (blocking — complete before any user story)
 - [X] T003 [P] Create SQLAlchemy models `ScreenerUniverse` + `ScreenerSnapshot` (JSON `entries` column) in `api/app/models/screener.py`
 - [X] T004 [P] Create Pydantic schemas `Snapshot`, `Entry`, `Settings`, `SettingsUpdate` (match `contracts/openapi.yaml`) in `api/app/schemas/screener.py`
-- [ ] T005 Register `screener_universe` + `screener_snapshot` in `create_all` and add idempotent `ALTER ... IF NOT EXISTS` migration block in `api/app/main.py` lifespan
+- [X] T005 Register `screener_universe` + `screener_snapshot` in `create_all` and add idempotent `ALTER ... IF NOT EXISTS` migration block in `api/app/main.py` lifespan
 - [X] T006 [P] Create `analytics/screener.py` skeleton — signatures + docstrings for `build_universe`, `rank_in_play`, `scan_setups`, `apply_refine_filters`, and `PRESETS`
-- [ ] T007 Create `api/app/services/screener_service.py` skeleton — orchestration stubs + `is_market_open()` helper (regular US hours)
+- [X] T007 Create `api/app/services/screener_service.py` skeleton — orchestration stubs + `is_market_open()` helper (regular US hours)
 
 ## Phase 3: User Story 1 — "Where do I look today" in-play list (P1) 🎯 MVP
 **Goal**: A Pro+ trader opens Trade Ideas → In Play during market hours and sees ~30 RVOL-ranked, setup-aware names.
@@ -25,15 +25,15 @@
 - [X] T008 [P] [US1] Write failing tests for `build_universe` floor filtering (excludes below cap/price/$-vol; cap change resizes) in `tests/test_screener.py`
 - [X] T009 [P] [US1] Write failing tests for `rank_in_play` ordering (RVOL desc, $-vol tiebreaker; high-absolute/normal-RVOL ranks below low-absolute/high-RVOL) in `tests/test_screener.py`
 - [ ] T010 [P] [US1] Write failing test for market-hours gate (`refresh_in_play` no-ops when closed; snapshot `market_open=false`) in `tests/test_screener.py`
-- [ ] T011 [US1] Implement `build_universe()` via yfinance `EquityQuery` (cap/price/$-vol) behind a thin field adapter (pin to installed yfinance) in `analytics/screener.py`
-- [ ] T012 [US1] Implement `rank_in_play()` — Alpaca most-actives ∩ universe + quotes → reuse `analytics/intraday_data.compute_rvol` → sort RVOL desc, $-vol tiebreaker, top-N — in `analytics/screener.py`
+- [X] T011 [US1] Implement `build_universe()` via yfinance `EquityQuery` (cap/price/$-vol) behind a thin field adapter (pin to installed yfinance) in `analytics/screener.py`
+- [X] T012 [US1] Implement `rank_in_play()` — Alpaca most-actives ∩ universe + quotes → reuse `analytics/intraday_data.compute_rvol` → sort RVOL desc, $-vol tiebreaker, top-N — in `analytics/screener.py`
 - [X] T013 [US1] Implement `scan_setups()` calling `analytics/signal_engine` (read-only) on the shortlist and attaching pattern/entry per symbol in `analytics/screener.py`
-- [ ] T014 [US1] Implement `refresh_in_play()` (market-hours gate → rank → scan → compose snapshot → persist) and `rebuild_universe()` in `api/app/services/screener_service.py`
-- [ ] T015 [US1] Register APScheduler ~10-min market-hours refresh job in `api/app/main.py` lifespan
-- [ ] T016 [US1] Implement `GET /api/v1/screener/in-play` (serve latest snapshot, Pro+ tier gate → 402 for free) in `api/app/routers/screener.py` and mount the router in `api/app/main.py`
-- [ ] T017 [P] [US1] Add `useInPlay()` TanStack Query hook in `web/src/api/hooks.ts` and `Snapshot`/`Entry` types in `web/src/pages/InPlay.types.ts`
-- [ ] T018 [P] [US1] Build `InPlayView.tsx` rows (symbol · last price · signed %chg · RVOL chip · $-vol · market cap · setup badge; row → chart) in `web/src/components/InPlayView.tsx`
-- [ ] T019 [US1] Add `My Ideas | In Play` segmented control to `web/src/pages/FocusListPage.tsx`, wrapping In-Play in `TierGate` (Pro+ with free teaser)
+- [X] T014 [US1] Implement `refresh_in_play()` (market-hours gate → rank → scan → compose snapshot → persist) and `rebuild_universe()` in `api/app/services/screener_service.py`
+- [X] T015 [US1] Register APScheduler ~10-min market-hours refresh job in `api/app/main.py` lifespan
+- [X] T016 [US1] Implement `GET /api/v1/screener/in-play` (serve latest snapshot, Pro+ tier gate → 402 for free) in `api/app/routers/screener.py` and mount the router in `api/app/main.py`
+- [X] T017 [P] [US1] Add `useInPlay()` TanStack Query hook in `web/src/api/hooks.ts` and `Snapshot`/`Entry` types in `web/src/pages/InPlay.types.ts`
+- [X] T018 [P] [US1] Build `InPlayView.tsx` rows (symbol · last price · signed %chg · RVOL chip · $-vol · market cap · setup badge; row → chart) in `web/src/components/InPlayView.tsx`
+- [X] T019 [US1] Add `My Ideas | In Play` segmented control to `web/src/pages/FocusListPage.tsx`, wrapping In-Play in `TierGate` (Pro+ with free teaser)
 - [ ] T020 [US1] Verify US1 E2E per `quickstart.md` (≤30 ranked rows, RVOL chips, setup badges, row→chart, market-hours timestamp advances)
 
 **Checkpoint**: US1 is a shippable MVP on its own.
@@ -44,9 +44,9 @@
 
 - [X] T021 [P] [US2] Write failing tests for `apply_refine_filters` presets + direction-awareness (long preset does not delete short setups) in `tests/test_screener.py`
 - [X] T022 [US2] Implement `apply_refine_filters()` + `PRESETS` (Momentum Long / Pullback / Breakout / Short / Any) in `analytics/screener.py`
-- [ ] T023 [US2] Attach refine inputs (`above_ema50`, `above_vwap`, `rsi`, `rs_vs_spy`, `atr_pct`) + `direction` to each `Entry` in `api/app/services/screener_service.py`
-- [ ] T024 [US2] Add `preset` / `direction` / `has_setup` query params (server-side filter over ≤N rows) to `GET /api/v1/screener/in-play` in `api/app/routers/screener.py`
-- [ ] T025 [P] [US2] Add preset selector + "Has setup" toggle to `web/src/components/InPlayView.tsx`
+- [X] T023 [US2] Attach refine inputs (`above_ema50`, `above_vwap`, `rsi`, `rs_vs_spy`, `atr_pct`) + `direction` to each `Entry` in `api/app/services/screener_service.py`
+- [X] T024 [US2] Add `preset` / `direction` / `has_setup` query params (server-side filter over ≤N rows) to `GET /api/v1/screener/in-play` in `api/app/routers/screener.py`
+- [X] T025 [P] [US2] Add preset selector + "Has setup" toggle to `web/src/components/InPlayView.tsx`
 - [ ] T026 [US2] Verify US2: preset narrows; Short surfaces short setups; clearing returns full list
 
 ## Phase 5: User Story 3 — Thresholds, operations & resilience (P3)
@@ -56,8 +56,8 @@
 - [ ] T027 [P] [US3] Write failing tests for settings bounds + degraded-data fallback (prior snapshot served, `stale=true`) in `tests/test_screener.py`
 - [ ] T028 [US3] Implement `GET`/`PUT /api/v1/screener/settings` (global defaults + per-user `market_cap_floor`/`top_n` override with bounds) in `api/app/routers/screener.py`
 - [ ] T029 [US3] Implement `POST /api/v1/screener/universe/rebuild` (admin) + register weekly APScheduler rebuild job in `api/app/services/screener_service.py` and `api/app/main.py`
-- [ ] T030 [US3] Add degraded-data handling (keep prior snapshot, set `stale=true` on partial failure) in `api/app/services/screener_service.py`
-- [ ] T031 [P] [US3] Add market-closed + stale indicators and short/empty-list state to `web/src/components/InPlayView.tsx`
+- [X] T030 [US3] Add degraded-data handling (keep prior snapshot, set `stale=true` on partial failure) in `api/app/services/screener_service.py`
+- [X] T031 [P] [US3] Add market-closed + stale indicators and short/empty-list state to `web/src/components/InPlayView.tsx`
 - [ ] T032 [US3] Add single-instance scheduler guard (DB "last refresh" / advisory lock so multiple replicas don't double-refresh) in `api/app/services/screener_service.py`
 - [ ] T033 [US3] Verify US3: cap/top-N change reflects next refresh; admin rebuild updates `rebuilt_at`; closed + stale states render
 
