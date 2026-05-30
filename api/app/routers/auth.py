@@ -253,19 +253,19 @@ async def forgot_password(
         await db.flush()
 
         # Send reset email (fire-and-forget, don't block response)
-        reset_link = f"https://www.tradingwithai.ai/reset-password?token={token}"
+        reset_link = f"https://www.busytradersdesk.com/reset-password?token={token}"
         try:
             from alerting.notifier import send_plain_email
 
             send_plain_email(
                 user.email,
-                "TradeCoPilot — Reset Your Password",
+                "BusyTradersDesk — Reset Your Password",
                 f"Hi {user.display_name or 'there'},\n\n"
                 f"Click the link below to reset your password. "
                 f"This link expires in 1 hour.\n\n"
                 f"{reset_link}\n\n"
                 f"If you didn't request this, you can safely ignore this email.\n\n"
-                f"— TradeCoPilot",
+                f"— BusyTradersDesk",
             )
         except Exception:
             logger.exception("Failed to send password reset email to %s", user.email)

@@ -57,7 +57,7 @@ async def get_referral_code(
 
     return {
         "code": code,
-        "share_url": f"https://www.tradingwithai.ai/register?ref={code}",
+        "share_url": f"https://www.busytradersdesk.com/register?ref={code}",
         "total_referrals": total_referrals,
         "rewarded": rewarded,
         "reward": f"{REWARD_DAYS} days free Pro",

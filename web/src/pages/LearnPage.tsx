@@ -61,7 +61,7 @@ export default function LearnPage() {
               <Crosshair className="h-4 w-4 text-white" />
             </div>
             <span className="font-bold text-lg text-text-primary">
-              <span className="text-accent">Trade</span>CoPilot
+              <span className="text-accent">Busy</span>TradersDesk
             </span>
           </Link>
           <div className="flex items-center gap-3">
@@ -84,7 +84,7 @@ export default function LearnPage() {
           <span className="text-text-secondary">Then trade them live.</span>
         </h1>
         <p className="mt-4 text-text-muted max-w-xl mx-auto">
-          Every TradeCoPilot alert is based on proven chart structure. Understand why each
+          Every BusyTradersDesk alert is based on proven chart structure. Understand why each
           pattern works — then let the system find them for you in real time.
         </p>
       </section>

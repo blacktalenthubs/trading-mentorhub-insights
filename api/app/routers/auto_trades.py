@@ -509,8 +509,8 @@ async def trade_card(
       <div class="brand">
         <div class="brand-dot"></div>
         <div>
-          <div class="brand-name">TradeCoPilot</div>
-          <div class="brand-url">tradingwithai.ai</div>
+          <div class="brand-name">BusyTradersDesk</div>
+          <div class="brand-url">busytradersdesk.com</div>
         </div>
       </div>
       <div class="date-tag">{date_label}</div>
@@ -538,7 +538,7 @@ async def trade_card(
 
     <div class="footer">
       <div class="cta">AI-generated trade. <strong>Not financial advice.</strong></div>
-      <div class="cta"><strong>tradingwithai.ai</strong></div>
+      <div class="cta"><strong>busytradersdesk.com</strong></div>
     </div>
   </div>
 </body></html>"""
@@ -661,8 +661,8 @@ async def daily_card(
       <div class="brand">
         <div class="brand-dot"></div>
         <div>
-          <div class="brand-name">TradeCoPilot</div>
-          <div class="brand-url">tradingwithai.ai</div>
+          <div class="brand-name">BusyTradersDesk</div>
+          <div class="brand-url">busytradersdesk.com</div>
         </div>
       </div>
       <div class="date-tag">{day_label}</div>
@@ -693,7 +693,7 @@ async def daily_card(
     </div>
 
     <div class="footer">
-      <div class="cta">Live audit at <strong>tradingwithai.ai/track-record</strong></div>
+      <div class="cta">Live audit at <strong>busytradersdesk.com/track-record</strong></div>
       <div class="handle">@tradewithai</div>
     </div>
   </div>

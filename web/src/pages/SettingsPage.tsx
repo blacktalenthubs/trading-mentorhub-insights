@@ -839,9 +839,9 @@ function SignalNotifications() {
       toast.error("Permission not granted — allow notifications in your browser.");
       return;
     }
-    toast.info("Test — TradeCoPilot signal notification");
+    toast.info("Test — BusyTradersDesk signal notification");
     try {
-      const n = new Notification("TradeCoPilot · test signal", {
+      const n = new Notification("BusyTradersDesk · test signal", {
         body: "If you see this, signal notifications are working.",
         icon: "/logo-profile.svg",
       });

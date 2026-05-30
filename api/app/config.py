@@ -37,6 +37,8 @@ class Settings(BaseSettings):
         "https://www.tradesignalwithai.com",
         "https://tradingwithai.ai",
         "https://www.tradingwithai.ai",
+        "https://busytradersdesk.com",
+        "https://www.busytradersdesk.com",
         "https://worker-production-f56f.up.railway.app",
         "capacitor://localhost",       # iOS Capacitor
         "https://localhost",           # iOS WKWebView
@@ -58,7 +60,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
 
     # App
-    APP_NAME: str = "TradeCoPilot API"
+    APP_NAME: str = "BusyTradersDesk API"
     DEBUG: bool = False
 
     # TV alert lifecycle notifications (T1/T2/stop hits for took trades).

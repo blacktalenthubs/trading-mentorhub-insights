@@ -176,7 +176,7 @@ function StepTelegram({ onNext, onBack }: { onNext: () => void; onBack: () => vo
       <h2 className="text-2xl font-bold text-text-primary mb-2">Connect Telegram</h2>
       <p className="text-text-muted text-sm mb-6">
         Get trade alerts delivered to your phone with Took/Skip action buttons.
-        This is how most traders interact with TradeCoPilot.
+        This is how most traders interact with BusyTradersDesk.
       </p>
 
       {linked ? (
@@ -404,7 +404,7 @@ export default function OnboardingPage() {
             <Crosshair className="h-4 w-4 text-white" />
           </div>
           <span className="font-bold text-lg text-text-primary">
-            <span className="text-accent">Trade</span>CoPilot
+            <span className="text-accent">Busy</span>TradersDesk
           </span>
         </div>
 

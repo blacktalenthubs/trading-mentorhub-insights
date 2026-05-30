@@ -8,7 +8,7 @@ const config: CapacitorConfig = {
     // Load from production so mobile + web stay in lockstep with every Railway
     // deploy. Without this, the iOS app freezes on whatever dist/ was bundled
     // at the last Xcode build. For local dev, swap to http://YOUR_LOCAL_IP:5173.
-    url: "https://www.tradingwithai.ai",
+    url: "https://www.busytradersdesk.com",
     androidScheme: "https",
     iosScheme: "https",
     cleartext: false,

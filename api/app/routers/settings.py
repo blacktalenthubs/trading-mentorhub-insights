@@ -388,7 +388,7 @@ async def test_notification(
     """
     results = {"telegram": False, "apns": False, "telegram_error": None, "apns_error": None}
     body = (
-        "🧪 <b>Test alert from TradeCoPilot</b>\n"
+        "🧪 <b>Test alert from BusyTradersDesk</b>\n"
         "If you can see this, notifications are working.\n"
         "Sent: {now}".format(now=__import__("datetime").datetime.now().strftime("%H:%M %Z"))
     )

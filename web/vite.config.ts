@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['logo-profile.svg'],
       manifest: {
-        name: 'TradeCoPilot',
-        short_name: 'TradeCP',
-        description: 'AI-powered trade alerts and watchlist',
+        name: 'BusyTradersDesk',
+        short_name: 'BTDesk',
+        description: 'The trading desk for busy professionals — scans, alerts, and a pattern library',
         theme_color: '#0d1117',
         background_color: '#0d1117',
         display: 'standalone',

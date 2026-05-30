@@ -62,7 +62,7 @@ export default function RegisterPage() {
             <Crosshair className="h-4 w-4 text-white" />
           </div>
           <h1 className="font-display text-2xl font-bold text-text-primary">
-            <span className="text-accent">Trade</span>CoPilot
+            <span className="text-accent">Busy</span>TradersDesk
           </h1>
         </div>
 

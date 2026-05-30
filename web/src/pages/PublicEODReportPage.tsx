@@ -308,7 +308,7 @@ export default function PublicEODReportPage() {
                 Public · Live trade signals
               </div>
               <h1 className="mt-2 font-display text-3xl font-bold leading-tight sm:text-4xl">
-                TradingWithAI <span className="text-text-muted">—</span> EOD Alert Report
+                BusyTradersDesk <span className="text-text-muted">—</span> EOD Report
                 {focusSymbol && (
                   <span className="ml-3 inline-block rounded-md bg-accent/20 px-2.5 py-1 align-middle text-base font-semibold text-accent">
                     {focusSymbol}
@@ -524,7 +524,7 @@ export default function PublicEODReportPage() {
             <div>
               <h2 className="font-display text-xl font-bold">Want these signals live in your Telegram?</h2>
               <p className="mt-1 max-w-xl text-sm text-text-muted">
-                TradingWithAI fires every signal in real time via Pine indicators on TradingView, then AI-triages each one by sector confluence, volume, and order flow before it hits your phone.
+                BusyTradersDesk scans your watchlist in real time, maps each setup to a documented pattern, then AI-triages by sector confluence, volume, and structure before it reaches your phone.
               </p>
             </div>
             <Link

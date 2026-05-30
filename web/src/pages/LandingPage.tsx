@@ -62,7 +62,7 @@ function LandingNav() {
             <Crosshair className="h-4 w-4 text-white" />
           </div>
           <span className="font-bold text-lg text-text-primary">
-            <span className="text-accent">Trade</span>CoPilot
+            <span className="text-accent">Busy</span>TradersDesk
           </span>
         </div>
 
@@ -110,15 +110,15 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         </Badge>
 
         <h1 className="mt-8 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-text-primary leading-[1.08]">
-          Market research
+          Your trading desk
           <br />
-          <span className="text-gradient-ai">for people with day jobs.</span>
+          <span className="text-gradient-ai">for the hours you're not at one.</span>
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto leading-relaxed">
-          A research toolkit that scans your watchlist during market hours, maps every
-          setup to a documented pattern, and publishes transparent daily reports so you
-          can study what worked — and what didn't.
+          A desk that scans your watchlist during market hours, maps every setup to a
+          documented pattern, and files a transparent end-of-day report — so you trade on
+          structure, not FOMO. Built for traders with day jobs.
         </p>
 
         {/* CTA */}
@@ -168,36 +168,36 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-bold text-text-primary">ETH-USD</span>
+                  <span className="text-lg font-bold text-text-primary">CRWD</span>
                   <span className="bg-bullish/10 text-bullish-text text-[10px] font-bold px-2 py-0.5 rounded border border-bullish/20">LONG</span>
                   <span className="text-[8px] font-bold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded">SETUP</span>
                 </div>
                 <span className="text-xs text-text-muted">PDL Bounce -- Prior Day Low held with volume</span>
               </div>
             </div>
-            <span className="font-mono text-xl font-bold text-text-primary">$2,285</span>
+            <span className="font-mono text-xl font-bold text-text-primary">$483.20</span>
           </div>
 
           <div className="bg-surface-0 rounded-lg p-3 border border-border-subtle/50 mb-4">
             <p className="text-sm text-text-secondary leading-relaxed">
               <Zap className="inline h-3.5 w-3.5 text-accent mr-1" />
-              Session low tested PDL at $2,277 and held. Volume 1.3x average on bounce candle.
-              VWAP reclaimed. Next resistance at session high $2,298.
+              Session low tested PDL at $480.50 and held. Volume 1.3x average on bounce candle.
+              VWAP reclaimed. Next resistance at session high $489.00.
             </p>
           </div>
 
           <div className="grid grid-cols-4 gap-3 bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
             <div>
               <span className="text-[9px] text-text-faint uppercase">Entry</span>
-              <p className="font-mono text-sm font-medium text-text-primary">$2,277.60</p>
+              <p className="font-mono text-sm font-medium text-text-primary">$480.50</p>
             </div>
             <div>
               <span className="text-[9px] text-bearish-text uppercase">Stop</span>
-              <p className="font-mono text-sm font-medium text-bearish-text">$2,270.00</p>
+              <p className="font-mono text-sm font-medium text-bearish-text">$476.00</p>
             </div>
             <div>
               <span className="text-[9px] text-bullish-text uppercase">Target 1</span>
-              <p className="font-mono text-sm font-medium text-bullish-text">$2,298.00</p>
+              <p className="font-mono text-sm font-medium text-bullish-text">$489.00</p>
             </div>
             <div>
               <span className="text-[9px] text-text-faint uppercase">Conviction</span>
@@ -228,7 +228,7 @@ function Problem() {
           {[
             { icon: Clock, text: "Real chart analysis takes hours — scanning multiple symbols across timeframes is a full-time job, and you already have one." },
             { icon: Target, text: "Setups form during meetings. The pattern you studied last weekend triggers at 11:30 AM Tuesday while you're heads-down at work." },
-            { icon: Send, text: "Most platforms sell noise. 'ETH crossed $2,280' tells you nothing useful — you need context, structure, and a record of what worked." },
+            { icon: Send, text: "Most platforms sell noise. 'CRWD crossed $480' tells you nothing useful — you need context, structure, and a record of what worked." },
             { icon: Brain, text: "You learn patterns on YouTube but struggle to recognize them live. Education and analysis live in separate apps." },
           ].map((item, i) => (
             <div key={i} className="bg-surface-1 border border-border-subtle rounded-xl p-5 flex gap-4">
@@ -436,7 +436,7 @@ function AIvsManual() {
               <tr className="border-b border-border-subtle">
                 <th className="text-left py-3 px-4 text-text-muted font-medium w-1/3"></th>
                 <th className="py-3 px-4 text-text-faint font-medium w-1/3">Manual / DIY</th>
-                <th className="py-3 px-4 text-accent font-bold w-1/3">TradeCoPilot</th>
+                <th className="py-3 px-4 text-accent font-bold w-1/3">BusyTradersDesk</th>
               </tr>
             </thead>
             <tbody>
@@ -516,7 +516,7 @@ function TelegramDemo() {
           </h2>
           <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
             Setup notifications with structural context — entry, stop, target.
-            Mark Took or Skipped from anywhere. Pull a fresh chart on any symbol with /spy or /eth.
+            Mark Took or Skipped from anywhere. Pull a fresh chart on any symbol with /spy or /crwd.
           </p>
         </div>
 
@@ -525,7 +525,7 @@ function TelegramDemo() {
           <div className="bg-surface-1 border border-border-subtle rounded-3xl p-4 shadow-elevated">
             <div className="flex items-center justify-between px-2 py-1 mb-3">
               <span className="text-[10px] text-text-faint font-mono">9:47 AM</span>
-              <span className="text-[10px] text-text-faint">TradeCoPilot Bot</span>
+              <span className="text-[10px] text-text-faint">BusyTradersDesk Bot</span>
               <div className="flex gap-1">
                 <div className="w-3 h-2 bg-text-faint/30 rounded-sm" />
                 <div className="w-3 h-2 bg-text-faint/30 rounded-sm" />
@@ -537,9 +537,9 @@ function TelegramDemo() {
               <div className="bg-surface-2 rounded-xl p-3.5 border border-bullish/10">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-[8px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">SETUP</span>
-                  <span className="text-sm font-bold text-text-primary">LONG ETH-USD $2,277</span>
+                  <span className="text-sm font-bold text-text-primary">LONG CRWD $480.50</span>
                 </div>
-                <p className="text-xs text-text-muted mt-1">Entry $2,277 -- Stop $2,270 -- T1 $2,298</p>
+                <p className="text-xs text-text-muted mt-1">Entry $480.50 -- Stop $476.00 -- T1 $489.00</p>
                 <p className="text-xs text-text-secondary mt-1">PDL bounce held with 1.3x volume</p>
                 <p className="text-xs text-accent mt-1">Conviction: HIGH</p>
                 <div className="flex gap-2 mt-3">
@@ -553,10 +553,10 @@ function TelegramDemo() {
               <div className="bg-surface-2 rounded-xl p-3 border border-border-subtle">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-[8px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">SETUP</span>
-                  <span className="text-xs font-bold text-text-secondary">ETH-USD $2,285</span>
+                  <span className="text-xs font-bold text-text-secondary">CRWD $483.20</span>
                 </div>
                 <p className="text-xs text-text-muted">
-                  You already hold 2 LONG positions. Price flat at VWAP with weak volume. Monitor for breakout above $2,298.
+                  You already hold 2 LONG positions. Price flat at VWAP with weak volume. Monitor for breakout above $489.00.
                 </p>
               </div>
 
@@ -564,7 +564,7 @@ function TelegramDemo() {
               <div className="bg-surface-2 rounded-xl p-3.5 border border-orange-500/10">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-[8px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded">RESISTANCE</span>
-                  <span className="text-sm font-bold text-text-primary">ETH-USD $2,290</span>
+                  <span className="text-sm font-bold text-text-primary">CRWD $487.50</span>
                 </div>
                 <p className="text-xs text-text-muted mt-1">Approaching hourly resistance with low volume (0.6x)</p>
                 <p className="text-xs text-orange-400 mt-1">Action: tighten stop / take profits / watch for rejection</p>
@@ -762,7 +762,7 @@ function FAQ() {
   const faqs = [
     {
       q: "Is this a signal or buy/sell recommendation service?",
-      a: "No. TradeCoPilot is a research toolkit and educational platform for self-directed investors. We surface structural observations with entry, stop, and target levels — you decide whether and how to act. Nothing here is investment advice.",
+      a: "No. BusyTradersDesk is a research toolkit and educational platform for self-directed investors. We surface structural observations with entry, stop, and target levels — you decide whether and how to act. Nothing here is investment advice.",
     },
     {
       q: "How is this different from a general AI chatbot?",
@@ -774,7 +774,7 @@ function FAQ() {
     },
     {
       q: "What markets do you cover?",
-      a: "US equities (SPY, AAPL, TSLA, NVDA, META, and similar) during market hours, plus crypto (ETH, BTC) around the clock using Coinbase data.",
+      a: "US equities (SPY, CRWD, TSLA, NVDA, META, and similar) during market hours, plus crypto (ETH, BTC) around the clock using Coinbase data.",
     },
     {
       q: "Do you publish performance numbers?",
@@ -782,7 +782,7 @@ function FAQ() {
     },
     {
       q: "Can I use it from my phone?",
-      a: "Yes. Telegram is the primary delivery channel. Observations arrive with Took / Skipped / Exit buttons. You can also pull a fresh chart on any symbol via commands like /spy, /eth, or /btc.",
+      a: "Yes. Telegram is the primary delivery channel. Observations arrive with Took / Skipped / Exit buttons. You can also pull a fresh chart on any symbol via commands like /spy, /crwd, or /nvda.",
     },
     {
       q: "Do I need to watch charts all day?",
@@ -842,10 +842,10 @@ function FinalCTA() {
     <section className="py-24 px-6">
       <div className="max-w-3xl mx-auto text-center">
         <h2 className="text-3xl sm:text-4xl font-bold text-text-primary">
-          Stop staring at charts.<br />Let the toolkit do the watching.
+          Stop staring at charts.<br />Pull up the desk instead.
         </h2>
         <p className="mt-4 text-text-secondary max-w-xl mx-auto">
-          For self-directed investors who want structured analysis,
+          For traders with day jobs who want structured analysis,
           transparent EOD reports, and a pattern library — without quitting the day job.
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
@@ -876,7 +876,7 @@ function Footer() {
               <Crosshair className="h-3 w-3 text-accent" />
             </div>
             <span className="text-sm text-text-muted">
-              <span className="text-accent">Trade</span>CoPilot
+              <span className="text-accent">Busy</span>TradersDesk
             </span>
           </div>
           <div className="flex gap-6 text-xs text-text-faint">
@@ -891,7 +891,7 @@ function Footer() {
         <div className="border-t border-border-subtle/50 pt-6">
           <p className="text-[11px] text-text-faint leading-relaxed max-w-3xl mx-auto text-center">
             <span className="font-semibold text-text-muted">Important disclosures.</span>{" "}
-            TradeCoPilot is a research and education platform for self-directed investors.
+            BusyTradersDesk is a research and education platform for self-directed investors.
             Content on this site is provided for educational and informational purposes only
             and does not constitute investment advice, a recommendation, or an offer to buy
             or sell any security. Self-directed investors should conduct their own research

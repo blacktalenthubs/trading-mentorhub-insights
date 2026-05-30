@@ -524,7 +524,7 @@ export default function ChartReplay({ alertId, onClose }: Props) {
                 </div>
               </div>
               <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
-                <span className="text-xs text-gray-500">tradesignalwithai.com</span>
+                <span className="text-xs text-gray-500">busytradersdesk.com</span>
                 <div className="flex gap-2">
                   <button
                     onClick={shareReplay}

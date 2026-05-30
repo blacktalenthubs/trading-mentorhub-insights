@@ -896,17 +896,38 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Redirect old domain → new domain
+    # Redirect any prior/retired domain → the current brand domain.
+    # Requirements for a redirect to fire: the old domain must still be owned,
+    # have DNS pointed at this Railway service, and be added as a Railway custom
+    # domain (so TLS terminates and the request reaches this app).
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.responses import RedirectResponse
+
+    CANONICAL_DOMAIN = "https://www.busytradersdesk.com"
+
+    # Web-only legacy domains — safe to 301 immediately (no app loads its UI here).
+    LEGACY_DOMAINS = (
+        "tradesignalwithai.com",
+        "aicopilottrader.com",
+        # NOTE: do NOT add "tradingwithai.ai" until the rebranded iOS build is live
+        # in the App Store. Installed Capacitor apps load their UI from
+        # www.tradingwithai.ai; redirecting that host to a different origin can
+        # break the native bridge. Keep it serving the app directly for now, then
+        # add it here once App Store adoption is high.
+    )
 
     class DomainRedirectMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
             host = request.headers.get("host", "")
             path = request.url.path
-            # Only redirect non-API, non-health paths (don't break API calls)
-            if "tradesignalwithai.com" in host and not path.startswith(("/api/", "/telegram/")) and path != "/healthz":
-                new_url = f"https://www.tradingwithai.ai{path}"
+            # Exclude /api/ + /telegram/ + health so installed mobile apps and
+            # webhooks that still call the old host keep working.
+            if (
+                any(d in host for d in LEGACY_DOMAINS)
+                and not path.startswith(("/api/", "/telegram/"))
+                and path != "/healthz"
+            ):
+                new_url = f"{CANONICAL_DOMAIN}{path}"
                 if request.url.query:
                     new_url += f"?{request.url.query}"
                 return RedirectResponse(new_url, status_code=301)
