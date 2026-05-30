@@ -268,7 +268,10 @@ export default function WatchlistPage() {
         <div className="space-y-3">
           {displayGroups.map((g) => {
             const items = byGroup.get(g.id) ?? [];
-            if (items.length === 0 && g.id !== UNGROUPED_KEY) return null;
+            // Empty groups are NOT hidden anymore — show them with a hint so
+            // a just-created sector is visible immediately and the user can
+            // move symbols into it. (Previously: skipped, which broke the
+            // "Sector created → sees nothing" flow.)
             const isCollapsed = collapsed.has(g.id);
             const isUngrouped = g.id === UNGROUPED_KEY;
             return (
@@ -358,6 +361,12 @@ export default function WatchlistPage() {
                 {!isCollapsed && items.length === 0 && isUngrouped && (
                   <div className="px-4 py-3 text-xs text-text-faint">
                     All your symbols are in groups. Add new ones above or move items here.
+                  </div>
+                )}
+
+                {!isCollapsed && items.length === 0 && !isUngrouped && (
+                  <div className="px-4 py-3 text-xs text-text-faint">
+                    No symbols yet — tap a symbol's dropdown below to move it into <b>{g.name}</b>.
                   </div>
                 )}
               </Card>
