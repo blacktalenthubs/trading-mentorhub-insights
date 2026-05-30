@@ -162,6 +162,12 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # to ALERT_TYPE_CATALOG with default-disabled for opt-in delivery.
     "swing_bounce_ema100", "swing_bounce_sma100",
     "swing_exit",
+
+    # pullback_long — DEPRECATED 2026-05-30 per user feedback. v2 quality
+    # gates suppressed 100/100 of the pullback fires in the May 29 CSV;
+    # the rule has no level test and is structurally noisy. Replaced by
+    # the staged_*_held family which always tests a level.
+    "pullback_long",
 )
 
 

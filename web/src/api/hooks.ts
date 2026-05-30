@@ -95,6 +95,51 @@ export function useUpcomingEarnings() {
   });
 }
 
+// --- Weekly pattern report ---
+
+export interface WeeklyPattern {
+  alert_type: string;
+  label: string;
+  fires: number;
+  avg_vol_ratio: number | null;
+  avg_vwap_slope_pct: number | null;
+  pct_above_gates: number;
+}
+
+export interface WeeklyFire {
+  id: number;
+  symbol: string;
+  alert_type: string;
+  label: string;
+  direction: string;
+  created_at: string | null;
+  volume_ratio: number | null;
+  vwap_slope_pct: number | null;
+  entry: number | null;
+  stop: number | null;
+  target_1: number | null;
+}
+
+export interface WeeklyReport {
+  week_start: string;
+  week_end: string;
+  total_fires: number;
+  unique_symbols: number;
+  patterns: WeeklyPattern[];
+  top_volume: WeeklyFire[];
+  bottom_volume: WeeklyFire[];
+}
+
+export function useWeeklyReport(weekAnchor?: string) {
+  return useQuery({
+    queryKey: ["performance-weekly", weekAnchor ?? "current"],
+    queryFn: () => api.get<WeeklyReport>(
+      `/performance/weekly${weekAnchor ? `?week=${encodeURIComponent(weekAnchor)}` : ""}`,
+    ),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useSeedDefaultGroups() {
   const qc = useQueryClient();
   return useMutation({

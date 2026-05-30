@@ -197,3 +197,158 @@ async def performance_summary(
         "trading_days": row[6],
         "symbols_traded": row[7],
     }
+
+
+# ── Weekly pattern report (spec 61 follow-up) ───────────────────────
+# Aggregates the past Mon-Fri of alert fires by pattern with the two
+# quality signals that drove the v2 gates: volume_ratio + vwap_slope_pct.
+# Plus top/bottom 10 individual fires by volume so the user can spot
+# both the best signals and the noise still slipping through.
+
+from datetime import date, datetime, timedelta  # noqa: E402
+from typing import Optional  # noqa: E402
+
+from fastapi import Query  # noqa: E402
+from app.models.alert_type_config import ALERT_TYPE_CATALOG, OBSOLETE_ALERT_TYPES  # noqa: E402
+
+
+def _week_bounds(week_param: Optional[str]) -> tuple[date, date]:
+    """Returns (monday, friday) for the requested week. If week_param is
+    a YYYY-MM-DD string, we anchor to the Monday of THAT week. Otherwise
+    we use the current week.
+    """
+    if week_param:
+        try:
+            anchor = datetime.strptime(week_param, "%Y-%m-%d").date()
+        except ValueError:
+            anchor = date.today()
+    else:
+        anchor = date.today()
+    monday = anchor - timedelta(days=anchor.weekday())  # weekday(): Mon=0
+    friday = monday + timedelta(days=4)
+    return monday, friday
+
+
+@router.get("/weekly")
+@limiter.limit("20/minute")
+async def weekly_pattern_report(
+    request: Request,
+    week: Optional[str] = Query(None, description="YYYY-MM-DD anchor; defaults to this week's Monday"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pattern leaderboard + top/bottom 10 individual fires for the
+    week (Mon-Fri inclusive). Excludes OBSOLETE alert types so the
+    deprecated pullback_long etc. don't pollute the breakdown.
+
+    The same query runs across whatever data the user has for that week
+    — no auth-scope leak: every WHERE filters on alerts.user_id = :uid.
+    """
+    monday, friday = _week_bounds(week)
+    # Inclusive end-of-Friday in UTC-ish terms — query uses session_date
+    # which is local ET so this is safe.
+    start_iso = monday.isoformat()
+    end_iso = friday.isoformat()
+
+    obsolete_list = list(OBSOLETE_ALERT_TYPES)
+    label_map = {row[0]: row[1] for row in ALERT_TYPE_CATALOG}
+
+    # Pattern aggregates — fires, avg vol, avg slope, % above quality gates.
+    agg_rows = (await db.execute(text("""
+        SELECT
+            alert_type,
+            COUNT(*) AS fires,
+            AVG(volume_ratio) AS avg_vol,
+            AVG(vwap_slope_pct) AS avg_slope,
+            SUM(CASE
+                WHEN volume_ratio >= 2.0 AND vwap_slope_pct >= 0.05 THEN 1
+                ELSE 0
+            END) AS gates_passed
+        FROM alerts
+        WHERE user_id = :uid
+          AND session_date BETWEEN :a AND :b
+          AND (:no_obsolete OR NOT (alert_type = ANY(:obsolete)))
+        GROUP BY alert_type
+    """), {
+        "uid": user.id,
+        "a": start_iso,
+        "b": end_iso,
+        "no_obsolete": False,
+        "obsolete": obsolete_list,
+    })).all()
+
+    patterns = []
+    for at, fires, avg_vol, avg_slope, gates_passed in agg_rows:
+        if at in OBSOLETE_ALERT_TYPES:
+            continue
+        patterns.append({
+            "alert_type": at,
+            "label": label_map.get(at, at),
+            "fires": int(fires or 0),
+            "avg_vol_ratio": round(float(avg_vol), 2) if avg_vol is not None else None,
+            "avg_vwap_slope_pct": round(float(avg_slope), 3) if avg_slope is not None else None,
+            "pct_above_gates": round(int(gates_passed or 0) / fires * 100, 1) if fires else 0.0,
+        })
+    patterns.sort(key=lambda p: -p["fires"])
+
+    # Top 10 by volume (highest conviction fires).
+    top_rows = (await db.execute(text("""
+        SELECT id, symbol, alert_type, direction, created_at, volume_ratio,
+               vwap_slope_pct, entry, stop, target_1
+        FROM alerts
+        WHERE user_id = :uid
+          AND session_date BETWEEN :a AND :b
+          AND volume_ratio IS NOT NULL
+          AND NOT (alert_type = ANY(:obsolete))
+        ORDER BY volume_ratio DESC
+        LIMIT 10
+    """), {"uid": user.id, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).all()
+
+    # Bottom 10 by volume (noise still slipping through gates).
+    bottom_rows = (await db.execute(text("""
+        SELECT id, symbol, alert_type, direction, created_at, volume_ratio,
+               vwap_slope_pct, entry, stop, target_1
+        FROM alerts
+        WHERE user_id = :uid
+          AND session_date BETWEEN :a AND :b
+          AND volume_ratio IS NOT NULL
+          AND NOT (alert_type = ANY(:obsolete))
+        ORDER BY volume_ratio ASC
+        LIMIT 10
+    """), {"uid": user.id, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).all()
+
+    def _to_fire(r) -> dict:
+        (aid, sym, at, dirn, ts, vol, slope, entry, stop, t1) = r
+        return {
+            "id": aid,
+            "symbol": sym,
+            "alert_type": at,
+            "label": label_map.get(at, at),
+            "direction": dirn,
+            "created_at": ts.isoformat() + "Z" if ts else None,
+            "volume_ratio": float(vol) if vol is not None else None,
+            "vwap_slope_pct": float(slope) if slope is not None else None,
+            "entry": float(entry) if entry is not None else None,
+            "stop": float(stop) if stop is not None else None,
+            "target_1": float(t1) if t1 is not None else None,
+        }
+
+    # Top-line totals.
+    total_fires = sum(p["fires"] for p in patterns)
+    unique_symbols = (await db.execute(text("""
+        SELECT COUNT(DISTINCT symbol)
+        FROM alerts
+        WHERE user_id = :uid
+          AND session_date BETWEEN :a AND :b
+          AND NOT (alert_type = ANY(:obsolete))
+    """), {"uid": user.id, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).scalar() or 0
+
+    return {
+        "week_start": start_iso,
+        "week_end": end_iso,
+        "total_fires": total_fires,
+        "unique_symbols": int(unique_symbols),
+        "patterns": patterns,
+        "top_volume": [_to_fire(r) for r in top_rows],
+        "bottom_volume": [_to_fire(r) for r in bottom_rows],
+    }
