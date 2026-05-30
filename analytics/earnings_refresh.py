@@ -93,44 +93,53 @@ def _insert_history(session, history_rows) -> int:
     return inserted
 
 
-def _format_t7_message(symbol: str, e, days_until: int) -> tuple[str, str, str]:
-    """Returns (telegram_body, push_title, push_body). The earnings row
-    `e` is the upserted Earnings record. `days_until` is how many
-    calendar days from today to the earnings date — drives copy.
+# Sentinel symbol used on the per-day digest marker so the unique
+# constraint (user_id, symbol, earnings_date, kind) gives us exactly one
+# digest per (user, day). The marker's earnings_date stores today's date
+# (the day the digest covers), not any real symbol's earnings date.
+_DIGEST_SENTINEL_SYMBOL = "__DIGEST__"
+
+
+def _format_digest_message(rows: list[tuple], today: date) -> tuple[str, str, str]:
+    """Build the daily earnings-this-week digest.
+
+    `rows` is a list of (symbol, next_earnings_date, time_of_day, eps_estimate)
+    sorted by next_earnings_date ASC.
+
+    Returns (telegram_body, push_title, push_body).
     """
-    day = e.next_earnings_date.strftime("%a %b %d") if e.next_earnings_date else "TBD"
-    tod = e.time_of_day or "TBD"
-    est_str = f" EPS est ${e.eps_estimate:.2f}." if e.eps_estimate is not None else ""
+    lines = []
+    for symbol, edate, tod, eps in rows:
+        days_until = (edate - today).days
+        when = "today" if days_until == 0 else (
+            "tomorrow" if days_until == 1 else f"in {days_until}d"
+        )
+        day_str = edate.strftime("%a %b %d")
+        tod_str = tod or "TBD"
+        eps_str = f" · EPS est ${eps:.2f}" if eps is not None else ""
+        lines.append(f"• <b>{symbol}</b> — {day_str} {tod_str}{eps_str} <i>({when})</i>")
 
-    if days_until <= 0:
-        when_phrase = "reports today"
-    elif days_until == 1:
-        when_phrase = "reports tomorrow"
-    elif days_until <= 7:
-        when_phrase = f"reports in {days_until} days"
-    else:
-        when_phrase = f"reports in {days_until} days"
-
+    n = len(rows)
+    sym_word = "symbol" if n == 1 else "symbols"
     body = (
-        f"📅 <b>{symbol}</b> {when_phrase} "
-        f"({day} {tod}).{est_str}\n"
-        f"Pre-earnings drift window — watch for trend acceleration or fade."
+        f"📅 <b>Earnings this week ({n} {sym_word})</b>\n\n"
+        + "\n".join(lines)
+        + "\n\nPre-earnings drift window — watch for trend acceleration or fade."
     )
-    push_title = f"{symbol} earnings {when_phrase.replace('reports ', '')}"
-    push_body = f"{day} {tod}.{est_str.strip()}"
+
+    push_title = f"Earnings this week ({n} {sym_word})"
+    # Push gets a short comma list — APNs body is best kept under ~150 chars.
+    push_body = ", ".join(s for s, *_ in rows)
     return body, push_title, push_body
 
 
-def _send_t7_notifications(session, today: date) -> int:
-    """Find watchlist symbols whose earnings is exactly 7 days out OR
-    already inside the 0-7 day window (catches symbols added late, or
-    the first-run case where multiple users' watchlist symbols already
-    crossed T-7 before the job's first execution). Fires Telegram + push
-    for the user(s) holding them. Returns count sent.
+def _send_weekly_digest(session, today: date) -> int:
+    """Send a per-user digest listing every watchlist symbol reporting
+    in the next 0-7 days. One Telegram + push per user per day.
 
-    Idempotency: the kind="t7" marker row prevents resends. Whether the
-    notification fires AT T-7 or partway through the window, only the
-    first occurrence per (user, symbol, earnings_date) goes out.
+    Idempotency: marker row (user_id, symbol=__DIGEST__, earnings_date=today,
+    kind="weekly_digest"). Same user re-running the job on the same day
+    is a no-op.
     """
     from app.models.user import User
     from app.models.watchlist import WatchlistItem
@@ -141,78 +150,82 @@ def _send_t7_notifications(session, today: date) -> int:
 
     window_end = today + timedelta(days=7)
 
-    # Symbols anywhere inside the 0..7 day window (inclusive on today's date,
-    # so an AMC earnings today still notifies if not yet sent).
-    earnings_rows = session.execute(
-        select(Earnings).where(
+    # Per user, collect their in-window earnings rows.
+    # One query, grouped in Python — cheap at this scale.
+    rows = session.execute(
+        select(
+            User.id, User.telegram_chat_id, User.telegram_enabled, User.push_enabled,
+            Earnings.symbol, Earnings.next_earnings_date,
+            Earnings.time_of_day, Earnings.eps_estimate,
+        )
+        .join(WatchlistItem, WatchlistItem.user_id == User.id)
+        .join(Earnings, Earnings.symbol == WatchlistItem.symbol)
+        .where(
             Earnings.next_earnings_date >= today,
             Earnings.next_earnings_date <= window_end,
         )
-    ).scalars().all()
-    if not earnings_rows:
+        .order_by(User.id, Earnings.next_earnings_date)
+    ).all()
+
+    if not rows:
         return 0
 
+    # Group by user_id, preserving date sort within each group.
+    by_user: dict[int, dict] = {}
+    for uid, chat, tg_on, push_on, sym, edate, tod, eps in rows:
+        u = by_user.setdefault(uid, {
+            "chat": chat, "tg_on": tg_on, "push_on": push_on, "rows": []
+        })
+        u["rows"].append((sym, edate, tod, eps))
+
     sent = 0
-    for e in earnings_rows:
-        # Who's watching this symbol?
-        users = session.execute(
-            select(User)
-            .join(WatchlistItem, WatchlistItem.user_id == User.id)
-            .where(WatchlistItem.symbol == e.symbol)
-            .distinct()
-        ).scalars().all()
-        if not users:
+    for uid, u in by_user.items():
+        # Idempotency: did this user already get today's digest?
+        already = session.execute(
+            select(EarningsNotificationSent).where(
+                EarningsNotificationSent.user_id == uid,
+                EarningsNotificationSent.symbol == _DIGEST_SENTINEL_SYMBOL,
+                EarningsNotificationSent.earnings_date == today,
+                EarningsNotificationSent.kind == "weekly_digest",
+            )
+        ).scalar_one_or_none()
+        if already:
             continue
 
-        days_until = (e.next_earnings_date - today).days if e.next_earnings_date else 0
-        tg_body, push_title, push_body = _format_t7_message(e.symbol, e, days_until)
+        tg_body, push_title, push_body = _format_digest_message(u["rows"], today)
 
-        for user in users:
-            # Idempotency check.
-            already = session.execute(
-                select(EarningsNotificationSent).where(
-                    EarningsNotificationSent.user_id == user.id,
-                    EarningsNotificationSent.symbol == e.symbol,
-                    EarningsNotificationSent.earnings_date == e.next_earnings_date,
-                    EarningsNotificationSent.kind == "t7",
-                )
-            ).scalar_one_or_none()
-            if already:
-                continue
-
-            # Telegram.
-            if user.telegram_enabled and user.telegram_chat_id:
-                try:
-                    _send_telegram_to(tg_body, user.telegram_chat_id, parse_mode="HTML")
-                except Exception:
-                    logger.exception("T-7 telegram send failed for user %d / %s", user.id, e.symbol)
-
-            # Push.
-            if user.push_enabled:
-                tokens = [t.token for t in session.execute(
-                    select(DeviceToken).where(
-                        DeviceToken.user_id == user.id,
-                        DeviceToken.is_active == True,  # noqa: E712
-                    )
-                ).scalars().all()]
-                if tokens:
-                    try:
-                        send_push_sync(tokens, push_title, push_body)
-                    except Exception:
-                        logger.exception("T-7 push failed for user %d / %s", user.id, e.symbol)
-
-            # Insert marker so we never fire this again.
+        # Telegram.
+        if u["tg_on"] and u["chat"]:
             try:
-                session.add(EarningsNotificationSent(
-                    user_id=user.id,
-                    symbol=e.symbol,
-                    earnings_date=e.next_earnings_date,
-                    kind="t7",
-                ))
-                session.flush()
-                sent += 1
-            except IntegrityError:
-                session.rollback()  # already exists — race or re-run, fine
+                _send_telegram_to(tg_body, u["chat"], parse_mode="HTML")
+            except Exception:
+                logger.exception("Weekly digest telegram failed for user %d", uid)
+
+        # Push.
+        if u["push_on"]:
+            tokens = [t.token for t in session.execute(
+                select(DeviceToken).where(
+                    DeviceToken.user_id == uid,
+                    DeviceToken.is_active == True,  # noqa: E712
+                )
+            ).scalars().all()]
+            if tokens:
+                try:
+                    send_push_sync(tokens, push_title, push_body)
+                except Exception:
+                    logger.exception("Weekly digest push failed for user %d", uid)
+
+        try:
+            session.add(EarningsNotificationSent(
+                user_id=uid,
+                symbol=_DIGEST_SENTINEL_SYMBOL,
+                earnings_date=today,
+                kind="weekly_digest",
+            ))
+            session.flush()
+            sent += 1
+        except IntegrityError:
+            session.rollback()
 
     return sent
 
@@ -226,7 +239,7 @@ def refresh_earnings(session_factory) -> dict:
         "symbols": 0,
         "fetch_failures": 0,
         "new_history_rows": 0,
-        "t7_notifications": 0,
+        "weekly_digests": 0,
     }
 
     with session_factory() as session:
@@ -250,17 +263,17 @@ def refresh_earnings(session_factory) -> dict:
 
         session.commit()
 
-        # Now fire T-7 notifications using the fresh data.
+        # Now fire the daily "earnings this week" digest using the fresh data.
         try:
-            summary["t7_notifications"] = _send_t7_notifications(session, today)
+            summary["weekly_digests"] = _send_weekly_digest(session, today)
             session.commit()
         except Exception:
-            logger.exception("T-7 notification pass failed")
+            logger.exception("Weekly digest pass failed")
             session.rollback()
 
     logger.info(
-        "Earnings refresh complete: %d symbols, %d fetch failures, %d new history rows, %d T-7 sent",
+        "Earnings refresh complete: %d symbols, %d fetch failures, %d new history rows, %d weekly digests sent",
         summary["symbols"], summary["fetch_failures"],
-        summary["new_history_rows"], summary["t7_notifications"],
+        summary["new_history_rows"], summary["weekly_digests"],
     )
     return summary
