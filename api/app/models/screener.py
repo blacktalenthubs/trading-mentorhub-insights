@@ -41,3 +41,13 @@ class ScreenerSnapshot(Base):
     top_n: Mapped[int] = mapped_column(Integer, default=30)
     # Ordered list of InPlayEntry dicts (see analytics/screener.py::InPlayEntry.to_dict)
     entries: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class ScreenerUserSettings(Base):
+    """Per-user view overrides (FR-6) over the global snapshot — thresholds only."""
+
+    __tablename__ = "screener_user_settings"
+
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    market_cap_floor: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    top_n: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

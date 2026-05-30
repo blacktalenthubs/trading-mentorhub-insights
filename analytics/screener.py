@@ -18,11 +18,15 @@ Design notes
 
 from __future__ import annotations
 
+import datetime as _dt
 from dataclasses import dataclass, field
 from datetime import time as dt_time
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
+
+ET_ZONE = ZoneInfo("America/New_York")
 
 # --- defaults (mirror api/app/config.py SCREENER_*) ---
 DEFAULT_MARKET_CAP_FLOOR = 2_000_000_000.0
@@ -153,6 +157,47 @@ def _yfinance_universe_fetcher(market_cap_floor: float) -> list[UniverseRow]:  #
 # ---------------------------------------------------------------------------
 # Layer 2 — relative volume + ranking (pure)
 # ---------------------------------------------------------------------------
+
+def is_market_open(now: _dt.datetime | None = None) -> bool:
+    """Regular US trading hours, Mon–Fri (no holiday calendar in v1). Pure + injectable.
+
+    A tz-aware ``now`` is converted to ET; a naive ``now`` is assumed already ET.
+    """
+    if now is None:
+        now = _dt.datetime.now(ET_ZONE)
+    elif now.tzinfo is not None:
+        now = now.astimezone(ET_ZONE)
+    if now.weekday() >= 5:
+        return False
+    return RTH_OPEN <= now.time() <= RTH_CLOSE
+
+
+def effective_settings(defaults: dict, overrides: Optional[dict]) -> dict:
+    """Overlay a user's per-user overrides (FR-6) on the global defaults.
+    Only non-None override values win; everything else falls back to defaults.
+    """
+    out = dict(defaults)
+    for k, v in (overrides or {}).items():
+        if v is not None:
+            out[k] = v
+    return out
+
+
+def apply_user_view(
+    entries: list["InPlayEntry"],
+    top_n: Optional[int] = None,
+    market_cap_floor: Optional[float] = None,
+) -> list["InPlayEntry"]:
+    """Per-user VIEW over the global snapshot (FR-6): tighten the cap and/or trim
+    the list. Does not recompute — just narrows what this user sees.
+    """
+    out = entries
+    if market_cap_floor is not None:
+        out = [e for e in out if e.market_cap >= market_cap_floor]
+    if top_n is not None:
+        out = out[: max(0, top_n)]
+    return out
+
 
 def session_fraction(now_et: dt_time) -> float:
     """Fraction of the RTH session elapsed at ``now_et`` ∈ [0, 1]."""

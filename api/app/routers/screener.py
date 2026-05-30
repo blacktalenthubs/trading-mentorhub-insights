@@ -7,13 +7,13 @@ Gated to Pro+ (FR-10).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from analytics import screener as scr
 from app.config import get_settings
-from app.dependencies import require_pro
+from app.dependencies import is_admin_user, require_pro
 from app.models.user import User
-from app.schemas.screener import SettingsOut, SnapshotOut
+from app.schemas.screener import SettingsOut, SettingsUpdate, SnapshotOut
 from app.services import screener_service as svc
 
 router = APIRouter()
@@ -45,6 +45,14 @@ async def get_in_play(
     if preset != "any" or direction != "any" or has_setup:
         entries = scr.apply_refine_filters(entries, preset=preset, direction=direction, has_setup=has_setup)
 
+    # Per-user view (FR-6): tighten cap / trim to the user's preferred N.
+    overrides = await svc.get_user_settings(user.id)
+    entries = scr.apply_user_view(
+        entries,
+        top_n=overrides.get("top_n"),
+        market_cap_floor=overrides.get("market_cap_floor"),
+    )
+
     return SnapshotOut(
         captured_at=snap.captured_at,
         market_open=bool(snap.market_open),
@@ -56,23 +64,30 @@ async def get_in_play(
 
 @router.get("/settings", response_model=SettingsOut)
 async def get_screener_settings(user: User = Depends(require_pro)):
-    """Effective thresholds (global defaults in v1) + last universe rebuild time."""
+    """Effective thresholds = global defaults overlaid with this user's overrides (FR-6)."""
     s = get_settings()
-    return SettingsOut(
-        market_cap_floor=s.SCREENER_MARKET_CAP_FLOOR,
-        price_floor=s.SCREENER_PRICE_FLOOR,
-        dollar_vol_floor=s.SCREENER_DOLLAR_VOL_FLOOR,
-        top_n=s.SCREENER_TOP_N,
-        refresh_minutes=s.SCREENER_REFRESH_MINUTES,
-        universe_rebuilt_at=await svc.universe_rebuilt_at(),
-    )
+    defaults = {
+        "market_cap_floor": s.SCREENER_MARKET_CAP_FLOOR,
+        "price_floor": s.SCREENER_PRICE_FLOOR,
+        "dollar_vol_floor": s.SCREENER_DOLLAR_VOL_FLOOR,
+        "top_n": s.SCREENER_TOP_N,
+        "refresh_minutes": s.SCREENER_REFRESH_MINUTES,
+    }
+    eff = scr.effective_settings(defaults, await svc.get_user_settings(user.id))
+    return SettingsOut(**eff, universe_rebuilt_at=await svc.universe_rebuilt_at())
+
+
+@router.put("/settings", response_model=SettingsOut)
+async def update_screener_settings(body: SettingsUpdate, user: User = Depends(require_pro)):
+    """Update this user's threshold overrides (market_cap_floor, top_n). Bounds via schema."""
+    await svc.set_user_settings(user.id, market_cap_floor=body.market_cap_floor, top_n=body.top_n)
+    return await get_screener_settings(user)
 
 
 @router.post("/universe/rebuild", status_code=202)
 async def rebuild_universe(background: BackgroundTasks, user: User = Depends(require_pro)):
-    """Trigger an on-demand universe rebuild (FR-7). Runs in the background.
-
-    TODO(T029): tighten to admin-only.
-    """
+    """Trigger an on-demand universe rebuild (FR-7). Admin-only (T029)."""
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
     background.add_task(svc.rebuild_universe)
     return {"status": "rebuild started"}

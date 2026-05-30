@@ -5,14 +5,17 @@ ranking, refine-filter presets (direction-aware), and read-only setup mapping.
 Live yfinance/Alpaca fetch + the API/scheduler are covered separately.
 """
 
-from datetime import time as dt_time
+from datetime import datetime, time as dt_time
 from types import SimpleNamespace
 
 from analytics.screener import (
     InPlayEntry,
     UniverseRow,
     apply_refine_filters,
+    apply_user_view,
+    effective_settings,
     filter_universe,
+    is_market_open,
     rank_in_play,
     relative_volume,
     scan_setups,
@@ -130,6 +133,30 @@ def test_short_preset_surfaces_short_setups():
 
 def test_clearing_filters_returns_full_shortlist():
     assert len(apply_refine_filters(_refine_set(), preset="any")) == 3
+
+
+def test_market_hours_gate():
+    assert is_market_open(datetime(2026, 6, 1, 10, 0)) is True    # Mon 10:00 ET
+    assert is_market_open(datetime(2026, 6, 1, 8, 0)) is False    # Mon pre-open
+    assert is_market_open(datetime(2026, 6, 1, 16, 30)) is False  # Mon after close
+    assert is_market_open(datetime(2026, 5, 30, 12, 0)) is False  # Saturday
+
+
+def test_effective_settings_overlays_user_overrides():
+    defaults = {"market_cap_floor": 2e9, "top_n": 30}
+    assert effective_settings(defaults, {"top_n": 15}) == {"market_cap_floor": 2e9, "top_n": 15}
+    assert effective_settings(defaults, {"top_n": None}) == defaults  # None ignored
+    assert effective_settings(defaults, None) == defaults
+
+
+def test_apply_user_view_filters_cap_and_trims():
+    entries = [
+        InPlayEntry("A", 10, 0, rvol=3, dollar_vol=1, market_cap=50e9),
+        InPlayEntry("B", 10, 0, rvol=2, dollar_vol=1, market_cap=3e9),
+        InPlayEntry("C", 10, 0, rvol=1, dollar_vol=1, market_cap=1e9),
+    ]
+    assert {e.symbol for e in apply_user_view(entries, market_cap_floor=2e9)} == {"A", "B"}
+    assert [e.symbol for e in apply_user_view(entries, top_n=1)] == ["A"]
 
 
 def test_presets_are_none_safe():

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, desc, select
@@ -17,23 +18,19 @@ from sqlalchemy import delete, desc, select
 from analytics import screener as scr
 from app.config import get_settings
 from app.database import async_session_factory
-from app.models.screener import ScreenerSnapshot, ScreenerUniverse
+from app.models.screener import ScreenerSnapshot, ScreenerUniverse, ScreenerUserSettings
 
 logger = logging.getLogger("screener")
 ET = ZoneInfo("America/New_York")
 _SNAPSHOT_RETENTION = 50  # keep last N snapshots for debugging
 
+# Market-hours gate lives in analytics.screener (pure, testable).
+is_market_open = scr.is_market_open
 
-# ---------------------------------------------------------------------------
-# Market-hours gate (FR-3)
-# ---------------------------------------------------------------------------
-
-def is_market_open(now: datetime | None = None) -> bool:
-    """Regular US trading hours, Mon–Fri (no holiday calendar in v1)."""
-    now = now or datetime.now(ET)
-    if now.weekday() >= 5:
-        return False
-    return scr.RTH_OPEN <= now.time() <= scr.RTH_CLOSE
+# In-memory cache of the latest snapshot (FR — fast reads). Short TTL; the
+# scheduler writes every ~10 min so a 20s cache is plenty and bounds DB hits.
+_CACHE: dict = {"snap": None, "at": None}
+_CACHE_TTL_S = 20
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +67,7 @@ async def _save_snapshot(entries: list[scr.InPlayEntry], *, market_open: bool, s
         if old:
             await s.execute(delete(ScreenerSnapshot).where(ScreenerSnapshot.id.in_(old)))
         await s.commit()
+    _CACHE["snap"] = None  # invalidate cache on new write
 
 
 async def _mark_latest_stale() -> None:
@@ -84,10 +82,38 @@ async def _mark_latest_stale() -> None:
 
 
 async def get_latest_snapshot() -> ScreenerSnapshot | None:
+    """Latest snapshot, fronted by a short in-memory cache to bound DB hits (T034)."""
+    now = time.monotonic()
+    if _CACHE["snap"] is not None and _CACHE["at"] is not None and (now - _CACHE["at"]) < _CACHE_TTL_S:
+        return _CACHE["snap"]
     async with async_session_factory() as s:
-        return (await s.execute(
+        snap = (await s.execute(
             select(ScreenerSnapshot).order_by(desc(ScreenerSnapshot.id)).limit(1)
         )).scalar_one_or_none()
+    _CACHE["snap"], _CACHE["at"] = snap, now
+    return snap
+
+
+# --- per-user view settings (FR-6) ---
+
+async def get_user_settings(user_id: int) -> dict:
+    async with async_session_factory() as s:
+        row = await s.get(ScreenerUserSettings, user_id)
+    return {"market_cap_floor": row.market_cap_floor, "top_n": row.top_n} if row else {}
+
+
+async def set_user_settings(user_id: int, *, market_cap_floor=None, top_n=None) -> dict:
+    async with async_session_factory() as s:
+        row = await s.get(ScreenerUserSettings, user_id)
+        if row is None:
+            row = ScreenerUserSettings(user_id=user_id)
+            s.add(row)
+        if market_cap_floor is not None:
+            row.market_cap_floor = market_cap_floor
+        if top_n is not None:
+            row.top_n = top_n
+        await s.commit()
+        return {"market_cap_floor": row.market_cap_floor, "top_n": row.top_n}
 
 
 async def universe_rebuilt_at() -> datetime | None:
@@ -206,6 +232,18 @@ async def refresh_in_play() -> None:
         logger.info("screener: market closed, refresh skipped")
         return
     settings = get_settings()
+
+    # Single-instance guard (T032): if another replica wrote a snapshot within
+    # half the refresh interval, skip so we don't double-refresh. Best-effort.
+    guard_min = max(1, settings.SCREENER_REFRESH_MINUTES // 2)
+    latest = await get_latest_snapshot()
+    if latest is not None and latest.captured_at is not None:
+        cap = latest.captured_at.replace(tzinfo=None)
+        age_min = (datetime.utcnow() - cap).total_seconds() / 60
+        if 0 <= age_min < guard_min:
+            logger.info("screener: fresh snapshot (%.1fm) — skip duplicate refresh", age_min)
+            return
+
     universe = await _load_universe()
     if not universe:
         logger.warning("screener: empty universe — rebuild needed")
