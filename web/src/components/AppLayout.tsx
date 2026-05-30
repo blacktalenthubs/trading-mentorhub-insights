@@ -55,6 +55,7 @@ const NAV_ITEMS: NavItem[] = [
 const MOBILE_TABS: NavItem[] = [
   { to: "/trading",     label: "Trade",  icon: Crosshair },
   { to: "/trade-ideas", label: "Ideas",  icon: Target },
+  { to: "/watchlist",   label: "List",   icon: Star },
   { to: "/premarket",   label: "AM",     icon: Activity },
   { to: "/performance", label: "Perf",   icon: ArrowLeftRight },
   { to: "/settings",    label: "More",   icon: Settings },
@@ -134,7 +135,7 @@ export default function AppLayout() {
             </div>
             {!collapsed && (
               <span className="font-display text-sm font-bold text-text-primary whitespace-nowrap overflow-hidden">
-                <span className="text-accent">Trade</span>CoPilot
+                <span className="text-accent">Busy</span>TradersDesk
               </span>
             )}
           </div>

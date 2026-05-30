@@ -13,6 +13,7 @@ import {
   useWatchlistGroups,
   useSeedDefaultGroups,
   useDeleteGroup,
+  useCreateGroup,
   useMoveItem,
   type WatchlistItem,
   type WatchlistGroup,
@@ -33,7 +34,11 @@ export default function WatchlistPage() {
   const removeSymbol = useRemoveSymbol();
   const seedDefaults = useSeedDefaultGroups();
   const deleteGroup = useDeleteGroup();
+  const createGroup = useCreateGroup();
   const moveItem = useMoveItem();
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupColor, setNewGroupColor] = useState("#6366f1");
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const { maxWatchlistSize, isPro } = useFeatureGate();
   const [input, setInput] = useState("");
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
@@ -68,6 +73,21 @@ export default function WatchlistPage() {
     const sym = input.trim().toUpperCase();
     if (!sym) return;
     addSymbol.mutate(sym, { onSuccess: () => setInput("") });
+  }
+
+  function handleCreateGroup(e: React.FormEvent) {
+    e.preventDefault();
+    const name = newGroupName.trim();
+    if (!name) return;
+    createGroup.mutate(
+      { name, color: newGroupColor, sort_order: (groups?.length ?? 0) + 1 },
+      {
+        onSuccess: () => {
+          setNewGroupName("");
+          setShowNewGroup(false);
+        },
+      },
+    );
   }
 
   function toggleCollapse(groupId: number) {
@@ -181,6 +201,57 @@ export default function WatchlistPage() {
         {atLimit && !isPro && (
           <p className="mt-2 text-xs text-warning-text">
             Free tier limit reached. Upgrade to Pro for unlimited symbols.
+          </p>
+        )}
+      </Card>
+
+      {/* Sector / Group management */}
+      <Card padding="md">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-text-secondary">Sectors</h2>
+          <button
+            onClick={() => setShowNewGroup((v) => !v)}
+            className="flex items-center gap-1.5 rounded-md bg-surface-3 hover:bg-surface-4 px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors"
+          >
+            <Plus className="h-3 w-3" />
+            {showNewGroup ? "Cancel" : "Add Sector"}
+          </button>
+        </div>
+        {showNewGroup && (
+          <form onSubmit={handleCreateGroup} className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder="Sector name (e.g. Defense, Biotech)"
+              autoFocus
+              className="flex-1 min-w-[200px] rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+            />
+            <input
+              type="color"
+              value={newGroupColor}
+              onChange={(e) => setNewGroupColor(e.target.value)}
+              title="Sector color"
+              className="h-8 w-12 cursor-pointer rounded border border-border-subtle bg-surface-3"
+            />
+            <button
+              type="submit"
+              disabled={!newGroupName.trim() || createGroup.isPending}
+              className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-40 active:scale-95"
+            >
+              {createGroup.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Plus className="h-3 w-3" />
+              )}
+              Create
+            </button>
+          </form>
+        )}
+        {!showNewGroup && hasGroups && (
+          <p className="text-xs text-text-faint">
+            {groups?.length ?? 0} sector{(groups?.length ?? 0) === 1 ? "" : "s"} —
+            tap a symbol's dropdown below to move it into a sector.
           </p>
         )}
       </Card>
