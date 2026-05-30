@@ -104,6 +104,62 @@ def _normalize_index_to_et(hist: pd.DataFrame) -> pd.DataFrame:
     return hist
 
 
+def _fetch_alpaca_bars_for_date(symbol: str, session_date) -> pd.DataFrame:
+    """Fetch 5m bars covering one specific past session (09:30-16:00 ET).
+
+    Used by the outcome backfill job — given a fired alert's date, pull
+    that day's full session in one call so we can walk forward from the
+    fire bar without hitting the API once per alert.
+
+    Returns DataFrame with [Open, High, Low, Close, Volume], naive ET index.
+    Empty on failure / missing credentials.
+    """
+    import os
+    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
+        return pd.DataFrame()
+    _key = os.environ.get("ALPACA_API_KEY", "")
+    _secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not _key or not _secret:
+        return pd.DataFrame()
+
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from datetime import datetime, time as _time
+
+        client = StockHistoricalDataClient(_key, _secret)
+        # Bracket the regular session in ET, then convert to UTC for Alpaca.
+        start_et = datetime.combine(session_date, _time(9, 30))
+        end_et   = datetime.combine(session_date, _time(16, 0))
+        start_utc = ET.localize(start_et).astimezone(pytz.UTC)
+        end_utc   = ET.localize(end_et).astimezone(pytz.UTC)
+
+        req = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=TimeFrame(5, TimeFrameUnit.Minute),
+            start=start_utc,
+            end=end_utc,
+        )
+        bars = client.get_stock_bars(req)
+        df = bars.df
+        if df.empty:
+            return pd.DataFrame()
+
+        df = df.reset_index(level="symbol", drop=True)
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(ET).tz_localize(None)
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+        return df
+    except Exception as e:
+        logger.info("Alpaca session fetch failed for %s on %s: %s", symbol, session_date, str(e)[:80])
+        return pd.DataFrame()
+
+
 def _fetch_alpaca_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -> pd.DataFrame:
     """Fetch intraday bars from Alpaca (real-time IEX feed, free with paper account).
 

@@ -65,6 +65,14 @@ class Alert(Base):
     # Setup grade — A/B/C computed at write time from vol_ratio + vwap_slope_pct.
     # See analytics/alert_grade.py. Defaults to 'C' so legacy rows don't break filters.
     grade: Mapped[Optional[str]] = mapped_column(String(1), server_default="C")
+    # Spec 61 follow-up — real outcome computed after EOD from actual price action.
+    # Populated by analytics/alert_outcomes.py nightly job, NOT from fixed-% T1/T2.
+    # real_outcome: 'worked' (hit +1R MFE before -1R MAE), 'failed' (hit -1R first),
+    # 'inconclusive' (neither within session). NULL = not yet computed.
+    real_outcome: Mapped[Optional[str]] = mapped_column(String(20))
+    mfe_r: Mapped[Optional[float]] = mapped_column(Float)   # max favorable excursion in R
+    mae_r: Mapped[Optional[float]] = mapped_column(Float)   # max adverse excursion in R
+    outcome_computed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
 class ActiveEntry(Base):

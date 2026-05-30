@@ -105,6 +105,9 @@ export interface WeeklyPattern {
   avg_vol_ratio: number | null;
   avg_vwap_slope_pct: number | null;
   pct_above_gates: number;
+  graded?: number;                  // # of fires with computed real outcome
+  real_worked_pct?: number | null;  // % of graded that hit +1R before -1R
+  avg_mfe_r?: number | null;        // average max favorable excursion in R
 }
 
 export interface WeeklyFire {

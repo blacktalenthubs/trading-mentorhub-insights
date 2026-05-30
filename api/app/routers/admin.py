@@ -671,3 +671,35 @@ async def update_user_tier(
     await db.flush()
 
     return {"user_id": user_id, "tier": new_tier, "status": "active"}
+
+
+@router.post("/backfill-real-outcomes")
+async def backfill_real_outcomes(
+    days: int = 7,
+    admin: User = Depends(_require_admin),
+):
+    """One-shot: backfill real_outcome / mfe_r / mae_r for alerts from the
+    last N days (default 7). Pulls Alpaca session bars per (symbol, date)
+    and walks each alert's window.
+
+    Run after the nightly cron is in place, or any time you want to
+    re-compute history (e.g., after fixing the classifier logic).
+    Idempotent — only touches rows where real_outcome IS NULL.
+    """
+    from datetime import date as _date, timedelta as _td
+    from app.main import app as _app
+    from analytics.alert_outcomes import compute_outcomes_for_session
+
+    sync_session_factory = _app.state.sync_session_factory
+
+    today = _date.today()
+    summaries = []
+    for d in range(days):
+        target = today - _td(days=d)
+        # Skip weekends — no equities session.
+        if target.weekday() >= 5:
+            continue
+        summaries.append(compute_outcomes_for_session(sync_session_factory, target))
+
+    total_updated = sum(s["alerts_updated"] for s in summaries)
+    return {"days_scanned": len(summaries), "total_updated": total_updated, "per_day": summaries}

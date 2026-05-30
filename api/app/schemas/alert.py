@@ -44,6 +44,9 @@ class AlertResponse(BaseModel):
     volume_ratio: Optional[float] = None
     vwap_slope_pct: Optional[float] = None
     grade: Optional[str] = None              # A / B / C per analytics/alert_grade.py
+    real_outcome: Optional[str] = None       # worked | failed | inconclusive (post-fire compute)
+    mfe_r: Optional[float] = None
+    mae_r: Optional[float] = None
     cvd_delta: Optional[float] = None
     cvd_diverging: Optional[int] = None
     suppressed_reason: Optional[str] = None
@@ -86,6 +89,9 @@ class AlertResponse(BaseModel):
             volume_ratio=getattr(alert, "volume_ratio", None),
             vwap_slope_pct=getattr(alert, "vwap_slope_pct", None),
             grade=getattr(alert, "grade", None),
+            real_outcome=getattr(alert, "real_outcome", None),
+            mfe_r=getattr(alert, "mfe_r", None),
+            mae_r=getattr(alert, "mae_r", None),
             cvd_delta=getattr(alert, "cvd_delta", None),
             cvd_diverging=getattr(alert, "cvd_diverging", None),
             suppressed_reason=getattr(alert, "suppressed_reason", None),

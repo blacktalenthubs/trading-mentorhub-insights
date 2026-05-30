@@ -255,7 +255,8 @@ async def weekly_pattern_report(
     obsolete_list = list(OBSOLETE_ALERT_TYPES)
     label_map = {row[0]: row[1] for row in ALERT_TYPE_CATALOG}
 
-    # Pattern aggregates — fires, avg vol, avg slope, % above quality gates.
+    # Pattern aggregates — fires, avg vol, avg slope, % above quality gates,
+    # PLUS real-outcome stats from analytics/alert_outcomes.py.
     agg_rows = (await db.execute(text("""
         SELECT
             alert_type,
@@ -265,7 +266,10 @@ async def weekly_pattern_report(
             SUM(CASE
                 WHEN volume_ratio >= 2.0 AND vwap_slope_pct >= 0.05 THEN 1
                 ELSE 0
-            END) AS gates_passed
+            END) AS gates_passed,
+            SUM(CASE WHEN real_outcome IS NOT NULL THEN 1 ELSE 0 END) AS graded,
+            SUM(CASE WHEN real_outcome = 'worked' THEN 1 ELSE 0 END) AS worked,
+            AVG(mfe_r) AS avg_mfe_r
         FROM alerts
         WHERE user_id = :uid
           AND session_date BETWEEN :a AND :b
@@ -280,9 +284,11 @@ async def weekly_pattern_report(
     })).all()
 
     patterns = []
-    for at, fires, avg_vol, avg_slope, gates_passed in agg_rows:
+    for at, fires, avg_vol, avg_slope, gates_passed, graded, worked, avg_mfe in agg_rows:
         if at in OBSOLETE_ALERT_TYPES:
             continue
+        graded_n = int(graded or 0)
+        worked_n = int(worked or 0)
         patterns.append({
             "alert_type": at,
             "label": label_map.get(at, at),
@@ -291,6 +297,9 @@ async def weekly_pattern_report(
             "avg_vol_ratio": round(float(avg_vol), 2) if avg_vol is not None else None,
             "avg_vwap_slope_pct": round(float(avg_slope), 3) if avg_slope is not None else None,
             "pct_above_gates": round(int(gates_passed or 0) / fires * 100, 1) if fires else 0.0,
+            "graded": graded_n,
+            "real_worked_pct": round(worked_n / graded_n * 100, 1) if graded_n else None,
+            "avg_mfe_r": round(float(avg_mfe), 2) if avg_mfe is not None else None,
         })
     patterns.sort(key=lambda p: -p["fires"])
 

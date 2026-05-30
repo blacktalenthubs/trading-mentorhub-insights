@@ -148,6 +148,12 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS grade VARCHAR(1) DEFAULT 'C'",
             # User-level minimum grade filter (A/B/C). 'C' = no filter.
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS min_alert_grade VARCHAR(1) DEFAULT 'C'",
+            # Real outcome backfill columns — Feature 2. Computed nightly from
+            # post-fire Alpaca intraday bars; NOT the synthetic fixed-% T1/T2.
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS real_outcome VARCHAR(20)",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mfe_r REAL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mae_r REAL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS outcome_computed_at TIMESTAMP",
             # iOS APNs push notifications (Capacitor mobile app) — 2026-05-26
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_token VARCHAR(200)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_enabled BOOLEAN DEFAULT FALSE",
@@ -503,6 +509,35 @@ async def lifespan(app: FastAPI):
                     replace_existing=True,
                 )
                 logger.info("Registered daily swing scan cron: 16:10 ET, Mon-Fri")
+
+            # Real-outcome backfill (spec 61 follow-up Feature 2) — runs at
+            # 4:30 PM ET Mon-Fri after the session closes. Walks every long
+            # alert from today's session, pulls 5m bars from Alpaca, computes
+            # MFE / MAE in R-multiples + worked/failed/inconclusive label.
+            # Powers the AI Friday retro + truthful Performance numbers.
+            # Set REAL_OUTCOMES_ENABLED=0 in Railway to disable.
+            if os.environ.get("REAL_OUTCOMES_ENABLED", "true").lower() not in ("0", "false", "no"):
+                from apscheduler.triggers.cron import CronTrigger as _CT_OUT
+                import pytz as _pytz_out
+                _et_out = _pytz_out.timezone("America/New_York")
+
+                def _real_outcomes_eod():
+                    try:
+                        from analytics.alert_outcomes import compute_outcomes_for_session
+                        from datetime import date as _date
+                        summary = compute_outcomes_for_session(sync_session_factory, _date.today())
+                        logger.info("Real outcomes EOD: %s", summary)
+                    except Exception:
+                        logger.exception("Real outcomes EOD failed")
+
+                scheduler.add_job(
+                    _real_outcomes_eod,
+                    _CT_OUT(day_of_week="mon-fri", hour=16, minute=30, timezone=_et_out),
+                    id="real_outcomes_eod",
+                    misfire_grace_time=600,
+                    replace_existing=True,
+                )
+                logger.info("Registered real-outcomes cron: 16:30 ET, Mon-Fri")
 
             # Earnings refresh (spec 61) — nightly @ 04:00 ET, every day
             # including weekends so Monday's tab is fresh. Pulls Finnhub

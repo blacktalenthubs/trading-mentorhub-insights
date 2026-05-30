@@ -22,7 +22,7 @@ import {
   ChevronLeft, ChevronRight, CalendarRange,
 } from "lucide-react";
 
-type SortKey = "fires" | "vol" | "slope" | "gates" | "label";
+type SortKey = "fires" | "vol" | "slope" | "gates" | "worked" | "label";
 type SortDir = "asc" | "desc";
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -155,6 +155,7 @@ export default function WeeklyReport() {
         case "vol":    return ((a.avg_vol_ratio ?? -Infinity) - (b.avg_vol_ratio ?? -Infinity)) * flip;
         case "slope":  return ((a.avg_vwap_slope_pct ?? -Infinity) - (b.avg_vwap_slope_pct ?? -Infinity)) * flip;
         case "gates":  return ((a.pct_above_gates) - (b.pct_above_gates)) * flip;
+        case "worked": return ((a.real_worked_pct ?? -1) - (b.real_worked_pct ?? -1)) * flip;
         case "label":  return a.label.localeCompare(b.label) * flip;
       }
     };
@@ -237,7 +238,7 @@ export default function WeeklyReport() {
         ) : (
           <Card padding="none">
             <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-border-subtle/50 bg-surface-2/30">
-              <div className="col-span-4">
+              <div className="col-span-3">
                 <SortBtn label="Pattern" active={sortKey === "label"} dir={sortDir} onClick={() => toggleSort("label")} align="left" />
               </div>
               <div className="col-span-1">
@@ -249,17 +250,29 @@ export default function WeeklyReport() {
               <div className="col-span-2">
                 <SortBtn label="Avg Slope %" active={sortKey === "slope"} dir={sortDir} onClick={() => toggleSort("slope")} />
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <SortBtn label="Above Gates %" active={sortKey === "gates"} dir={sortDir} onClick={() => toggleSort("gates")} />
               </div>
+              <div className="col-span-2">
+                <SortBtn label="Real Worked %" active={sortKey === "worked"} dir={sortDir} onClick={() => toggleSort("worked")} />
+              </div>
             </div>
-            {sortedPatterns.map(p => (
+            {sortedPatterns.map(p => {
+              const wp = p.real_worked_pct;
+              const wpColor = wp == null ? "text-text-faint"
+                : wp >= 60 ? "text-bullish-text"
+                : wp >= 40 ? "text-warning-text"
+                : "text-bearish-text";
+              const wpStr = wp == null
+                ? (p.graded === 0 ? "no data" : "—")
+                : `${wp.toFixed(0)}%`;
+              return (
               <div
                 key={p.alert_type}
                 className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-border-subtle/30 last:border-b-0 items-center text-xs"
               >
                 <span
-                  className="col-span-4 text-text-primary truncate cursor-help"
+                  className="col-span-3 text-text-primary truncate cursor-help"
                   title={p.description || p.label}
                 >
                   {p.label}
@@ -273,11 +286,21 @@ export default function WeeklyReport() {
                     ? `${p.avg_vwap_slope_pct > 0 ? "+" : ""}${p.avg_vwap_slope_pct.toFixed(2)}%`
                     : "—"}
                 </span>
-                <span className={`col-span-3 text-right font-mono font-semibold ${gatesColor(p.pct_above_gates)}`}>
+                <span className={`col-span-2 text-right font-mono font-semibold ${gatesColor(p.pct_above_gates)}`}>
                   {p.pct_above_gates.toFixed(0)}%
                 </span>
+                <span
+                  className={`col-span-2 text-right font-mono font-semibold ${wpColor}`}
+                  title={p.graded ? `${p.graded} fires graded · avg MFE ${p.avg_mfe_r ?? "—"}R` : "No real-outcome data yet — backfill runs after market close"}
+                >
+                  {wpStr}
+                  {p.graded != null && p.graded > 0 && (
+                    <span className="text-[9px] font-normal text-text-faint ml-1">n={p.graded}</span>
+                  )}
+                </span>
               </div>
-            ))}
+              );
+            })}
           </Card>
         )}
       </div>
