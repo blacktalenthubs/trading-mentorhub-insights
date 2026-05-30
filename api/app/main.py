@@ -479,6 +479,34 @@ async def lifespan(app: FastAPI):
                     replace_existing=True,
                 )
                 logger.info("Registered daily swing scan cron: 16:10 ET, Mon-Fri")
+
+            # Earnings refresh (spec 61) — nightly @ 04:00 ET, every day
+            # including weekends so Monday's tab is fresh. Pulls Finnhub
+            # calendar + history for every watchlist symbol, upserts both
+            # tables, and fires T-7 notifications for any symbol whose
+            # earnings is exactly 7 days out. Set EARNINGS_REFRESH_ENABLED=0
+            # in Railway to disable.
+            if os.environ.get("EARNINGS_REFRESH_ENABLED", "true").lower() not in ("0", "false", "no"):
+                from apscheduler.triggers.cron import CronTrigger as _CronTrigger
+                import pytz as _pytz2
+                _et = _pytz2.timezone("America/New_York")
+
+                def _earnings_refresh():
+                    try:
+                        from analytics.earnings_refresh import refresh_earnings
+                        summary = refresh_earnings(sync_session_factory)
+                        logger.info("Earnings refresh summary: %s", summary)
+                    except Exception:
+                        logger.exception("Earnings refresh failed")
+
+                scheduler.add_job(
+                    _earnings_refresh,
+                    _CronTrigger(hour=4, minute=0, timezone=_et),
+                    id="earnings_refresh",
+                    misfire_grace_time=3600,
+                    replace_existing=True,
+                )
+                logger.info("Registered nightly earnings refresh cron: 04:00 ET")
         else:
             logger.info(
                 "AI scans DISABLED (AI_SCAN_ENABLED=false) — rule-based alerts only"
