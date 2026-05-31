@@ -16,9 +16,6 @@ import {
   useAlertsToday,
   useAlertSessionDates,
   useAlertsForDate,
-  useAckAlert,
-  useSetAlertOutcome,
-  useScorecard,
   useWatchlist,
   useAddSymbol,
   useRemoveSymbol,
@@ -28,7 +25,7 @@ import {
 import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { SignalResult, Alert, ScorecardItem } from "../types";
+import type { SignalResult, Alert } from "../types";
 import { formatSetup, isFeedSignal } from "../lib/alertFormat";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
@@ -225,89 +222,32 @@ function formatSessionDate(iso: string): string {
 const fmtPrice = (v: number | null | undefined) =>
   v != null ? `$${v.toFixed(2)}` : "—";
 
-/* ── EOD Scorecard — win rate by setup from the manual ✓/✗ marks ───── */
-
-function Scorecard({ date }: { date: string }) {
-  const { data } = useScorecard(date);
-  const items: ScorecardItem[] = data?.items ?? [];
-
-  if (items.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center px-4">
-        <p className="text-xs text-text-faint text-center">
-          No graded signals for this session yet — mark ✓ / ✗ on the cards.
-        </p>
-      </div>
-    );
-  }
-
-  const renderGroup = (title: string, group: string) => {
-    const rows = items.filter((i) => i.group === group);
-    if (rows.length === 0) return null;
-    return (
-      <div className="mb-3">
-        <div className="text-[10px] font-bold uppercase tracking-wide text-text-faint mb-1">
-          {title}
-        </div>
-        {rows.map((i) => (
-          <div
-            key={i.alert_type}
-            className="flex items-center justify-between py-1 border-b border-border-subtle/30 text-[11px]"
-          >
-            <span className="text-text-secondary truncate mr-2">
-              {formatSetup(i.alert_type)}
-            </span>
-            <span className="font-mono shrink-0">
-              <span className="text-bullish-text">{i.worked}</span>
-              <span className="text-text-faint"> · </span>
-              <span className="text-bearish-text">{i.failed}</span>
-              <span
-                className={`ml-2 font-bold ${
-                  i.win_rate >= 50 ? "text-bullish-text" : "text-bearish-text"
-                }`}
-              >
-                {i.win_rate}%
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  return (
-    <div className="flex-1 overflow-y-auto px-3 py-2">
-      {renderGroup("Day setups", "day")}
-      {renderGroup("Swing setups", "swing")}
-    </div>
-  );
-}
-
 function SignalFeedTab({
   alerts,
   alertsError,
   onSelectSymbol,
-  showNonRouted = false,
-  signalDate = "",
+  signalDate: _signalDate = "",
 }: {
   alerts?: Alert[];
   alertsError: unknown;
   onSelectSymbol: (sym: string) => void;
-  showNonRouted?: boolean;
   signalDate?: string;
 }) {
-  const ack = useAckAlert();
-  const setOutcome = useSetAlertOutcome();
   const [search, setSearch] = useState("");
-  const [showScorecard, setShowScorecard] = useState(false);
-  // Sort options for the feed — persisted to localStorage so refresh doesn't reset.
+  // Sort options — persisted to localStorage so refresh doesn't reset.
   type FeedSort = "time" | "grade" | "vol" | "slope" | "symbol";
+  const SORT_LABELS: Record<FeedSort, string> = {
+    time: "Newest", grade: "Grade A→C", vol: "Volume ×",
+    slope: "Slope %", symbol: "Symbol",
+  };
   const [sortBy, setSortBy] = useState<FeedSort>(() => {
     if (typeof window === "undefined") return "time";
     return (localStorage.getItem("signal_feed_sort") as FeedSort) || "time";
   });
+  const [sortOpen, setSortOpen] = useState(false);
   function changeSort(s: FeedSort) {
     setSortBy(s);
+    setSortOpen(false);
     try { localStorage.setItem("signal_feed_sort", s); } catch {}
   }
 
@@ -327,12 +267,12 @@ function SignalFeedTab({
     );
   }
 
-  // AI scanner signals + every fired TradingView signal. WAITs excluded.
-  // "Non-routed" is an exclusive view — on: only non-routed; off: only routed.
+  // AI scanner signals + every fired TradingView signal. WAITs and
+  // non-routed alerts are both excluded — the user filters via Settings
+  // (alert types + grade), not in the feed.
   const feedAlerts = (alerts ?? []).filter((a) => {
     if (!isFeedSignal(a.alert_type)) return false;
-    const notRouted = a.suppressed_reason === "type_not_enabled";
-    if (showNonRouted ? !notRouted : notRouted) return false;
+    if (a.suppressed_reason === "type_not_enabled") return false;
     return true;
   });
   const q = search.trim().toUpperCase();
@@ -371,8 +311,8 @@ function SignalFeedTab({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Symbol search + scorecard toggle */}
-      <div className="px-3 pt-2 pb-1 shrink-0 flex items-center gap-1.5">
+      {/* Search + Sort dropdown — single row */}
+      <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -380,47 +320,41 @@ function SignalFeedTab({
           className="flex-1 bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
         />
         <button
-          onClick={() => setShowScorecard((v) => !v)}
-          title="End-of-day scorecard — win rate by setup from your ✓/✗ marks"
-          className={`shrink-0 text-[10px] px-2 py-1 rounded border transition-colors ${
-            showScorecard
-              ? "bg-accent/15 text-accent border-accent/40"
-              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
-          }`}
+          onClick={() => setSortOpen((v) => !v)}
+          className="shrink-0 text-[10px] px-2 py-1 rounded border bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2 flex items-center gap-1"
+          title="Sort signals"
         >
-          Scorecard
+          <span className="text-text-faint">Sort:</span>
+          <span className="text-text-secondary font-medium">{SORT_LABELS[sortBy]}</span>
+          <ChevronDown className="h-3 w-3" />
         </button>
+        {sortOpen && (
+          <>
+            <button
+              className="fixed inset-0 z-30 cursor-default"
+              onClick={() => setSortOpen(false)}
+              aria-label="Close sort menu"
+            />
+            <div className="absolute right-3 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[140px]">
+              {(["time", "grade", "vol", "slope", "symbol"] as const).map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => changeSort(opt)}
+                  className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
+                    sortBy === opt
+                      ? "bg-accent/15 text-accent"
+                      : "text-text-secondary hover:bg-surface-2"
+                  }`}
+                >
+                  {SORT_LABELS[opt]}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Sort strip — small chips, click to switch sort order. */}
-      {!showScorecard && (
-        <div className="px-3 pb-1.5 pt-0.5 shrink-0 flex items-center gap-1 text-[10px] overflow-x-auto">
-          <span className="text-text-faint uppercase tracking-wider mr-1 shrink-0">Sort:</span>
-          {([
-            { id: "time" as const,   label: "Newest" },
-            { id: "grade" as const,  label: "Grade A→C" },
-            { id: "vol" as const,    label: "Volume ×" },
-            { id: "slope" as const,  label: "Slope %" },
-            { id: "symbol" as const, label: "Symbol" },
-          ]).map((opt) => (
-            <button
-              key={opt.id}
-              onClick={() => changeSort(opt.id)}
-              className={`shrink-0 px-1.5 py-0.5 rounded transition-colors ${
-                sortBy === opt.id
-                  ? "bg-accent/15 text-accent"
-                  : "text-text-muted hover:bg-surface-2"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {showScorecard ? (
-        <Scorecard date={signalDate} />
-      ) : visible.length === 0 ? (
+      {visible.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-text-faint">
             {q ? `No ${q} signals in this session` : "No signals in this session"}
@@ -435,8 +369,6 @@ function SignalFeedTab({
           timeZone: "America/Chicago",
         });
         const isAIScan = a.alert_type?.startsWith("ai_");
-        const isTV = a.alert_type?.startsWith("tv_");
-        const notRouted = a.suppressed_reason === "type_not_enabled";
         const dirText = a.direction === "BUY" ? "LONG"
           : a.direction === "SHORT" ? "SHORT"
           : a.direction === "NOTICE" ? "NOTICE" : (a.direction || "—");
@@ -445,18 +377,15 @@ function SignalFeedTab({
           : a.direction === "SHORT"
             ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
             : "bg-warning/10 text-warning-text border-warning/20";
-        const src = isTV ? "TV" : isAIScan ? "AI" : "";
 
         return (
           <div
             key={a.id}
-            className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/20 transition-colors cursor-pointer ${
-              notRouted ? "opacity-55" : ""
-            }`}
+            className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer"
             onClick={() => onSelectSymbol(a.symbol)}
           >
-            {/* Header — symbol, direction, source, grade, time */}
-            <div className="flex items-center justify-between mb-1.5">
+            {/* Header — symbol, direction, grade, (AI badge if AI), time */}
+            <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
                 <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirCls}`}>
@@ -479,36 +408,26 @@ function SignalFeedTab({
                     </span>
                   );
                 })()}
-                {src && (
-                  <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-surface-3 text-text-faint">
-                    {src}
-                  </span>
-                )}
-                {notRouted && (
-                  <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-3 text-text-faint uppercase tracking-wide">
-                    not routed
+                {isAIScan && (
+                  <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">
+                    AI
                   </span>
                 )}
               </div>
               <span className="text-[10px] font-mono text-text-faint">{time}</span>
             </div>
 
-            {/* Setup name + plain-English description (spec 61 follow-up) */}
-            <div className="mb-1.5">
-              <div className="text-[11px] font-medium text-text-secondary">
-                {formatSetup(a.alert_type)}
-              </div>
-              {a.description && (
-                <div className="text-[10px] text-text-faint leading-snug mt-0.5">
-                  {a.description}
-                </div>
-              )}
+            {/* Setup name (description on hover via tooltip) */}
+            <div
+              className="text-[11px] font-medium text-text-secondary mb-1 cursor-help"
+              title={a.description || formatSetup(a.alert_type)}
+            >
+              {formatSetup(a.alert_type)}
             </div>
 
-            {/* Quality strip — volume ratio + VWAP slope at a glance.
-                Color-coded so high-priority alerts pop without reading the message. */}
+            {/* Quality strip — vol + slope */}
             {(a.volume_ratio != null || a.vwap_slope_pct != null) && (
-              <div className="flex items-center gap-2 mb-1.5 text-[10px] font-mono">
+              <div className="flex items-center gap-3 mb-1.5 text-[10px] font-mono">
                 {a.volume_ratio != null && (() => {
                   const v = a.volume_ratio;
                   const cls = v >= 2.0 ? "text-bullish-text"
@@ -534,15 +453,12 @@ function SignalFeedTab({
                     </span>
                   );
                 })()}
-                {a.cvd_diverging === 1 && (
-                  <span className="text-warning-text">CVD div</span>
-                )}
               </div>
             )}
 
-            {/* Trade levels — entry / stop / T1 / T2 */}
+            {/* Trade levels — entry / stop / T1 only (T2 dropped per UX cleanup) */}
             {a.entry != null ? (
-              <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+              <div className="grid grid-cols-3 gap-1.5 text-[10px]">
                 <div>
                   <div className="text-text-faint">Entry</div>
                   <div className="font-mono font-bold text-accent">{fmtPrice(a.entry)}</div>
@@ -552,12 +468,8 @@ function SignalFeedTab({
                   <div className="font-mono text-bearish-text">{fmtPrice(a.stop)}</div>
                 </div>
                 <div>
-                  <div className="text-text-faint">T1</div>
+                  <div className="text-text-faint">Target</div>
                   <div className="font-mono text-bullish-text">{fmtPrice(a.target_1)}</div>
-                </div>
-                <div>
-                  <div className="text-text-faint">T2</div>
-                  <div className="font-mono text-text-secondary">{fmtPrice(a.target_2)}</div>
                 </div>
               </div>
             ) : (
@@ -567,72 +479,6 @@ function SignalFeedTab({
                 </p>
               )
             )}
-
-            {/* Action buttons — not shown on non-routed (review-only) rows */}
-            {!notRouted && a.user_action == null && (a.direction === "BUY" || a.direction === "SHORT") && (
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    ack.mutate({ id: a.id, action: "took" });
-                  }}
-                  className="rounded bg-bullish/15 px-2.5 py-0.5 text-[10px] font-semibold text-bullish-text hover:bg-bullish/25 transition-colors border border-bullish/20"
-                >
-                  Took
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    ack.mutate({ id: a.id, action: "skipped" });
-                  }}
-                  className="rounded bg-surface-4 px-2.5 py-0.5 text-[10px] font-semibold text-text-muted hover:bg-surface-3 transition-colors border border-border-subtle"
-                >
-                  Skip
-                </button>
-              </div>
-            )}
-            {a.user_action && (
-              <span
-                className={`mt-2 inline-flex text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                  a.user_action === "took"
-                    ? "text-bullish-text bg-bullish/10 border border-bullish/20"
-                    : "text-text-muted bg-surface-3 border border-border-subtle"
-                }`}
-              >
-                {a.user_action === "took" ? "Took" : "Skipped"}
-              </span>
-            )}
-
-            {/* Outcome grade — on every card, routed + non-routed */}
-            <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border-subtle/40">
-              <span className="text-[9px] text-text-faint mr-auto">Did it work?</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOutcome.mutate({ id: a.id, outcome: a.outcome === "worked" ? "clear" : "worked" });
-                }}
-                className={`rounded px-1.5 py-0.5 text-[10px] font-bold border transition-colors ${
-                  a.outcome === "worked"
-                    ? "bg-bullish/25 text-bullish-text border-bullish/30"
-                    : "bg-surface-4 text-text-faint border-border-subtle hover:bg-surface-3"
-                }`}
-              >
-                ✓ Worked
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOutcome.mutate({ id: a.id, outcome: a.outcome === "failed" ? "clear" : "failed" });
-                }}
-                className={`rounded px-1.5 py-0.5 text-[10px] font-bold border transition-colors ${
-                  a.outcome === "failed"
-                    ? "bg-bearish/25 text-bearish-text border-bearish/30"
-                    : "bg-surface-4 text-text-faint border-border-subtle hover:bg-surface-3"
-                }`}
-              >
-                ✗ Didn't
-              </button>
-            </div>
           </div>
         );
       })}
@@ -807,7 +653,6 @@ export default function TradingPageV2() {
 
   // Signals feed — which session to view ("" = today/latest)
   const [signalDate, setSignalDate] = useState<string>("");
-  const [showNonRouted, setShowNonRouted] = useState(false);
   const { data: sessionDates } = useAlertSessionDates();
   const { data: pastAlerts, error: pastAlertsError } = useAlertsForDate(signalDate);
 
@@ -1465,7 +1310,7 @@ export default function TradingPageV2() {
             </select>
           </div>
 
-          {/* Asset filter + non-routed review toggle */}
+          {/* Asset filter — All / Stocks / Crypto */}
           <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-subtle shrink-0">
             {(["all", "stocks", "crypto"] as const).map((k) => (
               <button
@@ -1480,17 +1325,6 @@ export default function TradingPageV2() {
                 {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
               </button>
             ))}
-            <button
-              onClick={() => setShowNonRouted((v) => !v)}
-              title="Show alert types that fired but aren't routed — review only"
-              className={`ml-auto text-[10px] px-2.5 py-0.5 rounded-full border transition-colors ${
-                showNonRouted
-                  ? "bg-accent/15 text-accent border-accent/40"
-                  : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
-              }`}
-            >
-              Non-routed
-            </button>
           </div>
 
           {/* Signal feed — AI scanner + TradingView signals */}
@@ -1499,7 +1333,6 @@ export default function TradingPageV2() {
               alerts={filterAlertsByAsset(activeAlerts)}
               alertsError={activeAlertsError}
               onSelectSymbol={selectSymbol}
-              showNonRouted={showNonRouted}
               signalDate={signalDate}
             />
           </div>
@@ -1547,7 +1380,6 @@ export default function TradingPageV2() {
               alerts={filterAlertsByAsset(activeAlerts)}
               alertsError={activeAlertsError}
               onSelectSymbol={selectSymbol}
-              showNonRouted={showNonRouted}
               signalDate={signalDate}
             />
           </div>
