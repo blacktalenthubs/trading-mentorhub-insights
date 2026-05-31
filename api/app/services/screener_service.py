@@ -333,10 +333,29 @@ def _fetch_daily_consolidated(symbol: str, period: str = "1y"):
     return fetch_ohlc(symbol, period)
 
 
-def _gather_swing() -> list[scr.SwingCandidate]:
+def _intraday_session_frac() -> float:
+    """Fraction of the RTH session elapsed right now (0 before open, 1 after close)."""
+    return scr.session_fraction(datetime.now(ET).time())
+
+
+def _project_volume_to_close(daily, frac: float):
+    """Scale the last (forming) bar's volume up to a full-session estimate so the
+    swing grade isn't understated when scanning mid-session (e.g. the 3:30 PM run).
+    No-op outside market hours (frac 0 or 1) — those bars are already complete."""
+    if daily is None or daily.empty or frac <= 0 or frac >= 1:
+        return daily
+    daily = daily.copy()
+    daily.loc[daily.index[-1], "Volume"] = float(daily["Volume"].iloc[-1]) / frac
+    return daily
+
+
+def _gather_swing(intraday: bool = False) -> list[scr.SwingCandidate]:
     """Scan the curated MEGA-CAP list on daily bars (independent of the dynamic
     universe build). Daily bars use CONSOLIDATED volume so the A/B/C grade
-    reflects real relative volume, not Alpaca's thin IEX slice."""
+    reflects real relative volume, not Alpaca's thin IEX slice. ``intraday=True``
+    (the 3:30 PM close run) reads today's forming bar and projects its volume to
+    a full-session estimate."""
+    frac = _intraday_session_frac() if intraday else 1.0
     spy = _fetch_daily_consolidated("SPY", "1y")
     spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
                if spy is not None and len(spy) > 21 else 0.0)
@@ -344,6 +363,8 @@ def _gather_swing() -> list[scr.SwingCandidate]:
     for u in scr.mega_cap_rows():
         try:
             daily = _fetch_daily_consolidated(u.symbol, "1y")
+            if intraday:
+                daily = _project_volume_to_close(daily, frac)
             c = scr.swing_signals(daily, spy_ret, symbol=u.symbol, market_cap=u.market_cap, sector=u.sector)
             if c and c.setup:
                 cands.append(c)
@@ -352,7 +373,7 @@ def _gather_swing() -> list[scr.SwingCandidate]:
     return scr.rank_swing(cands, get_settings().SCREENER_TOP_N)
 
 
-async def _alert_a_grade(cands: list[scr.SwingCandidate], kind: str) -> None:
+async def _alert_a_grade(cands: list[scr.SwingCandidate], kind: str, slot: str = "am") -> None:
     """Ping the Telegram group for each NEW A-grade swing setup (once per symbol/day).
     Group-only (constitution); reuses notifier._send_telegram without modifying it.
     Toggle with SWING_ALERTS_ENABLED=false."""
@@ -363,7 +384,11 @@ async def _alert_a_grade(cands: list[scr.SwingCandidate], kind: str) -> None:
     if not a_grade:
         return
     session_date = datetime.now(ET).date().isoformat()
-    label = "Small-cap" if kind == "swing_small" else "Mega-cap"
+    cap_label = "Small-cap" if kind == "swing_small" else "Mega-cap"
+    # Morning (yesterday's settled bar) and close (today's near-final bar) are
+    # different signals — dedup them independently so each can fire once per day.
+    dedup_kind = f"{kind}:{slot}"[:16]
+    slot_label = "into close" if slot == "pm" else "morning"
     try:
         from alerting.notifier import _send_telegram
     except Exception:
@@ -371,32 +396,33 @@ async def _alert_a_grade(cands: list[scr.SwingCandidate], kind: str) -> None:
         return
     async with async_session_factory() as s:
         for c in a_grade:
-            if await s.get(ScreenerAlertLog, (c.symbol, kind, session_date)) is not None:
-                continue  # already alerted this symbol today
+            if await s.get(ScreenerAlertLog, (c.symbol, dedup_kind, session_date)) is not None:
+                continue  # already alerted this symbol in this slot today
             st = c.setup
             msg = (
-                f"📈 Swing A-setup ({label}) — {c.symbol} ${c.last_price:.2f}\n"
+                f"📈 Swing A-setup ({cap_label} · {slot_label}) — {c.symbol} ${c.last_price:.2f}\n"
                 f"{st['pattern']} · stop ${st['stop']} / target ${st['target']}\n"
-                f"Vol {c.vol_ratio:.1f}x · RS {c.rs_vs_spy:+.1f} · busytradersdesk.com"
+                f"Vol {c.vol_ratio:.1f}x · close {round(c.close_strength * 100)}% · RS {c.rs_vs_spy:+.1f} · busytradersdesk.com"
             )
             try:
                 await asyncio.to_thread(_send_telegram, msg)
             except Exception:
                 logger.exception("swing alert: send failed for %s", c.symbol)
-            s.add(ScreenerAlertLog(symbol=c.symbol, kind=kind, session_date=session_date))
+            s.add(ScreenerAlertLog(symbol=c.symbol, kind=dedup_kind, session_date=session_date))
         await s.commit()
-    logger.info("swing alert: %d A-grade %s setups sent", len(a_grade), kind)
+    logger.info("swing alert: %d A-grade %s (%s) setups sent", len(a_grade), kind, slot)
 
 
-async def refresh_swing(alert: bool = False) -> None:
+async def refresh_swing(alert: bool = False, slot: str = "am") -> None:
     """Scan mega-caps on daily bars for Trend + MA-defense swing setups; persist.
     Always writes a snapshot (even 0 setups). ``alert=True`` (scheduled runs only)
-    pings the group for new A-grade setups."""
+    pings the group for new A-grade setups. ``slot="pm"`` reads today's forming bar
+    (the 3:30 PM close run) and alerts under a separate dedup namespace."""
     try:
-        cands = await asyncio.to_thread(_gather_swing)
+        cands = await asyncio.to_thread(_gather_swing, slot == "pm")
         await _save_snapshot(cands, kind="swing", market_open=True, top_n=get_settings().SCREENER_TOP_N)
         if alert:
-            await _alert_a_grade(cands, "swing")
+            await _alert_a_grade(cands, "swing", slot)
         logger.info("swing: snapshot refreshed (%d setups)", len(cands))
     except Exception:
         logger.exception("swing: refresh failed — marking last snapshot stale")
@@ -428,12 +454,14 @@ _SMALL_PRICE_FLOOR = 2.0           # skip sub-$2 micro-junk
 _SMALL_DOLLAR_VOL_FLOOR = 20e6     # liquidity / institutional-interest gate
 
 
-def _gather_swing_small() -> list[scr.SwingCandidate]:
+def _gather_swing_small(intraday: bool = False) -> list[scr.SwingCandidate]:
     """Scan today's most-active NON-mega names defending the 20/50 EMA. Quality-gated
-    on price + dollar volume so it surfaces real small-cap momentum, not penny shells."""
+    on price + dollar volume so it surfaces real small-cap momentum, not penny shells.
+    ``intraday=True`` reads the forming bar and projects its volume to full-session."""
     # Curated small/mid + recent-IPO pool only. (Alpaca most-actives isn't cap-aware,
     # so it leaks mega caps like GOOG into "small" — dynamic discovery needs a
     # market-cap source, e.g. Polygon/FMP. Tracked as a follow-up.)
+    frac = _intraday_session_frac() if intraday else 1.0
     pool = list(scr.SMALL_CAP_UNIVERSE)
     spy = _fetch_daily_consolidated("SPY", "1y")
     spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
@@ -444,6 +472,8 @@ def _gather_swing_small() -> list[scr.SwingCandidate]:
             daily = _fetch_daily_consolidated(sym, "6mo")
             if daily is None or daily.empty or len(daily) < 50:
                 continue
+            if intraday:
+                daily = _project_volume_to_close(daily, frac)
             last = float(daily["Close"].iloc[-1])
             if last < _SMALL_PRICE_FLOOR:
                 continue
@@ -457,14 +487,15 @@ def _gather_swing_small() -> list[scr.SwingCandidate]:
     return scr.rank_swing(cands, get_settings().SCREENER_TOP_N)
 
 
-async def refresh_swing_small(alert: bool = False) -> None:
+async def refresh_swing_small(alert: bool = False, slot: str = "am") -> None:
     """Scan small-cap / IPO names for 20/50 EMA-hold setups; persist. ``alert=True``
-    (scheduled only) pings the group for new A-grade setups."""
+    (scheduled only) pings the group for new A-grade setups. ``slot="pm"`` reads the
+    forming bar (3:30 PM close run) and alerts under a separate dedup namespace."""
     try:
-        cands = await asyncio.to_thread(_gather_swing_small)
+        cands = await asyncio.to_thread(_gather_swing_small, slot == "pm")
         await _save_snapshot(cands, kind="swing_small", market_open=True, top_n=get_settings().SCREENER_TOP_N)
         if alert:
-            await _alert_a_grade(cands, "swing_small")
+            await _alert_a_grade(cands, "swing_small", slot)
         logger.info("swing-small: snapshot refreshed (%d setups)", len(cands))
     except Exception:
         logger.exception("swing-small: refresh failed")
@@ -482,11 +513,19 @@ def rebuild_universe_job() -> None:
 
 
 def refresh_swing_job() -> None:
-    _run(refresh_swing(alert=True))          # scheduled run → alert A-grade to the group
+    _run(refresh_swing(alert=True))          # 7:30 AM morning run (yesterday's settled bar)
 
 
 def refresh_swing_small_job() -> None:
-    _run(refresh_swing_small(alert=True))    # scheduled run → alert A-grade to the group
+    _run(refresh_swing_small(alert=True))    # 7:40 AM morning run
+
+
+def refresh_swing_close_job() -> None:
+    _run(refresh_swing(alert=True, slot="pm"))        # 3:30 PM run → today's near-final bar
+
+
+def refresh_swing_small_close_job() -> None:
+    _run(refresh_swing_small(alert=True, slot="pm"))  # 3:35 PM run → today's near-final bar
 
 
 async def bootstrap() -> None:

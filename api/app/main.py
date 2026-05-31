@@ -931,8 +931,13 @@ async def lifespan(app: FastAPI):
                 id="screener_in_play_refresh", replace_existing=True,
             )
             # Swing screener: daily-bar scan, NOT market-gated (valid all week).
-            # Run once each morning; users can also trigger on-demand.
-            from app.services.screener_service import refresh_swing_job, refresh_swing_small_job, bootstrap_job
+            # Two scheduled runs — anticipate in the morning (yesterday's settled
+            # bar), confirm into the close (today's near-final bar, 30 min before
+            # the bell — the "trade the close" read). Plus on-demand.
+            from app.services.screener_service import (
+                refresh_swing_job, refresh_swing_small_job,
+                refresh_swing_close_job, refresh_swing_small_close_job, bootstrap_job,
+            )
             scheduler.add_job(
                 refresh_swing_job, "cron", hour=7, minute=30,
                 timezone="America/New_York",
@@ -942,6 +947,17 @@ async def lifespan(app: FastAPI):
                 refresh_swing_small_job, "cron", hour=7, minute=40,
                 timezone="America/New_York",
                 id="screener_swing_small_refresh", replace_existing=True,
+            )
+            # Close runs — 30 min before the 4 PM ET close, market days only.
+            scheduler.add_job(
+                refresh_swing_close_job, "cron", day_of_week="mon-fri", hour=15, minute=30,
+                timezone="America/New_York",
+                id="screener_swing_close", replace_existing=True,
+            )
+            scheduler.add_job(
+                refresh_swing_small_close_job, "cron", day_of_week="mon-fri", hour=15, minute=35,
+                timezone="America/New_York",
+                id="screener_swing_small_close", replace_existing=True,
             )
             # Scheduler jobs run on worker threads but the async DB engine is bound
             # to this (the app's main) loop — hand it to the service so jobs submit
