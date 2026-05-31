@@ -128,6 +128,25 @@ def static_universe_rows() -> list[UniverseRow]:
             for s in STATIC_UNIVERSE]
 
 
+# Curated US mega-caps (all comfortably > $100B). The swing screener scans THIS
+# list directly so it (a) targets mega caps and (b) doesn't depend on the dynamic
+# universe build, which can be blocked on cloud IPs.
+MEGA_CAP_UNIVERSE: tuple[str, ...] = (
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO", "LLY", "JPM",
+    "WMT", "V", "MA", "ORCL", "UNH", "XOM", "COST", "HD", "PG", "JNJ",
+    "NFLX", "BAC", "ABBV", "CRM", "KO", "CVX", "AMD", "PEP", "WFC", "CSCO",
+    "ADBE", "MCD", "ACN", "LIN", "ABT", "IBM", "GE", "MRK", "ISRG", "INTU",
+    "TXN", "QCOM", "DIS", "CAT", "GS", "AXP", "VZ", "AMGN", "RTX", "PFE",
+    "NOW", "UBER", "BLK", "HON", "LOW", "PLTR", "ANET", "MS", "DE", "MU",
+)
+
+
+def mega_cap_rows() -> list[UniverseRow]:
+    """The mega-cap pool for the swing screener (sentinel cap; real prices from the scan)."""
+    return [UniverseRow(symbol=s, market_cap=2e11, last_price=100.0, avg_dollar_vol=1e8, sector=None)
+            for s in MEGA_CAP_UNIVERSE]
+
+
 def build_universe(
     market_cap_floor: float = DEFAULT_MARKET_CAP_FLOOR,
     price_floor: float = DEFAULT_PRICE_FLOOR,

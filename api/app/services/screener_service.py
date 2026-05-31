@@ -279,16 +279,15 @@ async def rebuild_universe() -> None:
 # bars don't change intraday, so setups stay valid all week (incl. weekends).
 # ---------------------------------------------------------------------------
 
-_SWING_SCAN_CAP = 200  # cap per scan for tractable runtime (TODO: batch yf.download)
-
-
-def _gather_swing(universe: list[scr.UniverseRow]) -> list[scr.SwingCandidate]:
+def _gather_swing() -> list[scr.SwingCandidate]:
+    """Scan the curated MEGA-CAP list on daily bars (independent of the dynamic
+    universe build). Uses the fetch_ohlc path that works on Railway."""
     from analytics.market_data import fetch_ohlc  # lazy
     spy = fetch_ohlc("SPY", "1y")
     spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
                if spy is not None and len(spy) > 21 else 0.0)
     cands: list[scr.SwingCandidate] = []
-    for u in universe[:_SWING_SCAN_CAP]:
+    for u in scr.mega_cap_rows():
         try:
             daily = fetch_ohlc(u.symbol, "1y")
             c = scr.swing_signals(daily, spy_ret, symbol=u.symbol, market_cap=u.market_cap, sector=u.sector)
@@ -300,13 +299,10 @@ def _gather_swing(universe: list[scr.UniverseRow]) -> list[scr.SwingCandidate]:
 
 
 async def refresh_swing() -> None:
-    """Scan the universe on daily bars for Trend + MA-defense swing setups; persist."""
-    universe = await _load_universe()
-    if not universe:
-        logger.warning("swing: empty universe — rebuild needed")
-        return
+    """Scan mega-caps on daily bars for Trend + MA-defense swing setups; persist.
+    Always writes a snapshot (even 0 setups) so the UI shows 'scanned' vs 'not yet'."""
     try:
-        cands = await asyncio.to_thread(_gather_swing, universe)
+        cands = await asyncio.to_thread(_gather_swing)
         await _save_snapshot(cands, kind="swing", market_open=True, top_n=get_settings().SCREENER_TOP_N)
         logger.info("swing: snapshot refreshed (%d setups)", len(cands))
     except Exception:
