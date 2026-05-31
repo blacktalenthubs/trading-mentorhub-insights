@@ -57,6 +57,7 @@ export interface SwingEntry {
   market_cap: number;
   sector?: string | null;
   vol_ratio?: number;
+  close_strength?: number;
   grade?: string;
 }
 

@@ -320,7 +320,8 @@ class SwingCandidate:
     market_cap: float = 0.0
     sector: Optional[str] = None
     vol_ratio: float = 1.0        # today's daily volume vs 20-day average
-    grade: str = "C"             # A/B/C — vol-only on daily (no intraday slope)
+    close_strength: float = 0.5   # close location in today's range (CLV): 1=closed at high, 0=at low
+    grade: str = "C"             # A/B/C — volume + close-strength (see swing_grade)
     rank: int = 0
 
     def to_dict(self) -> dict:
@@ -330,7 +331,8 @@ class SwingCandidate:
             "above_ema21": self.above_ema21, "above_ema50": self.above_ema50,
             "ema_stacked": self.ema_stacked, "ma_defense": self.ma_defense,
             "setup": self.setup, "market_cap": self.market_cap, "sector": self.sector,
-            "vol_ratio": round(self.vol_ratio, 2), "grade": self.grade,
+            "vol_ratio": round(self.vol_ratio, 2),
+            "close_strength": round(self.close_strength, 2), "grade": self.grade,
         }
 
 
@@ -340,13 +342,42 @@ def _ema(s: pd.Series, span: int) -> pd.Series:
 
 def vol_grade(vol_ratio: Optional[float]) -> str:
     """Vol-only A/B/C grade for daily-timeframe setups (no intraday slope).
-    A = today's volume ≥ 2× the 20-day average, B ≥ 1.3×, else C. Shared by the
-    swing screener and AI Best Setups so the badge means the same everywhere."""
+    A = today's volume ≥ 2× the 20-day average, B ≥ 1.3×, else C. Used by the
+    AI Best Setups badge (no per-bar OHLC handy there)."""
     if vol_ratio is None:
         return "C"
     if vol_ratio >= 2.0:
         return "A"
     if vol_ratio >= 1.3:
+        return "B"
+    return "C"
+
+
+# Close-strength gate for the swing grade. CLV ≥ this = closed in the top third
+# of the day's range (buyers defended into the close — the daily analog of a
+# rising VWAP). Mirrors the In-Play grade's slope gate.
+SWING_CLOSE_GATE = 0.66
+SWING_VOL_GATE = 2.0
+
+
+def swing_grade(vol_ratio: Optional[float], close_strength: Optional[float]) -> str:
+    """Two-gate A/B/C for daily swing setups — the daily analog of the In-Play
+    grade (volume + VWAP slope). The second gate here is *close strength* (close
+    location in the bar's range, CLV): did buyers defend the level into the
+    close, or did it close on its lows?
+
+      A = heavy volume (≥ 2× avg)  AND  strong close (CLV ≥ 0.66, top third)
+      B = exactly one gate passes
+      C = neither
+
+    A volume spike that closes on its lows (distribution into the MA) now grades
+    B, not A — heavy volume alone no longer earns an A without buyers defending."""
+    vol_pass = vol_ratio is not None and vol_ratio >= SWING_VOL_GATE
+    close_pass = close_strength is not None and close_strength >= SWING_CLOSE_GATE
+    passes = int(vol_pass) + int(close_pass)
+    if passes == 2:
+        return "A"
+    if passes == 1:
         return "B"
     return "C"
 
@@ -371,6 +402,7 @@ def swing_signals(
     c = daily["Close"]
     last = float(c.iloc[-1])
     low = float(daily["Low"].iloc[-1])
+    high = float(daily["High"].iloc[-1])
     e20, e50 = float(_ema(c, 20).iloc[-1]), float(_ema(c, 50).iloc[-1])
     e200 = float(_ema(c, 200).iloc[-1]) if len(c) >= 200 else None
     ret20 = (last / float(c.iloc[-21]) - 1.0) * 100.0 if len(c) > 21 else 0.0
@@ -405,17 +437,20 @@ def swing_signals(
             "conviction": "High" if (stacked and name == "20 EMA") else "Moderate",
         }
 
-    # Volume ratio (today vs 20-day avg) → vol-only A/B/C grade (no intraday slope on daily).
+    # Two-gate daily grade: volume (participation) + close strength (direction).
     vol = daily["Volume"]
     avg_vol = float(vol.tail(20).mean()) if len(vol) >= 20 else float(vol.mean())
     vol_ratio = (float(vol.iloc[-1]) / avg_vol) if avg_vol > 0 else 1.0
-    grade = vol_grade(vol_ratio)
+    # Close location value: where the close sits in today's range (1=high, 0=low).
+    # Daily analog of VWAP slope — did buyers defend the MA into the close?
+    close_strength = ((last - low) / (high - low)) if high > low else 0.5
+    grade = swing_grade(vol_ratio, close_strength)
 
     return SwingCandidate(
         symbol=symbol, last_price=last, ret_20d=ret20, rs_vs_spy=rs,
         above_ema21=last > e20, above_ema50=last > e50, ema_stacked=stacked,
         ma_defense=tested is not None, setup=setup, market_cap=market_cap, sector=sector,
-        vol_ratio=vol_ratio, grade=grade,
+        vol_ratio=vol_ratio, close_strength=close_strength, grade=grade,
     )
 
 
