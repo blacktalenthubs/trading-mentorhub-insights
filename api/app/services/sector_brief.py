@@ -384,6 +384,54 @@ async def _build_top_of_day_lines(user_id: int, db: AsyncSession) -> list[str]:
     except Exception:
         logger.exception("Morning brief: focus list lookup failed")
 
+    # 4. Top 5 swing setups from the latest swing-screener snapshot (mega-cap).
+    # Universe-wide — gives the user trade ideas BEYOND their hand-picked
+    # watchlist. Pull from screener_snapshot kind='swing'.
+    try:
+        from app.models.screener import ScreenerSnapshot
+        from sqlalchemy import desc as _desc
+        swing_row = (await db.execute(
+            select(ScreenerSnapshot)
+            .where(ScreenerSnapshot.kind == "swing")
+            .order_by(_desc(ScreenerSnapshot.captured_at))
+            .limit(1)
+        )).scalar_one_or_none()
+        if swing_row and isinstance(swing_row.entries, list) and swing_row.entries:
+            with_setup = [e for e in swing_row.entries if e.get("setup")][:5]
+            if with_setup:
+                parts = []
+                for e in with_setup:
+                    sym = e.get("symbol") or "?"
+                    grade = e.get("grade") or "C"
+                    parts.append(f"<b>{sym}</b>({grade})")
+                lines.append("Swing picks: " + ", ".join(parts))
+    except Exception:
+        logger.exception("Morning brief: swing snapshot lookup failed")
+
+    # 5. Top 5 social-trending symbols from the latest social_buzz_snapshot.
+    # Cross-watchlist signal — what retail is actually discussing right now.
+    try:
+        from app.models.social_buzz import SocialBuzzSnapshot
+        from sqlalchemy import desc as _desc2
+        buzz_row = (await db.execute(
+            select(SocialBuzzSnapshot)
+            .order_by(_desc2(SocialBuzzSnapshot.captured_at))
+            .limit(1)
+        )).scalar_one_or_none()
+        if buzz_row and isinstance(buzz_row.entries, list) and buzz_row.entries:
+            top5 = buzz_row.entries[:5]
+            parts = []
+            for e in top5:
+                sym = e.get("symbol") or "?"
+                growth = e.get("growth_pct")
+                growth_str = ""
+                if growth is not None and growth > 0:
+                    growth_str = f" +{int(growth)}%"
+                parts.append(f"<b>{sym}</b>{growth_str}")
+            lines.append("Social trending: " + ", ".join(parts))
+    except Exception:
+        logger.exception("Morning brief: social buzz lookup failed")
+
     return lines
 
 
