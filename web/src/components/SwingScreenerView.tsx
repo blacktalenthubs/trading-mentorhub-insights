@@ -47,7 +47,7 @@ export default function SwingScreenerView() {
     { key: "entry", label: "Entry", align: "right", render: (r) => <span className="font-mono text-text-primary">{money(r.setup?.entry)}</span> },
     { key: "stop", label: "Stop", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bearish-text">{money(r.setup?.stop)}</span> },
     { key: "target", label: "Target", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bullish-text">{money(r.setup?.target)}</span> },
-    { key: "conviction", label: "Conviction", align: "left", render: (r) => (r.setup ? <Conv c={r.setup.conviction} /> : null) },
+    { key: "conviction", label: "Conviction", align: "left", value: (r) => (r.setup?.conviction === "High" ? 2 : r.setup ? 1 : 0), render: (r) => (r.setup ? <Conv c={r.setup.conviction} /> : null) },
   ];
 
   const mobileRow = (r: SwingEntry) => (

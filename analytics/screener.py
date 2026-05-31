@@ -338,6 +338,19 @@ def _ema(s: pd.Series, span: int) -> pd.Series:
     return s.ewm(span=span, adjust=False).mean()
 
 
+def vol_grade(vol_ratio: Optional[float]) -> str:
+    """Vol-only A/B/C grade for daily-timeframe setups (no intraday slope).
+    A = today's volume ≥ 2× the 20-day average, B ≥ 1.3×, else C. Shared by the
+    swing screener and AI Best Setups so the badge means the same everywhere."""
+    if vol_ratio is None:
+        return "C"
+    if vol_ratio >= 2.0:
+        return "A"
+    if vol_ratio >= 1.3:
+        return "B"
+    return "C"
+
+
 def swing_signals(
     daily: pd.DataFrame, spy_ret_20d: float = 0.0, *,
     symbol: str = "", market_cap: float = 0.0, sector: Optional[str] = None,
@@ -396,7 +409,7 @@ def swing_signals(
     vol = daily["Volume"]
     avg_vol = float(vol.tail(20).mean()) if len(vol) >= 20 else float(vol.mean())
     vol_ratio = (float(vol.iloc[-1]) / avg_vol) if avg_vol > 0 else 1.0
-    grade = "A" if vol_ratio >= 2.0 else ("B" if vol_ratio >= 1.3 else "C")
+    grade = vol_grade(vol_ratio)
 
     return SwingCandidate(
         symbol=symbol, last_price=last, ret_20d=ret20, rs_vs_spy=rs,

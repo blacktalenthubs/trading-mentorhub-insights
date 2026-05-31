@@ -94,6 +94,28 @@ def _serialize(row: FocusList, *, include_recs: bool = True) -> dict:
     return data
 
 
+def _grade_recommendations(recs: list[dict]) -> None:
+    """Enrich AI picks with a vol-only A/B/C grade (today vs 20-day avg volume),
+    the same scale as the swing screener and TV alerts. Best-effort → defaults to C.
+    Runs in a worker thread (fetch_ohlc is blocking)."""
+    from analytics.market_data import fetch_ohlc
+    from analytics.screener import vol_grade
+
+    for rec in recs:
+        try:
+            daily = fetch_ohlc(rec.get("symbol", ""), "3mo")
+            if daily is None or daily.empty or "Volume" not in daily.columns:
+                rec["grade"] = "C"
+                continue
+            vol = daily["Volume"]
+            avg = float(vol.tail(20).mean()) if len(vol) >= 20 else float(vol.mean())
+            vr = (float(vol.iloc[-1]) / avg) if avg > 0 else 1.0
+            rec["vol_ratio"] = round(vr, 2)
+            rec["grade"] = vol_grade(vr)
+        except Exception:
+            rec["grade"] = "C"
+
+
 @router.post("/focus-lists/run")
 async def run_focus_list(
     force: bool = False,
@@ -165,6 +187,8 @@ async def run_focus_list(
         runs_today = used  # failed run consumes no quota
     else:
         recs = build_recommendations(result.day_trade_picks, result.swing_trade_picks)
+        if recs:
+            await asyncio.to_thread(_grade_recommendations, recs)
         if recs:
             status_val, message = "has_setups", None
         elif result.watchlist_size == 0:

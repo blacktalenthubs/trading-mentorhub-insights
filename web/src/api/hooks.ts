@@ -1329,6 +1329,8 @@ export interface FocusRecommendation {
   confluence: string[];
   why_now: string;
   qualifying_criteria: QualifyingCriteria;
+  grade?: string;
+  vol_ratio?: number;
 }
 
 export interface FocusList {

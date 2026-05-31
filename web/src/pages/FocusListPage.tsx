@@ -196,6 +196,7 @@ function RecommendationsTable({ recs, onSelect }: { recs: FocusRecommendation[];
   const convRank = (c: string) => (({ HIGH: 3, MEDIUM: 2, LOW: 1 } as Record<string, number>)[c] ?? 0);
 
   const columns: Column<FocusRecommendation>[] = [
+    { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (r) => GRADE_RANK[(r.grade || "C").toUpperCase()] ?? 1, render: (r) => <GradeBadge grade={r.grade} /> },
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span><Dir d={r.direction} /></span> },
     { key: "setup", label: "Setup", align: "left", render: (r) => <span className="text-text-muted">{r.setup_type}</span> },
     { key: "horizon", label: "Horizon", align: "left", cls: "hidden lg:table-cell", render: (r) => <span className="text-text-faint text-xs capitalize">{String(r.trade_horizon).replace(/_/g, " ")}</span> },
