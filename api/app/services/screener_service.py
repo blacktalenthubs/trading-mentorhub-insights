@@ -342,6 +342,21 @@ async def get_latest_swing() -> ScreenerSnapshot | None:
     return await get_latest_snapshot("swing")
 
 
+async def list_snapshots(kind: str, limit: int = 20) -> list[dict]:
+    """Recent runs of a kind (newest first) for the history selector."""
+    async with async_session_factory() as s:
+        rows = (await s.execute(
+            select(ScreenerSnapshot.id, ScreenerSnapshot.captured_at, ScreenerSnapshot.entries)
+            .where(ScreenerSnapshot.kind == kind).order_by(desc(ScreenerSnapshot.id)).limit(limit)
+        )).all()
+    return [{"id": r.id, "captured_at": r.captured_at, "count": len(r.entries or [])} for r in rows]
+
+
+async def get_snapshot(snapshot_id: int) -> ScreenerSnapshot | None:
+    async with async_session_factory() as s:
+        return await s.get(ScreenerSnapshot, snapshot_id)
+
+
 # --- Small-cap / recent-IPO swing (dynamic universe via Alpaca most-actives) ---
 
 _SMALL_PRICE_FLOOR = 2.0           # skip sub-$2 micro-junk

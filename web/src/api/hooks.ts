@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
-import type { InPlaySnapshot, SwingSnapshot } from "../pages/InPlay.types";
+import type { InPlaySnapshot, SwingSnapshot, SwingRun } from "../pages/InPlay.types";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -27,11 +27,20 @@ export function useInPlay(preset: string, hasSetup: boolean) {
   });
 }
 
-export function useSwingScreener(cap: "mega" | "small" = "mega") {
+export function useSwingScreener(cap: "mega" | "small" = "mega", runId?: number | null) {
   return useQuery({
-    queryKey: ["swing-screener", cap],
-    queryFn: () => api.get<SwingSnapshot>(`/screener/swing?cap=${cap}`),
-    refetchInterval: 120_000,
+    queryKey: ["swing-screener", cap, runId ?? "latest"],
+    queryFn: () =>
+      api.get<SwingSnapshot>(`/screener/swing?cap=${cap}${runId ? `&run_id=${runId}` : ""}`),
+    // Don't auto-refresh a pinned historical run; only the live "latest" view.
+    refetchInterval: runId ? false : 120_000,
+  });
+}
+
+export function useSwingHistory(cap: "mega" | "small" = "mega") {
+  return useQuery({
+    queryKey: ["swing-history", cap],
+    queryFn: () => api.get<{ runs: SwingRun[] }>(`/screener/swing/history?cap=${cap}`),
   });
 }
 
@@ -41,7 +50,10 @@ export function useRefreshSwing(cap: "mega" | "small" = "mega") {
     mutationFn: () => api.post(`/screener/swing/refresh?cap=${cap}`, {}),
     onSuccess: () => {
       toast.info("Swing scan started — results refresh in a few seconds");
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["swing-screener", cap] }), 9000);
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["swing-screener", cap, "latest"] });
+        qc.invalidateQueries({ queryKey: ["swing-history", cap] });
+      }, 9000);
     },
   });
 }

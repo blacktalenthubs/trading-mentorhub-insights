@@ -61,9 +61,16 @@ export interface SwingEntry {
 }
 
 export interface SwingSnapshot {
+  id?: number | null;
   captured_at: string | null;
   stale: boolean;
   entries: SwingEntry[];
+}
+
+export interface SwingRun {
+  id: number;
+  captured_at: string;
+  count: number;
 }
 
 export type InPlayPreset = "any" | "momentum_long" | "pullback" | "breakout" | "short";

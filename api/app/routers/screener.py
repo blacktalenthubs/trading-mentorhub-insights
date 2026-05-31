@@ -7,6 +7,8 @@ Gated to Pro+ (FR-10).
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from analytics import screener as scr
@@ -85,14 +87,28 @@ async def update_screener_settings(body: SettingsUpdate, user: User = Depends(re
 
 
 @router.get("/swing")
-async def get_swing(cap: str = Query("mega"), user: User = Depends(require_pro)):
-    """Latest swing setups (daily-bar MA hold). cap=mega (curated mega-caps) or
-    cap=small (most-active small-caps/IPOs, quality-gated). Not market-gated."""
-    kind = "swing_small" if cap == "small" else "swing"
-    snap = await svc.get_latest_snapshot(kind)
+async def get_swing(
+    cap: str = Query("mega"),
+    run_id: Optional[int] = Query(None),
+    user: User = Depends(require_pro),
+):
+    """Swing setups (daily-bar MA hold). cap=mega|small. run_id selects a specific
+    saved run (history); omit for the latest. Not market-gated."""
+    if run_id is not None:
+        snap = await svc.get_snapshot(run_id)
+    else:
+        kind = "swing_small" if cap == "small" else "swing"
+        snap = await svc.get_latest_snapshot(kind)
     if snap is None:
-        return {"captured_at": None, "stale": False, "entries": []}
-    return {"captured_at": snap.captured_at, "stale": bool(snap.stale), "entries": snap.entries or []}
+        return {"id": None, "captured_at": None, "stale": False, "entries": []}
+    return {"id": snap.id, "captured_at": snap.captured_at, "stale": bool(snap.stale), "entries": snap.entries or []}
+
+
+@router.get("/swing/history")
+async def swing_history(cap: str = Query("mega"), user: User = Depends(require_pro)):
+    """Recent saved swing runs (for the history selector)."""
+    kind = "swing_small" if cap == "small" else "swing"
+    return {"runs": await svc.list_snapshots(kind)}
 
 
 @router.post("/swing/refresh", status_code=202)

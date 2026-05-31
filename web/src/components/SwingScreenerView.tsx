@@ -5,8 +5,8 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, RefreshCw, Zap, Moon } from "lucide-react";
-import { useSwingScreener, useRefreshSwing } from "../api/hooks";
+import { TrendingUp, RefreshCw, Zap, Moon, History } from "lucide-react";
+import { useSwingScreener, useRefreshSwing, useSwingHistory } from "../api/hooks";
 import ScreenerTable, { type Column } from "./ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "./GradeBadge";
 import type { SwingEntry } from "../pages/InPlay.types";
@@ -25,7 +25,9 @@ function Conv({ c }: { c: string }) {
 
 export default function SwingScreenerView() {
   const [cap, setCap] = useState<"mega" | "small">("mega");
-  const { data, isLoading, isError } = useSwingScreener(cap);
+  const [runId, setRunId] = useState<number | null>(null);  // null = latest live run
+  const { data, isLoading, isError } = useSwingScreener(cap, runId);
+  const history = useSwingHistory(cap);
   const refresh = useRefreshSwing(cap);
   const navigate = useNavigate();
 
@@ -80,7 +82,7 @@ export default function SwingScreenerView() {
             {([["mega", "Mega Cap"], ["small", "Small Cap"]] as const).map(([id, label]) => (
               <button
                 key={id}
-                onClick={() => setCap(id)}
+                onClick={() => { setCap(id); setRunId(null); }}
                 className={`text-xs px-2.5 py-1 rounded-md font-semibold transition-colors ${
                   cap === id ? "bg-surface-4 text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"
                 }`}
@@ -89,12 +91,29 @@ export default function SwingScreenerView() {
               </button>
             ))}
           </div>
+          {history.data && history.data.runs.length > 1 && (
+            <div className="flex items-center gap-1.5">
+              <History className="h-3.5 w-3.5 text-text-muted" />
+              <select
+                value={runId ?? ""}
+                onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : null)}
+                className="bg-surface-1 border border-border-subtle rounded px-2 py-1 text-xs text-text-secondary"
+              >
+                <option value="">Latest run</option>
+                {history.data.runs.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {new Date(`${r.captured_at}Z`).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · {r.count} setups
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <span className="text-[11px] text-text-faint inline-flex items-center gap-1.5">
-            {captured ? <>as of {captured.toLocaleDateString([], { month: "short", day: "numeric" })}</> : <><Moon className="h-3 w-3" /> not scanned yet</>}
+            {runId ? <>saved run</> : captured ? <>live · {captured.toLocaleDateString([], { month: "short", day: "numeric" })}</> : <><Moon className="h-3 w-3" /> not scanned yet</>}
             {rows.length > 0 && <span>· {rows.length} setups</span>}
           </span>
           <button
-            onClick={() => refresh.mutate()}
+            onClick={() => { setRunId(null); refresh.mutate(); }}
             disabled={refresh.isPending}
             className="text-xs px-3 py-1.5 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1.5"
           >

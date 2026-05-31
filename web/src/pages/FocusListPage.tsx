@@ -20,6 +20,7 @@ import SwingScreenerView from "../components/SwingScreenerView";
 import InPlayView from "../components/InPlayView";
 import TierGate from "../components/TierGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
+import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
 import type { Alert } from "../types";
 import { type FocusRecommendation } from "../api/hooks";
 
@@ -138,6 +139,7 @@ function DayTradesTab() {
 
   const columns: Column<Alert>[] = [
     { key: "time", label: "Time", align: "left", cls: "w-16", value: (a) => a.created_at, render: (a) => <span className="font-mono text-[11px] text-text-faint">{timeOf(a)}</span> },
+    { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (a) => GRADE_RANK[(a.grade || "C").toUpperCase()] ?? 1, render: (a) => <GradeBadge grade={a.grade} /> },
     { key: "symbol", label: "Symbol", align: "left", value: (a) => a.symbol, render: (a) => (
       <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{a.symbol}</span><span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span></span>
     ) },
@@ -152,7 +154,7 @@ function DayTradesTab() {
   const mobileRow = (a: Alert) => (
     <>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><span className="font-bold text-text-primary">{a.symbol}</span>
+        <div className="flex items-center gap-2"><GradeBadge grade={a.grade} /><span className="font-bold text-text-primary">{a.symbol}</span>
           <span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span>
           {a.user_action === "took" && <span className="text-[10px] text-bullish-text">Took</span>}</div>
         <span className="font-mono text-sm text-text-primary">{money(a.price)}</span>
