@@ -27,21 +27,21 @@ export function useInPlay(preset: string, hasSetup: boolean) {
   });
 }
 
-export function useSwingScreener() {
+export function useSwingScreener(cap: "mega" | "small" = "mega") {
   return useQuery({
-    queryKey: ["swing-screener"],
-    queryFn: () => api.get<SwingSnapshot>("/screener/swing"),
+    queryKey: ["swing-screener", cap],
+    queryFn: () => api.get<SwingSnapshot>(`/screener/swing?cap=${cap}`),
     refetchInterval: 120_000,
   });
 }
 
-export function useRefreshSwing() {
+export function useRefreshSwing(cap: "mega" | "small" = "mega") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post("/screener/swing/refresh", {}),
+    mutationFn: () => api.post(`/screener/swing/refresh?cap=${cap}`, {}),
     onSuccess: () => {
       toast.info("Swing scan started — results refresh in a few seconds");
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["swing-screener"] }), 9000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["swing-screener", cap] }), 9000);
     },
   });
 }

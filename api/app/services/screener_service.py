@@ -227,19 +227,23 @@ def _attach_refine(entry: scr.InPlayEntry, daily, intraday) -> None:
         entry.direction = "neutral"
 
 
-def _most_active_symbols(universe_symbols: set[str]) -> list[str]:
-    """Alpaca most-actives ∩ universe (lazy). Empty list → caller falls back."""
+def _fetch_most_actives(top: int = 100) -> list[str]:
+    """Raw Alpaca most-actives symbols by volume (lazy, Railway-friendly)."""
     try:
         import os
         from alpaca.data.historical.screener import ScreenerClient
         from alpaca.data.requests import MostActivesRequest
         client = ScreenerClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"])
-        res = client.get_most_actives(MostActivesRequest(top=100))
-        actives = [m.symbol for m in getattr(res, "most_actives", [])]
-        return [s for s in actives if s in universe_symbols]
+        res = client.get_most_actives(MostActivesRequest(top=top))
+        return [m.symbol for m in getattr(res, "most_actives", [])]
     except Exception:
-        logger.warning("screener: most-actives unavailable, falling back to universe head", exc_info=True)
+        logger.warning("screener: most-actives unavailable", exc_info=True)
         return []
+
+
+def _most_active_symbols(universe_symbols: set[str]) -> list[str]:
+    """Most-actives ∩ universe (in-play prune). Empty → caller falls back."""
+    return [s for s in _fetch_most_actives(100) if s in universe_symbols]
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +335,53 @@ async def get_latest_swing() -> ScreenerSnapshot | None:
     return await get_latest_snapshot("swing")
 
 
+# --- Small-cap / recent-IPO swing (dynamic universe via Alpaca most-actives) ---
+
+_SMALL_PRICE_FLOOR = 2.0           # skip sub-$2 micro-junk
+_SMALL_DOLLAR_VOL_FLOOR = 20e6     # liquidity / institutional-interest gate
+
+
+def _gather_swing_small() -> list[scr.SwingCandidate]:
+    """Scan today's most-active NON-mega names defending the 20/50 EMA. Quality-gated
+    on price + dollar volume so it surfaces real small-cap momentum, not penny shells."""
+    from analytics.market_data import fetch_ohlc  # lazy
+    mega = set(scr.MEGA_CAP_UNIVERSE)
+    # Dynamic most-actives (if entitled) ∪ curated small-cap pool — dedup, mega excluded.
+    actives = [s for s in _fetch_most_actives(100) if s not in mega]
+    pool = list(dict.fromkeys(actives + list(scr.SMALL_CAP_UNIVERSE)))
+    spy = fetch_ohlc("SPY", "1y")
+    spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
+               if spy is not None and len(spy) > 21 else 0.0)
+    cands: list[scr.SwingCandidate] = []
+    for sym in pool[:150]:
+        try:
+            daily = fetch_ohlc(sym, "6mo")
+            if daily is None or daily.empty or len(daily) < 50:
+                continue
+            last = float(daily["Close"].iloc[-1])
+            if last < _SMALL_PRICE_FLOOR:
+                continue
+            if last * float(daily["Volume"].iloc[-1]) < _SMALL_DOLLAR_VOL_FLOOR:
+                continue
+            c = scr.swing_signals(daily, spy_ret, symbol=sym, small_cap=True)
+            if c and c.setup:
+                cands.append(c)
+        except Exception:
+            logger.debug("swing-small: skipped %s", sym, exc_info=True)
+    return scr.rank_swing(cands, get_settings().SCREENER_TOP_N)
+
+
+async def refresh_swing_small() -> None:
+    """Scan small-cap / IPO most-actives for 20/50 EMA-hold setups; persist."""
+    try:
+        cands = await asyncio.to_thread(_gather_swing_small)
+        await _save_snapshot(cands, kind="swing_small", market_open=True, top_n=get_settings().SCREENER_TOP_N)
+        logger.info("swing-small: snapshot refreshed (%d setups)", len(cands))
+    except Exception:
+        logger.exception("swing-small: refresh failed")
+        await _mark_latest_stale("swing_small")
+
+
 # Sync wrappers for BackgroundScheduler — run on the app's main loop (where the
 # async DB engine lives), NOT a fresh asyncio.run() loop.
 def refresh_in_play_job() -> None:
@@ -345,6 +396,10 @@ def refresh_swing_job() -> None:
     _run(refresh_swing())
 
 
+def refresh_swing_small_job() -> None:
+    _run(refresh_swing_small())
+
+
 async def bootstrap() -> None:
     """One-shot self-populate on deploy: build the universe if it's empty, then run
     an initial swing scan if no swing snapshot exists yet. Idempotent across restarts
@@ -356,6 +411,9 @@ async def bootstrap() -> None:
         if await get_latest_snapshot("swing") is None:
             logger.info("screener: bootstrap — initial swing scan")
             await refresh_swing()
+        if await get_latest_snapshot("swing_small") is None:
+            logger.info("screener: bootstrap — initial small-cap swing scan")
+            await refresh_swing_small()
         logger.info("screener: bootstrap complete")
     except Exception:
         logger.exception("screener: bootstrap failed")

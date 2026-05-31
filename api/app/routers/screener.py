@@ -85,18 +85,20 @@ async def update_screener_settings(body: SettingsUpdate, user: User = Depends(re
 
 
 @router.get("/swing")
-async def get_swing(user: User = Depends(require_pro)):
-    """Latest market-wide swing setups (daily-bar Trend + MA defense). Not market-gated."""
-    snap = await svc.get_latest_swing()
+async def get_swing(cap: str = Query("mega"), user: User = Depends(require_pro)):
+    """Latest swing setups (daily-bar MA hold). cap=mega (curated mega-caps) or
+    cap=small (most-active small-caps/IPOs, quality-gated). Not market-gated."""
+    kind = "swing_small" if cap == "small" else "swing"
+    snap = await svc.get_latest_snapshot(kind)
     if snap is None:
         return {"captured_at": None, "stale": False, "entries": []}
     return {"captured_at": snap.captured_at, "stale": bool(snap.stale), "entries": snap.entries or []}
 
 
 @router.post("/swing/refresh", status_code=202)
-async def refresh_swing(background: BackgroundTasks, user: User = Depends(require_pro)):
-    """On-demand swing rescan (the 'Run scan' button). Runs in the background."""
-    background.add_task(svc.refresh_swing)
+async def refresh_swing(background: BackgroundTasks, cap: str = Query("mega"), user: User = Depends(require_pro)):
+    """On-demand swing rescan (the 'Run scan' button), per cap segment."""
+    background.add_task(svc.refresh_swing_small if cap == "small" else svc.refresh_swing)
     return {"status": "swing scan started"}
 
 

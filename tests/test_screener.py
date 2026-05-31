@@ -188,6 +188,15 @@ def test_swing_rejects_extended_stock():
     assert cand is not None and cand.setup is None
 
 
+def test_swing_small_cap_mode_qualifies_without_200_history():
+    # ~70 bars (no 200-day history), low-priced: rise then flat → closes at 20 EMA
+    series = [3.0 + 0.05 * i for i in range(50)] + [5.5] * 20
+    small = swing_signals(_daily(series), small_cap=True, symbol="SMALL")
+    assert small is not None and small.setup is not None  # 20/50 hold qualifies for small caps
+    mega = swing_signals(_daily(series), small_cap=False, symbol="SMALL")
+    assert mega is not None and mega.setup is None  # mega mode needs the 200 EMA context
+
+
 def test_swing_rejects_downtrend():
     cand = swing_signals(_daily([200 - 0.3 * i for i in range(250)]), spy_ret_20d=0.0, symbol="DN")
     assert cand is not None and cand.setup is None

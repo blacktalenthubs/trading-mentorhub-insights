@@ -3,6 +3,7 @@
  *  daily bars are valid all week (incl. weekends). Uses the shared ScreenerTable.
  */
 
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { TrendingUp, RefreshCw, Zap, Moon } from "lucide-react";
 import { useSwingScreener, useRefreshSwing } from "../api/hooks";
@@ -22,8 +23,9 @@ function Conv({ c }: { c: string }) {
 }
 
 export default function SwingScreenerView() {
-  const { data, isLoading, isError } = useSwingScreener();
-  const refresh = useRefreshSwing();
+  const [cap, setCap] = useState<"mega" | "small">("mega");
+  const { data, isLoading, isError } = useSwingScreener(cap);
+  const refresh = useRefreshSwing(cap);
   const navigate = useNavigate();
 
   const rows = data?.entries ?? [];
@@ -63,13 +65,28 @@ export default function SwingScreenerView() {
         <div>
           <h2 className="text-base font-bold text-text-primary flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-accent" /> Swing setups
-            <span className="text-text-faint font-normal text-sm">· trend + 21/50 EMA defense</span>
+            <span className="text-text-faint font-normal text-sm">· closing at a key MA</span>
           </h2>
           <p className="text-[11px] text-text-faint mt-0.5">
-            Scans the whole market on daily bars for stocks defending key MAs with relative strength — valid all week.
+            {cap === "mega"
+              ? "Mega-caps pulling back to and holding the 20 / 50 / 200 EMA — valid all week."
+              : "Active small-caps & recent IPOs holding the 20 / 50 EMA (≥ $2, real volume) — higher risk."}
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex bg-surface-2 rounded-lg p-0.5">
+            {([["mega", "Mega Cap"], ["small", "Small Cap"]] as const).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setCap(id)}
+                className={`text-xs px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                  cap === id ? "bg-surface-4 text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <span className="text-[11px] text-text-faint inline-flex items-center gap-1.5">
             {captured ? <>as of {captured.toLocaleDateString([], { month: "short", day: "numeric" })}</> : <><Moon className="h-3 w-3" /> not scanned yet</>}
             {rows.length > 0 && <span>· {rows.length} setups</span>}

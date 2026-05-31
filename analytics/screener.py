@@ -147,6 +147,27 @@ def mega_cap_rows() -> list[UniverseRow]:
             for s in MEGA_CAP_UNIVERSE]
 
 
+# Curated liquid small/mid caps + notable recent IPOs (momentum names). The baseline
+# small-cap pool — unioned with Alpaca most-actives when that endpoint is available.
+# Quality gates (price ≥ $2, real $-volume) are applied per-symbol at scan time.
+SMALL_CAP_UNIVERSE: tuple[str, ...] = (
+    "RKLB", "SOFI", "HOOD", "DKNG", "AFRM", "RIVN", "LCID", "CHPT", "PLUG", "RUN",
+    "MARA", "RIOT", "CLSK", "IONQ", "RGTI", "QBTS", "SMR", "OKLO", "ASTS", "ACHR",
+    "JOBY", "LUNR", "RDW", "SOUN", "BBAI", "AI", "PATH", "GTLB", "S", "CFLT",
+    "FROG", "BRZE", "AMPL", "ESTC", "DOCN", "FSLY", "U", "RBLX", "DUOL", "UPST",
+    "LMND", "OPEN", "RDFN", "CVNA", "CHWY", "ETSY", "W", "PINS", "SNAP", "BMBL",
+    "RDDT", "CART", "CAVA", "BIRK", "ALAB", "ENVX", "QS", "EOSE", "FLNC", "NVAX",
+    "BYND", "PTON", "FUBO", "PSNY", "RIG", "NCLH", "LYFT", "GRAB", "NU", "ZIM",
+    "DNA", "SE", "PARA", "WBD", "GME", "AMC", "KSS", "CCL", "AAL", "UAL",
+)
+
+
+def small_cap_rows() -> list[UniverseRow]:
+    """The curated small-cap pool (sentinel cap/price; real prices from the scan)."""
+    return [UniverseRow(symbol=s, market_cap=2e9, last_price=20.0, avg_dollar_vol=5e7, sector=None)
+            for s in SMALL_CAP_UNIVERSE]
+
+
 def build_universe(
     market_cap_floor: float = DEFAULT_MARKET_CAP_FLOOR,
     price_floor: float = DEFAULT_PRICE_FLOOR,
@@ -315,31 +336,42 @@ def _ema(s: pd.Series, span: int) -> pd.Series:
 def swing_signals(
     daily: pd.DataFrame, spy_ret_20d: float = 0.0, *,
     symbol: str = "", market_cap: float = 0.0, sector: Optional[str] = None,
+    small_cap: bool = False,
 ) -> Optional[SwingCandidate]:
     """Evaluate DAILY bars for a 'closing right at a key MA' swing setup.
 
     A swing entry is a pullback that holds a key moving average — price closes
-    *at* the 20 / 50 / 200 EMA (tested it intrabar, closed within a tight band),
-    in an uptrend, NOT extended. Stop sits just below that MA → tight R:R. Extended
-    names (price well above every MA) are rejected — you don't chase and call it a swing.
+    *at* the 20 / 50 (/ 200) EMA (tested it intrabar, closed within a tight band),
+    in an uptrend, NOT extended. Stop sits just below that MA → tight R:R.
+
+    ``small_cap=True`` relaxes for small caps / recent IPOs: 20 & 50 EMA only (no
+    200-day history required), shorter minimum history.
     """
-    if daily is None or daily.empty or "Close" not in daily.columns or len(daily) < 60:
+    min_bars = 50 if small_cap else 60
+    if daily is None or daily.empty or "Close" not in daily.columns or len(daily) < min_bars:
         return None
     c = daily["Close"]
     last = float(c.iloc[-1])
     low = float(daily["Low"].iloc[-1])
-    e20, e50, e200 = float(_ema(c, 20).iloc[-1]), float(_ema(c, 50).iloc[-1]), float(_ema(c, 200).iloc[-1])
+    e20, e50 = float(_ema(c, 20).iloc[-1]), float(_ema(c, 50).iloc[-1])
+    e200 = float(_ema(c, 200).iloc[-1]) if len(c) >= 200 else None
     ret20 = (last / float(c.iloc[-21]) - 1.0) * 100.0 if len(c) > 21 else 0.0
     rs = ret20 - spy_ret_20d
 
-    uptrend = e50 > e200 and last > e200          # rising structure, above the long-term MA
-    stacked = e20 > e50 > e200
+    if small_cap:
+        uptrend = e20 > e50 and last > e50                      # short-term uptrend, no 200 needed
+        stacked = e20 > e50
+        candidate_mas = (("20 EMA", e20), ("50 EMA", e50))
+    else:
+        uptrend = e200 is not None and e50 > e200 and last > e200
+        stacked = e200 is not None and e20 > e50 > e200
+        candidate_mas = (("20 EMA", e20), ("50 EMA", e50), ("200 EMA", e200)) if e200 is not None else (("20 EMA", e20), ("50 EMA", e50))
 
     # Which key MA is price closing JUST AT? Nearest first. "At" = today's low tested
     # it (within 1%) AND the close sits in a tight band (-1% to +2%) around it.
     tested = None  # (name, ma_value)
-    for name, ma in (("20 EMA", e20), ("50 EMA", e50), ("200 EMA", e200)):
-        if low <= ma * 1.01 and -0.01 <= (last - ma) / ma <= 0.02:
+    for name, ma in candidate_mas:
+        if ma is not None and low <= ma * 1.01 and -0.01 <= (last - ma) / ma <= 0.02:
             tested = (name, ma)
             break
 
