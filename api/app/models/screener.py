@@ -45,6 +45,18 @@ class ScreenerSnapshot(Base):
     entries: Mapped[list] = mapped_column(JSON, default=list)
 
 
+class ScreenerAlertLog(Base):
+    """Dedup log — one row per (symbol, kind, day) that was alerted to Telegram,
+    so A-grade swing setups ping the group at most once per symbol per day."""
+
+    __tablename__ = "screener_alert_log"
+
+    symbol: Mapped[str] = mapped_column(String(20), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    session_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    alerted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class ScreenerUserSettings(Base):
     """Per-user view overrides (FR-6) over the global snapshot — thresholds only."""
 

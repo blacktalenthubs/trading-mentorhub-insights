@@ -18,7 +18,7 @@ from sqlalchemy import delete, desc, select
 from analytics import screener as scr
 from app.config import get_settings
 from app.database import async_session_factory
-from app.models.screener import ScreenerSnapshot, ScreenerUniverse, ScreenerUserSettings
+from app.models.screener import ScreenerAlertLog, ScreenerSnapshot, ScreenerUniverse, ScreenerUserSettings
 
 logger = logging.getLogger("screener")
 ET = ZoneInfo("America/New_York")
@@ -326,12 +326,51 @@ def _gather_swing() -> list[scr.SwingCandidate]:
     return scr.rank_swing(cands, get_settings().SCREENER_TOP_N)
 
 
-async def refresh_swing() -> None:
+async def _alert_a_grade(cands: list[scr.SwingCandidate], kind: str) -> None:
+    """Ping the Telegram group for each NEW A-grade swing setup (once per symbol/day).
+    Group-only (constitution); reuses notifier._send_telegram without modifying it.
+    Toggle with SWING_ALERTS_ENABLED=false."""
+    import os
+    if os.environ.get("SWING_ALERTS_ENABLED", "true").strip().lower() in ("false", "0", "no", "off"):
+        return
+    a_grade = [c for c in cands if c.setup and getattr(c, "grade", "C") == "A"]
+    if not a_grade:
+        return
+    session_date = datetime.now(ET).date().isoformat()
+    label = "Small-cap" if kind == "swing_small" else "Mega-cap"
+    try:
+        from alerting.notifier import _send_telegram
+    except Exception:
+        logger.warning("swing alert: notifier unavailable", exc_info=True)
+        return
+    async with async_session_factory() as s:
+        for c in a_grade:
+            if await s.get(ScreenerAlertLog, (c.symbol, kind, session_date)) is not None:
+                continue  # already alerted this symbol today
+            st = c.setup
+            msg = (
+                f"📈 Swing A-setup ({label}) — {c.symbol} ${c.last_price:.2f}\n"
+                f"{st['pattern']} · stop ${st['stop']} / target ${st['target']}\n"
+                f"Vol {c.vol_ratio:.1f}x · RS {c.rs_vs_spy:+.1f} · busytradersdesk.com"
+            )
+            try:
+                await asyncio.to_thread(_send_telegram, msg)
+            except Exception:
+                logger.exception("swing alert: send failed for %s", c.symbol)
+            s.add(ScreenerAlertLog(symbol=c.symbol, kind=kind, session_date=session_date))
+        await s.commit()
+    logger.info("swing alert: %d A-grade %s setups sent", len(a_grade), kind)
+
+
+async def refresh_swing(alert: bool = False) -> None:
     """Scan mega-caps on daily bars for Trend + MA-defense swing setups; persist.
-    Always writes a snapshot (even 0 setups) so the UI shows 'scanned' vs 'not yet'."""
+    Always writes a snapshot (even 0 setups). ``alert=True`` (scheduled runs only)
+    pings the group for new A-grade setups."""
     try:
         cands = await asyncio.to_thread(_gather_swing)
         await _save_snapshot(cands, kind="swing", market_open=True, top_n=get_settings().SCREENER_TOP_N)
+        if alert:
+            await _alert_a_grade(cands, "swing")
         logger.info("swing: snapshot refreshed (%d setups)", len(cands))
     except Exception:
         logger.exception("swing: refresh failed — marking last snapshot stale")
@@ -393,11 +432,14 @@ def _gather_swing_small() -> list[scr.SwingCandidate]:
     return scr.rank_swing(cands, get_settings().SCREENER_TOP_N)
 
 
-async def refresh_swing_small() -> None:
-    """Scan small-cap / IPO most-actives for 20/50 EMA-hold setups; persist."""
+async def refresh_swing_small(alert: bool = False) -> None:
+    """Scan small-cap / IPO names for 20/50 EMA-hold setups; persist. ``alert=True``
+    (scheduled only) pings the group for new A-grade setups."""
     try:
         cands = await asyncio.to_thread(_gather_swing_small)
         await _save_snapshot(cands, kind="swing_small", market_open=True, top_n=get_settings().SCREENER_TOP_N)
+        if alert:
+            await _alert_a_grade(cands, "swing_small")
         logger.info("swing-small: snapshot refreshed (%d setups)", len(cands))
     except Exception:
         logger.exception("swing-small: refresh failed")
@@ -415,11 +457,11 @@ def rebuild_universe_job() -> None:
 
 
 def refresh_swing_job() -> None:
-    _run(refresh_swing())
+    _run(refresh_swing(alert=True))          # scheduled run → alert A-grade to the group
 
 
 def refresh_swing_small_job() -> None:
-    _run(refresh_swing_small())
+    _run(refresh_swing_small(alert=True))    # scheduled run → alert A-grade to the group
 
 
 async def bootstrap() -> None:
