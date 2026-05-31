@@ -229,6 +229,91 @@ def rank_in_play(entries: list[InPlayEntry], top_n: int = DEFAULT_TOP_N) -> list
 
 
 # ---------------------------------------------------------------------------
+# Swing screener — market-wide daily-bar setups (Trend + MA defense)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SwingCandidate:
+    symbol: str
+    last_price: float
+    ret_20d: float        # 20-day % return (momentum)
+    rs_vs_spy: float      # ret_20d minus SPY's 20-day return
+    above_ema21: bool
+    above_ema50: bool
+    ema_stacked: bool     # 21 > 50 > 200
+    ma_defense: bool      # recent tag-and-hold of the 21/50 EMA
+    setup: Optional[dict] = None  # {pattern, entry, stop, target, conviction} when it qualifies
+    market_cap: float = 0.0
+    sector: Optional[str] = None
+    rank: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "rank": self.rank, "symbol": self.symbol, "last_price": round(self.last_price, 2),
+            "ret_20d": round(self.ret_20d, 1), "rs_vs_spy": round(self.rs_vs_spy, 1),
+            "above_ema21": self.above_ema21, "above_ema50": self.above_ema50,
+            "ema_stacked": self.ema_stacked, "ma_defense": self.ma_defense,
+            "setup": self.setup, "market_cap": self.market_cap, "sector": self.sector,
+        }
+
+
+def _ema(s: pd.Series, span: int) -> pd.Series:
+    return s.ewm(span=span, adjust=False).mean()
+
+
+def swing_signals(
+    daily: pd.DataFrame, spy_ret_20d: float = 0.0, *,
+    symbol: str = "", market_cap: float = 0.0, sector: Optional[str] = None,
+) -> Optional[SwingCandidate]:
+    """Evaluate one symbol's DAILY bars for a Trend + MA-defense swing setup.
+
+    Qualifies when: price > 21 & 50 EMA, stack 21>50>200, a recent tag-and-hold
+    of the 21/50 EMA (the defense), and relative strength vs SPY > 0.
+    Returns a SwingCandidate (``setup`` populated only when it qualifies), or None
+    if there isn't enough history.
+    """
+    if daily is None or daily.empty or "Close" not in daily.columns or len(daily) < 60:
+        return None
+    c = daily["Close"]
+    last = float(c.iloc[-1])
+    v21, v50, v200 = float(_ema(c, 21).iloc[-1]), float(_ema(c, 50).iloc[-1]), float(_ema(c, 200).iloc[-1])
+    above21, above50 = last > v21, last > v50
+    stacked = v21 > v50 > v200
+    ret20 = (last / float(c.iloc[-21]) - 1.0) * 100.0 if len(c) > 21 else 0.0
+    rs = ret20 - spy_ret_20d
+
+    # MA defense: within the last 5 bars a low tagged the 21 or 50 EMA and the close held above it.
+    lows, closes = daily["Low"].iloc[-5:], c.iloc[-5:]
+    defense = any(
+        (float(lo) <= v21 * 1.01 and float(cl) > v21) or (float(lo) <= v50 * 1.01 and float(cl) > v50)
+        for lo, cl in zip(lows, closes)
+    )
+
+    setup = None
+    if above21 and above50 and stacked and defense and rs > 0:
+        stop = round(min(v50, float(daily["Low"].iloc[-5:].min())) * 0.99, 2)
+        risk = max(0.01, last - stop)
+        setup = {
+            "pattern": "21/50 EMA Defense", "entry": round(last, 2), "stop": stop,
+            "target": round(last + risk * 2.0, 2), "conviction": "High" if rs > 5 else "Moderate",
+        }
+
+    return SwingCandidate(
+        symbol=symbol, last_price=last, ret_20d=ret20, rs_vs_spy=rs,
+        above_ema21=above21, above_ema50=above50, ema_stacked=stacked, ma_defense=defense,
+        setup=setup, market_cap=market_cap, sector=sector,
+    )
+
+
+def rank_swing(cands: list[SwingCandidate], top_n: int = DEFAULT_TOP_N) -> list[SwingCandidate]:
+    """Keep only qualifying setups; rank by relative strength desc; assign rank."""
+    qualified = sorted([c for c in cands if c.setup], key=lambda c: c.rs_vs_spy, reverse=True)[: max(0, top_n)]
+    for i, c in enumerate(qualified, start=1):
+        c.rank = i
+    return qualified
+
+
+# ---------------------------------------------------------------------------
 # Setup detection — reuse signal_engine read-only (FR-4)
 # ---------------------------------------------------------------------------
 

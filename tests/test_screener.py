@@ -8,6 +8,9 @@ Live yfinance/Alpaca fetch + the API/scheduler are covered separately.
 from datetime import datetime, time as dt_time
 from types import SimpleNamespace
 
+import numpy as np
+import pandas as pd
+
 from analytics.screener import (
     InPlayEntry,
     UniverseRow,
@@ -17,9 +20,11 @@ from analytics.screener import (
     filter_universe,
     is_market_open,
     rank_in_play,
+    rank_swing,
     relative_volume,
     scan_setups,
     session_fraction,
+    swing_signals,
     _result_to_setup,
 )
 
@@ -157,6 +162,41 @@ def test_apply_user_view_filters_cap_and_trims():
     ]
     assert {e.symbol for e in apply_user_view(entries, market_cap_floor=2e9)} == {"A", "B"}
     assert [e.symbol for e in apply_user_view(entries, top_n=1)] == ["A"]
+
+
+# --- swing screener (daily-bar Trend + MA defense) -------------------------
+
+def _daily(closes):
+    c = np.array(closes, dtype=float)
+    return pd.DataFrame({"Close": c, "Low": c * 0.97, "High": c * 1.01, "Volume": np.full(len(c), 1e6)})
+
+
+def test_swing_qualifies_on_uptrend_with_ma_defense():
+    up = _daily([100 + 0.5 * i for i in range(250)])  # clean uptrend, lows tag the 21 EMA
+    cand = swing_signals(up, spy_ret_20d=1.0, symbol="UP", market_cap=9e9)
+    assert cand is not None
+    assert cand.above_ema21 and cand.above_ema50 and cand.ema_stacked and cand.ma_defense
+    assert cand.rs_vs_spy > 0 and cand.setup is not None
+    assert cand.setup["stop"] < cand.setup["entry"] < cand.setup["target"]
+
+
+def test_swing_rejects_downtrend():
+    down = _daily([200 - 0.3 * i for i in range(250)])
+    cand = swing_signals(down, spy_ret_20d=0.0, symbol="DN")
+    assert cand is not None and cand.setup is None  # evaluated, but no qualifying setup
+
+
+def test_swing_needs_enough_history():
+    assert swing_signals(_daily([100 + i for i in range(30)]), symbol="SHORT") is None
+
+
+def test_rank_swing_keeps_only_setups_sorted_by_rs():
+    a = swing_signals(_daily([100 + 0.6 * i for i in range(250)]), spy_ret_20d=1.0, symbol="A")
+    b = swing_signals(_daily([100 + 0.3 * i for i in range(250)]), spy_ret_20d=1.0, symbol="B")
+    down = swing_signals(_daily([200 - 0.3 * i for i in range(250)]), symbol="DN")
+    ranked = rank_swing([down, b, a], top_n=10)
+    assert [c.symbol for c in ranked] == ["A", "B"]  # downtrend dropped; stronger RS first
+    assert ranked[0].rank == 1
 
 
 def test_presets_are_none_safe():

@@ -27,9 +27,8 @@ _SNAPSHOT_RETENTION = 50  # keep last N snapshots for debugging
 # Market-hours gate lives in analytics.screener (pure, testable).
 is_market_open = scr.is_market_open
 
-# In-memory cache of the latest snapshot (FR — fast reads). Short TTL; the
-# scheduler writes every ~10 min so a 20s cache is plenty and bounds DB hits.
-_CACHE: dict = {"snap": None, "at": None}
+# In-memory cache of the latest snapshot per kind (fast reads, bounds DB hits).
+_CACHE: dict = {}  # kind -> {"snap": ScreenerSnapshot|None, "at": monotonic}
 _CACHE_TTL_S = 20
 
 
@@ -54,43 +53,47 @@ async def _save_universe(rows: list[scr.UniverseRow]) -> None:
         await s.commit()
 
 
-async def _save_snapshot(entries: list[scr.InPlayEntry], *, market_open: bool, stale: bool, top_n: int) -> None:
+async def _save_snapshot(entries, *, kind: str = "in_play", market_open: bool = False, stale: bool = False, top_n: int = 30) -> None:
     async with async_session_factory() as s:
         s.add(ScreenerSnapshot(
-            market_open=market_open, stale=stale, top_n=top_n,
+            kind=kind, market_open=market_open, stale=stale, top_n=top_n,
             entries=[e.to_dict() for e in entries],
         ))
-        # prune old snapshots
+        # prune old snapshots of THIS kind only
         old = (await s.execute(
-            select(ScreenerSnapshot.id).order_by(desc(ScreenerSnapshot.id)).offset(_SNAPSHOT_RETENTION)
+            select(ScreenerSnapshot.id).where(ScreenerSnapshot.kind == kind)
+            .order_by(desc(ScreenerSnapshot.id)).offset(_SNAPSHOT_RETENTION)
         )).scalars().all()
         if old:
             await s.execute(delete(ScreenerSnapshot).where(ScreenerSnapshot.id.in_(old)))
         await s.commit()
-    _CACHE["snap"] = None  # invalidate cache on new write
+    _CACHE.pop(kind, None)  # invalidate this kind's cache
 
 
-async def _mark_latest_stale() -> None:
-    """Degraded-data path (FR-8): flag the most recent snapshot as stale."""
+async def _mark_latest_stale(kind: str = "in_play") -> None:
+    """Degraded-data path (FR-8): flag the most recent snapshot of a kind as stale."""
     async with async_session_factory() as s:
         latest = (await s.execute(
-            select(ScreenerSnapshot).order_by(desc(ScreenerSnapshot.id)).limit(1)
+            select(ScreenerSnapshot).where(ScreenerSnapshot.kind == kind)
+            .order_by(desc(ScreenerSnapshot.id)).limit(1)
         )).scalar_one_or_none()
         if latest is not None:
             latest.stale = True
             await s.commit()
 
 
-async def get_latest_snapshot() -> ScreenerSnapshot | None:
-    """Latest snapshot, fronted by a short in-memory cache to bound DB hits (T034)."""
+async def get_latest_snapshot(kind: str = "in_play") -> ScreenerSnapshot | None:
+    """Latest snapshot of a kind, fronted by a short per-kind in-memory cache."""
     now = time.monotonic()
-    if _CACHE["snap"] is not None and _CACHE["at"] is not None and (now - _CACHE["at"]) < _CACHE_TTL_S:
-        return _CACHE["snap"]
+    c = _CACHE.get(kind)
+    if c and (now - c["at"]) < _CACHE_TTL_S:
+        return c["snap"]
     async with async_session_factory() as s:
         snap = (await s.execute(
-            select(ScreenerSnapshot).order_by(desc(ScreenerSnapshot.id)).limit(1)
+            select(ScreenerSnapshot).where(ScreenerSnapshot.kind == kind)
+            .order_by(desc(ScreenerSnapshot.id)).limit(1)
         )).scalar_one_or_none()
-    _CACHE["snap"], _CACHE["at"] = snap, now
+    _CACHE[kind] = {"snap": snap, "at": now}
     return snap
 
 
@@ -271,6 +274,50 @@ async def rebuild_universe() -> None:
         logger.warning("screener: universe rebuild returned 0 names — kept previous")
 
 
+# ---------------------------------------------------------------------------
+# Swing screener — market-wide daily-bar setups. NO market-hours gate: daily
+# bars don't change intraday, so setups stay valid all week (incl. weekends).
+# ---------------------------------------------------------------------------
+
+_SWING_SCAN_CAP = 200  # cap per scan for tractable runtime (TODO: batch yf.download)
+
+
+def _gather_swing(universe: list[scr.UniverseRow]) -> list[scr.SwingCandidate]:
+    from analytics.market_data import fetch_ohlc  # lazy
+    spy = fetch_ohlc("SPY", "1y")
+    spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
+               if spy is not None and len(spy) > 21 else 0.0)
+    cands: list[scr.SwingCandidate] = []
+    for u in universe[:_SWING_SCAN_CAP]:
+        try:
+            daily = fetch_ohlc(u.symbol, "1y")
+            c = scr.swing_signals(daily, spy_ret, symbol=u.symbol, market_cap=u.market_cap, sector=u.sector)
+            if c and c.setup:
+                cands.append(c)
+        except Exception:
+            logger.debug("swing: skipped %s", u.symbol, exc_info=True)
+    return scr.rank_swing(cands, get_settings().SCREENER_TOP_N)
+
+
+async def refresh_swing() -> None:
+    """Scan the universe on daily bars for Trend + MA-defense swing setups; persist."""
+    universe = await _load_universe()
+    if not universe:
+        logger.warning("swing: empty universe — rebuild needed")
+        return
+    try:
+        cands = await asyncio.to_thread(_gather_swing, universe)
+        await _save_snapshot(cands, kind="swing", market_open=True, top_n=get_settings().SCREENER_TOP_N)
+        logger.info("swing: snapshot refreshed (%d setups)", len(cands))
+    except Exception:
+        logger.exception("swing: refresh failed — marking last snapshot stale")
+        await _mark_latest_stale("swing")
+
+
+async def get_latest_swing() -> ScreenerSnapshot | None:
+    return await get_latest_snapshot("swing")
+
+
 # Sync wrappers for BackgroundScheduler (one fresh event loop per run).
 def refresh_in_play_job() -> None:
     asyncio.run(refresh_in_play())
@@ -278,3 +325,7 @@ def refresh_in_play_job() -> None:
 
 def rebuild_universe_job() -> None:
     asyncio.run(rebuild_universe())
+
+
+def refresh_swing_job() -> None:
+    asyncio.run(refresh_swing())

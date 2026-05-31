@@ -16,7 +16,7 @@ import {
   useRunFocusList,
   type FocusListHistoryItem,
 } from "../api/hooks";
-import SwingTradesPage from "./SwingTradesPage";
+import SwingScreenerView from "../components/SwingScreenerView";
 import InPlayView from "../components/InPlayView";
 import TierGate from "../components/TierGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
@@ -99,7 +99,11 @@ export default function FocusListPage() {
         </div>
 
         {tab === "day" && <DayTradesTab />}
-        {tab === "swing" && <SwingTradesPage />}
+        {tab === "swing" && (
+          <TierGate require="pro" featureName="Swing Screener">
+            <SwingScreenerView />
+          </TierGate>
+        )}
         {tab === "ai" && <AIScansTab />}
         {tab === "inplay" && (
           <TierGate require="pro" featureName="In-Play Volume Screener">

@@ -36,6 +36,8 @@ class ScreenerSnapshot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     captured_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    # "in_play" (intraday RVOL) or "swing" (daily-bar Trend + MA defense)
+    kind: Mapped[str] = mapped_column(String(16), default="in_play", index=True)
     market_open: Mapped[bool] = mapped_column(Boolean, default=False)
     stale: Mapped[bool] = mapped_column(Boolean, default=False)
     top_n: Mapped[int] = mapped_column(Integer, default=30)

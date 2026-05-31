@@ -155,6 +155,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mfe_r REAL",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mae_r REAL",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS outcome_computed_at TIMESTAMP",
+            # Spec 62 — screener snapshot kind (in_play | swing)
+            "ALTER TABLE screener_snapshot ADD COLUMN IF NOT EXISTS kind VARCHAR(16) DEFAULT 'in_play'",
             # iOS APNs push notifications (Capacitor mobile app) — 2026-05-26
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_token VARCHAR(200)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_enabled BOOLEAN DEFAULT FALSE",
@@ -928,7 +930,15 @@ async def lifespan(app: FastAPI):
                 refresh_in_play_job, "interval", minutes=_scr_min,
                 id="screener_in_play_refresh", replace_existing=True,
             )
-            logger.info("Screener jobs registered (weekly rebuild + %d-min refresh)", _scr_min)
+            # Swing screener: daily-bar scan, NOT market-gated (valid all week).
+            # Run once each morning; users can also trigger on-demand.
+            from app.services.screener_service import refresh_swing_job
+            scheduler.add_job(
+                refresh_swing_job, "cron", hour=7, minute=30,
+                timezone="America/New_York",
+                id="screener_swing_refresh", replace_existing=True,
+            )
+            logger.info("Screener jobs registered (weekly rebuild + %d-min in-play + daily swing)", _scr_min)
         except Exception:
             logger.exception("Failed to register screener jobs")
 

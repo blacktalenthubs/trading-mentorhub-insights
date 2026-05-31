@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
-import type { InPlaySnapshot } from "../pages/InPlay.types";
+import type { InPlaySnapshot, SwingSnapshot } from "../pages/InPlay.types";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -24,6 +24,25 @@ export function useInPlay(preset: string, hasSetup: boolean) {
       ),
     // Refresh roughly with the server's ~10-min cadence; the snapshot is cached server-side.
     refetchInterval: 60_000,
+  });
+}
+
+export function useSwingScreener() {
+  return useQuery({
+    queryKey: ["swing-screener"],
+    queryFn: () => api.get<SwingSnapshot>("/screener/swing"),
+    refetchInterval: 120_000,
+  });
+}
+
+export function useRefreshSwing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/screener/swing/refresh", {}),
+    onSuccess: () => {
+      toast.info("Swing scan started — results refresh in a few seconds");
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["swing-screener"] }), 9000);
+    },
   });
 }
 

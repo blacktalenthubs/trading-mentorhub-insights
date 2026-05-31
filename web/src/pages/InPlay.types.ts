@@ -41,6 +41,28 @@ export interface InPlaySnapshot {
   entries: InPlayEntry[];
 }
 
+/* ── Swing screener (daily-bar Trend + MA defense) ── */
+export interface SwingEntry {
+  rank: number;
+  symbol: string;
+  last_price: number;
+  ret_20d: number;
+  rs_vs_spy: number;
+  above_ema21: boolean;
+  above_ema50: boolean;
+  ema_stacked: boolean;
+  ma_defense: boolean;
+  setup: { pattern: string; entry: number; stop: number; target: number; conviction: string } | null;
+  market_cap: number;
+  sector?: string | null;
+}
+
+export interface SwingSnapshot {
+  captured_at: string | null;
+  stale: boolean;
+  entries: SwingEntry[];
+}
+
 export type InPlayPreset = "any" | "momentum_long" | "pullback" | "breakout" | "short";
 
 export const IN_PLAY_PRESETS: { id: InPlayPreset; label: string }[] = [
