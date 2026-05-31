@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 STOCKTWITS_URL = "https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
 STOCKTWITS_TIMEOUT = 8
 
+# StockTwits blocks the default `python-requests/X.X` user-agent with a 403.
+# A browser-like UA returns 200 with the full stream. Discovered 2026-05-31
+# when prod returned "Couldn't fetch StockTwits stream" for every symbol.
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; BusyTradersDesk/1.0; +https://busytradersdesk.com)",
+    "Accept": "application/json",
+}
+
 # Cache: per-symbol with TTL. Keeps StockTwits API calls well below the
 # anonymous 200/hour limit even if every user expands every row.
 _CACHE_TTL_SEC = 300  # 5 min
@@ -149,7 +157,7 @@ def _fetch_raw(symbol: str) -> Optional[list[dict]]:
     """One HTTP call to StockTwits. Returns raw messages list or None on failure."""
     url = STOCKTWITS_URL.format(symbol=symbol)
     try:
-        r = requests.get(url, timeout=STOCKTWITS_TIMEOUT)
+        r = requests.get(url, headers=_BROWSER_HEADERS, timeout=STOCKTWITS_TIMEOUT)
     except requests.RequestException as e:
         logger.info("StockTwits network error for %s: %s", symbol, e)
         return None
@@ -160,8 +168,14 @@ def _fetch_raw(symbol: str) -> Optional[list[dict]]:
     if r.status_code == 404:
         # Symbol not on StockTwits — fine, return empty.
         return []
+    if r.status_code == 403:
+        # User-agent gating. If we hit this again with the browser UA set,
+        # StockTwits has tightened. Log the body to make the diagnosis fast.
+        logger.warning("StockTwits 403 for %s — body: %s", symbol, r.text[:200])
+        return None
     if r.status_code != 200:
-        logger.info("StockTwits returned %d for %s", r.status_code, symbol)
+        logger.info("StockTwits returned %d for %s — body: %s",
+                    r.status_code, symbol, r.text[:200])
         return None
 
     try:
