@@ -193,6 +193,16 @@ export default function WatchlistPage() {
           </button>
         </form>
 
+        {/* Quick-add chips — surfaced when watchlist is light so new users
+            can seed in one tap instead of typing tickers from memory. */}
+        {count < 5 && !atLimit && (
+          <QuickAddChips
+            existing={watchlist?.map((w) => w.symbol) ?? []}
+            onPick={(sym) => addSymbol.mutate(sym)}
+            isAdding={addSymbol.isPending}
+          />
+        )}
+
         {addSymbol.error && (
           <p className="mt-2 text-xs text-bearish-text">
             {addSymbol.error instanceof Error ? addSymbol.error.message : "Failed to add symbol"}
@@ -396,6 +406,60 @@ export default function WatchlistPage() {
       )}
       </>
       )}
+    </div>
+  );
+}
+
+/* ── Quick-add chips ───────────────────────────────────────────────
+ * One-tap tickers for users who don't yet know what to watch.
+ * Grouped by theme so it reads as curation, not a random dump.
+ */
+
+const QUICK_ADD_GROUPS: Array<{ label: string; tickers: string[] }> = [
+  { label: "Mega cap",  tickers: ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META"] },
+  { label: "Movers",    tickers: ["TSLA", "AMD", "PLTR", "COIN", "AVGO", "NFLX"] },
+  { label: "Indices",   tickers: ["SPY", "QQQ", "IWM"] },
+  { label: "Crypto",    tickers: ["BTC-USD", "ETH-USD", "SOL-USD"] },
+];
+
+function QuickAddChips({
+  existing, onPick, isAdding,
+}: {
+  existing: string[];
+  onPick: (sym: string) => void;
+  isAdding: boolean;
+}) {
+  const have = new Set(existing.map((s) => s.toUpperCase()));
+  return (
+    <div className="mt-3 pt-3 border-t border-border-subtle/50 space-y-2">
+      <p className="text-[10px] uppercase tracking-wider text-text-faint">
+        Quick add — tap to seed your watchlist
+      </p>
+      <div className="space-y-1.5">
+        {QUICK_ADD_GROUPS.map((g) => (
+          <div key={g.label} className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-semibold text-text-muted w-16 shrink-0">{g.label}</span>
+            {g.tickers.map((t) => {
+              const added = have.has(t.toUpperCase());
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => !added && onPick(t)}
+                  disabled={added || isAdding}
+                  className={
+                    added
+                      ? "px-2.5 py-1 rounded-md text-[11px] font-mono font-medium border bg-bullish/10 border-bullish/30 text-bullish-text cursor-default"
+                      : "px-2.5 py-1 rounded-md text-[11px] font-mono font-medium border border-border-subtle bg-surface-3 text-text-secondary hover:border-accent hover:text-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  }
+                >
+                  {added ? `✓ ${t}` : `+ ${t}`}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
