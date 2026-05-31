@@ -60,6 +60,8 @@ export interface SwingEntry {
   vol_ratio?: number;
   close_strength?: number;
   grade?: string;
+  decision?: string;
+  decision_reason?: string;
 }
 
 export interface SwingSnapshot {

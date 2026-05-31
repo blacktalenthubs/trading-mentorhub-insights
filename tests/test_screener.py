@@ -206,6 +206,37 @@ def test_swing_grade_reflects_volume():
     assert cand.grade == "A" and cand.vol_ratio >= 2.0
 
 
+def test_swing_decision_buy_when_defended_on_volume():
+    from analytics.screener import swing_decision
+    d, why = swing_decision(0.85, 1.5, -3.0, has_setup=True)
+    assert d == "Buy" and "ready" in why.lower()
+
+
+def test_swing_decision_avoid_when_sold_into_lows():
+    from analytics.screener import swing_decision
+    # Heavy volume but closed on its lows = distribution into the MA → not a Buy.
+    d, _ = swing_decision(0.10, 2.5, -2.0, has_setup=True)
+    assert d == "Avoid"
+
+
+def test_swing_decision_avoid_deep_laggard():
+    from analytics.screener import swing_decision
+    d, _ = swing_decision(0.80, 2.0, -12.0, has_setup=True)
+    assert d == "Avoid"
+
+
+def test_swing_decision_watch_when_mid_close():
+    from analytics.screener import swing_decision
+    d, _ = swing_decision(0.50, 1.6, -2.0, has_setup=True)
+    assert d == "Watch"
+
+
+def test_swing_decision_watch_when_defended_but_light_volume():
+    from analytics.screener import swing_decision
+    d, _ = swing_decision(0.85, 1.0, -2.0, has_setup=True)
+    assert d == "Watch"
+
+
 def test_swing_rejects_downtrend():
     cand = swing_signals(_daily([200 - 0.3 * i for i in range(250)]), spy_ret_20d=0.0, symbol="DN")
     assert cand is not None and cand.setup is None

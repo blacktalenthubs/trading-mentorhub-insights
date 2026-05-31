@@ -324,6 +324,8 @@ class SwingCandidate:
     vol_ratio: float = 1.0        # today's daily volume vs 20-day average
     close_strength: float = 0.5   # close location in today's range (CLV): 1=closed at high, 0=at low
     grade: str = "C"             # A/B/C — volume + close-strength (see swing_grade)
+    decision: str = "Watch"      # Buy | Watch | Avoid — one-glance action (see swing_decision)
+    decision_reason: str = ""    # short "why" for the decision (tooltip)
     rank: int = 0
 
     def to_dict(self) -> dict:
@@ -335,6 +337,7 @@ class SwingCandidate:
             "setup": self.setup, "market_cap": self.market_cap, "sector": self.sector,
             "vol_ratio": round(self.vol_ratio, 2),
             "close_strength": round(self.close_strength, 2), "grade": self.grade,
+            "decision": self.decision, "decision_reason": self.decision_reason,
         }
 
 
@@ -382,6 +385,47 @@ def swing_grade(vol_ratio: Optional[float], close_strength: Optional[float]) -> 
     if passes == 1:
         return "B"
     return "C"
+
+
+# Decision thresholds — turn the raw columns into one action so the user
+# doesn't have to cross-reference Close / Vol / RS / Conviction by eye.
+_DECISION_WEAK_CLOSE = 0.33    # ≤ this = sold into the MA today (under attack)
+_DECISION_STRONG_CLOSE = 0.66  # ≥ this = buyers defended into the close (same as grade gate)
+_DECISION_DEEP_LAGGARD = -10.0  # RS vs SPY ≤ this = falling knife, stand aside
+_DECISION_LAGGARD = -8.0        # RS below this isn't "Buy"-worthy even if defended
+_DECISION_MIN_VOL = 1.3         # need at least some participation to call it ready
+
+
+def swing_decision(
+    close_strength: Optional[float],
+    vol_ratio: Optional[float],
+    rs_vs_spy: Optional[float],
+    *,
+    has_setup: bool,
+) -> tuple[str, str]:
+    """Collapse the row's signals into one action + a short reason.
+
+    Every candidate already qualifies structurally (closing at a key MA in an
+    uptrend), so the decision is about *confirmation today*:
+      Avoid — sold into the MA (weak close) or a deep laggard vs SPY
+      Buy   — defended into the close on real volume, not a laggard
+      Watch — structurally fine but not yet confirmed (mid close / light vol)
+    """
+    if not has_setup:
+        return "Watch", "No qualifying entry yet"
+    cs = close_strength if close_strength is not None else 0.5
+    vr = vol_ratio if vol_ratio is not None else 0.0
+    rs = rs_vs_spy if rs_vs_spy is not None else 0.0
+    if cs <= _DECISION_WEAK_CLOSE:
+        return "Avoid", "Closed on its lows — sellers pressing the MA; wait for it to hold"
+    if rs <= _DECISION_DEEP_LAGGARD:
+        return "Avoid", "Deep laggard vs SPY — falling-knife risk"
+    if cs >= _DECISION_STRONG_CLOSE and vr >= _DECISION_MIN_VOL and rs > _DECISION_LAGGARD:
+        return "Buy", "Defended into the close on real volume — ready to enter the setup"
+    if cs >= _DECISION_STRONG_CLOSE:
+        why = "light volume" if vr < _DECISION_MIN_VOL else "lagging SPY"
+        return "Watch", f"Defended the close but {why} — watch for stronger confirmation"
+    return "Watch", "Holding the MA but close is mid-range — watch for a strong close"
 
 
 def swing_signals(
@@ -447,12 +491,16 @@ def swing_signals(
     # Daily analog of VWAP slope — did buyers defend the MA into the close?
     close_strength = ((last - low) / (high - low)) if high > low else 0.5
     grade = swing_grade(vol_ratio, close_strength)
+    decision, decision_reason = swing_decision(
+        close_strength, vol_ratio, rs, has_setup=setup is not None
+    )
 
     return SwingCandidate(
         symbol=symbol, last_price=last, ret_20d=ret20, rs_vs_spy=rs,
         above_ema21=last > e20, above_ema50=last > e50, ema_stacked=stacked,
         ma_defense=tested is not None, setup=setup, market_cap=market_cap, sector=sector,
         vol_ratio=vol_ratio, close_strength=close_strength, grade=grade,
+        decision=decision, decision_reason=decision_reason,
     )
 
 

@@ -35,6 +35,23 @@ function Conv({ c }: { c: string }) {
   return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cls}`}>{c}</span>;
 }
 
+/** One-glance action distilled from Close / Vol / RS. Hover for the reason. */
+const DECISION_RANK: Record<string, number> = { Buy: 3, Watch: 2, Avoid: 1 };
+function DecisionCell({ d, reason }: { d?: string; reason?: string }) {
+  const v = d || "Watch";
+  const cls =
+    v === "Buy"
+      ? "text-bullish-text bg-bullish/10 border-bullish/30"
+      : v === "Avoid"
+      ? "text-bearish-text bg-bearish/10 border-bearish/30"
+      : "text-amber-400 bg-amber-400/10 border-amber-400/30";
+  return (
+    <span title={reason} className={`text-[10px] font-bold px-2 py-0.5 rounded border ${cls} ${reason ? "cursor-help" : ""}`}>
+      {v}
+    </span>
+  );
+}
+
 /** Volume ratio — grade gate 1. ≥2× avg = heavy participation. */
 function VolCell({ v }: { v: number | null | undefined }) {
   if (v == null) return <span className="text-text-faint font-mono">—</span>;
@@ -63,6 +80,7 @@ export default function SwingScreenerView() {
 
   const columns: Column<SwingEntry>[] = [
     { key: "rank", label: "#", align: "left", cls: "w-10", value: (r) => r.rank, render: (r) => <span className="font-mono text-text-faint">{r.rank}</span> },
+    { key: "decision", label: "Action", align: "left", cls: "w-20", value: (r) => DECISION_RANK[r.decision || "Watch"] ?? 2, render: (r) => <DecisionCell d={r.decision} reason={r.decision_reason} /> },
     { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (r) => GRADE_RANK[(r.grade || "C").toUpperCase()] ?? 1, render: (r) => <GradeBadge grade={r.grade} title={gradeTip(r)} /> },
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => (
       <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span>
@@ -82,7 +100,7 @@ export default function SwingScreenerView() {
   const mobileRow = (r: SwingEntry) => (
     <>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><GradeBadge grade={r.grade} title={gradeTip(r)} /><span className="font-bold text-text-primary">{r.symbol}</span>{r.setup && <Conv c={r.setup.conviction} />}</div>
+        <div className="flex items-center gap-2"><DecisionCell d={r.decision} reason={r.decision_reason} /><GradeBadge grade={r.grade} title={gradeTip(r)} /><span className="font-bold text-text-primary">{r.symbol}</span>{r.setup && <Conv c={r.setup.conviction} />}</div>
         <span className="font-mono text-sm text-text-primary">{money(r.setup?.entry)}</span>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px] text-text-muted font-mono">
@@ -159,7 +177,7 @@ export default function SwingScreenerView() {
         columns={columns}
         rowKey={(r) => r.symbol}
         onRowClick={(r) => navigate(`/trading?symbol=${encodeURIComponent(r.symbol)}`)}
-        defaultSort={{ key: "rs", dir: "desc" }}
+        defaultSort={{ key: "decision", dir: "desc" }}
         mobileRow={mobileRow}
         isLoading={isLoading}
         isError={isError}
