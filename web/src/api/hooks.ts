@@ -104,19 +104,28 @@ export function useSocialBuzzHistory() {
   });
 }
 
+interface SocialRefreshResult {
+  status: string;
+  fetched: number;
+  after_filter?: number;
+  snapshot_id?: number | null;
+}
+
 export function useRefreshSocialBuzz() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post("/screener/social-buzz/refresh", {}),
-    onSuccess: () => {
-      toast.info("Social buzz refresh started — results in ~5 seconds");
-      // Apewisdom + DB write takes 2-4s; invalidate after 5s.
-      setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["social-buzz"] });
-        qc.invalidateQueries({ queryKey: ["social-buzz-history"] });
-      }, 5000);
+    // Synchronous now — returns the fetch summary so we can tell blocked from ok.
+    mutationFn: () => api.post<SocialRefreshResult>("/screener/social-buzz/refresh", {}),
+    onSuccess: (res) => {
+      if (!res || res.fetched === 0) {
+        toast.error("Social source unreachable right now — kept the last snapshot");
+      } else {
+        toast.success(`Social buzz refreshed — ${res.after_filter ?? 0} tickers`);
+      }
+      qc.invalidateQueries({ queryKey: ["social-buzz"] });
+      qc.invalidateQueries({ queryKey: ["social-buzz-history"] });
     },
-    onError: () => toast.error("Failed to start refresh"),
+    onError: () => toast.error("Failed to refresh"),
   });
 }
 

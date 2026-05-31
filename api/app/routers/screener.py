@@ -140,26 +140,45 @@ from app.dependencies import get_current_user  # noqa: E402
 from app.models.social_buzz import SocialBuzzSnapshot  # noqa: E402
 
 
-@router.post("/social-buzz/refresh", status_code=202)
-async def refresh_social_buzz_now(
-    background: BackgroundTasks,
-    user: User = Depends(get_current_user),
-):
-    """Manual refresh trigger — same code path as the hourly cron.
-    Background task so the HTTP response returns fast. Frontend polls
-    /social-buzz a few seconds later and renders the new snapshot.
-    """
-    def _run():
-        try:
-            from app.main import app as _app
-            from analytics.social_buzz import refresh_social_buzz
-            refresh_social_buzz(_app.state.sync_session_factory)
-        except Exception:
-            import logging
-            logging.getLogger(__name__).exception("Manual social buzz refresh failed")
+def _sync_session_factory():
+    """Build a standalone sync session factory from DATABASE_URL — independent of
+    app.state, so the manual refresh works regardless of lifespan startup order."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    url = get_settings().DATABASE_URL
+    if url.startswith("sqlite"):
+        url = url.replace("+aiosqlite", "")
+    else:
+        for suffix in ("+asyncpg", "+psycopg2", "+psycopg"):
+            url = url.replace(suffix, "")
+    engine = create_engine(url, pool_pre_ping=True)
+    return engine, sessionmaker(bind=engine)
 
-    background.add_task(_run)
-    return {"status": "refresh started"}
+
+@router.post("/social-buzz/refresh", status_code=200)
+async def refresh_social_buzz_now(user: User = Depends(get_current_user)):
+    """Manual refresh — runs the same code path as the hourly cron, but with its
+    OWN session factory (not app.state) and SYNCHRONOUSLY, returning the fetch
+    summary. The summary lets the UI distinguish 'fetch blocked' (fetched=0) from
+    'refreshed' (fetched>0) instead of silently no-op'ing on failure.
+    """
+    import asyncio
+    import logging
+
+    def _run() -> dict:
+        from analytics.social_buzz import refresh_social_buzz
+        engine, factory = _sync_session_factory()
+        try:
+            return refresh_social_buzz(factory)
+        finally:
+            engine.dispose()
+
+    try:
+        summary = await asyncio.to_thread(_run)
+    except Exception:
+        logging.getLogger(__name__).exception("Manual social buzz refresh failed")
+        return {"status": "error", "fetched": 0, "snapshot_id": None}
+    return {"status": "ok", **summary}
 
 
 @router.get("/social-buzz/context")
