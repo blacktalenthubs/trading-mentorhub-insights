@@ -39,9 +39,9 @@ TIER_LIMITS: dict[str, dict] = {
         "watchlist_max": 5,
         "watchlist_groups_max": 1,
         "ai_queries_per_day": 3,        # legacy AI endpoints (no live UI today)
-        "ai_scan_alerts_per_day": None, # grade is the lever now, not a count
-        "ai_wait_alerts_per_day": None,
-        "swing_alerts_per_day": None,
+        "ai_scan_alerts_per_day": 3,    # AI-scan pushes are UNGRADED → capped by count
+        "ai_wait_alerts_per_day": 3,    # WAIT pushes (ungraded) — count cap
+        "swing_alerts_per_day": 2,      # legacy per-user swing alerts (count cap)
         "best_setups_per_day": 1,       # the ONE live AI cost — 1 scan/day
         "telegram_commands_per_day": 3,
         "alert_history_days": 0,        # today only
@@ -109,6 +109,32 @@ TIER_LIMITS: dict[str, dict] = {
     # PREMIUM — legacy unlimited superset (no customer-facing plan; keeps any
     # existing premium subscriber whole).
     "premium": {
+        "watchlist_max": None,
+        "watchlist_groups_max": None,
+        "ai_queries_per_day": None,
+        "ai_scan_alerts_per_day": None,
+        "ai_wait_alerts_per_day": None,
+        "swing_alerts_per_day": None,
+        "best_setups_per_day": None,
+        "telegram_commands_per_day": None,
+        "alert_history_days": None,
+        "visible_alerts": None,
+        "screener_preview_rows": None,
+        "alerts_min_grade": None,
+        "chart_replay_per_day": None,
+        "telegram_alerts": True,
+        "premarket_brief": True,
+        "eod_review": True,
+        "weekly_review": True,
+        "performance_analytics": True,
+        "pre_trade_check": True,
+        "paper_trading": True,
+        "backtesting": True,
+    },
+    # ADMIN — explicit unlimited entry so admin never falls back to free limits
+    # (e.g. the A-grade alert floor). is_admin_user() is the email-based bypass;
+    # this covers subscription.tier == "admin".
+    "admin": {
         "watchlist_max": None,
         "watchlist_groups_max": None,
         "ai_queries_per_day": None,

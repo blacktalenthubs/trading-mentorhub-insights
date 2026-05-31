@@ -66,27 +66,35 @@ class TestTierModule:
     def test_get_limits_free(self):
         limits = tier_mod.get_limits("free")
         assert limits["watchlist_max"] == 5
-        assert limits["ai_queries_per_day"] == 3
-        assert limits["ai_scan_alerts_per_day"] == 3
-        assert limits["visible_alerts"] == 10
+        assert limits["best_setups_per_day"] == 1        # 1 AI scan/day
+        assert limits["ai_scan_alerts_per_day"] == 3     # ungraded pushes → count cap
+        assert limits["visible_alerts"] == 5
+        assert limits["screener_preview_rows"] == 3      # Swing/In-Play top-3 preview
+        assert limits["alerts_min_grade"] == "A"         # A-grade alerts only
         assert limits["telegram_alerts"] is True
-        assert limits["paper_trading"] is False
 
     def test_get_limits_pro(self):
         limits = tier_mod.get_limits("pro")
-        assert limits["watchlist_max"] == 10
-        assert limits["ai_queries_per_day"] == 50
-        assert limits["ai_scan_alerts_per_day"] is None  # unlimited
+        assert limits["watchlist_max"] is None           # unlimited
+        assert limits["best_setups_per_day"] == 50
         assert limits["visible_alerts"] is None
+        assert limits["screener_preview_rows"] is None   # full screeners
+        assert limits["alerts_min_grade"] is None        # all grades delivered
+        assert limits["alert_history_days"] is None      # full history (no tier above)
+        assert limits["weekly_review"] is True
         assert limits["telegram_alerts"] is True
-        assert limits["paper_trading"] is False
 
     def test_get_limits_premium(self):
+        # premium retained as a legacy unlimited superset
         limits = tier_mod.get_limits("premium")
-        assert limits["watchlist_max"] == 25
-        assert limits["ai_queries_per_day"] is None
+        assert limits["watchlist_max"] is None
+        assert limits["alerts_min_grade"] is None
         assert limits["paper_trading"] is True
-        assert limits["backtesting"] is True
+
+    def test_free_alerts_a_grade_only_paid_unrestricted(self):
+        assert tier_mod.get_limits("free")["alerts_min_grade"] == "A"
+        for t in ("pro", "premium", "comp", "admin"):
+            assert tier_mod.get_limits(t)["alerts_min_grade"] is None
 
     def test_get_limits_unknown_tier_returns_free(self):
         limits = tier_mod.get_limits("nonexistent")
@@ -245,8 +253,9 @@ class TestTierLimitIntegrity:
     def test_free_limits_are_most_restrictive(self):
         free = tier_mod.get_limits("free")
         pro = tier_mod.get_limits("pro")
-        assert free["watchlist_max"] < pro["watchlist_max"]
-        assert free["ai_queries_per_day"] < pro["ai_queries_per_day"]
+        # Pro is unlimited (None) on watchlist; free is a finite cap → more restrictive.
+        assert isinstance(free["watchlist_max"], int) and pro["watchlist_max"] is None
+        assert free["best_setups_per_day"] < pro["best_setups_per_day"]
 
     def test_premium_includes_all_pro_features(self):
         pro = tier_mod.get_limits("pro")
@@ -259,8 +268,8 @@ class TestTierLimitIntegrity:
 
     def test_watchlist_limits_ascending(self):
         assert tier_mod.get_limits("free")["watchlist_max"] == 5
-        assert tier_mod.get_limits("pro")["watchlist_max"] == 10
-        assert tier_mod.get_limits("premium")["watchlist_max"] == 25
+        assert tier_mod.get_limits("pro")["watchlist_max"] is None      # unlimited
+        assert tier_mod.get_limits("premium")["watchlist_max"] is None  # unlimited
 
     def test_ai_queries_free_is_3(self):
         assert tier_mod.get_limits("free")["ai_queries_per_day"] == 3
@@ -304,9 +313,10 @@ class TestTierLimitIntegrity:
         assert tier_mod.get_limits("pro")["telegram_alerts"] is True
         assert tier_mod.get_limits("premium")["telegram_alerts"] is True
 
-    def test_visible_alerts_free_is_10(self):
-        """Launch tuning: free UI shows 10 alerts (was 3) so users see the product working."""
-        assert tier_mod.get_limits("free")["visible_alerts"] == 10
+    def test_visible_alerts_free_is_5(self):
+        """Free feed shows the top 5 alerts; the rest blur to drive upgrade."""
+        assert tier_mod.get_limits("free")["visible_alerts"] == 5
+        assert tier_mod.get_limits("pro")["visible_alerts"] is None
 
     def test_visible_alerts_pro_unlimited(self):
         assert tier_mod.get_limits("pro")["visible_alerts"] is None
@@ -315,4 +325,38 @@ class TestTierLimitIntegrity:
         free_keys = set(tier_mod.get_limits("free").keys())
         pro_keys = set(tier_mod.get_limits("pro").keys())
         premium_keys = set(tier_mod.get_limits("premium").keys())
-        assert free_keys == pro_keys == premium_keys
+        admin_keys = set(tier_mod.get_limits("admin").keys())
+        comp_keys = set(tier_mod.get_limits("comp").keys())
+        assert free_keys == pro_keys == premium_keys == admin_keys == comp_keys
+
+
+class TestAlertGradeGate:
+    """The A-grade delivery floor: free gets A-only TV alerts; paid get all.
+
+    Mirrors api/app/routers/tv_webhook.py::_tier_grade_blocked, which gates
+    per-user Telegram/push delivery off the tier's alerts_min_grade.
+    """
+
+    @staticmethod
+    def _blocked(tier: str, grade: str) -> bool:
+        floor = tier_mod.get_limits(tier).get("alerts_min_grade")
+        return floor == "A" and (grade or "C").upper() != "A"
+
+    def test_free_blocks_b_and_c(self):
+        assert self._blocked("free", "B") is True
+        assert self._blocked("free", "C") is True
+
+    def test_free_allows_a(self):
+        assert self._blocked("free", "A") is False
+
+    def test_free_missing_grade_treated_as_c_and_blocked(self):
+        assert self._blocked("free", None) is True
+
+    def test_pro_delivers_every_grade(self):
+        for g in ("A", "B", "C", None):
+            assert self._blocked("pro", g) is False
+
+    def test_admin_and_comp_deliver_every_grade(self):
+        for tier in ("admin", "comp", "premium"):
+            for g in ("A", "B", "C"):
+                assert self._blocked(tier, g) is False

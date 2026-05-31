@@ -1224,6 +1224,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 if not getattr(user, "telegram_enabled", True):
                     logger.info("TV NOTIFY SKIP: user=%d — telegram_enabled=False", user.id)
                     continue
+                # Free tier → A-grade alerts only (the B/C firehose is a Pro perk).
+                if _tier_grade_blocked(user, getattr(alert, "grade", None)):
+                    logger.info(
+                        "TV NOTIFY SKIP: user=%d — grade %s below free A-floor",
+                        user.id, getattr(alert, "grade", None),
+                    )
+                    continue
                 prefs = {
                     "telegram_enabled": True,
                     "telegram_chat_id": user.telegram_chat_id,
@@ -1357,6 +1364,7 @@ async def _users_watching(db, symbol: str):
     alert then writes one Alert row, not one per subscribed account.
     """
     import os
+    from sqlalchemy.orm import selectinload
     from app.models.user import User
     from app.models.watchlist import WatchlistItem
 
@@ -1364,6 +1372,7 @@ async def _users_watching(db, symbol: str):
         select(User)
         .join(WatchlistItem, WatchlistItem.user_id == User.id)
         .where(WatchlistItem.symbol == symbol)
+        .options(selectinload(User.subscription))  # eager tier for grade-floor gate
         .distinct()
     )
     scan_email = (os.environ.get("SCAN_USER_EMAIL") or "vbolofinde@gmail.com").strip().lower()
@@ -1371,6 +1380,26 @@ async def _users_watching(db, symbol: str):
         stmt = stmt.where(User.email == scan_email)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+def _tier_grade_blocked(user, grade) -> bool:
+    """True when this user's tier delivers A-grade alerts only and the alert
+    isn't A — i.e. a Free user receiving a B/C TV alert. The B/C firehose is a
+    Pro perk (alerts_min_grade floor). Admins/paid tiers are never blocked.
+
+    Fails OPEN: any tier-lookup error returns False so a lookup hiccup never
+    silently kills alert delivery. Requires user.subscription to be loaded.
+    """
+    try:
+        from app.dependencies import get_user_tier, is_admin_user
+        if is_admin_user(user):
+            return False
+        from app.tier import get_limits
+        floor = get_limits(get_user_tier(user)).get("alerts_min_grade")
+        return floor == "A" and (grade or "C").upper() != "A"
+    except Exception:
+        logger.debug("tier grade gate lookup failed — delivering", exc_info=True)
+        return False
 
 
 _MA_TAG_SUFFIX_RE = __import__("re").compile(r"(\d+)([ES])")
