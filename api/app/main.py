@@ -186,6 +186,12 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_routing VARCHAR(500)",
             # Per-symbol Telegram override for AI Updates (default SPY)
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_update_symbols VARCHAR(500) DEFAULT 'SPY'",
+            # OAuth (Google / Apple) — nullable so password-only accounts still validate
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(16)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_sub VARCHAR(255)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500)",
+            "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL",
+            "CREATE INDEX IF NOT EXISTS ix_users_oauth_sub ON users (oauth_sub)",
             # Table to track one-shot data migrations so they don't re-run
             """CREATE TABLE IF NOT EXISTS migration_flags (
                 flag_name VARCHAR(200) PRIMARY KEY,

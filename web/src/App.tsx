@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { useAuthStore } from "./stores/auth";
 import { useNativePlatform } from "./hooks/useNativePlatform";
 import { usePushRegistration } from "./lib/usePushRegistration";
@@ -72,12 +73,20 @@ function PushRegistrationListener() {
 export default function App() {
   useNativePlatform();
 
+  // GoogleOAuthProvider only wraps when a Client ID is configured. With no
+  // ID it's a no-op pass-through so dev environments without env keys still
+  // render — the Google button just won't be visible.
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+  const withGoogle = (children: React.ReactNode) =>
+    googleClientId ? <GoogleOAuthProvider clientId={googleClientId}>{children}</GoogleOAuthProvider> : <>{children}</>;
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <ToastContainer />
         <UpdatePrompt />
         <AuthGate>
+          {withGoogle(
           <BrowserRouter>
             <PushRegistrationListener />
             <RouteTitle />
@@ -133,6 +142,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>
+          )}
         </AuthGate>
       </QueryClientProvider>
     </ErrorBoundary>

@@ -16,8 +16,13 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Nullable so OAuth-only accounts (Google / Apple) can exist without a password.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     display_name: Mapped[Optional[str]] = mapped_column(String(255))
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(500))
+    # OAuth identity — auto-linked by verified email when present.
+    oauth_provider: Mapped[Optional[str]] = mapped_column(String(16))   # 'google' | 'apple' | NULL
+    oauth_sub: Mapped[Optional[str]] = mapped_column(String(255), index=True)  # provider subject id
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Notification preferences (stored directly on user for simplicity)

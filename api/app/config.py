@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # AI
     ANTHROPIC_API_KEY: str = ""
 
+    # Google Sign-In (OAuth) — the OAuth 2.0 Client ID from Google Cloud
+    # Console. Used to verify ID tokens server-side at /auth/google. The
+    # same value is exposed to the web client as VITE_GOOGLE_CLIENT_ID.
+    GOOGLE_CLIENT_ID: str = ""
+
     # App
     APP_NAME: str = "BusyTradersDesk API"
     DEBUG: bool = False

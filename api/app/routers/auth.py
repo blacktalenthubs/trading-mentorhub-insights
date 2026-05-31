@@ -18,6 +18,7 @@ from app.models.user import Subscription, User
 from app.schemas.auth import (
     AuthResponse,
     ForgotPasswordRequest,
+    GoogleAuthRequest,
     LoginRequest,
     RegisterRequest,
     ResetPasswordRequest,
@@ -160,6 +161,108 @@ async def login(
     return AuthResponse(
         access_token=access_token,
         refresh_token=refresh_token,  # mobile clients store this; cookie still set for web
+        user=_build_user_response(user, tier),
+    )
+
+
+@router.post("/google", response_model=AuthResponse)
+async def google_signin(
+    body: GoogleAuthRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign in or register with a Google ID token.
+
+    Flow:
+      1. Verify the credential against Google's public keys (audience = our
+         client ID). Reject on any failure — invalid sig, wrong audience,
+         expired, or unverified email.
+      2. Look up the user by oauth_sub. Hit → log them in.
+      3. Else look up by email. Hit → auto-link Google to the existing account
+         (we only do this when google.email_verified=true, which it always is
+         for Google-issued tokens).
+      4. Else create a new user with a 3-day Pro trial, password_hash=NULL.
+
+    The response shape matches /login so the client stores the same auth.
+    """
+    if not settings.GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google Sign-In is not configured")
+
+    # Local import — google-auth is optional infra; only required if this
+    # endpoint is hit. Keeps cold-start cheap if GOOGLE_CLIENT_ID is unset.
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+
+    try:
+        info = google_id_token.verify_oauth2_token(
+            body.credential,
+            google_requests.Request(),
+            settings.GOOGLE_CLIENT_ID,
+            clock_skew_in_seconds=10,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Google token: {e}") from e
+
+    sub = info.get("sub")
+    email = (info.get("email") or "").lower()
+    if not sub or not email or not info.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Google account missing verified email")
+
+    display_name = info.get("name") or info.get("given_name") or email.split("@")[0]
+    avatar_url = info.get("picture")
+
+    from sqlalchemy.orm import selectinload
+
+    # 1. Existing OAuth identity
+    result = await db.execute(
+        select(User).options(selectinload(User.subscription)).where(User.oauth_sub == sub)
+    )
+    user = result.scalar_one_or_none()
+
+    # 2. Else existing email — auto-link
+    if not user:
+        result = await db.execute(
+            select(User).options(selectinload(User.subscription)).where(User.email == email)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            user.oauth_provider = "google"
+            user.oauth_sub = sub
+            if not user.avatar_url and avatar_url:
+                user.avatar_url = avatar_url
+            await db.flush()
+
+    # 3. Else brand-new — create with trial
+    if not user:
+        from app.tier import TRIAL_DURATION_DAYS
+        user = User(
+            email=email,
+            password_hash=None,
+            display_name=display_name,
+            avatar_url=avatar_url,
+            oauth_provider="google",
+            oauth_sub=sub,
+            attribution_source=(body.utm_source or "")[:100] or None,
+            attribution_medium=(body.utm_medium or "")[:100] or None,
+            attribution_campaign=(body.utm_campaign or "")[:200] or None,
+            attribution_referrer=(body.referrer or "")[:500] or None,
+        )
+        db.add(user)
+        await db.flush()
+        trial_ends = datetime.utcnow() + timedelta(days=TRIAL_DURATION_DAYS)
+        sub_row = Subscription(user_id=user.id, tier="free", trial_ends_at=trial_ends)
+        db.add(sub_row)
+        await db.flush()
+        user.subscription = sub_row
+
+    tier = get_user_tier(user)
+    access_token = _create_access_token(user, tier)
+    refresh_token = _create_refresh_token(user.id)
+    _set_refresh_cookie(response, refresh_token)
+
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
         user=_build_user_response(user, tier),
     )
 

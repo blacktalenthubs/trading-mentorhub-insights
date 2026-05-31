@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
 import type { AuthTokens } from "../types";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 export default function LoginPage() {
   const emailRef = useRef<HTMLInputElement>(null);
@@ -56,6 +57,15 @@ export default function LoginPage() {
           </h1>
         </div>
         {error && <p className="text-sm text-bearish-text">{error}</p>}
+
+        <GoogleSignInButton destination="/trading" />
+
+        <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-text-faint">
+          <div className="flex-1 h-px bg-border-subtle" />
+          <span>or use email</span>
+          <div className="flex-1 h-px bg-border-subtle" />
+        </div>
+
         <input
           ref={emailRef}
           type="email"

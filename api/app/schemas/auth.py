@@ -23,6 +23,21 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class GoogleAuthRequest(BaseModel):
+    """One-shot request from the frontend after Google returns an ID token.
+
+    `credential` is the JWT issued by Google Identity Services; we verify it
+    server-side against Google's public keys before trusting any fields.
+    Attribution is forwarded for new-account creation only (ignored on
+    existing accounts so we don't overwrite the original signup source).
+    """
+    credential: str
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    referrer: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     id: int
     email: str
