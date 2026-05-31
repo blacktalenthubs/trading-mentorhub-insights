@@ -15,6 +15,7 @@ import {
   useFocusListDetail,
   useRunFocusList,
   useSocialBuzz,
+  useRefreshSocialBuzz,
   type FocusListHistoryItem,
 } from "../api/hooks";
 import SwingScreenerView from "../components/SwingScreenerView";
@@ -372,6 +373,7 @@ function AIScansTab() {
 function SocialBuzzTab() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useSocialBuzz();
+  const refresh = useRefreshSocialBuzz();
 
   if (isLoading) {
     return (
@@ -407,14 +409,25 @@ function SocialBuzzTab() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between text-xs text-text-faint">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-faint">
         <span>
           {entries.length} tickers · sorted by 24h mention growth · source: Apewisdom
         </span>
-        <span className={data?.stale ? "text-warning-text" : ""}>
-          {capturedAge != null ? `Refreshed ${capturedAge}m ago` : "Loading…"}
-          {data?.stale && " · stale"}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className={data?.stale ? "text-warning-text" : ""}>
+            {capturedAge != null ? `Refreshed ${capturedAge}m ago` : "Loading…"}
+            {data?.stale && " · stale"}
+          </span>
+          <button
+            onClick={() => refresh.mutate()}
+            disabled={refresh.isPending}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
+            title="Pull the latest Apewisdom snapshot now"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
+            {refresh.isPending ? "Refreshing…" : "Run scan"}
+          </button>
+        </div>
       </div>
 
       <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">

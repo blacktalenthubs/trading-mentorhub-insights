@@ -140,6 +140,28 @@ from app.dependencies import get_current_user  # noqa: E402
 from app.models.social_buzz import SocialBuzzSnapshot  # noqa: E402
 
 
+@router.post("/social-buzz/refresh", status_code=202)
+async def refresh_social_buzz_now(
+    background: BackgroundTasks,
+    user: User = Depends(get_current_user),
+):
+    """Manual refresh trigger — same code path as the hourly cron.
+    Background task so the HTTP response returns fast. Frontend polls
+    /social-buzz a few seconds later and renders the new snapshot.
+    """
+    def _run():
+        try:
+            from app.main import app as _app
+            from analytics.social_buzz import refresh_social_buzz
+            refresh_social_buzz(_app.state.sync_session_factory)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Manual social buzz refresh failed")
+
+    background.add_task(_run)
+    return {"status": "refresh started"}
+
+
 @router.get("/social-buzz")
 async def social_buzz(
     user: User = Depends(get_current_user),

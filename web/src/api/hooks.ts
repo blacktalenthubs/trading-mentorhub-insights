@@ -88,6 +88,19 @@ export function useSocialBuzz() {
   });
 }
 
+export function useRefreshSocialBuzz() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/screener/social-buzz/refresh", {}),
+    onSuccess: () => {
+      toast.info("Social buzz refresh started — results in ~5 seconds");
+      // Apewisdom + DB write takes 2-4s; invalidate after 5s.
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["social-buzz"] }), 5000);
+    },
+    onError: () => toast.error("Failed to start refresh"),
+  });
+}
+
 // --- Auth ---
 
 export function useLogin() {

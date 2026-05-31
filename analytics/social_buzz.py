@@ -40,6 +40,42 @@ APEWISDOM_TIMEOUT = 10
 MIN_MENTIONS_24H = 10        # noise floor — below this is conversational chaff
 TOP_N = 20                   # store top 20, UI typically shows top 10
 
+# Fallback allowlist — used when screener_universe is empty (e.g., screener
+# bootstrap hasn't run yet). Keeps Social Buzz independent of the screener's
+# weekly rebuild schedule. Covers the symbols retail social actually talks
+# about: mega caps + popular small caps + meme tickers + ETFs.
+_FALLBACK_UNIVERSE: set[str] = {
+    # Mega-tech
+    "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","TSLA","AVGO","ORCL",
+    # Large tech
+    "AMD","INTC","CRM","ADBE","CSCO","QCOM","TXN","MU","AMAT","LRCX","KLAC",
+    "ASML","TSM","SMCI","CRWD","PLTR","NOW","SNOW","UBER","ABNB","SHOP","SQ",
+    "COIN","HOOD","SOFI","AFRM","RBLX","NET","DDOG","ZS","OKTA","WDAY","TEAM",
+    "DOCU","ZM",
+    # AI / data
+    "AI","BBAI","SOUN","CRDO","RKLB","ANET","CRWV","INFQ","XNDU","CRML","OKLO","DRAM",
+    # Finance
+    "JPM","BAC","WFC","C","GS","MS","BLK","SCHW","V","MA","PYPL","SPGI","ICE","CME",
+    # Healthcare / biotech
+    "JNJ","UNH","LLY","PFE","MRK","ABBV","TMO","ABT","DHR","BMY","AMGN","GILD",
+    "REGN","VRTX","MRNA","NVAX","BIIB",
+    # Energy
+    "XOM","CVX","COP","SLB","HAL","OXY","EOG","MRO","DVN","PSX","VLO","MPC",
+    "KMI","WMB","ET","CEG","NEE",
+    # Consumer
+    "WMT","HD","COST","TGT","LOW","NKE","SBUX","MCD","KO","PEP","PG","CL","UL",
+    "DIS","NFLX","CMCSA","T","VZ","CHTR",
+    # Industrial / transport
+    "BA","CAT","DE","HON","UNP","UPS","FDX","LMT","RTX","GE","GEV","MMM","EMR","ETN","ITW",
+    # Speculation / meme / popular retail
+    "GME","AMC","BB","NOK","TLRY","RIVN","LCID","NIO","XPEV","LI","BYND","SPCE",
+    "CHWY","WEN","WBD","PARA","SIRI",
+    # ETFs (heavily discussed)
+    "SPY","QQQ","IWM","DIA","XLK","XLE","XLF","XLV","XLY","XLI","XLP","XLU",
+    "ARKK","SMH","SOXX","TQQQ","SQQQ","VTI","VOO","VTV","VUG","VEA","VWO",
+    "BND","TLT","GLD","SLV","USO","UVXY","TBT",
+}
+
 
 def _fetch_apewisdom() -> Optional[list[dict]]:
     """One HTTP call, returns the raw `results` list or None on failure.
@@ -118,11 +154,16 @@ def refresh_social_buzz(session_factory) -> dict:
 
     with session_factory() as session:
         # Allowlist: symbols our screener already approved (cap + liquidity).
+        # Fallback to the hand-curated list if the screener hasn't bootstrapped
+        # yet — keeps Social Buzz independent of the screener's weekly rebuild.
         universe_symbols = {
             row[0] for row in session.execute(
                 text("SELECT symbol FROM screener_universe")
             ).all()
         }
+        if not universe_symbols:
+            logger.info("Social buzz: screener_universe empty, using fallback allowlist")
+            universe_symbols = set(_FALLBACK_UNIVERSE)
         # Crypto majors we always allow (Apewisdom returns "BTC", "ETH"; map
         # to our "BTC-USD" / "ETH-USD" convention used elsewhere in the app).
         crypto_allow = {
