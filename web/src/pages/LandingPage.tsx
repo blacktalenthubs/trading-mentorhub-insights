@@ -596,9 +596,9 @@ function Pricing() {
       cta: "Try free for 3 days",
       features: [
         "5 symbols on watchlist",
-        "Chart inquiries: 3/day",
-        "Setup notifications: 3/day",
-        "Telegram: 3 commands/day",
+        "Top setups preview (Swing & In-Play)",
+        "1 setup scan/day",
+        "A-grade observations only",
         "Today's observations only",
         "1 setup replay/day",
         "Pattern Library access",
@@ -612,34 +612,16 @@ function Pricing() {
       desc: "For active self-directed investors",
       cta: "Try free for 3 days",
       features: [
-        "10 symbols on watchlist",
-        "Chart inquiries: 50/day",
-        "Unlimited setup notifications",
-        "Telegram: 50 commands/day",
-        "Real-time Telegram delivery",
-        "Unlimited setup replays",
-        "Pre-market brief",
-        "Daily EOD review",
+        "Unlimited watchlist",
+        "Full Swing & In-Play screeners",
+        "Every observation, real-time — all grades",
+        "50 setup scans/day",
+        "Pre-market brief + daily EOD review",
         "Personal Took/Skipped analytics",
-        "30-day observation history",
-      ],
-      highlight: true,
-    },
-    {
-      name: "Premium",
-      price: "$99",
-      period: "/month",
-      desc: "Full access for serious self-directed investors",
-      cta: "Try free for 3 days",
-      features: [
-        "Everything in Pro",
-        "25 symbols on watchlist",
-        "Unlimited chart inquiries",
-        "Unlimited Telegram",
-        "Weekly summary report",
+        "Weekly AI retrospective",
         "Full observation history",
       ],
-      highlight: false,
+      highlight: true,
     },
   ];
 
@@ -654,7 +636,7 @@ function Pricing() {
           <p className="mt-4 text-text-secondary">No credit card required to start. Free tier available forever.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           {plans.map((plan) => (
             <div
               key={plan.name}

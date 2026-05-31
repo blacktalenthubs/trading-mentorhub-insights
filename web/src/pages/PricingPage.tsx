@@ -19,9 +19,9 @@ const PLANS = [
     cta: "Try free for 3 days",
     features: [
       "5 symbols on watchlist",
-      "Chart inquiries: 3/day",
-      "Setup notifications: 3/day",
-      "Telegram: 3 commands/day",
+      "Top setups preview (Swing & In-Play)",
+      "1 setup scan/day",
+      "A-grade observations only",
       "Today's observations only",
       "1 setup replay/day",
       "Pattern Library access",
@@ -35,35 +35,18 @@ const PLANS = [
     desc: "For active self-directed investors",
     cta: "Try free for 3 days",
     features: [
-      "10 symbols on watchlist",
-      "Chart inquiries: 50/day",
-      "Unlimited setup notifications",
-      "Telegram: 50 commands/day",
-      "Real-time Telegram delivery",
+      "Unlimited watchlist",
+      "Full Swing & In-Play screeners",
+      "Every observation, real-time — all grades",
+      "50 setup scans/day",
+      "Pre-market brief + daily EOD review",
+      "Personal Took/Skipped analytics",
       "Setup Grade A/B/C filter",
-      "Real-outcome MFE/MAE backfill",
-      "Weekly AI Retrospective",
+      "Weekly AI retrospective",
       "Live SPY regime gauge",
-      "30-day observation history",
-    ],
-    highlight: true,
-  },
-  {
-    name: "Premium",
-    price: "$99",
-    period: "/month",
-    desc: "Full access for serious self-directed investors",
-    cta: "Try free for 3 days",
-    features: [
-      "Everything in Pro",
-      "25 symbols on watchlist",
-      "Unlimited chart inquiries",
-      "Unlimited Telegram",
-      "Earnings T-7 notifications",
-      "Weekly summary report",
       "Full observation history",
     ],
-    highlight: false,
+    highlight: true,
   },
 ] as const;
 
@@ -85,8 +68,8 @@ const FAQ = [
     a: "No. BusyTradersDesk is a research toolkit, not an investment advisor. We do not manage your money, do not take account-linked actions, and do not make personalized recommendations. Educational purposes only.",
   },
   {
-    q: "What's the difference between Pro and Premium?",
-    a: "Pro is the daily-use tier — everything a busy professional needs to scan + receive alerts + review weekly performance. Premium adds earnings-calendar notifications (T-7 day reminders) and unlimited limits on watchlist size + AI chart inquiries. Most users start on Pro.",
+    q: "What's the difference between Free and Pro?",
+    a: "Free lets you experience everything — chart anything, preview the top setups, run a scan a day, and get the highest-conviction (A-grade) observations. Pro lifts the caps: the full Swing & In-Play screeners, every observation in real-time across all grades, an unlimited watchlist, full history, and personal performance analytics. One simple paid tier — no upsell maze.",
   },
   {
     q: "Does the AI replace my judgment?",
@@ -127,7 +110,7 @@ export default function PricingPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {PLANS.map((plan) => (
               <div
                 key={plan.name}
