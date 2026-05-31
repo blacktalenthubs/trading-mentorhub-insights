@@ -932,13 +932,16 @@ async def lifespan(app: FastAPI):
             )
             # Swing screener: daily-bar scan, NOT market-gated (valid all week).
             # Run once each morning; users can also trigger on-demand.
-            from app.services.screener_service import refresh_swing_job
+            from app.services.screener_service import refresh_swing_job, bootstrap_job
             scheduler.add_job(
                 refresh_swing_job, "cron", hour=7, minute=30,
                 timezone="America/New_York",
                 id="screener_swing_refresh", replace_existing=True,
             )
-            logger.info("Screener jobs registered (weekly rebuild + %d-min in-play + daily swing)", _scr_min)
+            # One-shot on startup: build universe if empty + initial swing scan,
+            # so both screeners self-populate on deploy (idempotent across restarts).
+            scheduler.add_job(bootstrap_job, id="screener_bootstrap", replace_existing=True)
+            logger.info("Screener jobs registered (weekly rebuild + %d-min in-play + daily swing + bootstrap)", _scr_min)
         except Exception:
             logger.exception("Failed to register screener jobs")
 

@@ -329,3 +329,23 @@ def rebuild_universe_job() -> None:
 
 def refresh_swing_job() -> None:
     asyncio.run(refresh_swing())
+
+
+async def bootstrap() -> None:
+    """One-shot self-populate on deploy: build the universe if it's empty, then run
+    an initial swing scan if no swing snapshot exists yet. Idempotent across restarts
+    (skips once the universe/snapshot are present)."""
+    try:
+        if not await _load_universe():
+            logger.info("screener: bootstrap — building universe")
+            await rebuild_universe()
+        if await get_latest_snapshot("swing") is None:
+            logger.info("screener: bootstrap — initial swing scan")
+            await refresh_swing()
+        logger.info("screener: bootstrap complete")
+    except Exception:
+        logger.exception("screener: bootstrap failed")
+
+
+def bootstrap_job() -> None:
+    asyncio.run(bootstrap())
