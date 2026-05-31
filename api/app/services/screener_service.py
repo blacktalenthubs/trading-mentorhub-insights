@@ -222,9 +222,16 @@ def _attach_refine(entry: scr.InPlayEntry, daily, intraday) -> None:
             "atr_pct": None,
         }
         entry.direction = "long" if above_ema50 else "short"
+        # A/B/C grade — same scale as TV alerts: rvol (volume ratio) + intraday VWAP slope.
+        from analytics.alert_grade import compute_grade
+        vwap_series = (intraday["Close"] * intraday["Volume"]).cumsum() / intraday["Volume"].cumsum()
+        slope = (((float(vwap_series.iloc[-1]) - float(vwap_series.iloc[-7])) / float(vwap_series.iloc[-7])) * 100
+                 if len(vwap_series) >= 7 and float(vwap_series.iloc[-7]) != 0 else 0.0)
+        entry.grade = compute_grade(entry.rvol, slope)
     except Exception:
         entry.refine = {}
         entry.direction = "neutral"
+        entry.grade = "C"
 
 
 def _fetch_most_actives(top: int = 100) -> list[str]:

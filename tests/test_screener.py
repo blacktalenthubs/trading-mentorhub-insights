@@ -197,6 +197,15 @@ def test_swing_small_cap_mode_qualifies_without_200_history():
     assert mega is not None and mega.setup is None  # mega mode needs the 200 EMA context
 
 
+def test_swing_grade_reflects_volume():
+    series = [100 + 0.5 * i for i in range(200)] + [200.0] * 50  # qualifying pullback
+    df = _daily(series)
+    df.loc[df.index[-1], "Volume"] = 3_000_000  # 3x volume spike on the signal bar
+    cand = swing_signals(df, symbol="VOL")
+    assert cand is not None and cand.setup is not None
+    assert cand.grade == "A" and cand.vol_ratio >= 2.0
+
+
 def test_swing_rejects_downtrend():
     cand = swing_signals(_daily([200 - 0.3 * i for i in range(250)]), spy_ret_20d=0.0, symbol="DN")
     assert cand is not None and cand.setup is None

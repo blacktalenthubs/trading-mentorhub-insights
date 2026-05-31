@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { Activity, AlertTriangle, Zap, Moon } from "lucide-react";
 import { useInPlay } from "../api/hooks";
 import ScreenerTable, { type Column } from "./ScreenerTable";
+import GradeBadge, { GRADE_RANK } from "./GradeBadge";
 import { IN_PLAY_PRESETS, type InPlayEntry, type InPlayPreset } from "../pages/InPlay.types";
 
 function compact(n: number): string {
@@ -79,6 +80,7 @@ export default function InPlayView() {
 
   const columns: Column<InPlayEntry>[] = [
     { key: "rank", label: "#", align: "left", cls: "w-10", value: (r) => r.rank, render: (r) => <span className="font-mono text-text-faint">{r.rank}</span> },
+    { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (r) => GRADE_RANK[(r.grade || "C").toUpperCase()] ?? 1, render: (r) => <GradeBadge grade={r.grade} /> },
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => (
       <span><span className="font-bold text-text-primary">{r.symbol}</span>{r.sector && <span className="text-text-faint text-[11px] ml-2 hidden xl:inline">{r.sector}</span>}</span>
     ) },
@@ -95,6 +97,7 @@ export default function InPlayView() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-xs text-text-faint w-4">{e.rank}</span>
+          <GradeBadge grade={e.grade} />
           <span className="font-bold text-text-primary">{e.symbol}</span>
           <Pct v={e.pct_change} />
           <SetupBadge e={e} />

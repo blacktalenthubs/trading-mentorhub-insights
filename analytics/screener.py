@@ -65,6 +65,7 @@ class InPlayEntry:
     direction: str = "neutral"  # long | short | neutral
     setup: Optional[dict] = None
     refine: dict = field(default_factory=dict)
+    grade: str = "C"           # A/B/C from rvol + intraday VWAP slope (compute_grade)
     rank: int = 0
 
     def to_dict(self) -> dict:
@@ -80,6 +81,7 @@ class InPlayEntry:
             "direction": self.direction,
             "setup": self.setup,
             "refine": self.refine,
+            "grade": self.grade,
         }
 
 
@@ -317,6 +319,8 @@ class SwingCandidate:
     setup: Optional[dict] = None  # {pattern, entry, stop, target, conviction} when it qualifies
     market_cap: float = 0.0
     sector: Optional[str] = None
+    vol_ratio: float = 1.0        # today's daily volume vs 20-day average
+    grade: str = "C"             # A/B/C — vol-only on daily (no intraday slope)
     rank: int = 0
 
     def to_dict(self) -> dict:
@@ -326,6 +330,7 @@ class SwingCandidate:
             "above_ema21": self.above_ema21, "above_ema50": self.above_ema50,
             "ema_stacked": self.ema_stacked, "ma_defense": self.ma_defense,
             "setup": self.setup, "market_cap": self.market_cap, "sector": self.sector,
+            "vol_ratio": round(self.vol_ratio, 2), "grade": self.grade,
         }
 
 
@@ -387,10 +392,17 @@ def swing_signals(
             "conviction": "High" if (stacked and name == "20 EMA") else "Moderate",
         }
 
+    # Volume ratio (today vs 20-day avg) → vol-only A/B/C grade (no intraday slope on daily).
+    vol = daily["Volume"]
+    avg_vol = float(vol.tail(20).mean()) if len(vol) >= 20 else float(vol.mean())
+    vol_ratio = (float(vol.iloc[-1]) / avg_vol) if avg_vol > 0 else 1.0
+    grade = "A" if vol_ratio >= 2.0 else ("B" if vol_ratio >= 1.3 else "C")
+
     return SwingCandidate(
         symbol=symbol, last_price=last, ret_20d=ret20, rs_vs_spy=rs,
         above_ema21=last > e20, above_ema50=last > e50, ema_stacked=stacked,
         ma_defense=tested is not None, setup=setup, market_cap=market_cap, sector=sector,
+        vol_ratio=vol_ratio, grade=grade,
     )
 
 

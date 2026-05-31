@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { TrendingUp, RefreshCw, Zap, Moon } from "lucide-react";
 import { useSwingScreener, useRefreshSwing } from "../api/hooks";
 import ScreenerTable, { type Column } from "./ScreenerTable";
+import GradeBadge, { GRADE_RANK } from "./GradeBadge";
 import type { SwingEntry } from "../pages/InPlay.types";
 
 const money = (n: number | null | undefined) => (n != null ? `$${n.toFixed(2)}` : "—");
@@ -33,6 +34,7 @@ export default function SwingScreenerView() {
 
   const columns: Column<SwingEntry>[] = [
     { key: "rank", label: "#", align: "left", cls: "w-10", value: (r) => r.rank, render: (r) => <span className="font-mono text-text-faint">{r.rank}</span> },
+    { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (r) => GRADE_RANK[(r.grade || "C").toUpperCase()] ?? 1, render: (r) => <GradeBadge grade={r.grade} /> },
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => (
       <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span>
         <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded"><Zap className="h-3 w-3" />{r.setup?.pattern ?? "EMA Defense"}</span></span>
@@ -49,7 +51,7 @@ export default function SwingScreenerView() {
   const mobileRow = (r: SwingEntry) => (
     <>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span>{r.setup && <Conv c={r.setup.conviction} />}</div>
+        <div className="flex items-center gap-2"><GradeBadge grade={r.grade} /><span className="font-bold text-text-primary">{r.symbol}</span>{r.setup && <Conv c={r.setup.conviction} />}</div>
         <span className="font-mono text-sm text-text-primary">{money(r.setup?.entry)}</span>
       </div>
       <div className="flex gap-3 mt-1 text-[11px] text-text-muted font-mono">

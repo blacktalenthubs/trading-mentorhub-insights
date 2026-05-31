@@ -31,6 +31,7 @@ export interface InPlayEntry {
   direction: "long" | "short" | "neutral";
   setup?: InPlaySetup | null;
   refine: InPlayRefine;
+  grade?: string;
 }
 
 export interface InPlaySnapshot {
@@ -55,6 +56,8 @@ export interface SwingEntry {
   setup: { pattern: string; entry: number; stop: number; target: number; conviction: string } | null;
   market_cap: number;
   sector?: string | null;
+  vol_ratio?: number;
+  grade?: string;
 }
 
 export interface SwingSnapshot {
