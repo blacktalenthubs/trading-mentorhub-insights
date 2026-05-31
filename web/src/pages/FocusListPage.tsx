@@ -25,6 +25,7 @@ import {
 } from "../api/hooks";
 import SwingScreenerView from "../components/SwingScreenerView";
 import InPlayView from "../components/InPlayView";
+import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
 import { Skeleton, SkeletonRow } from "../components/ui/Skeleton";
@@ -128,6 +129,7 @@ const money = (n: number | null | undefined) => (n != null ? `$${n.toFixed(2)}` 
 function DayTradesTab() {
   const navigate = useNavigate();
   const { data: alerts } = useAlertsToday();
+  const { visibleAlerts } = useFeatureGate();
 
   const bySymbol = new Map<string, Alert>();
   (alerts ?? []).forEach((a) => {
@@ -180,6 +182,8 @@ function DayTradesTab() {
         rowKey={(a) => String(a.id)}
         onRowClick={(a) => navigate(`/trading?symbol=${encodeURIComponent(a.symbol)}`)}
         defaultSort={{ key: "time", dir: "desc" }}
+        previewRows={visibleAlerts}
+        previewLabel="day-trade ideas"
         mobileRow={mobileRow}
         isLoading={!alerts}
         empty={<EmptyState icon={Crosshair} title="No day-trade ideas firing right now" hint="The intraday scanner watches your watchlist for Pine entry alerts. They'll appear here as they fire — usually within the first 90 minutes of the open." primary={{ label: "Edit watchlist", to: "/watchlist" }} secondary={{ label: "Open trading view", to: "/trading" }} />}
