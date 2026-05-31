@@ -102,20 +102,52 @@ def filter_universe(
     ]
 
 
+# Static fallback universe — liquid US large/mid caps. Used when the dynamic
+# yfinance screener returns nothing (e.g. yf.screen is blocked from cloud IPs).
+# Per-symbol daily data still comes from the working fetch_ohlc path.
+STATIC_UNIVERSE: tuple[str, ...] = (
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "ORCL", "AMD",
+    "ADBE", "CRM", "NFLX", "INTC", "QCOM", "TXN", "MU", "AMAT", "NOW", "INTU",
+    "IBM", "CSCO", "PLTR", "SNOW", "SHOP", "UBER", "ABNB", "PYPL", "SQ", "COIN",
+    "DELL", "HPQ", "ANET", "PANW", "CRWD", "FTNT", "DDOG", "NET", "SMCI", "MRVL",
+    "JPM", "BAC", "WFC", "GS", "MS", "C", "SCHW", "AXP", "BLK", "V",
+    "MA", "BRK-B", "UNH", "JNJ", "LLY", "PFE", "MRK", "ABBV", "TMO", "ABT",
+    "BMY", "AMGN", "GILD", "CVS", "MDT", "ISRG", "WMT", "COST", "HD", "LOW",
+    "TGT", "NKE", "SBUX", "MCD", "PG", "KO", "PEP", "DIS", "CMCSA", "T",
+    "VZ", "XOM", "CVX", "COP", "SLB", "OXY", "BA", "CAT", "GE", "HON",
+    "UPS", "RTX", "LMT", "DE", "MMM", "F", "GM", "RIVN", "LCID", "DKNG",
+    "ROKU", "PINS", "SNAP", "SOFI", "HOOD", "MARA", "RIOT", "CCL", "AAL", "DAL",
+    "PDD", "BABA", "NIO", "ON", "ASML", "TSM", "ARM", "WDAY", "TEAM", "ZS",
+)
+
+
+def static_universe_rows() -> list[UniverseRow]:
+    """Pre-vetted large-cap rows (sentinel cap/price; real prices come from the
+    per-symbol scan). Bypasses the floor filter — these are all clearly liquid."""
+    return [UniverseRow(symbol=s, market_cap=5e10, last_price=100.0, avg_dollar_vol=1e8, sector=None)
+            for s in STATIC_UNIVERSE]
+
+
 def build_universe(
     market_cap_floor: float = DEFAULT_MARKET_CAP_FLOOR,
     price_floor: float = DEFAULT_PRICE_FLOOR,
     dollar_vol_floor: float = DEFAULT_DOLLAR_VOL_FLOOR,
     fetcher: Optional[Callable[[float], list[UniverseRow]]] = None,
 ) -> list[UniverseRow]:
-    """Build the capped universe (FR-1). ``fetcher`` returns candidate rows for a
-    given market-cap floor (default: yfinance adapter); filtering is then applied
-    locally so price/$-volume floors are enforced regardless of source.
+    """Build the capped universe (FR-1). Tries the dynamic ``fetcher`` (yfinance
+    screener) and applies the floors; if that yields too few names (source blocked
+    or empty), falls back to the static large-cap list so scans always have a pool.
     """
     if fetcher is None:
         fetcher = _yfinance_universe_fetcher
-    candidates = fetcher(market_cap_floor)
-    return filter_universe(candidates, market_cap_floor, price_floor, dollar_vol_floor)
+    try:
+        candidates = fetcher(market_cap_floor)
+    except Exception:
+        candidates = []
+    rows = filter_universe(candidates, market_cap_floor, price_floor, dollar_vol_floor)
+    if len(rows) < 50:
+        rows = static_universe_rows()
+    return rows
 
 
 def _yfinance_universe_fetcher(market_cap_floor: float) -> list[UniverseRow]:  # pragma: no cover - live I/O
