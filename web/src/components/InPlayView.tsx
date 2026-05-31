@@ -47,6 +47,23 @@ function RvolCell({ v, max }: { v: number; max: number }) {
   );
 }
 
+/** VWAP slope — grade gate 2. Rising (≥0.05%) = buyers paying up = strength. */
+function VwapSlopeCell({ v }: { v: number | null | undefined }) {
+  if (v == null) return <span className="text-text-faint font-mono">—</span>;
+  const strong = v >= 0.05;
+  return (
+    <span className={`font-mono ${strong ? "text-bullish-text" : v < 0 ? "text-bearish-text" : "text-text-muted"}`}>
+      {v >= 0 ? "+" : ""}{v.toFixed(2)}%
+    </span>
+  );
+}
+
+/** Why this grade? A = ≥2× RVOL AND rising VWAP. Shown on hover over the badge. */
+const inPlayGradeTip = (r: InPlayEntry) => {
+  const slope = r.vwap_slope != null ? `${r.vwap_slope >= 0 ? "+" : ""}${r.vwap_slope.toFixed(2)}%` : "n/a";
+  return `Grade ${(r.grade || "C").toUpperCase()} — A needs ≥2× RVOL AND rising VWAP (slope ≥0.05%).\nRVOL ${r.rvol.toFixed(1)}× · VWAP slope ${slope}`;
+};
+
 function EmptyState({ marketOpen, filtered }: { marketOpen: boolean; filtered: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -80,13 +97,14 @@ export default function InPlayView() {
 
   const columns: Column<InPlayEntry>[] = [
     { key: "rank", label: "#", align: "left", cls: "w-10", value: (r) => r.rank, render: (r) => <span className="font-mono text-text-faint">{r.rank}</span> },
-    { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (r) => GRADE_RANK[(r.grade || "C").toUpperCase()] ?? 1, render: (r) => <GradeBadge grade={r.grade} /> },
+    { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (r) => GRADE_RANK[(r.grade || "C").toUpperCase()] ?? 1, render: (r) => <GradeBadge grade={r.grade} title={inPlayGradeTip(r)} /> },
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => (
       <span><span className="font-bold text-text-primary">{r.symbol}</span>{r.sector && <span className="text-text-faint text-[11px] ml-2 hidden xl:inline">{r.sector}</span>}</span>
     ) },
     { key: "last_price", label: "Price", align: "right", value: (r) => r.last_price, render: (r) => <span className="font-mono text-text-primary">{px(r.last_price)}</span> },
     { key: "pct_change", label: "% Chg", align: "right", value: (r) => r.pct_change, render: (r) => <Pct v={r.pct_change} /> },
     { key: "rvol", label: "RVOL", align: "right", value: (r) => r.rvol, render: (r) => <RvolCell v={r.rvol} max={maxRvol} /> },
+    { key: "vwap_slope", label: "VWAP", align: "right", cls: "hidden lg:table-cell", value: (r) => r.vwap_slope ?? -999, render: (r) => <VwapSlopeCell v={r.vwap_slope} /> },
     { key: "dollar_vol", label: "$ Vol", align: "right", value: (r) => r.dollar_vol, render: (r) => <span className="font-mono text-text-secondary">{compact(r.dollar_vol)}</span> },
     { key: "market_cap", label: "Mkt Cap", align: "right", value: (r) => r.market_cap, render: (r) => <span className="font-mono text-text-secondary">{compact(r.market_cap)}</span> },
     { key: "setup", label: "Setup", align: "left", render: (r) => <SetupBadge e={r} /> },
@@ -97,7 +115,7 @@ export default function InPlayView() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-xs text-text-faint w-4">{e.rank}</span>
-          <GradeBadge grade={e.grade} />
+          <GradeBadge grade={e.grade} title={inPlayGradeTip(e)} />
           <span className="font-bold text-text-primary">{e.symbol}</span>
           <Pct v={e.pct_change} />
           <SetupBadge e={e} />
@@ -106,6 +124,11 @@ export default function InPlayView() {
       </div>
       <div className="flex items-center gap-3 mt-1.5 pl-6 text-[11px] text-text-muted font-mono">
         <span className={e.rvol >= 2 ? "text-accent" : ""}>RVOL {e.rvol.toFixed(1)}x</span>
+        {e.vwap_slope != null && (
+          <span className={e.vwap_slope >= 0.05 ? "text-bullish-text" : e.vwap_slope < 0 ? "text-bearish-text" : ""}>
+            VWAP {e.vwap_slope >= 0 ? "+" : ""}{e.vwap_slope.toFixed(2)}%
+          </span>
+        )}
         <span>{compact(e.dollar_vol)}</span>
         <span>{compact(e.market_cap)} cap</span>
       </div>

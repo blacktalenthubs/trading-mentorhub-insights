@@ -227,10 +227,12 @@ def _attach_refine(entry: scr.InPlayEntry, daily, intraday) -> None:
         vwap_series = (intraday["Close"] * intraday["Volume"]).cumsum() / intraday["Volume"].cumsum()
         slope = (((float(vwap_series.iloc[-1]) - float(vwap_series.iloc[-7])) / float(vwap_series.iloc[-7])) * 100
                  if len(vwap_series) >= 7 and float(vwap_series.iloc[-7]) != 0 else 0.0)
+        entry.vwap_slope = slope
         entry.grade = compute_grade(entry.rvol, slope)
     except Exception:
         entry.refine = {}
         entry.direction = "neutral"
+        entry.vwap_slope = None
         entry.grade = "C"
 
 

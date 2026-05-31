@@ -65,6 +65,7 @@ class InPlayEntry:
     direction: str = "neutral"  # long | short | neutral
     setup: Optional[dict] = None
     refine: dict = field(default_factory=dict)
+    vwap_slope: Optional[float] = None  # intraday VWAP slope % (grade gate 2; None until refined)
     grade: str = "C"           # A/B/C from rvol + intraday VWAP slope (compute_grade)
     rank: int = 0
 
@@ -81,6 +82,7 @@ class InPlayEntry:
             "direction": self.direction,
             "setup": self.setup,
             "refine": self.refine,
+            "vwap_slope": round(self.vwap_slope, 3) if self.vwap_slope is not None else None,
             "grade": self.grade,
         }
 

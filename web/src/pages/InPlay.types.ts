@@ -31,6 +31,7 @@ export interface InPlayEntry {
   direction: "long" | "short" | "neutral";
   setup?: InPlaySetup | null;
   refine: InPlayRefine;
+  vwap_slope?: number | null;
   grade?: string;
 }
 

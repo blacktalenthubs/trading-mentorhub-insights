@@ -35,6 +35,21 @@ function Conv({ c }: { c: string }) {
   return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cls}`}>{c}</span>;
 }
 
+/** Volume ratio — grade gate 1. ≥2× avg = heavy participation. */
+function VolCell({ v }: { v: number | null | undefined }) {
+  if (v == null) return <span className="text-text-faint font-mono">—</span>;
+  return <span className={`font-mono ${v >= 2 ? "text-accent" : "text-text-secondary"}`}>{v.toFixed(1)}×</span>;
+}
+
+/** Close strength (CLV) — grade gate 2. Where the close sits in today's range:
+ *  ≥66% (top third) = buyers defended into the close; ≤33% = closed on the lows. */
+function CloseCell({ v }: { v: number | null | undefined }) {
+  if (v == null) return <span className="text-text-faint font-mono">—</span>;
+  const pct = Math.round(v * 100);
+  const cls = v >= 0.66 ? "text-bullish-text" : v <= 0.33 ? "text-bearish-text" : "text-text-muted";
+  return <span className={`font-mono ${cls}`} title={v >= 0.66 ? "strong close" : v <= 0.33 ? "weak close" : "mid"}>{pct}%</span>;
+}
+
 export default function SwingScreenerView() {
   const [cap, setCap] = useState<"mega" | "small">("mega");
   const [runId, setRunId] = useState<number | null>(null);  // null = latest live run
@@ -56,6 +71,8 @@ export default function SwingScreenerView() {
     { key: "price", label: "Price", align: "right", value: (r) => r.last_price, render: (r) => <span className="font-mono text-text-primary">{money(r.last_price)}</span> },
     { key: "ret_20d", label: "20d", align: "right", cls: "hidden lg:table-cell", value: (r) => r.ret_20d, render: (r) => <Pct v={r.ret_20d} /> },
     { key: "rs", label: "RS vs SPY", align: "right", value: (r) => r.rs_vs_spy, render: (r) => <span className={`font-mono ${r.rs_vs_spy >= 0 ? "text-accent" : "text-text-muted"}`}>{r.rs_vs_spy >= 0 ? "+" : ""}{r.rs_vs_spy.toFixed(1)}</span> },
+    { key: "vol", label: "Vol", align: "right", cls: "hidden lg:table-cell", value: (r) => r.vol_ratio ?? 0, render: (r) => <VolCell v={r.vol_ratio} /> },
+    { key: "close", label: "Close", align: "right", cls: "hidden lg:table-cell", value: (r) => r.close_strength ?? 0, render: (r) => <CloseCell v={r.close_strength} /> },
     { key: "entry", label: "Entry", align: "right", render: (r) => <span className="font-mono text-text-primary">{money(r.setup?.entry)}</span> },
     { key: "stop", label: "Stop", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bearish-text">{money(r.setup?.stop)}</span> },
     { key: "target", label: "Target", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bullish-text">{money(r.setup?.target)}</span> },
@@ -68,8 +85,10 @@ export default function SwingScreenerView() {
         <div className="flex items-center gap-2"><GradeBadge grade={r.grade} title={gradeTip(r)} /><span className="font-bold text-text-primary">{r.symbol}</span>{r.setup && <Conv c={r.setup.conviction} />}</div>
         <span className="font-mono text-sm text-text-primary">{money(r.setup?.entry)}</span>
       </div>
-      <div className="flex gap-3 mt-1 text-[11px] text-text-muted font-mono">
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px] text-text-muted font-mono">
         <span>20d <Pct v={r.ret_20d} /></span><span>RS {r.rs_vs_spy >= 0 ? "+" : ""}{r.rs_vs_spy.toFixed(1)}</span>
+        {r.vol_ratio != null && <span className={r.vol_ratio >= 2 ? "text-accent" : ""}>Vol {r.vol_ratio.toFixed(1)}×</span>}
+        {r.close_strength != null && <span className={r.close_strength >= 0.66 ? "text-bullish-text" : r.close_strength <= 0.33 ? "text-bearish-text" : ""}>Close {Math.round(r.close_strength * 100)}%</span>}
         <span>S {money(r.setup?.stop)}</span><span>T {money(r.setup?.target)}</span>
       </div>
     </>
