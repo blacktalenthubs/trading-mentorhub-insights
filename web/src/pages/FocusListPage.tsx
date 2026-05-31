@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, Target, History, Sparkles, Crosshair, Activity, Flame,
-  ChevronDown, ChevronRight, MessageSquare,
+  ChevronDown, ChevronUp, ChevronRight, MessageSquare,
 } from "lucide-react";
 import {
   useAlertsToday,
@@ -383,9 +383,13 @@ function SocialBuzzTab() {
   const history = useSocialBuzzHistory();
   const refresh = useRefreshSocialBuzz();
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: SocialSortKey; dir: "asc" | "desc" }>({ key: "growth", dir: "desc" });
 
   function toggleExpand(symbol: string) {
     setExpanded((cur) => (cur === symbol ? null : symbol));
+  }
+  function toggleSort(key: SocialSortKey) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
   }
 
   if (isLoading) {
@@ -412,6 +416,13 @@ function SocialBuzzTab() {
   }
 
   const entries = data?.entries ?? [];
+  const sortedEntries = [...entries].sort((a, b) => {
+    const av = socialSortVal(a, sort.key);
+    const bv = socialSortVal(b, sort.key);
+    const dir = sort.dir === "asc" ? 1 : -1;
+    if (typeof av === "string" || typeof bv === "string") return String(av).localeCompare(String(bv)) * dir;
+    return (av - bv) * dir;
+  });
   if (entries.length === 0) {
     return (
       <EmptyState
@@ -431,7 +442,7 @@ function SocialBuzzTab() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-faint">
         <span>
-          {entries.length} tickers · sorted by 24h mention growth · source: Apewisdom
+          {entries.length} tickers · tap a column to sort · source: Apewisdom
         </span>
         <div className="flex items-center gap-3">
           {history.data && history.data.runs.length > 1 && (
@@ -471,13 +482,13 @@ function SocialBuzzTab() {
         {/* Header */}
         <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-text-faint font-medium border-b border-border-subtle/50 bg-surface-2/30">
           <span className="col-span-1">#</span>
-          <span className="col-span-3">Symbol</span>
-          <span className="col-span-2 text-right">Mentions</span>
-          <span className="col-span-2 text-right">Δ24h</span>
-          <span className="col-span-2 text-center">Sentiment</span>
-          <span className="col-span-2 text-right">Confluence</span>
+          <SocialTh label="Symbol" k="symbol" sort={sort} onSort={toggleSort} className="col-span-3" />
+          <SocialTh label="Mentions" k="mentions" sort={sort} onSort={toggleSort} align="right" className="col-span-2" />
+          <SocialTh label="Δ24h" k="growth" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="Change in mentions vs 24h ago — new attention" />
+          <SocialTh label="Upvotes" k="upvotes" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="Total upvotes across posts — engagement weight" />
+          <SocialTh label="Grade A" k="confluence" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="🔥 = this buzz ticker ALSO fired a Grade-A alert in our scanner today" />
         </div>
-        {entries.map((e, i) => (
+        {sortedEntries.map((e, i) => (
           <SocialBuzzRow
             key={e.symbol}
             entry={e}
@@ -498,6 +509,42 @@ function SocialBuzzTab() {
 
 /* ── One row in the Social Buzz table — expandable to show StockTwits context ── */
 
+type SocialSortKey = "symbol" | "mentions" | "growth" | "upvotes" | "confluence";
+
+function socialSortVal(e: SocialBuzzEntry, key: SocialSortKey): number | string {
+  switch (key) {
+    case "symbol": return e.symbol;
+    case "mentions": return e.mentions;
+    case "growth": return e.growth_pct ?? -Infinity;
+    case "upvotes": return e.upvotes ?? 0;
+    case "confluence": return e.has_grade_a_today ? 1 : 0;
+  }
+}
+
+function SocialTh({ label, k, sort, onSort, align, className, title }: {
+  label: string;
+  k: SocialSortKey;
+  sort: { key: SocialSortKey; dir: "asc" | "desc" };
+  onSort: (k: SocialSortKey) => void;
+  align?: "right";
+  className?: string;
+  title?: string;
+}) {
+  const active = sort.key === k;
+  return (
+    <button
+      onClick={() => onSort(k)}
+      title={title}
+      className={`flex items-center gap-1 select-none hover:text-text-secondary transition-colors ${
+        align === "right" ? "justify-end" : ""
+      } ${className ?? ""}`}
+    >
+      {label}
+      {active && (sort.dir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+    </button>
+  );
+}
+
 function SocialBuzzRow({
   entry: e, rank, expanded, onToggleExpand, onOpenChart,
 }: {
@@ -511,17 +558,9 @@ function SocialBuzzRow({
   const growthCls = growth == null ? "text-text-faint"
     : growth >= 200 ? "text-bullish-text font-bold"
     : growth >= 50 ? "text-bullish-text"
-    : growth > 0 ? "text-text-secondary"
+    : growth > 0 ? "text-bullish-text/80"
+    : growth < 0 ? "text-bearish-text/80"
     : "text-text-faint";
-
-  const sentLabel = e.sentiment == null ? "—"
-    : e.sentiment > 0.2 ? "bullish"
-    : e.sentiment < -0.2 ? "bearish"
-    : "mixed";
-  const sentCls = e.sentiment == null ? "text-text-faint"
-    : e.sentiment > 0.2 ? "text-bullish-text"
-    : e.sentiment < -0.2 ? "text-bearish-text"
-    : "text-text-muted";
 
   return (
     <div className={`border-b border-border-subtle/30 last:border-b-0 ${e.has_grade_a_today ? "bg-bullish/5" : ""}`}>
@@ -553,8 +592,8 @@ function SocialBuzzRow({
         <span className={`col-span-2 text-right font-mono ${growthCls}`}>
           {growth == null ? "—" : `${growth >= 0 ? "+" : ""}${growth.toFixed(0)}%`}
         </span>
-        <span className={`col-span-2 text-center text-[11px] ${sentCls}`}>
-          {sentLabel}
+        <span className="col-span-2 text-right font-mono text-text-secondary">
+          {e.upvotes ? e.upvotes.toLocaleString() : "—"}
         </span>
         <span className="col-span-2 text-right">
           {e.has_grade_a_today ? (

@@ -66,6 +66,7 @@ export interface SocialBuzzEntry {
   mentions: number;
   mentions_prev_24h: number;
   growth_pct: number | null;
+  upvotes?: number;
   sentiment: number | null;
   sentiment_score: number | null;
   rank: number;

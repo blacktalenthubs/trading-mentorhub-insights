@@ -221,7 +221,8 @@ def refresh_social_buzz(session_factory) -> dict:
                 "mentions": mentions,
                 "mentions_prev_24h": mentions_prev,
                 "growth_pct": growth_pct,
-                "sentiment": sentiment,
+                "upvotes": _to_int(row.get("upvotes")),  # real engagement (Apewisdom sentiment is null)
+                "sentiment": sentiment,                  # kept for back-compat; Apewisdom returns null
                 "sentiment_score": sentiment_score,
                 "rank": _to_int(row.get("rank")),
                 "has_grade_a_today": symbol.upper() in grade_a_today,
