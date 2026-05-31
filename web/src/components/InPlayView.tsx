@@ -58,7 +58,9 @@ function Row({ e, onOpen }: { e: InPlayEntry; onOpen: (s: string) => void }) {
 }
 
 export default function InPlayView() {
-  const [preset, setPreset] = useState<InPlayPreset>("momentum_long");
+  // Default to "All" (full ranked list). Momentum Long requires rs_vs_spy, which the
+  // live service doesn't compute yet — defaulting to it would show an empty list.
+  const [preset, setPreset] = useState<InPlayPreset>("any");
   const [hasSetup, setHasSetup] = useState(false);
   const { data, isLoading, isError } = useInPlay(preset, hasSetup);
   const navigate = useNavigate();
