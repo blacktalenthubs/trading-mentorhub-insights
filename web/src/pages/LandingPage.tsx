@@ -116,9 +116,9 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto leading-relaxed">
-          A desk that scans your watchlist during market hours, maps every setup to a
-          documented pattern, and files a transparent end-of-day report — so you trade on
-          structure, not FOMO. Built for traders with day jobs.
+          Setups graded A / B / C by volume + VWAP slope. Real outcomes computed from
+          actual post-fire price action — not synthetic win rates. A Friday AI retro of
+          what worked. Built for traders with day jobs.
         </p>
 
         {/* CTA */}
@@ -145,9 +145,9 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         {/* What the toolkit covers */}
         <div className="mt-16 flex flex-wrap justify-center gap-6 sm:gap-10">
           {[
-            { label: "Documented patterns", value: "14", color: "text-accent" },
+            { label: "Setup grade per alert", value: "A / B / C", color: "text-accent" },
             { label: "Daily EOD reports", value: "Public", color: "text-bullish-text" },
-            { label: "Coverage", value: "Stocks + Crypto", color: "text-text-primary" },
+            { label: "Real outcomes (no synthetic)", value: "MFE / MAE", color: "text-text-primary" },
           ].map((m) => (
             <div key={m.label} className="flex flex-col items-center">
               <span className={`font-mono text-2xl sm:text-3xl font-bold ${m.color}`}>{m.value}</span>
@@ -157,51 +157,57 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         </div>
       </div>
 
-      {/* Hero visual — AI Scan alert card */}
+      {/* Hero visual — sample Grade-A alert card matching the in-app feed */}
       <div className="relative z-10 mt-16 max-w-3xl mx-auto w-full px-4">
         <div className="bg-surface-1 border border-border-subtle rounded-2xl p-6 shadow-elevated relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-0.5 bg-bullish" />
-          <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start justify-between mb-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center">
                 <Scan className="h-5 w-5 text-accent" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-bold text-text-primary">CRWD</span>
+                  <span className="text-lg font-bold text-text-primary">PLTR</span>
                   <span className="bg-bullish/10 text-bullish-text text-[10px] font-bold px-2 py-0.5 rounded border border-bullish/20">LONG</span>
-                  <span className="text-[8px] font-bold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded">SETUP</span>
+                  {/* Grade A badge — matches the Signal Feed card */}
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-bullish text-white border-bullish">A</span>
                 </div>
-                <span className="text-xs text-text-muted">PDL Bounce -- Prior Day Low held with volume</span>
+                <span className="text-xs text-text-muted">PDH break · VWAP+vol confluence</span>
               </div>
             </div>
-            <span className="font-mono text-xl font-bold text-text-primary">$483.20</span>
+            <span className="font-mono text-xl font-bold text-text-primary">$135.73</span>
+          </div>
+
+          {/* Quality strip — exactly what shows on every in-app alert */}
+          <div className="flex items-center gap-3 mb-3 text-[11px] font-mono">
+            <span className="text-bullish-text">Vol <span className="font-semibold">11.0×</span></span>
+            <span className="text-bullish-text">Slope <span className="font-semibold">+1.20%</span></span>
+            <span className="text-text-faint">·</span>
+            <span className="text-text-muted">above session VWAP</span>
           </div>
 
           <div className="bg-surface-0 rounded-lg p-3 border border-border-subtle/50 mb-4">
             <p className="text-sm text-text-secondary leading-relaxed">
               <Zap className="inline h-3.5 w-3.5 text-accent mr-1" />
-              Session low tested PDL at $480.50 and held. Volume 1.3x average on bounce candle.
-              VWAP reclaimed. Next resistance at session high $489.00.
+              Cleared yesterday's high at $134.50 on 11× average volume with VWAP slope rising.
+              Both v2 quality gates passed → Grade A. Real-outcome backfill (next bar) confirmed
+              +1.4R MFE before any -1R drawdown.
             </p>
           </div>
 
-          <div className="grid grid-cols-4 gap-3 bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
+          <div className="grid grid-cols-3 gap-3 bg-surface-0 rounded-lg p-3 border border-border-subtle/50">
             <div>
               <span className="text-[9px] text-text-faint uppercase">Entry</span>
-              <p className="font-mono text-sm font-medium text-text-primary">$480.50</p>
+              <p className="font-mono text-sm font-medium text-accent">$135.73</p>
             </div>
             <div>
               <span className="text-[9px] text-bearish-text uppercase">Stop</span>
-              <p className="font-mono text-sm font-medium text-bearish-text">$476.00</p>
+              <p className="font-mono text-sm font-medium text-bearish-text">$134.20</p>
             </div>
             <div>
-              <span className="text-[9px] text-bullish-text uppercase">Target 1</span>
-              <p className="font-mono text-sm font-medium text-bullish-text">$489.00</p>
-            </div>
-            <div>
-              <span className="text-[9px] text-text-faint uppercase">Conviction</span>
-              <p className="font-mono text-sm font-medium text-accent">HIGH</p>
+              <span className="text-[9px] text-bullish-text uppercase">Target</span>
+              <p className="font-mono text-sm font-medium text-bullish-text">$138.50</p>
             </div>
           </div>
         </div>
