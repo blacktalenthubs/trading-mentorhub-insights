@@ -7,6 +7,7 @@ import { usePushRegistration } from "./lib/usePushRegistration";
 
 import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
+import UpdatePrompt from "./components/UpdatePrompt";
 import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
 import ReplayPage from "./pages/ReplayPage";
@@ -74,6 +75,7 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <ToastContainer />
+        <UpdatePrompt />
         <AuthGate>
           <BrowserRouter>
             <PushRegistrationListener />

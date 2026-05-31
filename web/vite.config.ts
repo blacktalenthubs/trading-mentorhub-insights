@@ -9,7 +9,7 @@ export default defineConfig({
     tailwindcss(),
     // PWA — installable on iOS/Android home screen.
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['logo-profile.svg'],
       manifest: {
         name: 'BusyTradersDesk',
