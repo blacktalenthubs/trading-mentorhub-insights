@@ -12,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 import {
   useWatchlist, useAddSymbol, useRemoveSymbol,
   useTelegramStatus, useTelegramLink,
-  useAlertPrefs, useUpdateAlertPrefs,
+  useUpdateAlertPrefs,
 } from "../api/hooks";
 import {
   Crosshair, Check, ChevronRight, Send, Plus,
@@ -257,76 +257,149 @@ function StepTelegram({ onNext, onBack }: { onNext: () => void; onBack: () => vo
 
 /* ── Step 3: Alert Preferences ────────────────────────────────────── */
 
+/* Trader profile presets — maps "I'm a ___" to the right alert categories.
+ * Removes the 8-toggle paralysis the old StepPreferences caused. */
+type TraderProfile = "day" | "swing" | "both";
+
+const PROFILE_PRESETS: Record<TraderProfile, {
+  title: string;
+  subtitle: string;
+  bullets: string[];
+  categories: Record<string, boolean>;
+}> = {
+  day: {
+    title: "Busy Day Trader",
+    subtitle: "Intraday setups, scan in 5 min before/during work hours",
+    bullets: [
+      "PDH/PDL breaks + holds",
+      "MA bounces (intraday)",
+      "Gap-up continuation",
+      "Exit alerts on positions",
+    ],
+    categories: {
+      entry_signals: true,
+      breakout_signals: true,
+      exit_alerts: true,
+      resistance_warnings: true,
+      short_signals: false,
+      support_warnings: false,
+      swing_trade: false,
+      informational: false,
+    },
+  },
+  swing: {
+    title: "Swing Trader",
+    subtitle: "Daily-bar setups, 1-2 weeks holding period",
+    bullets: [
+      "Daily EMA bounces (8/21/50/200)",
+      "Anchored VWAP defenses",
+      "52-week-high retests",
+      "RSI-30 recoveries",
+    ],
+    categories: {
+      entry_signals: false,
+      breakout_signals: false,
+      exit_alerts: false,
+      resistance_warnings: false,
+      short_signals: false,
+      support_warnings: false,
+      swing_trade: true,
+      informational: true,
+    },
+  },
+  both: {
+    title: "Both",
+    subtitle: "I trade intraday AND swing — give me everything",
+    bullets: [
+      "All day-trade categories",
+      "All swing categories",
+      "Exit alerts on every position",
+      "Tune more in Settings later",
+    ],
+    categories: {
+      entry_signals: true,
+      breakout_signals: true,
+      exit_alerts: true,
+      resistance_warnings: true,
+      short_signals: false,
+      support_warnings: false,
+      swing_trade: true,
+      informational: false,
+    },
+  },
+};
+
 function StepPreferences({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const { data: alertPrefs } = useAlertPrefs();
   const updateAlertPrefs = useUpdateAlertPrefs();
-  const [catToggles, setCatToggles] = useState<Record<string, boolean>>({});
-  const [synced, setSynced] = useState(false);
+  const [selected, setSelected] = useState<TraderProfile | null>(null);
 
-  if (alertPrefs && !synced) {
-    const toggles: Record<string, boolean> = {};
-    alertPrefs.categories.forEach((c) => { toggles[c.category_id] = c.enabled; });
-    setCatToggles(toggles);
-    setSynced(true);
-  }
-
-  function handleSaveAndContinue() {
+  function handlePick(profile: TraderProfile) {
+    setSelected(profile);
     updateAlertPrefs.mutate(
-      { categories: catToggles, min_score: 0 },
+      { categories: PROFILE_PRESETS[profile].categories, min_score: 0 },
       { onSuccess: () => onNext() },
     );
   }
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-text-primary mb-2">Choose your alert patterns</h2>
+      <h2 className="text-2xl font-bold text-text-primary mb-2">How do you trade?</h2>
       <p className="text-text-muted text-sm mb-6">
-        Pick which trading patterns you want alerts for. You can change these anytime in Settings.
-        We recommend keeping all enabled to start — you'll learn which ones work best for you.
+        Pick one to auto-enable the right alert patterns. You can tune individual
+        patterns in Settings → Alert Types later.
       </p>
 
-      {alertPrefs ? (
-        <div className="space-y-2 mb-6">
-          {alertPrefs.categories.map((cat) => (
-            <label
-              key={cat.category_id}
-              className="flex items-start gap-3 p-3 rounded-lg border border-border-subtle hover:bg-surface-2/50 cursor-pointer transition-colors"
+      <div className="space-y-3 mb-6">
+        {(["day", "swing", "both"] as TraderProfile[]).map((id) => {
+          const p = PROFILE_PRESETS[id];
+          const isSelected = selected === id;
+          const isLoading = isSelected && updateAlertPrefs.isPending;
+          return (
+            <button
+              key={id}
+              onClick={() => handlePick(id)}
+              disabled={updateAlertPrefs.isPending}
+              className={`w-full text-left flex items-start gap-3 p-4 rounded-lg border transition-colors ${
+                isSelected
+                  ? "border-accent bg-accent/10"
+                  : "border-border-subtle hover:bg-surface-2/50"
+              } disabled:opacity-60`}
             >
-              <input
-                type="checkbox"
-                checked={catToggles[cat.category_id] ?? true}
-                onChange={(e) => setCatToggles((prev) => ({ ...prev, [cat.category_id]: e.target.checked }))}
-                className="mt-0.5 rounded border-border-subtle"
-              />
-              <div className="flex-1">
-                <span className="text-sm font-medium text-text-primary">{cat.name}</span>
-                <p className="text-[10px] text-text-faint leading-tight mt-0.5">{cat.description}</p>
+              <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                isSelected ? "border-accent" : "border-border-subtle"
+              }`}>
+                {isLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                ) : isSelected ? (
+                  <div className="w-2.5 h-2.5 rounded-full bg-accent" />
+                ) : null}
               </div>
-            </label>
-          ))}
-        </div>
-      ) : (
-        <div className="h-40 flex items-center justify-center">
-          <Loader2 className="h-5 w-5 animate-spin text-text-faint" />
-        </div>
-      )}
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-base font-bold text-text-primary">{p.title}</span>
+                </div>
+                <p className="text-xs text-text-muted mb-2">{p.subtitle}</p>
+                <ul className="space-y-0.5">
+                  {p.bullets.map((b) => (
+                    <li key={b} className="text-[11px] text-text-secondary flex items-center gap-1.5">
+                      <Check className="h-3 w-3 text-bullish-text shrink-0" />
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex items-center justify-between">
         <button onClick={onBack} className="text-sm text-text-faint hover:text-text-muted transition-colors">
           Back
         </button>
-        <button
-          onClick={handleSaveAndContinue}
-          disabled={updateAlertPrefs.isPending}
-          className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white font-semibold py-2.5 px-6 rounded-lg transition-colors disabled:opacity-50"
-        >
-          {updateAlertPrefs.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            "Save & Continue"
-          )}
-          <ChevronRight className="h-4 w-4" />
-        </button>
+        <span className="text-[11px] text-text-faint italic">
+          Pick one to continue — auto-saves
+        </span>
       </div>
     </div>
   );
