@@ -316,43 +316,49 @@ def swing_signals(
     daily: pd.DataFrame, spy_ret_20d: float = 0.0, *,
     symbol: str = "", market_cap: float = 0.0, sector: Optional[str] = None,
 ) -> Optional[SwingCandidate]:
-    """Evaluate one symbol's DAILY bars for a Trend + MA-defense swing setup.
+    """Evaluate DAILY bars for a 'closing right at a key MA' swing setup.
 
-    Qualifies when: price > 21 & 50 EMA, stack 21>50>200, a recent tag-and-hold
-    of the 21/50 EMA (the defense), and relative strength vs SPY > 0.
-    Returns a SwingCandidate (``setup`` populated only when it qualifies), or None
-    if there isn't enough history.
+    A swing entry is a pullback that holds a key moving average — price closes
+    *at* the 20 / 50 / 200 EMA (tested it intrabar, closed within a tight band),
+    in an uptrend, NOT extended. Stop sits just below that MA → tight R:R. Extended
+    names (price well above every MA) are rejected — you don't chase and call it a swing.
     """
     if daily is None or daily.empty or "Close" not in daily.columns or len(daily) < 60:
         return None
     c = daily["Close"]
     last = float(c.iloc[-1])
-    v21, v50, v200 = float(_ema(c, 21).iloc[-1]), float(_ema(c, 50).iloc[-1]), float(_ema(c, 200).iloc[-1])
-    above21, above50 = last > v21, last > v50
-    stacked = v21 > v50 > v200
+    low = float(daily["Low"].iloc[-1])
+    e20, e50, e200 = float(_ema(c, 20).iloc[-1]), float(_ema(c, 50).iloc[-1]), float(_ema(c, 200).iloc[-1])
     ret20 = (last / float(c.iloc[-21]) - 1.0) * 100.0 if len(c) > 21 else 0.0
     rs = ret20 - spy_ret_20d
 
-    # MA defense: within the last 5 bars a low tagged the 21 or 50 EMA and the close held above it.
-    lows, closes = daily["Low"].iloc[-5:], c.iloc[-5:]
-    defense = any(
-        (float(lo) <= v21 * 1.01 and float(cl) > v21) or (float(lo) <= v50 * 1.01 and float(cl) > v50)
-        for lo, cl in zip(lows, closes)
-    )
+    uptrend = e50 > e200 and last > e200          # rising structure, above the long-term MA
+    stacked = e20 > e50 > e200
+
+    # Which key MA is price closing JUST AT? Nearest first. "At" = today's low tested
+    # it (within 1%) AND the close sits in a tight band (-1% to +2%) around it.
+    tested = None  # (name, ma_value)
+    for name, ma in (("20 EMA", e20), ("50 EMA", e50), ("200 EMA", e200)):
+        if low <= ma * 1.01 and -0.01 <= (last - ma) / ma <= 0.02:
+            tested = (name, ma)
+            break
 
     setup = None
-    if above21 and above50 and stacked and defense and rs > 0:
-        stop = round(min(v50, float(daily["Low"].iloc[-5:].min())) * 0.99, 2)
-        risk = max(0.01, last - stop)
+    if tested is not None and uptrend:
+        name, ma = tested
+        stop = round(min(low, ma) * 0.985, 2)     # just below the held MA / bar low → tight
+        entry = round(last, 2)
+        risk = max(0.01, entry - stop)
         setup = {
-            "pattern": "21/50 EMA Defense", "entry": round(last, 2), "stop": stop,
-            "target": round(last + risk * 2.0, 2), "conviction": "High" if rs > 5 else "Moderate",
+            "pattern": f"{name} hold", "entry": entry, "stop": stop,
+            "target": round(entry + risk * 3.0, 2),   # ~3R, like a clean MA-pullback entry
+            "conviction": "High" if (stacked and name == "20 EMA") else "Moderate",
         }
 
     return SwingCandidate(
         symbol=symbol, last_price=last, ret_20d=ret20, rs_vs_spy=rs,
-        above_ema21=above21, above_ema50=above50, ema_stacked=stacked, ma_defense=defense,
-        setup=setup, market_cap=market_cap, sector=sector,
+        above_ema21=last > e20, above_ema50=last > e50, ema_stacked=stacked,
+        ma_defense=tested is not None, setup=setup, market_cap=market_cap, sector=sector,
     )
 
 

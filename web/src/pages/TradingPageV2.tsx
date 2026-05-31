@@ -767,9 +767,22 @@ export default function TradingPageV2() {
   }, []);
 
   /* ── Derived state ── */
-  const selected = signals?.find((s) => s.symbol === selectedSymbol) ?? null;
+  const watchlistSignal = signals?.find((s) => s.symbol === selectedSymbol) ?? null;
+  // Ad-hoc fallback: screener / non-watchlist symbols still chart (no scanner levels).
+  // chartLevels and all `selected.X` reads are null-safe, so empty levels are fine.
+  const selected =
+    watchlistSignal ??
+    (selectedSymbol
+      ? ({
+          symbol: selectedSymbol, close: 0, last_close: 0,
+          entry: null, stop: null, target_1: null, target_2: null,
+          direction: "LONG", score: 0, score_label: "",
+          support_label: "", support_status: "", nearest_support: null,
+          ref_day_high: null, ref_day_low: null, ma20: null, ma50: null,
+        } as unknown as SignalResult)
+      : null);
   const tf = TIMEFRAMES[tfIdx];
-  const { data: ohlcv } = useOHLCV(selected?.symbol ?? "", tf.period, tf.interval);
+  const { data: ohlcv } = useOHLCV(selectedSymbol ?? "", tf.period, tf.interval);
 
   const chartLevels = (() => {
     if (!selected) return [];
