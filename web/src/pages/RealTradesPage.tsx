@@ -16,6 +16,7 @@ import {
 import EODReportPage from "./EODReportPage";
 import TradeReviewPage from "./TradeReviewPage";
 import WeeklyReport from "../components/WeeklyReport";
+import { SkeletonRow } from "../components/ui/Skeleton";
 import type { Alert } from "../types";
 import {
   BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileText, Check,
@@ -286,8 +287,8 @@ function AlertTypePerformanceSection() {
 
   if (isLoading) {
     return (
-      <div className="bg-surface-1 border border-border-subtle rounded-xl p-6 text-center text-xs text-text-faint">
-        Loading performance…
+      <div className="bg-surface-1 border border-border-subtle rounded-xl p-4 space-y-2" aria-busy="true">
+        <SkeletonRow count={6} h={32} />
       </div>
     );
   }

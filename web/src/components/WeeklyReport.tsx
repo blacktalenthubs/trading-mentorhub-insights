@@ -17,8 +17,9 @@
 import { useMemo, useState } from "react";
 import { useWeeklyReport, type WeeklyPattern, type WeeklyFire } from "../api/hooks";
 import Card from "./ui/Card";
+import { Skeleton, SkeletonRow } from "./ui/Skeleton";
 import {
-  BarChart3, Loader2, AlertCircle, ArrowUp, ArrowDown,
+  BarChart3, AlertCircle, ArrowUp, ArrowDown,
   ChevronLeft, ChevronRight, CalendarRange,
 } from "lucide-react";
 
@@ -164,9 +165,21 @@ export default function WeeklyReport() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 py-12 justify-center">
-        <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
-        <span className="text-sm text-text-muted">Loading weekly report…</span>
+      <div className="space-y-4" aria-busy="true">
+        <div className="flex items-center justify-between">
+          <Skeleton w={180} h={20} />
+          <Skeleton w={100} h={20} />
+        </div>
+        <div>
+          <Skeleton w="50%" h={16} className="mb-3" />
+          <Card padding="none">
+            <SkeletonRow count={8} h={40} gap={0} />
+          </Card>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card padding="none"><SkeletonRow count={5} h={36} gap={0} /></Card>
+          <Card padding="none"><SkeletonRow count={5} h={36} gap={0} /></Card>
+        </div>
       </div>
     );
   }

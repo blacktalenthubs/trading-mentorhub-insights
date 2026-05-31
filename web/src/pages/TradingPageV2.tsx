@@ -29,6 +29,7 @@ import type { SignalResult, Alert } from "../types";
 import { formatSetup, isFeedSignal } from "../lib/alertFormat";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
+import { SkeletonRow } from "../components/ui/Skeleton";
 import {
   Search,
   Target,
@@ -354,7 +355,13 @@ function SignalFeedTab({
         )}
       </div>
 
-      {visible.length === 0 ? (
+      {alerts === undefined ? (
+        // Still loading the initial fetch — show skeleton cards rather than
+        // an empty "No signals" message that flashes for 200-500ms.
+        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" aria-busy="true">
+          <SkeletonRow count={6} h={88} gap={8} />
+        </div>
+      ) : visible.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-text-faint">
             {q ? `No ${q} signals in this session` : "No signals in this session"}

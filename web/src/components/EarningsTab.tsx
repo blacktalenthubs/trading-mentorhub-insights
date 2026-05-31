@@ -17,7 +17,8 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUpcomingEarnings, type UpcomingEarningsItem } from "../api/hooks";
 import Card from "./ui/Card";
-import { CalendarDays, Loader2, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
+import { Skeleton, SkeletonRow } from "./ui/Skeleton";
+import { CalendarDays, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
 
 type SortKey = "days" | "symbol" | "eps" | "surprise";
 type SortDir = "asc" | "desc";
@@ -239,9 +240,14 @@ export default function EarningsTab() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 py-12 justify-center">
-        <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
-        <span className="text-sm text-text-muted">Loading earnings…</span>
+      <div className="space-y-3" aria-busy="true">
+        <div className="flex items-center justify-between">
+          <Skeleton w={180} h={12} />
+          <Skeleton w={120} h={12} />
+        </div>
+        <Card padding="none">
+          <SkeletonRow count={8} h={42} gap={0} />
+        </Card>
       </div>
     );
   }

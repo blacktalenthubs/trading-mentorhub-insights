@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, Target, History, Sparkles, Crosshair, Activity, Flame,
-  ChevronDown, ChevronRight, Loader2, MessageSquare,
+  ChevronDown, ChevronRight, MessageSquare,
 } from "lucide-react";
 import {
   useAlertsToday,
@@ -25,9 +25,9 @@ import {
 } from "../api/hooks";
 import SwingScreenerView from "../components/SwingScreenerView";
 import InPlayView from "../components/InPlayView";
-import TierGate from "../components/TierGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
+import { Skeleton, SkeletonRow } from "../components/ui/Skeleton";
 import type { Alert } from "../types";
 import { type FocusRecommendation } from "../api/hooks";
 
@@ -107,18 +107,13 @@ export default function FocusListPage() {
           </div>
         </div>
 
+        {/* Swing & In-Play are no longer hard-locked: free users see the full
+            screener with the top-N rows visible and the rest blurred + an
+            upgrade CTA (preview, not padlock). Gating lives in ScreenerTable. */}
         {tab === "day" && <DayTradesTab />}
-        {tab === "swing" && (
-          <TierGate require="pro" featureName="Swing Screener">
-            <SwingScreenerView />
-          </TierGate>
-        )}
+        {tab === "swing" && <SwingScreenerView />}
         {tab === "ai" && <AIScansTab />}
-        {tab === "inplay" && (
-          <TierGate require="pro" featureName="In-Play Volume Screener">
-            <InPlayView />
-          </TierGate>
-        )}
+        {tab === "inplay" && <InPlayView />}
         {tab === "social" && <SocialBuzzTab />}
       </div>
     </div>
@@ -310,9 +305,9 @@ function AIScansTab() {
 
         {/* Content */}
         {loading && (
-          <div className="text-center py-16 text-xs text-text-muted">
-            <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-accent" />
-            Loading focus list…
+          <div className="bg-surface-1 border border-border-subtle rounded-xl p-4 space-y-3">
+            <Skeleton w="40%" h={16} />
+            <SkeletonRow count={6} h={56} />
           </div>
         )}
 
@@ -386,9 +381,17 @@ function SocialBuzzTab() {
   }
 
   if (isLoading) {
+    // Skeleton mirroring the actual table shape (8 rows) so the layout
+    // doesn't jump when data arrives.
     return (
-      <div className="text-center py-12 text-sm text-text-faint">
-        Loading social buzz…
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Skeleton w={220} h={14} />
+          <Skeleton w={140} h={26} rounded="full" />
+        </div>
+        <div className="bg-surface-1 border border-border-subtle rounded-xl p-4 space-y-3">
+          <SkeletonRow count={8} h={36} />
+        </div>
       </div>
     );
   }
@@ -554,9 +557,9 @@ function SocialContextPanel({ symbol }: { symbol: string }) {
 
   if (isLoading) {
     return (
-      <div className="px-6 py-4 bg-surface-2/30 border-t border-border-subtle/20 flex items-center gap-2 text-[11px] text-text-muted">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading what's being said about {symbol}…
+      <div className="px-4 py-3 bg-surface-2/30 border-t border-border-subtle/20 space-y-2">
+        <Skeleton w="50%" h={11} />
+        <SkeletonRow count={5} h={28} gap={6} />
       </div>
     );
   }

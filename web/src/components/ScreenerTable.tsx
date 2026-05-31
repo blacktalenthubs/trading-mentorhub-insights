@@ -4,7 +4,8 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, ChevronUp, ChevronDown } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ChevronRight, ChevronUp, ChevronDown, Lock } from "lucide-react";
 
 export interface Column<T> {
   key: string;
@@ -28,6 +29,11 @@ interface Props<T> {
   isError?: boolean;
   errorText?: string;
   empty?: ReactNode;
+  /** Free-tier preview: show this many rows, blur the rest + show an upgrade CTA.
+   *  null/undefined = show all (paid). */
+  previewRows?: number | null;
+  /** Label for the locked feature in the upgrade CTA (e.g. "swing setups"). */
+  previewLabel?: string;
 }
 
 function SkeletonRows() {
@@ -42,7 +48,7 @@ function SkeletonRows() {
 
 export default function ScreenerTable<T>({
   rows, columns, rowKey, onRowClick, defaultSort, mobileRow,
-  isLoading, isError, errorText, empty,
+  isLoading, isError, errorText, empty, previewRows, previewLabel,
 }: Props<T>) {
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(defaultSort ?? null);
 
@@ -69,6 +75,23 @@ export default function ScreenerTable<T>({
   if (isError) return <div className={shell}><p className="py-16 text-center text-sm text-bearish-text">{errorText ?? "Couldn't load this list."}</p></div>;
   if (sorted.length === 0) return <div className={shell}>{empty}</div>;
 
+  // Free-tier preview: show `previewRows`, blur+lock the rest.
+  const limit = previewRows == null ? Infinity : previewRows;
+  const lockedCount = Number.isFinite(limit) ? Math.max(0, sorted.length - limit) : 0;
+  const isLocked = (i: number) => i >= limit;
+  const lockedRowCls = (i: number) =>
+    isLocked(i) ? "blur-[3px] select-none pointer-events-none opacity-50" : "";
+
+  const upgradeCTA = lockedCount > 0 && (
+    <Link
+      to="/billing"
+      className="flex items-center justify-center gap-2 py-3 px-4 text-sm font-semibold text-accent bg-accent/10 hover:bg-accent/15 border-t border-accent/20 transition-colors"
+    >
+      <Lock className="h-3.5 w-3.5" />
+      {lockedCount} more {previewLabel ?? "rows"} — Upgrade to Pro to see all
+    </Link>
+  );
+
   return (
     <div className={shell}>
       {/* Desktop table */}
@@ -94,18 +117,18 @@ export default function ScreenerTable<T>({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((r) => (
+          {sorted.map((r, i) => (
             <tr
               key={rowKey(r)}
-              onClick={() => onRowClick?.(r)}
-              className={`border-b border-border-subtle/40 last:border-0 transition-colors ${onRowClick ? "hover:bg-surface-2/50 cursor-pointer" : ""}`}
+              onClick={() => !isLocked(i) && onRowClick?.(r)}
+              className={`border-b border-border-subtle/40 last:border-0 transition-colors ${onRowClick && !isLocked(i) ? "hover:bg-surface-2/50 cursor-pointer" : ""} ${lockedRowCls(i)}`}
             >
               {columns.map((c) => (
                 <td key={c.key} className={`py-2.5 px-3 ${c.align === "right" ? "text-right" : "text-left"} ${c.cls ?? ""}`}>
                   {c.render(r)}
                 </td>
               ))}
-              <td className="py-2.5 px-2 text-right">{onRowClick && <ChevronRight className="h-4 w-4 text-text-faint" />}</td>
+              <td className="py-2.5 px-2 text-right">{onRowClick && !isLocked(i) && <ChevronRight className="h-4 w-4 text-text-faint" />}</td>
             </tr>
           ))}
         </tbody>
@@ -113,12 +136,18 @@ export default function ScreenerTable<T>({
 
       {/* Mobile cards */}
       <div className="md:hidden divide-y divide-border-subtle/40">
-        {sorted.map((r) => (
-          <button key={rowKey(r)} onClick={() => onRowClick?.(r)} className="w-full text-left px-4 py-3 hover:bg-surface-2/40 transition-colors">
+        {sorted.map((r, i) => (
+          <button
+            key={rowKey(r)}
+            onClick={() => !isLocked(i) && onRowClick?.(r)}
+            className={`w-full text-left px-4 py-3 transition-colors ${isLocked(i) ? lockedRowCls(i) : "hover:bg-surface-2/40"}`}
+          >
             {mobileRow(r)}
           </button>
         ))}
       </div>
+
+      {upgradeCTA}
     </div>
   );
 }
