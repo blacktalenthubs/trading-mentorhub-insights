@@ -8,6 +8,7 @@ import { usePushRegistration } from "./lib/usePushRegistration";
 import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import UpdatePrompt from "./components/UpdatePrompt";
+import RouteTitle from "./components/RouteTitle";
 import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
 import ReplayPage from "./pages/ReplayPage";
@@ -79,6 +80,7 @@ export default function App() {
         <AuthGate>
           <BrowserRouter>
             <PushRegistrationListener />
+            <RouteTitle />
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
