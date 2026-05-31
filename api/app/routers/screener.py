@@ -162,6 +162,30 @@ async def refresh_social_buzz_now(
     return {"status": "refresh started"}
 
 
+@router.get("/social-buzz/context")
+async def social_buzz_context(
+    symbol: str,
+    user: User = Depends(get_current_user),
+):
+    """Recent StockTwits messages + sentiment summary for one symbol.
+
+    Lazy — only called when the user expands a row in the Social tab.
+    Server-side cache (5min per symbol) keeps StockTwits API usage well
+    below the 200/hour anonymous limit.
+
+    Returns:
+      {symbol, messages: [...], bullish_count, bearish_count, neutral_count,
+       total_count, bullish_pct, bearish_pct, neutral_pct, error?}
+    """
+    import asyncio as _aio
+    from functools import partial as _partial
+    from analytics.stocktwits import get_social_context
+
+    loop = _aio.get_event_loop()
+    ctx = await loop.run_in_executor(None, _partial(get_social_context, symbol))
+    return ctx.to_dict()
+
+
 @router.get("/social-buzz")
 async def social_buzz(
     user: User = Depends(get_current_user),

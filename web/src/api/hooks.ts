@@ -101,6 +101,43 @@ export function useRefreshSocialBuzz() {
   });
 }
 
+// --- Social Buzz CONTEXT (per-symbol StockTwits stream) ---
+
+export interface SocialMessage {
+  id: number;
+  body: string;
+  created_at: string;
+  age_min: number;
+  user: string;
+  user_followers: number;
+  sentiment: "bullish" | "bearish" | null;
+}
+
+export interface SocialBuzzContext {
+  symbol: string;
+  messages: SocialMessage[];
+  bullish_count: number;
+  bearish_count: number;
+  neutral_count: number;
+  total_count: number;
+  bullish_pct: number;
+  bearish_pct: number;
+  neutral_pct: number;
+  error?: string | null;
+}
+
+export function useSocialBuzzContext(symbol: string | null) {
+  return useQuery({
+    queryKey: ["social-buzz-context", symbol],
+    queryFn: () =>
+      api.get<SocialBuzzContext>(
+        `/screener/social-buzz/context?symbol=${encodeURIComponent(symbol!)}`,
+      ),
+    enabled: !!symbol,           // only fires once user expands a row
+    staleTime: 5 * 60_000,       // matches server cache TTL
+  });
+}
+
 // --- Auth ---
 
 export function useLogin() {

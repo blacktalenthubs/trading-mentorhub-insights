@@ -7,7 +7,10 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Target, History, Sparkles, Crosshair, Activity, Flame } from "lucide-react";
+import {
+  RefreshCw, Target, History, Sparkles, Crosshair, Activity, Flame,
+  ChevronDown, ChevronRight, Loader2, MessageSquare,
+} from "lucide-react";
 import {
   useAlertsToday,
   useLatestFocusList,
@@ -16,7 +19,9 @@ import {
   useRunFocusList,
   useSocialBuzz,
   useRefreshSocialBuzz,
+  useSocialBuzzContext,
   type FocusListHistoryItem,
+  type SocialBuzzEntry,
 } from "../api/hooks";
 import SwingScreenerView from "../components/SwingScreenerView";
 import InPlayView from "../components/InPlayView";
@@ -374,6 +379,11 @@ function SocialBuzzTab() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useSocialBuzz();
   const refresh = useRefreshSocialBuzz();
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  function toggleExpand(symbol: string) {
+    setExpanded((cur) => (cur === symbol ? null : symbol));
+  }
 
   if (isLoading) {
     return (
@@ -440,68 +450,187 @@ function SocialBuzzTab() {
           <span className="col-span-2 text-center">Sentiment</span>
           <span className="col-span-2 text-right">Confluence</span>
         </div>
-        {entries.map((e, i) => {
-          const growth = e.growth_pct;
-          const growthCls = growth == null ? "text-text-faint"
-            : growth >= 200 ? "text-bullish-text font-bold"
-            : growth >= 50 ? "text-bullish-text"
-            : growth > 0 ? "text-text-secondary"
-            : "text-text-faint";
-
-          const sentLabel = e.sentiment == null ? "—"
-            : e.sentiment > 0.2 ? "bullish"
-            : e.sentiment < -0.2 ? "bearish"
-            : "mixed";
-          const sentCls = e.sentiment == null ? "text-text-faint"
-            : e.sentiment > 0.2 ? "text-bullish-text"
-            : e.sentiment < -0.2 ? "text-bearish-text"
-            : "text-text-muted";
-
-          return (
-            <button
-              key={e.symbol}
-              onClick={() => navigate(`/trading?symbol=${encodeURIComponent(e.symbol)}`)}
-              className={`w-full grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-border-subtle/30 last:border-b-0 items-center text-xs text-left hover:bg-surface-3/40 transition-colors ${
-                e.has_grade_a_today ? "bg-bullish/5" : ""
-              }`}
-            >
-              <span className="col-span-1 text-text-faint font-mono">{i + 1}</span>
-              <span className="col-span-3">
-                <span className="font-semibold text-text-primary">{e.symbol}</span>
-                {e.name && (
-                  <span className="block text-[10px] text-text-faint truncate mt-0.5">
-                    {e.name}
-                  </span>
-                )}
-              </span>
-              <span className="col-span-2 text-right font-mono text-text-secondary">
-                {e.mentions.toLocaleString()}
-              </span>
-              <span className={`col-span-2 text-right font-mono ${growthCls}`}>
-                {growth == null ? "—" : `${growth >= 0 ? "+" : ""}${growth.toFixed(0)}%`}
-              </span>
-              <span className={`col-span-2 text-center text-[11px] ${sentCls}`}>
-                {sentLabel}
-              </span>
-              <span className="col-span-2 text-right">
-                {e.has_grade_a_today ? (
-                  <span
-                    className="inline-flex items-center gap-1 text-[10px] font-bold text-bullish-text bg-bullish/15 px-1.5 py-0.5 rounded"
-                    title="Also fired a Grade A alert in our scanner today"
-                  >
-                    🔥 Grade A
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-text-faint">—</span>
-                )}
-              </span>
-            </button>
-          );
-        })}
+        {entries.map((e, i) => (
+          <SocialBuzzRow
+            key={e.symbol}
+            entry={e}
+            rank={i + 1}
+            expanded={expanded === e.symbol}
+            onToggleExpand={() => toggleExpand(e.symbol)}
+            onOpenChart={() => navigate(`/trading?symbol=${encodeURIComponent(e.symbol)}`)}
+          />
+        ))}
       </div>
 
       <p className="text-[10px] text-text-faint text-center">
         Buzz only — not a buy signal. Cross-reference with the Grade column for conviction.
+      </p>
+    </div>
+  );
+}
+
+/* ── One row in the Social Buzz table — expandable to show StockTwits context ── */
+
+function SocialBuzzRow({
+  entry: e, rank, expanded, onToggleExpand, onOpenChart,
+}: {
+  entry: SocialBuzzEntry;
+  rank: number;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onOpenChart: () => void;
+}) {
+  const growth = e.growth_pct;
+  const growthCls = growth == null ? "text-text-faint"
+    : growth >= 200 ? "text-bullish-text font-bold"
+    : growth >= 50 ? "text-bullish-text"
+    : growth > 0 ? "text-text-secondary"
+    : "text-text-faint";
+
+  const sentLabel = e.sentiment == null ? "—"
+    : e.sentiment > 0.2 ? "bullish"
+    : e.sentiment < -0.2 ? "bearish"
+    : "mixed";
+  const sentCls = e.sentiment == null ? "text-text-faint"
+    : e.sentiment > 0.2 ? "text-bullish-text"
+    : e.sentiment < -0.2 ? "text-bearish-text"
+    : "text-text-muted";
+
+  return (
+    <div className={`border-b border-border-subtle/30 last:border-b-0 ${e.has_grade_a_today ? "bg-bullish/5" : ""}`}>
+      {/* Row */}
+      <div className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-xs hover:bg-surface-3/40 transition-colors">
+        <button
+          onClick={onToggleExpand}
+          className="col-span-1 flex items-center gap-1 text-text-faint hover:text-text-muted"
+          title={expanded ? "Hide context" : "Show what's being said"}
+        >
+          {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          <span className="font-mono">{rank}</span>
+        </button>
+        <button
+          onClick={onOpenChart}
+          className="col-span-3 text-left"
+          title={`Open chart for ${e.symbol}`}
+        >
+          <span className="font-semibold text-text-primary">{e.symbol}</span>
+          {e.name && (
+            <span className="block text-[10px] text-text-faint truncate mt-0.5">
+              {e.name}
+            </span>
+          )}
+        </button>
+        <span className="col-span-2 text-right font-mono text-text-secondary">
+          {e.mentions.toLocaleString()}
+        </span>
+        <span className={`col-span-2 text-right font-mono ${growthCls}`}>
+          {growth == null ? "—" : `${growth >= 0 ? "+" : ""}${growth.toFixed(0)}%`}
+        </span>
+        <span className={`col-span-2 text-center text-[11px] ${sentCls}`}>
+          {sentLabel}
+        </span>
+        <span className="col-span-2 text-right">
+          {e.has_grade_a_today ? (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] font-bold text-bullish-text bg-bullish/15 px-1.5 py-0.5 rounded"
+              title="Also fired a Grade A alert in our scanner today"
+            >
+              🔥 Grade A
+            </span>
+          ) : (
+            <span className="text-[10px] text-text-faint">—</span>
+          )}
+        </span>
+      </div>
+
+      {/* Expanded context panel — lazy-loaded only when row is expanded */}
+      {expanded && <SocialContextPanel symbol={e.symbol} />}
+    </div>
+  );
+}
+
+function SocialContextPanel({ symbol }: { symbol: string }) {
+  const { data, isLoading, error } = useSocialBuzzContext(symbol);
+
+  if (isLoading) {
+    return (
+      <div className="px-6 py-4 bg-surface-2/30 border-t border-border-subtle/20 flex items-center gap-2 text-[11px] text-text-muted">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading what's being said about {symbol}…
+      </div>
+    );
+  }
+
+  if (error || data?.error === "fetch_failed") {
+    return (
+      <div className="px-6 py-4 bg-surface-2/30 border-t border-border-subtle/20 text-[11px] text-bearish-text">
+        Couldn't fetch StockTwits stream for {symbol}.
+      </div>
+    );
+  }
+
+  if (data?.error === "not_supported") {
+    return (
+      <div className="px-6 py-4 bg-surface-2/30 border-t border-border-subtle/20 text-[11px] text-text-faint">
+        StockTwits doesn't cover this symbol (typical for crypto + some small caps).
+      </div>
+    );
+  }
+
+  if (!data || data.messages.length === 0) {
+    return (
+      <div className="px-6 py-4 bg-surface-2/30 border-t border-border-subtle/20 text-[11px] text-text-faint">
+        No recent StockTwits messages for {symbol}.
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-3 bg-surface-2/30 border-t border-border-subtle/20 space-y-2">
+      {/* Sentiment summary header */}
+      <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-text-faint">
+        <MessageSquare className="h-3 w-3" />
+        <span>Last {data.total_count} posts</span>
+        <span>·</span>
+        <span className="text-bullish-text font-semibold">{data.bullish_pct.toFixed(0)}% bullish</span>
+        <span>·</span>
+        <span className="text-bearish-text font-semibold">{data.bearish_pct.toFixed(0)}% bearish</span>
+        <span>·</span>
+        <span className="text-text-muted">{data.neutral_pct.toFixed(0)}% neutral</span>
+      </div>
+
+      {/* Message list */}
+      <div className="space-y-1.5">
+        {data.messages.map((m) => {
+          const dot = m.sentiment === "bullish" ? "🟢"
+            : m.sentiment === "bearish" ? "🔴"
+            : "⚪";
+          const ageStr = m.age_min < 60
+            ? `${m.age_min}m`
+            : m.age_min < 1440
+            ? `${Math.round(m.age_min / 60)}h`
+            : `${Math.round(m.age_min / 1440)}d`;
+          return (
+            <div
+              key={m.id}
+              className="flex items-start gap-2 text-[11px] py-1 px-2 rounded hover:bg-surface-3/30"
+            >
+              <span className="text-[10px] shrink-0 leading-snug mt-0.5">{dot}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-text-secondary leading-snug line-clamp-2">
+                  {m.body}
+                </div>
+                <div className="text-[10px] text-text-faint mt-0.5">
+                  @{m.user}{m.user_followers > 1000 ? ` · ${(m.user_followers / 1000).toFixed(0)}k followers` : ""} · {ageStr} ago
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-[10px] text-text-faint pt-1">
+        Source: StockTwits live stream · cached 5 min server-side
       </p>
     </div>
   );
