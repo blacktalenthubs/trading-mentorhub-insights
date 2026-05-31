@@ -984,6 +984,25 @@ async def lifespan(app: FastAPI):
                 )
                 # Self-populate on startup so the tab isn't empty until 4am ET tomorrow.
                 scheduler.add_job(_social_buzz_refresh, id="social_buzz_initial")
+
+                # Social + Grade-A cross-detect — every 5 min during market hours,
+                # scan the top trending symbols for intraday Grade A. When detected,
+                # fire a push notification (once per (symbol, day)) to all users
+                # with push enabled. The "🔥 Social + Grade A" moment — symbols
+                # the user might NOT have on their TV setup but that just lined
+                # up across both signals.
+                def _social_grade_a_check():
+                    try:
+                        from analytics.social_grade_a_watch import check_social_grade_a
+                        summary = check_social_grade_a(sync_session_factory)
+                        logger.info("Social+A check: %s", summary)
+                    except Exception:
+                        logger.exception("Social+A check failed")
+
+                scheduler.add_job(
+                    _social_grade_a_check, "interval", minutes=5,
+                    id="social_grade_a_check", replace_existing=True,
+                )
                 # Weekly cleanup of stale snapshots.
                 scheduler.add_job(
                     _social_buzz_cleanup, "cron", day_of_week="sun", hour=3, minute=0,
