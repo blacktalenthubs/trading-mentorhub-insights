@@ -84,52 +84,6 @@ async def update_screener_settings(body: SettingsUpdate, user: User = Depends(re
     return await get_screener_settings(user)
 
 
-@router.get("/diag")
-async def diag(user: User = Depends(require_pro)):
-    """Ground-truth diagnostics from the deployed environment (Railway)."""
-    import asyncio
-    import traceback
-
-    out: dict = {"marker": "swing-megacap-v2"}
-
-    def _probe() -> dict:
-        from analytics import screener as scr
-        from analytics.market_data import fetch_ohlc
-        r: dict = {}
-        try:
-            spy = fetch_ohlc("SPY", "1y")
-            r["spy_bars"] = 0 if spy is None else len(spy)
-            spy_ret = ((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100 if spy is not None and len(spy) > 21 else 0.0
-            sample = []
-            for sym in ("NVDA", "TSLA", "AAPL"):
-                d = fetch_ohlc(sym, "1y")
-                c = scr.swing_signals(d, spy_ret, symbol=sym) if d is not None else None
-                sample.append({"sym": sym, "bars": 0 if d is None else len(d), "qualifies": bool(c and c.setup)})
-            r["sample"] = sample
-        except Exception:
-            r["probe_error"] = traceback.format_exc()[-500:]
-        return r
-
-    out.update(await asyncio.to_thread(_probe))
-
-    # Explicitly run the gather + save path and surface ANY exception (refresh_swing
-    # swallows its own errors, so we replicate its steps here to see the real failure).
-    try:
-        cands = await asyncio.to_thread(svc._gather_swing)
-        out["gathered"] = len(cands)
-        await svc._save_snapshot(cands, kind="swing", market_open=True, top_n=30)
-        out["write"] = "ok"
-    except Exception:
-        out["write_error"] = traceback.format_exc()[-700:]
-
-    try:
-        snap = await svc.get_latest_swing()
-        out["swing_snapshot"] = None if snap is None else {"captured_at": str(snap.captured_at), "n": len(snap.entries or [])}
-    except Exception as e:
-        out["snap_error"] = repr(e)
-    return out
-
-
 @router.get("/swing")
 async def get_swing(user: User = Depends(require_pro)):
     """Latest market-wide swing setups (daily-bar Trend + MA defense). Not market-gated."""
