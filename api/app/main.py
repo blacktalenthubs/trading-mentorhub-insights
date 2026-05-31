@@ -956,6 +956,44 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register screener jobs")
 
+        # Social Buzz (Apewisdom-fed) — hourly refresh that pulls top
+        # discussed tickers from retail social, filters against our
+        # screener_universe, cross-references today's Grade-A alerts.
+        # Cheap: one HTTP call per hour, no per-symbol API loops.
+        # Set SOCIAL_BUZZ_ENABLED=0 in Railway to disable.
+        if os.environ.get("SOCIAL_BUZZ_ENABLED", "true").lower() not in ("0", "false", "no"):
+            try:
+                def _social_buzz_refresh():
+                    try:
+                        from analytics.social_buzz import refresh_social_buzz
+                        summary = refresh_social_buzz(sync_session_factory)
+                        logger.info("Social buzz refresh: %s", summary)
+                    except Exception:
+                        logger.exception("Social buzz refresh failed")
+
+                def _social_buzz_cleanup():
+                    try:
+                        from analytics.social_buzz import cleanup_old_snapshots
+                        cleanup_old_snapshots(sync_session_factory, keep_days=7)
+                    except Exception:
+                        logger.exception("Social buzz cleanup failed")
+
+                scheduler.add_job(
+                    _social_buzz_refresh, "interval", minutes=60,
+                    id="social_buzz_refresh", replace_existing=True,
+                )
+                # Self-populate on startup so the tab isn't empty until 4am ET tomorrow.
+                scheduler.add_job(_social_buzz_refresh, id="social_buzz_initial")
+                # Weekly cleanup of stale snapshots.
+                scheduler.add_job(
+                    _social_buzz_cleanup, "cron", day_of_week="sun", hour=3, minute=0,
+                    timezone="America/New_York",
+                    id="social_buzz_cleanup", replace_existing=True,
+                )
+                logger.info("Registered Social Buzz cron: hourly refresh + Sun 3am cleanup")
+            except Exception:
+                logger.exception("Failed to register Social Buzz cron")
+
         scheduler.start()
         logger.info("Background monitor started (3-min poll + EOD/premarket/weekly jobs)")
     except Exception:

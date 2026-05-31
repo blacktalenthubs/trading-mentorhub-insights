@@ -58,6 +58,36 @@ export function useRefreshSwing(cap: "mega" | "small" = "mega") {
   });
 }
 
+// --- Social Buzz (Apewisdom-fed) ---
+
+export interface SocialBuzzEntry {
+  symbol: string;
+  name: string;
+  mentions: number;
+  mentions_prev_24h: number;
+  growth_pct: number | null;
+  sentiment: number | null;
+  sentiment_score: number | null;
+  rank: number;
+  has_grade_a_today: boolean;
+}
+
+export interface SocialBuzzResponse {
+  captured_at: string | null;
+  source: string | null;
+  entries: SocialBuzzEntry[];
+  stale: boolean;
+}
+
+export function useSocialBuzz() {
+  return useQuery({
+    queryKey: ["social-buzz"],
+    queryFn: () => api.get<SocialBuzzResponse>("/screener/social-buzz"),
+    refetchInterval: 5 * 60_000,   // server refreshes hourly; client polls every 5min
+    staleTime: 60_000,
+  });
+}
+
 // --- Auth ---
 
 export function useLogin() {

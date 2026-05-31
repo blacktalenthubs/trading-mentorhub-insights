@@ -7,13 +7,14 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Target, History, Sparkles, Crosshair, Activity } from "lucide-react";
+import { RefreshCw, Target, History, Sparkles, Crosshair, Activity, Flame } from "lucide-react";
 import {
   useAlertsToday,
   useLatestFocusList,
   useFocusListHistory,
   useFocusListDetail,
   useRunFocusList,
+  useSocialBuzz,
   type FocusListHistoryItem,
 } from "../api/hooks";
 import SwingScreenerView from "../components/SwingScreenerView";
@@ -24,7 +25,7 @@ import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
 import type { Alert } from "../types";
 import { type FocusRecommendation } from "../api/hooks";
 
-type IdeasTab = "day" | "swing" | "ai" | "inplay";
+type IdeasTab = "day" | "swing" | "ai" | "inplay" | "social";
 
 function historyLabel(item: FocusListHistoryItem): string {
   const iso = item.generated_at;
@@ -48,10 +49,11 @@ function historyLabel(item: FocusListHistoryItem): string {
 }
 
 const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Crosshair }[] = [
-  { id: "day",   label: "Day Trades",   icon: Crosshair },
-  { id: "swing", label: "Swing Trades", icon: Target },
-  { id: "ai",    label: "AI Scans",     icon: Sparkles },
-  { id: "inplay", label: "In Play",     icon: Activity },
+  { id: "day",    label: "Day Trades",   icon: Crosshair },
+  { id: "swing",  label: "Swing Trades", icon: Target },
+  { id: "ai",     label: "AI Scans",     icon: Sparkles },
+  { id: "inplay", label: "In Play",      icon: Activity },
+  { id: "social", label: "Social",       icon: Flame },
 ];
 
 export default function FocusListPage() {
@@ -111,6 +113,7 @@ export default function FocusListPage() {
             <InPlayView />
           </TierGate>
         )}
+        {tab === "social" && <SocialBuzzTab />}
       </div>
     </div>
   );
@@ -360,6 +363,133 @@ function AIScansTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Social Buzz tab — Apewisdom-fed top discussed tickers ─────────── */
+
+function SocialBuzzTab() {
+  const navigate = useNavigate();
+  const { data, isLoading, error } = useSocialBuzz();
+
+  if (isLoading) {
+    return (
+      <div className="text-center py-12 text-sm text-text-faint">
+        Loading social buzz…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="text-center py-12 text-sm text-bearish-text">
+        Failed to load social buzz.
+      </div>
+    );
+  }
+
+  const entries = data?.entries ?? [];
+  if (entries.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12 text-center">
+        <Flame className="h-10 w-10 text-text-faint" />
+        <p className="text-text-muted">No social buzz snapshot yet</p>
+        <p className="text-sm text-text-faint">
+          The hourly job populates this tab. First snapshot appears within an hour of deploy.
+        </p>
+      </div>
+    );
+  }
+
+  const capturedAge = data?.captured_at
+    ? Math.max(0, Math.round((Date.now() - new Date(data.captured_at).getTime()) / 60_000))
+    : null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-text-faint">
+        <span>
+          {entries.length} tickers · sorted by 24h mention growth · source: Apewisdom
+        </span>
+        <span className={data?.stale ? "text-warning-text" : ""}>
+          {capturedAge != null ? `Refreshed ${capturedAge}m ago` : "Loading…"}
+          {data?.stale && " · stale"}
+        </span>
+      </div>
+
+      <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
+        {/* Header */}
+        <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-text-faint font-medium border-b border-border-subtle/50 bg-surface-2/30">
+          <span className="col-span-1">#</span>
+          <span className="col-span-3">Symbol</span>
+          <span className="col-span-2 text-right">Mentions</span>
+          <span className="col-span-2 text-right">Δ24h</span>
+          <span className="col-span-2 text-center">Sentiment</span>
+          <span className="col-span-2 text-right">Confluence</span>
+        </div>
+        {entries.map((e, i) => {
+          const growth = e.growth_pct;
+          const growthCls = growth == null ? "text-text-faint"
+            : growth >= 200 ? "text-bullish-text font-bold"
+            : growth >= 50 ? "text-bullish-text"
+            : growth > 0 ? "text-text-secondary"
+            : "text-text-faint";
+
+          const sentLabel = e.sentiment == null ? "—"
+            : e.sentiment > 0.2 ? "bullish"
+            : e.sentiment < -0.2 ? "bearish"
+            : "mixed";
+          const sentCls = e.sentiment == null ? "text-text-faint"
+            : e.sentiment > 0.2 ? "text-bullish-text"
+            : e.sentiment < -0.2 ? "text-bearish-text"
+            : "text-text-muted";
+
+          return (
+            <button
+              key={e.symbol}
+              onClick={() => navigate(`/trading?symbol=${encodeURIComponent(e.symbol)}`)}
+              className={`w-full grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-border-subtle/30 last:border-b-0 items-center text-xs text-left hover:bg-surface-3/40 transition-colors ${
+                e.has_grade_a_today ? "bg-bullish/5" : ""
+              }`}
+            >
+              <span className="col-span-1 text-text-faint font-mono">{i + 1}</span>
+              <span className="col-span-3">
+                <span className="font-semibold text-text-primary">{e.symbol}</span>
+                {e.name && (
+                  <span className="block text-[10px] text-text-faint truncate mt-0.5">
+                    {e.name}
+                  </span>
+                )}
+              </span>
+              <span className="col-span-2 text-right font-mono text-text-secondary">
+                {e.mentions.toLocaleString()}
+              </span>
+              <span className={`col-span-2 text-right font-mono ${growthCls}`}>
+                {growth == null ? "—" : `${growth >= 0 ? "+" : ""}${growth.toFixed(0)}%`}
+              </span>
+              <span className={`col-span-2 text-center text-[11px] ${sentCls}`}>
+                {sentLabel}
+              </span>
+              <span className="col-span-2 text-right">
+                {e.has_grade_a_today ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-bold text-bullish-text bg-bullish/15 px-1.5 py-0.5 rounded"
+                    title="Also fired a Grade A alert in our scanner today"
+                  >
+                    🔥 Grade A
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-text-faint">—</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-[10px] text-text-faint text-center">
+        Buzz only — not a buy signal. Cross-reference with the Grade column for conviction.
+      </p>
     </div>
   );
 }

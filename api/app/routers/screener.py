@@ -125,3 +125,52 @@ async def rebuild_universe(background: BackgroundTasks, user: User = Depends(req
         raise HTTPException(status_code=403, detail="Admin access required")
     background.add_task(svc.rebuild_universe)
     return {"status": "rebuild started"}
+
+
+# ── Social Buzz (Apewisdom-fed) ──────────────────────────────────────
+# Hourly cron writes the snapshot; this endpoint serves the latest. No
+# tier gate v1 — universal feature so Free users can see what's being
+# discussed too (and the cross-ref with Grade-A is a Pro-only signal
+# that nudges upgrade).
+
+from sqlalchemy import desc, select  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+from app.database import get_db  # noqa: E402
+from app.dependencies import get_current_user  # noqa: E402
+from app.models.social_buzz import SocialBuzzSnapshot  # noqa: E402
+
+
+@router.get("/social-buzz")
+async def social_buzz(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Latest Social Buzz snapshot — top tickers being discussed across
+    retail social (WSB + stocks subreddits + Twitter + StockTwits), filtered
+    to symbols in our screener_universe and ranked by mention growth %.
+    """
+    row = (await db.execute(
+        select(SocialBuzzSnapshot)
+        .order_by(desc(SocialBuzzSnapshot.captured_at))
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if row is None:
+        return {
+            "captured_at": None,
+            "source": None,
+            "entries": [],
+            "stale": False,
+        }
+
+    # Stale if older than 3 hours — typically hourly cron, so > 3h means
+    # the job is broken or paused.
+    from datetime import datetime, timedelta
+    is_stale = (datetime.utcnow() - row.captured_at) > timedelta(hours=3)
+
+    return {
+        "captured_at": row.captured_at.isoformat() + "Z",
+        "source": row.source,
+        "entries": row.entries or [],
+        "stale": is_stale,
+    }
