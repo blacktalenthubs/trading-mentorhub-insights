@@ -35,3 +35,8 @@ tzdata>=2024.1
 # iOS APNs push (Capacitor mobile app) — gated by APNS_* env vars,
 # graceful no-op if vars unset. See api/app/services/apns.py.
 aioapns>=3.0.0
+
+# Google Sign-In — verifies ID tokens server-side at /auth/google.
+# Gated by GOOGLE_CLIENT_ID env var; import is lazy in the endpoint so
+# missing this dep would only surface when the endpoint is hit.
+google-auth>=2.30.0
