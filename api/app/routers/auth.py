@@ -16,6 +16,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, get_user_tier, is_trial_active, trial_days_remaining
 from app.models.user import Subscription, User
 from app.schemas.auth import (
+    AppleAuthRequest,
     AuthResponse,
     ForgotPasswordRequest,
     GoogleAuthRequest,
@@ -267,6 +268,101 @@ async def google_signin(
     )
 
 
+@router.post("/apple", response_model=AuthResponse)
+async def apple_signin(
+    body: AppleAuthRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign in or register with an Apple ID token.
+
+    Mirrors /google: verify → lookup by oauth_sub → else lookup by email
+    (auto-link) → else create. Apple-specific quirks:
+      - The `email` claim is only present on the FIRST sign-in. Subsequent
+        sign-ins include only `sub`. We rely on oauth_sub for lookup so
+        repeat sign-ins still work even without email in the token.
+      - Apple's "Hide my email" relays to a `@privaterelay.appleid.com`
+        forwarding address — still a real email for our purposes.
+      - The user's name is sent ONLY on the first sign-in, in a separate
+        payload from the JS SDK (not in the JWT). We accept it in the
+        request body and use it on account creation only.
+    """
+    if not settings.APPLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Sign in with Apple is not configured")
+
+    from app.services.apple_auth import verify_apple_id_token
+
+    try:
+        claims = await verify_apple_id_token(body.id_token, settings.APPLE_CLIENT_ID)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Apple token: {e}") from e
+
+    sub = claims.get("sub")
+    if not sub:
+        raise HTTPException(status_code=401, detail="Apple token missing 'sub'")
+
+    email = (claims.get("email") or "").lower() or None
+    full_name_parts = [body.user_first_name, body.user_last_name]
+    display_name = " ".join(p for p in full_name_parts if p) or None
+
+    from sqlalchemy.orm import selectinload
+
+    # 1. Existing OAuth identity
+    result = await db.execute(
+        select(User).options(selectinload(User.subscription)).where(User.oauth_sub == sub)
+    )
+    user = result.scalar_one_or_none()
+
+    # 2. Else by email (only if Apple gave us one — first sign-in only)
+    if not user and email:
+        result = await db.execute(
+            select(User).options(selectinload(User.subscription)).where(User.email == email)
+        )
+        user = result.scalar_one_or_none()
+        if user:
+            user.oauth_provider = "apple"
+            user.oauth_sub = sub
+            await db.flush()
+
+    # 3. Else brand-new — create with trial. Requires email (no anon accounts).
+    if not user:
+        if not email:
+            # Repeat sign-in for a sub we don't have AND no email means we
+            # can't create an account. This only happens if Apple has the
+            # user but our DB lost them (account deleted server-side, etc.).
+            raise HTTPException(status_code=401, detail="Apple did not return an email — please revoke access in Settings → Sign in with Apple and try again")
+        from app.tier import TRIAL_DURATION_DAYS
+        user = User(
+            email=email,
+            password_hash=None,
+            display_name=display_name or email.split("@")[0],
+            oauth_provider="apple",
+            oauth_sub=sub,
+            attribution_source=(body.utm_source or "")[:100] or None,
+            attribution_medium=(body.utm_medium or "")[:100] or None,
+            attribution_campaign=(body.utm_campaign or "")[:200] or None,
+            attribution_referrer=(body.referrer or "")[:500] or None,
+        )
+        db.add(user)
+        await db.flush()
+        trial_ends = datetime.utcnow() + timedelta(days=TRIAL_DURATION_DAYS)
+        sub_row = Subscription(user_id=user.id, tier="free", trial_ends_at=trial_ends)
+        db.add(sub_row)
+        await db.flush()
+        user.subscription = sub_row
+
+    tier = get_user_tier(user)
+    access_token = _create_access_token(user, tier)
+    refresh_token = _create_refresh_token(user.id)
+    _set_refresh_cookie(response, refresh_token)
+
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=_build_user_response(user, tier),
+    )
+
+
 @router.post("/refresh", response_model=TokenRefreshResponse)
 async def refresh(
     request: Request,
@@ -326,7 +422,21 @@ async def logout(response: Response):
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(user: User = Depends(get_current_user)):
+async def me(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Bump last_seen at most once per minute to keep this endpoint cheap.
+    # React Query refetches /me on every page load + window focus, so a
+    # write-on-every-call would generate a lot of UPDATE traffic.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    last = user.last_seen_at
+    if last is None or (now - last) >= timedelta(minutes=1):
+        await db.execute(
+            text("UPDATE users SET last_seen_at = :now WHERE id = :uid"),
+            {"now": now, "uid": user.id},
+        )
+        await db.commit()
     tier = get_user_tier(user)
     return _build_user_response(user, tier)
 

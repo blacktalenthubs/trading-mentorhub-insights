@@ -192,6 +192,10 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500)",
             "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL",
             "CREATE INDEX IF NOT EXISTS ix_users_oauth_sub ON users (oauth_sub)",
+            # Activation tracking — bumped on /auth/me (called by React Query
+            # on every page load), so DAU/WAU and the day-30 active-user
+            # target are queryable in plain SQL.
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP",
             # Table to track one-shot data migrations so they don't re-run
             """CREATE TABLE IF NOT EXISTS migration_flags (
                 flag_name VARCHAR(200) PRIMARY KEY,

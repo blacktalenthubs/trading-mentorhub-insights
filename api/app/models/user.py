@@ -24,6 +24,8 @@ class User(Base):
     oauth_provider: Mapped[Optional[str]] = mapped_column(String(16))   # 'google' | 'apple' | NULL
     oauth_sub: Mapped[Optional[str]] = mapped_column(String(255), index=True)  # provider subject id
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Bumped on /auth/me — drives the activation funnel and DAU/WAU metrics.
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Notification preferences (stored directly on user for simplicity)
     telegram_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", default=True)

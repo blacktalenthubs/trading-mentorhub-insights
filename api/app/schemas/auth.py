@@ -38,6 +38,23 @@ class GoogleAuthRequest(BaseModel):
     referrer: Optional[str] = None
 
 
+class AppleAuthRequest(BaseModel):
+    """Request from the frontend after Apple returns an ID token.
+
+    `id_token` is the JWT signed by Apple; we verify it against Apple's
+    public keys at https://appleid.apple.com/auth/keys. `user_payload`
+    carries the name fields that Apple only sends on the FIRST sign-in
+    (subsequent sign-ins return only sub + email).
+    """
+    id_token: str
+    user_first_name: Optional[str] = None
+    user_last_name: Optional[str] = None
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    referrer: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     id: int
     email: str

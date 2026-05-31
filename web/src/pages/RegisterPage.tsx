@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { AuthTokens } from "../types";
 import { Mail, Lock, User, Eye, EyeOff, Check, Clock, ShieldCheck, ArrowRight } from "lucide-react";
 import GoogleSignInButton from "../components/GoogleSignInButton";
+import AppleSignInButton from "../components/AppleSignInButton";
 import AuthShell, { AuthDivider, AuthError, AuthField } from "../components/AuthShell";
 
 export default function RegisterPage() {
@@ -63,6 +64,7 @@ export default function RegisterPage() {
       }
     >
       <GoogleSignInButton destination="/onboarding" />
+      <AppleSignInButton destination="/onboarding" />
       <AuthDivider />
 
       <form onSubmit={handleSubmit} className="space-y-3">

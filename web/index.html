@@ -41,6 +41,11 @@
     <meta name="theme-color" content="#050810" />
     <meta name="mobile-web-app-capable" content="yes" />
 
+    <!-- Sign in with Apple JS SDK — required by AppleSignInButton on the
+         Register and Login pages. Loaded async so it never blocks render;
+         the button waits for window.AppleID before binding. -->
+    <script type="text/javascript" src="https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js" async></script>
+
     <!-- Font preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

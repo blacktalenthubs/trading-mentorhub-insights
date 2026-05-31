@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     # same value is exposed to the web client as VITE_GOOGLE_CLIENT_ID.
     GOOGLE_CLIENT_ID: str = ""
 
+    # Sign in with Apple — Services ID (NOT the bundle ID) from the Apple
+    # Developer console, e.g. "com.busytradersdesk.signin". Used as the
+    # audience claim when verifying Apple ID tokens at /auth/apple. The
+    # same value is exposed to the web client as VITE_APPLE_CLIENT_ID.
+    # No private key needed for the ID-token-verify flow — Apple's public
+    # JWKS at https://appleid.apple.com/auth/keys is enough.
+    APPLE_CLIENT_ID: str = ""
+
     # App
     APP_NAME: str = "BusyTradersDesk API"
     DEBUG: bool = False
