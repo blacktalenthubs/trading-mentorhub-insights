@@ -1246,6 +1246,7 @@ export default function TradingPageV2() {
               entry={showLevels ? (selected.entry ?? undefined) : undefined}
               stop={showLevels ? (selected.stop ?? undefined) : undefined}
               target={showLevels ? (selected.target_1 ?? undefined) : undefined}
+              direction={(selected.direction === "SHORT" ? "SHORT" : "LONG")}
               levels={showLevels ? chartLevels : []}
               indicators={chartIndicators}
               hideWicks={hideWicks}

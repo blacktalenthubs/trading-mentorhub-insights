@@ -20,6 +20,10 @@ interface Props {
   height?: number;
   indicators?: IndicatorConfig[];
   hideWicks?: boolean;
+  /** Direction badge in the TradePanel overlay. Defaults to "LONG" when entry > stop. */
+  direction?: "LONG" | "SHORT";
+  /** Show the floating Trade Panel above the chart with full level details. */
+  showTradePanel?: boolean;
 }
 
 function CandlestickChartInner({
@@ -31,6 +35,8 @@ function CandlestickChartInner({
   height = 400,
   indicators = [],
   hideWicks = false,
+  direction,
+  showTradePanel = true,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -223,25 +229,64 @@ function CandlestickChartInner({
     }
     priceLinesRef.current = [];
 
-    // Price lines
-    const plines: Array<{ price: number; color: string; title: string }> = [];
+    // Price lines — short labels + nearby-dedup.
+    //
+    // Old design stacked 6 long labels ("Entry $309.54", "Stop $308.18",
+    // "T1/Resist $312.27", "Support $309.57", "Prior High $315.00", ...)
+    // on the right edge of the price axis. When labels sit within a few
+    // cents of each other they overlap and render unreadable.
+    //
+    // New design:
+    //   1. Short 1-3 char codes (E / S / T1 / PDH / PWH / PDL / PWL)
+    //   2. Sort by price descending
+    //   3. Dedup: if a lower-priority label sits within DEDUP_PCT% of an
+    //      already-kept label, drop it. Trade lines (E/S/T1) always win
+    //      over generic levels.
+    //   4. The full label text lives in the TradePanel overlay above the
+    //      chart — the axis labels are just a visual marker, not the data.
+    type PLine = { price: number; color: string; title: string; priority: number };
+    const raw: PLine[] = [];
 
-    if (entry) plines.push({ price: entry, color: "#3b82f6", title: `Entry $${entry.toFixed(2)}` });
-    if (stop) plines.push({ price: stop, color: "#ef4444", title: `Stop $${stop.toFixed(2)}` });
-    if (target) {
-      // Dynamic label: if price is above T1, resistance is broken → now Support
-      const lastClose = data.length > 0 ? data[data.length - 1].close : 0;
-      const aboveTarget = lastClose > target * 1.002; // 0.2% buffer
-      plines.push({
-        price: target,
-        color: aboveTarget ? "#22c55e" : "#f59e0b",
-        title: aboveTarget ? `Support $${target.toFixed(2)}` : `T1/Resist $${target.toFixed(2)}`,
-      });
-    }
+    // Priority: lower number wins on dedup conflict.
+    if (entry)  raw.push({ price: entry,  color: "#3b82f6", title: "E",  priority: 0 });
+    if (stop)   raw.push({ price: stop,   color: "#ef4444", title: "S",  priority: 0 });
+    if (target) raw.push({ price: target, color: "#22c55e", title: "T1", priority: 0 });
+
+    // Level label shortener. Maps verbose labels coming from the parent
+    // to compact codes; unknown labels keep their original text.
+    const shortenLabel = (label: string): string => {
+      const t = label.toLowerCase();
+      if (t.includes("prior") && t.includes("high")) return "PDH";
+      if (t.includes("prior") && t.includes("low"))  return "PDL";
+      if (t.startsWith("pwh") || (t.includes("week") && t.includes("high"))) return "PWH";
+      if (t.startsWith("pwl") || (t.includes("week") && t.includes("low")))  return "PWL";
+      if (t.includes("month") && t.includes("high")) return "PMH";
+      if (t.includes("month") && t.includes("low"))  return "PML";
+      if (t === "support" || t === "resistance")     return label[0].toUpperCase();
+      if (t.includes("vwap")) return "VWAP";
+      return label.length > 6 ? label.slice(0, 6) : label;
+    };
 
     levels.forEach((lvl) => {
-      plines.push({ price: lvl.price, color: lvl.color, title: lvl.label || `$${lvl.price}` });
+      raw.push({
+        price: lvl.price,
+        color: lvl.color,
+        title: shortenLabel(lvl.label || ""),
+        priority: 1,
+      });
     });
+
+    // Dedup: if two labels are within DEDUP_PCT of price, keep the one
+    // with lower priority (trade lines win over level lines).
+    const DEDUP_PCT = 0.3; // ±0.3% of price
+    raw.sort((a, b) => a.priority - b.priority || b.price - a.price);
+    const plines: PLine[] = [];
+    for (const cand of raw) {
+      const tooClose = plines.some(
+        (kept) => Math.abs(kept.price - cand.price) / cand.price * 100 < DEDUP_PCT,
+      );
+      if (!tooClose) plines.push(cand);
+    }
 
     for (const pl of plines) {
       const line = seriesRef.current!.createPriceLine({
@@ -267,7 +312,55 @@ function CandlestickChartInner({
     }
   }, [data, levels, entry, stop, target, indicators, hideWicks]);
 
-  return <div ref={containerRef} className="w-full rounded-lg" />;
+  // Floating trade panel — single-row overlay top-right of the chart with
+  // the full Entry/Stop/Target details + R:R. Replaces the verbose
+  // price-axis labels (those are now short codes E/S/T1). User can scan
+  // the panel without their eyes hopping along the price scale.
+  const dirGuess: "LONG" | "SHORT" = direction ?? (
+    entry != null && stop != null && entry > stop ? "LONG" : "SHORT"
+  );
+  const rr = (entry != null && stop != null && target != null && entry !== stop)
+    ? ((target - entry) / Math.abs(entry - stop)).toFixed(1)
+    : null;
+  const hasTrade = entry != null && stop != null && target != null;
+  const showPanel = showTradePanel && hasTrade;
+
+  return (
+    <div className="w-full rounded-lg relative">
+      {showPanel && (
+        <div
+          className="absolute top-2 right-2 z-10 flex items-center gap-2 px-2.5 py-1 rounded-md border border-border-subtle bg-surface-2/95 backdrop-blur-sm text-[10px] font-mono"
+          title="Trade levels"
+        >
+          <span
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+              dirGuess === "LONG"
+                ? "bg-bullish/20 text-bullish-text"
+                : "bg-bearish/20 text-bearish-text"
+            }`}
+          >
+            {dirGuess}
+          </span>
+          <span className="text-text-faint">Entry</span>
+          <span className="text-accent font-semibold">${entry!.toFixed(2)}</span>
+          <span className="text-text-muted">·</span>
+          <span className="text-text-faint">Stop</span>
+          <span className="text-bearish-text font-semibold">${stop!.toFixed(2)}</span>
+          <span className="text-text-muted">·</span>
+          <span className="text-text-faint">Target</span>
+          <span className="text-bullish-text font-semibold">${target!.toFixed(2)}</span>
+          {rr && (
+            <>
+              <span className="text-text-muted">·</span>
+              <span className="text-text-faint">R:R</span>
+              <span className="text-text-primary font-semibold">{rr}</span>
+            </>
+          )}
+        </div>
+      )}
+      <div ref={containerRef} className="w-full" />
+    </div>
+  );
 }
 
 /* ── Chart-specific error boundary ───────────────────────────────── */
