@@ -16,10 +16,12 @@ import {
   useRunFocusList,
   type FocusListHistoryItem,
 } from "../api/hooks";
-import FocusListView from "../components/FocusListView";
 import SwingTradesPage from "./SwingTradesPage";
 import InPlayView from "../components/InPlayView";
 import TierGate from "../components/TierGate";
+import ScreenerTable, { type Column } from "../components/ScreenerTable";
+import type { Alert } from "../types";
+import { type FocusRecommendation } from "../api/hooks";
 
 type IdeasTab = "day" | "swing" | "ai" | "inplay";
 
@@ -111,63 +113,113 @@ export default function FocusListPage() {
 
 /* ── Day Trades tab — today's Pine-rule alerts grouped by symbol ── */
 
+const money = (n: number | null | undefined) => (n != null ? `$${n.toFixed(2)}` : "—");
+
 function DayTradesTab() {
   const navigate = useNavigate();
   const { data: alerts } = useAlertsToday();
 
-  // BUY alerts only, dedup by symbol (latest one per symbol shows up).
-  const bySymbol = new Map<string, typeof alerts extends (infer T)[] | undefined ? T : never>();
+  const bySymbol = new Map<string, Alert>();
   (alerts ?? []).forEach((a) => {
     if (a.direction !== "BUY") return;
     if (a.user_action === "skipped") return;
     const prev = bySymbol.get(a.symbol);
-    // Keep the most recent fire per symbol
     if (!prev || a.created_at > prev.created_at) bySymbol.set(a.symbol, a);
   });
-  const ideas = [...bySymbol.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const ideas = [...bySymbol.values()];
 
-  if (!alerts) {
-    return <div className="text-center text-xs text-text-faint py-12">Loading…</div>;
-  }
-  if (ideas.length === 0) {
-    return (
-      <div className="bg-surface-1 border border-border-subtle rounded-xl p-8 text-center">
-        <Crosshair className="h-6 w-6 text-text-faint mx-auto mb-3" />
-        <p className="text-sm text-text-secondary">No day trade ideas firing right now.</p>
-        <p className="text-xs text-text-faint mt-1">When Pine alerts fire on your watchlist, they'll show up here.</p>
+  const ruleLabel = (a: Alert) => (a.alert_type || "").replace(/^tv_/, "").replace(/_/g, " ");
+  const timeOf = (a: Alert) =>
+    new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago" });
+
+  const columns: Column<Alert>[] = [
+    { key: "time", label: "Time", align: "left", cls: "w-16", value: (a) => a.created_at, render: (a) => <span className="font-mono text-[11px] text-text-faint">{timeOf(a)}</span> },
+    { key: "symbol", label: "Symbol", align: "left", value: (a) => a.symbol, render: (a) => (
+      <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{a.symbol}</span><span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span></span>
+    ) },
+    { key: "setup", label: "Setup", align: "left", render: (a) => <span className="text-text-muted capitalize">{ruleLabel(a)}</span> },
+    { key: "price", label: "Price", align: "right", value: (a) => a.price ?? 0, render: (a) => <span className="font-mono text-text-primary">{money(a.price)}</span> },
+    { key: "entry", label: "Entry", align: "right", cls: "hidden lg:table-cell", value: (a) => a.entry ?? 0, render: (a) => <span className="font-mono text-text-secondary">{money(a.entry)}</span> },
+    { key: "stop", label: "Stop", align: "right", cls: "hidden lg:table-cell", render: (a) => <span className="font-mono text-bearish-text">{money(a.stop)}</span> },
+    { key: "target", label: "Target", align: "right", cls: "hidden lg:table-cell", render: (a) => <span className="font-mono text-bullish-text">{money(a.target_1)}</span> },
+    { key: "took", label: "", align: "right", render: (a) => (a.user_action === "took" ? <span className="text-[10px] text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">Took</span> : null) },
+  ];
+
+  const mobileRow = (a: Alert) => (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2"><span className="font-bold text-text-primary">{a.symbol}</span>
+          <span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span>
+          {a.user_action === "took" && <span className="text-[10px] text-bullish-text">Took</span>}</div>
+        <span className="font-mono text-sm text-text-primary">{money(a.price)}</span>
       </div>
-    );
-  }
+      <div className="flex gap-3 mt-1 text-[11px] text-text-muted font-mono">
+        <span className="capitalize text-text-faint">{ruleLabel(a)}</span>
+        <span>E {money(a.entry)}</span><span>S {money(a.stop)}</span><span>T {money(a.target_1)}</span>
+      </div>
+    </>
+  );
 
   return (
-    <div className="space-y-2">
-      <p className="text-[11px] text-text-faint">
-        Pine-rule alerts fired today, deduped to one entry per symbol (latest fire).
-        Tap a row to open the chart.
-      </p>
-      {ideas.map((a) => {
-        const time = new Date(a.created_at).toLocaleTimeString("en-US", {
-          hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago",
-        });
-        const ruleLabel = (a.alert_type || "").replace(/^tv_/, "").replace(/_/g, " ");
-        return (
-          <button
-            key={a.id}
-            onClick={() => navigate(`/trading?symbol=${encodeURIComponent(a.symbol)}`)}
-            className="w-full flex items-center gap-3 bg-surface-1 hover:bg-surface-2 border border-border-subtle rounded-lg px-4 py-2.5 text-left transition-colors"
-          >
-            <span className="font-mono text-[10px] text-text-faint w-12">{time}</span>
-            <span className="font-bold text-sm text-text-primary w-16">{a.symbol}</span>
-            <span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span>
-            <span className="text-xs text-text-muted flex-1 truncate">{ruleLabel}</span>
-            <span className="font-mono text-xs text-text-secondary">${a.price?.toFixed(2)}</span>
-            {a.user_action === "took" && (
-              <span className="text-[10px] text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">Took</span>
-            )}
-          </button>
-        );
-      })}
+    <div className="space-y-3">
+      <p className="text-[11px] text-text-faint">Pine-rule alerts fired today, one row per symbol (latest fire). Tap a row to open the chart.</p>
+      <ScreenerTable
+        rows={ideas}
+        columns={columns}
+        rowKey={(a) => String(a.id)}
+        onRowClick={(a) => navigate(`/trading?symbol=${encodeURIComponent(a.symbol)}`)}
+        defaultSort={{ key: "time", dir: "desc" }}
+        mobileRow={mobileRow}
+        isLoading={!alerts}
+        empty={<div className="py-12 text-center"><Crosshair className="h-6 w-6 text-text-faint mx-auto mb-3" /><p className="text-sm text-text-secondary">No day trade ideas firing right now.</p><p className="text-xs text-text-faint mt-1">When Pine alerts fire on your watchlist, they'll show up here.</p></div>}
+      />
     </div>
+  );
+}
+
+/* ── AI Scans recommendations as a screener table ── */
+
+function RecommendationsTable({ recs, onSelect }: { recs: FocusRecommendation[]; onSelect: (s: string) => void }) {
+  const Dir = ({ d }: { d: string }) => (
+    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${d === "LONG" ? "text-bullish-text bg-bullish/10" : "text-bearish-text bg-bearish/10"}`}>{d}</span>
+  );
+  const Conv = ({ c }: { c: string }) => {
+    const cls = c === "HIGH" ? "text-bullish-text bg-bullish/10" : c === "MEDIUM" ? "text-amber-400 bg-amber-400/10" : "text-text-muted bg-surface-3";
+    return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cls}`}>{c}</span>;
+  };
+  const convRank = (c: string) => (({ HIGH: 3, MEDIUM: 2, LOW: 1 } as Record<string, number>)[c] ?? 0);
+
+  const columns: Column<FocusRecommendation>[] = [
+    { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span><Dir d={r.direction} /></span> },
+    { key: "setup", label: "Setup", align: "left", render: (r) => <span className="text-text-muted">{r.setup_type}</span> },
+    { key: "horizon", label: "Horizon", align: "left", cls: "hidden lg:table-cell", render: (r) => <span className="text-text-faint text-xs capitalize">{String(r.trade_horizon).replace(/_/g, " ")}</span> },
+    { key: "entry", label: "Entry", align: "right", value: (r) => r.entry, render: (r) => <span className="font-mono text-text-primary">{money(r.entry)}</span> },
+    { key: "stop", label: "Stop", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bearish-text">{money(r.stop)}</span> },
+    { key: "t1", label: "T1", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bullish-text">{money(r.t1)}</span> },
+    { key: "dist", label: "To Entry", align: "right", cls: "hidden xl:table-cell", value: (r) => r.distance_to_entry_pct, render: (r) => <span className="font-mono text-text-secondary">{r.distance_to_entry_pct?.toFixed(1)}%</span> },
+    { key: "conviction", label: "Conviction", align: "left", value: (r) => convRank(r.conviction), render: (r) => <Conv c={r.conviction} /> },
+  ];
+
+  const mobileRow = (r: FocusRecommendation) => (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span><Dir d={r.direction} /><Conv c={r.conviction} /></div>
+        <span className="font-mono text-sm text-text-primary">{money(r.entry)}</span>
+      </div>
+      <div className="flex gap-3 mt-1 text-[11px] text-text-muted font-mono"><span className="text-text-faint">{r.setup_type}</span><span>S {money(r.stop)}</span><span>T1 {money(r.t1)}</span></div>
+    </>
+  );
+
+  return (
+    <ScreenerTable
+      rows={recs}
+      columns={columns}
+      rowKey={(r) => r.symbol}
+      onRowClick={(r) => onSelect(r.symbol)}
+      defaultSort={{ key: "conviction", dir: "desc" }}
+      mobileRow={mobileRow}
+      empty={<div className="py-12 text-center text-sm text-text-muted">No setups in this list.</div>}
+    />
   );
 }
 
@@ -269,7 +321,7 @@ function AIScansTab() {
         )}
 
         {!loading && viewing && (
-          <FocusListView list={viewing} onSelectSymbol={openChart} />
+          <RecommendationsTable recs={viewing.recommendations ?? []} onSelect={openChart} />
         )}
 
       {/* Cadence confirmation dialog */}

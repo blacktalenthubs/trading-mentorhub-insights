@@ -1,17 +1,14 @@
-/** In-Play Volume Screener (spec 62) — professional, full-width screener table.
- *  Desktop: dense sortable table. Mobile: card rows. Real loading/empty/closed states.
- *  Lives as a tab inside Trade Ideas; rows open the symbol's chart.
+/** In-Play Volume Screener (spec 62) — uses the shared ScreenerTable.
+ *  Keeps its own status header, preset controls, RVOL bars, and market-state empty.
  */
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Activity, AlertTriangle, Zap, ChevronRight, ChevronUp, ChevronDown, Moon,
-} from "lucide-react";
+import { Activity, AlertTriangle, Zap, Moon } from "lucide-react";
 import { useInPlay } from "../api/hooks";
+import ScreenerTable, { type Column } from "./ScreenerTable";
 import { IN_PLAY_PRESETS, type InPlayEntry, type InPlayPreset } from "../pages/InPlay.types";
 
-/* ── formatting ─────────────────────────────────────────────────────── */
 function compact(n: number): string {
   if (!isFinite(n)) return "—";
   const a = Math.abs(n);
@@ -22,19 +19,10 @@ function compact(n: number): string {
 }
 const px = (n: number) => `$${n.toFixed(2)}`;
 
-/* ── sort state ─────────────────────────────────────────────────────── */
-type SortKey = "rank" | "symbol" | "last_price" | "pct_change" | "rvol" | "dollar_vol" | "market_cap";
-const NUMERIC: SortKey[] = ["rank", "last_price", "pct_change", "rvol", "dollar_vol", "market_cap"];
-
-const COLS: { key: SortKey; label: string; align: "left" | "right"; cls?: string }[] = [
-  { key: "rank", label: "#", align: "left", cls: "w-10" },
-  { key: "symbol", label: "Symbol", align: "left" },
-  { key: "last_price", label: "Price", align: "right" },
-  { key: "pct_change", label: "% Chg", align: "right" },
-  { key: "rvol", label: "RVOL", align: "right" },
-  { key: "dollar_vol", label: "$ Vol", align: "right" },
-  { key: "market_cap", label: "Mkt Cap", align: "right" },
-];
+function Pct({ v }: { v: number }) {
+  const up = v >= 0;
+  return <span className={`font-mono ${up ? "text-bullish-text" : "text-bearish-text"}`}>{up ? "+" : ""}{v.toFixed(2)}%</span>;
+}
 
 function SetupBadge({ e }: { e: InPlayEntry }) {
   if (!e.setup) return <span className="text-text-faint text-xs">—</span>;
@@ -43,11 +31,6 @@ function SetupBadge({ e }: { e: InPlayEntry }) {
       <Zap className="h-3 w-3" />{e.setup.pattern || "Setup"}
     </span>
   );
-}
-
-function Pct({ v }: { v: number }) {
-  const up = v >= 0;
-  return <span className={`font-mono ${up ? "text-bullish-text" : "text-bearish-text"}`}>{up ? "+" : ""}{v.toFixed(2)}%</span>;
 }
 
 function RvolCell({ v, max }: { v: number; max: number }) {
@@ -63,7 +46,6 @@ function RvolCell({ v, max }: { v: number; max: number }) {
   );
 }
 
-/* ── states ─────────────────────────────────────────────────────────── */
 function EmptyState({ marketOpen, filtered }: { marketOpen: boolean; filtered: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -85,44 +67,47 @@ function EmptyState({ marketOpen, filtered }: { marketOpen: boolean; filtered: b
   );
 }
 
-function SkeletonRows() {
-  return (
-    <div className="space-y-px">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="h-11 bg-surface-1/60 animate-pulse rounded" />
-      ))}
-    </div>
-  );
-}
-
-/* ── main ───────────────────────────────────────────────────────────── */
 export default function InPlayView() {
   const [preset, setPreset] = useState<InPlayPreset>("any");
   const [hasSetup, setHasSetup] = useState(false);
-  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "rank", dir: "asc" });
   const { data, isLoading, isError } = useInPlay(preset, hasSetup);
   const navigate = useNavigate();
-  const openChart = (s: string) => navigate(`/trading?symbol=${encodeURIComponent(s)}`);
 
-  const rows = useMemo(() => {
-    const list = [...(data?.entries ?? [])];
-    list.sort((a, b) => {
-      const dir = sort.dir === "asc" ? 1 : -1;
-      if (sort.key === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
-      return ((a[sort.key] as number) - (b[sort.key] as number)) * dir;
-    });
-    return list;
-  }, [data, sort]);
-
+  const rows = data?.entries ?? [];
   const maxRvol = useMemo(() => Math.max(1, ...rows.map((r) => r.rvol)), [rows]);
   const captured = data?.captured_at ? new Date(`${data.captured_at}Z`) : null;
 
-  function toggleSort(key: SortKey) {
-    setSort((s) =>
-      s.key === key
-        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: NUMERIC.includes(key) ? "desc" : "asc" });
-  }
+  const columns: Column<InPlayEntry>[] = [
+    { key: "rank", label: "#", align: "left", cls: "w-10", value: (r) => r.rank, render: (r) => <span className="font-mono text-text-faint">{r.rank}</span> },
+    { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => (
+      <span><span className="font-bold text-text-primary">{r.symbol}</span>{r.sector && <span className="text-text-faint text-[11px] ml-2 hidden xl:inline">{r.sector}</span>}</span>
+    ) },
+    { key: "last_price", label: "Price", align: "right", value: (r) => r.last_price, render: (r) => <span className="font-mono text-text-primary">{px(r.last_price)}</span> },
+    { key: "pct_change", label: "% Chg", align: "right", value: (r) => r.pct_change, render: (r) => <Pct v={r.pct_change} /> },
+    { key: "rvol", label: "RVOL", align: "right", value: (r) => r.rvol, render: (r) => <RvolCell v={r.rvol} max={maxRvol} /> },
+    { key: "dollar_vol", label: "$ Vol", align: "right", value: (r) => r.dollar_vol, render: (r) => <span className="font-mono text-text-secondary">{compact(r.dollar_vol)}</span> },
+    { key: "market_cap", label: "Mkt Cap", align: "right", value: (r) => r.market_cap, render: (r) => <span className="font-mono text-text-secondary">{compact(r.market_cap)}</span> },
+    { key: "setup", label: "Setup", align: "left", render: (r) => <SetupBadge e={r} /> },
+  ];
+
+  const mobileRow = (e: InPlayEntry) => (
+    <>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-xs text-text-faint w-4">{e.rank}</span>
+          <span className="font-bold text-text-primary">{e.symbol}</span>
+          <Pct v={e.pct_change} />
+          <SetupBadge e={e} />
+        </div>
+        <span className="font-mono text-sm text-text-primary">{px(e.last_price)}</span>
+      </div>
+      <div className="flex items-center gap-3 mt-1.5 pl-6 text-[11px] text-text-muted font-mono">
+        <span className={e.rvol >= 2 ? "text-accent" : ""}>RVOL {e.rvol.toFixed(1)}x</span>
+        <span>{compact(e.dollar_vol)}</span>
+        <span>{compact(e.market_cap)} cap</span>
+      </div>
+    </>
+  );
 
   return (
     <div className="space-y-4">
@@ -133,23 +118,17 @@ export default function InPlayView() {
             <Activity className="h-4 w-4 text-accent" /> Top movers
             <span className="text-text-faint font-normal text-sm">· by relative volume</span>
           </h2>
-          <p className="text-[11px] text-text-faint mt-0.5">
-            What the whole market is doing on volume right now — not just your watchlist.
-          </p>
+          <p className="text-[11px] text-text-faint mt-0.5">What the whole market is doing on volume right now — not just your watchlist.</p>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-text-faint">
           {data?.market_open ? (
-            <span className="inline-flex items-center gap-1.5 text-bullish-text">
-              <span className="w-1.5 h-1.5 rounded-full bg-bullish animate-pulse" /> Live
-            </span>
+            <span className="inline-flex items-center gap-1.5 text-bullish-text"><span className="w-1.5 h-1.5 rounded-full bg-bullish animate-pulse" /> Live</span>
           ) : (
             <span className="inline-flex items-center gap-1.5"><Moon className="h-3 w-3" /> Closed</span>
           )}
           {captured && <span>· {captured.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
           {rows.length > 0 && <span>· {rows.length} names</span>}
-          {data?.stale && (
-            <span className="inline-flex items-center gap-1 text-amber-400"><AlertTriangle className="h-3 w-3" /> delayed</span>
-          )}
+          {data?.stale && <span className="inline-flex items-center gap-1 text-amber-400"><AlertTriangle className="h-3 w-3" /> delayed</span>}
         </div>
       </div>
 
@@ -157,15 +136,9 @@ export default function InPlayView() {
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap gap-1.5">
           {IN_PLAY_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setPreset(p.id)}
+            <button key={p.id} onClick={() => setPreset(p.id)}
               className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${
-                preset === p.id
-                  ? "bg-accent/15 text-accent border-accent/30"
-                  : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-primary hover:border-border-default"
-              }`}
-            >
+                preset === p.id ? "bg-accent/15 text-accent border-accent/30" : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-primary hover:border-border-default"}`}>
               {p.label}
             </button>
           ))}
@@ -176,87 +149,18 @@ export default function InPlayView() {
         </label>
       </div>
 
-      {/* Body */}
-      <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
-        {isLoading ? (
-          <div className="p-3"><SkeletonRows /></div>
-        ) : isError ? (
-          <div className="py-16 text-center text-sm text-bearish-text">Couldn't load the in-play list. Retrying…</div>
-        ) : rows.length === 0 ? (
-          <EmptyState marketOpen={!!data?.market_open} filtered={preset !== "any" || hasSetup} />
-        ) : (
-          <>
-            {/* Desktop table */}
-            <table className="hidden md:table w-full text-sm">
-              <thead>
-                <tr className="border-b border-border-subtle text-[11px] uppercase tracking-wider text-text-faint">
-                  {COLS.map((c) => {
-                    const active = sort.key === c.key;
-                    return (
-                      <th
-                        key={c.key}
-                        onClick={() => toggleSort(c.key)}
-                        className={`py-2.5 px-3 font-semibold cursor-pointer select-none hover:text-text-secondary ${c.align === "right" ? "text-right" : "text-left"} ${c.cls ?? ""}`}
-                      >
-                        <span className={`inline-flex items-center gap-1 ${c.align === "right" ? "justify-end" : ""}`}>
-                          {c.label}
-                          {active && (sort.dir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
-                        </span>
-                      </th>
-                    );
-                  })}
-                  <th className="py-2.5 px-3 text-left font-semibold">Setup</th>
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((e) => (
-                  <tr
-                    key={e.symbol}
-                    onClick={() => openChart(e.symbol)}
-                    className="border-b border-border-subtle/40 last:border-0 hover:bg-surface-2/50 cursor-pointer transition-colors"
-                  >
-                    <td className="py-2.5 px-3 font-mono text-text-faint">{e.rank}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="font-bold text-text-primary">{e.symbol}</span>
-                      {e.sector && <span className="text-text-faint text-[11px] ml-2 hidden xl:inline">{e.sector}</span>}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-text-primary">{px(e.last_price)}</td>
-                    <td className="py-2.5 px-3 text-right"><Pct v={e.pct_change} /></td>
-                    <td className="py-2.5 px-3"><RvolCell v={e.rvol} max={maxRvol} /></td>
-                    <td className="py-2.5 px-3 text-right font-mono text-text-secondary">{compact(e.dollar_vol)}</td>
-                    <td className="py-2.5 px-3 text-right font-mono text-text-secondary">{compact(e.market_cap)}</td>
-                    <td className="py-2.5 px-3"><SetupBadge e={e} /></td>
-                    <td className="py-2.5 px-2 text-right"><ChevronRight className="h-4 w-4 text-text-faint" /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {/* Mobile cards */}
-            <div className="md:hidden divide-y divide-border-subtle/40">
-              {rows.map((e) => (
-                <button key={e.symbol} onClick={() => openChart(e.symbol)} className="w-full text-left px-4 py-3 hover:bg-surface-2/40 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-mono text-xs text-text-faint w-4">{e.rank}</span>
-                      <span className="font-bold text-text-primary">{e.symbol}</span>
-                      <Pct v={e.pct_change} />
-                      <SetupBadge e={e} />
-                    </div>
-                    <span className="font-mono text-sm text-text-primary">{px(e.last_price)}</span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1.5 pl-6 text-[11px] text-text-muted font-mono">
-                    <span className={e.rvol >= 2 ? "text-accent" : ""}>RVOL {e.rvol.toFixed(1)}x</span>
-                    <span>{compact(e.dollar_vol)}</span>
-                    <span>{compact(e.market_cap)} cap</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      <ScreenerTable
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => r.symbol}
+        onRowClick={(r) => navigate(`/trading?symbol=${encodeURIComponent(r.symbol)}`)}
+        defaultSort={{ key: "rank", dir: "asc" }}
+        mobileRow={mobileRow}
+        isLoading={isLoading}
+        isError={isError}
+        errorText="Couldn't load the in-play list. Retrying…"
+        empty={<EmptyState marketOpen={!!data?.market_open} filtered={preset !== "any" || hasSetup} />}
+      />
     </div>
   );
 }
