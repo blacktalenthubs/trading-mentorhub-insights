@@ -188,35 +188,55 @@ async def social_buzz_context(
 
 @router.get("/social-buzz")
 async def social_buzz(
+    run_id: Optional[int] = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Latest Social Buzz snapshot — top tickers being discussed across
-    retail social (WSB + stocks subreddits + Twitter + StockTwits), filtered
-    to symbols in our screener_universe and ranked by mention growth %.
+    """Social Buzz snapshot — top tickers being discussed across retail social,
+    ranked by mention growth %. ``run_id`` selects a specific saved run (history);
+    omit for the latest.
     """
-    row = (await db.execute(
-        select(SocialBuzzSnapshot)
-        .order_by(desc(SocialBuzzSnapshot.captured_at))
-        .limit(1)
-    )).scalar_one_or_none()
+    if run_id is not None:
+        row = await db.get(SocialBuzzSnapshot, run_id)
+    else:
+        row = (await db.execute(
+            select(SocialBuzzSnapshot)
+            .order_by(desc(SocialBuzzSnapshot.captured_at))
+            .limit(1)
+        )).scalar_one_or_none()
 
     if row is None:
-        return {
-            "captured_at": None,
-            "source": None,
-            "entries": [],
-            "stale": False,
-        }
+        return {"id": None, "captured_at": None, "source": None, "entries": [], "stale": False}
 
     # Stale if older than 3 hours — typically hourly cron, so > 3h means
-    # the job is broken or paused.
+    # the job is broken or paused. A specific saved run is never "stale".
     from datetime import datetime, timedelta
-    is_stale = (datetime.utcnow() - row.captured_at) > timedelta(hours=3)
+    is_stale = run_id is None and (datetime.utcnow() - row.captured_at) > timedelta(hours=3)
 
     return {
+        "id": row.id,
         "captured_at": row.captured_at.isoformat() + "Z",
         "source": row.source,
         "entries": row.entries or [],
         "stale": is_stale,
+    }
+
+
+@router.get("/social-buzz/history")
+async def social_buzz_history(
+    limit: int = Query(20, le=50),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Recent saved Social Buzz runs (newest first) for the history selector."""
+    rows = (await db.execute(
+        select(SocialBuzzSnapshot.id, SocialBuzzSnapshot.captured_at, SocialBuzzSnapshot.entries)
+        .order_by(desc(SocialBuzzSnapshot.captured_at))
+        .limit(limit)
+    )).all()
+    return {
+        "runs": [
+            {"id": r.id, "captured_at": r.captured_at.isoformat() + "Z", "count": len(r.entries or [])}
+            for r in rows
+        ]
     }

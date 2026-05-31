@@ -33,11 +33,22 @@ logger = logging.getLogger(__name__)
 # Filters that matter to us: "stocks" (combined stock sentiment), "twitter",
 # "stocktwits", "wallstreetbets". We use "stocks" as the umbrella signal
 # since it already aggregates the others.
-APEWISDOM_URL = "https://apewisdom.io/api/v1.0/filter/stocks/page/1"
+APEWISDOM_BASE = "https://apewisdom.io/api/v1.0/filter/stocks/page/{page}"
+APEWISDOM_PAGES = 2          # 100 results/page — pull 2 for more names on thin days
 APEWISDOM_TIMEOUT = 10
+# Apewisdom 200s for browsers/curl but blocks the default python-requests UA from
+# cloud IPs (the prod "stuck/stale" bug) — send a real browser UA + Accept.
+APEWISDOM_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+}
 
 # Filter thresholds — keep the snapshot clean.
-MIN_MENTIONS_24H = 5         # noise floor — slow weekends still get a few entries
+MIN_MENTIONS_24H = 3         # noise floor — thin/weekend sessions still get entries
+MIN_PREV_FOR_GROWTH = 3      # need ≥3 prior mentions before trusting a growth %
 TOP_N = 25                   # store top 25, UI typically shows top 10-15
 
 # Filtering policy v2 (2026-05-31): old approach was "only include symbols in
@@ -62,6 +73,8 @@ _EXCLUDED_ETFS: set[str] = {
     "GLD", "SLV", "GDX", "GDXJ", "USO", "UNG", "DBA", "DBC",
     # Crypto ETFs / proxies
     "GBTC", "ETHE", "BITO", "BITX", "BITI",
+    # Dividend / income + thematic ETFs that recur in social chatter
+    "SCHD", "DON", "SPCX", "JEPI", "JEPQ", "DGRO", "VYM", "VIG", "SCHG", "QQQM",
 }
 
 
@@ -88,26 +101,27 @@ def _fetch_apewisdom() -> Optional[list[dict]]:
           "rank_24h_ago": "3", "mentions_24h_ago": "287",
           "sentiment": "0.42", "sentiment_score": "0.7"}, ...]}
     """
-    try:
-        r = requests.get(APEWISDOM_URL, timeout=APEWISDOM_TIMEOUT)
-    except requests.RequestException as e:
-        logger.warning("Apewisdom network error: %s", e)
-        return None
-
-    if r.status_code != 200:
-        logger.info("Apewisdom returned %d", r.status_code)
-        return None
-
-    try:
-        data = r.json()
-    except ValueError:
-        logger.warning("Apewisdom returned non-JSON")
-        return None
-
-    results = data.get("results") or []
-    if not isinstance(results, list):
-        return None
-    return results
+    merged: list[dict] = []
+    for page in range(1, APEWISDOM_PAGES + 1):
+        url = APEWISDOM_BASE.format(page=page)
+        try:
+            r = requests.get(url, headers=APEWISDOM_HEADERS, timeout=APEWISDOM_TIMEOUT)
+        except requests.RequestException as e:
+            logger.warning("Apewisdom network error (page %d): %s", page, e)
+            break
+        if r.status_code != 200:
+            logger.info("Apewisdom returned %d (page %d)", r.status_code, page)
+            break
+        try:
+            data = r.json()
+        except ValueError:
+            logger.warning("Apewisdom returned non-JSON (page %d)", page)
+            break
+        results = data.get("results") or []
+        if not isinstance(results, list) or not results:
+            break
+        merged.extend(results)
+    return merged or None
 
 
 def _to_int(v) -> int:
@@ -191,9 +205,11 @@ def refresh_social_buzz(session_factory) -> dict:
             if mentions < MIN_MENTIONS_24H:
                 continue
 
-            # Growth % vs 24h ago — the "is this NEW attention" signal.
+            # Growth % vs 24h ago — the "is this NEW attention" signal. Require a
+            # few prior mentions before trusting it, so a 1→11 blip doesn't read as
+            # +1000% and dominate the board.
             growth_pct: Optional[float] = None
-            if mentions_prev > 0:
+            if mentions_prev >= MIN_PREV_FOR_GROWTH:
                 growth_pct = round((mentions - mentions_prev) / mentions_prev * 100, 1)
 
             sentiment = _to_float(row.get("sentiment"))

@@ -73,17 +73,33 @@ export interface SocialBuzzEntry {
 }
 
 export interface SocialBuzzResponse {
+  id?: number | null;
   captured_at: string | null;
   source: string | null;
   entries: SocialBuzzEntry[];
   stale: boolean;
 }
 
-export function useSocialBuzz() {
+export interface SocialBuzzRun {
+  id: number;
+  captured_at: string;
+  count: number;
+}
+
+export function useSocialBuzz(runId?: number | null) {
   return useQuery({
-    queryKey: ["social-buzz"],
-    queryFn: () => api.get<SocialBuzzResponse>("/screener/social-buzz"),
-    refetchInterval: 5 * 60_000,   // server refreshes hourly; client polls every 5min
+    queryKey: ["social-buzz", runId ?? "latest"],
+    queryFn: () =>
+      api.get<SocialBuzzResponse>(`/screener/social-buzz${runId ? `?run_id=${runId}` : ""}`),
+    refetchInterval: runId ? false : 5 * 60_000,  // saved runs are immutable; only latest polls
+    staleTime: 60_000,
+  });
+}
+
+export function useSocialBuzzHistory() {
+  return useQuery({
+    queryKey: ["social-buzz-history"],
+    queryFn: () => api.get<{ runs: SocialBuzzRun[] }>("/screener/social-buzz/history"),
     staleTime: 60_000,
   });
 }
@@ -95,7 +111,10 @@ export function useRefreshSocialBuzz() {
     onSuccess: () => {
       toast.info("Social buzz refresh started — results in ~5 seconds");
       // Apewisdom + DB write takes 2-4s; invalidate after 5s.
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["social-buzz"] }), 5000);
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["social-buzz"] });
+        qc.invalidateQueries({ queryKey: ["social-buzz-history"] });
+      }, 5000);
     },
     onError: () => toast.error("Failed to start refresh"),
   });

@@ -18,6 +18,7 @@ import {
   useFocusListDetail,
   useRunFocusList,
   useSocialBuzz,
+  useSocialBuzzHistory,
   useRefreshSocialBuzz,
   useSocialBuzzContext,
   type FocusListHistoryItem,
@@ -377,7 +378,9 @@ function AIScansTab() {
 
 function SocialBuzzTab() {
   const navigate = useNavigate();
-  const { data, isLoading, error } = useSocialBuzz();
+  const [runId, setRunId] = useState<number | null>(null);  // null = latest live run
+  const { data, isLoading, error } = useSocialBuzz(runId);
+  const history = useSocialBuzzHistory();
   const refresh = useRefreshSocialBuzz();
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -431,12 +434,29 @@ function SocialBuzzTab() {
           {entries.length} tickers · sorted by 24h mention growth · source: Apewisdom
         </span>
         <div className="flex items-center gap-3">
-          <span className={data?.stale ? "text-warning-text" : ""}>
-            {capturedAge != null ? `Refreshed ${capturedAge}m ago` : "Loading…"}
-            {data?.stale && " · stale"}
+          {history.data && history.data.runs.length > 1 && (
+            <div className="flex items-center gap-1.5">
+              <History className="h-3.5 w-3.5 text-text-muted" />
+              <select
+                value={runId ?? ""}
+                onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : null)}
+                className="bg-surface-1 border border-border-subtle rounded px-2 py-1 text-xs text-text-secondary"
+              >
+                <option value="">Latest run</option>
+                {history.data.runs.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {new Date(r.captured_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · {r.count} tickers
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <span className={runId ? "" : data?.stale ? "text-warning-text" : ""}>
+            {runId ? "saved run" : capturedAge != null ? `Refreshed ${capturedAge}m ago` : "Loading…"}
+            {!runId && data?.stale && " · stale"}
           </span>
           <button
-            onClick={() => refresh.mutate()}
+            onClick={() => { setRunId(null); refresh.mutate(); }}
             disabled={refresh.isPending}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
             title="Pull the latest Apewisdom snapshot now"
