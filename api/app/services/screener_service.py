@@ -307,17 +307,41 @@ async def rebuild_universe() -> None:
 # bars don't change intraday, so setups stay valid all week (incl. weekends).
 # ---------------------------------------------------------------------------
 
+def _fetch_daily_consolidated(symbol: str, period: str = "1y"):
+    """Daily bars with CONSOLIDATED volume (yfinance) for swing grading.
+
+    The swing A/B/C grade is volume_ratio = today's vol / 20-day avg. Alpaca's
+    free ``feed="iex"`` reports only IEX-exchange volume (~2-3% of total, and an
+    unstable share day-to-day), so grading off it is noisy — a true 2.2x RVOL
+    name (Grade A) collapses to sub-1.3 (Grade C). Swing runs once/day on ~140
+    names, low enough frequency that yfinance's consolidated daily bars are safe
+    here (unlike intraday polling, which is why Alpaca is primary elsewhere).
+    Falls back to the Alpaca path PER SYMBOL only if yfinance fails, so a Yahoo
+    hiccup degrades that one grade rather than dropping the name.
+    """
+    try:
+        import yfinance as yf  # lazy
+        df = yf.Ticker(symbol).history(period=period, auto_adjust=False)
+        if df is not None and not df.empty and "Volume" in df.columns:
+            return df[["Open", "High", "Low", "Close", "Volume"]]
+    except Exception:
+        logger.debug("swing: yfinance daily failed for %s — falling back to Alpaca/IEX",
+                     symbol, exc_info=True)
+    from analytics.market_data import fetch_ohlc  # lazy fallback (IEX volume)
+    return fetch_ohlc(symbol, period)
+
+
 def _gather_swing() -> list[scr.SwingCandidate]:
     """Scan the curated MEGA-CAP list on daily bars (independent of the dynamic
-    universe build). Uses the fetch_ohlc path that works on Railway."""
-    from analytics.market_data import fetch_ohlc  # lazy
-    spy = fetch_ohlc("SPY", "1y")
+    universe build). Daily bars use CONSOLIDATED volume so the A/B/C grade
+    reflects real relative volume, not Alpaca's thin IEX slice."""
+    spy = _fetch_daily_consolidated("SPY", "1y")
     spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
                if spy is not None and len(spy) > 21 else 0.0)
     cands: list[scr.SwingCandidate] = []
     for u in scr.mega_cap_rows():
         try:
-            daily = fetch_ohlc(u.symbol, "1y")
+            daily = _fetch_daily_consolidated(u.symbol, "1y")
             c = scr.swing_signals(daily, spy_ret, symbol=u.symbol, market_cap=u.market_cap, sector=u.sector)
             if c and c.setup:
                 cands.append(c)
@@ -405,18 +429,17 @@ _SMALL_DOLLAR_VOL_FLOOR = 20e6     # liquidity / institutional-interest gate
 def _gather_swing_small() -> list[scr.SwingCandidate]:
     """Scan today's most-active NON-mega names defending the 20/50 EMA. Quality-gated
     on price + dollar volume so it surfaces real small-cap momentum, not penny shells."""
-    from analytics.market_data import fetch_ohlc  # lazy
     # Curated small/mid + recent-IPO pool only. (Alpaca most-actives isn't cap-aware,
     # so it leaks mega caps like GOOG into "small" — dynamic discovery needs a
     # market-cap source, e.g. Polygon/FMP. Tracked as a follow-up.)
     pool = list(scr.SMALL_CAP_UNIVERSE)
-    spy = fetch_ohlc("SPY", "1y")
+    spy = _fetch_daily_consolidated("SPY", "1y")
     spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
                if spy is not None and len(spy) > 21 else 0.0)
     cands: list[scr.SwingCandidate] = []
     for sym in pool[:150]:
         try:
-            daily = fetch_ohlc(sym, "6mo")
+            daily = _fetch_daily_consolidated(sym, "6mo")
             if daily is None or daily.empty or len(daily) < 50:
                 continue
             last = float(daily["Close"].iloc[-1])
