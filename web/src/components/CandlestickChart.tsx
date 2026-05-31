@@ -325,8 +325,14 @@ function CandlestickChartInner({
   const hasTrade = entry != null && stop != null && target != null;
   const showPanel = showTradePanel && hasTrade;
 
+  // Outer wrapper must fill its parent (TradingPageV2 uses flex-1 min-h-0
+  // around the chart). Without h-full here, the inner chart container has
+  // no height to inherit and the chart collapses to its own intrinsic
+  // height — which manifested as "chart only fills upper half" 2026-05-31.
+  // Inner container is w-full h-full so it sizes correctly; the absolute-
+  // positioned trade panel sits on top without taking layout space.
   return (
-    <div className="w-full rounded-lg relative">
+    <div className="w-full h-full rounded-lg relative">
       {showPanel && (
         <div
           className="absolute top-2 right-2 z-10 flex items-center gap-2 px-2.5 py-1 rounded-md border border-border-subtle bg-surface-2/95 backdrop-blur-sm text-[10px] font-mono"
@@ -358,7 +364,7 @@ function CandlestickChartInner({
           )}
         </div>
       )}
-      <div ref={containerRef} className="w-full" />
+      <div ref={containerRef} className="w-full h-full" />
     </div>
   );
 }
