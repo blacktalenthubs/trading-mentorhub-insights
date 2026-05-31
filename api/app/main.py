@@ -938,6 +938,12 @@ async def lifespan(app: FastAPI):
                 timezone="America/New_York",
                 id="screener_swing_refresh", replace_existing=True,
             )
+            # Scheduler jobs run on worker threads but the async DB engine is bound
+            # to this (the app's main) loop — hand it to the service so jobs submit
+            # their coroutines back to it instead of a dead asyncio.run() loop.
+            import asyncio as _asyncio
+            from app.services.screener_service import set_main_loop
+            set_main_loop(_asyncio.get_running_loop())
             # One-shot on startup: build universe if empty + initial swing scan,
             # so both screeners self-populate on deploy (idempotent across restarts).
             scheduler.add_job(bootstrap_job, id="screener_bootstrap", replace_existing=True)

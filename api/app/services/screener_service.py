@@ -31,6 +31,23 @@ is_market_open = scr.is_market_open
 _CACHE: dict = {}  # kind -> {"snap": ScreenerSnapshot|None, "at": monotonic}
 _CACHE_TTL_S = 20
 
+# The app's main event loop (set at startup). Scheduler jobs run on worker threads;
+# the async Postgres engine is bound to THIS loop, so cross-loop asyncio.run() fails.
+_MAIN_LOOP = None
+
+
+def set_main_loop(loop) -> None:
+    global _MAIN_LOOP
+    _MAIN_LOOP = loop
+
+
+def _run(coro) -> None:
+    """Run an async coroutine from a sync scheduler thread on the main loop."""
+    if _MAIN_LOOP is not None and _MAIN_LOOP.is_running():
+        asyncio.run_coroutine_threadsafe(coro, _MAIN_LOOP).result()
+    else:
+        asyncio.run(coro)  # fallback for local/tests (no running app loop)
+
 
 # ---------------------------------------------------------------------------
 # Persistence (async)
@@ -314,17 +331,18 @@ async def get_latest_swing() -> ScreenerSnapshot | None:
     return await get_latest_snapshot("swing")
 
 
-# Sync wrappers for BackgroundScheduler (one fresh event loop per run).
+# Sync wrappers for BackgroundScheduler — run on the app's main loop (where the
+# async DB engine lives), NOT a fresh asyncio.run() loop.
 def refresh_in_play_job() -> None:
-    asyncio.run(refresh_in_play())
+    _run(refresh_in_play())
 
 
 def rebuild_universe_job() -> None:
-    asyncio.run(rebuild_universe())
+    _run(rebuild_universe())
 
 
 def refresh_swing_job() -> None:
-    asyncio.run(refresh_swing())
+    _run(refresh_swing())
 
 
 async def bootstrap() -> None:
@@ -344,4 +362,4 @@ async def bootstrap() -> None:
 
 
 def bootstrap_job() -> None:
-    asyncio.run(bootstrap())
+    _run(bootstrap())
