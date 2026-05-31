@@ -30,10 +30,10 @@ const PLANS = [
     price: "$0",
     period: "forever",
     features: [
-      "3 symbols on watchlist",
-      "3 alerts visible per session",
-      "AI Coach (2 queries/day)",
-      "Signal Library access",
+      "5 symbols on watchlist",
+      "Top swing & in-play setups (preview)",
+      "1 AI scan per day",
+      "A-grade alerts to Telegram",
       "Today's alerts only",
     ],
     cta: "Current Plan",
@@ -45,32 +45,16 @@ const PLANS = [
     period: "/month",
     popular: true,
     features: [
-      "10 symbols on watchlist",
-      "Real-time Telegram alerts",
-      "AI Coach (20 queries/day)",
-      "Full alert history (30 days)",
-      "Pre-trade checklist",
-      "Daily EOD review",
-      "Pre-market brief",
+      "Unlimited watchlist",
+      "Full Swing & In-Play screeners",
+      "All real-time alerts (Telegram + push)",
+      "50 AI scans per day",
+      "Full alert history",
       "Performance analytics",
+      "Premarket sector brief",
+      "Weekly AI retrospective",
     ],
     cta: "Upgrade to Pro",
-  },
-  {
-    id: "premium",
-    name: "Premium",
-    price: "$99",
-    period: "/month",
-    features: [
-      "Everything in Pro",
-      "25 symbols on watchlist",
-      "Unlimited AI Coach",
-      "Full alert history",
-      "Weekly AI review",
-      "Paper trading simulator",
-      "Backtesting engine",
-    ],
-    cta: "Upgrade to Premium",
   },
 ];
 
@@ -262,7 +246,7 @@ export default function BillingPage() {
         )}
 
         {/* Plan cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8 max-w-2xl mx-auto">
           {PLANS.map((plan) => {
             const isTrial = status?.trial_active ?? false;
             // During trial, user has "pro" access but hasn't paid — show upgrade buttons
