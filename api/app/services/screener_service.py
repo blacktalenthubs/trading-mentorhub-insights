@@ -345,10 +345,10 @@ def _gather_swing_small() -> list[scr.SwingCandidate]:
     """Scan today's most-active NON-mega names defending the 20/50 EMA. Quality-gated
     on price + dollar volume so it surfaces real small-cap momentum, not penny shells."""
     from analytics.market_data import fetch_ohlc  # lazy
-    mega = set(scr.MEGA_CAP_UNIVERSE)
-    # Dynamic most-actives (if entitled) ∪ curated small-cap pool — dedup, mega excluded.
-    actives = [s for s in _fetch_most_actives(100) if s not in mega]
-    pool = list(dict.fromkeys(actives + list(scr.SMALL_CAP_UNIVERSE)))
+    # Curated small/mid + recent-IPO pool only. (Alpaca most-actives isn't cap-aware,
+    # so it leaks mega caps like GOOG into "small" — dynamic discovery needs a
+    # market-cap source, e.g. Polygon/FMP. Tracked as a follow-up.)
+    pool = list(scr.SMALL_CAP_UNIVERSE)
     spy = fetch_ohlc("SPY", "1y")
     spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
                if spy is not None and len(spy) > 21 else 0.0)
