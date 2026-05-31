@@ -13,7 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from analytics import screener as scr
 from app.config import get_settings
-from app.dependencies import is_admin_user, require_pro
+from app.dependencies import get_current_user, is_admin_user, require_pro
 from app.models.user import User
 from app.schemas.screener import SettingsOut, SettingsUpdate, SnapshotOut
 from app.services import screener_service as svc
@@ -36,7 +36,7 @@ async def get_in_play(
     preset: str = Query("any"),
     direction: str = Query("any"),
     has_setup: bool = Query(False),
-    user: User = Depends(require_pro),
+    user: User = Depends(get_current_user),  # readable on Free (top-N preview)
 ):
     """Latest in-play snapshot, optionally narrowed by a refine preset (FR-2/FR-9)."""
     snap = await svc.get_latest_snapshot()
@@ -90,7 +90,7 @@ async def update_screener_settings(body: SettingsUpdate, user: User = Depends(re
 async def get_swing(
     cap: str = Query("mega"),
     run_id: Optional[int] = Query(None),
-    user: User = Depends(require_pro),
+    user: User = Depends(get_current_user),  # readable on Free (top-N preview)
 ):
     """Swing setups (daily-bar MA hold). cap=mega|small. run_id selects a specific
     saved run (history); omit for the latest. Not market-gated."""
@@ -105,7 +105,7 @@ async def get_swing(
 
 
 @router.get("/swing/history")
-async def swing_history(cap: str = Query("mega"), user: User = Depends(require_pro)):
+async def swing_history(cap: str = Query("mega"), user: User = Depends(get_current_user)):
     """Recent saved swing runs (for the history selector)."""
     kind = "swing_small" if cap == "small" else "swing"
     return {"runs": await svc.list_snapshots(kind)}

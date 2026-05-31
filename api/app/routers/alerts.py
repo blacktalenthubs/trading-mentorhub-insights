@@ -38,8 +38,16 @@ def _grade_filter_clause(user: User):
     Applied on /alerts/today and /alerts/history. Performance / Weekly
     intentionally don't filter — those are for analysis, not feed noise
     control.
+
+    Free tier is clamped to A-grade regardless of the user's own setting —
+    the alert firehose (B/C grades) is a Pro perk (alerts_min_grade limit).
     """
     mg = (user.min_alert_grade or "C").upper()
+    from app.dependencies import get_user_tier
+    from app.tier import get_limits
+    floor = get_limits(get_user_tier(user)).get("alerts_min_grade")
+    if floor == "A":
+        mg = "A"  # free: force A-only, ignore any wider personal setting
     if mg == "A":
         return Alert.grade == "A"
     if mg == "B":

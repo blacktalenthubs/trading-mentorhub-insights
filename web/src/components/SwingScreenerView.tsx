@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { TrendingUp, RefreshCw, Zap, Moon, History } from "lucide-react";
 import { useSwingScreener, useRefreshSwing, useSwingHistory } from "../api/hooks";
+import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "./ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "./GradeBadge";
 import type { SwingEntry } from "../pages/InPlay.types";
@@ -80,6 +81,7 @@ export default function SwingScreenerView() {
   const { data, isLoading, isError } = useSwingScreener(cap, runId);
   const history = useSwingHistory(cap);
   const refresh = useRefreshSwing(cap);
+  const { screenerPreviewRows, isPro } = useFeatureGate();
   const navigate = useNavigate();
 
   const rows = data?.entries ?? [];
@@ -168,14 +170,17 @@ export default function SwingScreenerView() {
             {runId ? <>saved run</> : captured ? <>live · {captured.toLocaleDateString([], { month: "short", day: "numeric" })}</> : <><Moon className="h-3 w-3" /> not scanned yet</>}
             {rows.length > 0 && <span>· {rows.length} setups</span>}
           </span>
-          <button
-            onClick={() => { setRunId(null); refresh.mutate(); }}
-            disabled={refresh.isPending}
-            className="text-xs px-3 py-1.5 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
-            {refresh.isPending ? "Scanning…" : "Run scan"}
-          </button>
+          {/* On-demand scan is a Pro action; free users get the scheduled snapshot. */}
+          {isPro && (
+            <button
+              onClick={() => { setRunId(null); refresh.mutate(); }}
+              disabled={refresh.isPending}
+              className="text-xs px-3 py-1.5 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
+              {refresh.isPending ? "Scanning…" : "Run scan"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -185,6 +190,8 @@ export default function SwingScreenerView() {
         rowKey={(r) => r.symbol}
         onRowClick={(r) => navigate(`/trading?symbol=${encodeURIComponent(r.symbol)}`)}
         defaultSort={{ key: "decision", dir: "desc" }}
+        previewRows={screenerPreviewRows}
+        previewLabel="swing setups"
         mobileRow={mobileRow}
         isLoading={isLoading}
         isError={isError}

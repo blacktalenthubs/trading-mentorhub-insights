@@ -76,6 +76,7 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
 
 
 def _build_user_response(user: User, tier: str) -> UserResponse:
+    from app.tier import get_limits
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -83,6 +84,7 @@ def _build_user_response(user: User, tier: str) -> UserResponse:
         tier=tier,
         trial_active=is_trial_active(user),
         trial_days_left=trial_days_remaining(user),
+        limits=get_limits(tier),
     )
 
 

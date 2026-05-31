@@ -30,6 +30,9 @@ class UserResponse(BaseModel):
     tier: str
     trial_active: bool = False
     trial_days_left: int = 0
+    # Effective per-tier feature limits — the single source of truth the client
+    # reads instead of hardcoding its own copy (kills frontend/backend drift).
+    limits: dict = {}
 
     model_config = {"from_attributes": True}
 

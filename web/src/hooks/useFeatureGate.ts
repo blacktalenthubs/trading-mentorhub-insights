@@ -9,51 +9,52 @@ const TIER_RANK: Record<string, number> = {
   admin: 99,
 };
 
-/** Limits per tier — null = unlimited */
-export const TIER_LIMITS: Record<string, Record<string, number | null | boolean>> = {
+/** Local fallback limits — kept in sync with api/app/tier.py. The backend is the
+ *  source of truth (served on the user via /me); this table is only used until
+ *  that payload arrives. null = unlimited. */
+export const TIER_LIMITS: Record<string, Record<string, number | null | boolean | string>> = {
   free: {
-    watchlist_max: 3,
-    ai_queries_per_day: 2,
-    visible_alerts: 3,
+    watchlist_max: 5,
+    watchlist_groups_max: 1,
+    best_setups_per_day: 1,
+    visible_alerts: 5,
+    screener_preview_rows: 3,
+    alerts_min_grade: "A",
     chart_replay_per_day: 1,
-    telegram_alerts: false,
+    telegram_alerts: true,
+    premarket_brief: false,
     performance_analytics: false,
-    pre_trade_check: false,
-    paper_trading: false,
-    backtesting: false,
   },
   pro: {
-    watchlist_max: 10,
-    ai_queries_per_day: 20,
+    watchlist_max: null,
+    watchlist_groups_max: null,
+    best_setups_per_day: 50,
     visible_alerts: null,
+    screener_preview_rows: null,
+    alerts_min_grade: null,
     chart_replay_per_day: null,
     telegram_alerts: true,
+    premarket_brief: true,
     performance_analytics: true,
-    pre_trade_check: true,
-    paper_trading: false,
-    backtesting: false,
   },
-  premium: {
-    watchlist_max: 50,
-    ai_queries_per_day: null,
-    visible_alerts: null,
-    chart_replay_per_day: null,
-    telegram_alerts: true,
-    performance_analytics: true,
-    pre_trade_check: true,
-    paper_trading: true,
-    backtesting: true,
-  },
+  // premium/admin/comp resolve to "pro or better" via the rank fallback below.
 };
 
 export function useFeatureGate() {
   const user = useAuthStore((s) => s.user);
   const tier = user?.tier ?? "free";
   const rank = TIER_RANK[tier] ?? 0;
-  const limits = TIER_LIMITS[tier] ?? TIER_LIMITS.free;
+  // Prefer backend-served limits (source of truth); fall back to the local table
+  // (pro for any paid/admin tier without an explicit entry).
+  const fallback = TIER_LIMITS[tier] ?? (rank >= TIER_RANK.pro ? TIER_LIMITS.pro : TIER_LIMITS.free);
+  const limits = (user?.limits && Object.keys(user.limits).length ? user.limits : fallback) as Record<
+    string,
+    number | null | boolean | string
+  >;
 
   const isPro = rank >= TIER_RANK.pro;
   const isPremium = rank >= TIER_RANK.premium;
+  const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
 
   return {
     tier,
@@ -64,9 +65,14 @@ export function useFeatureGate() {
     limits,
     /** Check if user tier >= required tier */
     hasAccess: (required: string) => rank >= (TIER_RANK[required] ?? 0),
-    /** Watchlist max for current tier */
-    maxWatchlistSize: (limits.watchlist_max as number) ?? Infinity,
+    /** Watchlist max for current tier (Infinity = unlimited) */
+    maxWatchlistSize: num(limits.watchlist_max) ?? Infinity,
     /** Visible alerts before blurring (null = unlimited) */
-    visibleAlerts: limits.visible_alerts as number | null,
+    visibleAlerts: num(limits.visible_alerts),
+    /** Screener rows shown before the rest are blurred (null = all) */
+    screenerPreviewRows: num(limits.screener_preview_rows),
+    /** Minimum alert grade delivered on this tier ("A" on free, null = all) */
+    alertsMinGrade:
+      typeof limits.alerts_min_grade === "string" ? (limits.alerts_min_grade as string) : null,
   };
 }

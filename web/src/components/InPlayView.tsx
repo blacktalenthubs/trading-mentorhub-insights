@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, AlertTriangle, Zap, Moon } from "lucide-react";
 import { useInPlay } from "../api/hooks";
+import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "./ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "./GradeBadge";
 import { IN_PLAY_PRESETS, type InPlayEntry, type InPlayPreset } from "../pages/InPlay.types";
@@ -89,6 +90,7 @@ export default function InPlayView() {
   const [preset, setPreset] = useState<InPlayPreset>("any");
   const [hasSetup, setHasSetup] = useState(false);
   const { data, isLoading, isError } = useInPlay(preset, hasSetup);
+  const { screenerPreviewRows } = useFeatureGate();
   const navigate = useNavigate();
 
   const rows = data?.entries ?? [];
@@ -181,6 +183,8 @@ export default function InPlayView() {
         rowKey={(r) => r.symbol}
         onRowClick={(r) => navigate(`/trading?symbol=${encodeURIComponent(r.symbol)}`)}
         defaultSort={{ key: "rank", dir: "asc" }}
+        previewRows={screenerPreviewRows}
+        previewLabel="movers"
         mobileRow={mobileRow}
         isLoading={isLoading}
         isError={isError}

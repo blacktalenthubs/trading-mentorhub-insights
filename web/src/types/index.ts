@@ -1,5 +1,7 @@
 /** Shared TypeScript interfaces matching API schemas. */
 
+export type TierLimits = Record<string, number | null | boolean | string>;
+
 export interface User {
   id: number;
   email: string;
@@ -7,6 +9,8 @@ export interface User {
   tier: "free" | "pro" | "premium" | "admin";
   trial_active?: boolean;
   trial_days_left?: number;
+  /** Effective per-tier feature limits, served by the backend (source of truth). */
+  limits?: TierLimits;
 }
 
 export interface AuthTokens {
