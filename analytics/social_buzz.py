@@ -37,44 +37,44 @@ APEWISDOM_URL = "https://apewisdom.io/api/v1.0/filter/stocks/page/1"
 APEWISDOM_TIMEOUT = 10
 
 # Filter thresholds — keep the snapshot clean.
-MIN_MENTIONS_24H = 10        # noise floor — below this is conversational chaff
-TOP_N = 20                   # store top 20, UI typically shows top 10
+MIN_MENTIONS_24H = 5         # noise floor — slow weekends still get a few entries
+TOP_N = 25                   # store top 25, UI typically shows top 10-15
 
-# Fallback allowlist — used when screener_universe is empty (e.g., screener
-# bootstrap hasn't run yet). Keeps Social Buzz independent of the screener's
-# weekly rebuild schedule. Covers the symbols retail social actually talks
-# about: mega caps + popular small caps + meme tickers + ETFs.
-_FALLBACK_UNIVERSE: set[str] = {
-    # Mega-tech
-    "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","TSLA","AVGO","ORCL",
-    # Large tech
-    "AMD","INTC","CRM","ADBE","CSCO","QCOM","TXN","MU","AMAT","LRCX","KLAC",
-    "ASML","TSM","SMCI","CRWD","PLTR","NOW","SNOW","UBER","ABNB","SHOP","SQ",
-    "COIN","HOOD","SOFI","AFRM","RBLX","NET","DDOG","ZS","OKTA","WDAY","TEAM",
-    "DOCU","ZM",
-    # AI / data
-    "AI","BBAI","SOUN","CRDO","RKLB","ANET","CRWV","INFQ","XNDU","CRML","OKLO","DRAM",
-    # Finance
-    "JPM","BAC","WFC","C","GS","MS","BLK","SCHW","V","MA","PYPL","SPGI","ICE","CME",
-    # Healthcare / biotech
-    "JNJ","UNH","LLY","PFE","MRK","ABBV","TMO","ABT","DHR","BMY","AMGN","GILD",
-    "REGN","VRTX","MRNA","NVAX","BIIB",
-    # Energy
-    "XOM","CVX","COP","SLB","HAL","OXY","EOG","MRO","DVN","PSX","VLO","MPC",
-    "KMI","WMB","ET","CEG","NEE",
-    # Consumer
-    "WMT","HD","COST","TGT","LOW","NKE","SBUX","MCD","KO","PEP","PG","CL","UL",
-    "DIS","NFLX","CMCSA","T","VZ","CHTR",
-    # Industrial / transport
-    "BA","CAT","DE","HON","UNP","UPS","FDX","LMT","RTX","GE","GEV","MMM","EMR","ETN","ITW",
-    # Speculation / meme / popular retail
-    "GME","AMC","BB","NOK","TLRY","RIVN","LCID","NIO","XPEV","LI","BYND","SPCE",
-    "CHWY","WEN","WBD","PARA","SIRI",
-    # ETFs (heavily discussed)
-    "SPY","QQQ","IWM","DIA","XLK","XLE","XLF","XLV","XLY","XLI","XLP","XLU",
-    "ARKK","SMH","SOXX","TQQQ","SQQQ","VTI","VOO","VTV","VUG","VEA","VWO",
-    "BND","TLT","GLD","SLV","USO","UVXY","TBT",
+# Filtering policy v2 (2026-05-31): old approach was "only include symbols in
+# screener_universe" which was way too narrow — most things retail talks about
+# never made it through. New approach: include everything Apewisdom returns
+# EXCEPT (a) ETFs (they trend constantly but aren't tradeable as ideas, they're
+# index proxies) and (b) symbols that look like junk (too long, no letters, etc.).
+#
+# Apewisdom already does quality filtering on the data they ingest, so trusting
+# their list + a thin exclusion layer gives much better signal.
+_EXCLUDED_ETFS: set[str] = {
+    # Broad indexes — talked about constantly, never an idea
+    "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "VTV", "VUG", "VEA", "VWO",
+    "VT", "VEU", "VXUS", "BND", "AGG", "BNDX",
+    # Sector SPDRs
+    "XLK", "XLE", "XLF", "XLV", "XLY", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
+    # Thematic / leveraged — high mention volume, mostly noise
+    "ARKK", "ARKW", "ARKG", "ARKQ", "ARKF", "SMH", "SOXX", "SOXL", "SOXS",
+    "TQQQ", "SQQQ", "UPRO", "SPXU", "UVXY", "VIXY", "TBT", "TLT", "TMF", "TMV",
+    "TZA", "TNA", "SDOW", "UDOW", "SPXL", "SPXS", "FAS", "FAZ",
+    # Bond / commodity
+    "GLD", "SLV", "GDX", "GDXJ", "USO", "UNG", "DBA", "DBC",
+    # Crypto ETFs / proxies
+    "GBTC", "ETHE", "BITO", "BITX", "BITI",
 }
+
+
+def _looks_like_valid_ticker(t: str) -> bool:
+    """Cheap sanity filter — drop obvious junk before they reach the snapshot."""
+    if not t or len(t) > 6:
+        return False
+    if t in _EXCLUDED_ETFS:
+        return False
+    # Letters + optional digits (NVDA, BRK.B style is rare in social, OK to skip).
+    if not t.replace(".", "").isalnum():
+        return False
+    return True
 
 
 def _fetch_apewisdom() -> Optional[list[dict]]:
@@ -153,19 +153,8 @@ def refresh_social_buzz(session_factory) -> dict:
     summary["fetched"] = len(raw)
 
     with session_factory() as session:
-        # Allowlist: symbols our screener already approved (cap + liquidity).
-        # Fallback to the hand-curated list if the screener hasn't bootstrapped
-        # yet — keeps Social Buzz independent of the screener's weekly rebuild.
-        universe_symbols = {
-            row[0] for row in session.execute(
-                text("SELECT symbol FROM screener_universe")
-            ).all()
-        }
-        if not universe_symbols:
-            logger.info("Social buzz: screener_universe empty, using fallback allowlist")
-            universe_symbols = set(_FALLBACK_UNIVERSE)
-        # Crypto majors we always allow (Apewisdom returns "BTC", "ETH"; map
-        # to our "BTC-USD" / "ETH-USD" convention used elsewhere in the app).
+        # Crypto majors — Apewisdom returns "BTC"/"ETH"; map to our "-USD"
+        # convention used elsewhere in the app.
         crypto_allow = {
             "BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD",
             "DOGE": "DOGE-USD", "ADA": "ADA-USD",
@@ -186,14 +175,16 @@ def refresh_social_buzz(session_factory) -> dict:
             if not ticker_raw:
                 continue
 
-            # Normalize: universe symbols are e.g. "NVDA"; crypto in our app
-            # are "BTC-USD".
-            if ticker_raw in universe_symbols:
-                symbol = ticker_raw
-            elif ticker_raw in crypto_allow:
+            # Normalize: crypto majors mapped to -USD; everything else trusted
+            # as-is. Junk filter (_looks_like_valid_ticker) drops ETFs +
+            # malformed tickers. Apewisdom already pre-filters the data they
+            # ingest, so over-filtering here just kills signal.
+            if ticker_raw in crypto_allow:
                 symbol = crypto_allow[ticker_raw]
+            elif _looks_like_valid_ticker(ticker_raw):
+                symbol = ticker_raw
             else:
-                continue  # not in our tradeable universe — skip
+                continue
 
             mentions = _to_int(row.get("mentions"))
             mentions_prev = _to_int(row.get("mentions_24h_ago"))
