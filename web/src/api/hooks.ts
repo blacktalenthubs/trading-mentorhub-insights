@@ -67,8 +67,13 @@ export interface SocialBuzzEntry {
   mentions_prev_24h: number;
   growth_pct: number | null;
   upvotes?: number;
-  sentiment: number | null;
+  sentiment: string | null;          // "bullish" | "bearish" | "mixed" | null (from StockTwits)
+  bullish_pct?: number;
+  bearish_pct?: number;
   sentiment_score: number | null;
+  sources?: string[];                // ["apewisdom"], ["stocktwits"], or both
+  st_summary?: string;               // StockTwits "why it's trending" blurb
+  st_watchers?: number;
   rank: number;
   has_grade_a_today: boolean;
 }

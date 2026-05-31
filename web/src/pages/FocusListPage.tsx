@@ -383,7 +383,7 @@ function SocialBuzzTab() {
   const history = useSocialBuzzHistory();
   const refresh = useRefreshSocialBuzz();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [sort, setSort] = useState<{ key: SocialSortKey; dir: "asc" | "desc" }>({ key: "growth", dir: "desc" });
+  const [sort, setSort] = useState<{ key: SocialSortKey; dir: "asc" | "desc" }>({ key: "mentions", dir: "desc" });
 
   function toggleExpand(symbol: string) {
     setExpanded((cur) => (cur === symbol ? null : symbol));
@@ -442,7 +442,7 @@ function SocialBuzzTab() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-faint">
         <span>
-          {entries.length} tickers · tap a column to sort · source: Apewisdom
+          {entries.length} tickers · tap a column to sort · sources: Apewisdom + StockTwits
         </span>
         <div className="flex items-center gap-3">
           {history.data && history.data.runs.length > 1 && (
@@ -485,7 +485,7 @@ function SocialBuzzTab() {
           <SocialTh label="Symbol" k="symbol" sort={sort} onSort={toggleSort} className="col-span-3" />
           <SocialTh label="Mentions" k="mentions" sort={sort} onSort={toggleSort} align="right" className="col-span-2" />
           <SocialTh label="Δ24h" k="growth" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="Change in mentions vs 24h ago — new attention" />
-          <SocialTh label="Upvotes" k="upvotes" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="Total upvotes across posts — engagement weight" />
+          <SocialTh label="Sentiment" k="sentiment" sort={sort} onSort={toggleSort} align="center" className="col-span-2" title="StockTwits bull/bear lean from recent tagged posts" />
           <SocialTh label="Grade A" k="confluence" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="🔥 = this buzz ticker ALSO fired a Grade-A alert in our scanner today" />
         </div>
         {sortedEntries.map((e, i) => (
@@ -509,14 +509,14 @@ function SocialBuzzTab() {
 
 /* ── One row in the Social Buzz table — expandable to show StockTwits context ── */
 
-type SocialSortKey = "symbol" | "mentions" | "growth" | "upvotes" | "confluence";
+type SocialSortKey = "symbol" | "mentions" | "growth" | "sentiment" | "confluence";
 
 function socialSortVal(e: SocialBuzzEntry, key: SocialSortKey): number | string {
   switch (key) {
     case "symbol": return e.symbol;
     case "mentions": return e.mentions;
     case "growth": return e.growth_pct ?? -Infinity;
-    case "upvotes": return e.upvotes ?? 0;
+    case "sentiment": return e.sentiment == null ? -1 : (e.bullish_pct ?? 50);  // bullish floats up
     case "confluence": return e.has_grade_a_today ? 1 : 0;
   }
 }
@@ -526,18 +526,17 @@ function SocialTh({ label, k, sort, onSort, align, className, title }: {
   k: SocialSortKey;
   sort: { key: SocialSortKey; dir: "asc" | "desc" };
   onSort: (k: SocialSortKey) => void;
-  align?: "right";
+  align?: "right" | "center";
   className?: string;
   title?: string;
 }) {
   const active = sort.key === k;
+  const justify = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "";
   return (
     <button
       onClick={() => onSort(k)}
       title={title}
-      className={`flex items-center gap-1 select-none hover:text-text-secondary transition-colors ${
-        align === "right" ? "justify-end" : ""
-      } ${className ?? ""}`}
+      className={`flex items-center gap-1 select-none hover:text-text-secondary transition-colors ${justify} ${className ?? ""}`}
     >
       {label}
       {active && (sort.dir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
@@ -592,8 +591,21 @@ function SocialBuzzRow({
         <span className={`col-span-2 text-right font-mono ${growthCls}`}>
           {growth == null ? "—" : `${growth >= 0 ? "+" : ""}${growth.toFixed(0)}%`}
         </span>
-        <span className="col-span-2 text-right font-mono text-text-secondary">
-          {e.upvotes ? e.upvotes.toLocaleString() : "—"}
+        <span className="col-span-2 flex justify-center">
+          {e.sentiment ? (
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                e.sentiment === "bullish" ? "text-bullish-text bg-bullish/10"
+                : e.sentiment === "bearish" ? "text-bearish-text bg-bearish/10"
+                : "text-amber-400 bg-amber-400/10"
+              }`}
+              title={`StockTwits: ${e.bullish_pct ?? 0}% bullish / ${e.bearish_pct ?? 0}% bearish`}
+            >
+              {e.sentiment === "bullish" ? "▲" : e.sentiment === "bearish" ? "▼" : "◆"} {e.sentiment}
+            </span>
+          ) : (
+            <span className="text-[10px] text-text-faint">—</span>
+          )}
         </span>
         <span className="col-span-2 text-right">
           {e.has_grade_a_today ? (

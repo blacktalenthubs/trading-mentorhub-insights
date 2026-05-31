@@ -143,10 +143,65 @@ def _to_float(v) -> Optional[float]:
         return None
 
 
+STOCKTWITS_TRENDING_URL = "https://api.stocktwits.com/api/2/trending/symbols.json"
+
+
+def _fetch_stocktwits_trending() -> list[dict]:
+    """Second discovery source — trending EQUITIES on StockTwits. Returns
+    [{symbol, watchers, score, summary}]; [] on failure (Apewisdom still works).
+    Adds names Apewisdom misses + resilience if Apewisdom blocks the IP."""
+    try:
+        r = requests.get(STOCKTWITS_TRENDING_URL, headers=APEWISDOM_HEADERS, timeout=APEWISDOM_TIMEOUT)
+        if r.status_code != 200:
+            logger.info("StockTwits trending returned %d", r.status_code)
+            return []
+        syms = (r.json() or {}).get("symbols") or []
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("StockTwits trending error: %s", e)
+        return []
+    out: list[dict] = []
+    for s in syms:
+        # Class is "Stock" for equities ("ExchangeTradedFund"/"CRYPTO"/… otherwise).
+        if (s.get("instrument_class") or "").lower() != "stock":
+            continue  # drop ETFs, crypto, ADRs, misc
+        sym = (s.get("symbol_display") or s.get("symbol") or "").upper().strip()
+        if not _looks_like_valid_ticker(sym):
+            continue
+        out.append({
+            "symbol": sym,
+            "name": s.get("title") or "",
+            "watchers": _to_int(s.get("watchlist_count")),
+            "score": _to_float(s.get("trending_score")),
+            "summary": ((s.get("trends") or {}).get("summary") or "")[:400],
+        })
+    return out
+
+
+def _stocktwits_sentiment(symbol: str) -> dict:
+    """Per-symbol bull/bear from StockTwits messages (reuses get_social_context).
+    Returns {sentiment, bullish_pct, bearish_pct} or {} when too few tagged posts."""
+    try:
+        from analytics.stocktwits import get_social_context
+        ctx = get_social_context(symbol).to_dict()
+        if (ctx.get("total_count") or 0) < 3:
+            return {}
+        bull = ctx.get("bullish_pct") or 0
+        bear = ctx.get("bearish_pct") or 0
+        if bull >= bear + 15:
+            label = "bullish"
+        elif bear >= bull + 15:
+            label = "bearish"
+        else:
+            label = "mixed"
+        return {"sentiment": label, "bullish_pct": bull, "bearish_pct": bear}
+    except Exception:
+        return {}
+
+
 def refresh_social_buzz(session_factory) -> dict:
-    """Pull Apewisdom, filter against screener_universe (real US-listed
-    equities with known market cap), cross-reference today's Grade-A
-    alerts, persist top N as a fresh snapshot.
+    """Pull Apewisdom (mention counts) + StockTwits trending (extra names +
+    native sentiment), merge, cross-reference today's Grade-A alerts, attach
+    real bull/bear sentiment to the displayed names, persist top N.
 
     Returns summary dict for cron logging.
     """
@@ -226,25 +281,59 @@ def refresh_social_buzz(session_factory) -> dict:
                 "sentiment_score": sentiment_score,
                 "rank": _to_int(row.get("rank")),
                 "has_grade_a_today": symbol.upper() in grade_a_today,
+                "sources": ["apewisdom"],
             })
 
-        # Sort by growth_pct desc (new attention beats perpetual SPY chatter).
-        # Tie-break on raw mentions.
-        entries.sort(
-            key=lambda e: (
-                -(e["growth_pct"] if e["growth_pct"] is not None else -1),
-                -e["mentions"],
-            ),
-        )
-        top = entries[:TOP_N]
+        # --- Merge StockTwits trending: a 2nd discovery source. Enrich existing
+        # Apewisdom names, add StockTwits-only trending names (mentions=0). ---
+        by_symbol = {e["symbol"]: e for e in entries}
+        for st in _fetch_stocktwits_trending():
+            sym = st["symbol"]
+            e = by_symbol.get(sym)
+            if e is None:
+                e = {
+                    "symbol": sym, "name": st.get("name") or "", "mentions": 0,
+                    "mentions_prev_24h": 0, "growth_pct": None, "upvotes": 0,
+                    "sentiment": None, "sentiment_score": None, "rank": 0,
+                    "has_grade_a_today": sym.upper() in grade_a_today,
+                    "sources": [],
+                }
+                by_symbol[sym] = e
+            if not e.get("name"):
+                e["name"] = st.get("name") or ""
+            e["sources"] = sorted(set(e.get("sources") or []) | {"stocktwits"})
+            e["st_watchers"] = st["watchers"]
+            e["st_score"] = st["score"]
+            e["st_summary"] = st["summary"]
+        summary["fetched"] += sum(1 for e in by_symbol.values() if "stocktwits" in (e.get("sources") or []))
+
+        merged = list(by_symbol.values())
+        # Rank for the TOP_N trim: lead with real discussion volume (mentions),
+        # then StockTwits trend score (keeps ST-only trending names), then growth.
+        merged.sort(key=lambda e: (
+            -e["mentions"],
+            -(e.get("st_score") or 0),
+            -(e["growth_pct"] if e.get("growth_pct") is not None else -1),
+        ))
+        top = merged[:TOP_N]
+
+        # Real bull/bear sentiment for the DISPLAYED names (parallel, best-effort).
+        # StockTwits' own /messages stream — cached 5min, so re-runs are cheap.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            sents = list(pool.map(lambda e: _stocktwits_sentiment(e["symbol"]), top))
+        for e, sdata in zip(top, sents):
+            if sdata:
+                e.update(sdata)
+
         summary["after_filter"] = len(top)
         summary["with_grade_a"] = sum(1 for e in top if e["has_grade_a_today"])
+        summary["with_sentiment"] = sum(1 for e in top if e.get("sentiment"))
 
-        # Persist as a new snapshot row. We keep history for "growth over
-        # time" charts later; for now the endpoint serves the latest.
+        # Persist as a new snapshot row (7-day history retained).
         snap = SocialBuzzSnapshot(
             captured_at=datetime.utcnow(),
-            source="apewisdom_stocks",
+            source="apewisdom+stocktwits",
             entries=top,
         )
         session.add(snap)
