@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
+import StickyLandingCTA from "../components/StickyLandingCTA";
 import {
   Crosshair, Brain, Send, BarChart3, Play,
   Check, Zap, Clock,
@@ -940,6 +941,7 @@ export default function LandingPage() {
       <FAQ />
       <FinalCTA />
       <Footer />
+      <StickyLandingCTA />
     </div>
   );
 }
