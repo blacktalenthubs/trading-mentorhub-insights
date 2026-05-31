@@ -363,6 +363,8 @@ export function useWatchlistRank() {
     queryFn: () => api.get<import("../types").WatchlistRankItem[]>("/scanner/watchlist-rank"),
     staleTime: 3 * 60_000,  // 3 min — matches backend cache TTL
     refetchInterval: 3 * 60_000,
+    // Keep prior data visible during refetch — avoids row flicker every 3min.
+    placeholderData: (prev) => prev,
   });
 }
 

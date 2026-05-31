@@ -8,6 +8,7 @@ import { usePushRegistration } from "./lib/usePushRegistration";
 import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import LandingPage from "./pages/LandingPage";
+import PricingPage from "./pages/PricingPage";
 import ReplayPage from "./pages/ReplayPage";
 import LearnPage from "./pages/LearnPage";
 import LearnDetailPage from "./pages/LearnDetailPage";
@@ -79,6 +80,7 @@ export default function App() {
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
+              <Route path="/pricing" element={<PricingPage />} />
               <Route path="/learn" element={<LearnPage />} />
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />

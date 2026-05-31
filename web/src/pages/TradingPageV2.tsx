@@ -819,12 +819,11 @@ export default function TradingPageV2() {
     ?.filter(
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
-    ?.sort((a, b) => {
-      const aScore = rankMap.get(a.symbol)?.score ?? 0;
-      const bScore = rankMap.get(b.symbol)?.score ?? 0;
-      if (aScore !== bScore) return bScore - aScore;
-      return a.symbol.localeCompare(b.symbol);
-    });
+    // Stable alphabetical sort — was sorting by rankMap.score, which caused
+    // the entire list to reorder when /scanner/watchlist-rank (slow yfinance
+    // call) returned 2-5s after first paint. Users saw it as "loading
+    // latency". Rank badge still shows per row, just doesn't drive order.
+    ?.sort((a, b) => a.symbol.localeCompare(b.symbol));
 
   // The signals shown in the right panel — today/latest, or a chosen past session.
   const activeAlerts = signalDate ? (pastAlerts ?? []) : todayAlerts;
