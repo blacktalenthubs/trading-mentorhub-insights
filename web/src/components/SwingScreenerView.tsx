@@ -30,9 +30,16 @@ function Pct({ v }: { v: number }) {
   return <span className={`font-mono ${up ? "text-bullish-text" : "text-bearish-text"}`}>{up ? "+" : ""}{v.toFixed(1)}%</span>;
 }
 
+/** Structure quality of the pullback (NOT a confidence score — that's Grade/Action).
+ *  "High" = shallow dip to the 20 EMA in a stacked uptrend → shown as "Prime". */
 function Conv({ c }: { c: string }) {
-  const cls = c === "High" ? "text-bullish-text bg-bullish/10" : "text-amber-400 bg-amber-400/10";
-  return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cls}`}>{c}</span>;
+  const high = c === "High";
+  const cls = high ? "text-bullish-text bg-bullish/10" : "text-amber-400 bg-amber-400/10";
+  const label = high ? "Prime" : "Solid";
+  const tip = high
+    ? "Prime structure — shallow pullback to the 20 EMA in a stacked uptrend (20 > 50 > 200)"
+    : "Solid structure — holding a deeper MA (50/200) or trend not fully stacked";
+  return <span title={tip} className={`text-[10px] font-bold px-1.5 py-0.5 rounded cursor-help ${cls}`}>{label}</span>;
 }
 
 /** One-glance action distilled from Close / Vol / RS. Hover for the reason. */
@@ -94,7 +101,7 @@ export default function SwingScreenerView() {
     { key: "entry", label: "Entry", align: "right", render: (r) => <span className="font-mono text-text-primary">{money(r.setup?.entry)}</span> },
     { key: "stop", label: "Stop", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bearish-text">{money(r.setup?.stop)}</span> },
     { key: "target", label: "Target", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bullish-text">{money(r.setup?.target)}</span> },
-    { key: "conviction", label: "Conviction", align: "left", value: (r) => (r.setup?.conviction === "High" ? 2 : r.setup ? 1 : 0), render: (r) => (r.setup ? <Conv c={r.setup.conviction} /> : null) },
+    { key: "setup_quality", label: "Setup", align: "left", value: (r) => (r.setup?.conviction === "High" ? 2 : r.setup ? 1 : 0), render: (r) => (r.setup ? <Conv c={r.setup.conviction} /> : null) },
   ];
 
   const mobileRow = (r: SwingEntry) => (
