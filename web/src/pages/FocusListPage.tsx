@@ -63,7 +63,7 @@ export default function FocusListPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-surface-0">
-      <div className="mx-auto max-w-4xl px-4 py-5 space-y-4">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5 space-y-4">
         {/* Header + tab bar */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
