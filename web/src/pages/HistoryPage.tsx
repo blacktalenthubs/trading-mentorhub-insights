@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import { useTradeHistory } from "../api/hooks";
 import { SkeletonTable } from "../components/LoadingSkeleton";
 import CalendarHeatmap from "../components/CalendarHeatmap";
+import EmptyState from "../components/ui/EmptyState";
+import { History as HistoryIcon } from "lucide-react";
 
 type Tab = "list" | "calendar" | "stop-discipline" | "symbol-lookup";
 
@@ -132,7 +134,11 @@ export default function HistoryPage() {
           )}
 
           {filtered && filtered.length === 0 && !isLoading && (
-            <p className="text-sm text-text-faint">No trades found. Import your brokerage statements to see history.</p>
+            <EmptyState
+              icon={HistoryIcon}
+              title="No trades on record"
+              hint="Once you import a brokerage statement (1099-B, 1099-DA, or monthly PDF), your closed trades will populate here for P&L, holding-period, and stop-discipline analysis."
+            />
           )}
         </>
       )}

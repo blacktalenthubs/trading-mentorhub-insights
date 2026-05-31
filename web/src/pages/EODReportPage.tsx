@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAlertSessionDates, useAlertsForDate } from "../api/hooks";
 import Badge from "../components/ui/Badge";
+import EmptyState from "../components/ui/EmptyState";
+import { Filter as FilterIcon } from "lucide-react";
 
 // Turn raw rule tag into a short human label for the Reason column.
 function prettyReason(alertType: string | null | undefined): string {
@@ -379,7 +381,14 @@ export default function EODReportPage() {
         {isLoading ? (
           <p className="p-6 text-sm text-text-muted">Loading…</p>
         ) : rows.length === 0 ? (
-          <p className="p-6 text-sm text-text-muted">No alerts in this session matching your filters.</p>
+          <EmptyState
+            icon={FilterIcon}
+            title="No alerts match your filters"
+            hint={symFilter || dirFilter !== "All"
+              ? "Your symbol or direction filter hid every alert. Clear filters to see the full session."
+              : "The scanner didn't fire any alerts on this date."}
+            primary={(symFilter || dirFilter !== "All") ? { label: "Clear filters", onClick: () => { setSymFilter(""); setDirFilter("All"); } } : undefined}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

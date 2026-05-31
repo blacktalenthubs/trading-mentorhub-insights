@@ -9,6 +9,8 @@
 import { useState, useMemo } from "react";
 import { useAlertsHistory } from "../api/hooks";
 import ChartReplay from "../components/ChartReplay";
+import EmptyState from "../components/ui/EmptyState";
+import { Filter } from "lucide-react";
 import type { Alert } from "../types";
 import {
   Play,
@@ -228,9 +230,14 @@ export default function TradeReviewPage() {
       {isLoading ? (
         <div className="text-center py-12 text-text-muted text-sm">Loading alerts...</div>
       ) : symbolsOrdered.length === 0 ? (
-        <div className="text-center py-12 text-text-muted text-sm">
-          No alerts match your filters.
-        </div>
+        <EmptyState
+          icon={Filter}
+          title="No alerts match your filters"
+          hint={actionFilter !== "all"
+            ? `You're filtering to "${actionFilter}" alerts. Switch back to All to see everything for ${activeDate || "this date"}.`
+            : "Try a different date — the scanner didn't fire any alerts in this window."}
+          primary={actionFilter !== "all" ? { label: "Show all alerts", onClick: () => setActionFilter("all") } : undefined}
+        />
       ) : (
         <div className="space-y-2">
           {symbolsOrdered.map((symbol) => {

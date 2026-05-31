@@ -28,6 +28,7 @@ import InPlayView from "../components/InPlayView";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
 import { Skeleton, SkeletonRow } from "../components/ui/Skeleton";
+import EmptyState from "../components/ui/EmptyState";
 import type { Alert } from "../types";
 import { type FocusRecommendation } from "../api/hooks";
 
@@ -181,7 +182,7 @@ function DayTradesTab() {
         defaultSort={{ key: "time", dir: "desc" }}
         mobileRow={mobileRow}
         isLoading={!alerts}
-        empty={<div className="py-12 text-center"><Crosshair className="h-6 w-6 text-text-faint mx-auto mb-3" /><p className="text-sm text-text-secondary">No day trade ideas firing right now.</p><p className="text-xs text-text-faint mt-1">When Pine alerts fire on your watchlist, they'll show up here.</p></div>}
+        empty={<EmptyState icon={Crosshair} title="No day-trade ideas firing right now" hint="The intraday scanner watches your watchlist for Pine entry alerts. They'll appear here as they fire — usually within the first 90 minutes of the open." primary={{ label: "Edit watchlist", to: "/watchlist" }} secondary={{ label: "Open trading view", to: "/trading" }} />}
       />
     </div>
   );
@@ -229,7 +230,7 @@ function RecommendationsTable({ recs, onSelect }: { recs: FocusRecommendation[];
       onRowClick={(r) => onSelect(r.symbol)}
       defaultSort={{ key: "conviction", dir: "desc" }}
       mobileRow={mobileRow}
-      empty={<div className="py-12 text-center text-sm text-text-muted">No setups in this list.</div>}
+      empty={<EmptyState title="No setups in this list" hint="The scan ran but didn't surface any qualifying setups. The market may be quiet, or your watchlist may need fresh tickers." primary={{ label: "Run a new scan", to: "/trade-ideas?tab=ai" }} secondary={{ label: "Edit watchlist", to: "/watchlist" }} />}
     />
   );
 }
@@ -406,13 +407,12 @@ function SocialBuzzTab() {
   const entries = data?.entries ?? [];
   if (entries.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 py-12 text-center">
-        <Flame className="h-10 w-10 text-text-faint" />
-        <p className="text-text-muted">No social buzz snapshot yet</p>
-        <p className="text-sm text-text-faint">
-          The hourly job populates this tab. First snapshot appears within an hour of deploy.
-        </p>
-      </div>
+      <EmptyState
+        icon={Flame}
+        title="No social buzz snapshot yet"
+        hint="A scheduled job pulls Reddit/Twitter mention growth every hour. The first snapshot lands within ~60 minutes — or you can trigger one now."
+        primary={{ label: "Refresh now", onClick: () => refresh.mutate() }}
+      />
     );
   }
 

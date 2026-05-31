@@ -18,9 +18,10 @@ import { useMemo, useState } from "react";
 import { useWeeklyReport, type WeeklyPattern, type WeeklyFire } from "../api/hooks";
 import Card from "./ui/Card";
 import { Skeleton, SkeletonRow } from "./ui/Skeleton";
+import EmptyState from "./ui/EmptyState";
 import {
   BarChart3, AlertCircle, ArrowUp, ArrowDown,
-  ChevronLeft, ChevronRight, CalendarRange,
+  ChevronLeft, ChevronRight, CalendarRange, Inbox,
 } from "lucide-react";
 
 type SortKey = "fires" | "vol" | "slope" | "gates" | "worked" | "label";
@@ -246,7 +247,13 @@ export default function WeeklyReport() {
         </p>
         {sortedPatterns.length === 0 ? (
           <Card padding="md">
-            <p className="text-sm text-text-faint text-center">No alerts fired this week.</p>
+            <EmptyState
+              size="sm"
+              icon={Inbox}
+              title="No alerts fired this week"
+              hint="Either it was a quiet week or your watchlist isn't covering the names that moved. Try a different week or expand your list."
+              primary={{ label: "Edit watchlist", to: "/watchlist" }}
+            />
           </Card>
         ) : (
           <Card padding="none">
@@ -325,7 +332,7 @@ export default function WeeklyReport() {
             🔥 Top 10 by Volume
           </h3>
           {data.top_volume.length === 0 ? (
-            <Card padding="md"><p className="text-xs text-text-faint">No data.</p></Card>
+            <Card padding="md"><p className="text-xs text-text-faint text-center py-4">No fires with usable volume this week.</p></Card>
           ) : (
             <Card padding="none">
               {data.top_volume.map((f, i) => <FireRow key={f.id} f={f} rank={i + 1} />)}
@@ -337,7 +344,7 @@ export default function WeeklyReport() {
             ⚠️ Bottom 10 by Volume — noise candidates
           </h3>
           {data.bottom_volume.length === 0 ? (
-            <Card padding="md"><p className="text-xs text-text-faint">No data.</p></Card>
+            <Card padding="md"><p className="text-xs text-text-faint text-center py-4">Nothing to flag — all fires this week had real volume.</p></Card>
           ) : (
             <Card padding="none">
               {data.bottom_volume.map((f, i) => <FireRow key={f.id} f={f} rank={i + 1} />)}

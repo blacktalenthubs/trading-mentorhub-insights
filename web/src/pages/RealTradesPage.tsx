@@ -17,6 +17,7 @@ import EODReportPage from "./EODReportPage";
 import TradeReviewPage from "./TradeReviewPage";
 import WeeklyReport from "../components/WeeklyReport";
 import { SkeletonRow } from "../components/ui/Skeleton";
+import EmptyState from "../components/ui/EmptyState";
 import type { Alert } from "../types";
 import {
   BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileText, Check,
@@ -262,9 +263,19 @@ function SessionBrowser() {
             {dateAlerts.map((a) => <AlertHistoryRow key={a.id} alert={a} />)}
           </div>
         ) : selectedDate ? (
-          <div className="py-12 text-center text-text-faint text-sm">No alerts for {selectedDate}</div>
+          <EmptyState
+            size="sm"
+            title={`No alerts on ${selectedDate}`}
+            hint="The scanner didn't fire any alerts that day. Try a different date or check your watchlist."
+            primary={{ label: "Edit watchlist", to: "/watchlist" }}
+          />
         ) : (
-          <div className="py-12 text-center text-text-faint text-sm">Select a session date</div>
+          <EmptyState
+            size="sm"
+            icon={Calendar}
+            title="Pick a session date"
+            hint="Choose a date from the selector above to load alerts."
+          />
         )}
       </div>
     </div>

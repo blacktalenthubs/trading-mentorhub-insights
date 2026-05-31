@@ -18,6 +18,7 @@ import { useNavigate } from "react-router-dom";
 import { useUpcomingEarnings, type UpcomingEarningsItem } from "../api/hooks";
 import Card from "./ui/Card";
 import { Skeleton, SkeletonRow } from "./ui/Skeleton";
+import EmptyState from "./ui/EmptyState";
 import { CalendarDays, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
 
 type SortKey = "days" | "symbol" | "eps" | "surprise";
@@ -264,11 +265,12 @@ export default function EarningsTab() {
   const items = data?.items ?? [];
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 py-12 text-center">
-        <CalendarDays className="h-10 w-10 text-text-faint" />
-        <p className="text-text-muted">No watchlist symbols yet</p>
-        <p className="text-sm text-text-faint">Add symbols on the Symbols tab to start tracking earnings.</p>
-      </div>
+      <EmptyState
+        icon={CalendarDays}
+        title="No earnings to track yet"
+        hint="Earnings dates are pulled for the tickers on your watchlist. Add a few symbols and they'll appear here."
+        primary={{ label: "Edit watchlist", to: "/watchlist" }}
+      />
     );
   }
 

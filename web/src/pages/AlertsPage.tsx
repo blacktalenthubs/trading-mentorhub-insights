@@ -7,6 +7,8 @@ import {
 } from "../api/hooks";
 import Badge from "../components/ui/Badge";
 import Card from "../components/ui/Card";
+import EmptyState from "../components/ui/EmptyState";
+import { Bell, Calendar } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 
 export default function AlertsPage() {
@@ -169,10 +171,20 @@ export default function AlertsPage() {
             </div>
           ))}
         </div>
+      ) : activeDate ? (
+        <EmptyState
+          icon={Bell}
+          title="No alerts on this date"
+          hint={filter ? "Your filter hid every alert. Clear the search to see them." : "The scanner didn't fire any alerts for this session. Try another date, or check that your watchlist has tickers."}
+          primary={filter ? { label: "Clear filter", onClick: () => setFilter("") } : { label: "Edit watchlist", to: "/watchlist" }}
+          secondary={!filter ? { label: "View today's setups", to: "/trading" } : undefined}
+        />
       ) : (
-        <p className="text-sm text-text-faint">
-          {activeDate ? "No alerts for this session" : "Select a session date"}
-        </p>
+        <EmptyState
+          icon={Calendar}
+          title="Pick a session date"
+          hint="Use the date selector above to load alerts for a given trading day."
+        />
       )}
     </div>
   );
