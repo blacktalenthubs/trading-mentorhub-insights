@@ -110,6 +110,15 @@ function CandlestickChartInner({
     chartRef.current = chart;
     seriesRef.current = series;
 
+    // Click-to-add (registered ONCE per chart, in the creation effect — not the
+    // data effect, which re-runs every tick and would stack handlers → one click
+    // firing N times). Reads draw mode + handler from refs so it stays current.
+    chart.subscribeClick((param) => {
+      if (!drawModeRef.current || !onAddLevelRef.current || !param.point || !seriesRef.current) return;
+      const price = seriesRef.current.coordinateToPrice(param.point.y);
+      if (price != null) onAddLevelRef.current(Number(price));
+    });
+
     const handleResize = () => {
       if (containerRef.current) {
         const newHeight = height > 0 ? height : (containerRef.current.parentElement?.clientHeight || 400);
@@ -323,13 +332,6 @@ function CandlestickChartInner({
       });
       priceLinesRef.current.push(line);
     }
-
-    // Click-to-add: in draw mode, a click sets a horizontal line at that price.
-    chart.subscribeClick((param) => {
-      if (!drawModeRef.current || !onAddLevelRef.current || !param.point || !seriesRef.current) return;
-      const price = seriesRef.current.coordinateToPrice(param.point.y);
-      if (price != null) onAddLevelRef.current(Number(price));
-    });
 
     // Restore saved scroll position, or set initial view on first load
     if (savedRange) {
