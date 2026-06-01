@@ -561,10 +561,14 @@ def _volume_floor(alert_type_full: str) -> float:
     # IS the risk control (FR-018).
     if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
         return _envf("V2_VOL_FLOOR_LOW_HELD", 0.8)
-    # Support recovery (PDL/PWL/PML reclaim) — notch higher than held,
-    # since the level just broke and we need real buyers (FR-019).
+    # Support recovery (PDL/PWL/PML reclaim) — LOOSENED 2026-06-01 per
+    # founder request: at support, both volume and VWAP slope can be weak
+    # (the nature of a quiet bounce). Previously 1.0× floor was dropping
+    # legitimate support bounces. Grading (A/B/C) still labels quality so
+    # the user can triage in-feed without delivery being silently gated.
+    # Env-overridable to re-tighten when noise becomes an issue.
     if name in ("staged_pdl_reclaim", "staged_pwl_reclaim", "staged_pml_reclaim"):
-        return _envf("V2_VOL_FLOOR_LOW_RECLAIM", 1.0)
+        return _envf("V2_VOL_FLOOR_LOW_RECLAIM", 0.3)
     # Unknown / NOTICE — don't gate.
     return 0.0
 
@@ -588,9 +592,13 @@ def _slope_min(alert_type_full: str) -> Optional[float]:
     # just not freefall). (FR-018)
     if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
         return _envf("V2_SLOPE_MIN_LOW_HELD", -0.5)
-    # Support recovery — tighter than held; session must be recovering. (FR-019)
+    # Support recovery — LOOSENED 2026-06-01 per founder request. At
+    # support, slope often weak even on legitimate bounces (buyers just
+    # stepping in, momentum hasn't built yet). Previous -0.3 floor was
+    # silently dropping reclaim alerts with mildly negative slope.
+    # Env-overridable to re-tighten later if noise becomes an issue.
     if name in ("staged_pdl_reclaim", "staged_pwl_reclaim", "staged_pml_reclaim"):
-        return _envf("V2_SLOPE_MIN_LOW_RECLAIM", -0.3)
+        return _envf("V2_SLOPE_MIN_LOW_RECLAIM", -1.0)
     # Unknown — don't gate on slope.
     return None
 
