@@ -31,6 +31,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import { formatSetup, isFeedSignal } from "../lib/alertFormat";
+import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
 import { SkeletonRow } from "../components/ui/Skeleton";
@@ -57,7 +58,7 @@ import {
 const LINE_TYPES = {
   support:    { color: "#22c55e", label: "Support",    short: "S" },
   resistance: { color: "#ef4444", label: "Resistance", short: "R" },
-  line:       { color: "#94a3b8", label: "",           short: "—" },
+  line:       { color: "#3b82f6", label: "Line",       short: "—" },
 } as const;
 type LineType = keyof typeof LINE_TYPES;
 
@@ -666,6 +667,7 @@ export default function TradingPageV2() {
     () => (localStorage.getItem("chart_line_type") as LineType) || "line"
   );
   const levelsPanelRef = useRef<HTMLDivElement>(null);
+  const lastAddRef = useRef<{ key: string; t: number }>({ key: "", t: 0 });
   function pickLineType(t: LineType) {
     setNewLineType(t);
     try { localStorage.setItem("chart_line_type", t); } catch { /* ignore */ }
@@ -834,14 +836,17 @@ export default function TradingPageV2() {
   const delLevel = useDeleteChartLevel();
   const handleAddLevel = useCallback((price: number) => {
     if (!selectedSymbol || !price) return;
+    const snapped = snapPrice(price);
+    // Guard against rapid duplicate fires before the levels list refetches.
+    const key = `${selectedSymbol}:${snapped}`;
+    if (lastAddRef.current.key === key && Date.now() - lastAddRef.current.t < 1500) return;
+    // Dedup: don't stack a new line on top of one already at (≈) this price.
+    const dup = (userLevels ?? []).some((l) => Math.abs(l.price - snapped) / snapped < 0.0015);
+    if (dup) { toast.info("A line is already at that level"); return; }
+    lastAddRef.current = { key, t: Date.now() };
     const t = LINE_TYPES[newLineType];
-    addLevel.mutate({
-      symbol: selectedSymbol,
-      price: snapPrice(price),
-      label: t.label,
-      color: t.color,
-    });
-  }, [selectedSymbol, newLineType, addLevel]);
+    addLevel.mutate({ symbol: selectedSymbol, price: snapped, label: t.label, color: t.color });
+  }, [selectedSymbol, newLineType, addLevel, userLevels]);
 
   const chartLevels = (() => {
     if (!selected) return [];
@@ -1276,9 +1281,23 @@ export default function TradingPageV2() {
               </button>
               {showLevelsPanel && (
                 <div className="absolute top-full right-0 mt-1 w-[230px] bg-surface-2 border border-border-default rounded-lg shadow-elevated z-30 p-2 space-y-0.5">
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-faint px-1 pb-1">
-                    S/R lines · {selectedSymbol ?? "—"}
-                  </p>
+                  <div className="flex items-center justify-between px-1 pb-1">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-text-faint">
+                      S/R lines · {selectedSymbol ?? "—"}
+                    </span>
+                    {(userLevels ?? []).length > 0 && (
+                      <button
+                        onClick={() => {
+                          if (!selectedSymbol) return;
+                          (userLevels ?? []).forEach((l) => delLevel.mutate({ id: l.id, symbol: selectedSymbol }));
+                        }}
+                        className="text-[9px] text-text-faint hover:text-bearish-text"
+                        title="Remove all lines for this symbol"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
                   {/* New-line type — applied to the next line you draw */}
                   <div className="flex items-center gap-1 px-1 pb-1.5 mb-1 border-b border-border-subtle">
                     <span className="text-[10px] text-text-faint mr-0.5">New:</span>
