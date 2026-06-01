@@ -306,11 +306,18 @@ function SignalFeedTab({
   }
 
   // AI scanner signals + every fired TradingView signal. WAITs and
-  // non-routed alerts are both excluded — the user filters via Settings
+  // non-routed alerts are excluded — the user filters via Settings
   // (alert types + grade), not in the feed.
+  //
+  // suppressed_reason filter list:
+  //   • type_not_enabled — user toggled the type off; not interesting
+  //   • confluence_collapsed:* — same-moment confluence (e.g. gap_up_continuation
+  //     and staged_pdh_break fired together; the break already shows). Showing
+  //     both makes the feed look like double-fires per stock.
   const feedAlerts = (alerts ?? []).filter((a) => {
     if (!isFeedSignal(a.alert_type)) return false;
     if (a.suppressed_reason === "type_not_enabled") return false;
+    if (a.suppressed_reason?.startsWith("confluence_collapsed")) return false;
     return true;
   });
   // Counts per grade for the chip badges.
