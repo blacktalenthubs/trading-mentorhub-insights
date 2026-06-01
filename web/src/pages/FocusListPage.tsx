@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  RefreshCw, Target, History, Sparkles, Crosshair, Activity, Flame,
+  RefreshCw, Target, History, Sparkles, Crosshair, Flame,
   ChevronDown, ChevronUp, ChevronRight, MessageSquare,
 } from "lucide-react";
 import {
@@ -25,7 +25,8 @@ import {
   type SocialBuzzEntry,
 } from "../api/hooks";
 import SwingScreenerView from "../components/SwingScreenerView";
-import InPlayView from "../components/InPlayView";
+// InPlayView removed 2026-06-01 — scanner was too static + redundant with
+// Swing+AI Scan. Component file kept on disk for git history.
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
@@ -34,7 +35,7 @@ import EmptyState from "../components/ui/EmptyState";
 import type { Alert } from "../types";
 import { type FocusRecommendation } from "../api/hooks";
 
-type IdeasTab = "day" | "swing" | "ai" | "inplay" | "social";
+type IdeasTab = "day" | "swing" | "ai" | "social";
 
 function historyLabel(item: FocusListHistoryItem): string {
   const iso = item.generated_at;
@@ -61,7 +62,6 @@ const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Crosshair }[] = [
   { id: "day",    label: "Day Trades",   icon: Crosshair },
   { id: "swing",  label: "Swing Trades", icon: Target },
   { id: "ai",     label: "AI Scans",     icon: Sparkles },
-  { id: "inplay", label: "In Play",      icon: Activity },
   { id: "social", label: "Social",       icon: Flame },
 ];
 
@@ -110,13 +110,12 @@ export default function FocusListPage() {
           </div>
         </div>
 
-        {/* Swing & In-Play are no longer hard-locked: free users see the full
-            screener with the top-N rows visible and the rest blurred + an
-            upgrade CTA (preview, not padlock). Gating lives in ScreenerTable. */}
+        {/* Swing is no longer hard-locked: free users see the full screener
+            with the top-N rows visible and the rest blurred + an upgrade
+            CTA (preview, not padlock). Gating lives in ScreenerTable. */}
         {tab === "day" && <DayTradesTab />}
         {tab === "swing" && <SwingScreenerView />}
         {tab === "ai" && <AIScansTab />}
-        {tab === "inplay" && <InPlayView />}
         {tab === "social" && <SocialBuzzTab />}
       </div>
     </div>
