@@ -289,6 +289,30 @@ function SignalFeedTab({
     try { localStorage.setItem("signal_feed_grade", g); } catch {}
   }
 
+  // Type hide-list — view-only. Set of alert_type strings to exclude from
+  // the feed. Lets the user temporarily mute noisy types (e.g. historical
+  // mtd_avwap_held already in DB) without touching Settings/routing.
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem("signal_feed_hidden_types");
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch { return new Set(); }
+  });
+  const [typeFilterOpen, setTypeFilterOpen] = useState(false);
+  function toggleHiddenType(t: string) {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t); else next.add(t);
+      try { localStorage.setItem("signal_feed_hidden_types", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
+  function clearHiddenTypes() {
+    setHiddenTypes(new Set());
+    try { localStorage.removeItem("signal_feed_hidden_types"); } catch {}
+  }
+
   if (alertsError) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -331,10 +355,21 @@ function SignalFeedTab({
     },
     { A: 0, B: 0, C: 0 },
   );
+  // Per-type counts for the type-filter popover (built from the pre-hide
+  // list so the user can still see — and re-show — types they're hiding).
+  const typeCounts = feedAlerts.reduce<Record<string, number>>((acc, a) => {
+    const t = a.alert_type || "unknown";
+    acc[t] = (acc[t] ?? 0) + 1;
+    return acc;
+  }, {});
+  const typeOptions = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
   const q = search.trim().toUpperCase();
   let filtered = q
     ? feedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
     : feedAlerts;
+  if (hiddenTypes.size > 0) {
+    filtered = filtered.filter((a) => !hiddenTypes.has(a.alert_type || "unknown"));
+  }
   if (gradeFilter !== "all") {
     filtered = filtered.filter((a) => (a.grade ?? "C").toUpperCase() === gradeFilter);
   }
@@ -408,7 +443,7 @@ function SignalFeedTab({
         })}
       </div>
 
-      {/* Search + Sort dropdown — single row */}
+      {/* Search + Types + Sort dropdowns — single row */}
       <div className="px-3 pt-1 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
         <input
           value={search}
@@ -416,6 +451,21 @@ function SignalFeedTab({
           placeholder="Search symbol…"
           className="flex-1 bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
         />
+        <button
+          onClick={() => setTypeFilterOpen((v) => !v)}
+          className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
+            hiddenTypes.size > 0
+              ? "bg-accent/10 text-accent border-accent/40 hover:bg-accent/15"
+              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+          }`}
+          title={hiddenTypes.size > 0 ? `${hiddenTypes.size} type(s) hidden — click to manage` : "Hide alert types from feed"}
+        >
+          <span className="text-text-faint">Types</span>
+          {hiddenTypes.size > 0 && (
+            <span className="text-accent font-semibold">{typeOptions.length - hiddenTypes.size}/{typeOptions.length}</span>
+          )}
+          <ChevronDown className="h-3 w-3" />
+        </button>
         <button
           onClick={() => setSortOpen((v) => !v)}
           className="shrink-0 text-[10px] px-2 py-1 rounded border bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2 flex items-center gap-1"
@@ -446,6 +496,51 @@ function SignalFeedTab({
                   {SORT_LABELS[opt]}
                 </button>
               ))}
+            </div>
+          </>
+        )}
+        {typeFilterOpen && (
+          <>
+            <button
+              className="fixed inset-0 z-30 cursor-default"
+              onClick={() => setTypeFilterOpen(false)}
+              aria-label="Close type filter"
+            />
+            <div className="absolute right-3 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[260px] max-h-[60vh] flex flex-col">
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-border-subtle bg-surface-2/40">
+                <span className="text-[10px] uppercase tracking-wide text-text-faint">Show / hide types</span>
+                <button
+                  onClick={clearHiddenTypes}
+                  className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-30 disabled:cursor-default"
+                  disabled={hiddenTypes.size === 0}
+                >
+                  Show all
+                </button>
+              </div>
+              <div className="overflow-y-auto">
+                {typeOptions.length === 0 ? (
+                  <p className="px-3 py-3 text-[11px] text-text-faint">No alerts in feed</p>
+                ) : typeOptions.map(([t, n]) => {
+                  const hidden = hiddenTypes.has(t);
+                  return (
+                    <label
+                      key={t}
+                      className="flex items-center gap-2 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-surface-2 transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!hidden}
+                        onChange={() => toggleHiddenType(t)}
+                        className="h-3 w-3 accent-accent"
+                      />
+                      <span className={`flex-1 truncate ${hidden ? "text-text-faint line-through" : "text-text-secondary"}`}>
+                        {formatSetup(t)}
+                      </span>
+                      <span className="text-text-faint">{n}</span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
           </>
         )}
