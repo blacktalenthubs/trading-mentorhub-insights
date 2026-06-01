@@ -500,9 +500,15 @@ function SocialBuzzTab() {
         ))}
       </div>
 
-      <p className="text-[10px] text-text-faint text-center">
-        Buzz only — not a buy signal. Cross-reference with the Grade column for conviction.
-      </p>
+      {/* Column legend — make every column self-explanatory */}
+      <div className="rounded-lg border border-border-subtle/60 bg-surface-1/40 px-4 py-3 text-[11px] text-text-muted space-y-1.5">
+        <p className="text-text-secondary font-semibold text-[10px] uppercase tracking-wider">What the columns mean</p>
+        <p><span className="text-text-secondary font-medium">Mentions</span> — how many posts referenced the ticker across Reddit / StockTwits in the last 24h. Higher = more talked about.</p>
+        <p><span className="text-text-secondary font-medium">Δ24h</span> — change in mentions vs 24h ago. <span className="text-bullish-text">Green +</span> = attention is <em>rising</em> (fresh); <span className="text-bearish-text">red −</span> = <em>cooling</em>. <span className="text-text-faint">“—”</span> = too little prior data to trust.</p>
+        <p><span className="text-text-secondary font-medium">Sentiment</span> — StockTwits bull/bear lean of recent tagged posts (<span className="text-bullish-text">▲ bullish</span> / <span className="text-bearish-text">▼ bearish</span> / <span className="text-amber-400">◆ mixed</span>). Hover for the exact bull/bear %.</p>
+        <p><span className="text-text-secondary font-medium">Grade A</span> — 🔥 means this ticker <em>also</em> fired an A-grade technical alert in the scanner today (buzz <strong>+</strong> conviction). “—” = no A-grade alert.</p>
+        <p className="text-text-faint pt-1">Buzz only — not a buy signal. Use Grade A for conviction; tap a row to see what's being said.</p>
+      </div>
     </div>
   );
 }
