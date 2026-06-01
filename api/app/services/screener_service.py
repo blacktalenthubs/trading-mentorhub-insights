@@ -402,7 +402,14 @@ def _gather_swing(intraday: bool = False) -> list[scr.SwingCandidate]:
     spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
                if spy is not None and len(spy) > 21 else 0.0)
     cands: list[scr.SwingCandidate] = []
-    for u in scr.mega_cap_rows():
+    # 2026-06-01 — broadened universe to include curated small/mid caps so
+    # the scanner surfaces medium-size companies, not just the same ~50
+    # mega-caps every run. Quality gates (price floor, $-volume floor,
+    # MA-defense pattern) are applied per-symbol in swing_signals(), so
+    # adding more candidates just gives more shots without changing what
+    # qualifies.
+    universe = scr.mega_cap_rows() + scr.small_cap_rows()
+    for u in universe:
         try:
             daily = _fetch_daily_consolidated(u.symbol, "1y")
             if intraday:

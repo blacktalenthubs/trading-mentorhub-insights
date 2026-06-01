@@ -208,6 +208,11 @@ function RecommendationsTable({ recs, onSelect }: { recs: FocusRecommendation[];
     { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (r) => GRADE_RANK[(r.grade || "C").toUpperCase()] ?? 1, render: (r) => <GradeBadge grade={r.grade} /> },
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span><Dir d={r.direction} /></span> },
     { key: "setup", label: "Setup", align: "left", render: (r) => <span className="text-text-muted">{r.setup_type}</span> },
+    { key: "why", label: "Reason", align: "left", cls: "hidden xl:table-cell max-w-[280px]", render: (r) => (
+      <span className="text-[11px] text-text-secondary leading-snug line-clamp-2" title={r.why_now}>
+        {r.why_now || "—"}
+      </span>
+    ) },
     { key: "horizon", label: "Horizon", align: "left", cls: "hidden lg:table-cell", render: (r) => <span className="text-text-faint text-xs capitalize">{String(r.trade_horizon).replace(/_/g, " ")}</span> },
     { key: "entry", label: "Entry", align: "right", value: (r) => r.entry, render: (r) => <span className="font-mono text-text-primary">{money(r.entry)}</span> },
     { key: "stop", label: "Stop", align: "right", cls: "hidden lg:table-cell", render: (r) => <span className="font-mono text-bearish-text">{money(r.stop)}</span> },
@@ -223,6 +228,9 @@ function RecommendationsTable({ recs, onSelect }: { recs: FocusRecommendation[];
         <span className="font-mono text-sm text-text-primary">{money(r.entry)}</span>
       </div>
       <div className="flex gap-3 mt-1 text-[11px] text-text-muted font-mono"><span className="text-text-faint">{r.setup_type}</span><span>S {money(r.stop)}</span><span>T1 {money(r.t1)}</span></div>
+      {r.why_now && (
+        <p className="mt-1 text-[11px] text-text-secondary leading-snug line-clamp-2">{r.why_now}</p>
+      )}
     </>
   );
 
