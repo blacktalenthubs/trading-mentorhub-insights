@@ -104,12 +104,15 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
-        # Migration: chart_levels label/color/created_at — a prod table predating
-        # these columns 500s every /charts/levels query (create_all never ALTERs).
+        # Migration: chart_levels columns — a prod table predating user_id (and
+        # label/color/created_at) 500s every /charts/levels query (create_all
+        # never ALTERs existing tables). user_id was the actual missing column.
         for col_def in [
+            "ALTER TABLE chart_levels ADD COLUMN IF NOT EXISTS user_id INTEGER",
             "ALTER TABLE chart_levels ADD COLUMN IF NOT EXISTS label VARCHAR(100) DEFAULT ''",
             "ALTER TABLE chart_levels ADD COLUMN IF NOT EXISTS color VARCHAR(20) DEFAULT '#3498db'",
             "ALTER TABLE chart_levels ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+            "CREATE INDEX IF NOT EXISTS ix_chart_levels_user_id ON chart_levels(user_id)",
         ]:
             try:
                 await conn.execute(text(col_def))
