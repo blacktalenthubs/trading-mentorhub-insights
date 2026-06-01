@@ -58,55 +58,41 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("pullback_long", "Uptrend pullback continuation (Buy 1)", "Pullback", False),
 
     # Buy 2 — Prior-high held as support (spec 58 FR-004)
+    # Monthly (staged_pmh_held) removed 2026-06-01 — visual only, too noisy.
     ("staged_pdh_held", "PDH held as support (Buy 2)", "Daily PDH/PDL", False),
-    ("staged_pwh_held", "PWH held as support (Buy 2)", "Weekly / Monthly", False),
-    ("staged_pmh_held", "PMH held as support (Buy 2)", "Weekly / Monthly", False),
+    ("staged_pwh_held", "PWH held as support (Buy 2)", "Weekly", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
+    # Monthly (staged_pml_held) removed 2026-06-01 — visual only, too noisy.
     ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
-    ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly / Monthly", False),
-    ("staged_pml_held", "PML held — wick test (Buy 2)", "Weekly / Monthly", False),
+    ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly", False),
 
     # Buy 2 — Prior-low reclaim (existing — lost-and-recovered)
+    # Monthly (staged_pml_reclaim) removed 2026-06-01 — visual only.
     ("staged_pdl_reclaim", "PDL reclaim", "Daily PDH/PDL", False),
-    ("staged_pwl_reclaim", "PWL reclaim", "Weekly / Monthly", False),
-    ("staged_pml_reclaim", "PML reclaim", "Weekly / Monthly", False),
+    ("staged_pwl_reclaim", "PWL reclaim", "Weekly", False),
 
     # Buy 2 — Prior-high reclaim (2026-06-01) — mirrors low-side reclaim trio.
     # Pattern: gap above the prior high, dip below it briefly, reclaim it
-    # on a green bar. Catches PLTR/AVGO/ORCL/SPCE-style continuation setups
-    # the existing "break" + "held" pair miss when the wick-and-reclaim
-    # crosses multiple intraday bars.
+    # on a green bar. Catches PLTR/AVGO/ORCL/SPCE-style continuation setups.
+    # Monthly (staged_pmh_reclaim) removed same day — visual only.
     ("staged_pdh_reclaim", "PDH reclaim", "Daily PDH/PDL", False),
-    ("staged_pwh_reclaim", "PWH reclaim", "Weekly / Monthly", False),
-    ("staged_pmh_reclaim", "PMH reclaim", "Weekly / Monthly", False),
+    ("staged_pwh_reclaim", "PWH reclaim", "Weekly", False),
 
-    # Buy 2 — Monthly anchored-VWAP defended (spec 58, 2026-05-23 evening)
-    ("staged_mtd_avwap_held", "MTD AVWAP defended (Buy 2)", "Anchored VWAP", False),
-    ("staged_pm_avwap_held",  "Prior-month AVWAP defended", "Anchored VWAP", False),
-    ("staged_p2m_avwap_held", "2-months-prior AVWAP defended", "Anchored VWAP", False),
+    # 2026-06-01 — Anchored-VWAP family (MTD / prior-month / 2mo-prior)
+    # REMOVED. AVWAP levels stay drawn on chart as visual reference only;
+    # no alerts emit. Too noisy in live evaluation — 8 of 15 missed-TG
+    # alerts today were mtd_avwap_held fires with no follow-through.
 
     # Spec 60 (v2 — 2026-05-28) — volume-gated breakouts + gap-up continuation.
-    # The retired _break family from spec 58 is re-introduced with built-in
-    # VWAP confluence + 2.0× volume floor. Default-disabled; user opts in.
+    # Monthly break (staged_pmh_break) REMOVED 2026-06-01 — visual only.
     ("staged_pdh_break",        "PDH break · VWAP+vol confluence", "v2 · Breakouts", False),
     ("staged_pwh_break",        "PWH break · VWAP+vol confluence", "v2 · Breakouts", False),
-    ("staged_pmh_break",        "PMH break · VWAP+vol confluence", "v2 · Breakouts", False),
     ("gap_up_continuation_long","Gap-up continuation (opened above PDH)", "v2 · Gap-and-go", False),
 
-    # Swing scanner — daily-bar entries from analytics/swing_scanner.py
-    # (un-retired 2026-05-28 — scheduled scan + push delivery added).
-    # All default-disabled; user toggles per-pattern in Settings.
-    ("swing_bounce_ema21",  "Swing · 21 EMA bounce", "Swing · Bounce", False),
-    ("swing_bounce_ema50",  "Swing · 50 EMA bounce", "Swing · Bounce", False),
-    ("swing_bounce_sma50",  "Swing · 50 SMA bounce", "Swing · Bounce", False),
-    ("swing_bounce_ema200", "Swing · 200 EMA bounce", "Swing · Bounce", False),
-    ("swing_bounce_sma200", "Swing · 200 SMA bounce", "Swing · Bounce", False),
-    ("swing_8_21_cross",         "Swing · EMA 8/21 bullish crossover", "Swing", False),
-    ("swing_golden_cross_retest","Swing · Golden-cross retest (50 EMA)", "Swing", False),
-    ("swing_52w_high_retest",    "Swing · 52-week-high retest",        "Swing", False),
-    ("swing_5day_low_reclaim",   "Swing · 5-day-low reclaim",          "Swing", False),
-    ("swing_rsi_30",             "Swing · RSI 30 recovery",            "Swing", False),
+    # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
+    # Swing scanner not currently working reliably; types listed in
+    # OBSOLETE_ALERT_TYPES below for DB cleanup.
 ]
 
 # Per-MA toggles for the surviving MA-bounce family.
@@ -137,45 +123,25 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Held-as-support — prior high acted as a floor after price reclaimed it.
     "staged_pdh_held": "Stock pulled back to yesterday's high and bounced — yesterday's resistance is now acting as support.",
     "staged_pwh_held": "Stock pulled back to last week's high and bounced — weekly resistance flipped to support.",
-    "staged_pmh_held": "Stock pulled back to last month's high and bounced — monthly resistance flipped to support.",
 
     # Wick-rejected breakdown of a prior low.
     "staged_pdl_held": "Stock dipped below yesterday's low briefly then closed back above — wick-rejected breakdown.",
     "staged_pwl_held": "Stock dipped below last week's low briefly then closed back above — wick-rejected weekly breakdown.",
-    "staged_pml_held": "Stock dipped below last month's low briefly then closed back above — wick-rejected monthly breakdown.",
 
     # Reclaim — lost a prior low then recovered it on a bullish bar.
     "staged_pdl_reclaim": "Stock lost yesterday's low then recovered it on a bullish bar — failed breakdown long.",
     "staged_pwl_reclaim": "Stock lost last week's low then recovered it on a bullish bar — failed weekly breakdown long.",
-    "staged_pml_reclaim": "Stock lost last month's low then recovered it on a bullish bar — failed monthly breakdown long.",
 
     # Reclaim — gap above a prior high, lost it briefly, reclaimed on a bullish bar.
     "staged_pdh_reclaim": "Stock gapped above yesterday's high, dipped back below it, then reclaimed it on a bullish bar — continuation long after the retest.",
     "staged_pwh_reclaim": "Stock gapped above last week's high, dipped back below it, then reclaimed it on a bullish bar — weekly-level continuation.",
-    "staged_pmh_reclaim": "Stock gapped above last month's high, dipped back below it, then reclaimed it on a bullish bar — monthly-level continuation.",
-
-    # Anchored VWAP defended — average buyer from a specific anchor still in profit.
-    "staged_mtd_avwap_held": "Price defended the month-to-date anchored VWAP — average buyer since the start of the month is back in profit.",
-    "staged_pm_avwap_held":  "Price defended the prior-month anchored VWAP — last month's average buyer holding the line.",
-    "staged_p2m_avwap_held": "Price defended the 2-months-prior anchored VWAP — older average buyer still defending.",
 
     # Spec 60 breakouts — vol + slope confluence.
     "staged_pdh_break":         "Stock broke above yesterday's high with above-average volume and rising VWAP — confirmed continuation.",
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
-    "staged_pmh_break":         "Stock broke above last month's high with above-average volume and rising VWAP — monthly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
 
-    # Swing scanner — daily-bar entries.
-    "swing_bounce_ema21":       "Daily price pulled back to the 21 EMA in an uptrend and bounced — short-term swing continuation.",
-    "swing_bounce_ema50":       "Daily price pulled back to the 50 EMA in an uptrend and bounced — medium-term swing continuation.",
-    "swing_bounce_sma50":       "Daily price pulled back to the 50 SMA in an uptrend and bounced — institutional swing support.",
-    "swing_bounce_ema200":      "Daily price pulled back to the 200 EMA in an uptrend and bounced — long-term trend defense.",
-    "swing_bounce_sma200":      "Daily price pulled back to the 200 SMA in an uptrend and bounced — major institutional support.",
-    "swing_8_21_cross":          "Daily 8 EMA crossed above 21 EMA — short-term bullish momentum shift.",
-    "swing_golden_cross_retest": "Daily price retested the 50 EMA after a golden cross (50 over 200) — trend confirmation.",
-    "swing_52w_high_retest":     "Daily price retested the 52-week high level as support — strongest trend continuation setup.",
-    "swing_5day_low_reclaim":    "Daily price reclaimed the 5-day low after a brief breakdown — minor pullback recovery.",
-    "swing_rsi_30":              "Daily RSI recovered from below 30 — oversold bounce setup.",
+    # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
 
 
@@ -244,6 +210,24 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # the rule has no level test and is structurally noisy. Replaced by
     # the staged_*_held family which always tests a level.
     "pullback_long",
+
+    # 2026-06-01 — Anchored-VWAP family + ALL monthly (PMH / PML) alerts
+    # REMOVED per founder request. AVWAP levels + monthly highs/lows stay
+    # drawn on chart as visual reference only; no alerts emit. Live-eval
+    # found mtd_avwap_held fires too noisy (8 of today's 15 missed-TG
+    # alerts were avwap), and monthly TF too coarse for intraday triggers.
+    "staged_mtd_avwap_held", "staged_pm_avwap_held", "staged_p2m_avwap_held",
+    "staged_pmh_held", "staged_pml_held",
+    "staged_pmh_reclaim", "staged_pml_reclaim",
+    "staged_pmh_break",
+
+    # 2026-06-01 — Swing scanner alerts REMOVED from Settings per founder
+    # request. Swing scanner not currently working reliably; types pulled
+    # from catalog so they don't show up as dead toggles.
+    "swing_bounce_ema21", "swing_bounce_ema50", "swing_bounce_sma50",
+    "swing_bounce_ema200", "swing_bounce_sma200",
+    "swing_8_21_cross", "swing_golden_cross_retest",
+    "swing_52w_high_retest", "swing_5day_low_reclaim", "swing_rsi_30",
 )
 
 

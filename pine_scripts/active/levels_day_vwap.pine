@@ -1048,12 +1048,11 @@ tf_high_prefix(string tf) =>
 tf_low_prefix(string tf) =>
     tf == "W" ? "staged_pwl_" : tf == "M" ? "staged_pml_" : "staged_pdl_"
 
-// HTF gate: daily (tf == "D") always fires; weekly/monthly only when
-// the user explicitly opts in via fire_htf_staged. Default-off 2026-05-19
-// for noise reduction — W/M crossings overlap heavily with daily and the
-// `staged_p[wm][hl]_*` family was the dominant duplicate source.
+// HTF gate: daily (tf == "D") always fires; weekly only when user opts
+// in via fire_htf_staged. Monthly (tf == "M") DISABLED 2026-06-01 — PMH
+// / PML levels stay drawn on chart as visual only, no alerts.
 htf_allowed(string tf) =>
-    tf == "D" or fire_htf_staged
+    tf == "D" or (tf == "W" and fire_htf_staged)
 
 // Spec 58 — pdh_break LONG retired (FR-005, breakout-into-resistance).
 // The `if false and pdh_break` neutralizes the alert while leaving the
@@ -1100,12 +1099,14 @@ if v2_break_pwh and v2_break_confluence
     t2_b = t2_extend_long(e_b, t1_b)
     alert(build_payload_v2("staged_pwh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if v2_break_pmh and v2_break_confluence
-    e_b = close
-    s_b = low - atr_buffer
-    t1_b = e_b * 1.03
-    t2_b = e_b * 1.05
-    alert(build_payload_v2("staged_pmh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+// 2026-06-01 — staged_pmh_break DISABLED. Monthly TF too coarse for
+// intraday triggers; PMH stays drawn on chart as visual only.
+// if v2_break_pmh and v2_break_confluence
+//     e_b = close
+//     s_b = low - atr_buffer
+//     t1_b = e_b * 1.03
+//     t2_b = e_b * 1.05
+//     alert(build_payload_v2("staged_pmh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // Spec 60 — gap_up_continuation_long. Catches ONDS-style trades that
 // gapped over PDH at the bell and never retest. None of the held/break
@@ -1169,12 +1170,13 @@ if s58_pwh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     t2_pwh = t2_extend_long(e_pwh, t1_pwh)
     alert(build_payload_v2("staged_pwh_held", "BUY", e_pwh, s_pwh, t1_pwh, t2_pwh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pmh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_pmh  = pmh
-    s_pmh  = low - atr_buffer
-    t1_pmh = e_pmh * 1.0075
-    t2_pmh = e_pmh * 1.015
-    alert(build_payload_v2("staged_pmh_held", "BUY", e_pmh, s_pmh, t1_pmh, t2_pmh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+// 2026-06-01 — staged_pmh_held DISABLED. PMH stays drawn on chart as visual.
+// if s58_pmh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
+//     e_pmh  = pmh
+//     s_pmh  = low - atr_buffer
+//     t1_pmh = e_pmh * 1.0075
+//     t2_pmh = e_pmh * 1.015
+//     alert(build_payload_v2("staged_pmh_held", "BUY", e_pmh, s_pmh, t1_pmh, t2_pmh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // =====================================================================
 // Spec 58 (2026-05-23) — Buy 2: prior-low held-from-above (wick test)
@@ -1197,41 +1199,43 @@ if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     t2_pwl_h = not na(pwh) and pwh > t1_pwl_h ? pwh : (not na(pmh) and pmh > t1_pwl_h ? pmh : t2_extend_long(e_pwl_h, t1_pwl_h))
     alert(build_payload_v2("staged_pwl_held", "BUY", e_pwl_h, s_pwl_h, t1_pwl_h, t2_pwl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pml_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_pml_h  = pml
-    s_pml_h  = low - atr_buffer
-    t1_pml_h = not na(pwh) and pwh > e_pml_h ? pwh : (not na(pmh) and pmh > e_pml_h ? pmh : e_pml_h * 1.03)
-    t2_pml_h = not na(pmh) and pmh > t1_pml_h ? pmh : t2_extend_long(e_pml_h, t1_pml_h)
-    alert(build_payload_v2("staged_pml_held", "BUY", e_pml_h, s_pml_h, t1_pml_h, t2_pml_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+// 2026-06-01 — staged_pml_held DISABLED. PML stays drawn on chart as visual.
+// if s58_pml_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
+//     e_pml_h  = pml
+//     s_pml_h  = low - atr_buffer
+//     t1_pml_h = not na(pwh) and pwh > e_pml_h ? pwh : (not na(pmh) and pmh > e_pml_h ? pmh : e_pml_h * 1.03)
+//     t2_pml_h = not na(pmh) and pmh > t1_pml_h ? pmh : t2_extend_long(e_pml_h, t1_pml_h)
+//     alert(build_payload_v2("staged_pml_held", "BUY", e_pml_h, s_pml_h, t1_pml_h, t2_pml_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // =====================================================================
-// Spec 58 (2026-05-23 evening) — monthly AVWAP defense alerts
+// 2026-06-01 — Anchored-VWAP defense alerts DISABLED entirely.
 // =====================================================================
-// Entry = the AVWAP itself (the dynamic level that's being defended).
-// Stop  = day's low − ATR buffer (tight, structural).
-// Targets stack to the next overhead AVWAP, then next PWH/PMH.
-// Same gate as the held-low alerts: bypass chop gate in downtrends since
-// AVWAP defenses in downtrend regimes are reversal plays.
-if s58_mtd_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_mtd  = mtd_avwap_58
-    s_mtd  = low - atr_buffer
-    t1_mtd = not na(pm_avwap_58) and pm_avwap_58 > e_mtd ? pm_avwap_58 : (not na(pwh) and pwh > e_mtd ? pwh : e_mtd * 1.015)
-    t2_mtd = not na(pwh) and pwh > t1_mtd ? pwh : (not na(pmh) and pmh > t1_mtd ? pmh : t2_extend_long(e_mtd, t1_mtd))
-    alert(build_payload_v2("staged_mtd_avwap_held", "BUY", e_mtd, s_mtd, t1_mtd, t2_mtd, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-
-if s58_pm_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_pm  = pm_avwap_58
-    s_pm  = low - atr_buffer
-    t1_pm = not na(p2m_avwap_58) and p2m_avwap_58 > e_pm ? p2m_avwap_58 : (not na(pwh) and pwh > e_pm ? pwh : e_pm * 1.02)
-    t2_pm = not na(pwh) and pwh > t1_pm ? pwh : (not na(pmh) and pmh > t1_pm ? pmh : t2_extend_long(e_pm, t1_pm))
-    alert(build_payload_v2("staged_pm_avwap_held", "BUY", e_pm, s_pm, t1_pm, t2_pm, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-
-if s58_p2m_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_p2m  = p2m_avwap_58
-    s_p2m  = low - atr_buffer
-    t1_p2m = not na(pwh) and pwh > e_p2m ? pwh : (not na(pmh) and pmh > e_p2m ? pmh : e_p2m * 1.03)
-    t2_p2m = not na(pmh) and pmh > t1_p2m ? pmh : t2_extend_long(e_p2m, t1_p2m)
-    alert(build_payload_v2("staged_p2m_avwap_held", "BUY", e_p2m, s_p2m, t1_p2m, t2_p2m, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+// MTD / prior-month / 2-months-prior AVWAP lines stay DRAWN on chart as
+// visual reference (variables mtd_avwap_58 / pm_avwap_58 / p2m_avwap_58
+// + plot logic untouched), but no alerts emit. Live evaluation: 8 of
+// today's 15 missed-to-Telegram alerts were mtd_avwap_held with no
+// follow-through. Too noisy for the entry-rule shortlist.
+//
+// if s58_mtd_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
+//     e_mtd  = mtd_avwap_58
+//     s_mtd  = low - atr_buffer
+//     t1_mtd = not na(pm_avwap_58) and pm_avwap_58 > e_mtd ? pm_avwap_58 : (not na(pwh) and pwh > e_mtd ? pwh : e_mtd * 1.015)
+//     t2_mtd = not na(pwh) and pwh > t1_mtd ? pwh : (not na(pmh) and pmh > t1_mtd ? pmh : t2_extend_long(e_mtd, t1_mtd))
+//     alert(build_payload_v2("staged_mtd_avwap_held", "BUY", e_mtd, s_mtd, t1_mtd, t2_mtd, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+//
+// if s58_pm_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
+//     e_pm  = pm_avwap_58
+//     s_pm  = low - atr_buffer
+//     t1_pm = not na(p2m_avwap_58) and p2m_avwap_58 > e_pm ? p2m_avwap_58 : (not na(pwh) and pwh > e_pm ? pwh : e_pm * 1.02)
+//     t2_pm = not na(pwh) and pwh > t1_pm ? pwh : (not na(pmh) and pmh > t1_pm ? pmh : t2_extend_long(e_pm, t1_pm))
+//     alert(build_payload_v2("staged_pm_avwap_held", "BUY", e_pm, s_pm, t1_pm, t2_pm, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+//
+// if s58_p2m_avwap_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
+//     e_p2m  = p2m_avwap_58
+//     s_p2m  = low - atr_buffer
+//     t1_p2m = not na(pwh) and pwh > e_p2m ? pwh : (not na(pmh) and pmh > e_p2m ? pmh : e_p2m * 1.03)
+//     t2_p2m = not na(pmh) and pmh > t1_p2m ? pmh : t2_extend_long(e_p2m, t1_p2m)
+//     alert(build_payload_v2("staged_p2m_avwap_held", "BUY", e_p2m, s_p2m, t1_p2m, t2_p2m, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // =====================================================================
 // Open-line alert fires — open_lost (NOTICE, index only) +
