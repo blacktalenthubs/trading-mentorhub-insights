@@ -1383,23 +1383,34 @@ async def _users_watching(db, symbol: str):
 
 
 def _tier_grade_blocked(user, grade) -> bool:
-    """True when this user's tier delivers A-grade alerts only and the alert
-    isn't A — i.e. a Free user receiving a B/C TV alert. The B/C firehose is a
-    Pro perk (alerts_min_grade floor). Admins/paid tiers are never blocked.
+    """Tier-floor gate — TEMPORARILY DISABLED 2026-05-31 per founder request.
 
-    Fails OPEN: any tier-lookup error returns False so a lookup hiccup never
-    silently kills alert delivery. Requires user.subscription to be loaded.
+    The intent: Free tier delivers Grade A alerts only; B/C are a Pro perk
+    (alerts_min_grade floor in app/tier.py). Admins/paid tiers were never
+    blocked. The gate was correct for monetization but obscured debugging
+    when the founder was wondering why an alert didn't reach Telegram —
+    not the cause that night (AGENT_OWNS_TELEGRAM was), but a possible
+    future false-positive.
+
+    Re-enable by deleting this early-return and restoring the original
+    body (see git blame). When you do, also surface the floor in the
+    Settings page so Free users understand why B/C don't reach them.
+
+    Impact while disabled: Free users receive ALL grades in Telegram +
+    push. Pro/Admin/Premium behavior is unchanged.
     """
-    try:
-        from app.dependencies import get_user_tier, is_admin_user
-        if is_admin_user(user):
-            return False
-        from app.tier import get_limits
-        floor = get_limits(get_user_tier(user)).get("alerts_min_grade")
-        return floor == "A" and (grade or "C").upper() != "A"
-    except Exception:
-        logger.debug("tier grade gate lookup failed — delivering", exc_info=True)
-        return False
+    return False
+    # --- Original implementation (kept for easy revert) ---------------
+    # try:
+    #     from app.dependencies import get_user_tier, is_admin_user
+    #     if is_admin_user(user):
+    #         return False
+    #     from app.tier import get_limits
+    #     floor = get_limits(get_user_tier(user)).get("alerts_min_grade")
+    #     return floor == "A" and (grade or "C").upper() != "A"
+    # except Exception:
+    #     logger.debug("tier grade gate lookup failed — delivering", exc_info=True)
+    #     return False
 
 
 _MA_TAG_SUFFIX_RE = __import__("re").compile(r"(\d+)([ES])")
