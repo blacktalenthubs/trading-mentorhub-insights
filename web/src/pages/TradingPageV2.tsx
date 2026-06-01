@@ -277,6 +277,18 @@ function SignalFeedTab({
     try { localStorage.setItem("signal_feed_sort", s); } catch {}
   }
 
+  // Grade chip filter — view-only, doesn't affect Telegram routing.
+  // "all" → show every grade. "A"/"B"/"C" → only that grade.
+  type GradeFilter = "all" | "A" | "B" | "C";
+  const [gradeFilter, setGradeFilter] = useState<GradeFilter>(() => {
+    if (typeof window === "undefined") return "all";
+    return (localStorage.getItem("signal_feed_grade") as GradeFilter) || "all";
+  });
+  function changeGradeFilter(g: GradeFilter) {
+    setGradeFilter(g);
+    try { localStorage.setItem("signal_feed_grade", g); } catch {}
+  }
+
   if (alertsError) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -301,10 +313,24 @@ function SignalFeedTab({
     if (a.suppressed_reason === "type_not_enabled") return false;
     return true;
   });
+  // Counts per grade for the chip badges.
+  const gradeCounts = feedAlerts.reduce(
+    (acc, a) => {
+      const g = (a.grade ?? "C").toUpperCase();
+      if (g === "A") acc.A++;
+      else if (g === "B") acc.B++;
+      else acc.C++;
+      return acc;
+    },
+    { A: 0, B: 0, C: 0 },
+  );
   const q = search.trim().toUpperCase();
-  const filtered = q
+  let filtered = q
     ? feedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
     : feedAlerts;
+  if (gradeFilter !== "all") {
+    filtered = filtered.filter((a) => (a.grade ?? "C").toUpperCase() === gradeFilter);
+  }
 
   // Sort applied client-side so the user can flip it without an extra fetch.
   const GRADE_RANK: Record<string, number> = { A: 3, B: 2, C: 1 };
@@ -335,10 +361,48 @@ function SignalFeedTab({
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
+  // Grade chip — visual style per letter.
+  const CHIP_STYLES: Record<GradeFilter, { active: string; inactive: string }> = {
+    all: {
+      active: "bg-accent text-bg-base border-accent",
+      inactive: "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2",
+    },
+    A: {
+      active: "bg-bullish text-bg-base border-bullish",
+      inactive: "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2",
+    },
+    B: {
+      active: "bg-warning text-bg-base border-warning",
+      inactive: "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2",
+    },
+    C: {
+      active: "bg-text-faint text-bg-base border-text-faint",
+      inactive: "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2",
+    },
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {/* Grade filter chips — view-only, doesn't affect Telegram routing */}
+      <div className="px-3 pt-2 pb-1 shrink-0 flex items-center gap-1">
+        {(["all", "A", "B", "C"] as const).map((g) => {
+          const style = gradeFilter === g ? CHIP_STYLES[g].active : CHIP_STYLES[g].inactive;
+          const count = g === "all" ? feedAlerts.length : gradeCounts[g];
+          return (
+            <button
+              key={g}
+              onClick={() => changeGradeFilter(g)}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${style}`}
+              title={g === "all" ? "Show all grades" : `Show Grade ${g} only`}
+            >
+              {g === "all" ? "All" : g} <span className="opacity-70 font-normal">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Search + Sort dropdown — single row */}
-      <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
+      <div className="px-3 pt-1 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
