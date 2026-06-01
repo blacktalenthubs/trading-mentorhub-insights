@@ -442,6 +442,12 @@ def swing_signals(
     ``small_cap=True`` relaxes for small caps / recent IPOs: 20 & 50 EMA only (no
     200-day history required), shorter minimum history.
     """
+    # Mid-caps under $10B get the small-cap relaxation (looser uptrend
+    # definition, no 200-day requirement) so the curated mid-cap names
+    # added to the swing universe actually qualify.
+    if not small_cap and market_cap and market_cap < 10e9:
+        small_cap = True
+
     min_bars = 50 if small_cap else 60
     if daily is None or daily.empty or "Close" not in daily.columns or len(daily) < min_bars:
         return None
@@ -449,7 +455,10 @@ def swing_signals(
     last = float(c.iloc[-1])
     low = float(daily["Low"].iloc[-1])
     high = float(daily["High"].iloc[-1])
-    e20, e50 = float(_ema(c, 20).iloc[-1]), float(_ema(c, 50).iloc[-1])
+    e8   = float(_ema(c, 8).iloc[-1])
+    e20  = float(_ema(c, 20).iloc[-1])
+    e50  = float(_ema(c, 50).iloc[-1])
+    e100 = float(_ema(c, 100).iloc[-1]) if len(c) >= 100 else None
     e200 = float(_ema(c, 200).iloc[-1]) if len(c) >= 200 else None
     ret20 = (last / float(c.iloc[-21]) - 1.0) * 100.0 if len(c) > 21 else 0.0
     rs = ret20 - spy_ret_20d
@@ -457,17 +466,28 @@ def swing_signals(
     if small_cap:
         uptrend = e20 > e50 and last > e50                      # short-term uptrend, no 200 needed
         stacked = e20 > e50
-        candidate_mas = (("20 EMA", e20), ("50 EMA", e50))
+        candidate_mas: tuple = (("8 EMA", e8), ("20 EMA", e20), ("50 EMA", e50))
+        if e100 is not None:
+            candidate_mas = candidate_mas + (("100 EMA", e100),)
     else:
         uptrend = e200 is not None and e50 > e200 and last > e200
         stacked = e200 is not None and e20 > e50 > e200
-        candidate_mas = (("20 EMA", e20), ("50 EMA", e50), ("200 EMA", e200)) if e200 is not None else (("20 EMA", e20), ("50 EMA", e50))
+        candidate_mas = (("8 EMA", e8), ("20 EMA", e20), ("50 EMA", e50))
+        if e100 is not None:
+            candidate_mas = candidate_mas + (("100 EMA", e100),)
+        if e200 is not None:
+            candidate_mas = candidate_mas + (("200 EMA", e200),)
 
-    # Which key MA is price closing JUST AT? Nearest first. "At" = today's low tested
-    # it (within 1%) AND the close sits in a tight band (-1% to +2%) around it.
+    # "Close near a key MA on good volume" — the founder's spec.
+    # Pattern: today's low tested the MA (within 2%) AND today's close
+    # sits in a wider band (-2% to +3%) around it. Broader than the prior
+    # -1%/+2% so more legitimate "near" setups qualify; volume gate further
+    # downstream still has the final word on quality.
     tested = None  # (name, ma_value)
     for name, ma in candidate_mas:
-        if ma is not None and low <= ma * 1.01 and -0.01 <= (last - ma) / ma <= 0.02:
+        if ma is None:
+            continue
+        if low <= ma * 1.02 and -0.02 <= (last - ma) / ma <= 0.03:
             tested = (name, ma)
             break
 
