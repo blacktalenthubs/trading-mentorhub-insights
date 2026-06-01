@@ -64,20 +64,24 @@ cvd_lookback     = input.int    (10,           "CVD divergence lookback (bars)",
 conf_tol_atr     = input.float  (0.5,          "PDH/PDL confluence tolerance (× chart ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
 label_size_in    = input.string ("tiny",       "Marker label size", options = ["tiny", "small", "normal", "large"])
 
-// Pullback continuation rule (pullback_long) REMOVED 2026-05-30 — too noisy
-// in production. Catalog entry obsoleted in alert_type_config.py. The MA
-// bounce family below now has tighter per-MA + v2 quality gates that catch
-// the same setups when they actually have volume + slope behind them.
+// Uptrend pullback continuation (2026-05-20) — catches what ma_bounce misses:
+// a shallow dip in a steep uptrend that resumes WITHOUT price reaching a
+// daily MA. Pure price-action: trend filter + N down bars + resume bar.
+fire_pullback_alerts  = input.bool (true, "Fire uptrend pullback continuation alerts", group = "Pullback continuation")
+pullback_lookback     = input.int  (3,    "Pullback lookback (bars before the resume bar)", minval = 2, maxval = 8, group = "Pullback continuation")
+pullback_min_down     = input.int  (2,    "Min down-close bars within lookback", minval = 1, maxval = 6, group = "Pullback continuation")
+pullback_require_ema50 = input.bool(false, "Stricter uptrend: also require price above EMA50", group = "Pullback continuation")
 
-// Spec 61 follow-up (2026-05-30) — MA bounce v2 quality gates. Same shape
-// as the pullback v2 gates that worked: vol + slope + above-VWAP. Pine
-// fires only when geometry + per-MA stack support + quality gates ALL pass.
-// Tunable via inputs so we can A/B without republish.
-ma_v2_enable             = input.bool  (true,  "v2: require vol + slope + above-VWAP gates on MA bounces", group = "MA quality gates")
-ma_v2_vol_min            = input.float (1.2,   "v2: minimum volume_ratio on the bounce bar",       minval = 0.5, maxval = 3.0, step = 0.1, group = "MA quality gates")
-ma_v2_slope_min          = input.float (0.0,   "v2: minimum VWAP slope (%) — 0 means session not selling off", minval = -0.5, maxval = 1.0, step = 0.01, group = "MA quality gates")
-ma_v2_require_above_vwap = input.bool  (true,  "v2: price must be above session VWAP",            group = "MA quality gates")
-vwap_slope_lookback      = input.int   (20,    "VWAP slope lookback (bars) for slope % calc",     minval = 5, maxval = 60, group = "MA quality gates")
+// Spec 60 — alert quality v2. VWAP-anchored pullback gates (2026-05-28).
+// Replaces the level-agnostic "2 down bars + green resume" with structural
+// VWAP test + session slope + PDH headroom + volume. See server-side gates
+// in tv_webhook.py for the matching thresholds — Pine sends fields, server
+// can re-tune without Pine republish via env vars.
+pullback_v2_enable     = input.bool  (true,  "v2: require VWAP test (low ≤ VWAP, close > VWAP)", group = "Pullback continuation")
+pullback_v2_slope_min  = input.float (0.05, "v2: minimum VWAP slope (%) over slope_lookback bars", minval = -0.5, maxval = 1.0, step = 0.01, group = "Pullback continuation")
+pullback_v2_vol_min    = input.float (1.2,  "v2: minimum volume_ratio on resume bar", minval = 0.5, maxval = 3.0, step = 0.1, group = "Pullback continuation")
+pullback_v2_headroom_pct = input.float (1.5, "v2: minimum % headroom to PDH (kills overhead-resistance trades)", minval = 0.5, maxval = 5.0, step = 0.1, group = "Pullback continuation")
+vwap_slope_lookback    = input.int   (20,   "VWAP slope lookback (bars) for slope % calc", minval = 5, maxval = 60, group = "Pullback continuation")
 
 // Proximity NOTICE alerts — fires when bar holds NEAR an MA without touching.
 // Catches gap-up holds where price found buyers a few ticks above the level
@@ -272,55 +276,14 @@ prox_s100_s = fire_proximity_alerts and proximity_short(sma100, proximity_pct) a
 prox_s200_s = fire_proximity_alerts and proximity_short(sma200, proximity_pct) and not (fire_s200 or s_fire_s200)
 
 
-// Per-MA "proximate stack" gate (spec 61 follow-up 2026-05-30) ---------------
-// Replaces the old global uptrend_pass = close > ALL 8 MAs (which made an
-// EMA200 bounce structurally impossible whenever EMA100 was still overhead).
-//
-// New rule: an MA is a real support only when every TIGHTER MA also sits
-// below price. Longer MAs being overhead don't disqualify — they're the
-// structural target.
-//
-//   EMA 8   bounce → no prerequisite (tightest MA)
-//   EMA 21  bounce → close > EMA 8
-//   EMA 50  bounce → close > EMA 8 and EMA 21
-//   SMA 50  bounce → close > EMA 8, EMA 21, EMA 50
-//   EMA 100 bounce → close > EMA 8, EMA 21, EMA 50, SMA 50
-//   SMA 100 bounce → ↑ + EMA 100
-//   EMA 200 bounce → ↑ + SMA 100
-//   SMA 200 bounce → ↑ + EMA 200
-//
-// nz default -1e9 means a missing MA never blocks (fails open).
-gate_e8     = true
-gate_e21    = close > nz(ema8,   -1e9)
-gate_e50    = gate_e21    and close > nz(ema21,   -1e9)
-gate_sma50  = gate_e50    and close > nz(ema50,   -1e9)
-gate_e100   = gate_sma50  and close > nz(sma50,   -1e9)
-gate_sma100 = gate_e100   and close > nz(ema100,  -1e9)
-gate_e200   = gate_sma100 and close > nz(sma100,  -1e9)
-gate_sma200 = gate_e200   and close > nz(ema200,  -1e9)
-
-// Per-MA fires that pass BOTH the geometry test AND the stack gate.
-fire_e8_ok   = fire_e8   and gate_e8
-fire_e21_ok  = fire_e21  and gate_e21
-fire_e50_ok  = fire_e50  and gate_e50
-fire_e100_ok = fire_e100 and gate_e100
-fire_e200_ok = fire_e200 and gate_e200
-fire_s50_ok  = fire_s50  and gate_sma50
-fire_s100_ok = fire_s100 and gate_sma100
-fire_s200_ok = fire_s200 and gate_sma200
-
 // Aggregate fires + tags -----------------------------------------------------
-// any_long uses the per-MA stack-gated fires (_ok variants). The raw fire_e*
-// vars and any_short / any_prox_* remain available for chart markers / future
-// rules but no longer drive alert emission.
-any_long  = fire_e8_ok or fire_e21_ok or fire_e50_ok or fire_e100_ok or fire_e200_ok or fire_s50_ok or fire_s100_ok or fire_s200_ok
+any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
 any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
 
 any_prox_long  = prox_e8_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
 any_prox_short = prox_e8_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
 
-// long_tag built from the gated fires so the tag matches what triggered.
-long_tag  = (fire_e8_ok   ? "8E "  : "") + (fire_e21_ok   ? "21E " : "") + (fire_e50_ok   ? "50E " : "") + (fire_e100_ok   ? "100E " : "") + (fire_e200_ok   ? "200E " : "") + (fire_s50_ok   ? "50S " : "") + (fire_s100_ok   ? "100S " : "") + (fire_s200_ok   ? "200S " : "")
+long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
 short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
 
 prox_long_tag  = (prox_e8_l   ? "8E "  : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
@@ -366,23 +329,22 @@ bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
 bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
 
 // MA value to anchor swing-mode stop -----------------------------------------
-// Use the gated _ok set so bounced_ma_long matches what actually fired the alert.
 float bounced_ma_long = na
-if fire_e8_ok
+if fire_e8
     bounced_ma_long := ema8
-else if fire_e21_ok
+else if fire_e21
     bounced_ma_long := ema21
-else if fire_e50_ok
+else if fire_e50
     bounced_ma_long := ema50
-else if fire_e100_ok
+else if fire_e100
     bounced_ma_long := ema100
-else if fire_e200_ok
+else if fire_e200
     bounced_ma_long := ema200
-else if fire_s50_ok
+else if fire_s50
     bounced_ma_long := sma50
-else if fire_s100_ok
+else if fire_s100
     bounced_ma_long := sma100
-else if fire_s200_ok
+else if fire_s200
     bounced_ma_long := sma200
 
 float rejected_ma_short = na
@@ -535,27 +497,10 @@ ma_targets_below(float p) =>
 //
 // Multi-line alert() args are flaky in Pine v5 — build payload into a var
 // first, then call alert() on a single line.
-//
-// Spec 61 follow-up (2026-05-30) — MA bounce gating model:
-//
-//   1. Per-MA stack gate (gate_e8 / gate_e21 / ... / gate_sma200): bouncing
-//      MA must be the tightest support — every SHORTER MA also above price.
-//      Replaces the old global uptrend_pass (which required ALL 8 MAs above
-//      and made EMA50/100/200 bounces structurally impossible when slower
-//      MAs hadn't caught up).
-//
-//   2. v2 quality gates: vol_ratio >= ma_v2_vol_min, vwap_slope_pct >=
-//      ma_v2_slope_min, optional above_vwap. Mirror of the pullback v2
-//      pattern. Master-toggled via ma_v2_enable for A/B.
-//
-// SHORTs not gated — out of scope; left as dead code further up.
-
-ma_v2_vol_ok    = (not na(volume_ratio))    and volume_ratio    >= ma_v2_vol_min
-ma_v2_slope_ok  = (not na(vwap_slope_pct))  and vwap_slope_pct  >= ma_v2_slope_min
-ma_v2_vwap_ok   = (not ma_v2_require_above_vwap) or above_vwap
-ma_quality_pass = (not ma_v2_enable) or (ma_v2_vol_ok and ma_v2_slope_ok and ma_v2_vwap_ok)
-
-if fire_alerts and any_long and ma_quality_pass
+// Spec 58 — gate LONG entries on uptrend_pass (FR-001/FR-002/FR-003).
+// SHORT entries are NOT gated — they're out of scope for spec 58 and a short
+// setup REQUIRES MAs overhead (the rejection level).
+if fire_alerts and any_long and uptrend_pass
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
@@ -567,9 +512,58 @@ if fire_alerts and any_long and ma_quality_pass
     alert(msg_long, alert.freq_once_per_bar_close)
 
 // Spec 58 (2026-05-23 night) — SHORT + NOTICE alerts removed entirely.
+// This Pine now fires LONG entries only. The deleted blocks were:
+//   • ma_rejection_short_v3  (SHORT — high tags MA, closes back below)
+//   • ma_proximity_long_v3   (NOTICE — bar near MA from above)
+//   • ma_proximity_short_v3  (NOTICE — bar near MA from below)
 // Detection helpers (strict_short, band_short, proximity_long/short) and
-// aggregate vars (any_short, any_prox_*) remain as dead code in case any
-// future signal is built on them. Visual SHORT/proximity markers retained
-// as toggleable chart context.
-//
-// pullback_long removed 2026-05-30 — too noisy, catalog obsoleted.
+// aggregate vars (any_short, any_prox_*) remain in the file as dead code
+// in case any future signal is built on them. Visual SHORT/proximity
+// markers (plotshape calls + bgcolor) are also retained as toggleable
+// chart context — disable via the show_markers input if not wanted.
+
+// Uptrend pullback continuation ----------------------------------------------
+// Setup: stock cleanly trending up (close > EMA8 > EMA21), pulled back for a
+// few bars, then a green bar resumes by closing above the prior bar's high.
+// Catches steep-trend dips that never reach a daily MA (so ma_bounce misses
+// them). Stop = lowest low of the lookback window - ATR buffer (tight,
+// structural — sits under the dip). Targets = nearest MAs above entry.
+pb_uptrend = not na(ema8) and not na(ema21) and close > ema8 and ema8 > ema21 and (not pullback_require_ema50 or (not na(ema50) and close > ema50))
+pb_down_count = 0
+for pb_i = 1 to pullback_lookback
+    if close[pb_i] < close[pb_i + 1]
+        pb_down_count := pb_down_count + 1
+pb_pulled_back = pb_down_count >= pullback_min_down
+pb_resume = close > open and not na(high[1]) and close > high[1]
+
+// Spec 60 — v2 quality gates. Only apply when pullback_v2_enable is true,
+// so the rule can be A/B'd via the input. Each sub-condition guarded
+// against na so missing payload (e.g., early-session VWAP not stable yet)
+// fails open rather than crashing the script. Pine v5 doesn't short-circuit
+// AND, so explicit na guards are required on every term that touches a
+// potentially-na series.
+pb_v2_vwap_test = (not na(session_vwap)) and low <= session_vwap and close > session_vwap
+pb_v2_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= pullback_v2_slope_min
+pb_v2_vol_ok = (not na(volume_ratio)) and volume_ratio >= pullback_v2_vol_min
+pb_v2_headroom_ok = na(pdh) or (close > 0 and (pdh - close) / close * 100 >= pullback_v2_headroom_pct)
+pb_v2_gates = (not pullback_v2_enable) or (pb_v2_vwap_test and pb_v2_slope_ok and pb_v2_vol_ok and pb_v2_headroom_ok)
+
+fire_pullback = fire_pullback_alerts and pb_uptrend and pb_pulled_back and pb_resume and pb_v2_gates
+// ta.lowest computed at top level (not inside the conditional) — ta.* funcs
+// need to run every bar to keep their historical buffer consistent.
+pb_low = ta.lowest(low, pullback_lookback + 1)
+
+plotshape(show_markers and fire_pullback, title = "Pullback LONG", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup, size = size.small)
+
+// Spec 58 — pullback continuation also gated on the strict uptrend filter.
+// pb_uptrend (8 > 21, optional > 50) is weaker than the full 8-MA gate.
+if fire_alerts and fire_pullback and uptrend_pass
+    e = close
+    s = pb_low - atr_chart * 0.3
+    rsk = e - s
+    ups_pb = ma_targets_above(e)
+    n_up_pb = array.size(ups_pb)
+    t1_pb = n_up_pb >= 1 ? array.get(ups_pb, 0) : e + rsk * r_t1
+    t2_pb = n_up_pb >= 2 ? array.get(ups_pb, 1) : e + rsk * r_t2
+    msg_pb = build_v3_payload("pullback_long", "BUY", "", e, s, t1_pb, t2_pb, near_pdl, false)
+    alert(msg_pb, alert.freq_once_per_bar_close)
