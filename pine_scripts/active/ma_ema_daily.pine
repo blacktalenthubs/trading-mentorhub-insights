@@ -95,6 +95,22 @@ vwap_slope_lookback    = input.int   (20,   "VWAP slope lookback (bars) for slop
 fire_proximity_alerts = input.bool  (false, "Fire MA proximity NOTICE alerts (bar holds near MA without touching)", group = "Proximity NOTICE")
 proximity_pct         = input.float (0.3,  "Proximity threshold (% of MA price)", minval = 0.05, maxval = 2.0, step = 0.05, group = "Proximity NOTICE")
 
+// MA bounce quality gates (2026-06-01) — design conversation with founder.
+// Original Pine required price > ALL 8 MAs (uptrend_pass). Problem: any
+// MA touch when ANY faster MA was still overhead silently never fired —
+// e.g. price dips below 8 EMA, reaches 21 EMA, no alert because still <
+// 8 EMA. Saturday's per-MA stack gate was a partial fix but still gated
+// on stack position. Final design: drop ALL stack requirements, gate on
+// quality (volume + intraday VWAP slope) instead.
+//
+// "Buyers stepping in" = volume_ratio ≥ ma_quality_vol_min on bounce bar.
+// "Session not in freefall" = vwap_slope_pct ≥ ma_quality_slope_min.
+// Above-VWAP NOT required — real support sometimes IS below session VWAP.
+// Permissive defaults; tune up if noise becomes an issue.
+ma_quality_enable    = input.bool  (true,  "Gate MA bounces on volume + VWAP slope (replaces stack requirement)", group = "MA bounce quality")
+ma_quality_vol_min   = input.float (0.8,   "Min volume_ratio on the bounce bar — captures buyers stepping in", minval = 0.1, maxval = 3.0, step = 0.1, group = "MA bounce quality")
+ma_quality_slope_min = input.float (-0.3,  "Min VWAP slope (%) — session not in freefall", minval = -1.0, maxval = 1.0, step = 0.05, group = "MA bounce quality")
+
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
 
 is_intraday_mode = mode == "intraday"
@@ -497,10 +513,18 @@ ma_targets_below(float p) =>
 //
 // Multi-line alert() args are flaky in Pine v5 — build payload into a var
 // first, then call alert() on a single line.
-// Spec 58 — gate LONG entries on uptrend_pass (FR-001/FR-002/FR-003).
-// SHORT entries are NOT gated — they're out of scope for spec 58 and a short
-// setup REQUIRES MAs overhead (the rejection level).
-if fire_alerts and any_long and uptrend_pass
+// 2026-06-01 — MA bounce quality gate (replaces uptrend_pass for gating).
+// `uptrend_pass` STILL ships in the payload as context (line ~432) so the
+// server has the full-stack flag for downstream analytics; it just doesn't
+// gate firing anymore. New gate is volume + slope only. na-guarded so
+// missing payload (early session, no VWAP yet) fails OPEN — let the bounce
+// fire and the backend grade it. Pine v5 doesn't short-circuit `and`, so
+// each `not na` guard is explicit.
+ma_q_vol_ok   = (not na(volume_ratio)) and volume_ratio >= ma_quality_vol_min
+ma_q_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= ma_quality_slope_min
+ma_quality_pass = (not ma_quality_enable) or (ma_q_vol_ok and ma_q_slope_ok)
+
+if fire_alerts and any_long and ma_quality_pass
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
