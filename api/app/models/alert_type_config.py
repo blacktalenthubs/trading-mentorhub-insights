@@ -72,6 +72,15 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pwl_reclaim", "PWL reclaim", "Weekly / Monthly", False),
     ("staged_pml_reclaim", "PML reclaim", "Weekly / Monthly", False),
 
+    # Buy 2 — Prior-high reclaim (2026-06-01) — mirrors low-side reclaim trio.
+    # Pattern: gap above the prior high, dip below it briefly, reclaim it
+    # on a green bar. Catches PLTR/AVGO/ORCL/SPCE-style continuation setups
+    # the existing "break" + "held" pair miss when the wick-and-reclaim
+    # crosses multiple intraday bars.
+    ("staged_pdh_reclaim", "PDH reclaim", "Daily PDH/PDL", False),
+    ("staged_pwh_reclaim", "PWH reclaim", "Weekly / Monthly", False),
+    ("staged_pmh_reclaim", "PMH reclaim", "Weekly / Monthly", False),
+
     # Buy 2 — Monthly anchored-VWAP defended (spec 58, 2026-05-23 evening)
     ("staged_mtd_avwap_held", "MTD AVWAP defended (Buy 2)", "Anchored VWAP", False),
     ("staged_pm_avwap_held",  "Prior-month AVWAP defended", "Anchored VWAP", False),
@@ -139,6 +148,11 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pdl_reclaim": "Stock lost yesterday's low then recovered it on a bullish bar — failed breakdown long.",
     "staged_pwl_reclaim": "Stock lost last week's low then recovered it on a bullish bar — failed weekly breakdown long.",
     "staged_pml_reclaim": "Stock lost last month's low then recovered it on a bullish bar — failed monthly breakdown long.",
+
+    # Reclaim — gap above a prior high, lost it briefly, reclaimed on a bullish bar.
+    "staged_pdh_reclaim": "Stock gapped above yesterday's high, dipped back below it, then reclaimed it on a bullish bar — continuation long after the retest.",
+    "staged_pwh_reclaim": "Stock gapped above last week's high, dipped back below it, then reclaimed it on a bullish bar — weekly-level continuation.",
+    "staged_pmh_reclaim": "Stock gapped above last month's high, dipped back below it, then reclaimed it on a bullish bar — monthly-level continuation.",
 
     # Anchored VWAP defended — average buyer from a specific anchor still in profit.
     "staged_mtd_avwap_held": "Price defended the month-to-date anchored VWAP — average buyer since the start of the month is back in profit.",

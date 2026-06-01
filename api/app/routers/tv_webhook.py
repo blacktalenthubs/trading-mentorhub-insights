@@ -569,6 +569,12 @@ def _volume_floor(alert_type_full: str) -> float:
     # Env-overridable to re-tighten when noise becomes an issue.
     if name in ("staged_pdl_reclaim", "staged_pwl_reclaim", "staged_pml_reclaim"):
         return _envf("V2_VOL_FLOOR_LOW_RECLAIM", 0.3)
+    # Prior-high reclaim (PDH/PWH/PMH) — 2026-06-01. Continuation setup:
+    # gap above the high, retest, reclaim. Volume usually solid on these
+    # because the gap-up days already have heat, so the floor is tighter
+    # than the low-side reclaim. Tunable.
+    if name in ("staged_pdh_reclaim", "staged_pwh_reclaim", "staged_pmh_reclaim"):
+        return _envf("V2_VOL_FLOOR_HIGH_RECLAIM", 1.0)
     # Unknown / NOTICE — don't gate.
     return 0.0
 
@@ -599,6 +605,11 @@ def _slope_min(alert_type_full: str) -> Optional[float]:
     # Env-overridable to re-tighten later if noise becomes an issue.
     if name in ("staged_pdl_reclaim", "staged_pwl_reclaim", "staged_pml_reclaim"):
         return _envf("V2_SLOPE_MIN_LOW_RECLAIM", -1.0)
+    # Prior-high reclaim — continuation setup. After a gap-up retest,
+    # slope is usually still positive going into the reclaim. Floor mirrors
+    # the break family.
+    if name in ("staged_pdh_reclaim", "staged_pwh_reclaim", "staged_pmh_reclaim"):
+        return _envf("V2_SLOPE_MIN_HIGH_RECLAIM", 0.0)
     # Unknown — don't gate on slope.
     return None
 
@@ -1667,13 +1678,16 @@ async def _symbol_session_already_fired(
 # a $0.50 spread is huge on NFLX (R≈$0.32) but tiny on SPY (R≈$1.60).
 _LEVEL_ALERT_TYPES_FOR_PRICE_BAND = {
     "tv_staged_pdh_break",
+    "tv_staged_pdh_reclaim",
     "tv_staged_pdh_rejection",
     "tv_staged_pdh_failed_short",
     "tv_staged_pdl_break",
     "tv_staged_pdl_reclaim",
     "tv_staged_pwh_break",
+    "tv_staged_pwh_reclaim",
     "tv_staged_pwl_reclaim",
     "tv_staged_pmh_break",
+    "tv_staged_pmh_reclaim",
     "tv_staged_pml_reclaim",
 }
 
