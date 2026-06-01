@@ -290,16 +290,58 @@ async def refresh_in_play() -> None:
         await _mark_latest_stale()
 
 
+def _universe_row_for(symbol: str):
+    """Build one UniverseRow with REAL financials: last price + 20-day average
+    dollar volume (from daily bars) + market cap (yfinance fast_info). The old
+    path left these at 0 — which makes RVOL collapse to 1.0 for every name (avg
+    volume 0 → the expected-volume denominator is 0 → fallback), so In-Play
+    couldn't rank by relative volume at all."""
+    try:
+        daily = _fetch_daily_consolidated(symbol, "3mo")
+        if daily is None or daily.empty or len(daily) < 5:
+            return None
+        last_close = float(daily["Close"].iloc[-1])
+        tail = daily.tail(20)
+        avg_dollar_vol = float((tail["Close"] * tail["Volume"]).mean())
+        if avg_dollar_vol <= 0:
+            return None
+        market_cap = 0.0
+        try:
+            import yfinance as yf
+            fi = yf.Ticker(symbol).fast_info
+            market_cap = float(getattr(fi, "market_cap", 0) or 0)
+            lp = float(getattr(fi, "last_price", 0) or 0)
+            if lp > 0:
+                last_close = lp
+        except Exception:
+            pass
+        return scr.UniverseRow(
+            symbol=symbol, market_cap=market_cap, last_price=last_close,
+            avg_dollar_vol=avg_dollar_vol, sector=None,
+        )
+    except Exception:
+        logger.debug("universe: skipped %s", symbol, exc_info=True)
+        return None
+
+
+def _build_universe_with_financials() -> list[scr.UniverseRow]:
+    """Build the in-play universe from the curated liquid list, populated with
+    real per-symbol financials (yfinance daily — works on Railway, unlike the
+    blocked EquityQuery screener)."""
+    from concurrent.futures import ThreadPoolExecutor
+    symbols = sorted(set(scr.STATIC_UNIVERSE) | set(scr.MEGA_CAP_UNIVERSE))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        rows = list(pool.map(_universe_row_for, symbols))
+    return [r for r in rows if r is not None]
+
+
 async def rebuild_universe() -> None:
-    """FR-1/FR-7: rebuild the capped universe (weekly / on demand)."""
-    settings = get_settings()
-    rows = await asyncio.to_thread(
-        scr.build_universe,
-        settings.SCREENER_MARKET_CAP_FLOOR, settings.SCREENER_PRICE_FLOOR, settings.SCREENER_DOLLAR_VOL_FLOOR,
-    )
+    """FR-1/FR-7: rebuild the capped universe (weekly / on demand) with REAL
+    financials so RVOL ranking works."""
+    rows = await asyncio.to_thread(_build_universe_with_financials)
     if rows:
         await _save_universe(rows)
-        logger.info("screener: universe rebuilt (%d names)", len(rows))
+        logger.info("screener: universe rebuilt with financials (%d names)", len(rows))
     else:
         logger.warning("screener: universe rebuild returned 0 names — kept previous")
 
