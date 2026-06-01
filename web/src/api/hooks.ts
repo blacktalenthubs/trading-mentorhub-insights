@@ -61,11 +61,19 @@ export function useRefreshSwing(cap: "mega" | "small" = "mega") {
   return useMutation({
     mutationFn: () => api.post(`/screener/swing/refresh?cap=${cap}`, {}),
     onSuccess: () => {
-      toast.info("Swing scan started — results refresh in a few seconds");
-      setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["swing-screener", cap, "latest"] });
-        qc.invalidateQueries({ queryKey: ["swing-history", cap] });
-      }, 9000);
+      // Scan against ~130 symbols (mega + curated mid-cap universe) with
+      // daily-bar fetches takes 30-90s. Single 9s refetch was firing
+      // before the scan completed, leaving the user staring at unchanged
+      // data. Poll every 15s up to 4 times so the UI catches up whenever
+      // the scan actually finishes.
+      toast.info("Swing scan started — results refresh as the scan completes (~60s)");
+      const tries = [15000, 30000, 60000, 90000];
+      tries.forEach((delay) => {
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["swing-screener", cap, "latest"] });
+          qc.invalidateQueries({ queryKey: ["swing-history", cap] });
+        }, delay);
+      });
     },
   });
 }
