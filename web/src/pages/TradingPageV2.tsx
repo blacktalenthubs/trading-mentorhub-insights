@@ -21,6 +21,9 @@ import {
   useRemoveSymbol,
   useLivePrices,
   useWatchlistRank,
+  useChartLevels,
+  useAddChartLevel,
+  useDeleteChartLevel,
 } from "../api/hooks";
 import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
@@ -45,6 +48,7 @@ import {
   ChevronDown,
   ChevronUp,
   Menu,
+  Minus,
 } from "lucide-react";
 
 /* ── Constants ──────────────────────────────────────────────────────── */
@@ -635,6 +639,11 @@ export default function TradingPageV2() {
   const [showIndicatorPanel, setShowIndicatorPanel] = useState(false);
   const indicatorPanelRef = useRef<HTMLDivElement>(null);
 
+  /* ── Draw S/R levels (persisted per symbol via /charts/levels) ── */
+  const [drawMode, setDrawMode] = useState(false);
+  const [showLevelsPanel, setShowLevelsPanel] = useState(false);
+  const levelsPanelRef = useRef<HTMLDivElement>(null);
+
   /* ── Panel state ── */
   const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
   // Mobile drawer — slides watchlist in from left on small screens
@@ -790,6 +799,20 @@ export default function TradingPageV2() {
       : null);
   const tf = TIMEFRAMES[tfIdx];
   const { data: ohlcv } = useOHLCV(selectedSymbol ?? "", tf.period, tf.interval);
+
+  /* ── User S/R levels ── */
+  const { data: userLevels } = useChartLevels(selectedSymbol ?? "");
+  const addLevel = useAddChartLevel();
+  const delLevel = useDeleteChartLevel();
+  const handleAddLevel = useCallback((price: number) => {
+    if (!selectedSymbol || !price) return;
+    addLevel.mutate({
+      symbol: selectedSymbol,
+      price: Math.round(price * 100) / 100,
+      label: "",
+      color: "#94a3b8",
+    });
+  }, [selectedSymbol, addLevel]);
 
   const chartLevels = (() => {
     if (!selected) return [];
@@ -1191,6 +1214,70 @@ export default function TradingPageV2() {
               )}
             </div>
 
+            {/* Draw S/R level — click to arm, then click the chart to drop a line */}
+            <button
+              onClick={() => setDrawMode((v) => !v)}
+              disabled={!selectedSymbol}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors border disabled:opacity-40 ${
+                drawMode
+                  ? "bg-accent text-white border-accent"
+                  : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary"
+              }`}
+              title="Draw a horizontal support/resistance line — then click the chart"
+            >
+              <Minus className="h-3 w-3" />
+              <span className="hidden lg:inline">{drawMode ? "Drawing…" : "Draw"}</span>
+            </button>
+
+            {/* Saved S/R lines manager */}
+            <div className="relative" ref={levelsPanelRef}>
+              <button
+                onClick={() => setShowLevelsPanel((v) => !v)}
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors border ${
+                  showLevelsPanel
+                    ? "bg-accent/15 text-accent border-accent/30"
+                    : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary"
+                }`}
+                title="Your saved S/R lines for this symbol"
+              >
+                <span className="hidden lg:inline">Lines</span>
+                {(userLevels?.length ?? 0) > 0 && (
+                  <span className="font-mono text-[9px] bg-surface-4/60 px-1 rounded">{userLevels!.length}</span>
+                )}
+              </button>
+              {showLevelsPanel && (
+                <div className="absolute top-full right-0 mt-1 w-[230px] bg-surface-2 border border-border-default rounded-lg shadow-elevated z-30 p-2 space-y-0.5">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-faint px-1 pb-1">
+                    S/R lines · {selectedSymbol ?? "—"}
+                  </p>
+                  {(userLevels ?? []).length === 0 ? (
+                    <p className="text-[11px] text-text-faint px-1 py-2 leading-relaxed">
+                      No lines yet. Tap <span className="text-accent font-medium">Draw</span>, then click the chart at a level.
+                    </p>
+                  ) : (
+                    [...(userLevels ?? [])].sort((a, b) => b.price - a.price).map((lvl) => (
+                      <div
+                        key={lvl.id}
+                        className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-surface-3/50 group"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: lvl.color || "#94a3b8" }} />
+                          <span className="font-mono text-[11px] text-text-secondary">${lvl.price.toFixed(2)}</span>
+                        </span>
+                        <button
+                          onClick={() => selectedSymbol && delLevel.mutate({ id: lvl.id, symbol: selectedSymbol })}
+                          className="text-text-faint hover:text-bearish-text opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Remove line"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Right panel toggle (desktop) */}
             <button
               onClick={() => {
@@ -1267,6 +1354,9 @@ export default function TradingPageV2() {
               target={showLevels ? (selected.target_1 ?? undefined) : undefined}
               direction={(selected.direction === "SHORT" ? "SHORT" : "LONG")}
               levels={showLevels ? chartLevels : []}
+              userLevels={userLevels ?? []}
+              drawMode={drawMode}
+              onAddLevel={handleAddLevel}
               indicators={chartIndicators}
               hideWicks={hideWicks}
               height={0}

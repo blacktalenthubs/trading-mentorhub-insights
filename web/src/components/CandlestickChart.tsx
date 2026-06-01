@@ -14,6 +14,11 @@ interface IndicatorConfig {
 interface Props {
   data: OHLCBar[];
   levels?: ChartLevel[];
+  /** User-drawn S/R lines — rendered solid + always shown (no dedup). */
+  userLevels?: ChartLevel[];
+  /** When true, a click on the chart calls onAddLevel with that price. */
+  drawMode?: boolean;
+  onAddLevel?: (price: number) => void;
   entry?: number;
   stop?: number;
   target?: number;
@@ -29,6 +34,9 @@ interface Props {
 function CandlestickChartInner({
   data,
   levels = [],
+  userLevels = [],
+  drawMode = false,
+  onAddLevel,
   entry,
   stop,
   target,
@@ -43,6 +51,12 @@ function CandlestickChartInner({
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
   const priceLinesRef = useRef<any[]>([]);
+  // Latest draw-mode + handler held in refs so the click subscription reads
+  // current values without re-subscribing on every prop change.
+  const drawModeRef = useRef(drawMode);
+  const onAddLevelRef = useRef(onAddLevel);
+  drawModeRef.current = drawMode;
+  onAddLevelRef.current = onAddLevel;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -300,6 +314,26 @@ function CandlestickChartInner({
       priceLinesRef.current.push(line);
     }
 
+    // User-drawn S/R lines — solid, always shown (intentional marks, no dedup).
+    for (const lvl of userLevels) {
+      const line = seriesRef.current!.createPriceLine({
+        price: lvl.price,
+        color: lvl.color || "#94a3b8",
+        lineWidth: 1,
+        lineStyle: 0,  // solid
+        axisLabelVisible: true,
+        title: lvl.label || "S/R",
+      });
+      priceLinesRef.current.push(line);
+    }
+
+    // Click-to-add: in draw mode, a click sets a horizontal line at that price.
+    chart.subscribeClick((param) => {
+      if (!drawModeRef.current || !onAddLevelRef.current || !param.point || !seriesRef.current) return;
+      const price = seriesRef.current.coordinateToPrice(param.point.y);
+      if (price != null) onAddLevelRef.current(Number(price));
+    });
+
     // Restore saved scroll position, or set initial view on first load
     if (savedRange) {
       // User had a position — restore it (just shift to include any new bars)
@@ -310,7 +344,7 @@ function CandlestickChartInner({
     } else {
       timeScale.fitContent();
     }
-  }, [data, levels, entry, stop, target, indicators, hideWicks]);
+  }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks]);
 
   // Floating trade panel — single-row overlay top-right of the chart with
   // the full Entry/Stop/Target details + R:R. Replaces the verbose
@@ -364,7 +398,12 @@ function CandlestickChartInner({
           )}
         </div>
       )}
-      <div ref={containerRef} className="w-full h-full" />
+      {drawMode && (
+        <div className="absolute top-2 left-2 z-10 px-2 py-1 rounded-md bg-accent/90 text-white text-[10px] font-semibold pointer-events-none">
+          Click the chart to drop a level
+        </div>
+      )}
+      <div ref={containerRef} className={`w-full h-full ${drawMode ? "cursor-crosshair" : ""}`} />
     </div>
   );
 }
