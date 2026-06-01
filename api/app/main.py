@@ -104,6 +104,18 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+        # Migration: chart_levels label/color/created_at — a prod table predating
+        # these columns 500s every /charts/levels query (create_all never ALTERs).
+        for col_def in [
+            "ALTER TABLE chart_levels ADD COLUMN IF NOT EXISTS label VARCHAR(100) DEFAULT ''",
+            "ALTER TABLE chart_levels ADD COLUMN IF NOT EXISTS color VARCHAR(20) DEFAULT '#3498db'",
+            "ALTER TABLE chart_levels ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        ]:
+            try:
+                await conn.execute(text(col_def))
+            except Exception:
+                pass
+
         # Migration: swing alert refresh columns
         for col_def in [
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS setup_level REAL",
