@@ -18,7 +18,7 @@ from app.dependencies import get_current_user
 from app.models.chart import ChartLevel
 from app.models.user import User
 from app.rate_limit import limiter
-from app.schemas.chart import ChartLevelRequest, ChartLevelResponse
+from app.schemas.chart import ChartLevelRequest, ChartLevelResponse, ChartLevelUpdate
 from app.schemas.market import OHLCBar
 
 _root = str(Path(__file__).resolve().parents[3])
@@ -62,6 +62,29 @@ async def add_level(
         color=body.color,
     )
     db.add(level)
+    await db.flush()
+    return level
+
+
+@router.put("/levels/{level_id}", response_model=ChartLevelResponse)
+async def update_level(
+    level_id: int,
+    body: ChartLevelUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reprice and/or retype (label + color) an existing line — owner only."""
+    level = (await db.execute(
+        select(ChartLevel).where(ChartLevel.id == level_id, ChartLevel.user_id == user.id)
+    )).scalar_one_or_none()
+    if level is None:
+        raise HTTPException(status_code=404, detail="Level not found")
+    if body.price is not None:
+        level.price = body.price
+    if body.label is not None:
+        level.label = body.label
+    if body.color is not None:
+        level.color = body.color
     await db.flush()
     return level
 

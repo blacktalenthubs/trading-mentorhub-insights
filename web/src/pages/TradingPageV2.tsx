@@ -23,6 +23,7 @@ import {
   useWatchlistRank,
   useChartLevels,
   useAddChartLevel,
+  useUpdateChartLevel,
   useDeleteChartLevel,
 } from "../api/hooks";
 import type { WatchlistRankItem } from "../types";
@@ -48,10 +49,29 @@ import {
   ChevronDown,
   ChevronUp,
   Menu,
-  Minus,
 } from "lucide-react";
 
 /* ── Constants ──────────────────────────────────────────────────────── */
+
+// S/R line types — color + label applied when drawing / retyping a line.
+const LINE_TYPES = {
+  support:    { color: "#22c55e", label: "Support",    short: "S" },
+  resistance: { color: "#ef4444", label: "Resistance", short: "R" },
+  line:       { color: "#94a3b8", label: "",           short: "—" },
+} as const;
+type LineType = keyof typeof LINE_TYPES;
+
+// Snap a clicked price to a clean increment scaled by magnitude, so S/R lines
+// land on memorable levels rather than an arbitrary pixel price.
+function snapPrice(p: number): number {
+  const step = p >= 250 ? 0.1 : p >= 50 ? 0.05 : p >= 5 ? 0.01 : 0.001;
+  return Math.round(p / step) * step;
+}
+function typeOfLevel(color: string): LineType {
+  if (color === LINE_TYPES.support.color) return "support";
+  if (color === LINE_TYPES.resistance.color) return "resistance";
+  return "line";
+}
 
 const TIMEFRAMES = [
   { label: "1m", period: "1d", interval: "1m" },
@@ -642,7 +662,14 @@ export default function TradingPageV2() {
   /* ── Draw S/R levels (persisted per symbol via /charts/levels) ── */
   const [drawMode, setDrawMode] = useState(false);
   const [showLevelsPanel, setShowLevelsPanel] = useState(false);
+  const [newLineType, setNewLineType] = useState<LineType>(
+    () => (localStorage.getItem("chart_line_type") as LineType) || "line"
+  );
   const levelsPanelRef = useRef<HTMLDivElement>(null);
+  function pickLineType(t: LineType) {
+    setNewLineType(t);
+    try { localStorage.setItem("chart_line_type", t); } catch { /* ignore */ }
+  }
 
   /* ── Panel state ── */
   const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
@@ -803,16 +830,18 @@ export default function TradingPageV2() {
   /* ── User S/R levels ── */
   const { data: userLevels } = useChartLevels(selectedSymbol ?? "");
   const addLevel = useAddChartLevel();
+  const updateLevel = useUpdateChartLevel();
   const delLevel = useDeleteChartLevel();
   const handleAddLevel = useCallback((price: number) => {
     if (!selectedSymbol || !price) return;
+    const t = LINE_TYPES[newLineType];
     addLevel.mutate({
       symbol: selectedSymbol,
-      price: Math.round(price * 100) / 100,
-      label: "",
-      color: "#94a3b8",
+      price: snapPrice(price),
+      label: t.label,
+      color: t.color,
     });
-  }, [selectedSymbol, addLevel]);
+  }, [selectedSymbol, newLineType, addLevel]);
 
   const chartLevels = (() => {
     if (!selected) return [];
@@ -1223,9 +1252,9 @@ export default function TradingPageV2() {
                   ? "bg-accent text-white border-accent"
                   : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary"
               }`}
-              title="Draw a horizontal support/resistance line — then click the chart"
+              title={`Draw a ${newLineType === "line" ? "level" : LINE_TYPES[newLineType].label} line — then click the chart`}
             >
-              <Minus className="h-3 w-3" />
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: drawMode ? "#ffffff" : LINE_TYPES[newLineType].color }} />
               <span className="hidden lg:inline">{drawMode ? "Drawing…" : "Draw"}</span>
             </button>
 
@@ -1250,9 +1279,26 @@ export default function TradingPageV2() {
                   <p className="text-[9px] font-semibold uppercase tracking-wider text-text-faint px-1 pb-1">
                     S/R lines · {selectedSymbol ?? "—"}
                   </p>
+                  {/* New-line type — applied to the next line you draw */}
+                  <div className="flex items-center gap-1 px-1 pb-1.5 mb-1 border-b border-border-subtle">
+                    <span className="text-[10px] text-text-faint mr-0.5">New:</span>
+                    {(["support", "resistance", "line"] as LineType[]).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => pickLineType(t)}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                          newLineType === t ? "border-accent/40 text-text-primary" : "border-transparent text-text-muted hover:bg-surface-3/50"
+                        }`}
+                        style={newLineType === t ? { backgroundColor: LINE_TYPES[t].color + "22" } : undefined}
+                      >
+                        <span className="w-2 h-0.5 rounded-full" style={{ backgroundColor: LINE_TYPES[t].color }} />
+                        {t === "line" ? "Line" : LINE_TYPES[t].label}
+                      </button>
+                    ))}
+                  </div>
                   {(userLevels ?? []).length === 0 ? (
                     <p className="text-[11px] text-text-faint px-1 py-2 leading-relaxed">
-                      No lines yet. Tap <span className="text-accent font-medium">Draw</span>, then click the chart at a level.
+                      Tap <span className="text-accent font-medium">Draw</span>, then click the chart at a level.
                     </p>
                   ) : (
                     [...(userLevels ?? [])].sort((a, b) => b.price - a.price).map((lvl) => (
@@ -1260,9 +1306,34 @@ export default function TradingPageV2() {
                         key={lvl.id}
                         className="flex items-center justify-between px-1.5 py-1 rounded hover:bg-surface-3/50 group"
                       >
-                        <span className="flex items-center gap-2">
-                          <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: lvl.color || "#94a3b8" }} />
-                          <span className="font-mono text-[11px] text-text-secondary">${lvl.price.toFixed(2)}</span>
+                        <span className="flex items-center gap-1.5">
+                          {/* dot — click cycles Support → Resistance → Line */}
+                          <button
+                            onClick={() => {
+                              if (!selectedSymbol) return;
+                              const cur = typeOfLevel(lvl.color);
+                              const next: LineType = cur === "support" ? "resistance" : cur === "resistance" ? "line" : "support";
+                              updateLevel.mutate({ id: lvl.id, symbol: selectedSymbol, color: LINE_TYPES[next].color, label: LINE_TYPES[next].label });
+                            }}
+                            className="w-2.5 h-2.5 rounded-full shrink-0 hover:ring-2 hover:ring-white/20"
+                            style={{ backgroundColor: lvl.color || "#94a3b8" }}
+                            title="Click to change type (Support / Resistance / Line)"
+                          />
+                          {/* editable price — Enter or blur to reprice */}
+                          <span className="text-[11px] text-text-faint">$</span>
+                          <input
+                            key={lvl.price}
+                            defaultValue={lvl.price.toFixed(2)}
+                            inputMode="decimal"
+                            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                            onBlur={(e) => {
+                              const v = parseFloat(e.target.value);
+                              if (selectedSymbol && !isNaN(v) && v > 0 && v !== lvl.price) {
+                                updateLevel.mutate({ id: lvl.id, symbol: selectedSymbol, price: v });
+                              }
+                            }}
+                            className="w-14 bg-transparent font-mono text-[11px] text-text-secondary rounded px-0.5 focus:bg-surface-1 focus:text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40"
+                          />
                         </span>
                         <button
                           onClick={() => selectedSymbol && delLevel.mutate({ id: lvl.id, symbol: selectedSymbol })}

@@ -88,17 +88,14 @@ function CandlestickChartInner({
       },
       // Touch + wheel zoom enabled for mobile (2026-05-26 user request).
       // Lightweight Charts default disables pinch on touch — explicitly enable.
-      handleScale: {
-        axisPressedMouseMove: true,
-        mouseWheel: true,
-        pinch: true,
-      },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: true,
-      },
+      // While drawing a level, freeze pan/zoom so the click registers as a
+      // click (not a pan) and reliably drops the line.
+      handleScale: drawModeRef.current
+        ? { axisPressedMouseMove: false, mouseWheel: false, pinch: false }
+        : { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      handleScroll: drawModeRef.current
+        ? { mouseWheel: false, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false }
+        : { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -345,6 +342,20 @@ function CandlestickChartInner({
       timeScale.fitContent();
     }
   }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks]);
+
+  // Toggle pan/zoom off while drawing so a click drops a level cleanly.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.applyOptions({
+      handleScale: drawMode
+        ? { axisPressedMouseMove: false, mouseWheel: false, pinch: false }
+        : { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      handleScroll: drawMode
+        ? { mouseWheel: false, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false }
+        : { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+    });
+  }, [drawMode]);
 
   // Floating trade panel — single-row overlay top-right of the chart with
   // the full Entry/Stop/Target details + R:R. Replaces the verbose

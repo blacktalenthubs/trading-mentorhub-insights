@@ -725,6 +725,21 @@ export function useAddChartLevel() {
   return useMutation({
     mutationFn: (body: { symbol: string; price: number; label?: string; color?: string }) =>
       api.post<ChartLevel>("/charts/levels", body),
+    onSuccess: (lvl, vars) => {
+      qc.invalidateQueries({ queryKey: ["chart-levels", vars.symbol] });
+      toast.success(`Line added at $${lvl.price.toFixed(2)}`);
+    },
+    onError: () => toast.error("Couldn't add the line"),
+  });
+}
+
+export function useUpdateChartLevel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: number; symbol: string; price?: number; label?: string; color?: string }) =>
+      api.put<ChartLevel>(`/charts/levels/${vars.id}`, {
+        price: vars.price, label: vars.label, color: vars.color,
+      }),
     onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["chart-levels", vars.symbol] }),
   });
 }
