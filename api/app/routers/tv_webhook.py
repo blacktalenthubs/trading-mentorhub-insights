@@ -938,19 +938,16 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     #   • Reversal rules (PDL/PWL/PML *_held / *_reclaim) need
     #     non-freefall slope (≥ −0.5%) + lower volume floor
     # Every threshold is an env var so we tune from data without redeploys.
-    # Suppressed alerts still persist via _persist_unrouted; just no
-    # Telegram/APNs delivery.
-    if _v2_quality_suppress(sig, alert_type_full):
-        logger.info(
-            "TV webhook: v2 quality gate suppressed %s for %s (vol=%s slope=%s)",
-            alert_type_full, sig.symbol,
-            getattr(sig, "_tv_volume_ratio", None),
-            getattr(sig, "_tv_vwap_slope_pct", None),
-        )
-        return await _persist_unrouted(
-            sig, alert_type_full, session_date,
-            suppressed_reason="v2_quality_gate",
-        )
+    # 2026-06-01 — v2 quality gate DISABLED per founder request. The gate
+    # was blocking too much legitimate data while we're still in the
+    # validation phase. Re-enable later once we've tuned thresholds from
+    # observed data. The helper _v2_quality_suppress + _volume_floor +
+    # _slope_min remain defined so re-enabling is one-line uncomment.
+    # if _v2_quality_suppress(sig, alert_type_full):
+    #     return await _persist_unrouted(
+    #         sig, alert_type_full, session_date,
+    #         suppressed_reason="v2_quality_gate",
+    #     )
 
     # ──────────────────────────────────────────────────────────────────
     # Futures session-window filter (2026-05-24)

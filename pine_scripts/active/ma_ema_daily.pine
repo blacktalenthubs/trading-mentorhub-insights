@@ -107,7 +107,7 @@ proximity_pct         = input.float (0.3,  "Proximity threshold (% of MA price)"
 // "Session not in freefall" = vwap_slope_pct ≥ ma_quality_slope_min.
 // Above-VWAP NOT required — real support sometimes IS below session VWAP.
 // Permissive defaults; tune up if noise becomes an issue.
-ma_quality_enable    = input.bool  (true,  "Gate MA bounces on volume + VWAP slope (replaces stack requirement)", group = "MA bounce quality")
+ma_quality_enable    = input.bool  (false, "Gate MA bounces on volume + VWAP slope (DISABLED 2026-06-01 — validation phase)", group = "MA bounce quality")
 ma_quality_vol_min   = input.float (0.8,   "Min volume_ratio on the bounce bar — captures buyers stepping in", minval = 0.1, maxval = 3.0, step = 0.1, group = "MA bounce quality")
 ma_quality_slope_min = input.float (-0.3,  "Min VWAP slope (%) — session not in freefall", minval = -1.0, maxval = 1.0, step = 0.05, group = "MA bounce quality")
 
