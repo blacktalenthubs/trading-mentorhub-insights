@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, RefreshCw, Zap, Moon, History } from "lucide-react";
+import { TrendingUp, RefreshCw, Zap, Moon, History, Info } from "lucide-react";
 import { useSwingScreener, useRefreshSwing, useSwingHistory } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "./ScreenerTable";
@@ -133,6 +133,10 @@ export default function SwingScreenerView() {
             {cap === "mega"
               ? "Mega-caps pulling back to and holding the 20 / 50 / 200 EMA — valid all week."
               : "Active small-caps & recent IPOs holding the 20 / 50 EMA (≥ $2, real volume) — higher risk."}
+          </p>
+          <p className="text-[10px] text-text-faint/80 mt-1 flex items-center gap-1">
+            <Info className="h-3 w-3 shrink-0" />
+            Daily-bar setups — the list only changes after each market close (and the 3:30 PM ET close scan). Re-running mid-session or on weekends returns the same list; that's expected, not stale.
           </p>
         </div>
         <div className="flex items-center gap-3">
