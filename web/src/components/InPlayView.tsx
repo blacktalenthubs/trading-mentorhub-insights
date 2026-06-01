@@ -4,8 +4,8 @@
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, Zap, Moon } from "lucide-react";
-import { useInPlay } from "../api/hooks";
+import { Activity, AlertTriangle, Zap, Moon, RefreshCw } from "lucide-react";
+import { useInPlay, useRefreshInPlay } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "./ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "./GradeBadge";
@@ -90,7 +90,8 @@ export default function InPlayView() {
   const [preset, setPreset] = useState<InPlayPreset>("any");
   const [hasSetup, setHasSetup] = useState(false);
   const { data, isLoading, isError } = useInPlay(preset, hasSetup);
-  const { screenerPreviewRows } = useFeatureGate();
+  const { screenerPreviewRows, isPro } = useFeatureGate();
+  const refresh = useRefreshInPlay();
   const navigate = useNavigate();
 
   const rows = data?.entries ?? [];
@@ -157,6 +158,17 @@ export default function InPlayView() {
           {captured && <span>· {captured.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
           {rows.length > 0 && <span>· {rows.length} names</span>}
           {data?.stale && <span className="inline-flex items-center gap-1 text-amber-400"><AlertTriangle className="h-3 w-3" /> delayed</span>}
+          {isPro && (
+            <button
+              onClick={() => refresh.mutate()}
+              disabled={refresh.isPending}
+              className="ml-1 inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
+              title="Pull the latest movers now"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
+              {refresh.isPending ? "Scanning…" : "Run scan"}
+            </button>
+          )}
         </div>
       </div>
 

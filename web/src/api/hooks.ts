@@ -27,6 +27,18 @@ export function useInPlay(preset: string, hasSetup: boolean) {
   });
 }
 
+export function useRefreshInPlay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/screener/in-play/refresh", {}),
+    onSuccess: () => {
+      toast.info("In-play scan started — refreshing in a few seconds");
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["in-play"] }), 12000);
+    },
+    onError: () => toast.error("Couldn't start the in-play scan"),
+  });
+}
+
 export function useSwingScreener(cap: "mega" | "small" = "mega", runId?: number | null) {
   return useQuery({
     queryKey: ["swing-screener", cap, runId ?? "latest"],

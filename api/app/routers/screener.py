@@ -31,6 +31,14 @@ def _entry_from_dict(d: dict) -> scr.InPlayEntry:
     )
 
 
+@router.post("/in-play/refresh", status_code=202)
+async def refresh_in_play_now(background: BackgroundTasks, user: User = Depends(require_pro)):
+    """On-demand in-play rescan ('Run scan'). Runs as a FastAPI background task on
+    the main loop (works even when the scheduled interval job isn't firing)."""
+    background.add_task(svc.refresh_in_play)
+    return {"status": "in-play scan started"}
+
+
 @router.get("/in-play", response_model=SnapshotOut)
 async def get_in_play(
     preset: str = Query("any"),

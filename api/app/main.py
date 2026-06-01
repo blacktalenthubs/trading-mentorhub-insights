@@ -337,6 +337,21 @@ async def lifespan(app: FastAPI):
         app.state.sync_session_factory = sync_session_factory
 
         scheduler = BackgroundScheduler()
+        # Start the scheduler + capture the main loop IMMEDIATELY, before any job
+        # registration. The whole block below is one big try/except, so a single
+        # unguarded throw used to skip scheduler.start() entirely → NO scheduled
+        # jobs fired (in-play interval, swing cron, social cron all dead, while
+        # manual background-task endpoints kept working). BackgroundScheduler
+        # accepts add_job() after start(), so starting first is safe and makes
+        # job registration failures non-fatal to the scheduler.
+        try:
+            import asyncio as _asyncio_early
+            from app.services.screener_service import set_main_loop as _set_main_loop_early
+            _set_main_loop_early(_asyncio_early.get_running_loop())
+        except Exception:
+            logger.exception("Failed to capture main loop for scheduler")
+        scheduler.start()
+        logger.info("Scheduler started (jobs register below; failures are non-fatal)")
 
         # Feature flag: RULE_ENGINE_ENABLED (default True). Set to "false"/"0" on Railway
         # to disable rule-based alerting and run AI-scan-only. No redeploy needed.
@@ -1054,10 +1069,11 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Failed to register Social Buzz cron")
 
-        scheduler.start()
-        logger.info("Background monitor started (3-min poll + EOD/premarket/weekly jobs)")
+        # scheduler already started at the top of this block (start-early so a
+        # late registration failure can't kill all scheduled jobs).
+        logger.info("Background monitor jobs registered (3-min poll + EOD/premarket/weekly jobs)")
     except Exception:
-        logger.exception("Failed to start background monitor")
+        logger.exception("Failed to register some background jobs (scheduler still running)")
 
     # Start Telegram bot — webhook on Railway, polling for local dev
     import os as _os
