@@ -54,9 +54,19 @@ async def add_level(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    symbol = body.symbol.upper()
+    # Server-side dedup — bulletproof against client races / repeat fires: if a
+    # line already sits within ~0.15% of this price, return it instead of stacking.
+    existing = (await db.execute(
+        select(ChartLevel).where(ChartLevel.user_id == user.id, ChartLevel.symbol == symbol)
+    )).scalars().all()
+    for e in existing:
+        if abs(e.price - body.price) / max(abs(body.price), 1e-9) < 0.0015:
+            return e
+
     level = ChartLevel(
         user_id=user.id,
-        symbol=body.symbol.upper(),
+        symbol=symbol,
         price=body.price,
         label=body.label,
         color=body.color,
