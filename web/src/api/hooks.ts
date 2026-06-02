@@ -223,6 +223,7 @@ export interface WatchlistItem {
   id: number;
   symbol: string;
   group_id?: number | null;
+  focus?: boolean;
 }
 
 export interface WatchlistGroup {
@@ -616,6 +617,38 @@ export function useRemoveSymbol() {
     },
     onSuccess: (_data, symbol) => toast.success(`${symbol} removed`),
     onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
+  });
+}
+
+// Toggle the "Focus today" flag on a watchlist symbol. Visual-only filter
+// for the Trading sidebar — alert routing/Telegram are unaffected.
+// Optimistic flip so the star feels instant; rollback on error.
+export function useToggleWatchlistFocus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (symbol: string) => api.post<WatchlistItem>(`/watchlist/focus/${symbol}`, {}),
+    onMutate: async (symbol) => {
+      await qc.cancelQueries({ queryKey: ["watchlist"] });
+      const prev = qc.getQueryData<WatchlistItem[]>(["watchlist"]);
+      qc.setQueryData<WatchlistItem[]>(["watchlist"], (old) =>
+        (old ?? []).map((w) => (w.symbol === symbol ? { ...w, focus: !w.focus } : w)),
+      );
+      return { prev };
+    },
+    onError: (_err, _sym, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["watchlist"], ctx.prev);
+      toast.error("Couldn't update focus");
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
+  });
+}
+
+// Clear every focus flag for the caller — the "Reset focus" action.
+export function useClearWatchlistFocus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/watchlist/focus/clear", {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
   });
 }
 
