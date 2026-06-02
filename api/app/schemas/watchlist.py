@@ -11,6 +11,7 @@ class WatchlistItemResponse(BaseModel):
     id: int
     symbol: str
     group_id: Optional[int] = None
+    focus: bool = False
 
     model_config = {"from_attributes": True}
 

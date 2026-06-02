@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -39,4 +39,10 @@ class WatchlistItem(Base):
     group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("watchlist_group.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # "Focus" flag — user-toggled per-symbol. Visual-only filter: when the
+    # Trading-page sidebar is in Focus mode, only items with focus=true show.
+    # Alerts / Telegram delivery are NOT gated on this — users keep getting
+    # the full firehose so they can catch unexpected fires on non-focus names.
+    # Sticky until user clears (no nightly reset).
+    focus: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
