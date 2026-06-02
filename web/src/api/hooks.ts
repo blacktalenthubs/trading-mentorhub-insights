@@ -305,6 +305,58 @@ export function useUpcomingEarnings() {
   });
 }
 
+// --- Fundamentals / Details tab ---
+
+export interface FundamentalsItem {
+  symbol: string;
+  company_name: string | null;
+  description: string | null;
+  sector: string | null;
+  industry: string | null;
+  market_cap: number | null;
+  trailing_eps: number | null;
+  forward_eps: number | null;
+  eps_growth_pct: number | null;
+  pe_ratio: number | null;
+  rec_strong_buy: number | null;
+  rec_buy: number | null;
+  rec_hold: number | null;
+  rec_sell: number | null;
+  rec_strong_sell: number | null;
+  consensus: string | null;          // Buy / Hold / Sell
+  rec_period: string | null;
+  short_term_view: string | null;
+  long_term_view: string | null;
+  fetched_at: string | null;         // ISO; null = never fetched
+}
+
+export interface FundamentalsResponse {
+  items: FundamentalsItem[];
+  last_refreshed_at: string | null;
+}
+
+export function useWatchlistFundamentals() {
+  return useQuery({
+    queryKey: ["fundamentals-watchlist"],
+    queryFn: () => api.get<FundamentalsResponse>("/fundamentals/watchlist"),
+    staleTime: 60 * 60_000,  // fundamentals change slowly; cache is fine
+  });
+}
+
+// On-demand refresh: pass a symbol to refresh one, or undefined for the whole
+// watchlist. The server fetches + AI-generates synchronously, so the mutation
+// resolves once the row is written; invalidate to re-read the cache.
+export function useRefreshFundamentals() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (symbol?: string) =>
+      api.post("/fundamentals/refresh", symbol ? { symbol } : { all: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["fundamentals-watchlist"] });
+    },
+  });
+}
+
 // --- Weekly pattern report ---
 
 export interface WeeklyPattern {

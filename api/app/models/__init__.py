@@ -24,4 +24,5 @@ from app.models.auto_trade import AIAutoTrade  # noqa: F401
 from app.models.focus_list import FocusList  # noqa: F401
 from app.models.alert_type_config import AlertTypeConfig  # noqa: F401
 from app.models.earnings import Earnings, EarningsHistory, EarningsNotificationSent  # noqa: F401
+from app.models.fundamentals import SymbolFundamentals  # noqa: F401
 from app.models.social_buzz import SocialBuzzSnapshot  # noqa: F401
