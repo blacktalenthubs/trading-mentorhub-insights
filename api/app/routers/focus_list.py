@@ -21,7 +21,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_user_tier
+from app.dependencies import get_current_user, get_user_tier, require_ai_access
 from app.models.focus_list import FocusList
 from app.models.user import User
 from app.services.focus_list_service import (
@@ -119,7 +119,7 @@ def _grade_recommendations(recs: list[dict]) -> None:
 @router.post("/focus-lists/run")
 async def run_focus_list(
     force: bool = False,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_ai_access),
     db: AsyncSession = Depends(get_db),
 ):
     """Run the AI Best Setups scan and persist the result as a focus list.

@@ -15,7 +15,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_user_tier, is_admin_user
+from app.dependencies import ADMIN_EMAILS, get_current_user, get_user_tier, is_admin_user
 from app.tier import get_limits
 from app.models.user import User
 from app.models.watchlist import WatchlistGroup, WatchlistItem
@@ -143,6 +143,36 @@ DEFAULT_GROUPS: list[dict] = [
 # ---------------------------------------------------------------------------
 # Watchlist items — same surface as before, plus group_id support.
 # ---------------------------------------------------------------------------
+
+
+@router.get("/sectors", response_model=List[WatchlistItemResponse])
+async def get_sectors_watchlist(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read-only view of the admin's curated watchlist (the "Sectors" list).
+
+    Public to every signed-in user. Used by the Sectors panel in the UI to
+    show the admin's picks + offer one-click "add to my watchlist" actions.
+    Admin user is resolved by the first email match in ADMIN_EMAILS, ordered
+    by user id so the result is stable across requests.
+    """
+    admin_stmt = (
+        select(User.id)
+        .where(User.email.in_(ADMIN_EMAILS))
+        .order_by(User.id)
+        .limit(1)
+    )
+    admin_id = (await db.execute(admin_stmt)).scalar_one_or_none()
+    if admin_id is None:
+        return []
+    stmt = (
+        select(WatchlistItem)
+        .where(WatchlistItem.user_id == admin_id)
+        .order_by(WatchlistItem.group_id, WatchlistItem.symbol)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
 
 
 @router.get("", response_model=List[WatchlistItemResponse])

@@ -246,6 +246,17 @@ export function useWatchlistGroups() {
   });
 }
 
+// Public read-only view of the admin's watchlist ("Sectors"). Every signed-in
+// user can fetch this; UI surfaces it as a separate panel with a "+ Add to my
+// watchlist" action per symbol.
+export function useSectorsWatchlist() {
+  return useQuery({
+    queryKey: ["watchlist-sectors"],
+    queryFn: () => api.get<WatchlistItem[]>("/watchlist/sectors"),
+    staleTime: 5 * 60_000,
+  });
+}
+
 // --- Earnings (spec 61) ---
 
 export interface UpcomingEarningsItem {

@@ -5,7 +5,7 @@
  *  tab subviews. Old route /focus-list redirects to /trade-ideas in App.tsx.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, Target, History, Sparkles, Crosshair, Flame,
@@ -21,6 +21,7 @@ import {
   useSocialBuzzHistory,
   useRefreshSocialBuzz,
   useSocialBuzzContext,
+  useMe,
   type FocusListHistoryItem,
   type SocialBuzzEntry,
 } from "../api/hooks";
@@ -58,18 +59,31 @@ function historyLabel(item: FocusListHistoryItem): string {
   return `${when} · ${win} · ${tag}`;
 }
 
-const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Crosshair }[] = [
+const IDEAS_TABS_ALL: { id: IdeasTab; label: string; icon: typeof Crosshair; adminOnly?: boolean }[] = [
   { id: "day",    label: "Day Trades",   icon: Crosshair },
   { id: "swing",  label: "Swing Trades", icon: Target },
-  { id: "ai",     label: "AI Scans",     icon: Sparkles },
+  { id: "ai",     label: "AI Scans",     icon: Sparkles, adminOnly: true },
   { id: "social", label: "Social",       icon: Flame },
 ];
 
 export default function FocusListPage() {
+  // AI Scans is admin-only (LLM cost). Non-admins don't see the tab at all.
+  const { data: me } = useMe();
+  const isAdmin = (me?.email || "").toLowerCase() === "vbolofinde@gmail.com";
+  const IDEAS_TABS = IDEAS_TABS_ALL.filter((t) => !t.adminOnly || isAdmin);
+
   const [tab, setTab] = useState<IdeasTab>(() => {
     if (typeof window === "undefined") return "day";
-    return (localStorage.getItem("ideas_active_tab") as IdeasTab) || "day";
+    const saved = localStorage.getItem("ideas_active_tab") as IdeasTab | null;
+    return saved || "day";
   });
+  // If the saved tab is AI but the user isn't admin, snap back to "day".
+  useEffect(() => {
+    if (tab === "ai" && !isAdmin) {
+      setTab("day");
+      try { localStorage.setItem("ideas_active_tab", "day"); } catch {}
+    }
+  }, [tab, isAdmin]);
   function pickTab(t: IdeasTab) {
     setTab(t);
     try { localStorage.setItem("ideas_active_tab", t); } catch {}

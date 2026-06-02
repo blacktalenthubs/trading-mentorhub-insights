@@ -1368,65 +1368,47 @@ async def _persist_unrouted(
 
 
 async def _users_watching(db, symbol: str):
-    """Return list of users whose watchlist contains the symbol.
+    """Return every active user — alerts fan out to ALL users.
 
-    Watchlist is a separate table (`watchlist` → WatchlistItem) joined to
-    users via user_id. This mirrors the rule-engine poll loop in
-    api/app/background/monitor.py which also joins through WatchlistItem.
+    2026-06-01 — public-access launch. The previous behaviour was: fan-out
+    only to users whose personal watchlist contained the symbol, AND only
+    to vbolofinde@gmail.com (SCAN_USER_EMAIL gate). Both gates removed.
+    Pine emits alerts only for the admin's curated watchlist, so the
+    universe is already constrained at source; every signed-up user now
+    receives every alert. Per-user filtering still happens via:
+      - alert_type_config toggles (global enable/disable per type)
+      - per-user Telegram chat-id linking (no chat-id → no Telegram DM)
+      - per-user push subscription (no subscription → no push)
 
-    Scoped to SCAN_USER_EMAIL (default vbolofinde@gmail.com) — the whole
-    alert system serves a single user while alert quality is evaluated, the
-    same gate the swing/day scanners and db.py already apply. One inbound TV
-    alert then writes one Alert row, not one per subscribed account.
+    Symbol arg kept for signature compatibility — unused in the new path.
     """
-    import os
     from sqlalchemy.orm import selectinload
     from app.models.user import User
-    from app.models.watchlist import WatchlistItem
 
+    _ = symbol  # intentionally unused — kept for caller compatibility
     stmt = (
         select(User)
-        .join(WatchlistItem, WatchlistItem.user_id == User.id)
-        .where(WatchlistItem.symbol == symbol)
-        .options(selectinload(User.subscription))  # eager tier for grade-floor gate
-        .distinct()
+        .options(selectinload(User.subscription))
     )
-    scan_email = (os.environ.get("SCAN_USER_EMAIL") or "vbolofinde@gmail.com").strip().lower()
-    if scan_email:
-        stmt = stmt.where(User.email == scan_email)
     result = await db.execute(stmt)
     return result.scalars().all()
 
 
 def _tier_grade_blocked(user, grade) -> bool:
-    """Tier-floor gate — TEMPORARILY DISABLED 2026-05-31 per founder request.
+    """Tier-floor gate — PERMANENTLY DISABLED 2026-06-01 per founder request.
 
-    The intent: Free tier delivers Grade A alerts only; B/C are a Pro perk
-    (alerts_min_grade floor in app/tier.py). Admins/paid tiers were never
-    blocked. The gate was correct for monetization but obscured debugging
-    when the founder was wondering why an alert didn't reach Telegram —
-    not the cause that night (AGENT_OWNS_TELEGRAM was), but a possible
-    future false-positive.
+    Public-access launch: every signed-up user receives every grade in
+    Telegram + push. The only filters left in the routing path are:
+      - alert_type_config global toggles (admin-curated catalog)
+      - per-user Telegram chat-id linking (no chat-id → no Telegram DM)
+      - per-user push subscription (no subscription → no push)
 
-    Re-enable by deleting this early-return and restoring the original
-    body (see git blame). When you do, also surface the floor in the
-    Settings page so Free users understand why B/C don't reach them.
-
-    Impact while disabled: Free users receive ALL grades in Telegram +
-    push. Pro/Admin/Premium behavior is unchanged.
+    Tier-based monetization will return later if/when paid plans exist;
+    for now the founder wants every user fully exposed to the signal feed
+    to drive engagement before deciding what to charge for.
     """
+    _ = user, grade
     return False
-    # --- Original implementation (kept for easy revert) ---------------
-    # try:
-    #     from app.dependencies import get_user_tier, is_admin_user
-    #     if is_admin_user(user):
-    #         return False
-    #     from app.tier import get_limits
-    #     floor = get_limits(get_user_tier(user)).get("alerts_min_grade")
-    #     return floor == "A" and (grade or "C").upper() != "A"
-    # except Exception:
-    #     logger.debug("tier grade gate lookup failed — delivering", exc_info=True)
-    #     return False
 
 
 _MA_TAG_SUFFIX_RE = __import__("re").compile(r"(\d+)([ES])")

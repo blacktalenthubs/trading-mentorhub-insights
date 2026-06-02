@@ -17,6 +17,7 @@ import {
   useAlertSessionDates,
   useAlertsForDate,
   useWatchlist,
+  useSectorsWatchlist,
   useAddSymbol,
   useRemoveSymbol,
   useLivePrices,
@@ -896,6 +897,19 @@ export default function TradingPageV2() {
   const rankMap = new Map<string, WatchlistRankItem>();
   rankItems?.forEach((r) => rankMap.set(r.symbol, r));
 
+  /* ── Sectors (admin's public watchlist) ── */
+  const { data: sectorsItems } = useSectorsWatchlist();
+  const [sectorsExpanded, setSectorsExpanded] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("sectors_expanded") === "1";
+  });
+  function toggleSectors() {
+    setSectorsExpanded((v) => {
+      try { localStorage.setItem("sectors_expanded", v ? "0" : "1"); } catch {}
+      return !v;
+    });
+  }
+
   const [searchFilter, setSearchFilter] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const searchUpper = searchFilter.trim().toUpperCase();
@@ -1200,6 +1214,59 @@ export default function TradingPageV2() {
             />
           ))}
         </div>
+
+        {/* Sectors — admin's public watchlist (collapsible) */}
+        {!watchlistCollapsed && sectorsItems && sectorsItems.length > 0 && (
+          <div className="border-t border-border-subtle shrink-0 max-h-[40%] overflow-hidden flex flex-col">
+            <button
+              onClick={toggleSectors}
+              className="px-2 py-1.5 flex items-center justify-between hover:bg-surface-2/40 transition-colors"
+              title="Admin's public watchlist — click any symbol to add to yours"
+            >
+              <span className="text-[10px] uppercase tracking-wide font-semibold text-text-secondary">
+                Sectors <span className="text-text-faint normal-case">{sectorsItems.length}</span>
+              </span>
+              <ChevronDown
+                className={`h-3 w-3 text-text-faint transition-transform ${sectorsExpanded ? "" : "-rotate-90"}`}
+              />
+            </button>
+            {sectorsExpanded && (
+              <div className="flex-1 overflow-y-auto no-scrollbar pb-1">
+                {sectorsItems.map((s) => {
+                  const owned = watchlistSymbols.has(s.symbol);
+                  return (
+                    <div
+                      key={s.id}
+                      className="flex items-center justify-between px-2 py-1 hover:bg-surface-2/40 transition-colors"
+                    >
+                      <button
+                        onClick={() => selectSymbol(s.symbol)}
+                        className="text-[11px] font-medium text-text-secondary hover:text-text-primary truncate"
+                      >
+                        {s.symbol}
+                      </button>
+                      {owned ? (
+                        <span className="text-[9px] text-text-faint">added</span>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addSymbol.mutate(s.symbol);
+                          }}
+                          disabled={addSymbol.isPending}
+                          className="p-0.5 rounded text-accent hover:bg-accent/10 disabled:opacity-50"
+                          title={`Add ${s.symbol} to my watchlist`}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Footer */}
         {!watchlistCollapsed && (
