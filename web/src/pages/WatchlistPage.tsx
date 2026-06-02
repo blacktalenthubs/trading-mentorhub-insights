@@ -15,6 +15,8 @@ import {
   useDeleteGroup,
   useCreateGroup,
   useMoveItem,
+  useCopySectorsWatchlist,
+  useSectorsWatchlist,
   type WatchlistItem,
   type WatchlistGroup,
 } from "../api/hooks";
@@ -33,6 +35,8 @@ export default function WatchlistPage() {
   const addSymbol = useAddSymbol();
   const removeSymbol = useRemoveSymbol();
   const seedDefaults = useSeedDefaultGroups();
+  const copySectors = useCopySectorsWatchlist();
+  const { data: sectorsItems } = useSectorsWatchlist();
   const deleteGroup = useDeleteGroup();
   const createGroup = useCreateGroup();
   const moveItem = useMoveItem();
@@ -122,20 +126,40 @@ export default function WatchlistPage() {
             {count}{maxWatchlistSize < Infinity ? ` / ${maxWatchlistSize}` : ""}
           </span>
         </div>
-        {!hasGroups && (
-          <button
-            onClick={() => seedDefaults.mutate()}
-            disabled={seedDefaults.isPending}
-            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40 active:scale-95"
-          >
-            {seedDefaults.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            Seed Default Groups
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Sync with editor's sectors — copies/refreshes admin's full group
+              structure into the user's account. Idempotent: re-attaches any
+              ungrouped existing symbols to the matching admin group. */}
+          {sectorsItems && sectorsItems.length > 0 && (
+            <button
+              onClick={() => copySectors.mutate()}
+              disabled={copySectors.isPending}
+              className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40 active:scale-95"
+              title="Mirror the editor's sector groups + symbols into your watchlist (won't duplicate)"
+            >
+              {copySectors.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              Sync editor's sectors
+            </button>
+          )}
+          {!hasGroups && (
+            <button
+              onClick={() => seedDefaults.mutate()}
+              disabled={seedDefaults.isPending}
+              className="flex items-center gap-2 rounded-lg bg-surface-3 px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-4 disabled:opacity-40 active:scale-95"
+            >
+              {seedDefaults.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              Seed Default Groups
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tab strip */}
