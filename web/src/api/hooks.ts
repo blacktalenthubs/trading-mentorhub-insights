@@ -246,14 +246,40 @@ export function useWatchlistGroups() {
   });
 }
 
-// Public read-only view of the admin's watchlist ("Sectors"). Every signed-in
-// user can fetch this; UI surfaces it as a separate panel with a "+ Add to my
-// watchlist" action per symbol.
+// Public read-only view of the admin's watchlist ("Editor's Picks"). Every
+// signed-in user can fetch this; UI surfaces it as a separate panel with a
+// "+ Add to my watchlist" action per symbol and a "Copy all" bulk action.
+// Refetch on focus so admin updates propagate quickly when users tab-switch.
 export function useSectorsWatchlist() {
   return useQuery({
     queryKey: ["watchlist-sectors"],
     queryFn: () => api.get<WatchlistItem[]>("/watchlist/sectors"),
-    staleTime: 5 * 60_000,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+// Bulk-add multiple symbols to the user's personal watchlist. Used by the
+// "Copy all" button on the Editor's Picks panel + the empty-state hero card.
+// Fires one POST per symbol in parallel (Promise.all) — the backend already
+// supports concurrent inserts; existing symbols are no-ops thanks to the
+// unique constraint on (user_id, symbol).
+export function useBulkAddSymbols() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (symbols: string[]) => {
+      const results = await Promise.allSettled(
+        symbols.map((s) => api.post<WatchlistItem>("/watchlist", { symbol: s })),
+      );
+      return {
+        added: results.filter((r) => r.status === "fulfilled").length,
+        skipped: results.filter((r) => r.status === "rejected").length,
+      };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["watchlist"] });
+      qc.invalidateQueries({ queryKey: ["scanner"] });
+    },
   });
 }
 

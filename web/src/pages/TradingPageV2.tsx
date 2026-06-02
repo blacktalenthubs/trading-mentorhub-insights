@@ -19,6 +19,7 @@ import {
   useWatchlist,
   useSectorsWatchlist,
   useAddSymbol,
+  useBulkAddSymbols,
   useRemoveSymbol,
   useLivePrices,
   useWatchlistRank,
@@ -51,6 +52,7 @@ import {
   ChevronDown,
   ChevronUp,
   Menu,
+  Sparkles,
 } from "lucide-react";
 
 /* ── Constants ──────────────────────────────────────────────────────── */
@@ -897,11 +899,14 @@ export default function TradingPageV2() {
   const rankMap = new Map<string, WatchlistRankItem>();
   rankItems?.forEach((r) => rankMap.set(r.symbol, r));
 
-  /* ── Sectors (admin's public watchlist) ── */
+  /* ── Editor's Picks (admin's public watchlist) ── */
   const { data: sectorsItems } = useSectorsWatchlist();
+  const bulkAddSectors = useBulkAddSymbols();
+  // Default-expanded — only collapsed if the user has explicitly collapsed
+  // it before (key set to "0"). New users see the picks immediately.
   const [sectorsExpanded, setSectorsExpanded] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("sectors_expanded") === "1";
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("sectors_expanded") !== "0";
   });
   function toggleSectors() {
     setSectorsExpanded((v) => {
@@ -909,6 +914,18 @@ export default function TradingPageV2() {
       return !v;
     });
   }
+  const missingSectorSymbols = (sectorsItems ?? [])
+    .map((s) => s.symbol)
+    .filter((s) => !watchlistSymbols.has(s));
+  function copyAllSectors() {
+    if (missingSectorSymbols.length === 0) return;
+    bulkAddSectors.mutate(missingSectorSymbols, {
+      onSuccess: (r) => {
+        toast.success(`Added ${r.added} symbol${r.added === 1 ? "" : "s"} to your watchlist`);
+      },
+    });
+  }
+  const userWatchlistEmpty = (watchlistItems?.length ?? 0) === 0;
 
   const [searchFilter, setSearchFilter] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
@@ -1215,21 +1232,71 @@ export default function TradingPageV2() {
           ))}
         </div>
 
-        {/* Sectors — admin's public watchlist (collapsible) */}
+        {/* Editor's Picks — admin's curated watchlist. Collapsible; auto-
+            expanded by default. Hero CTA at top when the user's personal
+            watchlist is empty (new accounts). "Copy all" bulk-adds every
+            missing symbol with one click. */}
         {!watchlistCollapsed && sectorsItems && sectorsItems.length > 0 && (
-          <div className="border-t border-border-subtle shrink-0 max-h-[40%] overflow-hidden flex flex-col">
-            <button
-              onClick={toggleSectors}
-              className="px-2 py-1.5 flex items-center justify-between hover:bg-surface-2/40 transition-colors"
-              title="Admin's public watchlist — click any symbol to add to yours"
-            >
-              <span className="text-[10px] uppercase tracking-wide font-semibold text-text-secondary">
-                Sectors <span className="text-text-faint normal-case">{sectorsItems.length}</span>
-              </span>
-              <ChevronDown
-                className={`h-3 w-3 text-text-faint transition-transform ${sectorsExpanded ? "" : "-rotate-90"}`}
-              />
-            </button>
+          <div className="border-t border-border-subtle shrink-0 max-h-[55%] overflow-hidden flex flex-col bg-surface-1">
+            {/* Empty-state hero — only shown when user has zero personal symbols */}
+            {userWatchlistEmpty && missingSectorSymbols.length > 0 && (
+              <div className="mx-2 mt-2 mb-1 p-2.5 rounded-md bg-accent/10 border border-accent/30">
+                <div className="flex items-start gap-2">
+                  <Sparkles className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10.5px] font-semibold text-text-primary leading-tight mb-0.5">
+                      Start with the editor's {missingSectorSymbols.length} picks
+                    </p>
+                    <p className="text-[9.5px] text-text-muted leading-snug mb-1.5">
+                      Curated by admin. You'll still get alerts on every symbol — this just adds them to your watchlist for quick charting.
+                    </p>
+                    <button
+                      onClick={copyAllSectors}
+                      disabled={bulkAddSectors.isPending}
+                      className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-accent text-bg-base text-[10px] font-semibold hover:bg-accent-hover disabled:opacity-50 transition-colors"
+                    >
+                      {bulkAddSectors.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="h-3 w-3" />
+                      )}
+                      Copy all to my watchlist
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between px-2 py-1.5 gap-1">
+              <button
+                onClick={toggleSectors}
+                className="flex-1 flex items-center gap-1 hover:opacity-80 transition-opacity text-left"
+                title="Editor's curated picks — admin updates appear here automatically"
+              >
+                <Sparkles className="h-3 w-3 text-accent" />
+                <span className="text-[10px] uppercase tracking-wide font-semibold text-text-secondary">
+                  Editor's Picks <span className="text-text-faint normal-case">{sectorsItems.length}</span>
+                </span>
+                <ChevronDown
+                  className={`h-3 w-3 text-text-faint transition-transform ${sectorsExpanded ? "" : "-rotate-90"}`}
+                />
+              </button>
+              {!userWatchlistEmpty && missingSectorSymbols.length > 0 && (
+                <button
+                  onClick={copyAllSectors}
+                  disabled={bulkAddSectors.isPending}
+                  className="text-[9px] px-1.5 py-0.5 rounded bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors font-semibold flex items-center gap-0.5"
+                  title={`Add ${missingSectorSymbols.length} missing symbols to my watchlist`}
+                >
+                  {bulkAddSectors.isPending ? (
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  ) : (
+                    <Plus className="h-2.5 w-2.5" />
+                  )}
+                  Copy all
+                </button>
+              )}
+            </div>
             {sectorsExpanded && (
               <div className="flex-1 overflow-y-auto no-scrollbar pb-1">
                 {sectorsItems.map((s) => {
