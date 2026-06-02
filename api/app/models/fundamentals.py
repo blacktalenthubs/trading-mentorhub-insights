@@ -1,0 +1,63 @@
+"""Per-symbol fundamentals + analyst ratings + AI short/long-term view.
+
+Powers the Watchlist > Details tab. One row per symbol, populated on-demand
+when the user taps Refresh (analytics/fundamentals_refresh.py). Unlike the
+earnings tables there is NO nightly cron — page views read from this cache and
+a Refresh button re-fetches.
+
+Sources:
+  - Finnhub /stock/profile2, /stock/metric, /stock/recommendation (free tier)
+  - yfinance longBusinessSummary (the company description — static, cached)
+  - Anthropic (short_term_view / long_term_view — generated from the above)
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import DateTime, Float, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.database import Base
+
+
+class SymbolFundamentals(Base):
+    """Cached fundamentals + analyst ratings + AI view for one symbol.
+
+    All non-key fields are nullable: any single data source (Finnhub, yfinance,
+    Anthropic) can fail without blocking the row. The Details tab renders "—"
+    for missing fields so the user knows we tried.
+    """
+
+    __tablename__ = "symbol_fundamentals"
+
+    symbol: Mapped[str] = mapped_column(String(20), primary_key=True)
+
+    # Company profile.
+    company_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # longBusinessSummary, 1-2KB
+    sector: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    industry: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    market_cap: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # EPS strength + valuation.
+    trailing_eps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    forward_eps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    eps_growth_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # (fwd-ttm)/|ttm|*100
+    pe_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Analyst recommendation distribution (most recent Finnhub period).
+    rec_strong_buy: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rec_buy: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rec_hold: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rec_sell: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rec_strong_sell: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    consensus: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # Buy / Hold / Sell
+    rec_period: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)  # e.g. "2026-05-01"
+
+    # AI-generated views.
+    short_term_view: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    long_term_view: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

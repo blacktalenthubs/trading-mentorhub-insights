@@ -23,9 +23,10 @@ import {
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import Card from "../components/ui/Card";
 import EarningsTab from "../components/EarningsTab";
-import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX, CalendarDays } from "lucide-react";
+import DetailsTab from "../components/DetailsTab";
+import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX, CalendarDays, LineChart } from "lucide-react";
 
-type WatchlistTab = "symbols" | "earnings";
+type WatchlistTab = "symbols" | "earnings" | "details";
 
 const UNGROUPED_KEY = -1;
 
@@ -186,10 +187,23 @@ export default function WatchlistPage() {
           <CalendarDays className="h-3.5 w-3.5" />
           Earnings
         </button>
+        <button
+          onClick={() => switchTab("details")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+            activeTab === "details"
+              ? "border-accent text-accent"
+              : "border-transparent text-text-muted hover:text-text-secondary"
+          }`}
+        >
+          <LineChart className="h-3.5 w-3.5" />
+          Details
+        </button>
       </div>
 
       {activeTab === "earnings" ? (
         <EarningsTab />
+      ) : activeTab === "details" ? (
+        <DetailsTab />
       ) : (
       <>
       {/* Add form */}

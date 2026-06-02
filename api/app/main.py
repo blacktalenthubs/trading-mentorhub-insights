@@ -1197,6 +1197,7 @@ def create_app() -> FastAPI:
         alert_config,  # Per-alert-type enable/disable toggles
         earnings,    # Spec 61 — Watchlist earnings calendar + T-7 notifications
         screener,    # Spec 62 — In-Play Volume Screener
+        fundamentals,  # Watchlist Details tab — fundamentals + analyst ratings + AI views
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -1223,6 +1224,7 @@ def create_app() -> FastAPI:
     app.include_router(focus_list.router, prefix="/api/v1/ai", tags=["focus-list"])
     app.include_router(alert_config.router, prefix="/api/v1/alert-config", tags=["alert-config"])
     app.include_router(earnings.router, prefix="/api/v1/earnings", tags=["earnings"])
+    app.include_router(fundamentals.router, prefix="/api/v1/fundamentals", tags=["fundamentals"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
     app.include_router(tv_webhook.router, prefix="/tv", tags=["tradingview"])
