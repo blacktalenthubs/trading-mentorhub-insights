@@ -399,9 +399,13 @@ async def weekly_pattern_report(
 from fastapi import HTTPException  # noqa: E402
 from fastapi.concurrency import run_in_threadpool  # noqa: E402
 
+import json  # noqa: E402
+
 from app.dependencies import is_admin_user  # noqa: E402
 from app.models.strategy_analysis import StrategyAnalysisCache  # noqa: E402
-from analytics.strategy_analysis import aggregate_patterns, generate_recommendation  # noqa: E402
+from analytics.strategy_analysis import (  # noqa: E402
+    aggregate_patterns, attach_ai_verdicts, generate_ai_verdicts,
+)
 
 _SYNTHETIC_ALERT_TYPES = [
     "target_1_hit", "target_2_hit", "stop_loss_hit",
@@ -441,10 +445,11 @@ async def strategy_analysis(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Pattern leaderboard ranked by real end-of-week forward return, with a
-    Swing/Day/Avoid classification per pattern, plus the most recent cached AI
-    briefing. The leaderboard is global (system-wide patterns); the AI text is
-    regenerated via POST /strategy-analysis/refresh.
+    """Pattern leaderboard ranked by real end-of-week forward return, with the
+    deterministic RULE engine's Swing/Day/Avoid + keep/stop/promote per pattern,
+    PLUS the most recent cached AI verdict per pattern and the overall agreement
+    rate between the two. The leaderboard + rule verdicts are live (free); the
+    AI verdicts are regenerated via POST /strategy-analysis/refresh.
     """
     patterns = await _strategy_patterns(db, lookback)
 
@@ -452,10 +457,19 @@ async def strategy_analysis(
         select(StrategyAnalysisCache).where(StrategyAnalysisCache.lookback_days == lookback)
     )).scalar_one_or_none()
 
+    verdicts = {}
+    if cache and cache.verdicts_json:
+        try:
+            verdicts = json.loads(cache.verdicts_json)
+        except (ValueError, TypeError):
+            verdicts = {}
+    agreement_pct = attach_ai_verdicts(patterns, verdicts)
+
     return {
         "lookback_days": lookback,
         "patterns": patterns,
-        "ai_recommendation": cache.narrative if cache else None,
+        "ai_summary": cache.narrative if cache else None,
+        "agreement_pct": agreement_pct,
         "generated_at": cache.generated_at.isoformat() if cache else None,
     }
 
@@ -468,27 +482,38 @@ async def refresh_strategy_analysis(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Regenerate + cache the AI keep/stop/promote briefing (admin only — the
-    LLM call is the only cost; the leaderboard itself is free SQL).
+    """Regenerate + cache the AI's independent per-pattern verdicts (admin only
+    — the LLM call is the only cost; the rule engine is free). Returns the fresh
+    leaderboard with rule-vs-AI agreement so the caller sees the comparison.
     """
     if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Admin only")
 
     patterns = await _strategy_patterns(db, lookback)
-    narrative = await run_in_threadpool(generate_recommendation, patterns)
-    if not narrative:
+    ai = await run_in_threadpool(generate_ai_verdicts, patterns)
+    if not ai or not ai.get("verdicts"):
         raise HTTPException(status_code=502, detail="AI analysis unavailable")
+
+    summary = ai.get("summary", "")
+    verdicts_json = json.dumps(ai["verdicts"])
 
     existing = (await db.execute(
         select(StrategyAnalysisCache).where(StrategyAnalysisCache.lookback_days == lookback)
     )).scalar_one_or_none()
     if existing:
-        existing.narrative = narrative
+        existing.narrative = summary
+        existing.verdicts_json = verdicts_json
         existing.generated_at = datetime.utcnow()
     else:
-        db.add(StrategyAnalysisCache(lookback_days=lookback, narrative=narrative,
-                                     generated_at=datetime.utcnow()))
+        db.add(StrategyAnalysisCache(lookback_days=lookback, narrative=summary,
+                                     verdicts_json=verdicts_json, generated_at=datetime.utcnow()))
     await db.commit()
 
-    return {"lookback_days": lookback, "ai_recommendation": narrative,
-            "generated_at": datetime.utcnow().isoformat()}
+    agreement_pct = attach_ai_verdicts(patterns, ai["verdicts"])
+    return {
+        "lookback_days": lookback,
+        "patterns": patterns,
+        "ai_summary": summary,
+        "agreement_pct": agreement_pct,
+        "generated_at": datetime.utcnow().isoformat(),
+    }

@@ -424,12 +424,18 @@ export interface StrategyPattern {
   classification: "Swing" | "Day" | "Avoid";
   confidence: "low" | "ok";
   recommendation: "keep" | "stop" | "promote";
+  // AI's independent verdict (from the cached structured response) + whether it
+  // agrees with the rule engine's recommendation. null until AI has been run.
+  ai_recommendation: "keep" | "stop" | "promote" | null;
+  ai_classification: "Swing" | "Day" | "Avoid" | null;
+  agree: boolean | null;
 }
 
 export interface StrategyAnalysis {
   lookback_days: number;
   patterns: StrategyPattern[];
-  ai_recommendation: string | null;
+  ai_summary: string | null;
+  agreement_pct: number | null;
   generated_at: string | null;
 }
 

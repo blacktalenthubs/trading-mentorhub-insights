@@ -20,5 +20,6 @@ class StrategyAnalysisCache(Base):
     __tablename__ = "strategy_analysis_cache"
 
     lookback_days: Mapped[int] = mapped_column(Integer, primary_key=True)
-    narrative: Mapped[str] = mapped_column(Text, nullable=False)
+    narrative: Mapped[str] = mapped_column(Text, nullable=False)        # AI prose summary
+    verdicts_json: Mapped[str] = mapped_column(Text, nullable=True)     # JSON {alert_type: {recommendation, classification}}
     generated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

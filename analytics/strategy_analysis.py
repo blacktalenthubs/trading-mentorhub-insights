@@ -123,56 +123,114 @@ def aggregate_patterns(rows: list[dict], label_map: Optional[dict] = None,
     return patterns
 
 
-# ── AI recommendation ────────────────────────────────────────────────
+# ── AI verdicts (structured, comparable to the rule engine) ──────────
+_VALID_RECO = {"keep", "stop", "promote"}
+_VALID_CLASS = {"Swing", "Day", "Avoid"}
+
 _SYSTEM_PROMPT = """You are a quantitative trading strategist. You are given a \
 table of trading PATTERNS with their REAL forward returns measured close-to-close:
 - EOD = same-day close vs the alert price
 - EOW = end-of-week close vs the alert price
-Plus a deterministic Swing/Day/Avoid label per pattern.
 
-Write a concise plain-text briefing with exactly three sections:
+For EACH pattern, decide independently (do not just copy any label provided):
+- recommendation: "keep", "stop", or "promote"
+- classification: "Swing" (gains hold/build into the week), "Day" (pops at EOD \
+then fades), or "Avoid" (neither horizon is net-positive)
 
-KEEP: patterns that are working — name them with their EOW win% and avg%.
-STOP: patterns to drop — those that are net-negative or pure noise.
-PROMOTE: the 1-3 strongest patterns to feature, and for EACH say whether to \
-trade it as a SWING (hold into the week) or a DAY trade (exit at close) and why, \
-citing the EOD-vs-EOW numbers.
+Respond with ONLY a JSON object, no prose outside it:
+{
+  "summary": "<2-3 sentence plain-text overview of what's working and what to drop>",
+  "patterns": [
+    {"alert_type": "<exact alert_type>", "recommendation": "...", "classification": "..."}
+  ]
+}
 
 Rules:
-- Cite the actual numbers you were given. Never invent data.
-- Treat patterns flagged confidence="low" as UNPROVEN — mention them only as \
-"needs more data", never promote them.
-- Plain text, no markdown. No preamble or signoff. Education only, not financial advice."""
+- Cite real numbers in the summary; never invent data.
+- Treat patterns flagged confidence="low" as UNPROVEN — never "promote" them.
+- Education only, not financial advice."""
 
 
-def generate_recommendation(patterns: list[dict]) -> str:
-    """Claude briefing over the aggregated leaderboard. Returns "" when
-    Anthropic is disabled/unkeyed or on any failure (the leaderboard still
-    renders without it).
+def _extract_json(text: str) -> dict:
+    """Pull the first {...} JSON object out of a model response."""
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        return {}
+    try:
+        return json.loads(text[start:end + 1])
+    except (ValueError, TypeError):
+        return {}
+
+
+def generate_ai_verdicts(patterns: list[dict]) -> dict:
+    """Ask Claude for an INDEPENDENT structured verdict per pattern, so it can
+    be compared head-to-head with the rule engine.
+
+    Returns {"summary": str, "verdicts": {alert_type: {recommendation, classification}}}.
+    Returns {} when Anthropic is disabled/unkeyed or on any failure (the rule
+    engine still renders without it).
     """
     from alerting.narrator import _resolve_api_key
     from alert_config import CLAUDE_MODEL_SONNET
 
     api_key = _resolve_api_key()
     if not api_key or not patterns:
-        return ""
+        return {}
+
+    # Hand the model only the data — never the rule engine's own labels, so the
+    # comparison is genuinely independent.
+    payload = [{
+        "alert_type": p["alert_type"], "label": p["label"], "n": p["n"],
+        "avg_ret_eod": p["avg_ret_eod"], "win_eod_pct": p["win_eod_pct"],
+        "avg_ret_eow": p["avg_ret_eow"], "win_eow_pct": p["win_eow_pct"],
+        "n_eow": p["n_eow"], "confidence": p["confidence"],
+    } for p in patterns]
 
     try:
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
-        user_msg = (
-            "Here is the pattern performance table. Write the keep/stop/promote "
-            "briefing.\n\n" + json.dumps(patterns, indent=2, default=str)
-        )
         resp = client.messages.create(
             model=CLAUDE_MODEL_SONNET,
-            max_tokens=900,
+            max_tokens=1200,
             system=[{"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": user_msg}],
+            messages=[{"role": "user", "content": json.dumps(payload, default=str)}],
             timeout=30.0,
         )
-        return resp.content[0].text.strip()
+        parsed = _extract_json(resp.content[0].text)
     except Exception:
         logger.exception("Strategy-analysis Claude call failed")
-        return ""
+        return {}
+
+    verdicts: dict[str, dict] = {}
+    for row in parsed.get("patterns", []):
+        at = row.get("alert_type")
+        reco = row.get("recommendation")
+        cls = row.get("classification")
+        if at and reco in _VALID_RECO and cls in _VALID_CLASS:
+            verdicts[at] = {"recommendation": reco, "classification": cls}
+    if not verdicts:
+        return {}
+    return {"summary": (parsed.get("summary") or "").strip(), "verdicts": verdicts}
+
+
+def attach_ai_verdicts(patterns: list[dict], verdicts: dict) -> Optional[float]:
+    """Merge the cached AI verdicts onto the live rule-based patterns and return
+    the agreement % (share of comparable patterns where the AI's recommendation
+    matches the rule engine's). Pure — mutates each pattern in place adding
+    ai_recommendation / ai_classification / agree. None when nothing comparable.
+    """
+    agree = comparable = 0
+    for p in patterns:
+        v = verdicts.get(p["alert_type"]) if verdicts else None
+        if v:
+            p["ai_recommendation"] = v["recommendation"]
+            p["ai_classification"] = v["classification"]
+            p["agree"] = v["recommendation"] == p["recommendation"]
+            comparable += 1
+            agree += int(p["agree"])
+        else:
+            p["ai_recommendation"] = None
+            p["ai_classification"] = None
+            p["agree"] = None
+    return round(agree / comparable * 100, 1) if comparable else None

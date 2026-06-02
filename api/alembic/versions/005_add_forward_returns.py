@@ -34,6 +34,7 @@ def upgrade() -> None:
         "strategy_analysis_cache",
         sa.Column("lookback_days", sa.Integer(), primary_key=True),
         sa.Column("narrative", sa.Text(), nullable=False),
+        sa.Column("verdicts_json", sa.Text(), nullable=True),
         sa.Column("generated_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
     )
 

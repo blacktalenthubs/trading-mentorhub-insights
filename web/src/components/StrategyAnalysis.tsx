@@ -55,30 +55,38 @@ function fmtWin(v: number | null): string {
   return v == null ? "—" : `${v.toFixed(0)}%`;
 }
 
-const CLASS_STYLE: Record<StrategyPattern["classification"], string> = {
-  Swing: "bg-accent/15 text-accent",
-  Day: "bg-warning/15 text-warning-text",
-  Avoid: "bg-bearish/15 text-bearish-text",
-};
-
-const RECO_STYLE: Record<StrategyPattern["recommendation"], string> = {
+const RECO_STYLE: Record<"keep" | "stop" | "promote", string> = {
   promote: "text-bullish-text",
   keep: "text-text-muted",
   stop: "text-bearish-text",
 };
 
+/* A verdict cell: recommendation (colored) + the swing/day/avoid call beneath. */
+function Verdict({
+  reco, cls, dim,
+}: {
+  reco: "keep" | "stop" | "promote" | null;
+  cls: "Swing" | "Day" | "Avoid" | null;
+  dim?: boolean;
+}) {
+  if (!reco) return <span className="text-text-faint">—</span>;
+  return (
+    <span className={dim ? "opacity-90" : ""}>
+      <span className={`text-[11px] font-semibold uppercase tracking-wide ${RECO_STYLE[reco]}`}>{reco}</span>
+      {cls && <span className="block text-[9px] text-text-faint">{cls}</span>}
+    </span>
+  );
+}
+
 /* ── One pattern row ─────────────────────────────────────────────── */
 
 function PatternRow({ p }: { p: StrategyPattern }) {
+  // Disagreement gets a left accent so divergences are easy to scan.
+  const diverge = p.agree === false;
   return (
-    <div className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-border-subtle/30 last:border-b-0 items-center text-xs">
+    <div className={`grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-border-subtle/30 last:border-b-0 items-center text-xs ${diverge ? "bg-warning/5" : ""}`}>
       <span className="col-span-3 text-text-primary truncate cursor-help" title={p.description || p.label}>
         {p.label}
-      </span>
-      <span className="col-span-2">
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${CLASS_STYLE[p.classification]}`}>
-          {p.classification}
-        </span>
         {p.confidence === "low" && (
           <span className="text-[9px] text-text-faint ml-1" title="Small sample — unproven">low n</span>
         )}
@@ -92,8 +100,14 @@ function PatternRow({ p }: { p: StrategyPattern }) {
         <span className={`font-semibold ${winColor(p.win_eow_pct)}`}>{fmtWin(p.win_eow_pct)}</span>
         <span className={`ml-1 text-[10px] ${retColor(p.avg_ret_eow)}`}>{fmtPct(p.avg_ret_eow)}</span>
       </span>
-      <span className={`col-span-2 text-right text-[11px] font-semibold uppercase tracking-wide ${RECO_STYLE[p.recommendation]}`}>
-        {p.recommendation}
+      <span className="col-span-2 text-right">
+        <Verdict reco={p.recommendation} cls={p.classification} />
+      </span>
+      <span className="col-span-2 text-right">
+        <span className="inline-flex items-center justify-end gap-1">
+          {diverge && <span className="h-1.5 w-1.5 rounded-full bg-warning-text" title="AI disagrees with the rules" />}
+          <Verdict reco={p.ai_recommendation} cls={p.ai_classification} />
+        </span>
       </span>
     </div>
   );
@@ -175,6 +189,26 @@ export default function StrategyAnalysis() {
         Indicative, not tradeable P&L.
       </p>
 
+      {/* Rule-vs-AI agreement banner */}
+      {data.agreement_pct != null && (
+        <Card padding="sm">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-text-secondary">
+              Rule engine & AI agree on{" "}
+              <span className={`font-semibold ${data.agreement_pct >= 70 ? "text-bullish-text" : data.agreement_pct >= 50 ? "text-warning-text" : "text-bearish-text"}`}>
+                {data.agreement_pct.toFixed(0)}%
+              </span>{" "}
+              of patterns
+            </span>
+            <span className="text-[10px] text-text-faint">
+              {data.agreement_pct >= 70
+                ? "High agreement — the free daily rules track the weekly AI well."
+                : "Divergence — review the AI column where they disagree."}
+            </span>
+          </div>
+        </Card>
+      )}
+
       {/* Leaderboard */}
       {patterns.length === 0 ? (
         <Card padding="md">
@@ -189,11 +223,11 @@ export default function StrategyAnalysis() {
         <Card padding="none">
           <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-border-subtle/50 bg-surface-2/30 text-[10px] uppercase tracking-wider text-text-faint">
             <div className="col-span-3">Pattern</div>
-            <div className="col-span-2">Type</div>
             <div className="col-span-1 text-right">n</div>
             <div className="col-span-2 text-right">EOD win / avg</div>
             <div className="col-span-2 text-right">EOW win / avg</div>
-            <div className="col-span-2 text-right">Call</div>
+            <div className="col-span-2 text-right">Rule</div>
+            <div className="col-span-2 text-right">AI</div>
           </div>
           {patterns.map(p => <PatternRow key={p.alert_type} p={p} />)}
         </Card>
@@ -204,7 +238,7 @@ export default function StrategyAnalysis() {
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-2">
             <Sparkles className="h-3.5 w-3.5 text-accent" />
-            AI Recommendation
+            AI Summary
           </h3>
           <div className="flex items-center gap-2">
             {data.generated_at && (
@@ -217,21 +251,21 @@ export default function StrategyAnalysis() {
                 className="flex items-center gap-1.5 rounded-md bg-surface-3 hover:bg-surface-4 px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition-colors disabled:opacity-40 active:scale-95"
               >
                 {refresh.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                {data.ai_recommendation ? "Regenerate" : "Generate"}
+                {data.ai_summary ? "Regenerate" : "Generate"}
               </button>
             )}
           </div>
         </div>
         <Card padding="md">
-          {data.ai_recommendation ? (
+          {data.ai_summary ? (
             <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-text-secondary">
-              {data.ai_recommendation}
+              {data.ai_summary}
             </pre>
           ) : (
             <p className="text-xs text-text-faint">
               {isAdmin
-                ? "No AI briefing yet — tap Generate to have Claude turn the leaderboard into keep / stop / promote calls."
-                : "No AI briefing available yet."}
+                ? "No AI verdicts yet — tap Generate to have Claude judge each pattern independently, then compare it column-by-column with the rules."
+                : "No AI verdicts available yet."}
             </p>
           )}
         </Card>

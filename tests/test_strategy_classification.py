@@ -5,7 +5,9 @@ Pure logic, no DB/network.
 
 from __future__ import annotations
 
-from analytics.strategy_analysis import aggregate_patterns, classify_pattern
+from analytics.strategy_analysis import (
+    aggregate_patterns, attach_ai_verdicts, classify_pattern,
+)
 
 
 class TestClassifyPattern:
@@ -75,3 +77,33 @@ class TestAggregatePatterns:
         assert out[0]["n_eow"] == 0
         assert out[0]["avg_ret_eow"] is None
         assert out[0]["win_eod_pct"] == 50.0
+
+
+class TestAttachAiVerdicts:
+    def _patterns(self):
+        return [
+            {"alert_type": "p1", "recommendation": "promote"},
+            {"alert_type": "p2", "recommendation": "stop"},
+            {"alert_type": "p3", "recommendation": "keep"},
+        ]
+
+    def test_agreement_and_merge(self):
+        patterns = self._patterns()
+        verdicts = {
+            "p1": {"recommendation": "promote", "classification": "Swing"},  # agree
+            "p2": {"recommendation": "keep", "classification": "Day"},       # disagree
+            # p3 has no AI verdict -> not comparable
+        }
+        pct = attach_ai_verdicts(patterns, verdicts)
+        # 1 of 2 comparable agree.
+        assert pct == 50.0
+        assert patterns[0]["agree"] is True
+        assert patterns[0]["ai_classification"] == "Swing"
+        assert patterns[1]["agree"] is False
+        assert patterns[2]["ai_recommendation"] is None
+        assert patterns[2]["agree"] is None
+
+    def test_no_verdicts_returns_none(self):
+        patterns = self._patterns()
+        assert attach_ai_verdicts(patterns, {}) is None
+        assert all(p["ai_recommendation"] is None for p in patterns)
