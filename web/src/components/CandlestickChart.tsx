@@ -72,8 +72,9 @@ function CandlestickChartInner({
         textColor: "#64748b",
       },
       grid: {
-        vertLines: { color: isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.03)" },
-        horzLines: { color: isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.03)" },
+        // Clean background — no grid lines (TradingView "no grid" preference).
+        vertLines: { visible: false },
+        horzLines: { visible: false },
       },
       width: containerRef.current.clientWidth,
       height: chartHeight,

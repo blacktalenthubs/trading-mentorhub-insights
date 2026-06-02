@@ -1724,7 +1724,7 @@ export default function TradingPageV2() {
         </div>
 
         {/* Chart area — flex-1 to fill remaining space */}
-        <div className="flex-1 min-h-0 relative chart-grid-bg">
+        <div className="flex-1 min-h-0 relative">
           {selected && ohlcv && ohlcv.length > 0 ? (
             <CandlestickChart
               data={(() => {
