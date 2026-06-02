@@ -1,6 +1,6 @@
 /** Candlestick chart using lightweight-charts v5, with MA/VWAP overlays. */
 
-import { useEffect, useRef, Component, type ReactNode } from "react";
+import { useEffect, useRef, useState, Component, type ReactNode } from "react";
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import type { OHLCBar, ChartLevel } from "../api/hooks";
@@ -54,7 +54,12 @@ function CandlestickChartInner({
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
   const volumeSeriesRefs = useRef<any[]>([]);
+  const volumeHistRef = useRef<any>(null);
   const priceLinesRef = useRef<any[]>([]);
+  // OHLC legend (top-left) — follows the crosshair, defaults to the latest bar.
+  type Legend = { o: number; h: number; l: number; c: number; v: number; chg: number };
+  const [legend, setLegend] = useState<Legend | null>(null);
+  const latestLegendRef = useRef<Legend | null>(null);
   // Latest draw-mode + handler held in refs so the click subscription reads
   // current values without re-subscribing on every prop change.
   const drawModeRef = useRef(drawMode);
@@ -122,6 +127,15 @@ function CandlestickChartInner({
       if (!drawModeRef.current || !onAddLevelRef.current || !param.point || !seriesRef.current) return;
       const price = seriesRef.current.coordinateToPrice(param.point.y);
       if (price != null) onAddLevelRef.current(Number(price));
+    });
+
+    // OHLC legend follows the crosshair; leaving the chart restores the latest bar.
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || !seriesRef.current) { setLegend(latestLegendRef.current); return; }
+      const c = param.seriesData.get(seriesRef.current) as any;
+      if (!c || c.open == null) { setLegend(latestLegendRef.current); return; }
+      const vol = volumeHistRef.current ? (param.seriesData.get(volumeHistRef.current) as any)?.value ?? 0 : 0;
+      setLegend({ o: c.open, h: c.high, l: c.low, c: c.close, v: vol, chg: c.open ? (c.close - c.open) / c.open * 100 : 0 });
     });
 
     const handleResize = () => {
@@ -192,6 +206,14 @@ function CandlestickChartInner({
 
     seriesRef.current.setData(deduped as any);
 
+    // Default legend = latest bar (until the crosshair moves).
+    if (deduped.length) {
+      const lb = deduped[deduped.length - 1];
+      const lg = { o: lb.open, h: lb.high, l: lb.low, c: lb.close, v: lb.volume, chg: lb.open ? (lb.close - lb.open) / lb.open * 100 : 0 };
+      latestLegendRef.current = lg;
+      setLegend(lg);
+    }
+
     // Volume histogram (green up-bar / red down-bar) + 20-period volume MA in a
     // thin band at the bottom. The MA is the actionable part — bars towering over
     // it = unusually high volume (confirms breakouts / spots accumulation).
@@ -211,6 +233,7 @@ function CandlestickChartInner({
         })) as any,
       );
       volumeSeriesRefs.current.push(volSeries);
+      volumeHistRef.current = volSeries;
 
       const VMA = 20;
       if (deduped.length >= VMA) {
@@ -451,8 +474,18 @@ function CandlestickChartInner({
           )}
         </div>
       )}
+      {/* OHLC legend — top-left, follows the crosshair (latest bar by default). */}
+      {legend && (
+        <div className="absolute top-2 left-2 z-10 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono pointer-events-none select-none">
+          {([["O", legend.o], ["H", legend.h], ["L", legend.l], ["C", legend.c]] as const).map(([k, v]) => (
+            <span key={k} className="text-text-faint">{k}<span className={`ml-0.5 ${legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{v.toFixed(2)}</span></span>
+          ))}
+          <span className={legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}>{legend.chg >= 0 ? "+" : ""}{legend.chg.toFixed(2)}%</span>
+          {legend.v > 0 && <span className="text-text-faint">Vol <span className="text-text-secondary">{legend.v >= 1e9 ? (legend.v/1e9).toFixed(2)+"B" : legend.v >= 1e6 ? (legend.v/1e6).toFixed(1)+"M" : legend.v >= 1e3 ? (legend.v/1e3).toFixed(0)+"K" : legend.v}</span></span>}
+        </div>
+      )}
       {drawMode && (
-        <div className="absolute top-2 left-2 z-10 px-2 py-1 rounded-md bg-accent/90 text-white text-[10px] font-semibold pointer-events-none">
+        <div className="absolute top-8 left-2 z-10 px-2 py-1 rounded-md bg-accent/90 text-white text-[10px] font-semibold pointer-events-none">
           Click the chart to drop a level
         </div>
       )}
