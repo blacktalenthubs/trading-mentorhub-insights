@@ -1,11 +1,9 @@
 /** Premarket sector heat — per watchlist group aggregation. */
 
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { useGroupsPremarket, type GroupPremarketSummary, type GroupSymbolQuote } from "../api/hooks";
-import { useFeatureGate } from "../hooks/useFeatureGate";
 import Card from "../components/ui/Card";
-import { Loader2, RefreshCw, TrendingUp, TrendingDown, Activity, ChevronDown, ChevronRight, Lock } from "lucide-react";
+import { Loader2, RefreshCw, TrendingUp, TrendingDown, Activity, ChevronDown, ChevronRight } from "lucide-react";
 
 function fmtPct(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";
@@ -110,8 +108,8 @@ function GroupCard({ g }: { g: GroupPremarketSummary }) {
 
 export default function PremarketPage() {
   const { data, isLoading, isFetching, refetch, error } = useGroupsPremarket();
-  const { isPro } = useFeatureGate();
-  const previewN = isPro ? Infinity : 1;  // free: 1 sector preview, rest blurred
+  // 2026-06-01 — public-access launch: premarket unlocked for everyone.
+  // Previous behaviour blurred all but the first sector for free users.
 
   return (
     <div className="h-full overflow-y-auto p-6 space-y-4">
@@ -163,20 +161,9 @@ export default function PremarketPage() {
 
       {data && data.length > 0 && (
         <div className="space-y-3">
-          {data.map((g, i) => (
-            <div key={g.group_id} className={i >= previewN ? "blur-[3px] pointer-events-none opacity-50 select-none" : ""}>
-              <GroupCard g={g} />
-            </div>
+          {data.map((g) => (
+            <GroupCard key={g.group_id} g={g} />
           ))}
-          {!isPro && data.length > previewN && (
-            <Link
-              to="/billing"
-              className="flex items-center justify-center gap-2 rounded-lg py-3 px-4 text-sm font-semibold text-accent bg-accent/10 hover:bg-accent/15 border border-accent/20 transition-colors"
-            >
-              <Lock className="h-3.5 w-3.5" />
-              {data.length - previewN} more sectors — Upgrade to Pro to see all
-            </Link>
-          )}
         </div>
       )}
     </div>

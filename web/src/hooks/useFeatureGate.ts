@@ -13,17 +13,20 @@ const TIER_RANK: Record<string, number> = {
  *  source of truth (served on the user via /me); this table is only used until
  *  that payload arrives. null = unlimited. */
 export const TIER_LIMITS: Record<string, Record<string, number | null | boolean | string>> = {
+  // 2026-06-01 — public-access launch. Free tier now mirrors Pro for
+  // everything except AI features (AI is hardcoded to vbolofinde via
+  // require_ai_access on the backend; no client-side override possible).
   free: {
-    watchlist_max: 5,
-    watchlist_groups_max: 1,
-    best_setups_per_day: 1,
-    visible_alerts: 5,
-    screener_preview_rows: 3,
-    alerts_min_grade: "A",
-    chart_replay_per_day: 1,
+    watchlist_max: null,
+    watchlist_groups_max: null,
+    best_setups_per_day: 0,            // AI Best Setups is admin-only
+    visible_alerts: null,
+    screener_preview_rows: null,
+    alerts_min_grade: null,
+    chart_replay_per_day: null,
     telegram_alerts: true,
-    premarket_brief: false,
-    performance_analytics: false,
+    premarket_brief: true,
+    performance_analytics: true,
   },
   pro: {
     watchlist_max: null,

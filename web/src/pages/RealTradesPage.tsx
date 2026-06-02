@@ -16,7 +16,6 @@ import {
 import EODReportPage from "./EODReportPage";
 import TradeReviewPage from "./TradeReviewPage";
 import WeeklyReport from "../components/WeeklyReport";
-import TierGate from "../components/TierGate";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
 import type { Alert } from "../types";
@@ -430,15 +429,13 @@ export default function RealTradesPage() {
           </div>
         </div>
 
-        {/* Performance analytics is a Pro feature — free users see a blurred
-            preview with an upgrade CTA (performance_analytics limit). */}
-        <TierGate require="pro" featureName="Performance analytics">
-          {activeTab === "by-pattern" && <DayTradesContent />}
-          {activeTab === "weekly"     && <WeeklyReport />}
-          {activeTab === "today-eod"  && <div className="-mx-5 -mb-5"><EODReportPage /></div>}
-          {activeTab === "by-symbol"  && <div className="-mx-5 -mb-5"><TradeReviewPage /></div>}
-          {activeTab === "sessions"   && <SessionBrowser />}
-        </TierGate>
+        {/* 2026-06-01 — Performance analytics unlocked for everyone (public
+            launch). Previous tier gate restored under TierGate require="pro". */}
+        {activeTab === "by-pattern" && <DayTradesContent />}
+        {activeTab === "weekly"     && <WeeklyReport />}
+        {activeTab === "today-eod"  && <div className="-mx-5 -mb-5"><EODReportPage /></div>}
+        {activeTab === "by-symbol"  && <div className="-mx-5 -mb-5"><TradeReviewPage /></div>}
+        {activeTab === "sessions"   && <SessionBrowser />}
       </div>
     </div>
   );

@@ -34,27 +34,30 @@ TIER_MAP: dict[str, Tier] = {
 # hard access. New keys: screener_preview_rows (top-N visible), alerts_min_grade
 # (A-only on free), watchlist_groups_max.
 TIER_LIMITS: dict[str, dict] = {
-    # FREE — taste everything, capped.
+    # FREE — 2026-06-01 public-access launch: free tier now matches PRO
+    # for every feature except AI. AI features stay locked to vbolofinde
+    # via require_ai_access in dependencies.py (hardcoded, not tier-based).
+    # When monetization returns, restore the old caps from git history.
     "free": {
-        "watchlist_max": 5,
-        "watchlist_groups_max": 1,
-        "ai_queries_per_day": 3,        # legacy AI endpoints (no live UI today)
-        "ai_scan_alerts_per_day": 3,    # AI-scan pushes are UNGRADED → capped by count
-        "ai_wait_alerts_per_day": 3,    # WAIT pushes (ungraded) — count cap
-        "swing_alerts_per_day": 2,      # legacy per-user swing alerts (count cap)
-        "best_setups_per_day": 1,       # the ONE live AI cost — 1 scan/day
-        "telegram_commands_per_day": 3,
-        "alert_history_days": 0,        # today only
-        "visible_alerts": 5,            # signals / Day-Trades feed: top 5, rest blurred
-        "screener_preview_rows": 3,     # Swing / In-Play: top 3, rest blurred (preview, not lock)
-        "alerts_min_grade": "A",        # Telegram/push: A-grade only (quality taste)
-        "chart_replay_per_day": 1,
-        "telegram_alerts": True,        # free DOES get alerts (A-grade) — upgrade for the rest
-        "premarket_brief": False,       # preview only (full = Pro)
-        "eod_review": False,
-        "weekly_review": False,
-        "performance_analytics": False, # summary win-rate only; breakdowns blurred
-        "pre_trade_check": False,
+        "watchlist_max": None,
+        "watchlist_groups_max": None,
+        "ai_queries_per_day": 0,         # AI Coach — admin-only
+        "ai_scan_alerts_per_day": 0,     # AI-scan pushes — admin-only
+        "ai_wait_alerts_per_day": 0,     # WAIT pushes — admin-only
+        "swing_alerts_per_day": None,
+        "best_setups_per_day": 0,        # AI Best Setups — admin-only
+        "telegram_commands_per_day": 50,
+        "alert_history_days": None,
+        "visible_alerts": None,          # full feed
+        "screener_preview_rows": None,   # full screener
+        "alerts_min_grade": None,        # every grade
+        "chart_replay_per_day": None,
+        "telegram_alerts": True,
+        "premarket_brief": True,         # unlocked
+        "eod_review": True,
+        "weekly_review": True,
+        "performance_analytics": True,   # unlocked
+        "pre_trade_check": True,
         "paper_trading": False,
         "backtesting": False,
     },
