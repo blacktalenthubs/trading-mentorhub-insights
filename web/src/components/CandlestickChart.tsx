@@ -1,7 +1,7 @@
 /** Candlestick chart using lightweight-charts v5, with MA/VWAP overlays. */
 
 import { useEffect, useRef, useState, Component, type ReactNode } from "react";
-import { createChart, CandlestickSeries, LineSeries, HistogramSeries, ColorType } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries, createSeriesMarkers, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import type { OHLCBar, ChartLevel } from "../api/hooks";
 import { computeSMA, computeEMA, computeVWAP } from "../lib/indicators";
@@ -27,6 +27,8 @@ interface Props {
   hideWicks?: boolean;
   /** Volume histogram + volume MA at the bottom of the chart. */
   showVolume?: boolean;
+  /** Alert markers — arrows on the bars where signals fired for this symbol. */
+  alertMarkers?: { created_at: string; direction: string; grade?: string | null }[];
   /** Direction badge in the TradePanel overlay. Defaults to "LONG" when entry > stop. */
   direction?: "LONG" | "SHORT";
   /** Show the floating Trade Panel above the chart with full level details. */
@@ -46,6 +48,7 @@ function CandlestickChartInner({
   indicators = [],
   hideWicks = false,
   showVolume = true,
+  alertMarkers = [],
   direction,
   showTradePanel = true,
 }: Props) {
@@ -55,6 +58,7 @@ function CandlestickChartInner({
   const lineSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
   const volumeSeriesRefs = useRef<any[]>([]);
   const volumeHistRef = useRef<any>(null);
+  const markersApiRef = useRef<any>(null);
   const priceLinesRef = useRef<any[]>([]);
   // OHLC legend (top-left) — follows the crosshair, defaults to the latest bar.
   type Legend = { o: number; h: number; l: number; c: number; v: number; chg: number };
@@ -119,6 +123,7 @@ function CandlestickChartInner({
 
     chartRef.current = chart;
     seriesRef.current = series;
+    markersApiRef.current = null;  // markers attach to the series; recreate on new series
 
     // Click-to-add (registered ONCE per chart, in the creation effect — not the
     // data effect, which re-runs every tick and would stack handlers → one click
@@ -250,6 +255,36 @@ function CandlestickChartInner({
         vmaSeries.setData(vmaData as any);
         volumeSeriesRefs.current.push(vmaSeries);
       }
+    }
+
+    // Alert markers — arrows on the bars where signals fired for this symbol.
+    {
+      const markers: any[] = [];
+      const numericTimes = deduped.map((b) => b.time);
+      for (const a of alertMarkers) {
+        let t: string | number | null = null;
+        if (isIntraday) {
+          const au = Math.floor(new Date(a.created_at.replace(" ", "T")).getTime() / 1000);
+          for (const bt of numericTimes) { if (typeof bt === "number" && bt <= au) t = bt; else break; }
+        } else {
+          const ad = a.created_at.slice(0, 10);
+          if (numericTimes.includes(ad)) t = ad;
+        }
+        if (t == null) continue;
+        const isBuy = (a.direction || "").toUpperCase() === "BUY";
+        markers.push({
+          time: t,
+          position: isBuy ? "belowBar" : "aboveBar",
+          color: isBuy ? "#22c55e" : "#ef4444",
+          shape: isBuy ? "arrowUp" : "arrowDown",
+          text: a.grade || (isBuy ? "BUY" : "SELL"),
+        });
+      }
+      markers.sort((x, y) => (typeof x.time === "number" && typeof y.time === "number" ? x.time - y.time : String(x.time).localeCompare(String(y.time))));
+      try {
+        if (markersApiRef.current) markersApiRef.current.setMarkers(markers);
+        else markersApiRef.current = createSeriesMarkers(seriesRef.current, markers);
+      } catch { /* markers best-effort */ }
     }
 
     // Compute indicators from sorted deduped data (not raw unsorted data)
@@ -406,7 +441,7 @@ function CandlestickChartInner({
     } else {
       timeScale.fitContent();
     }
-  }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks, showVolume]);
+  }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks, showVolume, alertMarkers]);
 
   // Toggle pan/zoom off while drawing so a click drops a level cleanly.
   useEffect(() => {

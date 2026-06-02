@@ -8,7 +8,7 @@
  *  Mobile: full-width chart + bottom tabs for AI/Signals
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   useScanner,
@@ -1137,6 +1137,13 @@ export default function TradingPageV2() {
 
   // The signals shown in the right panel — today/latest, or a chosen past session.
   const activeAlerts = signalDate ? (pastAlerts ?? []) : todayAlerts;
+  // Alert markers for the charted symbol (memoized so the chart doesn't redraw every render).
+  const symbolAlertMarkers = useMemo(
+    () => (activeAlerts ?? [])
+      .filter((a) => a.symbol === selectedSymbol && ["BUY", "SHORT", "SELL"].includes((a.direction || "").toUpperCase()))
+      .map((a) => ({ created_at: a.created_at, direction: a.direction, grade: a.grade })),
+    [activeAlerts, selectedSymbol],
+  );
   const activeAlertsError = signalDate ? pastAlertsError : alertsError;
   const feedCount = (activeAlerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && a.suppressed_reason !== "type_not_enabled",
@@ -1835,6 +1842,7 @@ export default function TradingPageV2() {
               indicators={chartIndicators}
               hideWicks={hideWicks}
               showVolume={showVolume}
+              alertMarkers={symbolAlertMarkers}
               height={0}
             />
           ) : (
