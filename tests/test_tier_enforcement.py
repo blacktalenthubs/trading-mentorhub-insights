@@ -33,6 +33,16 @@ def _load_module(name: str, filepath: Path):
 # Load tier.py (no dependencies on other app modules)
 tier_mod = _load_module("_test_tier", _api_dir / "app" / "tier.py")
 
+# 2026-06-01 public-access launch (api/app/tier.py): the free tier deliberately
+# mirrors Pro for every feature except AI (which is admin-gated, not tier-gated).
+# The tests below assert the OLD monetization caps (watchlist 5, visible 5,
+# ai 3/day, A-grade-only alerts). They're skipped — not deleted — so they're
+# ready to re-enable when monetization returns and the old caps are restored.
+_PUBLIC_ACCESS_SKIP = (
+    "Old monetization caps disabled by 2026-06-01 public-access launch "
+    "(free mirrors Pro; AI is admin-only). Re-enable when paid tiers return."
+)
+
 # For dependencies, we need to mock the heavy imports (sqlalchemy, jose, etc.)
 # but we can test get_user_tier, is_trial_active, trial_days_remaining directly
 # since they only use the User mock object — no DB needed.
@@ -63,6 +73,7 @@ class TestTierModule:
     def test_has_access_admin_has_everything(self):
         assert tier_mod.has_access("admin", "premium") is True
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_get_limits_free(self):
         limits = tier_mod.get_limits("free")
         assert limits["watchlist_max"] == 5
@@ -91,11 +102,13 @@ class TestTierModule:
         assert limits["alerts_min_grade"] is None
         assert limits["paper_trading"] is True
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_free_alerts_a_grade_only_paid_unrestricted(self):
         assert tier_mod.get_limits("free")["alerts_min_grade"] == "A"
         for t in ("pro", "premium", "comp", "admin"):
             assert tier_mod.get_limits(t)["alerts_min_grade"] is None
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_get_limits_unknown_tier_returns_free(self):
         limits = tier_mod.get_limits("nonexistent")
         assert limits["watchlist_max"] == 5
@@ -250,6 +263,7 @@ class TestTrialHelpers:
 class TestTierLimitIntegrity:
     """Ensure tier limits are consistent and make business sense."""
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_free_limits_are_most_restrictive(self):
         free = tier_mod.get_limits("free")
         pro = tier_mod.get_limits("pro")
@@ -266,17 +280,20 @@ class TestTierLimitIntegrity:
                     f"Premium should include pro feature: {key}"
                 )
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_watchlist_limits_ascending(self):
         assert tier_mod.get_limits("free")["watchlist_max"] == 5
         assert tier_mod.get_limits("pro")["watchlist_max"] is None      # unlimited
         assert tier_mod.get_limits("premium")["watchlist_max"] is None  # unlimited
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_ai_queries_free_is_3(self):
         assert tier_mod.get_limits("free")["ai_queries_per_day"] == 3
 
     def test_ai_queries_pro_is_50(self):
         assert tier_mod.get_limits("pro")["ai_queries_per_day"] == 50
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_ai_scan_alerts_free_is_3(self):
         """Tight free cap — taste the product then convert."""
         assert tier_mod.get_limits("free")["ai_scan_alerts_per_day"] == 3
@@ -284,6 +301,7 @@ class TestTierLimitIntegrity:
     def test_ai_scan_alerts_pro_unlimited(self):
         assert tier_mod.get_limits("pro")["ai_scan_alerts_per_day"] is None
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_ai_wait_alerts_free_is_3(self):
         """Free users get 3 WAIT alerts/day — taste of AI discipline, not flood."""
         assert tier_mod.get_limits("free")["ai_wait_alerts_per_day"] == 3
@@ -313,6 +331,7 @@ class TestTierLimitIntegrity:
         assert tier_mod.get_limits("pro")["telegram_alerts"] is True
         assert tier_mod.get_limits("premium")["telegram_alerts"] is True
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_visible_alerts_free_is_5(self):
         """Free feed shows the top 5 alerts; the rest blur to drive upgrade."""
         assert tier_mod.get_limits("free")["visible_alerts"] == 5
@@ -342,6 +361,7 @@ class TestAlertGradeGate:
         floor = tier_mod.get_limits(tier).get("alerts_min_grade")
         return floor == "A" and (grade or "C").upper() != "A"
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_free_blocks_b_and_c(self):
         assert self._blocked("free", "B") is True
         assert self._blocked("free", "C") is True
@@ -349,6 +369,7 @@ class TestAlertGradeGate:
     def test_free_allows_a(self):
         assert self._blocked("free", "A") is False
 
+    @pytest.mark.skip(reason=_PUBLIC_ACCESS_SKIP)
     def test_free_missing_grade_treated_as_c_and_blocked(self):
         assert self._blocked("free", None) is True
 

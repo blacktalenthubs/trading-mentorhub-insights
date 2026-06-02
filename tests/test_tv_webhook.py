@@ -332,9 +332,12 @@ class TestWatchlistQuery:
         # of execution. Use inspect.
         import inspect
         src = inspect.getsource(mod._users_watching)
-        # Confirm the fix landed: should reference WatchlistItem table, not
-        # the broken User.watchlist attribute.
-        assert "WatchlistItem" in src
+        # Public-access launch (a827423): alerts fan out to ALL active users via
+        # select(User), no longer the per-watchlist join. Guard against the old
+        # broken User.watchlist attribute regression, and confirm the grade-gate
+        # fix (eager-load the subscription) is still present.
+        assert "select(User)" in src
+        assert "selectinload(User.subscription)" in src
         assert "User.watchlist.contains" not in src
 
     def test_watchlist_model_file_has_required_columns(self):

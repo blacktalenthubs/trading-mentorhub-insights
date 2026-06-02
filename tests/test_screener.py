@@ -183,8 +183,11 @@ def test_swing_qualifies_when_closing_at_a_key_ma():
 
 
 def test_swing_rejects_extended_stock():
-    # steep ramp → price is well above every MA → not a swing, must be rejected
-    cand = swing_signals(_daily([100 + 1.5 * i for i in range(250)]), spy_ret_20d=0.0, symbol="EXT")
+    # Steady ramp then a blow-off gap far above every MA (incl. the fast 8 EMA the
+    # founder rule added in 3df8952) → truly extended, no MA to lean on → rejected.
+    series = [100 + 1.5 * i for i in range(250)]
+    series[-1] = series[-2] * 1.30  # +30% spike — well clear of even the 8 EMA
+    cand = swing_signals(_daily(series), spy_ret_20d=0.0, symbol="EXT")
     assert cand is not None and cand.setup is None
 
 

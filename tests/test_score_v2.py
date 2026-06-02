@@ -14,7 +14,23 @@ from __future__ import annotations
 
 import pytest
 
-from analytics.intraday_rules import AlertSignal, AlertType, _score_alert, _score_alert_v2
+# Score v2 (_score_alert_v2) was removed when the v2 quality gate was disabled
+# during the validation phase (commit 482eb33). This whole module tests that
+# removed scorer — skip it (don't delete) so it can be restored if v2 returns.
+pytestmark = pytest.mark.skip(
+    reason="Score v2 quality gate disabled (commit 482eb33); _score_alert_v2 removed."
+)
+
+try:
+    from analytics.intraday_rules import (
+        AlertSignal,
+        AlertType,
+        _score_alert,
+        _score_alert_v2,
+    )
+except ImportError:  # _score_alert_v2 no longer exists — module is skipped above
+    from analytics.intraday_rules import AlertSignal, AlertType, _score_alert
+    _score_alert_v2 = None
 
 
 # ---------------------------------------------------------------------------
