@@ -120,7 +120,8 @@ const TIMEFRAMES = [
   { label: "1H", period: "5d", interval: "60m" },
   { label: "4H", period: "1mo", interval: "60m" },
   { label: "D", period: "1y", interval: "1d" },
-  { label: "W", period: "1y", interval: "1wk" },
+  { label: "W", period: "2y", interval: "1wk" },
+  { label: "M", period: "10y", interval: "1mo" },
 ] as const;
 
 const DEFAULT_TF = 6; // Daily
@@ -861,6 +862,12 @@ export default function TradingPageV2() {
   const [hideWicks, setHideWicks] = useState(
     () => localStorage.getItem("chart_wicks") === "true"
   );
+  const [showVolume, setShowVolume] = useState(
+    () => localStorage.getItem("chart_volume") !== "false"
+  );
+  function toggleVolume() {
+    setShowVolume((v) => { localStorage.setItem("chart_volume", String(!v)); return !v; });
+  }
   const [showIndicatorPanel, setShowIndicatorPanel] = useState(false);
   const indicatorPanelRef = useRef<HTMLDivElement>(null);
 
@@ -1548,6 +1555,17 @@ export default function TradingPageV2() {
                       </span>
                       <span className="text-[11px] text-text-secondary">Wicks</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer px-1.5 py-0.5 rounded hover:bg-surface-3/50 transition-colors">
+                      <input type="checkbox" checked={showVolume} onChange={toggleVolume} className="sr-only" />
+                      <span className={`w-3 h-3 rounded border-2 flex items-center justify-center transition-colors ${showVolume ? "bg-accent border-transparent" : "border-border-default"}`}>
+                        {showVolume && (
+                          <svg className="w-2 h-2 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M2 6l3 3 5-5" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-[11px] text-text-secondary">Volume</span>
+                    </label>
                   </div>
                 </div>
               )}
@@ -1766,6 +1784,7 @@ export default function TradingPageV2() {
               onAddLevel={handleAddLevel}
               indicators={chartIndicators}
               hideWicks={hideWicks}
+              showVolume={showVolume}
               height={0}
             />
           ) : (

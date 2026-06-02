@@ -1,7 +1,7 @@
 /** Candlestick chart using lightweight-charts v5, with MA/VWAP overlays. */
 
 import { useEffect, useRef, Component, type ReactNode } from "react";
-import { createChart, CandlestickSeries, LineSeries, ColorType } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import type { OHLCBar, ChartLevel } from "../api/hooks";
 import { computeSMA, computeEMA, computeVWAP } from "../lib/indicators";
@@ -25,6 +25,8 @@ interface Props {
   height?: number;
   indicators?: IndicatorConfig[];
   hideWicks?: boolean;
+  /** Volume histogram + volume MA at the bottom of the chart. */
+  showVolume?: boolean;
   /** Direction badge in the TradePanel overlay. Defaults to "LONG" when entry > stop. */
   direction?: "LONG" | "SHORT";
   /** Show the floating Trade Panel above the chart with full level details. */
@@ -43,6 +45,7 @@ function CandlestickChartInner({
   height = 400,
   indicators = [],
   hideWicks = false,
+  showVolume = true,
   direction,
   showTradePanel = true,
 }: Props) {
@@ -50,6 +53,7 @@ function CandlestickChartInner({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
+  const volumeSeriesRefs = useRef<any[]>([]);
   const priceLinesRef = useRef<any[]>([]);
   // Latest draw-mode + handler held in refs so the click subscription reads
   // current values without re-subscribing on every prop change.
@@ -147,14 +151,15 @@ function CandlestickChartInner({
     const timeScale = chart.timeScale();
     const savedRange = timeScale.getVisibleLogicalRange();
 
-    // Remove previous line series
-    for (const ls of lineSeriesRefs.current) {
+    // Remove previous line + volume series
+    for (const ls of [...lineSeriesRefs.current, ...volumeSeriesRefs.current]) {
       try {
         chart.removeSeries(ls);
       } catch {
         // Series may already be removed if chart was re-created
       }
     }
+    volumeSeriesRefs.current = [];
     lineSeriesRefs.current = [];
 
     // Detect intraday: if multiple bars share the same date, use Unix timestamps
@@ -171,15 +176,12 @@ function CandlestickChartInner({
 
     // Deduplicate: keep last bar per timestamp (handles duplicate dates)
     const seen = new Map<string | number, number>();
-    const deduped: Array<{ time: string | number; open: number; high: number; low: number; close: number }> = [];
+    const deduped: Array<{ time: string | number; open: number; high: number; low: number; close: number; volume: number }> = [];
     for (const bar of data) {
       const t = toTime(bar.timestamp);
-      if (seen.has(t)) {
-        deduped[seen.get(t)!] = { time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
-      } else {
-        seen.set(t, deduped.length);
-        deduped.push({ time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
-      }
+      const row = { time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume ?? 0 };
+      if (seen.has(t)) deduped[seen.get(t)!] = row;
+      else { seen.set(t, deduped.length); deduped.push(row); }
     }
 
     // Sort ascending by time — Lightweight Charts requires asc order
@@ -189,6 +191,43 @@ function CandlestickChartInner({
     });
 
     seriesRef.current.setData(deduped as any);
+
+    // Volume histogram (green up-bar / red down-bar) + 20-period volume MA in a
+    // thin band at the bottom. The MA is the actionable part — bars towering over
+    // it = unusually high volume (confirms breakouts / spots accumulation).
+    if (showVolume && deduped.some((b) => b.volume > 0)) {
+      const volSeries = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "volume",
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+      chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+      volSeries.setData(
+        deduped.map((b) => ({
+          time: b.time,
+          value: b.volume,
+          color: b.close >= b.open ? "rgba(34,197,94,0.45)" : "rgba(239,68,68,0.45)",
+        })) as any,
+      );
+      volumeSeriesRefs.current.push(volSeries);
+
+      const VMA = 20;
+      if (deduped.length >= VMA) {
+        const vmaData: { time: string | number; value: number }[] = [];
+        for (let i = VMA - 1; i < deduped.length; i++) {
+          let sum = 0;
+          for (let j = i - VMA + 1; j <= i; j++) sum += deduped[j].volume;
+          vmaData.push({ time: deduped[i].time, value: sum / VMA });
+        }
+        const vmaSeries = chart.addSeries(LineSeries, {
+          color: "#fbbf24", lineWidth: 1, priceScaleId: "volume",
+          crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
+        });
+        vmaSeries.setData(vmaData as any);
+        volumeSeriesRefs.current.push(vmaSeries);
+      }
+    }
 
     // Compute indicators from sorted deduped data (not raw unsorted data)
     // Preserve time type (number for intraday, string for daily) so lightweight-charts stays consistent
@@ -344,7 +383,7 @@ function CandlestickChartInner({
     } else {
       timeScale.fitContent();
     }
-  }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks]);
+  }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks, showVolume]);
 
   // Toggle pan/zoom off while drawing so a click drops a level cleanly.
   useEffect(() => {
