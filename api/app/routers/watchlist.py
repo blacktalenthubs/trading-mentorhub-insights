@@ -145,25 +145,25 @@ DEFAULT_GROUPS: list[dict] = [
 # ---------------------------------------------------------------------------
 
 
+async def _resolve_admin_id(db: AsyncSession) -> Optional[int]:
+    """First admin user by id ordering — the public Sectors source."""
+    return (await db.execute(
+        select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
+    )).scalar_one_or_none()
+
+
 @router.get("/sectors", response_model=List[WatchlistItemResponse])
 async def get_sectors_watchlist(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Read-only view of the admin's curated watchlist (the "Sectors" list).
+    """Read-only flat view of the admin's curated watchlist ("Editor's Picks").
 
-    Public to every signed-in user. Used by the Sectors panel in the UI to
-    show the admin's picks + offer one-click "add to my watchlist" actions.
-    Admin user is resolved by the first email match in ADMIN_EMAILS, ordered
-    by user id so the result is stable across requests.
+    Used by the Sectors panel in the trading sidebar. For the group-preserving
+    structure (used by the watchlist page + copy mutation), see
+    /watchlist/sectors/groups.
     """
-    admin_stmt = (
-        select(User.id)
-        .where(User.email.in_(ADMIN_EMAILS))
-        .order_by(User.id)
-        .limit(1)
-    )
-    admin_id = (await db.execute(admin_stmt)).scalar_one_or_none()
+    admin_id = await _resolve_admin_id(db)
     if admin_id is None:
         return []
     stmt = (
@@ -173,6 +173,97 @@ async def get_sectors_watchlist(
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.post("/sectors/copy", response_model=List[WatchlistItemResponse])
+async def copy_sectors_to_my_watchlist(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-copy the admin's full watchlist structure into the caller's account.
+
+    Preserves the admin's group names + colors + sort order. Idempotent:
+      - Existing groups with matching names are reused; we only create groups
+        the caller doesn't already have.
+      - Existing symbols stay where they are; we never overwrite a deliberate
+        placement. Symbols already on the caller's watchlist but ungrouped
+        get attached to the matching admin group (if any).
+      - New symbols are inserted with the admin's group assignment.
+
+    Returns the full updated WatchlistItem set so the caller can refresh
+    locally without an extra GET.
+    """
+    admin_id = await _resolve_admin_id(db)
+    if admin_id is None or admin_id == user.id:
+        # Admin calling /copy on themselves is a no-op.
+        existing = (await db.execute(
+            select(WatchlistItem).where(WatchlistItem.user_id == user.id)
+        )).scalars().all()
+        return list(existing)
+
+    # Load admin's groups + items.
+    admin_groups = list((await db.execute(
+        select(WatchlistGroup)
+        .where(WatchlistGroup.user_id == admin_id)
+        .order_by(WatchlistGroup.sort_order, WatchlistGroup.id)
+    )).scalars().all())
+    admin_items = list((await db.execute(
+        select(WatchlistItem).where(WatchlistItem.user_id == admin_id)
+    )).scalars().all())
+
+    # Caller's current state.
+    user_groups_by_name: dict[str, WatchlistGroup] = {
+        g.name: g for g in (await db.execute(
+            select(WatchlistGroup).where(WatchlistGroup.user_id == user.id)
+        )).scalars().all()
+    }
+    user_items_by_symbol: dict[str, WatchlistItem] = {
+        it.symbol: it for it in (await db.execute(
+            select(WatchlistItem).where(WatchlistItem.user_id == user.id)
+        )).scalars().all()
+    }
+
+    # Mirror admin's groups onto the caller (reuse name match, create otherwise).
+    admin_group_id_to_user_group_id: dict[int, int] = {}
+    for ag in admin_groups:
+        ug = user_groups_by_name.get(ag.name)
+        if ug is None:
+            ug = WatchlistGroup(
+                user_id=user.id,
+                name=ag.name,
+                sort_order=ag.sort_order,
+                color=ag.color,
+            )
+            db.add(ug)
+            await db.flush()
+            user_groups_by_name[ag.name] = ug
+        admin_group_id_to_user_group_id[ag.id] = ug.id
+
+    # Mirror admin's items (group placement preserved).
+    for ai in admin_items:
+        target_group_id = (
+            admin_group_id_to_user_group_id.get(ai.group_id)
+            if ai.group_id is not None else None
+        )
+        existing = user_items_by_symbol.get(ai.symbol)
+        if existing is not None:
+            # Ungrouped existing item gets attached to the admin's group if any.
+            if existing.group_id is None and target_group_id is not None:
+                existing.group_id = target_group_id
+            continue
+        db.add(WatchlistItem(
+            user_id=user.id,
+            symbol=ai.symbol,
+            group_id=target_group_id,
+        ))
+    await db.flush()
+
+    final = (await db.execute(
+        select(WatchlistItem)
+        .where(WatchlistItem.user_id == user.id)
+        .order_by(WatchlistItem.group_id, WatchlistItem.symbol)
+    )).scalars().all()
+    return list(final)
 
 
 @router.get("", response_model=List[WatchlistItemResponse])

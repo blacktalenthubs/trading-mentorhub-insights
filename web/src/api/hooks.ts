@@ -259,26 +259,19 @@ export function useSectorsWatchlist() {
   });
 }
 
-// Bulk-add multiple symbols to the user's personal watchlist. Used by the
-// "Copy all" button on the Editor's Picks panel + the empty-state hero card.
-// Fires one POST per symbol in parallel (Promise.all) — the backend already
-// supports concurrent inserts; existing symbols are no-ops thanks to the
-// unique constraint on (user_id, symbol).
-export function useBulkAddSymbols() {
+// Copy the admin's full watchlist structure into the caller's account —
+// preserving group names (Mega Tech, Chips, etc.) + colors + sort order.
+// Idempotent: existing groups + items are left alone; only missing ones are
+// added. Used by the "Copy all" button + the empty-state hero card.
+export function useCopySectorsWatchlist() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (symbols: string[]) => {
-      const results = await Promise.allSettled(
-        symbols.map((s) => api.post<WatchlistItem>("/watchlist", { symbol: s })),
-      );
-      return {
-        added: results.filter((r) => r.status === "fulfilled").length,
-        skipped: results.filter((r) => r.status === "rejected").length,
-      };
-    },
+    mutationFn: () => api.post<WatchlistItem[]>("/watchlist/sectors/copy", {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["watchlist"] });
+      qc.invalidateQueries({ queryKey: ["watchlist-groups"] });
       qc.invalidateQueries({ queryKey: ["scanner"] });
+      qc.invalidateQueries({ queryKey: ["groups-premarket"] });
     },
   });
 }

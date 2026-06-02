@@ -19,7 +19,7 @@ import {
   useWatchlist,
   useSectorsWatchlist,
   useAddSymbol,
-  useBulkAddSymbols,
+  useCopySectorsWatchlist,
   useRemoveSymbol,
   useLivePrices,
   useWatchlistRank,
@@ -901,7 +901,7 @@ export default function TradingPageV2() {
 
   /* ── Editor's Picks (admin's public watchlist) ── */
   const { data: sectorsItems } = useSectorsWatchlist();
-  const bulkAddSectors = useBulkAddSymbols();
+  const copySectors = useCopySectorsWatchlist();
   // Default-expanded — only collapsed if the user has explicitly collapsed
   // it before (key set to "0"). New users see the picks immediately.
   const [sectorsExpanded, setSectorsExpanded] = useState<boolean>(() => {
@@ -919,9 +919,9 @@ export default function TradingPageV2() {
     .filter((s) => !watchlistSymbols.has(s));
   function copyAllSectors() {
     if (missingSectorSymbols.length === 0) return;
-    bulkAddSectors.mutate(missingSectorSymbols, {
-      onSuccess: (r) => {
-        toast.success(`Added ${r.added} symbol${r.added === 1 ? "" : "s"} to your watchlist`);
+    copySectors.mutate(undefined, {
+      onSuccess: () => {
+        toast.success(`Synced ${missingSectorSymbols.length} symbols + sector groups`);
       },
     });
   }
@@ -1252,10 +1252,10 @@ export default function TradingPageV2() {
                     </p>
                     <button
                       onClick={copyAllSectors}
-                      disabled={bulkAddSectors.isPending}
+                      disabled={copySectors.isPending}
                       className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-accent text-bg-base text-[10px] font-semibold hover:bg-accent-hover disabled:opacity-50 transition-colors"
                     >
-                      {bulkAddSectors.isPending ? (
+                      {copySectors.isPending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
                         <Plus className="h-3 w-3" />
@@ -1284,11 +1284,11 @@ export default function TradingPageV2() {
               {!userWatchlistEmpty && missingSectorSymbols.length > 0 && (
                 <button
                   onClick={copyAllSectors}
-                  disabled={bulkAddSectors.isPending}
+                  disabled={copySectors.isPending}
                   className="text-[9px] px-1.5 py-0.5 rounded bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors font-semibold flex items-center gap-0.5"
                   title={`Add ${missingSectorSymbols.length} missing symbols to my watchlist`}
                 >
-                  {bulkAddSectors.isPending ? (
+                  {copySectors.isPending ? (
                     <Loader2 className="h-2.5 w-2.5 animate-spin" />
                   ) : (
                     <Plus className="h-2.5 w-2.5" />

@@ -608,7 +608,10 @@ async def groups_premarket_summary(
     if cached is not None:
         return cached
 
-    # Load user's groups + items.
+    # Load user's groups + items. Fall back to the admin's groups when the
+    # user has none — 2026-06-01 public-access launch. Lets brand-new users
+    # see sector premarket data immediately without having to seed their own
+    # watchlist first. Admin user is resolved the same way as /watchlist/sectors.
     db: AsyncSession
     async with async_session_factory() as db:
         groups_result = await db.execute(
@@ -617,12 +620,30 @@ async def groups_premarket_summary(
             .order_by(WatchlistGroup.sort_order, WatchlistGroup.id)
         )
         groups = list(groups_result.scalars().all())
+        source_user_id = user.id
         if not groups:
-            return []
+            from app.dependencies import ADMIN_EMAILS
+            from app.models.user import User as _User
+            admin_id = (
+                await db.execute(
+                    select(_User.id).where(_User.email.in_(ADMIN_EMAILS)).order_by(_User.id).limit(1)
+                )
+            ).scalar_one_or_none()
+            if admin_id is None:
+                return []
+            groups_result = await db.execute(
+                select(WatchlistGroup)
+                .where(WatchlistGroup.user_id == admin_id)
+                .order_by(WatchlistGroup.sort_order, WatchlistGroup.id)
+            )
+            groups = list(groups_result.scalars().all())
+            if not groups:
+                return []
+            source_user_id = admin_id
 
         items_result = await db.execute(
             select(WatchlistItem)
-            .where(WatchlistItem.user_id == user.id)
+            .where(WatchlistItem.user_id == source_user_id)
             .where(WatchlistItem.group_id.is_not(None))
         )
         all_items = list(items_result.scalars().all())

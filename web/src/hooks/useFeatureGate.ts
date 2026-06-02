@@ -68,8 +68,14 @@ export function useFeatureGate() {
     limits,
     /** Check if user tier >= required tier */
     hasAccess: (required: string) => rank >= (TIER_RANK[required] ?? 0),
-    /** Watchlist max for current tier (Infinity = unlimited) */
-    maxWatchlistSize: num(limits.watchlist_max) ?? Infinity,
+    /**
+     * Watchlist max — 2026-06-01 public-access launch: unlimited for every
+     * tier. Hard-overridden here so users with a stale persisted /me payload
+     * (cached `watchlist_max: 5` from before the deploy) don't see the
+     * "Free tier limit reached" warning. Real enforcement lives on the
+     * backend; this is purely the client-side cap message.
+     */
+    maxWatchlistSize: Infinity,
     /** Visible alerts before blurring (null = unlimited) */
     visibleAlerts: num(limits.visible_alerts),
     /** Screener rows shown before the rest are blurred (null = all) */
