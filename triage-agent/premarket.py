@@ -264,6 +264,27 @@ def fetch_news_for(symbols: list[str], max_per_symbol: int = 3) -> dict[str, lis
 # WATCHLIST + SECTOR LOADING
 # ──────────────────────────────────────────────────────────────────
 
+def _load_telegram_chat_ids() -> list[str]:
+    """Return distinct Telegram chat IDs across all users who linked the bot
+    AND have telegram_enabled = true. Used by the premarket fan-out so the
+    morning brief reaches every signed-up user, not just the admin chat.
+    """
+    out: list[str] = []
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT telegram_chat_id
+                FROM users
+                WHERE telegram_chat_id IS NOT NULL
+                  AND telegram_chat_id <> ''
+                  AND telegram_enabled = true
+            """)
+            for (cid,) in cur.fetchall():
+                if cid:
+                    out.append(str(cid))
+    return out
+
+
 def load_watchlist_groups(user_id: int) -> dict[str, list[str]]:
     """Returns {group_name: [symbols]} for the user's watchlist."""
     out: dict[str, list[str]] = {}
@@ -712,13 +733,29 @@ def run_premarket_brief(send: bool = True) -> dict:
     # 8. Persist for EOD grading
     persist_morning_picks(picks, focus, avoid, et)
 
-    # 9. Send to Telegram
+    # 9. Send to Telegram — fan out to ALL users with a linked chat_id.
+    #    2026-06-02: changed from single-chat send to per-user fan-out so
+    #    every signed-up user who's linked their bot gets the morning brief,
+    #    matching the alert fan-out launched 2026-06-01. Admin chat keeps
+    #    receiving via the env-configured CONVICTION_CHAT_ID fallback when
+    #    no users are linked yet (e.g. local dev).
     if send:
+        sent_count = 0
         try:
-            telegram_post._send(brief)
-            logger.info("premarket: brief sent to Telegram")
+            chat_ids = _load_telegram_chat_ids()
+            if not chat_ids:
+                telegram_post._send(brief)
+                sent_count = 1
+            else:
+                for cid in chat_ids:
+                    try:
+                        if telegram_post._send(brief, chat_id=cid):
+                            sent_count += 1
+                    except Exception:
+                        logger.exception("premarket: send failed for chat_id=%s", cid)
+            logger.info("premarket: brief sent to %d chat(s)", sent_count)
         except Exception:
-            logger.exception("premarket: telegram send failed")
+            logger.exception("premarket: telegram fan-out failed")
 
     return {
         "brief": brief,
