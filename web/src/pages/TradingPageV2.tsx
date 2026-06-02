@@ -868,6 +868,10 @@ export default function TradingPageV2() {
   function toggleVolume() {
     setShowVolume((v) => { localStorage.setItem("chart_volume", String(!v)); return !v; });
   }
+  const [maOff, setMaOff] = useState(() => localStorage.getItem("chart_ma_off") === "true");
+  function toggleMaOff() {
+    setMaOff((v) => { localStorage.setItem("chart_ma_off", String(!v)); return !v; });
+  }
   const [showIndicatorPanel, setShowIndicatorPanel] = useState(false);
   const indicatorPanelRef = useRef<HTMLDivElement>(null);
 
@@ -886,6 +890,15 @@ export default function TradingPageV2() {
 
   /* ── Panel state ── */
   const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
+  const [watchSort, setWatchSort] = useState<"symbol" | "change_desc" | "change_asc" | "price_desc">(
+    () => (localStorage.getItem("watchlist_sort") as any) || "symbol"
+  );
+  function cycleWatchSort() {
+    const order = ["symbol", "change_desc", "change_asc", "price_desc"] as const;
+    const next = order[(order.indexOf(watchSort) + 1) % order.length];
+    setWatchSort(next);
+    try { localStorage.setItem("watchlist_sort", next); } catch { /* ignore */ }
+  }
   // Mobile drawer — slides watchlist in from left on small screens
   const [mobileWatchlistOpen, setMobileWatchlistOpen] = useState(false);
   const [mobileSignalsCollapsed, setMobileSignalsCollapsed] = useState<boolean>(() => {
@@ -1005,9 +1018,11 @@ export default function TradingPageV2() {
     });
   }
 
-  const chartIndicators = ALL_INDICATORS.filter((ind) => activeIndicators.has(ind.key)).map(
-    ({ key, color }) => ({ key, color })
-  );
+  // `maOff` hides ALL MAs/EMAs/VWAP at once without losing the user's selection,
+  // so they can flip back to the same set. Persists across reloads.
+  const chartIndicators = maOff
+    ? []
+    : ALL_INDICATORS.filter((ind) => activeIndicators.has(ind.key)).map(({ key, color }) => ({ key, color }));
 
   /* ── Auto-select first symbol ── */
   if (!selectedSymbol && signals && signals.length > 0) {
@@ -1105,11 +1120,20 @@ export default function TradingPageV2() {
     ?.filter(
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
-    // Stable alphabetical sort — was sorting by rankMap.score, which caused
-    // the entire list to reorder when /scanner/watchlist-rank (slow yfinance
-    // call) returned 2-5s after first paint. Users saw it as "loading
-    // latency". Rank badge still shows per row, just doesn't drive order.
-    ?.sort((a, b) => a.symbol.localeCompare(b.symbol));
+    // User-chosen sort (persisted). %change/price pull from live prices.
+    ?.slice()
+    .sort((a, b) => {
+      const ca = livePrices[a.symbol]?.change_pct ?? 0;
+      const cb = livePrices[b.symbol]?.change_pct ?? 0;
+      const pa = livePrices[a.symbol]?.price ?? 0;
+      const pb = livePrices[b.symbol]?.price ?? 0;
+      switch (watchSort) {
+        case "change_desc": return cb - ca;
+        case "change_asc": return ca - cb;
+        case "price_desc": return pb - pa;
+        default: return a.symbol.localeCompare(b.symbol);
+      }
+    });
 
   // The signals shown in the right panel — today/latest, or a chosen past session.
   const activeAlerts = signalDate ? (pastAlerts ?? []) : todayAlerts;
@@ -1153,20 +1177,31 @@ export default function TradingPageV2() {
               Watchlist
             </span>
           )}
-          <button
-            onClick={() => {
-              setWatchlistCollapsed((v) => !v);
-              triggerResize();
-            }}
-            className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
-            title={watchlistCollapsed ? "Expand watchlist" : "Collapse watchlist"}
-          >
-            {watchlistCollapsed ? (
-              <ChevronRight className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronLeft className="h-3.5 w-3.5" />
+          <div className="flex items-center gap-0.5">
+            {!watchlistCollapsed && (
+              <button
+                onClick={cycleWatchSort}
+                className="px-1.5 py-0.5 rounded text-[10px] font-semibold font-mono text-text-muted hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
+                title="Sort watchlist (cycles A–Z · %↓ · %↑ · $↓) — persists"
+              >
+                {watchSort === "change_desc" ? "%↓" : watchSort === "change_asc" ? "%↑" : watchSort === "price_desc" ? "$↓" : "A–Z"}
+              </button>
             )}
-          </button>
+            <button
+              onClick={() => {
+                setWatchlistCollapsed((v) => !v);
+                triggerResize();
+              }}
+              className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
+              title={watchlistCollapsed ? "Expand watchlist" : "Collapse watchlist"}
+            >
+              {watchlistCollapsed ? (
+                <ChevronRight className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronLeft className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Search (only when expanded) */}
@@ -1570,6 +1605,21 @@ export default function TradingPageV2() {
                 </div>
               )}
             </div>
+
+            {/* MAs toggle — hide/show ALL EMAs/SMAs/VWAP at once (keeps your
+                selection so you can flip back to the same set). */}
+            <button
+              onClick={toggleMaOff}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors border ${
+                !maOff
+                  ? "bg-accent/15 text-accent border-accent/30"
+                  : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary"
+              }`}
+              title={maOff ? "Show moving averages" : "Hide all moving averages"}
+            >
+              {!maOff ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+              <span className="hidden lg:inline">MAs</span>
+            </button>
 
             {/* Levels toggle — hide/show the auto lines (entry/stop/target + PDH/PDL/
                 S/R) for a clean chart. Your own drawn lines stay either way. */}
