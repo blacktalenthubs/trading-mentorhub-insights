@@ -79,6 +79,39 @@ function typeOfLevel(color: string): LineType {
   return "line";
 }
 
+// Prior-day + prior-week high/low from the chart's OHLCV — the only auto levels
+// we draw (PDH/PDL/PWH/PWL). Computed from bars so it works on any timeframe/symbol.
+function keyLevels(bars: { timestamp: string; high: number; low: number }[] | undefined) {
+  const out = { pdh: null as number | null, pdl: null as number | null, pwh: null as number | null, pwl: null as number | null };
+  if (!bars || bars.length === 0) return out;
+  // Collapse bars into calendar days (intraday bars share a date).
+  const days: { key: string; hi: number; lo: number }[] = [];
+  for (const b of bars) {
+    const k = b.timestamp.slice(0, 10);
+    const last = days[days.length - 1];
+    if (last && last.key === k) { last.hi = Math.max(last.hi, b.high); last.lo = Math.min(last.lo, b.low); }
+    else days.push({ key: k, hi: b.high, lo: b.low });
+  }
+  if (days.length >= 2) { out.pdh = days[days.length - 2].hi; out.pdl = days[days.length - 2].lo; }
+  // Collapse days into ISO weeks.
+  const isoWeek = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00Z");
+    const day = (d.getUTCDay() + 6) % 7;            // Mon=0
+    d.setUTCDate(d.getUTCDate() - day + 3);          // nearest Thursday
+    const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    return d.getUTCFullYear() * 100 + (1 + Math.round((d.getTime() - firstThu.getTime()) / 6.048e8));
+  };
+  const weeks: { key: number; hi: number; lo: number }[] = [];
+  for (const dd of days) {
+    const k = isoWeek(dd.key);
+    const last = weeks[weeks.length - 1];
+    if (last && last.key === k) { last.hi = Math.max(last.hi, dd.hi); last.lo = Math.min(last.lo, dd.lo); }
+    else weeks.push({ key: k, hi: dd.hi, lo: dd.lo });
+  }
+  if (weeks.length >= 2) { out.pwh = weeks[weeks.length - 2].hi; out.pwl = weeks[weeks.length - 2].lo; }
+  return out;
+}
+
 const TIMEFRAMES = [
   { label: "1m", period: "1d", interval: "1m" },
   { label: "5m", period: "5d", interval: "5m" },
@@ -1049,44 +1082,14 @@ export default function TradingPageV2() {
 
   const chartLevels = (() => {
     if (!selected) return [];
-    const s = selected;
-    const tradePrices = new Set(
-      [s.entry, s.stop, s.target_1]
-        .filter((v): v is number => v != null)
-        .map((v) => Math.round(v * 100))
-    );
-    const isDup = (p: number) => tradePrices.has(Math.round(p * 100));
-    const lvls: Array<{
-      id: number;
-      symbol: string;
-      price: number;
-      label: string;
-      color: string;
-    }> = [];
-    if (s.ref_day_high != null && !isDup(s.ref_day_high))
-      lvls.push({ id: -1, symbol: s.symbol, price: s.ref_day_high, label: "Prior High", color: "#22c55e" });
-    if (s.ref_day_low != null && !isDup(s.ref_day_low))
-      lvls.push({ id: -2, symbol: s.symbol, price: s.ref_day_low, label: "Prior Low", color: "#ef4444" });
-    if (s.nearest_support != null && !isDup(s.nearest_support)) {
-      const isBroken = (s.close ?? 0) < s.nearest_support;
-      lvls.push({
-        id: -3,
-        symbol: s.symbol,
-        price: s.nearest_support,
-        label: isBroken ? "Resistance" : "Support",
-        color: isBroken ? "#ef4444" : "#f59e0b",
-      });
-    }
-    // VWAP level — key inflection point
-    if ((s as any).vwap != null && !isDup((s as any).vwap)) {
-      lvls.push({
-        id: -4,
-        symbol: s.symbol,
-        price: (s as any).vwap,
-        label: "VWAP",
-        color: "#a855f7",
-      });
-    }
+    // Only the levels traders actually mark: prior-day + prior-week high/low.
+    const kl = keyLevels(ohlcv);
+    const sym = selected.symbol;
+    const lvls: Array<{ id: number; symbol: string; price: number; label: string; color: string }> = [];
+    if (kl.pdh != null) lvls.push({ id: -1, symbol: sym, price: kl.pdh, label: "PDH", color: "#22c55e" });
+    if (kl.pdl != null) lvls.push({ id: -2, symbol: sym, price: kl.pdl, label: "PDL", color: "#ef4444" });
+    if (kl.pwh != null) lvls.push({ id: -3, symbol: sym, price: kl.pwh, label: "PWH", color: "#14b8a6" });
+    if (kl.pwl != null) lvls.push({ id: -4, symbol: sym, price: kl.pwl, label: "PWL", color: "#f97316" });
     return lvls;
   })();
 
