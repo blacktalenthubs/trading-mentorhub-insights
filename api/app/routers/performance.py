@@ -388,3 +388,107 @@ async def weekly_pattern_report(
         "top_volume": [_to_fire(r) for r in top_rows],
         "bottom_volume": [_to_fire(r) for r in bottom_rows],
     }
+
+
+# ── Strategy Analysis — real forward returns, swing-vs-day, AI keep/stop ──
+# Aggregates ALL alerts globally (patterns are system-wide) over a lookback
+# window using the close-to-close forward returns (ret_eod_pct / ret_eow_pct)
+# computed by analytics/forward_returns.py. Classifies each pattern Swing/Day/
+# Avoid and, for admins, generates a cached AI keep/stop/promote briefing.
+
+from fastapi import HTTPException  # noqa: E402
+from fastapi.concurrency import run_in_threadpool  # noqa: E402
+
+from app.dependencies import is_admin_user  # noqa: E402
+from app.models.strategy_analysis import StrategyAnalysisCache  # noqa: E402
+from analytics.strategy_analysis import aggregate_patterns, generate_recommendation  # noqa: E402
+
+_SYNTHETIC_ALERT_TYPES = [
+    "target_1_hit", "target_2_hit", "stop_loss_hit",
+    "auto_stop_out", "vwap_loss", "vwap_reclaim",
+]
+
+
+async def _strategy_patterns(db: AsyncSession, lookback: int) -> list[dict]:
+    """Pull long alerts with a computed EOD return over the lookback (global,
+    all users) and aggregate into the classified pattern leaderboard.
+    """
+    start_iso = (date.today() - timedelta(days=lookback)).isoformat()
+    excluded = list(OBSOLETE_ALERT_TYPES) + _SYNTHETIC_ALERT_TYPES
+    label_map = {row[0]: row[1] for row in ALERT_TYPE_CATALOG}
+
+    rows = (await db.execute(text("""
+        SELECT alert_type, ret_eod_pct, ret_eow_pct
+        FROM alerts
+        WHERE session_date >= :start
+          AND direction IN ('BUY', 'LONG')
+          AND ret_eod_pct IS NOT NULL
+          AND NOT (alert_type = ANY(:excluded))
+    """), {"start": start_iso, "excluded": excluded})).all()
+
+    bundle = [
+        {"alert_type": at, "ret_eod_pct": eod, "ret_eow_pct": eow}
+        for (at, eod, eow) in rows
+    ]
+    return aggregate_patterns(bundle, label_map=label_map, describe=describe_alert_type)
+
+
+@router.get("/strategy-analysis")
+@limiter.limit("10/minute")
+async def strategy_analysis(
+    request: Request,
+    lookback: int = Query(90, ge=7, le=365),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pattern leaderboard ranked by real end-of-week forward return, with a
+    Swing/Day/Avoid classification per pattern, plus the most recent cached AI
+    briefing. The leaderboard is global (system-wide patterns); the AI text is
+    regenerated via POST /strategy-analysis/refresh.
+    """
+    patterns = await _strategy_patterns(db, lookback)
+
+    cache = (await db.execute(
+        select(StrategyAnalysisCache).where(StrategyAnalysisCache.lookback_days == lookback)
+    )).scalar_one_or_none()
+
+    return {
+        "lookback_days": lookback,
+        "patterns": patterns,
+        "ai_recommendation": cache.narrative if cache else None,
+        "generated_at": cache.generated_at.isoformat() if cache else None,
+    }
+
+
+@router.post("/strategy-analysis/refresh")
+@limiter.limit("4/minute")
+async def refresh_strategy_analysis(
+    request: Request,
+    lookback: int = Query(90, ge=7, le=365),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Regenerate + cache the AI keep/stop/promote briefing (admin only — the
+    LLM call is the only cost; the leaderboard itself is free SQL).
+    """
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    patterns = await _strategy_patterns(db, lookback)
+    narrative = await run_in_threadpool(generate_recommendation, patterns)
+    if not narrative:
+        raise HTTPException(status_code=502, detail="AI analysis unavailable")
+
+    existing = (await db.execute(
+        select(StrategyAnalysisCache).where(StrategyAnalysisCache.lookback_days == lookback)
+    )).scalar_one_or_none()
+    if existing:
+        existing.narrative = narrative
+        existing.generated_at = datetime.utcnow()
+    else:
+        db.add(StrategyAnalysisCache(lookback_days=lookback, narrative=narrative,
+                                     generated_at=datetime.utcnow()))
+    await db.commit()
+
+    return {"lookback_days": lookback, "ai_recommendation": narrative,
+            "generated_at": datetime.utcnow().isoformat()}

@@ -16,6 +16,7 @@ import {
 import EODReportPage from "./EODReportPage";
 import TradeReviewPage from "./TradeReviewPage";
 import WeeklyReport from "../components/WeeklyReport";
+import StrategyAnalysis from "../components/StrategyAnalysis";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
 import type { Alert } from "../types";
@@ -23,7 +24,7 @@ import {
   BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileText, Check,
 } from "lucide-react";
 
-type PerfTab = "by-pattern" | "weekly" | "today-eod" | "by-symbol" | "sessions";
+type PerfTab = "by-pattern" | "weekly" | "strategy" | "today-eod" | "by-symbol" | "sessions";
 
 /* ── helpers ──────────────────────────────────────────────────────── */
 
@@ -388,6 +389,7 @@ function AlertTypePerformanceSection() {
 const PERF_TABS: { id: PerfTab; label: string }[] = [
   { id: "by-pattern", label: "By Pattern" },
   { id: "weekly",     label: "Weekly" },
+  { id: "strategy",   label: "Strategy Analysis" },
   { id: "today-eod",  label: "Today's EOD" },
   { id: "by-symbol",  label: "By Symbol" },
   { id: "sessions",   label: "Sessions" },
@@ -433,6 +435,7 @@ export default function RealTradesPage() {
             launch). Previous tier gate restored under TierGate require="pro". */}
         {activeTab === "by-pattern" && <DayTradesContent />}
         {activeTab === "weekly"     && <WeeklyReport />}
+        {activeTab === "strategy"   && <StrategyAnalysis />}
         {activeTab === "today-eod"  && <div className="-mx-5 -mb-5"><EODReportPage /></div>}
         {activeTab === "by-symbol"  && <div className="-mx-5 -mb-5"><TradeReviewPage /></div>}
         {activeTab === "sessions"   && <SessionBrowser />}

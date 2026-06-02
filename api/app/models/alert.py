@@ -90,6 +90,15 @@ class Alert(Base):
     mfe_r: Mapped[Optional[float]] = mapped_column(Float)   # max favorable excursion in R
     mae_r: Mapped[Optional[float]] = mapped_column(Float)   # max adverse excursion in R
     outcome_computed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # Strategy Analysis — REAL forward % return from the alert price to a later
+    # close. Populated by analytics/forward_returns.py. Baseline is `price` (the
+    # fire price), NOT entry. Measures whether the move actually held:
+    #   ret_eod_pct: % from price to the close on session_date (same day).
+    #   ret_eow_pct: % from price to the close on that week's last trading day.
+    # NULL = not yet computed / horizon not yet matured (week still open).
+    ret_eod_pct: Mapped[Optional[float]] = mapped_column(Float)
+    ret_eow_pct: Mapped[Optional[float]] = mapped_column(Float)
+    fwd_returns_computed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
 class ActiveEntry(Base):
