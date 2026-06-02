@@ -1486,7 +1486,7 @@ export default function TradingPageV2() {
           </div>
 
           {/* Right: Indicators + Panel toggle */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Indicators popover */}
             <div className="relative" ref={indicatorPanelRef}>
               <button
