@@ -7,11 +7,30 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import ADMIN_EMAILS, get_current_user
+from app.models.alert import Alert
 from app.models.user import User
 from app.rate_limit import limiter
+from sqlalchemy import select
 
 router = APIRouter()
+
+
+async def _scope_uid(user: User, db: AsyncSession) -> int:
+    """2026-06-01 public-access launch — read-only Performance reports fall
+    back to the first admin's user_id when the caller has zero alert rows.
+    Brand-new users see the founder's track record until they accumulate
+    their own data. Mirrors _history_user_id in alerts.py.
+    """
+    exists = await db.execute(
+        select(Alert.id).where(Alert.user_id == user.id).limit(1)
+    )
+    if exists.scalar_one_or_none() is not None:
+        return user.id
+    admin_id = (await db.execute(
+        select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
+    )).scalar_one_or_none()
+    return admin_id if admin_id is not None else user.id
 
 
 @router.get("/by-strategy")
@@ -22,6 +41,7 @@ async def performance_by_strategy(
     db: AsyncSession = Depends(get_db),
 ):
     """Win rate and average R:R per alert strategy type."""
+    scope_uid = await _scope_uid(user, db)
     result = await db.execute(
         text("""
             WITH outcomes AS (
@@ -74,7 +94,7 @@ async def performance_by_strategy(
                 CAST(SUM(CASE WHEN t1_hits > 0 OR t2_hits > 0 THEN 1 ELSE 0 END) AS FLOAT)
                 / CAST(COUNT(*) AS FLOAT) DESC
         """),
-        {"uid": user.id},
+        {"uid": scope_uid},
     )
     rows = result.fetchall()
 
@@ -111,6 +131,7 @@ async def performance_by_hour(
     db: AsyncSession = Depends(get_db),
 ):
     """Win rate by hour of day."""
+    scope_uid = await _scope_uid(user, db)
     result = await db.execute(
         text("""
             WITH outcomes AS (
@@ -143,7 +164,7 @@ async def performance_by_hour(
             HAVING COUNT(*) >= 2
             ORDER BY hour
         """),
-        {"uid": user.id},
+        {"uid": scope_uid},
     )
     rows = result.fetchall()
 
@@ -167,6 +188,7 @@ async def performance_summary(
     db: AsyncSession = Depends(get_db),
 ):
     """Overall performance summary."""
+    scope_uid = await _scope_uid(user, db)
     result = await db.execute(
         text("""
             SELECT
@@ -181,7 +203,7 @@ async def performance_summary(
             FROM alerts
             WHERE user_id = :uid
         """),
-        {"uid": user.id},
+        {"uid": scope_uid},
     )
     row = result.fetchone()
     if not row:
@@ -252,6 +274,7 @@ async def weekly_pattern_report(
     start_iso = monday.isoformat()
     end_iso = friday.isoformat()
 
+    scope_uid = await _scope_uid(user, db)
     obsolete_list = list(OBSOLETE_ALERT_TYPES)
     label_map = {row[0]: row[1] for row in ALERT_TYPE_CATALOG}
 
@@ -276,7 +299,7 @@ async def weekly_pattern_report(
           AND (:no_obsolete OR NOT (alert_type = ANY(:obsolete)))
         GROUP BY alert_type
     """), {
-        "uid": user.id,
+        "uid": scope_uid,
         "a": start_iso,
         "b": end_iso,
         "no_obsolete": False,
@@ -314,7 +337,7 @@ async def weekly_pattern_report(
           AND NOT (alert_type = ANY(:obsolete))
         ORDER BY volume_ratio DESC
         LIMIT 10
-    """), {"uid": user.id, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).all()
+    """), {"uid": scope_uid, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).all()
 
     # Bottom 10 by volume (noise still slipping through gates).
     bottom_rows = (await db.execute(text("""
@@ -327,7 +350,7 @@ async def weekly_pattern_report(
           AND NOT (alert_type = ANY(:obsolete))
         ORDER BY volume_ratio ASC
         LIMIT 10
-    """), {"uid": user.id, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).all()
+    """), {"uid": scope_uid, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).all()
 
     def _to_fire(r) -> dict:
         (aid, sym, at, dirn, ts, vol, slope, entry, stop, t1) = r
@@ -354,7 +377,7 @@ async def weekly_pattern_report(
         WHERE user_id = :uid
           AND session_date BETWEEN :a AND :b
           AND NOT (alert_type = ANY(:obsolete))
-    """), {"uid": user.id, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).scalar() or 0
+    """), {"uid": scope_uid, "a": start_iso, "b": end_iso, "obsolete": obsolete_list})).scalar() or 0
 
     return {
         "week_start": start_iso,

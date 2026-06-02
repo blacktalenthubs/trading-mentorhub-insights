@@ -32,6 +32,29 @@ def _today() -> str:
     return date.today().isoformat()
 
 
+async def _history_user_id(user: User, db: AsyncSession) -> int:
+    """Return the user_id to scope read-only history queries to.
+
+    2026-06-01 public-access launch: when a user has zero rows in the
+    `alerts` table (brand-new accounts that only just started receiving
+    fan-out), fall back to the first admin's user_id. Lets them see the
+    historical patterns + past session reports immediately — the alerts
+    are read-only by definition (their own user_action / exit_price stays
+    NULL because they didn't act on them). Once they have at least one
+    row of their own, they switch to their own history.
+    """
+    exists = await db.execute(
+        select(Alert.id).where(Alert.user_id == user.id).limit(1)
+    )
+    if exists.scalar_one_or_none() is not None:
+        return user.id
+    from app.dependencies import ADMIN_EMAILS
+    admin_id = (await db.execute(
+        select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
+    )).scalar_one_or_none()
+    return admin_id if admin_id is not None else user.id
+
+
 def _grade_filter_clause(user: User):
     """Returns a SQLAlchemy WHERE fragment for the user's min_alert_grade
     setting. 'A' = A only; 'B' = A + B; 'C' or anything else = no filter.
@@ -117,7 +140,8 @@ async def alerts_history(
     rows_per_day = 500 if is_admin_user(user) else 200
 
     grade_clause = _grade_filter_clause(user)
-    q = select(Alert).where(Alert.user_id == user.id)
+    scope_uid = await _history_user_id(user, db)
+    q = select(Alert).where(Alert.user_id == scope_uid)
     if grade_clause is not None:
         q = q.where(grade_clause)
     result = await db.execute(
@@ -385,11 +409,17 @@ async def alert_scorecard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Win rate by alert_type from the manual outcome marks, for one session."""
+    """Win rate by alert_type from the manual outcome marks, for one session.
+
+    Falls back to admin's outcomes when the caller has no rows yet — the
+    scorecard then shows the founder's historical wins as a reference
+    track-record (read-only).
+    """
     sd = session_date or _today()
+    scope_uid = await _history_user_id(user, db)
     rows = (await db.execute(
         select(Alert.alert_type, Alert.outcome).where(
-            Alert.user_id == user.id,
+            Alert.user_id == scope_uid,
             Alert.session_date == sd,
             Alert.outcome.isnot(None),
         )
@@ -421,10 +451,15 @@ async def session_dates(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return distinct session dates with alerts, newest first."""
+    """Return distinct session dates with alerts, newest first.
+
+    Falls back to admin's session list when the caller has no rows yet
+    (brand-new public-access users — see _history_user_id).
+    """
+    scope_uid = await _history_user_id(user, db)
     result = await db.execute(
         select(distinct(Alert.session_date))
-        .where(Alert.user_id == user.id)
+        .where(Alert.user_id == scope_uid)
         .order_by(Alert.session_date.desc())
         .limit(90)
     )
@@ -437,22 +472,26 @@ async def session_by_date(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Session summary for a specific date."""
+    """Session summary for a specific date.
+
+    Falls back to admin's data when the caller has no alert rows yet.
+    """
+    scope_uid = await _history_user_id(user, db)
     total_result = await db.execute(
-        select(func.count()).where(Alert.user_id == user.id, Alert.session_date == session_date)
+        select(func.count()).where(Alert.user_id == scope_uid, Alert.session_date == session_date)
     )
     total = total_result.scalar() or 0
 
     buy_result = await db.execute(
         select(func.count()).where(
-            Alert.user_id == user.id, Alert.session_date == session_date, Alert.direction == "BUY"
+            Alert.user_id == scope_uid, Alert.session_date == session_date, Alert.direction == "BUY"
         )
     )
     buys = buy_result.scalar() or 0
 
     sell_result = await db.execute(
         select(func.count()).where(
-            Alert.user_id == user.id,
+            Alert.user_id == scope_uid,
             Alert.session_date == session_date,
             Alert.direction.in_(["SELL", "SHORT"]),
         )
@@ -461,27 +500,27 @@ async def session_by_date(
 
     t1_result = await db.execute(
         select(func.count()).where(
-            Alert.user_id == user.id, Alert.session_date == session_date, Alert.alert_type == "target_1_hit"
+            Alert.user_id == scope_uid, Alert.session_date == session_date, Alert.alert_type == "target_1_hit"
         )
     )
     t1 = t1_result.scalar() or 0
 
     t2_result = await db.execute(
         select(func.count()).where(
-            Alert.user_id == user.id, Alert.session_date == session_date, Alert.alert_type == "target_2_hit"
+            Alert.user_id == scope_uid, Alert.session_date == session_date, Alert.alert_type == "target_2_hit"
         )
     )
     t2 = t2_result.scalar() or 0
 
     stop_result = await db.execute(
         select(func.count()).where(
-            Alert.user_id == user.id, Alert.session_date == session_date, Alert.alert_type == "stop_loss_hit"
+            Alert.user_id == scope_uid, Alert.session_date == session_date, Alert.alert_type == "stop_loss_hit"
         )
     )
     stops = stop_result.scalar() or 0
 
     active_result = await db.execute(
-        select(func.count()).where(ActiveEntry.user_id == user.id, ActiveEntry.status == "active")
+        select(func.count()).where(ActiveEntry.user_id == scope_uid, ActiveEntry.status == "active")
     )
     active = active_result.scalar() or 0
 
