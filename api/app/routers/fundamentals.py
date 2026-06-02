@@ -13,27 +13,42 @@ app.state.sync_session_factory (same pattern as the routers/intel.py data calls)
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
-from functools import partial
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.fundamentals import SymbolFundamentals
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
-def _run_sync(fn, *args, **kwargs):
-    loop = asyncio.get_running_loop()
-    return loop.run_in_executor(None, partial(fn, *args, **kwargs))
+def _sync_session_factory():
+    """Build a standalone sync engine + session factory from DATABASE_URL —
+    independent of app.state, so the on-demand refresh works regardless of
+    lifespan startup order (app.state.sync_session_factory is unset if the
+    scheduler startup block raised). Same pattern as the social-buzz refresh."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    url = get_settings().DATABASE_URL
+    if url.startswith("sqlite"):
+        url = url.replace("+aiosqlite", "")
+    else:
+        for suffix in ("+asyncpg", "+psycopg2", "+psycopg"):
+            url = url.replace(suffix, "")
+    engine = create_engine(url, pool_pre_ping=True)
+    return engine, sessionmaker(bind=engine)
 
 
 class FundamentalsItem(BaseModel):
@@ -134,18 +149,32 @@ async def watchlist_fundamentals(
 @router.post("/refresh")
 async def refresh_fundamentals(
     body: RefreshRequest,
-    request: Request,
     user: User = Depends(get_current_user),
 ):
     """Fetch + AI-generate + upsert. Single symbol (`symbol`) or whole
     watchlist (`all: true`). Runs off the event loop — the AI + network calls
     are blocking and can take several seconds.
+
+    Uses its OWN sync session factory (not app.state.sync_session_factory,
+    which is unset when the scheduler startup block raised — that previously
+    500'd this endpoint and left the Details tab perpetually un-fetched).
     """
-    session_factory = request.app.state.sync_session_factory
+    do_all = body.all or not body.symbol
+    symbol = body.symbol
 
-    if body.all or not body.symbol:
-        from analytics.fundamentals_refresh import refresh_all
-        return await _run_sync(refresh_all, session_factory)
+    def _run() -> dict:
+        engine, factory = _sync_session_factory()
+        try:
+            if do_all:
+                from analytics.fundamentals_refresh import refresh_all
+                return refresh_all(factory)
+            from analytics.fundamentals_refresh import refresh_one
+            return refresh_one(factory, symbol)
+        finally:
+            engine.dispose()
 
-    from analytics.fundamentals_refresh import refresh_one
-    return await _run_sync(refresh_one, session_factory, body.symbol)
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as e:  # surface the real cause instead of an opaque 500
+        logger.exception("Fundamentals refresh endpoint failed")
+        raise HTTPException(status_code=500, detail=f"refresh failed: {e}")
