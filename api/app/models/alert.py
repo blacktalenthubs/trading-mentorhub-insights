@@ -9,11 +9,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text as sa_text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,6 +24,21 @@ from app.database import Base
 
 class Alert(Base):
     __tablename__ = "alerts"
+    # Composite indexes added 2026-06-01 after public-access fan-out: the
+    # alerts table now grows ~N× faster (one row per user × signal) and
+    # the dominant query patterns are (user_id + session_date) for today /
+    # session views, (user_id + created_at desc) for /alerts/history, and
+    # (user_id + user_action) for the Took/Skipped performance views.
+    __table_args__ = (
+        Index("idx_alerts_user_session", "user_id", "session_date"),
+        Index("idx_alerts_user_created", "user_id", "created_at"),
+        Index(
+            "idx_alerts_user_action",
+            "user_id",
+            "user_action",
+            postgresql_where=sa_text("user_action IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
