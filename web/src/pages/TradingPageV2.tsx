@@ -53,6 +53,8 @@ import {
   ChevronUp,
   Menu,
   Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 /* ── Constants ──────────────────────────────────────────────────────── */
@@ -1547,6 +1549,21 @@ export default function TradingPageV2() {
                 </div>
               )}
             </div>
+
+            {/* Levels toggle — hide/show the auto lines (entry/stop/target + PDH/PDL/
+                S/R) for a clean chart. Your own drawn lines stay either way. */}
+            <button
+              onClick={toggleLevels}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors border ${
+                showLevels
+                  ? "bg-accent/15 text-accent border-accent/30"
+                  : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary"
+              }`}
+              title={showLevels ? "Hide auto levels (entry/stop/target, PDH/PDL, S/R)" : "Show auto levels"}
+            >
+              {showLevels ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+              <span className="hidden lg:inline">Levels</span>
+            </button>
 
             {/* Draw S/R level — click to arm, then click the chart to drop a line */}
             <button
