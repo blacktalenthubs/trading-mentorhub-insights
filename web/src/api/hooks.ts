@@ -407,6 +407,59 @@ export function useWeeklyReport(weekAnchor?: string) {
   });
 }
 
+// --- Strategy Analysis (real forward returns + AI keep/stop) ---
+
+export interface StrategyPattern {
+  alert_type: string;
+  label: string;
+  description: string | null;
+  n: number;
+  avg_ret_eod: number | null;
+  median_ret_eod: number | null;
+  win_eod_pct: number | null;
+  n_eow: number;
+  avg_ret_eow: number | null;
+  median_ret_eow: number | null;
+  win_eow_pct: number | null;
+  classification: "Swing" | "Day" | "Avoid";
+  confidence: "low" | "ok";
+  recommendation: "keep" | "stop" | "promote";
+  // AI's independent verdict (from the cached structured response) + whether it
+  // agrees with the rule engine's recommendation. null until AI has been run.
+  ai_recommendation: "keep" | "stop" | "promote" | null;
+  ai_classification: "Swing" | "Day" | "Avoid" | null;
+  agree: boolean | null;
+}
+
+export interface StrategyAnalysis {
+  lookback_days: number;
+  patterns: StrategyPattern[];
+  ai_summary: string | null;
+  agreement_pct: number | null;
+  generated_at: string | null;
+}
+
+export function useStrategyAnalysis(lookback = 90) {
+  return useQuery({
+    queryKey: ["performance-strategy", lookback],
+    queryFn: () => api.get<StrategyAnalysis>(`/performance/strategy-analysis?lookback=${lookback}`),
+    staleTime: 5 * 60_000,
+  });
+}
+
+// Regenerate the AI keep/stop/promote briefing (admin only). Invalidates the
+// query so the fresh narrative loads.
+export function useRefreshStrategyAnalysis() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lookback: number) =>
+      api.post<StrategyAnalysis>(`/performance/strategy-analysis/refresh?lookback=${lookback}`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["performance-strategy"] });
+    },
+  });
+}
+
 export function useSeedDefaultGroups() {
   const qc = useQueryClient();
   return useMutation({

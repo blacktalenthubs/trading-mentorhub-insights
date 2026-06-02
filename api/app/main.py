@@ -170,6 +170,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mfe_r REAL",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mae_r REAL",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS outcome_computed_at TIMESTAMP",
+            # Strategy Analysis — real close-to-close forward returns (EOD + EOW).
+            # Computed by analytics/forward_returns.py; baseline is the fire price.
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ret_eod_pct REAL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ret_eow_pct REAL",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS fwd_returns_computed_at TIMESTAMP",
             # Spec 62 — screener snapshot kind (in_play | swing)
             "ALTER TABLE screener_snapshot ADD COLUMN IF NOT EXISTS kind VARCHAR(16) DEFAULT 'in_play'",
             # iOS APNs push notifications (Capacitor mobile app) — 2026-05-26
@@ -581,6 +586,34 @@ async def lifespan(app: FastAPI):
                     replace_existing=True,
                 )
                 logger.info("Registered real-outcomes cron: 16:30 ET, Mon-Fri")
+
+            # Forward-returns backfill (Strategy Analysis) — runs at 4:45 PM ET
+            # Mon-Fri, just after the real-outcomes job. Computes the REAL
+            # close-to-close forward return (EOD + end-of-week) per long alert,
+            # the truthful signal for which patterns to keep/stop. Each run
+            # fills today's EOD and backfills any now-matured EOW from the prior
+            # week. Set FORWARD_RETURNS_ENABLED=0 in Railway to disable.
+            if os.environ.get("FORWARD_RETURNS_ENABLED", "true").lower() not in ("0", "false", "no"):
+                from apscheduler.triggers.cron import CronTrigger as _CT_FWD
+                import pytz as _pytz_fwd
+                _et_fwd = _pytz_fwd.timezone("America/New_York")
+
+                def _forward_returns_eod():
+                    try:
+                        from analytics.forward_returns import compute_forward_returns
+                        summary = compute_forward_returns(sync_session_factory)
+                        logger.info("Forward returns EOD: %s", summary)
+                    except Exception:
+                        logger.exception("Forward returns EOD failed")
+
+                scheduler.add_job(
+                    _forward_returns_eod,
+                    _CT_FWD(day_of_week="mon-fri", hour=16, minute=45, timezone=_et_fwd),
+                    id="forward_returns_eod",
+                    misfire_grace_time=600,
+                    replace_existing=True,
+                )
+                logger.info("Registered forward-returns cron: 16:45 ET, Mon-Fri")
 
             # AI Friday Retrospective (Feature 5 of the spec 61 follow-up).
             # Reads the week's alerts + real outcomes (Feature 2 must have run
