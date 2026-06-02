@@ -1759,10 +1759,7 @@ export default function TradingPageV2() {
                 bars[bars.length - 1] = last;
                 return bars;
               })()}
-              entry={showLevels ? (selected.entry ?? undefined) : undefined}
-              stop={showLevels ? (selected.stop ?? undefined) : undefined}
-              target={showLevels ? (selected.target_1 ?? undefined) : undefined}
-              direction={(selected.direction === "SHORT" ? "SHORT" : "LONG")}
+              showTradePanel={false}
               levels={showLevels ? chartLevels : []}
               userLevels={userLevels ?? []}
               drawMode={drawMode}
