@@ -1613,6 +1613,8 @@ export default function TradingPageV2() {
               )}
             </div>
 
+            <span className="w-px h-4 bg-border-subtle/70 mx-0.5 shrink-0" />
+
             {/* MAs toggle — hide/show ALL EMAs/SMAs/VWAP at once (keeps your
                 selection so you can flip back to the same set). */}
             <button
@@ -1642,6 +1644,8 @@ export default function TradingPageV2() {
               {showLevels ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
               <span className="hidden lg:inline">Levels</span>
             </button>
+
+            <span className="w-px h-4 bg-border-subtle/70 mx-0.5 shrink-0" />
 
             {/* Draw S/R level — click to arm, then click the chart to drop a line */}
             <button
@@ -1762,6 +1766,8 @@ export default function TradingPageV2() {
                 </div>
               )}
             </div>
+
+            <span className="w-px h-4 bg-border-subtle/70 mx-0.5 shrink-0" />
 
             {/* Right panel toggle (desktop) */}
             <button
