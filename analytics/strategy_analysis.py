@@ -32,11 +32,12 @@ PROMOTE_WIN_PCT = 60.0   # win-rate floor to recommend "promote"
 
 def classify_pattern(avg_eod: Optional[float], win_eod: Optional[float],
                      avg_eow: Optional[float], win_eow: Optional[float],
-                     n: int, n_eow: int) -> dict:
+                     n: int, n_eow: int, min_sample: int = MIN_SAMPLE) -> dict:
     """Deterministic Swing / Day / Avoid label + confidence + keep/stop/promote.
 
     Inputs are per-pattern averages (percent) and win-rates (percent). avg_eow
-    / win_eow may be None when no EOW horizon has matured yet.
+    / win_eow may be None when no EOW horizon has matured yet. `min_sample` is
+    the confidence floor — lower it for short windows (e.g. the daily view).
     """
     ae = avg_eod if avg_eod is not None else 0.0
     aw = avg_eow
@@ -53,7 +54,7 @@ def classify_pattern(avg_eod: Optional[float], win_eod: Optional[float],
         label = "Day" if ae > 0 else "Avoid"
 
     # Confidence.
-    low = n < MIN_SAMPLE or (label == "Swing" and n_eow < MIN_SAMPLE)
+    low = n < min_sample or (label == "Swing" and n_eow < min_sample)
     confidence = "low" if low else "ok"
 
     # Recommendation.
@@ -102,7 +103,7 @@ def aggregate_patterns(rows: list[dict], label_map: Optional[dict] = None,
             continue
         avg_eod, med_eod, win_eod = _stats(b["eod"])
         avg_eow, med_eow, win_eow = _stats(b["eow"])
-        cls = classify_pattern(avg_eod, win_eod, avg_eow, win_eow, n, n_eow)
+        cls = classify_pattern(avg_eod, win_eod, avg_eow, win_eow, n, n_eow, min_sample=min_sample)
         patterns.append({
             "alert_type": at,
             "label": label_map.get(at, at),
