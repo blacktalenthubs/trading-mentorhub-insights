@@ -4,12 +4,16 @@ import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "../stores/auth";
 
 /**
- * On native iOS/Android the app runs from a local file:// origin so relative
- * URLs don't work — we need the full backend URL.  On web (dev / production)
- * we keep the relative path so the Vite proxy / reverse-proxy still works.
+ * The native iOS/Android app loads the live site over https via capacitor.config
+ * `server.url` (www.busytradersdesk.com), so the WebView origin is a real https
+ * origin — relative "/api" URLs resolve to that backend exactly like the web
+ * build. We use relative URLs everywhere; VITE_API_URL only overrides for
+ * local-device dev (point at a LAN IP). The previous hardcoded
+ * https://api.aicopilottrader.com host is dead post-rebrand and 500'd/refused
+ * every mobile API call ("failed to load" on every page).
  */
 const API_HOST = Capacitor.isNativePlatform()
-  ? String(import.meta.env.VITE_API_URL || "https://api.aicopilottrader.com")
+  ? String(import.meta.env.VITE_API_URL || "")
   : "";
 
 const BASE_URL = `${API_HOST}/api/v1`;
