@@ -5,8 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { useAuthStore } from "../stores/auth";
 import { useFeatureGate } from "./useFeatureGate";
 
+// Native loads from the live https origin (capacitor server.url), so relative
+// URLs resolve correctly. VITE_API_URL only overrides for local-device dev.
+// (The old hardcoded api.aicopilottrader.com host is dead post-rebrand.)
 const API_HOST = Capacitor.isNativePlatform()
-  ? String(import.meta.env.VITE_API_URL || "https://api.aicopilottrader.com")
+  ? String(import.meta.env.VITE_API_URL || "")
   : "";
 
 export interface AlertEvent {
