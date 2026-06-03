@@ -96,6 +96,11 @@ export interface SocialBuzzEntry {
   st_watchers?: number;
   rank: number;
   has_grade_a_today: boolean;
+  // Social value-adds (computed at refresh, read-only).
+  earnings_in_days?: number | null;   // days to next earnings; UI gates on 0..7
+  earnings_date?: string | null;      // YYYY-MM-DD
+  accelerating?: boolean;             // mentions rising across recent snapshots
+  mentions_history?: number[];        // oldest→newest, last ~6 readings (sparkline)
 }
 
 export interface SocialBuzzResponse {
@@ -595,6 +600,20 @@ export function useAddSymbol() {
       toast.error("Failed to add symbol");
     },
     onSuccess: (_data, symbol) => toast.success(`${symbol} added`),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
+  });
+}
+
+// Add a symbol into a specific watchlist group (e.g. the "Trending" group used
+// by the Social feed). Backend POST /watchlist already accepts group_id and
+// validates group ownership.
+export function useAddSymbolToGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ symbol, groupId }: { symbol: string; groupId: number }) =>
+      api.post<WatchlistItem>("/watchlist", { symbol, group_id: groupId }),
+    onSuccess: (_d, v) => toast.success(`${v.symbol} added to Trending`),
+    onError: () => toast.error("Failed to add symbol"),
     onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
   });
 }

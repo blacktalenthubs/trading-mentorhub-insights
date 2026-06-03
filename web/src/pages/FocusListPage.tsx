@@ -5,11 +5,11 @@
  *  tab subviews. Old route /focus-list redirects to /trade-ideas in App.tsx.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, Target, History, Sparkles, Crosshair, Flame,
-  ChevronDown, ChevronUp, ChevronRight, MessageSquare,
+  ChevronDown, ChevronUp, ChevronRight, MessageSquare, Plus, Check, Zap, CalendarClock,
 } from "lucide-react";
 import {
   useAlertsToday,
@@ -22,6 +22,10 @@ import {
   useRefreshSocialBuzz,
   useSocialBuzzContext,
   useMe,
+  useWatchlist,
+  useWatchlistGroups,
+  useCreateGroup,
+  useAddSymbolToGroup,
   type FocusListHistoryItem,
   type SocialBuzzEntry,
 } from "../api/hooks";
@@ -403,8 +407,31 @@ function SocialBuzzTab() {
   const { data, isLoading, error } = useSocialBuzz(runId);
   const history = useSocialBuzzHistory();
   const refresh = useRefreshSocialBuzz();
+  const { data: watchlist } = useWatchlist();
+  const groups = useWatchlistGroups();
+  const createGroup = useCreateGroup();
+  const addToGroup = useAddSymbolToGroup();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SocialSortKey; dir: "asc" | "desc" }>({ key: "mentions", dir: "desc" });
+
+  const watchSet = useMemo(
+    () => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())),
+    [watchlist],
+  );
+
+  // Add a trending ticker into a dedicated "Trending" watchlist group, creating
+  // the group on first use so social adds stay separate from curated names.
+  async function addTrending(symbol: string) {
+    let g = groups.data?.find((x) => x.name === "Trending");
+    if (!g) {
+      try {
+        g = await createGroup.mutateAsync({ name: "Trending", color: "#f78166" });
+      } catch {
+        return; // creation failed (toast shown by the hook); bail this click
+      }
+    }
+    addToGroup.mutate({ symbol, groupId: g.id });
+  }
 
   function toggleExpand(symbol: string) {
     setExpanded((cur) => (cur === symbol ? null : symbol));
@@ -444,6 +471,7 @@ function SocialBuzzTab() {
     if (typeof av === "string" || typeof bv === "string") return String(av).localeCompare(String(bv)) * dir;
     return (av - bv) * dir;
   });
+  const trendingOwned = entries.filter((e) => watchSet.has(e.symbol.toUpperCase()));
   if (entries.length === 0) {
     return (
       <EmptyState
@@ -462,9 +490,16 @@ function SocialBuzzTab() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-faint">
-        <span>
-          {entries.length} tickers · tap a column to sort · sources: Apewisdom + StockTwits
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span>
+            {entries.length} tickers · tap a column to sort · sources: Apewisdom + StockTwits
+          </span>
+          {trendingOwned.length > 0 && (
+            <span className="text-accent">
+              ⭐ {trendingOwned.length} of your watchlist {trendingOwned.length === 1 ? "name is" : "names are"} trending today
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           {history.data && history.data.runs.length > 1 && (
             <div className="flex items-center gap-1.5">
@@ -507,7 +542,8 @@ function SocialBuzzTab() {
           <SocialTh label="Mentions" k="mentions" sort={sort} onSort={toggleSort} align="right" className="col-span-2" />
           <SocialTh label="Δ24h" k="growth" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="Change in mentions vs 24h ago — new attention" />
           <SocialTh label="Sentiment" k="sentiment" sort={sort} onSort={toggleSort} align="center" className="col-span-2" title="StockTwits bull/bear lean from recent tagged posts" />
-          <SocialTh label="Grade A" k="confluence" sort={sort} onSort={toggleSort} align="right" className="col-span-2" title="🔥 = this buzz ticker ALSO fired a Grade-A alert in our scanner today" />
+          <SocialTh label="🔥" k="confluence" sort={sort} onSort={toggleSort} align="right" className="col-span-1" title="🔥 = this buzz ticker ALSO fired a Grade-A alert in our scanner today" />
+          <span className="col-span-1 text-right">Add</span>
         </div>
         {sortedEntries.map((e, i) => (
           <SocialBuzzRow
@@ -515,8 +551,11 @@ function SocialBuzzTab() {
             entry={e}
             rank={i + 1}
             expanded={expanded === e.symbol}
+            owned={watchSet.has(e.symbol.toUpperCase())}
+            adding={addToGroup.isPending}
             onToggleExpand={() => toggleExpand(e.symbol)}
             onOpenChart={() => navigate(`/trading?symbol=${encodeURIComponent(e.symbol)}`)}
+            onAdd={() => addTrending(e.symbol)}
           />
         ))}
       </div>
@@ -571,14 +610,39 @@ function SocialTh({ label, k, sort, onSort, align, className, title }: {
   );
 }
 
+/* Tiny inline sparkline of recent mention counts (oldest→newest). */
+function MentionsSparkline({ data }: { data?: number[] }) {
+  if (!data || data.length < 2) return null;
+  const w = 38, h = 12;
+  const max = Math.max(...data), min = Math.min(...data);
+  const span = max - min || 1;
+  const pts = data
+    .map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / span) * h}`)
+    .join(" ");
+  return (
+    <svg width={w} height={h} className="text-accent/70" aria-hidden="true">
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function earningsLabel(days: number): string {
+  if (days <= 0) return "ER today";
+  if (days === 1) return "ER 1d";
+  return `ER ${days}d`;
+}
+
 function SocialBuzzRow({
-  entry: e, rank, expanded, onToggleExpand, onOpenChart,
+  entry: e, rank, expanded, owned, adding, onToggleExpand, onOpenChart, onAdd,
 }: {
   entry: SocialBuzzEntry;
   rank: number;
   expanded: boolean;
+  owned: boolean;
+  adding: boolean;
   onToggleExpand: () => void;
   onOpenChart: () => void;
+  onAdd: () => void;
 }) {
   const growth = e.growth_pct;
   const growthCls = growth == null ? "text-text-faint"
@@ -588,8 +652,10 @@ function SocialBuzzRow({
     : growth < 0 ? "text-bearish-text/80"
     : "text-text-faint";
 
+  const erSoon = e.earnings_in_days != null && e.earnings_in_days >= 0 && e.earnings_in_days <= 7;
+
   return (
-    <div className={`border-b border-border-subtle/30 last:border-b-0 ${e.has_grade_a_today ? "bg-bullish/5" : ""}`}>
+    <div className={`border-b border-border-subtle/30 last:border-b-0 ${owned ? "border-l-2 border-l-accent" : ""} ${e.has_grade_a_today ? "bg-bullish/5" : ""}`}>
       {/* Row */}
       <div className="grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-xs hover:bg-surface-3/40 transition-colors">
         <button
@@ -600,20 +666,32 @@ function SocialBuzzRow({
           {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           <span className="font-mono">{rank}</span>
         </button>
-        <button
-          onClick={onOpenChart}
-          className="col-span-3 text-left"
-          title={`Open chart for ${e.symbol}`}
-        >
-          <span className="font-semibold text-text-primary">{e.symbol}</span>
-          {e.name && (
-            <span className="block text-[10px] text-text-faint truncate mt-0.5">
-              {e.name}
-            </span>
+        {/* Symbol cell — chart on click + value-add badges underneath */}
+        <div className="col-span-3 min-w-0">
+          <button onClick={onOpenChart} className="text-left w-full" title={`Open chart for ${e.symbol}`}>
+            <span className="font-semibold text-text-primary">{e.symbol}</span>
+            {e.name && (
+              <span className="block text-[10px] text-text-faint truncate mt-0.5">{e.name}</span>
+            )}
+          </button>
+          {(e.accelerating || erSoon) && (
+            <div className="flex flex-wrap items-center gap-1 mt-1">
+              {e.accelerating && (
+                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-accent bg-accent/10 px-1 py-0.5 rounded" title="Mentions accelerating across recent snapshots">
+                  <Zap className="h-2.5 w-2.5" /> rising
+                </span>
+              )}
+              {erSoon && (
+                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-amber-400 bg-amber-400/10 px-1 py-0.5 rounded" title={`Earnings ${e.earnings_date ?? "soon"}`}>
+                  <CalendarClock className="h-2.5 w-2.5" /> {earningsLabel(e.earnings_in_days!)}
+                </span>
+              )}
+            </div>
           )}
-        </button>
-        <span className="col-span-2 text-right font-mono text-text-secondary">
+        </div>
+        <span className="col-span-2 flex flex-col items-end font-mono text-text-secondary">
           {e.mentions.toLocaleString()}
+          <MentionsSparkline data={e.mentions_history} />
         </span>
         <span className={`col-span-2 text-right font-mono ${growthCls}`}>
           {growth == null ? "—" : `${growth >= 0 ? "+" : ""}${growth.toFixed(0)}%`}
@@ -634,16 +712,23 @@ function SocialBuzzRow({
             <span className="text-[10px] text-text-faint">—</span>
           )}
         </span>
-        <span className="col-span-2 text-right">
-          {e.has_grade_a_today ? (
-            <span
-              className="inline-flex items-center gap-1 text-[10px] font-bold text-bullish-text bg-bullish/15 px-1.5 py-0.5 rounded"
-              title="Also fired a Grade A alert in our scanner today"
-            >
-              🔥 Grade A
+        <span className="col-span-1 text-right" title={e.has_grade_a_today ? "Also fired a Grade A alert today" : ""}>
+          {e.has_grade_a_today ? "🔥" : <span className="text-[10px] text-text-faint">—</span>}
+        </span>
+        <span className="col-span-1 flex justify-end">
+          {owned ? (
+            <span className="inline-flex items-center text-bullish-text" title="On your watchlist">
+              <Check className="h-3.5 w-3.5" />
             </span>
           ) : (
-            <span className="text-[10px] text-text-faint">—</span>
+            <button
+              onClick={onAdd}
+              disabled={adding}
+              className="p-1 rounded text-accent hover:bg-accent/10 disabled:opacity-50 active:scale-95"
+              title={`Add ${e.symbol} to your Trending watchlist group`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           )}
         </span>
       </div>
