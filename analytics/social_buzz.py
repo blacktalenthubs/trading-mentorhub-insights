@@ -25,6 +25,10 @@ from typing import Optional
 import requests
 from sqlalchemy import desc, select, text
 
+from analytics.social_trend import (
+    N_HISTORY, earnings_in_days, is_accelerating, mentions_series,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +333,42 @@ def refresh_social_buzz(session_factory) -> dict:
         summary["after_filter"] = len(top)
         summary["with_grade_a"] = sum(1 for e in top if e["has_grade_a_today"])
         summary["with_sentiment"] = sum(1 for e in top if e.get("sentiment"))
+
+        # --- Social value-adds: earnings cross-ref + buzz-trend enrichment ---
+        # Both batched: one earnings IN-query, one prior-snapshots read. Results
+        # ride through the entries JSON, so the read path needs no schema change.
+        from app.models.earnings import Earnings
+
+        today = date.today()
+        top_symbols = [e["symbol"] for e in top]
+        ern_rows = session.execute(
+            select(Earnings.symbol, Earnings.next_earnings_date).where(
+                Earnings.symbol.in_(top_symbols),
+                Earnings.next_earnings_date.isnot(None),
+            )
+        ).all()
+        ern_by_sym = {r[0].upper(): r[1] for r in ern_rows}
+
+        # Prior snapshots (newest-first) for the mentions sparkline + accel flag.
+        prior = session.execute(
+            select(SocialBuzzSnapshot.entries)
+            .order_by(desc(SocialBuzzSnapshot.captured_at))
+            .limit(N_HISTORY)
+        ).scalars().all()
+
+        for e in top:
+            ed = ern_by_sym.get(e["symbol"].upper())
+            e["earnings_date"] = ed.isoformat() if ed is not None else None
+            e["earnings_in_days"] = earnings_in_days(ed, today)
+            series = mentions_series(e["symbol"], prior, e["mentions"])
+            e["mentions_history"] = series[-N_HISTORY:]
+            e["accelerating"] = is_accelerating(series)
+
+        summary["accelerating"] = sum(1 for e in top if e.get("accelerating"))
+        summary["with_earnings_soon"] = sum(
+            1 for e in top
+            if e.get("earnings_in_days") is not None and 0 <= e["earnings_in_days"] <= 7
+        )
 
         # Persist as a new snapshot row (7-day history retained).
         snap = SocialBuzzSnapshot(

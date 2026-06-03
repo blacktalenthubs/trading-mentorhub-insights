@@ -1092,6 +1092,26 @@ async def lifespan(app: FastAPI):
                     _social_grade_a_check, "interval", minutes=5,
                     id="social_grade_a_check", replace_existing=True,
                 )
+
+                # Per-user watchlist-buzz push — hourly (the snapshot only
+                # changes hourly). Pings a user when one of THEIR watchlist
+                # names enters the trending list or spikes in mentions. Deduped
+                # per (user, symbol, day). Set WATCHLIST_BUZZ_ALERTS_ENABLED=0
+                # to disable.
+                if os.environ.get("WATCHLIST_BUZZ_ALERTS_ENABLED", "true").lower() not in ("0", "false", "no"):
+                    def _watchlist_buzz_check():
+                        try:
+                            from analytics.social_watchlist_alert import check_watchlist_buzz
+                            summary = check_watchlist_buzz(sync_session_factory)
+                            logger.info("Watchlist buzz check: %s", summary)
+                        except Exception:
+                            logger.exception("Watchlist buzz check failed")
+
+                    scheduler.add_job(
+                        _watchlist_buzz_check, "interval", minutes=60,
+                        id="watchlist_buzz_check", replace_existing=True,
+                    )
+
                 # Weekly cleanup of stale snapshots.
                 scheduler.add_job(
                     _social_buzz_cleanup, "cron", day_of_week="sun", hour=3, minute=0,
