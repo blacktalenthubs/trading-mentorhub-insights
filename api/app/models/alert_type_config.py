@@ -67,6 +67,13 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
     ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly", False),
 
+    # Proximity bounce (2026-06-02) — sometimes price defends a prior low
+    # without actually touching it (HOOD held $88.67 vs PDL $87.45 = 1.4%
+    # above). Default-disabled until proven; runs alongside _held so the
+    # founder can compare which fires more reliably over a few weeks.
+    ("staged_pdl_proximity", "PDL proximity bounce", "Daily PDH/PDL", False),
+    ("staged_pwl_proximity", "PWL proximity bounce", "Weekly", False),
+
     # Buy 2 — Prior-low reclaim (existing — lost-and-recovered)
     # Monthly (staged_pml_reclaim) removed 2026-06-01 — visual only.
     ("staged_pdl_reclaim", "PDL reclaim", "Daily PDH/PDL", False),
@@ -127,6 +134,10 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Wick-rejected breakdown of a prior low.
     "staged_pdl_held": "Stock dipped below yesterday's low briefly then closed back above — wick-rejected breakdown.",
     "staged_pwl_held": "Stock dipped below last week's low briefly then closed back above — wick-rejected weekly breakdown.",
+
+    # Proximity bounce — level held as support without actually touching.
+    "staged_pdl_proximity": "Stock pulled back near yesterday's low without touching it, then closed green — buyers stepped in before the level was tested.",
+    "staged_pwl_proximity": "Stock pulled back near last week's low without touching it, then closed green — weekly support defended without a test.",
 
     # Reclaim — lost a prior low then recovered it on a bullish bar.
     "staged_pdl_reclaim": "Stock lost yesterday's low then recovered it on a bullish bar — failed breakdown long.",

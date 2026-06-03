@@ -232,6 +232,18 @@ s58_pdl_held = not na(pdl) and not na(close[1]) and close[1] > pdl and low <= pd
 s58_pwl_held = not na(pwl) and not na(close[1]) and close[1] > pwl and low <= pwl and close >= pwl
 s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pml and close >= pml
 
+// Proximity bounce — fires when price comes NEAR the prior low without
+// actually touching it, then closes green. HOOD 2026-06-02 example: PDL
+// $87.45, bar low $88.67 (1.4% above) — never touched the level but the
+// market clearly respected it. Strict held alerts miss this. Tolerance
+// default 1.5% — tunable, errs wider since "near support that holds" is
+// a real intraday pattern. Bar must close above where it opened to confirm
+// the bounce, otherwise this is just "near a level and falling" which is
+// not a setup.
+proximity_pct = input.float(1.5, "Proximity bounce: % above prior low to qualify as 'near support'", minval=0.25, maxval=3.0, step=0.25, group="Proximity")
+s58_pdl_prox = not na(pdl) and not na(close[1]) and close[1] > pdl and low > pdl and low <= pdl * (1.0 + proximity_pct / 100.0) and close > open
+s58_pwl_prox = not na(pwl) and not na(close[1]) and close[1] > pwl and low > pwl and low <= pwl * (1.0 + proximity_pct / 100.0) and close > open
+
 // Spec 60 — v2 quality gates on *_held rules. Three layered structural
 // checks applied to every held rule's firing condition below:
 //   1. Close buffer ≥ 25 bps above the level — kills the "price oscillating
@@ -1198,6 +1210,24 @@ if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
     t1_pwl_h = not na(pdh) and pdh > e_pwl_h ? pdh : (not na(pwh) and pwh > e_pwl_h ? pwh : e_pwl_h * 1.02)
     t2_pwl_h = not na(pwh) and pwh > t1_pwl_h ? pwh : (not na(pmh) and pmh > t1_pwl_h ? pmh : t2_extend_long(e_pwl_h, t1_pwl_h))
     alert(build_payload_v2("staged_pwl_held", "BUY", e_pwl_h, s_pwl_h, t1_pwl_h, t2_pwl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// 2026-06-02 — Proximity bounce alerts. HOOD pattern: price holds well
+// above PDL but the level still acts as support. Entry = current close
+// (since the level wasn't actually touched), stop = bar low − atr_buffer
+// (tighter than the level itself), targets stack to next overhead PDH/PWH.
+if s58_pdl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pdl_p  = close
+    s_pdl_p  = low - atr_buffer
+    t1_pdl_p = not na(pdh) and pdh > e_pdl_p ? pdh : (not na(pwh) and pwh > e_pdl_p ? pwh : e_pdl_p * 1.015)
+    t2_pdl_p = not na(pwh) and pwh > t1_pdl_p ? pwh : (not na(pmh) and pmh > t1_pdl_p ? pmh : t2_extend_long(e_pdl_p, t1_pdl_p))
+    alert(build_payload_v2("staged_pdl_proximity", "BUY", e_pdl_p, s_pdl_p, t1_pdl_p, t2_pdl_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pwl_p  = close
+    s_pwl_p  = low - atr_buffer
+    t1_pwl_p = not na(pdh) and pdh > e_pwl_p ? pdh : (not na(pwh) and pwh > e_pwl_p ? pwh : e_pwl_p * 1.02)
+    t2_pwl_p = not na(pwh) and pwh > t1_pwl_p ? pwh : (not na(pmh) and pmh > t1_pwl_p ? pmh : t2_extend_long(e_pwl_p, t1_pwl_p))
+    alert(build_payload_v2("staged_pwl_proximity", "BUY", e_pwl_p, s_pwl_p, t1_pwl_p, t2_pwl_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // 2026-06-01 — staged_pml_held DISABLED. PML stays drawn on chart as visual.
 // if s58_pml_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)

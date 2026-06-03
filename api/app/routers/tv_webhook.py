@@ -561,6 +561,10 @@ def _volume_floor(alert_type_full: str) -> float:
     # IS the risk control (FR-018).
     if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
         return _envf("V2_VOL_FLOOR_LOW_HELD", 0.8)
+    # Proximity bounce — same family as low_held. Buyers stepped in BEFORE
+    # the level test, so volume can be modest. Loose floor; let grade label it.
+    if name in ("staged_pdl_proximity", "staged_pwl_proximity"):
+        return _envf("V2_VOL_FLOOR_LOW_PROX", 0.3)
     # Support recovery (PDL/PWL/PML reclaim) — LOOSENED 2026-06-01 per
     # founder request: at support, both volume and VWAP slope can be weak
     # (the nature of a quiet bounce). Previously 1.0× floor was dropping
@@ -598,6 +602,10 @@ def _slope_min(alert_type_full: str) -> Optional[float]:
     # just not freefall). (FR-018)
     if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
         return _envf("V2_SLOPE_MIN_LOW_HELD", -0.5)
+    # Proximity bounce — slope can be very negative since the bounce starts
+    # near the bottom of the pullback (VWAP hasn't turned yet).
+    if name in ("staged_pdl_proximity", "staged_pwl_proximity"):
+        return _envf("V2_SLOPE_MIN_LOW_PROX", -1.0)
     # Support recovery — LOOSENED 2026-06-01 per founder request. At
     # support, slope often weak even on legitimate bounces (buyers just
     # stepping in, momentum hasn't built yet). Previous -0.3 floor was
@@ -1668,6 +1676,8 @@ _LEVEL_ALERT_TYPES_FOR_PRICE_BAND = {
     "tv_staged_pmh_break",
     "tv_staged_pmh_reclaim",
     "tv_staged_pml_reclaim",
+    "tv_staged_pdl_proximity",
+    "tv_staged_pwl_proximity",
 }
 
 
