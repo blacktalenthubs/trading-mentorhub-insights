@@ -107,3 +107,19 @@ class TestAttachAiVerdicts:
         patterns = self._patterns()
         assert attach_ai_verdicts(patterns, {}) is None
         assert all(p["ai_recommendation"] is None for p in patterns)
+
+
+class TestMinSampleParam:
+    def test_low_min_sample_marks_small_pattern_ok(self):
+        # 4 fires with a low daily min_sample (3) → confidence "ok", not "low".
+        rows = [{"alert_type": "p", "ret_eod_pct": v, "ret_eow_pct": None}
+                for v in (1.0, 1.2, 0.8, 1.1)]
+        out = aggregate_patterns(rows, min_sample=3)
+        assert out[0]["n"] == 4
+        assert out[0]["confidence"] == "ok"
+
+    def test_default_min_sample_flags_same_pattern_low(self):
+        rows = [{"alert_type": "p", "ret_eod_pct": v, "ret_eow_pct": None}
+                for v in (1.0, 1.2, 0.8, 1.1)]
+        out = aggregate_patterns(rows)  # default MIN_SAMPLE=8
+        assert out[0]["confidence"] == "low"
