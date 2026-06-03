@@ -283,6 +283,44 @@ async def get_watchlist(
     return result.scalars().all()
 
 
+@router.post("/focus/{symbol}", response_model=WatchlistItemResponse)
+async def toggle_focus(
+    symbol: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle the focus flag on a watchlist item (today's focus list).
+
+    Visual-only filter — alert routing is unaffected. Symbol is normalized
+    to uppercase, must already exist on the user's watchlist.
+    """
+    sym = symbol.upper().strip()
+    item = (await db.execute(
+        select(WatchlistItem).where(
+            WatchlistItem.user_id == user.id,
+            WatchlistItem.symbol == sym,
+        )
+    )).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Symbol not on watchlist")
+    item.focus = not item.focus
+    await db.flush()
+    return item
+
+
+@router.post("/focus/clear", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_focus(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear every focus flag for the caller. Used by the 'Reset focus' button."""
+    await db.execute(
+        update(WatchlistItem)
+        .where(WatchlistItem.user_id == user.id, WatchlistItem.focus.is_(True))
+        .values(focus=False)
+    )
+
+
 @router.post("", response_model=WatchlistItemResponse, status_code=status.HTTP_201_CREATED)
 async def add_symbol(
     body: AddSymbolRequest,

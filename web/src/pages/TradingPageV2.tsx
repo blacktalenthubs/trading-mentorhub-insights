@@ -21,6 +21,8 @@ import {
   useAddSymbol,
   useCopySectorsWatchlist,
   useRemoveSymbol,
+  useToggleWatchlistFocus,
+  useClearWatchlistFocus,
   useLivePrices,
   useWatchlistRank,
   useChartLevels,
@@ -190,6 +192,8 @@ function CompactWatchlistRow({
   selected,
   onClick,
   onRemove,
+  onToggleFocus,
+  focused,
   livePrice,
   rankItem,
   collapsed,
@@ -198,6 +202,8 @@ function CompactWatchlistRow({
   selected: boolean;
   onClick: () => void;
   onRemove?: () => void;
+  onToggleFocus?: () => void;
+  focused?: boolean;
   livePrice?: { price: number; change_pct: number };
   rankItem?: WatchlistRankItem;
   collapsed: boolean;
@@ -235,6 +241,23 @@ function CompactWatchlistRow({
           : "border-l-2 border-transparent hover:bg-surface-2/60"
       }`}
     >
+      {/* Focus star — always visible if focused, else on hover. Tap-target
+          sized at 18×18 so it doesn't fight the row click. */}
+      {onToggleFocus && (focused || hovered) && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleFocus(); }}
+          className={`shrink-0 mr-1 p-0.5 transition-colors ${
+            focused
+              ? "text-amber-400 hover:text-amber-300"
+              : "text-text-faint hover:text-amber-400"
+          }`}
+          title={focused ? "Remove from today's focus" : "Add to today's focus"}
+        >
+          <svg className="h-3 w-3" fill={focused ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+          </svg>
+        </button>
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="text-[12px] font-bold text-text-primary leading-tight truncate">
@@ -949,10 +972,28 @@ export default function TradingPageV2() {
   const { data: watchlistItems } = useWatchlist();
   const addSymbol = useAddSymbol();
   const _removeSymbol = useRemoveSymbol(); void _removeSymbol;
+  const toggleFocusMut = useToggleWatchlistFocus();
+  const clearFocusMut = useClearWatchlistFocus();
   const watchlistSymbols = new Set(watchlistItems?.map((w) => w.symbol) ?? []);
+  const focusSymbols = new Set(
+    (watchlistItems ?? []).filter((w) => w.focus).map((w) => w.symbol),
+  );
   const { data: rankItems } = useWatchlistRank();
   const rankMap = new Map<string, WatchlistRankItem>();
   rankItems?.forEach((r) => rankMap.set(r.symbol, r));
+
+  // Focus filter — visual-only toggle for the sidebar. Persists in localStorage.
+  // Default OFF so the full list shows; user explicitly opts in to focus view.
+  const [focusOnly, setFocusOnly] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("watchlist_focus_only") === "1";
+  });
+  function toggleFocusOnly() {
+    setFocusOnly((v) => {
+      try { localStorage.setItem("watchlist_focus_only", v ? "0" : "1"); } catch {}
+      return !v;
+    });
+  }
 
   /* ── Editor's Picks (admin's public watchlist) ── */
   const { data: sectorsItems } = useSectorsWatchlist();
@@ -1120,6 +1161,7 @@ export default function TradingPageV2() {
     ?.filter(
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
+    ?.filter((s) => !focusOnly || focusSymbols.has(s.symbol))
     // User-chosen sort (persisted). %change/price pull from live prices.
     ?.slice()
     .sort((a, b) => {
@@ -1211,6 +1253,47 @@ export default function TradingPageV2() {
           </div>
         </div>
 
+        {/* Focus filter chip — visual-only filter for today's focus list */}
+        {!watchlistCollapsed && (
+          <div className="px-2 py-1.5 border-b border-border-subtle shrink-0 flex items-center gap-1">
+            <button
+              onClick={toggleFocusOnly}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
+                !focusOnly
+                  ? "bg-accent/15 text-accent border-accent/40"
+                  : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
+              }`}
+              title="Show every watchlist symbol"
+            >
+              All <span className="opacity-70 font-normal">{watchlistItems?.length ?? 0}</span>
+            </button>
+            <button
+              onClick={toggleFocusOnly}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
+                focusOnly
+                  ? "bg-amber-400/15 text-amber-400 border-amber-400/40"
+                  : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
+              }`}
+              title="Show today's focus only (visual filter — alerts still fire on every symbol)"
+            >
+              <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+              Focus <span className="opacity-70 font-normal">{focusSymbols.size}</span>
+            </button>
+            {focusSymbols.size > 0 && (
+              <button
+                onClick={() => clearFocusMut.mutate()}
+                disabled={clearFocusMut.isPending}
+                className="ml-auto text-[9px] text-text-faint hover:text-text-secondary disabled:opacity-30"
+                title="Clear all focus stars"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Search (only when expanded) */}
         {!watchlistCollapsed && (
           <div className="px-2 py-1.5 border-b border-border-subtle shrink-0">
@@ -1279,6 +1362,8 @@ export default function TradingPageV2() {
               selected={selectedSymbol === s.symbol}
               onClick={() => selectSymbol(s.symbol)}
               onRemove={() => _removeSymbol.mutate(s.symbol)}
+              onToggleFocus={() => toggleFocusMut.mutate(s.symbol)}
+              focused={focusSymbols.has(s.symbol)}
               livePrice={livePrices[s.symbol]}
               rankItem={rankMap.get(s.symbol)}
               collapsed={watchlistCollapsed}
