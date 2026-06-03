@@ -96,6 +96,11 @@ export interface SocialBuzzEntry {
   st_watchers?: number;
   rank: number;
   has_grade_a_today: boolean;
+  // Social value-adds (computed at refresh, read-only).
+  earnings_in_days?: number | null;   // days to next earnings; UI gates on 0..7
+  earnings_date?: string | null;      // YYYY-MM-DD
+  accelerating?: boolean;             // mentions rising across recent snapshots
+  mentions_history?: number[];        // oldest→newest, last ~6 readings (sparkline)
 }
 
 export interface SocialBuzzResponse {
@@ -432,29 +437,39 @@ export interface StrategyPattern {
   agree: boolean | null;
 }
 
+export type StrategyPeriod = "day" | "week";
+
 export interface StrategyAnalysis {
-  lookback_days: number;
+  period?: StrategyPeriod;
+  date?: string | null;            // day view: the resolved trading day
+  available_days?: string[];       // day view: recent graded session dates (newest first)
+  week_start?: string | null;      // week view
+  week_end?: string | null;
   patterns: StrategyPattern[];
   ai_summary: string | null;
   agreement_pct: number | null;
   generated_at: string | null;
 }
 
-export function useStrategyAnalysis(lookback = 90) {
+// Daily (rule-only) or Weekly (rule + on-demand AI). `date` anchors the day/week;
+// omit to default to the latest graded day / current week.
+export function useStrategyAnalysis(period: StrategyPeriod, date?: string) {
   return useQuery({
-    queryKey: ["performance-strategy", lookback],
-    queryFn: () => api.get<StrategyAnalysis>(`/performance/strategy-analysis?lookback=${lookback}`),
+    queryKey: ["performance-strategy", period, date ?? "latest"],
+    queryFn: () => api.get<StrategyAnalysis>(
+      `/performance/strategy-analysis?period=${period}${date ? `&date=${date}` : ""}`,
+    ),
     staleTime: 5 * 60_000,
   });
 }
 
-// Regenerate the AI keep/stop/promote briefing (admin only). Invalidates the
-// query so the fresh narrative loads.
+// Regenerate the weekly AI verdicts (admin only, on-demand). Invalidates the
+// strategy query so the fresh narrative + per-pattern verdicts load.
 export function useRefreshStrategyAnalysis() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (lookback: number) =>
-      api.post<StrategyAnalysis>(`/performance/strategy-analysis/refresh?lookback=${lookback}`, {}),
+    mutationFn: (weekStart: string) =>
+      api.post<StrategyAnalysis>(`/performance/strategy-analysis/refresh?period=week&date=${weekStart}`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["performance-strategy"] });
     },
@@ -595,6 +610,20 @@ export function useAddSymbol() {
       toast.error("Failed to add symbol");
     },
     onSuccess: (_data, symbol) => toast.success(`${symbol} added`),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
+  });
+}
+
+// Add a symbol into a specific watchlist group (e.g. the "Trending" group used
+// by the Social feed). Backend POST /watchlist already accepts group_id and
+// validates group ownership.
+export function useAddSymbolToGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ symbol, groupId }: { symbol: string; groupId: number }) =>
+      api.post<WatchlistItem>("/watchlist", { symbol, group_id: groupId }),
+    onSuccess: (_d, v) => toast.success(`${v.symbol} added to Trending`),
+    onError: () => toast.error("Failed to add symbol"),
     onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
   });
 }

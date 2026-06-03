@@ -403,6 +403,7 @@ import json  # noqa: E402
 
 from app.dependencies import is_admin_user  # noqa: E402
 from app.models.strategy_analysis import StrategyAnalysisCache  # noqa: E402
+from app.models.strategy_week_ai import StrategyWeekAICache  # noqa: E402
 from analytics.strategy_analysis import (  # noqa: E402
     aggregate_patterns, attach_ai_verdicts, generate_ai_verdicts,
 )
@@ -413,50 +414,110 @@ _SYNTHETIC_ALERT_TYPES = [
 ]
 
 
-async def _strategy_patterns(db: AsyncSession, lookback: int) -> list[dict]:
-    """Pull long alerts with a computed EOD return over the lookback (global,
-    all users) and aggregate into the classified pattern leaderboard.
+async def _strategy_patterns_window(
+    db: AsyncSession, start_iso: str, end_iso: str, min_sample: int,
+) -> list[dict]:
+    """Aggregate the classified pattern leaderboard over a session-date window
+    (inclusive), global across all users.
     """
-    start_iso = (date.today() - timedelta(days=lookback)).isoformat()
     excluded = list(OBSOLETE_ALERT_TYPES) + _SYNTHETIC_ALERT_TYPES
     label_map = {row[0]: row[1] for row in ALERT_TYPE_CATALOG}
 
     rows = (await db.execute(text("""
         SELECT alert_type, ret_eod_pct, ret_eow_pct
         FROM alerts
-        WHERE session_date >= :start
+        WHERE session_date BETWEEN :start AND :end
           AND direction IN ('BUY', 'LONG')
           AND ret_eod_pct IS NOT NULL
           AND NOT (alert_type = ANY(:excluded))
-    """), {"start": start_iso, "excluded": excluded})).all()
+    """), {"start": start_iso, "end": end_iso, "excluded": excluded})).all()
 
     bundle = [
         {"alert_type": at, "ret_eod_pct": eod, "ret_eow_pct": eow}
         for (at, eod, eow) in rows
     ]
-    return aggregate_patterns(bundle, label_map=label_map, describe=describe_alert_type)
+    return aggregate_patterns(bundle, label_map=label_map, describe=describe_alert_type, min_sample=min_sample)
+
+
+async def _strategy_patterns(db: AsyncSession, lookback: int) -> list[dict]:
+    """Legacy lookback path (back-compat) — last `lookback` days to today."""
+    start_iso = (date.today() - timedelta(days=lookback)).isoformat()
+    return await _strategy_patterns_window(db, start_iso, date.today().isoformat(), min_sample=8)
+
+
+async def _recent_graded_days(db: AsyncSession, limit: int = 14) -> list[str]:
+    """Recent session dates that have at least one graded (EOD) alert — powers
+    the Daily view's day picker + default day. Newest first.
+    """
+    rows = (await db.execute(text("""
+        SELECT DISTINCT session_date FROM alerts
+        WHERE ret_eod_pct IS NOT NULL
+        ORDER BY session_date DESC
+        LIMIT :limit
+    """), {"limit": limit})).all()
+    return [r[0] for r in rows]
+
+
+async def _week_ai_verdicts(db: AsyncSession, week_start: str):
+    """(verdicts_dict, narrative, generated_at_iso) from the weekly AI cache."""
+    cache = (await db.execute(
+        select(StrategyWeekAICache).where(StrategyWeekAICache.week_start == week_start)
+    )).scalar_one_or_none()
+    if cache is None:
+        return {}, None, None
+    verdicts = {}
+    if cache.verdicts_json:
+        try:
+            verdicts = json.loads(cache.verdicts_json)
+        except (ValueError, TypeError):
+            verdicts = {}
+    return verdicts, cache.narrative, (cache.generated_at.isoformat() if cache.generated_at else None)
 
 
 @router.get("/strategy-analysis")
 @limiter.limit("10/minute")
 async def strategy_analysis(
     request: Request,
+    period: Optional[str] = Query(None, description="day | week (recency views); omit for legacy lookback"),
+    date_param: Optional[str] = Query(None, alias="date", description="anchor day/week as YYYY-MM-DD"),
     lookback: int = Query(90, ge=7, le=365),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Pattern leaderboard ranked by real end-of-week forward return, with the
-    deterministic RULE engine's Swing/Day/Avoid + keep/stop/promote per pattern,
-    PLUS the most recent cached AI verdict per pattern and the overall agreement
-    rate between the two. The leaderboard + rule verdicts are live (free); the
-    AI verdicts are regenerated via POST /strategy-analysis/refresh.
+    """Pattern leaderboard by real forward returns, classified Swing/Day/Avoid
+    with keep/stop/promote. Recency-first:
+      ?period=day[&date=]  → a single trading day (rule engine only).
+      ?period=week[&date=] → the Mon-Fri rollup + on-demand AI verdicts.
+    Legacy ?lookback= still works when period is omitted.
     """
-    patterns = await _strategy_patterns(db, lookback)
+    # Daily — rule engine only (no AI). Few fires/day, so a low min_sample.
+    if period == "day":
+        days = await _recent_graded_days(db)
+        day = date_param if (date_param and date_param in days) else (days[0] if days else date.today().isoformat())
+        patterns = await _strategy_patterns_window(db, day, day, min_sample=3)
+        patterns.sort(key=lambda p: (p["avg_ret_eod"] is None, -(p["avg_ret_eod"] or 0.0)))
+        return {
+            "period": "day", "date": day, "available_days": days,
+            "patterns": patterns, "ai_summary": None, "agreement_pct": None, "generated_at": None,
+        }
 
+    # Weekly — Mon-Fri rollup + cached AI verdicts.
+    if period == "week":
+        monday, friday = _week_bounds(date_param)
+        patterns = await _strategy_patterns_window(db, monday.isoformat(), friday.isoformat(), min_sample=5)
+        verdicts, narrative, gen_at = await _week_ai_verdicts(db, monday.isoformat())
+        agreement_pct = attach_ai_verdicts(patterns, verdicts)
+        return {
+            "period": "week", "week_start": monday.isoformat(), "week_end": friday.isoformat(),
+            "patterns": patterns, "ai_summary": narrative,
+            "agreement_pct": agreement_pct, "generated_at": gen_at,
+        }
+
+    # Legacy lookback path (back-compat).
+    patterns = await _strategy_patterns(db, lookback)
     cache = (await db.execute(
         select(StrategyAnalysisCache).where(StrategyAnalysisCache.lookback_days == lookback)
     )).scalar_one_or_none()
-
     verdicts = {}
     if cache and cache.verdicts_json:
         try:
@@ -464,7 +525,6 @@ async def strategy_analysis(
         except (ValueError, TypeError):
             verdicts = {}
     agreement_pct = attach_ai_verdicts(patterns, verdicts)
-
     return {
         "lookback_days": lookback,
         "patterns": patterns,
@@ -478,25 +538,54 @@ async def strategy_analysis(
 @limiter.limit("4/minute")
 async def refresh_strategy_analysis(
     request: Request,
+    period: Optional[str] = Query(None, description="week (recency view); omit for legacy lookback"),
+    date_param: Optional[str] = Query(None, alias="date"),
     lookback: int = Query(90, ge=7, le=365),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Regenerate + cache the AI's independent per-pattern verdicts (admin only
-    — the LLM call is the only cost; the rule engine is free). Returns the fresh
-    leaderboard with rule-vs-AI agreement so the caller sees the comparison.
+    """Regenerate + cache the AI's independent per-pattern verdicts (admin only —
+    the LLM call is the only cost; the rule engine is free). On-demand only,
+    never scheduled. AI lives on the WEEKLY rollup; the Daily view is rule-only.
     """
     if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Admin only")
 
+    # Weekly path — write the per-week AI cache.
+    if period == "week":
+        monday, friday = _week_bounds(date_param)
+        wk = monday.isoformat()
+        patterns = await _strategy_patterns_window(db, wk, friday.isoformat(), min_sample=5)
+        ai = await run_in_threadpool(generate_ai_verdicts, patterns)
+        if not ai or not ai.get("verdicts"):
+            raise HTTPException(status_code=502, detail="AI analysis unavailable")
+        summary = ai.get("summary", "")
+        verdicts_json = json.dumps(ai["verdicts"])
+        existing = (await db.execute(
+            select(StrategyWeekAICache).where(StrategyWeekAICache.week_start == wk)
+        )).scalar_one_or_none()
+        if existing:
+            existing.narrative = summary
+            existing.verdicts_json = verdicts_json
+            existing.generated_at = datetime.utcnow()
+        else:
+            db.add(StrategyWeekAICache(week_start=wk, narrative=summary,
+                                       verdicts_json=verdicts_json, generated_at=datetime.utcnow()))
+        await db.commit()
+        agreement_pct = attach_ai_verdicts(patterns, ai["verdicts"])
+        return {
+            "period": "week", "week_start": wk, "week_end": friday.isoformat(),
+            "patterns": patterns, "ai_summary": summary,
+            "agreement_pct": agreement_pct, "generated_at": datetime.utcnow().isoformat(),
+        }
+
+    # Legacy lookback path (back-compat).
     patterns = await _strategy_patterns(db, lookback)
     ai = await run_in_threadpool(generate_ai_verdicts, patterns)
     if not ai or not ai.get("verdicts"):
         raise HTTPException(status_code=502, detail="AI analysis unavailable")
-
     summary = ai.get("summary", "")
     verdicts_json = json.dumps(ai["verdicts"])
-
     existing = (await db.execute(
         select(StrategyAnalysisCache).where(StrategyAnalysisCache.lookback_days == lookback)
     )).scalar_one_or_none()
@@ -508,7 +597,6 @@ async def refresh_strategy_analysis(
         db.add(StrategyAnalysisCache(lookback_days=lookback, narrative=summary,
                                      verdicts_json=verdicts_json, generated_at=datetime.utcnow()))
     await db.commit()
-
     agreement_pct = attach_ai_verdicts(patterns, ai["verdicts"])
     return {
         "lookback_days": lookback,
