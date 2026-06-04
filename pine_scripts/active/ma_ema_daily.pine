@@ -144,10 +144,14 @@ pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.look
 // firing conditions below. Stateless "unless reclaimed": the moment SPY
 // closes back above its PDL the gate opens. HELD/defense setups live in
 // the levels-day-vwap script and are intentionally left ungated there.
-// Default OFF — grade-down (not block): Pine emits spy_above_open and the
-// backend caps weak-tape MA-bounces at Grade C while still delivering them.
-// Flip ON to hard-block instead (max noise cut, no record).
-spy_regime_gate_on = input.bool(false, "HARD-BLOCK MA-bounces when SPY < its open (off = grade-down instead)", group = "Market regime gate")
+// Default ON — HARD-BLOCK. MA/EMA bounces in a weak tape (SPY not holding
+// above its open) are knife-catches with no real hold — validation
+// 2026-06-03: 24 of 41 fired with VWAP slope < -1 while SPY sat below its
+// open. Block them outright to cut the volume (the data already justifies
+// it). Flip OFF to grade-down instead (deliver, capped at Grade C). Breaks
+// in levels-day-vwap stay on grade-down — a PDH break with volume is real
+// relative strength even in a red tape.
+spy_regime_gate_on = input.bool(true, "HARD-BLOCK MA-bounces when SPY < its open (off = grade-down instead)", group = "Market regime gate")
 spy_open_61  = request.security("SPY", "D", open, lookahead = barmerge.lookahead_on)
 spy_close_61 = request.security("SPY", timeframe.period, close)
 // Gate opens when SPY is holding above its session OPEN (the day's strength
