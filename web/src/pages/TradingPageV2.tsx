@@ -42,8 +42,6 @@ import NewSignalToast from "../components/NewSignalToast";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import {
   Search,
-  Target,
-  ShieldAlert,
   Plus,
   X,
   Loader2,
@@ -132,12 +130,6 @@ const DEFAULT_TF = 6; // Daily
 function fmt(v: number | null | undefined, decimals = 2): string {
   if (v == null) return "\u2014";
   return v.toFixed(decimals);
-}
-
-function pctChange(current: number | null | undefined, ref: number | null | undefined): string | null {
-  if (current == null || ref == null || ref === 0) return null;
-  const pct = ((current - ref) / ref) * 100;
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
 }
 
 /* ── Indicator config ──────────────────────────────────────────────── */
@@ -743,84 +735,6 @@ function SignalFeedTab({
           </div>
         );
       })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Bottom Setup Strip ───────────────────────────────────────────── */
-
-function BottomStrip({ signal: s }: { signal: SignalResult }) {
-  const risk = s.risk_per_share ?? (s.entry && s.stop ? s.entry - s.stop : null);
-  const riskPct = (Number(localStorage.getItem("ts_risk_pct")) || 1) / 100;
-  const portfolioSize =
-    Number(localStorage.getItem("ts_portfolio_size")) || 50_000;
-  const shares =
-    risk && risk > 0 ? Math.floor(portfolioSize * riskPct / risk) : null;
-  const t1Pct = pctChange(s.target_1, s.entry);
-
-  return (
-    <div className="border-t border-border-subtle bg-surface-1 px-4 py-2 shrink-0">
-      {/* Row 1: Setup context */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] leading-relaxed">
-        {s.nearest_support != null && (
-          <span className="text-text-secondary">
-            Support:{" "}
-            <span className="font-mono text-accent">${fmt(s.nearest_support)}</span>
-            {s.support_label && (
-              <span className="text-text-muted"> ({s.support_label})</span>
-            )}
-          </span>
-        )}
-        <span className="text-text-faint">|</span>
-        <span className="text-text-secondary">
-          {s.support_status}
-        </span>
-        <span className="text-text-faint">|</span>
-        <span className="text-text-secondary">
-          {s.direction}
-        </span>
-        <span className="text-text-faint">|</span>
-        <span className="text-text-muted italic">{s.pattern}</span>
-      </div>
-
-      {/* Row 2: Trade plan */}
-      {s.entry != null && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1 text-[11px]">
-          <span className="flex items-center gap-1">
-            <Target className="h-3 w-3 text-accent" />
-            <span className="text-text-faint">Entry</span>
-            <span className="font-mono font-bold text-accent">${fmt(s.entry)}</span>
-          </span>
-          <span className="flex items-center gap-1">
-            <ShieldAlert className="h-3 w-3 text-bearish-text/60" />
-            <span className="text-text-faint">Stop</span>
-            <span className="font-mono font-medium text-bearish-text">${fmt(s.stop)}</span>
-          </span>
-          <span>
-            <span className="text-text-faint">T1</span>{" "}
-            <span className="font-mono font-medium text-bullish-text">
-              ${fmt(s.target_1)}
-            </span>
-            {t1Pct && (
-              <span className="font-mono text-[10px] text-bullish-text/70 ml-0.5">
-                {t1Pct}
-              </span>
-            )}
-          </span>
-          <span>
-            <span className="text-text-faint">T2</span>{" "}
-            <span className="font-mono text-text-secondary/60">${fmt(s.target_2)}</span>
-          </span>
-          <span className="font-mono font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded text-[10px] border border-accent/20">
-            R:R {fmt(s.rr_ratio, 1)}:1
-          </span>
-          {shares != null && (
-            <span className="text-text-muted">
-              {shares} <span className="text-[10px]">shares</span>
-            </span>
-          )}
         </div>
       )}
     </div>
@@ -1609,8 +1523,11 @@ export default function TradingPageV2() {
             ))}
           </div>
 
-          {/* Right: Indicators + Panel toggle */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          {/* Right: Indicators + Panel toggle. shrink-0 so the icon buttons
+              keep their size; the left symbol/price block truncates to yield
+              space on narrow phones (can't use overflow scroll here — it would
+              clip the indicator/saved-lines popovers). */}
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             {/* Indicators popover */}
             <div className="relative" ref={indicatorPanelRef}>
               <button
@@ -2012,8 +1929,6 @@ export default function TradingPageV2() {
           )}
         </div>
 
-        {/* Bottom setup strip */}
-        {selected && <BottomStrip signal={selected} />}
       </section>
 
       {/* ── RIGHT: Signals feed (desktop) ── */}

@@ -261,6 +261,7 @@ function CandlestickChartInner({
     {
       const markers: any[] = [];
       const numericTimes = deduped.map((b) => b.time);
+      const seen = new Set<string>();
       for (const a of alertMarkers) {
         let t: string | number | null = null;
         if (isIntraday) {
@@ -272,12 +273,18 @@ function CandlestickChartInner({
         }
         if (t == null) continue;
         const isBuy = (a.direction || "").toUpperCase() === "BUY";
+        // One subtle arrow per bar per direction — no grade letters. Clusters of
+        // intraday alerts on the same bar used to stack into a "↑C ↑C" column;
+        // the grade still shows on each Signals-feed card.
+        const key = `${t}|${isBuy ? "B" : "S"}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         markers.push({
           time: t,
           position: isBuy ? "belowBar" : "aboveBar",
-          color: isBuy ? "#22c55e" : "#ef4444",
+          color: isBuy ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)",
           shape: isBuy ? "arrowUp" : "arrowDown",
-          text: a.grade || (isBuy ? "BUY" : "SELL"),
+          text: "",
         });
       }
       markers.sort((x, y) => (typeof x.time === "number" && typeof y.time === "number" ? x.time - y.time : String(x.time).localeCompare(String(y.time))));
