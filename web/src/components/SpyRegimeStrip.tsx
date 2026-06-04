@@ -11,7 +11,6 @@
  */
 
 import { useSpyLiveRegime } from "../api/hooks";
-import { Activity, AlertCircle } from "lucide-react";
 
 const COLORS = {
   green: { bg: "bg-bullish/15", border: "border-bullish/40", text: "text-bullish-text", dot: "bg-bullish" },
@@ -23,54 +22,25 @@ const COLORS = {
 export default function SpyRegimeStrip() {
   const { data: r, isLoading } = useSpyLiveRegime();
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-surface-2/40 border border-border-subtle rounded-md text-xs">
-        <Activity className="h-3 w-3 text-text-faint animate-pulse" />
-        <span className="text-text-faint">Loading SPY regime…</span>
-      </div>
-    );
-  }
-
-  if (!r || r.status !== "ok") {
-    return (
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-surface-2/40 border border-border-subtle rounded-md text-xs">
-        <AlertCircle className="h-3 w-3 text-text-faint" />
-        <span className="text-text-faint">SPY regime unavailable {r?.reason ? `(${r.reason})` : ""}</span>
-      </div>
-    );
-  }
+  // Compact pill — collapse to nothing while loading/unavailable so it costs
+  // zero vertical space rather than a placeholder band.
+  if (isLoading || !r || r.status !== "ok") return null;
 
   const c = COLORS[r.bias_color ?? "gray"];
   const slopeSign = (r.vwap_slope_pct ?? 0) >= 0 ? "+" : "";
   const slope = `${slopeSign}${(r.vwap_slope_pct ?? 0).toFixed(2)}%`;
+  const biasText = r.bias === "WAIT" ? "Inside Day" : (r.bias?.replace("_", " ") ?? "");
 
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-1.5 ${c.bg} border ${c.border} rounded-md text-xs`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 ${c.bg} border ${c.border} rounded-full text-[11px]`}
       title={r.bias_label}
     >
-      <div className={`h-2 w-2 rounded-full ${c.dot} animate-pulse`} />
-      <span className={`font-bold ${c.text}`}>
-        SPY {r.bias === "WAIT" ? "INSIDE DAY" : r.bias?.replace("_", " ")}
-      </span>
-      <span className="text-text-muted">·</span>
-      <span className="font-mono text-text-secondary">${r.price?.toFixed(2)}</span>
-      <span className="text-text-muted">·</span>
-      <span className="font-mono text-text-muted">
-        VWAP {slope}
-      </span>
-      {r.inside_day && (
-        <>
-          <span className="text-text-muted">·</span>
-          <span className="text-[10px] text-warning-text font-semibold">
-            PDH ${r.pdh?.toFixed(2)} / PDL ${r.pdl?.toFixed(2)}
-          </span>
-        </>
-      )}
-      <span className={`ml-auto text-[10px] ${c.text} italic`}>
-        {r.bias_label}
-      </span>
+      <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />
+      <span className={`font-semibold ${c.text}`}>SPY {biasText}</span>
+      <span className="text-text-faint">·</span>
+      <span className="font-mono text-text-muted">${r.price?.toFixed(2)}</span>
+      <span className="font-mono text-text-faint">VWAP {slope}</span>
     </div>
   );
 }
