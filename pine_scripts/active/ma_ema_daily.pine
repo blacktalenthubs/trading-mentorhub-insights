@@ -137,6 +137,19 @@ atr_chart = nz(ta.atr(14)[1], close * 0.005)
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
 
+// Spec 61 — market-regime gate. SPY below its own prior-day low = broad
+// downtrend; MA-bounce + pullback momentum longs rarely follow through in
+// that tape (validation: 2026-06-03 — 24 of 41 MA-bounces fired with VWAP
+// slope < -1 while SPY held under PDL all session). ANDed into both LONG
+// firing conditions below. Stateless "unless reclaimed": the moment SPY
+// closes back above its PDL the gate opens. HELD/defense setups live in
+// the levels-day-vwap script and are intentionally left ungated there.
+spy_regime_gate_on = input.bool(true, "Block MA-bounce/pullback longs when SPY < its PDL (market downtrend)", group = "Market regime gate")
+spy_pdl_61   = request.security("SPY", "D", low[1], lookahead = barmerge.lookahead_on)
+spy_close_61 = request.security("SPY", timeframe.period, close)
+spy_below_pdl_61 = (not na(spy_pdl_61)) and (not na(spy_close_61)) and spy_close_61 < spy_pdl_61
+spy_regime_block = spy_regime_gate_on and spy_below_pdl_61
+
 // Chart-TF VWAP — used as primary structural T1 for SHORTs (first support
 // below an MA rejection). Resets daily by default on TV.
 vwap_v = ta.vwap(hlc3)
@@ -524,7 +537,7 @@ ma_q_vol_ok   = (not na(volume_ratio)) and volume_ratio >= ma_quality_vol_min
 ma_q_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= ma_quality_slope_min
 ma_quality_pass = (not ma_quality_enable) or (ma_q_vol_ok and ma_q_slope_ok)
 
-if fire_alerts and any_long and ma_quality_pass
+if fire_alerts and any_long and ma_quality_pass and not spy_regime_block
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
@@ -581,7 +594,7 @@ plotshape(show_markers and fire_pullback, title = "Pullback LONG", location = lo
 
 // Spec 58 — pullback continuation also gated on the strict uptrend filter.
 // pb_uptrend (8 > 21, optional > 50) is weaker than the full 8-MA gate.
-if fire_alerts and fire_pullback and uptrend_pass
+if fire_alerts and fire_pullback and uptrend_pass and not spy_regime_block
     e = close
     s = pb_low - atr_chart * 0.3
     rsk = e - s
