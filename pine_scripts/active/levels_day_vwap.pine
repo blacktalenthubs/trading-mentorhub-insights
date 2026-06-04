@@ -686,9 +686,9 @@ if pdh_was_above_61 and not na(pdh) and close < pdh
 s58_pdh_reclaim = pdh_was_above_61 and pdh_lost_61 and not na(pdh) and not na(close[1]) and close > pdh and close[1] <= pdh and close > open
 
 // PDH PROXIMITY: price is holding ABOVE PDH (PDH acting as support) and pulls
-// back NEAR it without retesting — the bar low comes within proximity_pct
-// above PDH but stays above it, green close. Mirror of staged_pdl_proximity
-// for a relative-strength name riding above its prior-day high.
+// back NEAR it without retesting — the bar low comes within the ATR-scaled
+// band (prox_band_61) above PDH but stays above it, green close. Mirror of
+// staged_pdl_proximity for a relative-strength name riding above its PDH.
 s58_pdh_prox = not na(pdh) and not na(close[1]) and close[1] > pdh and low > pdh and low <= pdh + prox_band_61 and close > open
 
 // Spec 58 (FR-006) — higher-high chop gate. Buy 2 alerts only fire while
