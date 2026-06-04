@@ -38,6 +38,7 @@ import { formatSetup, isFeedSignal } from "../lib/alertFormat";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
+import NewSignalToast from "../components/NewSignalToast";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import {
   Search,
@@ -943,6 +944,43 @@ export default function TradingPageV2() {
   }, [mobileSignalsCollapsed]);
   const [showRightPanel, setShowRightPanel] = useState(true);
 
+  // ── New-signal pop-up ──
+  // Surface a freshly-fired A/B signal as a tappable card over the chart so the
+  // user doesn't miss it while the Signals panel is collapsed. Diff today's
+  // alerts against a seen-id set (mirrors useSignalNotifications). Auto-dismiss
+  // after ~8s; tap → jump chart to that symbol + expand the panel.
+  const seenAlertIds = useRef<Set<number> | null>(null);
+  const [newSignal, setNewSignal] = useState<Alert | null>(null);
+  useEffect(() => {
+    if (!todayAlerts) return;
+    if (seenAlertIds.current === null) {
+      seenAlertIds.current = new Set(todayAlerts.map((a) => a.id));
+      return;
+    }
+    const seen = seenAlertIds.current;
+    let latest: Alert | null = null;
+    for (const a of todayAlerts) {
+      if (seen.has(a.id)) continue;
+      seen.add(a.id);
+      const g = (a.grade || "").toUpperCase();
+      if ((g === "A" || g === "B") && isFeedSignal(a.alert_type) && a.suppressed_reason !== "type_not_enabled") {
+        latest = a; // show the most recent qualifying one if several arrive together
+      }
+    }
+    if (latest) setNewSignal(latest);
+  }, [todayAlerts]);
+  useEffect(() => {
+    if (!newSignal) return;
+    const t = setTimeout(() => setNewSignal(null), 8000);
+    return () => clearTimeout(t);
+  }, [newSignal]);
+  const handleNewSignalTap = useCallback((a: Alert) => {
+    selectSymbol(a.symbol);
+    setMobileSignalsCollapsed(false);
+    try { localStorage.setItem("mobile_signals_collapsed", "0"); } catch { /* ignore */ }
+    setNewSignal(null);
+  }, [selectSymbol]);
+
   // Signals feed — which session to view ("" = today/latest)
   const [signalDate, setSignalDate] = useState<string>("");
   const { data: sessionDates } = useAlertSessionDates();
@@ -1197,8 +1235,9 @@ export default function TradingPageV2() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* ── SPY Regime strip — pinned top, polls 60s ── */}
-      <div className="shrink-0 px-2 pt-1.5 pb-1">
+      {/* ── SPY Regime pill — compact, pinned top, polls 60s (renders nothing
+            when unavailable, so it costs zero space then). ── */}
+      <div className="shrink-0 px-2 py-0.5 empty:hidden">
         <SpyRegimeStrip />
       </div>
 
@@ -1911,6 +1950,13 @@ export default function TradingPageV2() {
 
         {/* Chart area — flex-1 to fill remaining space */}
         <div className="flex-1 min-h-0 relative">
+          {newSignal && (
+            <NewSignalToast
+              alert={newSignal}
+              onTap={() => handleNewSignalTap(newSignal)}
+              onDismiss={() => setNewSignal(null)}
+            />
+          )}
           {selected && ohlcv && ohlcv.length > 0 ? (
             <CandlestickChart
               data={(() => {
