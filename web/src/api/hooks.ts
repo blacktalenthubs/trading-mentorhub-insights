@@ -555,6 +555,67 @@ export function useGroupsPremarket() {
   });
 }
 
+// --- Premarket Gap Board ---
+
+export interface PremarketGapEntry {
+  symbol: string;
+  bucket: "clean" | "momentum";
+  on_watchlist: boolean;
+  gap_pct: number | null;
+  gap_type: string | null;
+  pm_last: number | null;
+  pm_high: number | null;
+  pm_low: number | null;
+  pm_change_pct: number | null;
+  pm_volume: number | null;
+  pm_dollar_vol: number | null;
+  prior_close: number | null;
+  pdh: number | null;
+  pdl: number | null;
+  pwh: number | null;
+  pwl: number | null;
+  flags: string[];
+  catalyst: string | null;
+}
+
+export interface PremarketGapsResponse {
+  captured_at: string | null;
+  entries: PremarketGapEntry[];
+  stale: boolean;
+}
+
+export function usePremarketGaps() {
+  return useQuery({
+    queryKey: ["premarket-gaps"],
+    queryFn: () => api.get<PremarketGapsResponse>("/market/premarket-gaps"),
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,  // premarket board changes as PM trades; poll lightly
+  });
+}
+
+interface PremarketGapsRefreshResult {
+  status: string;
+  gappers?: number;
+  scanned?: number;
+  snapshot_id?: number | null;
+}
+
+export function useRefreshPremarketGaps() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<PremarketGapsRefreshResult>("/market/premarket-gaps/refresh", {}),
+    onSuccess: (res) => {
+      if (!res || res.gappers === 0) {
+        toast.info("Premarket scan done — no gappers passing the filters right now");
+      } else {
+        toast.success(`Premarket gaps refreshed — ${res.gappers ?? 0} gappers`);
+      }
+      qc.invalidateQueries({ queryKey: ["premarket-gaps"] });
+    },
+    onError: () => toast.error("Premarket scan failed"),
+  });
+}
+
 // --- SPY Regime (Feature 3) ---
 
 export interface SpyRegimeSnapshot {
