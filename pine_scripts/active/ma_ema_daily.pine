@@ -137,6 +137,34 @@ atr_chart = nz(ta.atr(14)[1], close * 0.005)
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
 
+// Spec 61 — market-regime gate. SPY not holding above its session OPEN =
+// weak tape; MA-bounce + pullback momentum longs rarely follow through there
+// (validation: 2026-06-03 — 24 of 41 MA-bounces fired with VWAP slope < -1
+// while SPY traded under its open most of the session). ANDed into both LONG
+// firing conditions below. Stateless "unless reclaimed": the moment SPY
+// closes back above its PDL the gate opens. HELD/defense setups live in
+// the levels-day-vwap script and are intentionally left ungated there.
+// Default ON — HARD-BLOCK. MA/EMA bounces in a weak tape (SPY not holding
+// above its open) are knife-catches with no real hold — validation
+// 2026-06-03: 24 of 41 fired with VWAP slope < -1 while SPY sat below its
+// open. Block them outright to cut the volume (the data already justifies
+// it). Flip OFF to grade-down instead (deliver, capped at Grade C). Breaks
+// in levels-day-vwap stay on grade-down — a PDH break with volume is real
+// relative strength even in a red tape.
+spy_regime_gate_on = input.bool(true, "HARD-BLOCK MA-bounces when SPY < its open (off = grade-down instead)", group = "Market regime gate")
+spy_open_61  = request.security("SPY", "D", open, lookahead = barmerge.lookahead_on)
+spy_close_61 = request.security("SPY", timeframe.period, close)
+// Gate opens when SPY is holding above its session OPEN (the day's strength
+// pivot — faster, truer than PDL). Either it opened above and stayed, or it
+// dipped below and RECLAIMED + HELD (two consecutive closes above). A
+// single-bar poke above the open does not open it; any close back below the
+// open re-blocks immediately.
+spy_below_now_61  = (not na(spy_open_61)) and (not na(spy_close_61)) and spy_close_61 < spy_open_61
+spy_below_prev_61 = (not na(spy_open_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_open_61
+spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61)
+// Carried in build_v3_payload so the backend can grade-down weak-tape bounces.
+spy_above_open_61 = not (spy_below_now_61 or spy_below_prev_61)
+
 // Chart-TF VWAP — used as primary structural T1 for SHORTs (first support
 // below an MA rejection). Resets daily by default on TV.
 vwap_v = ta.vwap(hlc3)
@@ -451,7 +479,8 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","mtd_avwap":"' + (na(mtd_avwap) ? "" : str.tostring(mtd_avwap, "#.##"))
       + '","vwap":"' + (na(session_vwap) ? "" : str.tostring(session_vwap, "#.##"))
       + '","vwap_slope_pct":"' + (na(vwap_slope_pct) ? "" : str.tostring(vwap_slope_pct, "#.##"))
-      + '","above_vwap":"' + (above_vwap ? "true" : "false") + '"}'
+      + '","above_vwap":"' + (above_vwap ? "true" : "false")
+      + '","spy_above_open":"' + (spy_above_open_61 ? "true" : "false") + '"}'
 
 // S0 targets — the MAs on the far side of entry are the structural targets.
 //   LONG  → the nearest MAs ABOVE entry (overhead resistance to aim for).
@@ -524,7 +553,7 @@ ma_q_vol_ok   = (not na(volume_ratio)) and volume_ratio >= ma_quality_vol_min
 ma_q_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= ma_quality_slope_min
 ma_quality_pass = (not ma_quality_enable) or (ma_q_vol_ok and ma_q_slope_ok)
 
-if fire_alerts and any_long and ma_quality_pass
+if fire_alerts and any_long and ma_quality_pass and not spy_regime_block
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
@@ -581,7 +610,7 @@ plotshape(show_markers and fire_pullback, title = "Pullback LONG", location = lo
 
 // Spec 58 — pullback continuation also gated on the strict uptrend filter.
 // pb_uptrend (8 > 21, optional > 50) is weaker than the full 8-MA gate.
-if fire_alerts and fire_pullback and uptrend_pass
+if fire_alerts and fire_pullback and uptrend_pass and not spy_regime_block
     e = close
     s = pb_low - atr_chart * 0.3
     rsk = e - s

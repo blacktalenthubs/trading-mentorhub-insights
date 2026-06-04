@@ -140,6 +140,36 @@ sma200_d = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookah
 
 uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close > nz(ema50_d, 1e9) and close > nz(sma50_d, 1e9) and close > nz(ema100_d, 1e9) and close > nz(sma100_d, 1e9) and close > nz(ema200_d, 1e9) and close > nz(sma200_d, 1e9)
 
+// Spec 61 — market-regime gate. When SPY isn't holding above its session
+// OPEN, the broad tape is weak and breakouts-into-resistance rarely follow
+// through (the open is the day's strength pivot — more responsive than PDL,
+// which only breaks on a real trend change). ANDed into the PDH/PWH BREAK
+// family ONLY. Deliberately NOT gated:
+//   • GAP-UP continuation — strong-momentum gap-and-go can run counter to
+//     a weak tape, and it already uses a tight first-15m-low stop.
+//   • HELD / reclaim / proximity — a stock defending its level while SPY
+//     is weak is a relative-strength tell, the one case that still works.
+// Stateless "unless reclaimed": the moment SPY reclaims AND holds above its
+// open, the break family fires again.
+// Default OFF — the gate now GRADES DOWN (not blocks): Pine emits
+// spy_above_open and the backend caps weak-tape breakouts at Grade C while
+// still delivering them (relative-strength names like TSLA/SNDK still reach
+// you). Flip this ON to hard-block instead (max noise cut, no record).
+spy_regime_gate_on = input.bool(false, "HARD-BLOCK breaks when SPY < its open (off = grade-down instead)", group = "Market regime gate")
+spy_open_61  = request.security("SPY", "D", open, lookahead = barmerge.lookahead_on)
+spy_close_61 = request.security("SPY", timeframe.period, close)
+// The OPEN is the day's strength pivot — a faster, truer read than PDL,
+// which only breaks on a real trend change. Gate opens only after SPY
+// RECLAIMS AND HOLDS above its open — two consecutive closes above (covers
+// both opened-above-and-held and dipped-then-reclaimed). A single-bar poke
+// does NOT open it; any close back below the open re-blocks immediately.
+spy_below_now_61  = (not na(spy_open_61)) and (not na(spy_close_61)) and spy_close_61 < spy_open_61
+spy_below_prev_61 = (not na(spy_open_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_open_61
+spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61)
+// Carried in every payload (build_payload_v2) so the backend can grade-down
+// weak-tape breakouts. False = SPY isn't holding above its open.
+spy_above_open_61 = not (spy_below_now_61 or spy_below_prev_61)
+
 overhead_mas_str_58 = (close < nz(ema8_d, -1e9) ? "EMA 8," : "") + (close < nz(ema21_d, -1e9) ? "EMA 21," : "") + (close < nz(ema50_d, -1e9) ? "EMA 50," : "") + (close < nz(sma50_d, -1e9) ? "SMA 50," : "") + (close < nz(ema100_d, -1e9) ? "EMA 100," : "") + (close < nz(sma100_d, -1e9) ? "SMA 100," : "") + (close < nz(ema200_d, -1e9) ? "EMA 200," : "") + (close < nz(sma200_d, -1e9) ? "SMA 200," : "")
 
 // Monthly anchored VWAPs — MTD + PM (prior month) + -2M (2 months prior).
@@ -240,9 +270,16 @@ s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pm
 // a real intraday pattern. Bar must close above where it opened to confirm
 // the bounce, otherwise this is just "near a level and falling" which is
 // not a setup.
-proximity_pct = input.float(1.5, "Proximity bounce: % above prior low to qualify as 'near support'", minval=0.25, maxval=3.0, step=0.25, group="Proximity")
-s58_pdl_prox = not na(pdl) and not na(close[1]) and close[1] > pdl and low > pdl and low <= pdl * (1.0 + proximity_pct / 100.0) and close > open
-s58_pwl_prox = not na(pwl) and not na(close[1]) and close[1] > pwl and low > pwl and low <= pwl * (1.0 + proximity_pct / 100.0) and close > open
+// ATR-scaled band (was a fixed %, which was far too loose on low-vol names:
+// 1.5% of SPY ≈ $11, wider than its whole daily range). 0.5× the symbol's
+// DAILY ATR auto-tightens on SPY (~$3 ≈ 0.5%) and stays wide on ETH (~$30 ≈
+// 1.5%) — one knob, no per-symbol tuning. atr_d is defined later, so the
+// daily ATR is fetched here for the early proximity detectors.
+proximity_atr_mult = input.float(0.5, "Proximity bounce: × daily ATR from prior low (near-support band)", minval=0.1, maxval=2.0, step=0.1, group="Proximity")
+atr_prox_61  = nz(request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on), close * 0.005)
+prox_band_61 = proximity_atr_mult * atr_prox_61
+s58_pdl_prox = not na(pdl) and not na(close[1]) and close[1] > pdl and low > pdl and low <= pdl + prox_band_61 and close > open
+s58_pwl_prox = not na(pwl) and not na(close[1]) and close[1] > pwl and low > pwl and low <= pwl + prox_band_61 and close > open
 
 // Spec 60 — v2 quality gates on *_held rules. Three layered structural
 // checks applied to every held rule's firing condition below:
@@ -606,6 +643,54 @@ if session_open_now
 else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
     bar1_low := math.min(nz(bar1_low, low), low)
 
+// Spec 61 — opening-range low (first 15 min of the session). Locked once
+// the OR window closes; for the rest of the day a pullback that wicks to
+// this level and closes back above it green is the "buy the low of day,
+// PDH = first target" entry. Elapsed-time window (not a bar count) so it
+// behaves the same on 1m/5m/10m/15m charts. SPY thesis (2026-06-03): the
+// 15m low usually decides the day — stocks either defend it or roll over.
+fire_orl_held   = input.bool(true, "Fire opening-range-low held entry (15m OR low defended)", group = "Opening range")
+or_test_tol_pct = input.float(0.15, "OR-low test tolerance (% above the OR low)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Opening range")
+var float orl_61     = na      // opening-range low (first 15 min)
+var bool  or_done_61 = false
+if session_open_now
+    orl_61     := low
+    or_done_61 := false
+else if not na(first_bar_time) and (time - first_bar_time) < 15 * 60 * 1000
+    orl_61 := math.min(nz(orl_61, low), low)
+else if not na(first_bar_time)
+    or_done_61 := true
+// Held detector: OR window done, bar wicked down to/near the OR low, then
+// closed back above it on a green bar. Strict — the bar must actually
+// reach the level (low <= OR low + tol), so this fires at the bottom of
+// the range, never up into resistance.
+s58_orl_held = or_done_61 and not na(orl_61) and low <= orl_61 * (1.0 + or_test_tol_pct / 100.0) and close > orl_61 and close > open
+
+// Spec 61 — PDH reclaim + PDH proximity (high-side mirrors of the PDL set).
+//
+// PDH RECLAIM is distinct from pdh_break: a *break* is the first cross up
+// through PDH (resistance becoming support). A *reclaim* is when PDH was
+// already acting as SUPPORT (price closed above it earlier this session),
+// price then LOST it on a close, and now closes back above on a green bar —
+// the failed-breakdown-of-support continuation. The was-above / lost state
+// machine is what keeps it from colliding with the fresh break.
+var bool pdh_was_above_61 = false
+var bool pdh_lost_61      = false
+if session_open_now
+    pdh_was_above_61 := false
+    pdh_lost_61      := false
+if not na(pdh) and close > pdh
+    pdh_was_above_61 := true
+if pdh_was_above_61 and not na(pdh) and close < pdh
+    pdh_lost_61 := true
+s58_pdh_reclaim = pdh_was_above_61 and pdh_lost_61 and not na(pdh) and not na(close[1]) and close > pdh and close[1] <= pdh and close > open
+
+// PDH PROXIMITY: price is holding ABOVE PDH (PDH acting as support) and pulls
+// back NEAR it without retesting — the bar low comes within the ATR-scaled
+// band (prox_band_61) above PDH but stays above it, green close. Mirror of
+// staged_pdl_proximity for a relative-strength name riding above its PDH.
+s58_pdh_prox = not na(pdh) and not na(close[1]) and close[1] > pdh and low > pdh and low <= pdh + prox_band_61 and close > open
+
 // Spec 58 (FR-006) — higher-high chop gate. Buy 2 alerts only fire while
 // the stock is still making new session highs OR within 30 minutes of the
 // last new high. Stops Buy 2 alerts in the afternoon chop that follows
@@ -870,7 +955,8 @@ build_payload_v2(rule, direction,
       + '","uptrend_pass":"' + (uptrend_pass_58 ? "true" : "false")
       + '","overhead_mas":"' + overhead_mas_str_58
       + '","nearby_levels":"' + nearby_levels_csv_58
-      + '","mtd_avwap":"' + (na(mtd_avwap_58) ? "" : str.tostring(mtd_avwap_58, "#.##")) + '"}'
+      + '","mtd_avwap":"' + (na(mtd_avwap_58) ? "" : str.tostring(mtd_avwap_58, "#.##"))
+      + '","spy_above_open":"' + (spy_above_open_61 ? "true" : "false") + '"}'
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
 atr_buffer = atr14 * atr_buffer_mult
@@ -1095,7 +1181,7 @@ v2_break_pmh = (not na(pmh)) and (not na(close[1])) and close > pmh and close[1]
 v2_break_vol_ok = (not na(volume_ratio)) and volume_ratio >= v2_break_vol_min
 v2_break_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= v2_break_slope_min
 v2_break_vwap_ok = (not na(vwap_v)) and close > vwap_v
-v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok and v2_break_vwap_ok and uptrend_pass_58
+v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok and v2_break_vwap_ok and uptrend_pass_58 and not spy_regime_block
 
 if v2_break_pdh and v2_break_confluence
     e_b = close
@@ -1218,8 +1304,12 @@ if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
 if s58_pdl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pdl_p  = close
     s_pdl_p  = low - atr_buffer
-    t1_pdl_p = not na(pdh) and pdh > e_pdl_p ? pdh : (not na(pwh) and pwh > e_pdl_p ? pwh : e_pdl_p * 1.015)
-    t2_pdl_p = not na(pwh) and pwh > t1_pdl_p ? pwh : (not na(pmh) and pmh > t1_pdl_p ? pmh : t2_extend_long(e_pdl_p, t1_pdl_p))
+    // Below-open day → OPEN line is the realistic first target; otherwise the
+    // structural overhead (PDH/PWH).
+    t1s_pdl_p = not na(pdh) and pdh > e_pdl_p ? pdh : (not na(pwh) and pwh > e_pdl_p ? pwh : e_pdl_p * 1.015)
+    below_open_pdl = not na(today_open) and today_open > e_pdl_p
+    t1_pdl_p = below_open_pdl ? today_open : t1s_pdl_p
+    t2_pdl_p = below_open_pdl ? t1s_pdl_p : (not na(pwh) and pwh > t1_pdl_p ? pwh : (not na(pmh) and pmh > t1_pdl_p ? pmh : t2_extend_long(e_pdl_p, t1_pdl_p)))
     alert(build_payload_v2("staged_pdl_proximity", "BUY", e_pdl_p, s_pdl_p, t1_pdl_p, t2_pdl_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 if s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
@@ -1228,6 +1318,46 @@ if s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
     t1_pwl_p = not na(pdh) and pdh > e_pwl_p ? pdh : (not na(pwh) and pwh > e_pwl_p ? pwh : e_pwl_p * 1.02)
     t2_pwl_p = not na(pwh) and pwh > t1_pwl_p ? pwh : (not na(pmh) and pmh > t1_pwl_p ? pmh : t2_extend_long(e_pwl_p, t1_pwl_p))
     alert(build_payload_v2("staged_pwl_proximity", "BUY", e_pwl_p, s_pwl_p, t1_pwl_p, t2_pwl_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// 2026-06-03 — Opening-range-low held entry (spec 61). Buy the defended
+// 15m low of day; stop sits just under the OR low (structural); first
+// target is the nearest overhead level (PDH/PWH) via the hierarchy, so it
+// works whether PDH is above (target) or already cleared (extension). v2
+// body gate kills doji/distribution holds. NOT SPY-gated — defending the
+// low is a relative-strength setup. Catalog default-OFF; opt in to test.
+if fire_orl_held and s58_orl_held and v2_body_ok
+    e_orl  = close
+    s_orl  = orl_61 - atr_buffer
+    // On a weak (below-open) day the OPEN line is the realistic first target
+    // (price bounces from the low up to the open); PDH is too far. When below
+    // the open, T1 = open, T2 = the structural hierarchy target. Otherwise
+    // keep the normal hierarchy.
+    t1_hier_orl = t1_long_hier(e_orl, pdh, pwh, atr_d)
+    below_open_orl = not na(today_open) and today_open > e_orl
+    t1_orl = below_open_orl ? today_open : t1_hier_orl
+    t2_orl = below_open_orl ? t1_hier_orl : t2_extend_long(e_orl, t1_orl)
+    alert(build_payload_v2("staged_orl_held", "BUY", e_orl, s_orl, t1_orl, t2_orl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// Spec 61 — PDH reclaim. PDH was lost on a close then reclaimed green =
+// failed-breakdown-of-support continuation. Entry = close, stop = bar low
+// - buffer, targets stack to the next overhead high (PWH/PMH). Ungated
+// like pdl_reclaim (it's a level play, not SPY-gated — defending PDH as
+// support while the tape is weak is relative strength).
+if s58_pdh_reclaim
+    e_pdh_r  = close
+    s_pdh_r  = low - atr_buffer
+    t1_pdh_r = not na(pwh) and pwh > e_pdh_r ? pwh : (not na(pmh) and pmh > e_pdh_r ? pmh : e_pdh_r * 1.0075)
+    t2_pdh_r = not na(pmh) and pmh > t1_pdh_r ? pmh : t2_extend_long(e_pdh_r, t1_pdh_r)
+    alert(build_payload_v2("staged_pdh_reclaim", "BUY", e_pdh_r, s_pdh_r, t1_pdh_r, t2_pdh_r, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// Spec 61 — PDH proximity. Holding above PDH, pulled back near it without a
+// retest, closed green. Same stop/target shape as the reclaim.
+if s58_pdh_prox and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pdh_p  = close
+    s_pdh_p  = low - atr_buffer
+    t1_pdh_p = not na(pwh) and pwh > e_pdh_p ? pwh : (not na(pmh) and pmh > e_pdh_p ? pmh : e_pdh_p * 1.0075)
+    t2_pdh_p = not na(pmh) and pmh > t1_pdh_p ? pmh : t2_extend_long(e_pdh_p, t1_pdh_p)
+    alert(build_payload_v2("staged_pdh_proximity", "BUY", e_pdh_p, s_pdh_p, t1_pdh_p, t2_pdh_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // 2026-06-01 — staged_pml_held DISABLED. PML stays drawn on chart as visual.
 // if s58_pml_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)

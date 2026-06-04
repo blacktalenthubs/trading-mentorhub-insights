@@ -73,6 +73,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # founder can compare which fires more reliably over a few weeks.
     ("staged_pdl_proximity", "PDL proximity bounce", "Daily PDH/PDL", False),
     ("staged_pwl_proximity", "PWL proximity bounce", "Weekly", False),
+    # High-side proximity (spec 61) — holding above PDH without a retest.
+    ("staged_pdh_proximity", "PDH proximity (holds above PDH)", "Daily PDH/PDL", False),
+
+    # Opening-range-low defended (spec 61, 2026-06-03) — buy the held 15m
+    # low of day, stop below the OR low, PDH = first target.
+    ("staged_orl_held", "Opening-range low held (15m)", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low reclaim (existing — lost-and-recovered)
     # Monthly (staged_pml_reclaim) removed 2026-06-01 — visual only.
@@ -96,6 +102,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdh_break",        "PDH break · VWAP+vol confluence", "v2 · Breakouts", False),
     ("staged_pwh_break",        "PWH break · VWAP+vol confluence", "v2 · Breakouts", False),
     ("gap_up_continuation_long","Gap-up continuation (opened above PDH)", "v2 · Gap-and-go", False),
+
+    # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
+    ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
 
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
@@ -138,6 +147,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Proximity bounce — level held as support without actually touching.
     "staged_pdl_proximity": "Stock pulled back near yesterday's low without touching it, then closed green — buyers stepped in before the level was tested.",
     "staged_pwl_proximity": "Stock pulled back near last week's low without touching it, then closed green — weekly support defended without a test.",
+    "staged_pdh_proximity": "Stock is holding above yesterday's high and pulled back near it without retesting — prior-day high defended as support from above (relative strength).",
+    "staged_orl_held": "Stock pulled back to its first-15-minute low and held — the low of the day is being defended; prior-day high is the first target.",
 
     # Reclaim — lost a prior low then recovered it on a bullish bar.
     "staged_pdl_reclaim": "Stock lost yesterday's low then recovered it on a bullish bar — failed breakdown long.",
@@ -151,6 +162,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pdh_break":         "Stock broke above yesterday's high with above-average volume and rising VWAP — confirmed continuation.",
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
+    "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
