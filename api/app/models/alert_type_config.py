@@ -103,6 +103,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pwh_break",        "PWH break · VWAP+vol confluence", "v2 · Breakouts", False),
     ("gap_up_continuation_long","Gap-up continuation (opened above PDH)", "v2 · Gap-and-go", False),
 
+    # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
+    ("index_open_strength", "SPY/QQQ reclaimed & holding above open", "Market context", False),
+
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
     # OBSOLETE_ALERT_TYPES below for DB cleanup.
@@ -159,6 +162,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pdh_break":         "Stock broke above yesterday's high with above-average volume and rising VWAP — confirmed continuation.",
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
+    "index_open_strength": "SPY or QQQ reclaimed today's open and is holding above it (two closes) — broad-market strength, trend intact.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
