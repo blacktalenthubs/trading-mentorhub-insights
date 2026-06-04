@@ -976,7 +976,10 @@ atr_d     = nz(atr_d_raw, close * 0.005)
 // PDH/PWH resistance), fire a long — stop just below that swing-low (the same
 // can't-say-no stop). One fire per rung; re-arms on each new pivot. The OR-low
 // is just the first rung. Default OFF — watch the daily count before trusting.
-fire_higher_low_held = input.bool (false, "Fire rolling higher-low held (intraday support ladder)", group = "Higher-low tracker")
+// Pine fires it (default ON) so it's RECORDED for EOD review; the Settings →
+// Alert Types catalog toggle (default OFF) keeps it out of Telegram until you
+// trust the daily count. So it logs silently, you watch, then you flip it on.
+fire_higher_low_held = input.bool (true,  "Fire rolling higher-low held (intraday support ladder)", group = "Higher-low tracker")
 hl_pivot_len    = input.int  (3,    "Higher-low: pivot strength (bars each side)", minval = 2, maxval = 10, group = "Higher-low tracker")
 hl_headroom_pct = input.float(1.0,  "Higher-low: min % room to next overhead level (PDH/PWH)", minval = 0.0, maxval = 5.0, step = 0.25, group = "Higher-low tracker")
 hl_require_vwap = input.bool (true, "Higher-low: require close above VWAP (rising support)", group = "Higher-low tracker")
