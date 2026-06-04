@@ -140,26 +140,27 @@ sma200_d = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookah
 
 uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close > nz(ema50_d, 1e9) and close > nz(sma50_d, 1e9) and close > nz(ema100_d, 1e9) and close > nz(sma100_d, 1e9) and close > nz(ema200_d, 1e9) and close > nz(sma200_d, 1e9)
 
-// Spec 61 — market-regime gate. When SPY trades below its own prior-day
-// low, the broad tape is in a downtrend and breakouts-into-resistance
-// rarely follow through (validation: 2026-06-03 — EMA-bounce noise fired
-// while SPY held under PDL all session). ANDed into the PDH/PWH BREAK
+// Spec 61 — market-regime gate. When SPY isn't holding above its session
+// OPEN, the broad tape is weak and breakouts-into-resistance rarely follow
+// through (the open is the day's strength pivot — more responsive than PDL,
+// which only breaks on a real trend change). ANDed into the PDH/PWH BREAK
 // family ONLY. Deliberately NOT gated:
 //   • GAP-UP continuation — strong-momentum gap-and-go can run counter to
 //     a weak tape, and it already uses a tight first-15m-low stop.
 //   • HELD / reclaim / proximity — a stock defending its level while SPY
 //     is weak is a relative-strength tell, the one case that still works.
-// Stateless "unless reclaimed": the moment SPY closes back above its PDL,
-// spy_below_pdl_61 flips false and the break family fires again.
-spy_regime_gate_on = input.bool(true, "Block PDH/PWH BREAK longs when SPY < its PDL (market downtrend)", group = "Market regime gate")
-spy_pdl_61   = request.security("SPY", "D", low[1], lookahead = barmerge.lookahead_on)
+// Stateless "unless reclaimed": the moment SPY reclaims AND holds above its
+// open, the break family fires again.
+spy_regime_gate_on = input.bool(true, "Block PDH/PWH BREAK longs when SPY isn't holding above its open", group = "Market regime gate")
+spy_open_61  = request.security("SPY", "D", open, lookahead = barmerge.lookahead_on)
 spy_close_61 = request.security("SPY", timeframe.period, close)
-// Gate opens only after SPY RECLAIMS AND HOLDS above its PDL — two
-// consecutive closes above. A single-bar poke above PDL does NOT open it
-// (avoids whipsaw when SPY chops on the line). Re-blocks immediately on any
-// close back below PDL.
-spy_below_now_61  = (not na(spy_pdl_61)) and (not na(spy_close_61)) and spy_close_61 < spy_pdl_61
-spy_below_prev_61 = (not na(spy_pdl_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_pdl_61
+// The OPEN is the day's strength pivot — a faster, truer read than PDL,
+// which only breaks on a real trend change. Gate opens only after SPY
+// RECLAIMS AND HOLDS above its open — two consecutive closes above (covers
+// both opened-above-and-held and dipped-then-reclaimed). A single-bar poke
+// does NOT open it; any close back below the open re-blocks immediately.
+spy_below_now_61  = (not na(spy_open_61)) and (not na(spy_close_61)) and spy_close_61 < spy_open_61
+spy_below_prev_61 = (not na(spy_open_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_open_61
 spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61)
 
 overhead_mas_str_58 = (close < nz(ema8_d, -1e9) ? "EMA 8," : "") + (close < nz(ema21_d, -1e9) ? "EMA 21," : "") + (close < nz(ema50_d, -1e9) ? "EMA 50," : "") + (close < nz(sma50_d, -1e9) ? "SMA 50," : "") + (close < nz(ema100_d, -1e9) ? "EMA 100," : "") + (close < nz(sma100_d, -1e9) ? "SMA 100," : "") + (close < nz(ema200_d, -1e9) ? "EMA 200," : "") + (close < nz(sma200_d, -1e9) ? "SMA 200," : "")
