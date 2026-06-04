@@ -144,7 +144,10 @@ pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.look
 // firing conditions below. Stateless "unless reclaimed": the moment SPY
 // closes back above its PDL the gate opens. HELD/defense setups live in
 // the levels-day-vwap script and are intentionally left ungated there.
-spy_regime_gate_on = input.bool(true, "Block MA-bounce/pullback longs when SPY isn't holding above its open", group = "Market regime gate")
+// Default OFF — grade-down (not block): Pine emits spy_above_open and the
+// backend caps weak-tape MA-bounces at Grade C while still delivering them.
+// Flip ON to hard-block instead (max noise cut, no record).
+spy_regime_gate_on = input.bool(false, "HARD-BLOCK MA-bounces when SPY < its open (off = grade-down instead)", group = "Market regime gate")
 spy_open_61  = request.security("SPY", "D", open, lookahead = barmerge.lookahead_on)
 spy_close_61 = request.security("SPY", timeframe.period, close)
 // Gate opens when SPY is holding above its session OPEN (the day's strength
@@ -155,6 +158,8 @@ spy_close_61 = request.security("SPY", timeframe.period, close)
 spy_below_now_61  = (not na(spy_open_61)) and (not na(spy_close_61)) and spy_close_61 < spy_open_61
 spy_below_prev_61 = (not na(spy_open_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_open_61
 spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61)
+// Carried in build_v3_payload so the backend can grade-down weak-tape bounces.
+spy_above_open_61 = not (spy_below_now_61 or spy_below_prev_61)
 
 // Chart-TF VWAP — used as primary structural T1 for SHORTs (first support
 // below an MA rejection). Resets daily by default on TV.
@@ -470,7 +475,8 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","mtd_avwap":"' + (na(mtd_avwap) ? "" : str.tostring(mtd_avwap, "#.##"))
       + '","vwap":"' + (na(session_vwap) ? "" : str.tostring(session_vwap, "#.##"))
       + '","vwap_slope_pct":"' + (na(vwap_slope_pct) ? "" : str.tostring(vwap_slope_pct, "#.##"))
-      + '","above_vwap":"' + (above_vwap ? "true" : "false") + '"}'
+      + '","above_vwap":"' + (above_vwap ? "true" : "false")
+      + '","spy_above_open":"' + (spy_above_open_61 ? "true" : "false") + '"}'
 
 // S0 targets — the MAs on the far side of entry are the structural targets.
 //   LONG  → the nearest MAs ABOVE entry (overhead resistance to aim for).

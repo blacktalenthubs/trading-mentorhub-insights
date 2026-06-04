@@ -151,7 +151,11 @@ uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close
 //     is weak is a relative-strength tell, the one case that still works.
 // Stateless "unless reclaimed": the moment SPY reclaims AND holds above its
 // open, the break family fires again.
-spy_regime_gate_on = input.bool(true, "Block PDH/PWH BREAK longs when SPY isn't holding above its open", group = "Market regime gate")
+// Default OFF — the gate now GRADES DOWN (not blocks): Pine emits
+// spy_above_open and the backend caps weak-tape breakouts at Grade C while
+// still delivering them (relative-strength names like TSLA/SNDK still reach
+// you). Flip this ON to hard-block instead (max noise cut, no record).
+spy_regime_gate_on = input.bool(false, "HARD-BLOCK breaks when SPY < its open (off = grade-down instead)", group = "Market regime gate")
 spy_open_61  = request.security("SPY", "D", open, lookahead = barmerge.lookahead_on)
 spy_close_61 = request.security("SPY", timeframe.period, close)
 // The OPEN is the day's strength pivot — a faster, truer read than PDL,
@@ -162,6 +166,9 @@ spy_close_61 = request.security("SPY", timeframe.period, close)
 spy_below_now_61  = (not na(spy_open_61)) and (not na(spy_close_61)) and spy_close_61 < spy_open_61
 spy_below_prev_61 = (not na(spy_open_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_open_61
 spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61)
+// Carried in every payload (build_payload_v2) so the backend can grade-down
+// weak-tape breakouts. False = SPY isn't holding above its open.
+spy_above_open_61 = not (spy_below_now_61 or spy_below_prev_61)
 
 overhead_mas_str_58 = (close < nz(ema8_d, -1e9) ? "EMA 8," : "") + (close < nz(ema21_d, -1e9) ? "EMA 21," : "") + (close < nz(ema50_d, -1e9) ? "EMA 50," : "") + (close < nz(sma50_d, -1e9) ? "SMA 50," : "") + (close < nz(ema100_d, -1e9) ? "EMA 100," : "") + (close < nz(sma100_d, -1e9) ? "SMA 100," : "") + (close < nz(ema200_d, -1e9) ? "EMA 200," : "") + (close < nz(sma200_d, -1e9) ? "SMA 200," : "")
 
@@ -941,7 +948,8 @@ build_payload_v2(rule, direction,
       + '","uptrend_pass":"' + (uptrend_pass_58 ? "true" : "false")
       + '","overhead_mas":"' + overhead_mas_str_58
       + '","nearby_levels":"' + nearby_levels_csv_58
-      + '","mtd_avwap":"' + (na(mtd_avwap_58) ? "" : str.tostring(mtd_avwap_58, "#.##")) + '"}'
+      + '","mtd_avwap":"' + (na(mtd_avwap_58) ? "" : str.tostring(mtd_avwap_58, "#.##"))
+      + '","spy_above_open":"' + (spy_above_open_61 ? "true" : "false") + '"}'
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
 atr_buffer = atr14 * atr_buffer_mult
@@ -1289,8 +1297,12 @@ if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
 if s58_pdl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pdl_p  = close
     s_pdl_p  = low - atr_buffer
-    t1_pdl_p = not na(pdh) and pdh > e_pdl_p ? pdh : (not na(pwh) and pwh > e_pdl_p ? pwh : e_pdl_p * 1.015)
-    t2_pdl_p = not na(pwh) and pwh > t1_pdl_p ? pwh : (not na(pmh) and pmh > t1_pdl_p ? pmh : t2_extend_long(e_pdl_p, t1_pdl_p))
+    // Below-open day → OPEN line is the realistic first target; otherwise the
+    // structural overhead (PDH/PWH).
+    t1s_pdl_p = not na(pdh) and pdh > e_pdl_p ? pdh : (not na(pwh) and pwh > e_pdl_p ? pwh : e_pdl_p * 1.015)
+    below_open_pdl = not na(today_open) and today_open > e_pdl_p
+    t1_pdl_p = below_open_pdl ? today_open : t1s_pdl_p
+    t2_pdl_p = below_open_pdl ? t1s_pdl_p : (not na(pwh) and pwh > t1_pdl_p ? pwh : (not na(pmh) and pmh > t1_pdl_p ? pmh : t2_extend_long(e_pdl_p, t1_pdl_p)))
     alert(build_payload_v2("staged_pdl_proximity", "BUY", e_pdl_p, s_pdl_p, t1_pdl_p, t2_pdl_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 if s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
@@ -1309,8 +1321,14 @@ if s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
 if fire_orl_held and s58_orl_held and v2_body_ok
     e_orl  = close
     s_orl  = orl_61 - atr_buffer
-    t1_orl = t1_long_hier(e_orl, pdh, pwh, atr_d)
-    t2_orl = t2_extend_long(e_orl, t1_orl)
+    // On a weak (below-open) day the OPEN line is the realistic first target
+    // (price bounces from the low up to the open); PDH is too far. When below
+    // the open, T1 = open, T2 = the structural hierarchy target. Otherwise
+    // keep the normal hierarchy.
+    t1_hier_orl = t1_long_hier(e_orl, pdh, pwh, atr_d)
+    below_open_orl = not na(today_open) and today_open > e_orl
+    t1_orl = below_open_orl ? today_open : t1_hier_orl
+    t2_orl = below_open_orl ? t1_hier_orl : t2_extend_long(e_orl, t1_orl)
     alert(build_payload_v2("staged_orl_held", "BUY", e_orl, s_orl, t1_orl, t2_orl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // Spec 61 — PDH reclaim. PDH was lost on a close then reclaimed green =
