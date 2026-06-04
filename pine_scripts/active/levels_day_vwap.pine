@@ -270,9 +270,16 @@ s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pm
 // a real intraday pattern. Bar must close above where it opened to confirm
 // the bounce, otherwise this is just "near a level and falling" which is
 // not a setup.
-proximity_pct = input.float(1.5, "Proximity bounce: % above prior low to qualify as 'near support'", minval=0.25, maxval=3.0, step=0.25, group="Proximity")
-s58_pdl_prox = not na(pdl) and not na(close[1]) and close[1] > pdl and low > pdl and low <= pdl * (1.0 + proximity_pct / 100.0) and close > open
-s58_pwl_prox = not na(pwl) and not na(close[1]) and close[1] > pwl and low > pwl and low <= pwl * (1.0 + proximity_pct / 100.0) and close > open
+// ATR-scaled band (was a fixed %, which was far too loose on low-vol names:
+// 1.5% of SPY ≈ $11, wider than its whole daily range). 0.5× the symbol's
+// DAILY ATR auto-tightens on SPY (~$3 ≈ 0.5%) and stays wide on ETH (~$30 ≈
+// 1.5%) — one knob, no per-symbol tuning. atr_d is defined later, so the
+// daily ATR is fetched here for the early proximity detectors.
+proximity_atr_mult = input.float(0.5, "Proximity bounce: × daily ATR from prior low (near-support band)", minval=0.1, maxval=2.0, step=0.1, group="Proximity")
+atr_prox_61  = nz(request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on), close * 0.005)
+prox_band_61 = proximity_atr_mult * atr_prox_61
+s58_pdl_prox = not na(pdl) and not na(close[1]) and close[1] > pdl and low > pdl and low <= pdl + prox_band_61 and close > open
+s58_pwl_prox = not na(pwl) and not na(close[1]) and close[1] > pwl and low > pwl and low <= pwl + prox_band_61 and close > open
 
 // Spec 60 — v2 quality gates on *_held rules. Three layered structural
 // checks applied to every held rule's firing condition below:
@@ -682,7 +689,7 @@ s58_pdh_reclaim = pdh_was_above_61 and pdh_lost_61 and not na(pdh) and not na(cl
 // back NEAR it without retesting — the bar low comes within proximity_pct
 // above PDH but stays above it, green close. Mirror of staged_pdl_proximity
 // for a relative-strength name riding above its prior-day high.
-s58_pdh_prox = not na(pdh) and not na(close[1]) and close[1] > pdh and low > pdh and low <= pdh * (1.0 + proximity_pct / 100.0) and close > open
+s58_pdh_prox = not na(pdh) and not na(close[1]) and close[1] > pdh and low > pdh and low <= pdh + prox_band_61 and close > open
 
 // Spec 58 (FR-006) — higher-high chop gate. Buy 2 alerts only fire while
 // the stock is still making new session highs OR within 30 minutes of the
