@@ -8,12 +8,13 @@
 // Per-stock open-line ALERTS were retired (too noisy on individual names);
 // the LOST/RECLAIM diamonds below stay as visual context only.
 //
-// Spec 61 (2026-06-03): ONE alert lives here now — a SPY/QQQ/DRAM market-
-// strength signal. The stepping open line acts as trailing trend support on
-// these gauges: while they hold above each session's open (opens stepping
-// higher), the tape is trending up. The alert fires when the symbol reclaims
-// AND holds above today's open (two consecutive closes). Set the TV alert on
-// the 1h chart for SPY, QQQ and DRAM. It stays silent on every other symbol.
+// Spec 61 (2026-06-03): ONE alert lives here now — an open-strength signal.
+// The stepping open line acts as trailing trend support: while a symbol holds
+// above each session's open (opens stepping higher), it's trending up. The
+// alert fires when the symbol reclaims AND holds above today's open (two
+// consecutive closes). The firing symbols are a comma-separated allow-list in
+// the settings (default SPY,QQQ,DRAM) — add/remove names at will. Set the TV
+// alert on the 1h chart for each symbol you list. Silent on anything not listed.
 //
 indicator("open-line", overlay = true)
 
@@ -75,8 +76,14 @@ plotshape(show_markers and just_reclaimed_open,
 // today's open — so it covers both "opened above and held" and "dipped then
 // reclaimed", without whipsawing on a one-bar poke. One alert per reclaim;
 // re-arms after a close back below the open. Hard-gated to SPY/QQQ.
-fire_index_open_alert = input.bool(true, "Fire SPY/QQQ/DRAM open-reclaim strength alert", group = "Index strength alert")
-is_index = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ" or syminfo.ticker == "DRAM"
+fire_index_open_alert = input.bool(true, "Fire the open-reclaim strength alert", group = "Index strength alert")
+// Comma-separated allow-list — edit this in the indicator settings to add or
+// remove symbols at will (e.g. "SPY,QQQ,DRAM,IWM,SMH"). Case/space-insensitive.
+// The alert stays silent on any symbol not in this list, so it's safe to load
+// the indicator everywhere. (You still set the actual TV alert per symbol.)
+index_symbols = input.string("SPY,QQQ,DRAM", "Symbols allowed to fire (comma-separated)", group = "Index strength alert")
+_idx_syms = "," + str.replace_all(str.upper(index_symbols), " ", "") + ","
+is_index  = str.contains(_idx_syms, "," + str.upper(syminfo.ticker) + ",")
 
 held_above_open = not na(today_open) and not na(close[1]) and close > today_open and close[1] > today_open
 var bool open_strength_state = false
