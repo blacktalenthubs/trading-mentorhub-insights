@@ -154,8 +154,13 @@ uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close
 spy_regime_gate_on = input.bool(true, "Block PDH/PWH BREAK longs when SPY < its PDL (market downtrend)", group = "Market regime gate")
 spy_pdl_61   = request.security("SPY", "D", low[1], lookahead = barmerge.lookahead_on)
 spy_close_61 = request.security("SPY", timeframe.period, close)
-spy_below_pdl_61 = (not na(spy_pdl_61)) and (not na(spy_close_61)) and spy_close_61 < spy_pdl_61
-spy_regime_block = spy_regime_gate_on and spy_below_pdl_61
+// Gate opens only after SPY RECLAIMS AND HOLDS above its PDL — two
+// consecutive closes above. A single-bar poke above PDL does NOT open it
+// (avoids whipsaw when SPY chops on the line). Re-blocks immediately on any
+// close back below PDL.
+spy_below_now_61  = (not na(spy_pdl_61)) and (not na(spy_close_61)) and spy_close_61 < spy_pdl_61
+spy_below_prev_61 = (not na(spy_pdl_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_pdl_61
+spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61)
 
 overhead_mas_str_58 = (close < nz(ema8_d, -1e9) ? "EMA 8," : "") + (close < nz(ema21_d, -1e9) ? "EMA 21," : "") + (close < nz(ema50_d, -1e9) ? "EMA 50," : "") + (close < nz(sma50_d, -1e9) ? "SMA 50," : "") + (close < nz(ema100_d, -1e9) ? "EMA 100," : "") + (close < nz(sma100_d, -1e9) ? "SMA 100," : "") + (close < nz(ema200_d, -1e9) ? "EMA 200," : "") + (close < nz(sma200_d, -1e9) ? "SMA 200," : "")
 
