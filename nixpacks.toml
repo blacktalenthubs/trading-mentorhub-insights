@@ -2,27 +2,21 @@
 #
 # The web service is a Nixpacks Python build (requirements.txt -> uvicorn) that
 # also serves the React app from web/dist via FastAPI StaticFiles. Railway never
-# ran `npm`, so web/dist had to be hand-built and committed — which is the source
-# of the recurring merge conflicts on every concurrent branch.
+# ran `npm`, so web/dist had to be hand-built and committed — the source of the
+# recurring merge conflicts on every concurrent branch.
 #
-# This adds Node + a Vite build step so Railway builds the frontend on deploy.
-# Once confirmed green, web/dist is removed from git (gitignored) and these
-# conflicts stop for good.
+# "..." keeps Nixpacks' auto-detected Python packages and ADDS Node; the build
+# phase then compiles the Vite frontend so Railway produces web/dist on deploy.
+# web/dist is now gitignored (web/.gitignore) — never committed again.
 #
-# Safety: if the frontend build fails, Railway keeps the previous (healthy)
-# deployment running, so merging this cannot take the site down. web/dist stays
-# committed for now as a fallback until the on-deploy build is verified.
+# Safety: if the frontend build fails, Railway keeps the previous healthy
+# deployment running, so this cannot take the site down.
 
-# Build the frontend after the Python install phase. Declaring nodejs here adds
-# it to the build environment without disturbing the auto-detected Python setup.
-[phases.frontend]
-dependsOn = ["install"]
-nixPkgs = ["nodejs_20"]
+[phases.setup]
+nixPkgs = ["...", "nodejs_20"]
+
+[phases.build]
 cmds = [
   "npm --prefix web ci",
   "npm --prefix web run build",
 ]
-
-# Make the default build phase run after the frontend is built.
-[phases.build]
-dependsOn = ["frontend"]
