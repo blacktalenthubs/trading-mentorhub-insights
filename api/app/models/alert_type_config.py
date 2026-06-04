@@ -73,6 +73,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # founder can compare which fires more reliably over a few weeks.
     ("staged_pdl_proximity", "PDL proximity bounce", "Daily PDH/PDL", False),
     ("staged_pwl_proximity", "PWL proximity bounce", "Weekly", False),
+    # High-side proximity (spec 61) — holding above PDH without a retest.
+    ("staged_pdh_proximity", "PDH proximity (holds above PDH)", "Daily PDH/PDL", False),
 
     # Opening-range-low defended (spec 61, 2026-06-03) — buy the held 15m
     # low of day, stop below the OR low, PDH = first target.
@@ -142,6 +144,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     # Proximity bounce — level held as support without actually touching.
     "staged_pdl_proximity": "Stock pulled back near yesterday's low without touching it, then closed green — buyers stepped in before the level was tested.",
     "staged_pwl_proximity": "Stock pulled back near last week's low without touching it, then closed green — weekly support defended without a test.",
+    "staged_pdh_proximity": "Stock is holding above yesterday's high and pulled back near it without retesting — prior-day high defended as support from above (relative strength).",
     "staged_orl_held": "Stock pulled back to its first-15-minute low and held — the low of the day is being defended; prior-day high is the first target.",
 
     # Reclaim — lost a prior low then recovered it on a bullish bar.

@@ -646,6 +646,31 @@ else if not na(first_bar_time)
 // the range, never up into resistance.
 s58_orl_held = or_done_61 and not na(orl_61) and low <= orl_61 * (1.0 + or_test_tol_pct / 100.0) and close > orl_61 and close > open
 
+// Spec 61 — PDH reclaim + PDH proximity (high-side mirrors of the PDL set).
+//
+// PDH RECLAIM is distinct from pdh_break: a *break* is the first cross up
+// through PDH (resistance becoming support). A *reclaim* is when PDH was
+// already acting as SUPPORT (price closed above it earlier this session),
+// price then LOST it on a close, and now closes back above on a green bar —
+// the failed-breakdown-of-support continuation. The was-above / lost state
+// machine is what keeps it from colliding with the fresh break.
+var bool pdh_was_above_61 = false
+var bool pdh_lost_61      = false
+if session_open_now
+    pdh_was_above_61 := false
+    pdh_lost_61      := false
+if not na(pdh) and close > pdh
+    pdh_was_above_61 := true
+if pdh_was_above_61 and not na(pdh) and close < pdh
+    pdh_lost_61 := true
+s58_pdh_reclaim = pdh_was_above_61 and pdh_lost_61 and not na(pdh) and not na(close[1]) and close > pdh and close[1] <= pdh and close > open
+
+// PDH PROXIMITY: price is holding ABOVE PDH (PDH acting as support) and pulls
+// back NEAR it without retesting — the bar low comes within proximity_pct
+// above PDH but stays above it, green close. Mirror of staged_pdl_proximity
+// for a relative-strength name riding above its prior-day high.
+s58_pdh_prox = not na(pdh) and not na(close[1]) and close[1] > pdh and low > pdh and low <= pdh * (1.0 + proximity_pct / 100.0) and close > open
+
 // Spec 58 (FR-006) — higher-high chop gate. Buy 2 alerts only fire while
 // the stock is still making new session highs OR within 30 minutes of the
 // last new high. Stops Buy 2 alerts in the afternoon chop that follows
@@ -1281,6 +1306,27 @@ if fire_orl_held and s58_orl_held and v2_body_ok
     t1_orl = t1_long_hier(e_orl, pdh, pwh, atr_d)
     t2_orl = t2_extend_long(e_orl, t1_orl)
     alert(build_payload_v2("staged_orl_held", "BUY", e_orl, s_orl, t1_orl, t2_orl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// Spec 61 — PDH reclaim. PDH was lost on a close then reclaimed green =
+// failed-breakdown-of-support continuation. Entry = close, stop = bar low
+// - buffer, targets stack to the next overhead high (PWH/PMH). Ungated
+// like pdl_reclaim (it's a level play, not SPY-gated — defending PDH as
+// support while the tape is weak is relative strength).
+if s58_pdh_reclaim
+    e_pdh_r  = close
+    s_pdh_r  = low - atr_buffer
+    t1_pdh_r = not na(pwh) and pwh > e_pdh_r ? pwh : (not na(pmh) and pmh > e_pdh_r ? pmh : e_pdh_r * 1.0075)
+    t2_pdh_r = not na(pmh) and pmh > t1_pdh_r ? pmh : t2_extend_long(e_pdh_r, t1_pdh_r)
+    alert(build_payload_v2("staged_pdh_reclaim", "BUY", e_pdh_r, s_pdh_r, t1_pdh_r, t2_pdh_r, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// Spec 61 — PDH proximity. Holding above PDH, pulled back near it without a
+// retest, closed green. Same stop/target shape as the reclaim.
+if s58_pdh_prox and (not uptrend_pass_58 or chop_gate_pass_58)
+    e_pdh_p  = close
+    s_pdh_p  = low - atr_buffer
+    t1_pdh_p = not na(pwh) and pwh > e_pdh_p ? pwh : (not na(pmh) and pmh > e_pdh_p ? pmh : e_pdh_p * 1.0075)
+    t2_pdh_p = not na(pmh) and pmh > t1_pdh_p ? pmh : t2_extend_long(e_pdh_p, t1_pdh_p)
+    alert(build_payload_v2("staged_pdh_proximity", "BUY", e_pdh_p, s_pdh_p, t1_pdh_p, t2_pdh_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // 2026-06-01 — staged_pml_held DISABLED. PML stays drawn on chart as visual.
 // if s58_pml_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
