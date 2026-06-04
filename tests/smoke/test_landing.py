@@ -10,8 +10,8 @@ class TestLandingPage:
 
     def test_has_expected_title(self, base_url, http):
         r = http.get(base_url, timeout=10)
-        assert "TradeCoPilot" in r.text
-        assert "AI Trading" in r.text
+        assert "BusyTradersDesk" in r.text
+        assert "Busy Professionals" in r.text
 
     def test_og_meta_tags_present(self, base_url, http):
         r = http.get(base_url, timeout=10)

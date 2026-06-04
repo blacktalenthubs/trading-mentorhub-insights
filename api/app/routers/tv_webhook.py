@@ -561,6 +561,10 @@ def _volume_floor(alert_type_full: str) -> float:
     # IS the risk control (FR-018).
     if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
         return _envf("V2_VOL_FLOOR_LOW_HELD", 0.8)
+    # Proximity bounce — same family as low_held. Buyers stepped in BEFORE
+    # the level test, so volume can be modest. Loose floor; let grade label it.
+    if name in ("staged_pdl_proximity", "staged_pwl_proximity"):
+        return _envf("V2_VOL_FLOOR_LOW_PROX", 0.3)
     # Support recovery (PDL/PWL/PML reclaim) — LOOSENED 2026-06-01 per
     # founder request: at support, both volume and VWAP slope can be weak
     # (the nature of a quiet bounce). Previously 1.0× floor was dropping
@@ -598,6 +602,10 @@ def _slope_min(alert_type_full: str) -> Optional[float]:
     # just not freefall). (FR-018)
     if name in ("staged_pdl_held", "staged_pwl_held", "staged_pml_held"):
         return _envf("V2_SLOPE_MIN_LOW_HELD", -0.5)
+    # Proximity bounce — slope can be very negative since the bounce starts
+    # near the bottom of the pullback (VWAP hasn't turned yet).
+    if name in ("staged_pdl_proximity", "staged_pwl_proximity"):
+        return _envf("V2_SLOPE_MIN_LOW_PROX", -1.0)
     # Support recovery — LOOSENED 2026-06-01 per founder request. At
     # support, slope often weak even on legitimate bounces (buyers just
     # stepping in, momentum hasn't built yet). Previous -0.3 floor was
@@ -1197,6 +1205,21 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _slope_pct = getattr(sig, "_tv_vwap_slope_pct", None)
             from analytics.alert_grade import compute_grade as _grade
             _alert_grade = _grade(_vol_ratio, _slope_pct)
+            # Spec 61 — market-regime grade-down. Breakout / MA-bounce longs
+            # that fire while SPY isn't holding above its session open are
+            # weak-tape setups: still delivered (so relative-strength names
+            # like TSLA/SNDK reach the user), but capped at Grade C so they
+            # rank below clean A/B setups. spy_above_open None (older Pine) =
+            # no change. HELD / reclaim / proximity / gap-up are unaffected.
+            _spy_above_open = getattr(sig, "_tv_spy_above_open", None)
+            if _spy_above_open is False:
+                _base_t = alert_type_full.replace("tv_", "", 1)
+                if (
+                    "_break" in _base_t
+                    or _base_t.startswith("ma_bounce_long_v3")
+                    or _base_t == "pullback_long"
+                ):
+                    _alert_grade = "C"
 
             alert = Alert(
                 user_id=user.id,
@@ -1668,6 +1691,8 @@ _LEVEL_ALERT_TYPES_FOR_PRICE_BAND = {
     "tv_staged_pmh_break",
     "tv_staged_pmh_reclaim",
     "tv_staged_pml_reclaim",
+    "tv_staged_pdl_proximity",
+    "tv_staged_pwl_proximity",
 }
 
 

@@ -310,6 +310,12 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     _inside_day_raw = (payload.get("inside_day") or "").strip().lower()
     sig._tv_inside_day = _inside_day_raw == "true"  # type: ignore[attr-defined]
     sig._tv_today_open = _to_float_optional(payload.get("today_open"))  # type: ignore[attr-defined]
+    # 2026-06-03 (spec 61): SPY market-regime flag. "false" = SPY is not
+    # holding above its session open (weak tape) — the webhook caps weak-tape
+    # breakouts/MA-bounces at Grade C. None when the field is absent (older
+    # Pine), which leaves grading unchanged.
+    _spy_above_raw = (payload.get("spy_above_open") or "").strip().lower()
+    sig._tv_spy_above_open = (_spy_above_raw == "true") if _spy_above_raw else None  # type: ignore[attr-defined]
     # 2026-05-16: gap_context boolean — overloaded meaning per alert type:
     #   • staged_pdh_break: gap-up (open above PDH) → tighter stop
     #   • staged_pdl_reclaim: gap-down recovery (open below PDL) → label
