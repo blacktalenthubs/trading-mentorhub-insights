@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, desc, select
 
 from analytics import screener as scr
+from analytics import conviction_screener as conv
 from app.config import get_settings
 from app.database import async_session_factory
 from app.models.screener import ScreenerAlertLog, ScreenerSnapshot, ScreenerUniverse, ScreenerUserSettings
@@ -549,6 +550,47 @@ async def refresh_swing_small(alert: bool = False, slot: str = "am") -> None:
     except Exception:
         logger.exception("swing-small: refresh failed")
         await _mark_latest_stale("swing_small")
+
+
+# ---------------------------------------------------------------------------
+# Conviction screener — analyst-backed long-term uptrends (AI/chips/disruptive).
+# Daily bars + yfinance analyst consensus; no market-hours gate (daily data).
+# ---------------------------------------------------------------------------
+
+def _gather_conviction() -> list[conv.ConvictionCandidate]:
+    """Scan the curated AI/chips/disruptive mid-cap universe for names with a
+    strong analyst rating that persistently trend above the 50-day MA. Pulls 1y
+    daily bars (for the MA stack + persistence) and yfinance analyst consensus."""
+    spy = _fetch_daily_consolidated("SPY", "1y")
+    spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-21])) - 1) * 100
+               if spy is not None and len(spy) > 21 else 0.0)
+    cands: list[conv.ConvictionCandidate] = []
+    for sym, theme in conv.CONVICTION_UNIVERSE:
+        try:
+            daily = _fetch_daily_consolidated(sym, "1y")
+            analyst = conv.fetch_analyst(sym)
+            c = conv.evaluate_conviction(sym, theme, daily, spy_ret, analyst)
+            if c is not None:
+                cands.append(c)
+        except Exception:
+            logger.debug("conviction: skipped %s", sym, exc_info=True)
+    return conv.rank_conviction(cands, get_settings().SCREENER_TOP_N)
+
+
+async def refresh_conviction() -> None:
+    """Run the conviction scan and persist a snapshot (kind='conviction'). Always
+    writes (even 0 names) so the UI can show 'last run' freshness."""
+    try:
+        cands = await asyncio.to_thread(_gather_conviction)
+        await _save_snapshot(cands, kind="conviction", market_open=False, top_n=get_settings().SCREENER_TOP_N)
+        logger.info("conviction: snapshot refreshed (%d names)", len(cands))
+    except Exception:
+        logger.exception("conviction: refresh failed — marking last snapshot stale")
+        await _mark_latest_stale("conviction")
+
+
+async def get_latest_conviction() -> ScreenerSnapshot | None:
+    return await get_latest_snapshot("conviction")
 
 
 # Sync wrappers for BackgroundScheduler — run on the app's main loop (where the

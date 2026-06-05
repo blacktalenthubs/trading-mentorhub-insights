@@ -126,6 +126,35 @@ async def refresh_swing(background: BackgroundTasks, cap: str = Query("mega"), u
     return {"status": "swing scan started"}
 
 
+# --- Conviction screener: analyst-backed long-term uptrends (AI/chips/disruptive) ---
+
+@router.get("/conviction")
+async def get_conviction(
+    run_id: Optional[int] = Query(None),
+    user: User = Depends(get_current_user),  # output readable by any user
+):
+    """Conviction picks (strong analyst rating + persistent uptrend above the
+    50MA). run_id selects a saved run; omit for the latest. Not market-gated."""
+    snap = await svc.get_snapshot(run_id) if run_id is not None else await svc.get_latest_conviction()
+    if snap is None:
+        return {"id": None, "captured_at": None, "stale": False, "entries": []}
+    return {"id": snap.id, "captured_at": snap.captured_at, "stale": bool(snap.stale), "entries": snap.entries or []}
+
+
+@router.get("/conviction/history")
+async def conviction_history(user: User = Depends(get_current_user)):
+    """Recent saved conviction runs (for the history selector)."""
+    return {"runs": await svc.list_snapshots("conviction")}
+
+
+@router.post("/conviction/refresh", status_code=202)
+async def refresh_conviction(background: BackgroundTasks, user: User = Depends(require_pro)):
+    """On-demand conviction rescan ('Run scan'). Pulls analyst consensus over the
+    curated universe, so it's heavier than swing — Pro-gated."""
+    background.add_task(svc.refresh_conviction)
+    return {"status": "conviction scan started"}
+
+
 @router.post("/universe/rebuild", status_code=202)
 async def rebuild_universe(background: BackgroundTasks, user: User = Depends(require_pro)):
     """Trigger an on-demand universe rebuild (FR-7). Admin-only (T029)."""
