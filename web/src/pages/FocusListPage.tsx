@@ -5,7 +5,7 @@
  *  tab subviews. Old route /focus-list redirects to /trade-ideas in App.tsx.
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, Target, History, Sparkles, Flame,
@@ -57,30 +57,20 @@ function historyLabel(item: FocusListHistoryItem): string {
   return `${when} · ${win} · ${tag}`;
 }
 
-const IDEAS_TABS_ALL: { id: IdeasTab; label: string; icon: typeof Target; adminOnly?: boolean }[] = [
+// Both tabs are visible to everyone. AI Scans output is readable by any logged-in
+// user (GET /focus-lists/*); only *running* a scan is admin-gated, enforced both
+// on the backend (require_ai_access) and on the Run button inside AIScansTab.
+const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Target }[] = [
   { id: "social", label: "Social",   icon: Flame },
-  { id: "ai",     label: "AI Scans", icon: Sparkles, adminOnly: true },
+  { id: "ai",     label: "AI Scans", icon: Sparkles },
 ];
 
 export default function FocusListPage() {
-  // AI Scans is admin-only (LLM cost) — gated on the admin tier (consistent
-  // with the rest of the app). Non-admins see only the Social tab.
-  const { data: me } = useMe();
-  const isAdmin = me?.tier === "admin";
-  const IDEAS_TABS = IDEAS_TABS_ALL.filter((t) => !t.adminOnly || isAdmin);
-
   const [tab, setTab] = useState<IdeasTab>(() => {
     if (typeof window === "undefined") return "social";
     const saved = localStorage.getItem("ideas_active_tab");
     return saved === "ai" || saved === "social" ? saved : "social";  // drop legacy day/swing
   });
-  // If the saved tab is AI but the user isn't admin, snap back to Social.
-  useEffect(() => {
-    if (tab === "ai" && !isAdmin) {
-      setTab("social");
-      try { localStorage.setItem("ideas_active_tab", "social"); } catch { /* ignore */ }
-    }
-  }, [tab, isAdmin]);
   function pickTab(t: IdeasTab) {
     setTab(t);
     try { localStorage.setItem("ideas_active_tab", t); } catch {}
@@ -193,6 +183,12 @@ function AIScansTab() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [cadencePrompt, setCadencePrompt] = useState(false);
 
+  // Anyone can view AI scan output; only the admin who pays for the LLM can run
+  // a scan. Mirrors require_ai_access in api/app/dependencies.py (the run
+  // endpoint 403s for everyone else regardless of this flag).
+  const { data: me } = useMe();
+  const canRun = (me?.email ?? "").trim().toLowerCase() === "vbolofinde@gmail.com";
+
   const latest = useLatestFocusList();
   const history = useFocusListHistory();
   const detail = useFocusListDetail(selectedId);
@@ -223,16 +219,21 @@ function AIScansTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <button
-          onClick={() => runScan(false)}
-          disabled={runMut.isPending}
-          className="text-xs px-3 py-1.5 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-        >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[11px] text-text-muted">
+          AI Best Setups — the latest scan of high-conviction day-trade and swing setups.
+        </p>
+        {canRun && (
+          <button
+            onClick={() => runScan(false)}
+            disabled={runMut.isPending}
+            className="text-xs px-3 py-1.5 rounded-full bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+          >
             <RefreshCw className={`h-3.5 w-3.5 ${runMut.isPending ? "animate-spin" : ""}`} />
             {runMut.isPending ? "Scanning…" : "Run scan"}
           </button>
-        </div>
+        )}
+      </div>
 
         {/* History selector */}
         {history.data && history.data.items.length > 0 && (
@@ -269,17 +270,26 @@ function AIScansTab() {
             <h2 className="text-sm font-bold text-text-primary mb-1">
               No focus list yet
             </h2>
-            <p className="text-xs text-text-muted mb-4">
-              Run your first scan — the AI ranks your watchlist for the best
-              day-trade and swing setups, and the result is saved here.
-            </p>
-            <button
-              onClick={() => runScan(false)}
-              disabled={runMut.isPending}
-              className="text-xs px-4 py-2 rounded-full bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
-            >
-              {runMut.isPending ? "Scanning…" : "Run your first scan"}
-            </button>
+            {canRun ? (
+              <>
+                <p className="text-xs text-text-muted mb-4">
+                  Run your first scan — the AI ranks your watchlist for the best
+                  day-trade and swing setups, and the result is saved here.
+                </p>
+                <button
+                  onClick={() => runScan(false)}
+                  disabled={runMut.isPending}
+                  className="text-xs px-4 py-2 rounded-full bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
+                >
+                  {runMut.isPending ? "Scanning…" : "Run your first scan"}
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-text-muted">
+                The AI Best Setups scan hasn't been published yet today. Check back
+                shortly — new scans appear here automatically.
+              </p>
+            )}
           </div>
         )}
 
