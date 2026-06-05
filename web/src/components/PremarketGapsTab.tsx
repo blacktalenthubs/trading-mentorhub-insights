@@ -1,0 +1,171 @@
+/** Premarket Gap Board — stocks gapping pre-bell so you can plan before the open.
+ *  Two buckets: Clean (large/mega cap) and Momentum (small/mid). Each gapper
+ *  shows gap%, premarket volume (liquidity), key levels (PDH/PDL), and a news
+ *  catalyst. Tap a row to chart it; add it to your watchlist.
+ */
+
+import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  usePremarketGaps,
+  useRefreshPremarketGaps,
+  useWatchlist,
+  useAddSymbol,
+  type PremarketGapEntry,
+} from "../api/hooks";
+import { Skeleton, SkeletonRow } from "./ui/Skeleton";
+import EmptyState from "./ui/EmptyState";
+import { Activity, RefreshCw, Plus, Check, Flame, Newspaper } from "lucide-react";
+
+function fmtAge(iso: string | null): string {
+  if (!iso) return "never";
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  return m < 1 ? "just now" : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+}
+function gapColor(g: number | null): string {
+  if (g == null) return "text-text-faint";
+  return g > 0 ? "text-bullish-text" : "text-bearish-text";
+}
+function fmtGap(g: number | null): string {
+  return g == null ? "—" : `${g > 0 ? "+" : ""}${g.toFixed(1)}%`;
+}
+function fmtVol(v: number | null): string {
+  if (v == null) return "—";
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
+  return `$${v.toFixed(0)}`;
+}
+function fmtPx(v: number | null): string {
+  return v == null ? "—" : `$${v.toFixed(2)}`;
+}
+
+function GapRow({ e, owned, onChart, onAdd, adding }: {
+  e: PremarketGapEntry; owned: boolean; onChart: () => void; onAdd: () => void; adding: boolean;
+}) {
+  return (
+    <div className="border-b border-border-subtle/30 last:border-b-0 px-4 py-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <button onClick={onChart} className="text-left min-w-0 flex-1" title={`Chart ${e.symbol}`}>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-text-primary">{e.symbol}</span>
+            <span className={`text-base font-mono font-bold ${gapColor(e.gap_pct)}`}>{fmtGap(e.gap_pct)}</span>
+            {e.bucket === "momentum" && (
+              <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-warning-text bg-warning/10 px-1 py-0.5 rounded" title="Small/mid-cap momentum — higher risk">
+                <Flame className="h-2.5 w-2.5" /> momentum
+              </span>
+            )}
+          </div>
+          {/* Levels row */}
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] font-mono text-text-faint">
+            <span className="text-text-muted">{fmtPx(e.pm_last)}</span>
+            <span>PMH {fmtPx(e.pm_high)}</span>
+            <span>PDH {fmtPx(e.pdh)}</span>
+            <span>PDL {fmtPx(e.pdl)}</span>
+            <span title="Premarket $-volume (liquidity)">vol {fmtVol(e.pm_dollar_vol)}</span>
+          </div>
+          {/* Catalyst */}
+          {e.catalyst && (
+            <div className="mt-1 flex items-start gap-1 text-[11px] text-text-muted">
+              <Newspaper className="h-3 w-3 mt-0.5 shrink-0 text-accent/70" />
+              <span className="line-clamp-2">{e.catalyst}</span>
+            </div>
+          )}
+        </button>
+        <div className="shrink-0">
+          {owned ? (
+            <span className="inline-flex items-center text-bullish-text" title="On your watchlist"><Check className="h-4 w-4" /></span>
+          ) : (
+            <button onClick={onAdd} disabled={adding}
+              className="p-1 rounded text-accent hover:bg-accent/10 disabled:opacity-50 active:scale-95"
+              title={`Add ${e.symbol} to watchlist`}>
+              <Plus className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Bucket({ title, items, watchSet, onChart, onAdd, adding }: {
+  title: string; items: PremarketGapEntry[]; watchSet: Set<string>;
+  onChart: (s: string) => void; onAdd: (s: string) => void; adding: boolean;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">{title} <span className="text-text-faint">({items.length})</span></h3>
+      <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
+        {items.map((e) => (
+          <GapRow key={e.symbol} e={e} owned={watchSet.has(e.symbol.toUpperCase())}
+            onChart={() => onChart(e.symbol)} onAdd={() => onAdd(e.symbol)} adding={adding} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function PremarketGapsTab() {
+  const { data, isLoading, error } = usePremarketGaps();
+  const refresh = useRefreshPremarketGaps();
+  const { data: watchlist } = useWatchlist();
+  const addSymbol = useAddSymbol();
+  const navigate = useNavigate();
+
+  const watchSet = useMemo(
+    () => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())),
+    [watchlist],
+  );
+
+  const entries = data?.entries ?? [];
+  const clean = entries.filter((e) => e.bucket === "clean");
+  const momentum = entries.filter((e) => e.bucket === "momentum");
+
+  function onChart(s: string) { navigate(`/trading?symbol=${encodeURIComponent(s)}`); }
+
+  if (isLoading) {
+    return <div className="space-y-3"><Skeleton w={200} h={16} /><SkeletonRow count={6} h={56} /></div>;
+  }
+  if (error) {
+    return <div className="text-center py-12 text-sm text-bearish-text">Failed to load premarket gaps.</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between text-xs text-text-faint">
+        <span>
+          {entries.length} gappers · gap ≥ 2% with real premarket volume
+          {data?.captured_at && <> · {fmtAge(data.captured_at)}{data.stale && " · stale"}</>}
+        </span>
+        <button
+          onClick={() => refresh.mutate()}
+          disabled={refresh.isPending}
+          className="flex items-center gap-1.5 rounded-full bg-accent/15 text-accent px-3 py-1.5 hover:bg-accent/25 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
+          {refresh.isPending ? "Scanning…" : "Scan now"}
+        </button>
+      </div>
+
+      {entries.length === 0 ? (
+        <EmptyState
+          icon={Activity}
+          title="No premarket gappers yet"
+          hint="The scan runs every 15 min from 7:00–9:45 AM ET and lists stocks gapping with real premarket volume. Outside that window it'll be empty — or tap 'Scan now'."
+        />
+      ) : (
+        <div className="space-y-5">
+          <Bucket title="Clean gaps" items={clean} watchSet={watchSet} onChart={onChart} onAdd={(s) => addSymbol.mutate(s)} adding={addSymbol.isPending} />
+          <Bucket title="Momentum gappers" items={momentum} watchSet={watchSet} onChart={onChart} onAdd={(s) => addSymbol.mutate(s)} adding={addSymbol.isPending} />
+        </div>
+      )}
+
+      <p className="text-[11px] text-text-faint leading-relaxed">
+        Gap % is premarket vs prior close. <span className="text-text-secondary">PMH</span> = premarket high,
+        <span className="text-text-secondary"> PDH/PDL</span> = prior day high/low — your plan levels. Prep before
+        the bell, then watch whether the gap <em>holds</em> the open (gap-and-go) or fills.
+        <span className="text-warning-text"> Momentum</span> names move more but trap more — mind the volume.
+      </p>
+    </div>
+  );
+}

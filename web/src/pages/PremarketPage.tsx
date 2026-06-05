@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useGroupsPremarket, type GroupPremarketSummary, type GroupSymbolQuote } from "../api/hooks";
 import Card from "../components/ui/Card";
+import PremarketGapsTab from "../components/PremarketGapsTab";
 import { Loader2, RefreshCw, TrendingUp, TrendingDown, Activity, ChevronDown, ChevronRight } from "lucide-react";
 
 function fmtPct(v: number | null | undefined): string {
@@ -111,60 +112,83 @@ export default function PremarketPage() {
   // 2026-06-01 — public-access launch: premarket unlocked for everyone.
   // Previous behaviour blurred all but the first sector for free users.
 
+  const [tab, setTab] = useState<"gaps" | "heat">(() => {
+    if (typeof window === "undefined") return "gaps";
+    return (localStorage.getItem("premarket_tab") as "gaps" | "heat") || "gaps";
+  });
+  function pickTab(t: "gaps" | "heat") {
+    setTab(t);
+    try { localStorage.setItem("premarket_tab", t); } catch { /* ignore */ }
+  }
+
   return (
     <div className="h-full overflow-y-auto p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="h-5 w-5 text-accent" />
-          <h1 className="font-display text-2xl font-bold">Premarket Sector Heat</h1>
-        </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center gap-2 rounded-lg bg-surface-3 px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-4 disabled:opacity-40 active:scale-95"
-        >
-          {isFetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-          Refresh
-        </button>
+      <div className="flex items-center gap-2">
+        <Activity className="h-5 w-5 text-accent" />
+        <h1 className="font-display text-2xl font-bold">Premarket</h1>
       </div>
 
-      <p className="text-sm text-text-muted">
-        Per-group aggregation across your watchlist sectors. Sorted by absolute movement so the most active sectors float to top. Click a card to drill into per-symbol moves.
-      </p>
+      {/* Tabs */}
+      <div className="flex items-center gap-1 border-b border-border-subtle">
+        {(["gaps", "heat"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => pickTab(t)}
+            className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              tab === t ? "border-accent text-accent" : "border-transparent text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            {t === "gaps" ? "Gap Board" : "Sector Heat"}
+          </button>
+        ))}
+      </div>
 
-      {isLoading && (
-        <div className="flex items-center gap-2 py-8">
-          <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
-          <span className="text-sm text-text-muted">Loading sector data...</span>
-        </div>
-      )}
+      {tab === "gaps" ? (
+        <PremarketGapsTab />
+      ) : (
+        <>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm text-text-muted">
+              Per-group aggregation across your watchlist sectors. Sorted by absolute movement so the most active sectors float to top. Click a card to drill into per-symbol moves.
+            </p>
+            <button
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="flex items-center gap-2 rounded-lg bg-surface-3 px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-surface-4 disabled:opacity-40 active:scale-95 shrink-0"
+            >
+              {isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Refresh
+            </button>
+          </div>
 
-      {error && (
-        <Card padding="md">
-          <p className="text-sm text-bearish-text">
-            {error instanceof Error ? error.message : "Failed to load premarket data"}
-          </p>
-        </Card>
-      )}
-
-      {data && data.length === 0 && (
-        <Card padding="md">
-          <p className="text-sm text-text-muted">
-            No watchlist groups found. Go to <a href="/watchlist" className="text-accent hover:underline">Watchlist</a> and click <strong>Seed Default Groups</strong> to populate sectors.
-          </p>
-        </Card>
-      )}
-
-      {data && data.length > 0 && (
-        <div className="space-y-3">
-          {data.map((g) => (
-            <GroupCard key={g.group_id} g={g} />
-          ))}
-        </div>
+          {isLoading && (
+            <div className="flex items-center gap-2 py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+              <span className="text-sm text-text-muted">Loading sector data...</span>
+            </div>
+          )}
+          {error && (
+            <Card padding="md">
+              <p className="text-sm text-bearish-text">
+                {error instanceof Error ? error.message : "Failed to load premarket data"}
+              </p>
+            </Card>
+          )}
+          {data && data.length === 0 && (
+            <Card padding="md">
+              <p className="text-sm text-text-muted">
+                No watchlist groups found. Go to <a href="/watchlist" className="text-accent hover:underline">Watchlist</a> and click <strong>Seed Default Groups</strong> to populate sectors.
+              </p>
+            </Card>
+          )}
+          {data && data.length > 0 && (
+            <div className="space-y-3">
+              {data.map((g) => (
+                <GroupCard key={g.group_id} g={g} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
