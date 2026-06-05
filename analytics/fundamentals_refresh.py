@@ -14,11 +14,12 @@ the same sync session factory wired into app.state.sync_session_factory.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 
 from analytics.fundamentals_fetcher import fetch_fundamentals
-from analytics.fundamentals_view import generate_views
+from analytics.fundamentals_view import generate_brief
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,16 @@ def _distinct_watchlist_symbols(session) -> list[str]:
     return sorted({r[0].upper() for r in rows if r[0]})
 
 
-def refresh_symbol(session, symbol: str) -> bool:
-    """Fetch + generate + upsert one symbol. Returns True if a row was written.
+def refresh_symbol(session, symbol: str, *, with_ai: bool = False) -> bool:
+    """Fetch + upsert one symbol's numbers. Returns True if a row was written.
 
-    Skips the rate-limited yfinance description call when the existing row
-    already has one (the description is static).
+    ``with_ai=True`` ALSO (re)generates the structured AI brief (Sonnet) — this
+    is the expensive, admin-gated path. Numbers-only (``with_ai=False``) refreshes
+    EPS/analysts/metrics for any user without spending LLM budget. A prior brief is
+    always preserved when not regenerated or when generation fails.
+
+    Skips the rate-limited yfinance description call when the existing row already
+    has one (the description is static).
     """
     from app.models.fundamentals import SymbolFundamentals
 
@@ -47,8 +53,6 @@ def refresh_symbol(session, symbol: str) -> bool:
     if data is None:
         logger.info("Fundamentals refresh: no data for %s, skipping", symbol)
         return False
-
-    short_view, long_view = generate_views(data)
 
     if existing is None:
         existing = SymbolFundamentals(symbol=symbol)
@@ -72,20 +76,25 @@ def refresh_symbol(session, symbol: str) -> bool:
     existing.rec_strong_sell = data.rec_strong_sell
     existing.consensus = data.consensus
     existing.rec_period = data.rec_period
-    # Preserve a prior view if the AI call failed this round (returns "").
-    if short_view:
-        existing.short_term_view = short_view
-    if long_view:
-        existing.long_term_view = long_view
+    existing.metrics_json = json.dumps(data.metrics_dict())
+
+    if with_ai:
+        brief = generate_brief(data)
+        if brief:  # preserve the prior brief if generation failed/disabled
+            existing.ai_brief = json.dumps(brief)
+            existing.ai_generated_at = datetime.utcnow()
+            existing.short_term_view = brief.get("short_term") or existing.short_term_view
+            existing.long_term_view = brief.get("long_term") or existing.long_term_view
+
     existing.fetched_at = datetime.utcnow()
     return True
 
 
-def refresh_one(session_factory, symbol: str) -> dict:
+def refresh_one(session_factory, symbol: str, *, with_ai: bool = False) -> dict:
     """Refresh a single symbol in its own session. Returns a summary dict."""
     with session_factory() as session:
         try:
-            written = refresh_symbol(session, symbol)
+            written = refresh_symbol(session, symbol, with_ai=with_ai)
             session.commit()
             return {"symbol": symbol.upper(), "refreshed": int(written), "failures": 0}
         except Exception:
@@ -94,10 +103,21 @@ def refresh_one(session_factory, symbol: str) -> dict:
             return {"symbol": symbol.upper(), "refreshed": 0, "failures": 1}
 
 
-def refresh_all(session_factory) -> dict:
+def generate_brief_if_missing(session_factory, symbol: str) -> dict:
+    """Auto-run path for newly added symbols: generate the AI brief ONLY if the
+    symbol has none yet (so a re-add doesn't re-spend LLM budget). Numbers are
+    always refreshed. Safe to call in a background task."""
+    from app.models.fundamentals import SymbolFundamentals
+    with session_factory() as session:
+        existing = session.get(SymbolFundamentals, symbol.upper())
+        needs_ai = existing is None or not existing.ai_brief
+    return refresh_one(session_factory, symbol, with_ai=needs_ai)
+
+
+def refresh_all(session_factory, *, with_ai: bool = False) -> dict:
     """Refresh every distinct watchlist symbol. Slow (throttled by the shared
-    Finnhub token bucket + per-symbol Anthropic call) — intended as an explicit
-    user action, not a background job.
+    Finnhub token bucket + per-symbol Anthropic call when ``with_ai``) — intended
+    as an explicit user action, not a background job.
     """
     summary = {"symbols": 0, "refreshed": 0, "failures": 0}
     with session_factory() as session:
@@ -105,7 +125,7 @@ def refresh_all(session_factory) -> dict:
         summary["symbols"] = len(symbols)
         for symbol in symbols:
             try:
-                if refresh_symbol(session, symbol):
+                if refresh_symbol(session, symbol, with_ai=with_ai):
                     summary["refreshed"] += 1
                 session.commit()
             except Exception:

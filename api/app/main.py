@@ -119,6 +119,17 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
+        # Migration: structured AI brief + extra metrics on symbol_fundamentals
+        for col_def in [
+            "ALTER TABLE symbol_fundamentals ADD COLUMN IF NOT EXISTS ai_brief TEXT",
+            "ALTER TABLE symbol_fundamentals ADD COLUMN IF NOT EXISTS ai_generated_at TIMESTAMP",
+            "ALTER TABLE symbol_fundamentals ADD COLUMN IF NOT EXISTS metrics_json TEXT",
+        ]:
+            try:
+                await conn.execute(text(col_def))
+            except Exception:
+                pass
+
         # Migration: swing alert refresh columns
         for col_def in [
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS setup_level REAL",

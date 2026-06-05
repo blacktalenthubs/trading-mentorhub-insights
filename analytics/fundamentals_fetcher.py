@@ -47,6 +47,28 @@ class SymbolFundamentalsData:
     rec_strong_sell: Optional[int] = None
     consensus: Optional[str] = None
     rec_period: Optional[str] = None
+    # Extra decision metrics (Finnhub /metric + yfinance fast_info).
+    revenue_growth_pct: Optional[float] = None
+    gross_margin_pct: Optional[float] = None
+    net_margin_pct: Optional[float] = None
+    week52_high: Optional[float] = None
+    week52_low: Optional[float] = None
+    last_price: Optional[float] = None
+    ma50: Optional[float] = None
+    ma200: Optional[float] = None
+
+    def metrics_dict(self) -> dict:
+        """The extra metrics as a JSON-serializable dict for storage (metrics_json)."""
+        return {
+            "revenue_growth_pct": self.revenue_growth_pct,
+            "gross_margin_pct": self.gross_margin_pct,
+            "net_margin_pct": self.net_margin_pct,
+            "week52_high": self.week52_high,
+            "week52_low": self.week52_low,
+            "last_price": self.last_price,
+            "ma50": self.ma50,
+            "ma200": self.ma200,
+        }
 
 
 # ── Finnhub profile ──────────────────────────────────────────────────
@@ -97,7 +119,39 @@ def _fetch_metrics(symbol: str) -> dict:
         "forward_eps": forward_eps,
         "pe_ratio": pe_ratio,
         "eps_growth_pct": eps_growth_pct,
+        # Extra decision metrics — same /metric payload (Finnhub returns these in %).
+        "revenue_growth_pct": _to_float(metric.get("revenueGrowthTTMYoy")),
+        "gross_margin_pct": _to_float(metric.get("grossMarginTTM")),
+        "net_margin_pct": _to_float(metric.get("netProfitMarginTTM")),
+        "week52_high": _to_float(metric.get("52WeekHigh")),
+        "week52_low": _to_float(metric.get("52WeekLow")),
     }
+
+
+# ── yfinance price trend (light fast_info call) ──────────────────────
+def _fetch_price_trend(symbol: str) -> dict:
+    """Last price + 50/200-day moving averages from yfinance fast_info (lighter
+    than .info). {} on failure. Needed fresh each refresh (changes daily)."""
+    try:
+        import yfinance as yf
+
+        fi = yf.Ticker(symbol).fast_info
+
+        def g(attr: str) -> Optional[float]:
+            try:
+                v = getattr(fi, attr, None)
+                return float(v) if v else None
+            except Exception:
+                return None
+
+        return {
+            "last_price": g("last_price"),
+            "ma50": g("fifty_day_average"),
+            "ma200": g("two_hundred_day_average"),
+        }
+    except Exception:
+        logger.warning("yfinance price trend failed for %s", symbol)
+        return {}
 
 
 # ── Finnhub recommendation ───────────────────────────────────────────
@@ -178,6 +232,8 @@ def fetch_fundamentals(
     merged.update(_fetch_profile(symbol))
     merged.update(_fetch_metrics(symbol))
     merged.update(_fetch_recommendation(symbol))
+    # Price + MAs change daily, so fetch fresh every refresh (light fast_info call).
+    merged.update({k: v for k, v in _fetch_price_trend(symbol).items() if v is not None})
     if include_description:
         # yfinance industry overrides Finnhub's when present; merge last.
         desc = _fetch_description(symbol)

@@ -13,9 +13,10 @@ app.state.sync_session_factory (same pattern as the routers/intel.py data calls)
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -24,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_ai_access
 from app.models.fundamentals import SymbolFundamentals
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
@@ -71,6 +72,10 @@ class FundamentalsItem(BaseModel):
     rec_period: Optional[str] = None
     short_term_view: Optional[str] = None
     long_term_view: Optional[str] = None
+    # Structured AI brief (dict of sections + model) + extra decision metrics.
+    ai_brief: Optional[dict] = None
+    ai_generated_at: Optional[str] = None
+    metrics: Optional[dict] = None
     fetched_at: Optional[str] = None  # ISO timestamp; None = never fetched
 
 
@@ -82,6 +87,15 @@ class FundamentalsResponse(BaseModel):
 class RefreshRequest(BaseModel):
     symbol: Optional[str] = None
     all: bool = False
+
+
+def _loads(raw: Optional[str]) -> Optional[Any]:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
 
 
 def _to_item(sym: str, row: Optional[SymbolFundamentals]) -> FundamentalsItem:
@@ -107,6 +121,9 @@ def _to_item(sym: str, row: Optional[SymbolFundamentals]) -> FundamentalsItem:
         rec_period=row.rec_period,
         short_term_view=row.short_term_view,
         long_term_view=row.long_term_view,
+        ai_brief=_loads(getattr(row, "ai_brief", None)),
+        ai_generated_at=row.ai_generated_at.isoformat() if getattr(row, "ai_generated_at", None) else None,
+        metrics=_loads(getattr(row, "metrics_json", None)),
         fetched_at=row.fetched_at.isoformat() if row.fetched_at else None,
     )
 
@@ -146,35 +163,50 @@ async def watchlist_fundamentals(
     return FundamentalsResponse(items=items, last_refreshed_at=most_recent)
 
 
+def _refresh_in_thread(symbol: Optional[str], do_all: bool, with_ai: bool) -> dict:
+    engine, factory = _sync_session_factory()
+    try:
+        if do_all:
+            from analytics.fundamentals_refresh import refresh_all
+            return refresh_all(factory, with_ai=with_ai)
+        from analytics.fundamentals_refresh import refresh_one
+        return refresh_one(factory, symbol, with_ai=with_ai)
+    finally:
+        engine.dispose()
+
+
 @router.post("/refresh")
 async def refresh_fundamentals(
     body: RefreshRequest,
     user: User = Depends(get_current_user),
 ):
-    """Fetch + AI-generate + upsert. Single symbol (`symbol`) or whole
-    watchlist (`all: true`). Runs off the event loop — the AI + network calls
-    are blocking and can take several seconds.
+    """Refresh the NUMBERS only (Finnhub fundamentals + analyst ratings + metrics)
+    for a symbol or the whole watchlist. No LLM cost — the AI brief is generated
+    separately by admins via /ai-refresh (and auto on newly-added symbols).
 
     Uses its OWN sync session factory (not app.state.sync_session_factory,
     which is unset when the scheduler startup block raised — that previously
     500'd this endpoint and left the Details tab perpetually un-fetched).
     """
     do_all = body.all or not body.symbol
-    symbol = body.symbol
-
-    def _run() -> dict:
-        engine, factory = _sync_session_factory()
-        try:
-            if do_all:
-                from analytics.fundamentals_refresh import refresh_all
-                return refresh_all(factory)
-            from analytics.fundamentals_refresh import refresh_one
-            return refresh_one(factory, symbol)
-        finally:
-            engine.dispose()
-
     try:
-        return await asyncio.to_thread(_run)
+        return await asyncio.to_thread(_refresh_in_thread, body.symbol, do_all, False)
     except Exception as e:  # surface the real cause instead of an opaque 500
         logger.exception("Fundamentals refresh endpoint failed")
         raise HTTPException(status_code=500, detail=f"refresh failed: {e}")
+
+
+@router.post("/ai-refresh")
+async def ai_refresh_fundamentals(
+    body: RefreshRequest,
+    user: User = Depends(require_ai_access),
+):
+    """Admin-only: (re)generate the structured AI investment brief (Sonnet) for a
+    symbol or the whole watchlist, and refresh its numbers. The brief is stored
+    per-symbol and read by every user, so this is run sparingly (admin / on-add)."""
+    do_all = body.all or not body.symbol
+    try:
+        return await asyncio.to_thread(_refresh_in_thread, body.symbol, do_all, True)
+    except Exception as e:
+        logger.exception("Fundamentals AI-refresh endpoint failed")
+        raise HTTPException(status_code=500, detail=f"ai-refresh failed: {e}")

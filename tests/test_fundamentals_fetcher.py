@@ -83,14 +83,17 @@ class TestFetchFundamentals:
         fake_yf = MagicMock()
         with (
             patch("analytics.fundamentals_fetcher._get", _fake_get),
+            patch("analytics.fundamentals_fetcher._fetch_description") as mock_desc,
             patch.dict("sys.modules", {"yfinance": fake_yf}),
         ):
             data = fetch_fundamentals("NVDA", include_description=False)
 
         assert data is not None
         assert data.description is None
-        fake_yf.Ticker.assert_not_called()
-        # Finnhub industry survives when yfinance is skipped.
+        # The rate-limited .info description fetch is skipped (price trend via
+        # fast_info still runs — it's cheap and needs to be fresh).
+        mock_desc.assert_not_called()
+        # Finnhub industry survives when the description fetch is skipped.
         assert data.industry == "Semiconductors"
 
     def test_yfinance_failure_is_graceful(self):
@@ -108,9 +111,14 @@ class TestFetchFundamentals:
         assert data.company_name == "Nvidia Corp"
 
     def test_all_sources_empty_returns_none(self):
+        # Finnhub returns nothing AND yfinance yields no description / no price.
+        empty_ticker = MagicMock(
+            info={},
+            fast_info=MagicMock(last_price=None, fifty_day_average=None, two_hundred_day_average=None),
+        )
         with (
             patch("analytics.fundamentals_fetcher._get", lambda e, p: None),
-            patch.dict("sys.modules", {"yfinance": MagicMock(Ticker=MagicMock(return_value=MagicMock(info={})))}),
+            patch.dict("sys.modules", {"yfinance": MagicMock(Ticker=MagicMock(return_value=empty_ticker))}),
         ):
             data = fetch_fundamentals("ZZZZ")
         assert data is None
