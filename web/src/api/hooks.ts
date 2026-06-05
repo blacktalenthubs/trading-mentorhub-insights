@@ -708,6 +708,7 @@ export interface SpyRegimeSnapshot {
   today_open?: number;
   pdh?: number | null;
   pdl?: number | null;
+  below_pdl?: boolean;   // SPY under its prior-day low → buy alerts suppressed
   inside_day?: boolean;
   bias?: "LONG" | "WAIT" | "NEUTRAL" | "STAND_DOWN";
   bias_label?: string;
