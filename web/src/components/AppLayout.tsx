@@ -9,6 +9,7 @@ import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
 import { usePushNotifications } from "../hooks/usePushNotifications";
 import { useSignalNotifications } from "../hooks/useSignalNotifications";
+import ThemeToggleButton from "./ThemeToggleButton";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   Crosshair,
@@ -247,6 +248,9 @@ export default function AppLayout() {
             </span>
           </button>
 
+          {/* One-tap theme toggle */}
+          <ThemeToggleButton variant="icon" />
+
           <div className="w-8 h-px bg-border-subtle" />
 
           {/* Collapse / expand toggle */}
@@ -325,6 +329,7 @@ export default function AppLayout() {
               </NavLink>
             );
           })}
+          <ThemeToggleButton variant="tab" />
         </nav>
       </div>
     </div>
