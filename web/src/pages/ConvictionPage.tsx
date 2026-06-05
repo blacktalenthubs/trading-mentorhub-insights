@@ -6,8 +6,11 @@
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Gem, RefreshCw, History } from "lucide-react";
-import { useConviction, useConvictionHistory, useRefreshConviction } from "../api/hooks";
+import { Gem, RefreshCw, History, Plus, Check } from "lucide-react";
+import {
+  useConviction, useConvictionHistory, useRefreshConviction,
+  useAddSymbol, useWatchlist,
+} from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
@@ -53,6 +56,31 @@ function TrendCell({ r }: { r: ConvictionEntry }) {
   );
 }
 
+/** Add-to-watchlist control. A role="button" span (NOT a <button>) so it's valid
+ *  nested inside ScreenerTable's mobile card, which is itself a <button>; stops
+ *  propagation so tapping it doesn't also open the chart. */
+function AddButton({ owned, onAdd, label }: { owned: boolean; onAdd: () => void; label: string }) {
+  if (owned) {
+    return (
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md text-bullish-text" title="On your watchlist">
+        <Check className="h-4 w-4" />
+      </span>
+    );
+  }
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      title={label}
+      onClick={(e) => { e.stopPropagation(); onAdd(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); onAdd(); } }}
+      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-accent/15 text-accent transition-colors hover:bg-accent/25 active:scale-90"
+    >
+      <Plus className="h-4 w-4" />
+    </span>
+  );
+}
+
 const THEME_ORDER = ["AI Chips", "Semicap", "AI Software", "AI Infra", "AI Optics", "Disruptive"];
 
 export default function ConvictionPage() {
@@ -64,6 +92,15 @@ export default function ConvictionPage() {
   const history = useConvictionHistory();
   const refresh = useRefreshConviction();
   const { isPro } = useFeatureGate();
+
+  const { data: watchlist } = useWatchlist();
+  const addSym = useAddSymbol();
+  const owned = useMemo(
+    () => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())),
+    [watchlist],
+  );
+  const isOwned = (s: string) => owned.has(s.toUpperCase());
+  const addToWatchlist = (s: string) => { if (!isOwned(s)) addSym.mutate(s); };
 
   const allRows = data?.entries ?? [];
   const rows = theme === "All" ? allRows : allRows.filter((r) => r.theme === theme);
@@ -94,28 +131,46 @@ export default function ConvictionPage() {
     { key: "rs", label: "RS vs SPY", align: "right", cls: "hidden lg:table-cell", value: (r) => r.rs_vs_spy, render: (r) => <span className={`font-mono ${r.rs_vs_spy >= 0 ? "text-accent" : "text-text-muted"}`}>{r.rs_vs_spy >= 0 ? "+" : ""}{r.rs_vs_spy.toFixed(1)}</span> },
     { key: "ret20", label: "20d", align: "right", cls: "hidden xl:table-cell", value: (r) => r.ret_20d, render: (r) => <span className={`font-mono ${r.ret_20d >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.ret_20d >= 0 ? "+" : ""}{r.ret_20d.toFixed(1)}%</span> },
     { key: "score", label: "Score", align: "right", cls: "w-14", value: (r) => r.score, render: (r) => <span className="font-mono font-bold text-text-primary">{r.score}</span> },
+    { key: "add", label: "", align: "right", cls: "w-10", render: (r) => <AddButton owned={isOwned(r.symbol)} onAdd={() => addToWatchlist(r.symbol)} label={`Add ${r.symbol} to watchlist`} /> },
   ];
 
+  const pill = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-3 text-text-muted";
   const mobileRow = (r: ConvictionEntry) => {
     const m = ratingMeta(r.rec_mean);
     return (
-      <>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+      <div className="space-y-1.5">
+        {/* Identity + price + add */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <GradeBadge grade={r.grade} />
-            <span className="font-bold text-text-primary">{r.symbol}</span>
-            <span className="text-[10px] font-semibold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded">{r.theme}</span>
+            <span className="text-[15px] font-bold text-text-primary">{r.symbol}</span>
+            <span className="shrink-0 text-[10px] font-semibold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded">{r.theme}</span>
           </div>
-          <span className="font-mono text-sm text-text-primary">{money(r.last_price)}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="font-mono text-sm text-text-primary">{money(r.last_price)}</span>
+            <AddButton owned={isOwned(r.symbol)} onAdd={() => addToWatchlist(r.symbol)} label={`Add ${r.symbol} to watchlist`} />
+          </div>
         </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px] text-text-muted font-mono">
-          <span className={m.cls}>{m.label}{r.num_analysts != null ? ` (${r.num_analysts})` : ""}</span>
-          {r.target_upside_pct != null && <span className="text-bullish-text">↑{r.target_upside_pct.toFixed(0)}%</span>}
-          <span>{r.pct_days_above_50.toFixed(0)}% &gt;50MA</span>
-          <span>RS {r.rs_vs_spy >= 0 ? "+" : ""}{r.rs_vs_spy.toFixed(1)}</span>
-          <span className="text-text-secondary">score {r.score}</span>
+        {/* Headline signal: rating + score */}
+        <div className="flex items-center justify-between gap-2">
+          <span className={`text-xs font-semibold ${m.cls}`}>
+            {m.label}{r.num_analysts != null ? ` · ${r.num_analysts} analysts` : ""}
+          </span>
+          <span className="font-mono text-[11px] font-bold text-text-secondary">score {r.score}</span>
         </div>
-      </>
+        {/* Supporting stats as spaced pills */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className={`${pill} ${r.ret_20d >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+            {r.ret_20d >= 0 ? "↑" : "↓"}{Math.abs(r.ret_20d).toFixed(0)}% 20d
+          </span>
+          <span className={pill}>{r.pct_days_above_50.toFixed(0)}% &gt;50MA</span>
+          <span className={pill}>RS {r.rs_vs_spy >= 0 ? "+" : ""}{r.rs_vs_spy.toFixed(1)}</span>
+          {r.target_upside_pct != null && (
+            <span className={`${pill} text-bullish-text`}>tgt +{r.target_upside_pct.toFixed(0)}%</span>
+          )}
+          {r.ma_stacked && <span className={`${pill} text-accent`}>50&gt;200 ↑</span>}
+        </div>
+      </div>
     );
   };
 
