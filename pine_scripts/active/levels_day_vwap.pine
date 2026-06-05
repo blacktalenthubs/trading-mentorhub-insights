@@ -968,6 +968,41 @@ atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1],
 atr_d     = nz(atr_d_raw, close * 0.005)
 
 // =====================================================================
+// Spec 61 — Rolling higher-low support tracker (the ORL idea, all day).
+// =====================================================================
+// Generalizes staged_orl_held to every RISING intraday swing-low. When price
+// makes a higher low (a pivot low above the prior pivot low), pulls back to it
+// and holds green, with ROOM to the next overhead level (so we never buy into
+// PDH/PWH resistance), fire a long — stop just below that swing-low (the same
+// can't-say-no stop). One fire per rung; re-arms on each new pivot. The OR-low
+// is just the first rung. Default OFF — watch the daily count before trusting.
+// Pine fires it (default ON) so it's RECORDED for EOD review; the Settings →
+// Alert Types catalog toggle (default OFF) keeps it out of Telegram until you
+// trust the daily count. So it logs silently, you watch, then you flip it on.
+fire_higher_low_held = input.bool (true,  "Fire rolling higher-low held (intraday support ladder)", group = "Higher-low tracker")
+hl_pivot_len    = input.int  (3,    "Higher-low: pivot strength (bars each side)", minval = 2, maxval = 10, group = "Higher-low tracker")
+hl_headroom_pct = input.float(1.0,  "Higher-low: min % room to next overhead level (PDH/PWH)", minval = 0.0, maxval = 5.0, step = 0.25, group = "Higher-low tracker")
+hl_require_vwap = input.bool (true, "Higher-low: require close above VWAP (rising support)", group = "Higher-low tracker")
+
+hl_pl = ta.pivotlow(low, hl_pivot_len, hl_pivot_len)
+var float hl_curr  = na      // most recent confirmed swing low
+var float hl_prev  = na      // the swing low before it
+var bool  hl_fired = false   // already fired for the current rung?
+if session_open_now
+    hl_curr  := na
+    hl_prev  := na
+    hl_fired := false
+if not na(hl_pl)
+    hl_prev  := hl_curr
+    hl_curr  := hl_pl
+    hl_fired := false         // new rung → re-arm
+// Rising structure (uptrend), retest-and-hold of the rung, optional VWAP gate.
+hl_rising  = not na(hl_curr) and not na(hl_prev) and hl_curr > hl_prev
+hl_test    = not na(hl_curr) and low <= hl_curr + atr14 * 0.25 and low >= hl_curr - atr14 * 0.75 and close > hl_curr and close > open
+hl_vwap_ok = (not hl_require_vwap) or (not na(vwap_v) and close > vwap_v)
+hl_signal  = fire_higher_low_held and hl_rising and hl_test and (not hl_fired) and hl_vwap_ok
+
+// =====================================================================
 // Gap-and-go detection (spec C1) — uses today_open + bar1_low
 // =====================================================================
 // today_open / bar1_low / first_bar_time are computed above (before
@@ -1183,14 +1218,19 @@ v2_break_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= v2_break_slop
 v2_break_vwap_ok = (not na(vwap_v)) and close > vwap_v
 v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok and v2_break_vwap_ok and uptrend_pass_58 and not spy_regime_block
 
-if v2_break_pdh and v2_break_confluence
+// Spec 61 (2026-06-04) — PDH/PWH BREAK DROPPED. A break into PDH after a rally
+// from below is buying resistance/exhaustion (AAOI ran +$24 into PDH, then a
+// long fired at the top). The trusted PDH entry is staged_pdh_held (price gets
+// above PDH and retests it as support). Gap-and-go (open ABOVE PDH) is a
+// separate alert and is unaffected. `if false` keeps the blocks for revert.
+if false and v2_break_pdh and v2_break_confluence
     e_b = close
     s_b = low - atr_buffer
     t1_b = not na(pwh) and pwh > e_b ? pwh : (not na(pmh) and pmh > e_b ? pmh : e_b * 1.015)
     t2_b = not na(pmh) and pmh > t1_b ? pmh : t2_extend_long(e_b, t1_b)
     alert(build_payload_v2("staged_pdh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if v2_break_pwh and v2_break_confluence
+if false and v2_break_pwh and v2_break_confluence
     e_b = close
     s_b = low - atr_buffer
     t1_b = not na(pmh) and pmh > e_b ? pmh : e_b * 1.02
@@ -1301,7 +1341,11 @@ if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
 // above PDL but the level still acts as support. Entry = current close
 // (since the level wasn't actually touched), stop = bar low − atr_buffer
 // (tighter than the level itself), targets stack to next overhead PDH/PWH.
-if s58_pdl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
+// Spec 61 (2026-06-04) — ALL PROXIMITY DROPPED (PDL/PWL/PDH). Entry = close,
+// which after a bounce off the level lands far away (TSLA PDL 416, alert fired
+// at 423). "Near support" wasn't near. The _held / _reclaim rules already cover
+// when price actually touches and defends the level. `if false` keeps for revert.
+if false and s58_pdl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pdl_p  = close
     s_pdl_p  = low - atr_buffer
     // Below-open day → OPEN line is the realistic first target; otherwise the
@@ -1312,7 +1356,7 @@ if s58_pdl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
     t2_pdl_p = below_open_pdl ? t1s_pdl_p : (not na(pwh) and pwh > t1_pdl_p ? pwh : (not na(pmh) and pmh > t1_pdl_p ? pmh : t2_extend_long(e_pdl_p, t1_pdl_p)))
     alert(build_payload_v2("staged_pdl_proximity", "BUY", e_pdl_p, s_pdl_p, t1_pdl_p, t2_pdl_p, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
-if s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
+if false and s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pwl_p  = close
     s_pwl_p  = low - atr_buffer
     t1_pwl_p = not na(pdh) and pdh > e_pwl_p ? pdh : (not na(pwh) and pwh > e_pwl_p ? pwh : e_pwl_p * 1.02)
@@ -1338,6 +1382,22 @@ if fire_orl_held and s58_orl_held and v2_body_ok
     t2_orl = below_open_orl ? t1_hier_orl : t2_extend_long(e_orl, t1_orl)
     alert(build_payload_v2("staged_orl_held", "BUY", e_orl, s_orl, t1_orl, t2_orl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
+// Spec 61 — rolling higher-low held. Headroom gate lives here (nearest_above
+// is defined above): only fire when the next overhead level (PDH/PWH) has
+// room — never buy a higher-low that's rallying into resistance. Entry = close,
+// stop = the swing-low − ATR buffer (the visible can't-say-no stop), target =
+// the overhead level (what the bounce is aiming at).
+if hl_signal
+    hl_next_res = nearest_above(close, pdh, pwh)
+    hl_room_ok = na(hl_next_res) or (close > 0 and (hl_next_res - close) / close * 100.0 >= hl_headroom_pct)
+    if hl_room_ok
+        hl_fired := true
+        e_hl  = close
+        s_hl  = hl_curr - atr_buffer
+        t1_hl = not na(hl_next_res) ? hl_next_res : t1_long_hier(e_hl, pdh, pwh, atr_d)
+        t2_hl = t2_extend_long(e_hl, t1_hl)
+        alert(build_payload_v2("staged_higher_low_held", "BUY", e_hl, s_hl, t1_hl, t2_hl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
 // Spec 61 — PDH reclaim. PDH was lost on a close then reclaimed green =
 // failed-breakdown-of-support continuation. Entry = close, stop = bar low
 // - buffer, targets stack to the next overhead high (PWH/PMH). Ungated
@@ -1352,7 +1412,7 @@ if s58_pdh_reclaim
 
 // Spec 61 — PDH proximity. Holding above PDH, pulled back near it without a
 // retest, closed green. Same stop/target shape as the reclaim.
-if s58_pdh_prox and (not uptrend_pass_58 or chop_gate_pass_58)
+if false and s58_pdh_prox and (not uptrend_pass_58 or chop_gate_pass_58)
     e_pdh_p  = close
     s_pdh_p  = low - atr_buffer
     t1_pdh_p = not na(pwh) and pwh > e_pdh_p ? pwh : (not na(pmh) and pmh > e_pdh_p ? pmh : e_pdh_p * 1.0075)

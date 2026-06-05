@@ -1,0 +1,22 @@
+# Railway / Nixpacks build config for the web (FastAPI) service.
+#
+# The web service is a Nixpacks Python build (requirements.txt -> uvicorn) that
+# also serves the React app from web/dist via FastAPI StaticFiles. Railway never
+# ran `npm`, so web/dist had to be hand-built and committed — the source of the
+# recurring merge conflicts on every concurrent branch.
+#
+# "..." keeps Nixpacks' auto-detected Python packages and ADDS Node; the build
+# phase then compiles the Vite frontend so Railway produces web/dist on deploy.
+# web/dist is now gitignored (web/.gitignore) — never committed again.
+#
+# Safety: if the frontend build fails, Railway keeps the previous healthy
+# deployment running, so this cannot take the site down.
+
+[phases.setup]
+nixPkgs = ["...", "nodejs_20"]
+
+[phases.build]
+cmds = [
+  "npm --prefix web ci",
+  "npm --prefix web run build",
+]

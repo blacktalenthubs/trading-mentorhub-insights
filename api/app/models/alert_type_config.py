@@ -67,18 +67,19 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
     ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly", False),
 
-    # Proximity bounce (2026-06-02) — sometimes price defends a prior low
-    # without actually touching it (HOOD held $88.67 vs PDL $87.45 = 1.4%
-    # above). Default-disabled until proven; runs alongside _held so the
-    # founder can compare which fires more reliably over a few weeks.
-    ("staged_pdl_proximity", "PDL proximity bounce", "Daily PDH/PDL", False),
-    ("staged_pwl_proximity", "PWL proximity bounce", "Weekly", False),
-    # High-side proximity (spec 61) — holding above PDH without a retest.
-    ("staged_pdh_proximity", "PDH proximity (holds above PDH)", "Daily PDH/PDL", False),
+    # Proximity bounce DROPPED 2026-06-04 (spec 61) — entry = close, which
+    # after a bounce off the level lands far away (TSLA PDL 416, alert fired
+    # at 423). "Near support" wasn't near. The _held / _reclaim rules cover the
+    # touch cases. staged_pdl/pwl/pdh_proximity live in OBSOLETE_ALERT_TYPES.
 
     # Opening-range-low defended (spec 61, 2026-06-03) — buy the held 15m
     # low of day, stop below the OR low, PDH = first target.
     ("staged_orl_held", "Opening-range low held (15m)", "Daily PDH/PDL", False),
+
+    # Rolling higher-low support tracker (spec 61, 2026-06-04) — the ORL idea
+    # generalized to every rising intraday swing-low, with a headroom gate so
+    # it never buys into PDH/PWH resistance. Stop just below the swing-low.
+    ("staged_higher_low_held", "Higher-low held (intraday support ladder)", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low reclaim (existing — lost-and-recovered)
     # Monthly (staged_pml_reclaim) removed 2026-06-01 — visual only.
@@ -97,10 +98,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # no alerts emit. Too noisy in live evaluation — 8 of 15 missed-TG
     # alerts today were mtd_avwap_held fires with no follow-through.
 
-    # Spec 60 (v2 — 2026-05-28) — volume-gated breakouts + gap-up continuation.
-    # Monthly break (staged_pmh_break) REMOVED 2026-06-01 — visual only.
-    ("staged_pdh_break",        "PDH break · VWAP+vol confluence", "v2 · Breakouts", False),
-    ("staged_pwh_break",        "PWH break · VWAP+vol confluence", "v2 · Breakouts", False),
+    # Spec 61 (2026-06-04) — PDH/PWH BREAK DROPPED. A break into PDH after a
+    # rally from below is buying resistance/exhaustion. The trusted PDH entry
+    # is staged_pdh_held (retest of PDH as support). staged_pdh/pwh_break live
+    # in OBSOLETE_ALERT_TYPES. Gap-up (open ABOVE PDH) KEPT — separate, valid.
     ("gap_up_continuation_long","Gap-up continuation (opened above PDH)", "v2 · Gap-and-go", False),
 
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
@@ -149,6 +150,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pwl_proximity": "Stock pulled back near last week's low without touching it, then closed green — weekly support defended without a test.",
     "staged_pdh_proximity": "Stock is holding above yesterday's high and pulled back near it without retesting — prior-day high defended as support from above (relative strength).",
     "staged_orl_held": "Stock pulled back to its first-15-minute low and held — the low of the day is being defended; prior-day high is the first target.",
+    "staged_higher_low_held": "Stock pulled back to a rising intraday support (a higher low) and held it green, with room above to the next level — buy support in an uptrend, stop just below the swing-low.",
 
     # Reclaim — lost a prior low then recovered it on a bullish bar.
     "staged_pdl_reclaim": "Stock lost yesterday's low then recovered it on a bullish bar — failed breakdown long.",
@@ -193,8 +195,14 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # Open-line entries — retired spec 58 FR-007 (open line stays visual)
     "open_reclaimed", "open_held", "open_wick_reclaim", "open_lost",
 
-    # Breakout-into-resistance LONG — RE-INTRODUCED spec 60 with built-in
-    # VWAP confluence + volume gate. NOT in OBSOLETE list anymore.
+    # Breakout-into-resistance LONG — DROPPED AGAIN 2026-06-04 (spec 61).
+    # Buying a PDH break after a rally from below is buying resistance. The
+    # trusted PDH entry is staged_pdh_held. Gap-up continuation stays.
+    "staged_pdh_break", "staged_pwh_break",
+
+    # Proximity bounce — DROPPED 2026-06-04 (spec 61). Entry = close landed
+    # far from the level after the bounce ran (TSLA PDL 416 → alert at 423).
+    "staged_pdl_proximity", "staged_pwl_proximity", "staged_pdh_proximity",
 
     # All SHORT alerts — removed from Pine 2026-05-23 (long-only Pine)
     "staged_pdh_rejection", "staged_pdh_failed_short", "staged_pdl_break",

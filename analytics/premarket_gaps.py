@@ -1,0 +1,172 @@
+"""Premarket Gap Board — Stage 1 (pre-bell prep).
+
+Scans the user watchlists ∪ the curated screener universes for stocks gapping
+in the premarket session (4:00–9:29 ET), so the trader can build a plan before
+the open instead of chasing extended intraday moves.
+
+Two buckets (the curated list a symbol belongs to IS its bucket — avoids a slow,
+cloud-blocked live market-cap lookup):
+  - "clean"    — large/mega caps (MEGA_CAP_UNIVERSE + STATIC_UNIVERSE)
+  - "momentum" — curated liquid small/mid + momentum names (SMALL_CAP_UNIVERSE)
+
+Per symbol it reuses the existing premarket pipeline:
+  fetch_premarket_bars() + fetch_prior_day() + compute_premarket_brief()
+and adds the key liquidity gate — premarket $-volume — plus the gap, premarket
+high/low, and the prior-day/-week levels (PDH/PDL/PWH/PWL) so the plan is set.
+
+The top gappers are enriched with a news catalyst (Finnhub /company-news).
+Persisted as a PremarketGapSnapshot (mirrors SocialBuzzSnapshot). Pure helpers
+(bucket / filter / $-volume) are unit-testable without pandas or the DB.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime, timedelta
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# Filters — premarket is thin, so the liquidity floor is modest but non-zero
+# (a big gap on no premarket volume is an untradeable trap).
+GAP_MIN_PCT = 2.0            # |gap%| from prior close
+PM_DOLLAR_VOL_MIN = 100_000.0   # premarket $-volume floor (liquidity gate)
+PRICE_MIN = 2.0             # skip sub-$2 penny pumps
+TOP_N = 40                  # cap the board
+TOP_ENRICH_NEWS = 15        # only fetch a catalyst for the top N gappers
+
+
+# ── Pure helpers (no pandas / no DB — unit-testable) ─────────────────
+def bucket_for(symbol: str, momentum_symbols: set[str]) -> str:
+    """A symbol's bucket = the curated list it belongs to."""
+    return "momentum" if symbol.upper() in momentum_symbols else "clean"
+
+
+def pm_dollar_volume(closes: list[float], volumes: list[float]) -> float:
+    """Premarket traded dollar-volume = Σ close*volume across PM bars."""
+    return float(sum((c or 0) * (v or 0) for c, v in zip(closes, volumes)))
+
+
+def passes_gap_filters(gap_pct: Optional[float], pm_dollar_vol: float, price: Optional[float],
+                       gap_min: float = GAP_MIN_PCT, vol_min: float = PM_DOLLAR_VOL_MIN,
+                       price_min: float = PRICE_MIN) -> bool:
+    if gap_pct is None or price is None:
+        return False
+    return abs(gap_pct) >= gap_min and pm_dollar_vol >= vol_min and price >= price_min
+
+
+# ── News catalyst (Finnhub, shared token bucket) ─────────────────────
+def _latest_headline(symbol: str) -> Optional[str]:
+    """Most-recent company-news headline (last ~3 days). None on miss/failure."""
+    from analytics.earnings_fetcher import _get
+
+    today = date.today()
+    data = _get("/company-news", {
+        "symbol": symbol,
+        "from": (today - timedelta(days=3)).isoformat(),
+        "to": today.isoformat(),
+    })
+    if not isinstance(data, list) or not data:
+        return None
+    # Finnhub returns newest-first-ish; pick the max by datetime to be safe.
+    try:
+        newest = max(data, key=lambda a: a.get("datetime") or 0)
+    except (TypeError, ValueError):
+        newest = data[0]
+    headline = (newest.get("headline") or "").strip()
+    return headline[:160] or None
+
+
+# ── Orchestrator (mirrors analytics/social_buzz.refresh_social_buzz) ──
+def refresh_premarket_gaps(session_factory) -> dict:
+    """Scan watchlist ∪ universe for premarket gappers, persist a snapshot.
+    Returns a summary dict for cron logging.
+    """
+    from sqlalchemy import select
+    from app.models.premarket_gap import PremarketGapSnapshot
+    from app.models.watchlist import WatchlistItem
+    from analytics.intraday_data import fetch_premarket_bars, fetch_prior_day, compute_premarket_brief
+    from analytics.screener import MEGA_CAP_UNIVERSE, STATIC_UNIVERSE, SMALL_CAP_UNIVERSE
+
+    summary = {"scanned": 0, "gappers": 0, "enriched": 0, "fetch_failures": 0, "snapshot_id": None}
+
+    momentum_symbols = {s.upper() for s in SMALL_CAP_UNIVERSE}
+
+    with session_factory() as session:
+        wl_rows = session.execute(select(WatchlistItem.symbol).distinct()).all()
+        watchlist = {r[0].upper() for r in wl_rows if r[0]}
+
+        universe = set(MEGA_CAP_UNIVERSE) | set(STATIC_UNIVERSE) | momentum_symbols
+        symbols = sorted(watchlist | universe)
+        summary["scanned"] = len(symbols)
+
+        entries: list[dict] = []
+        for sym in symbols:
+            if sym.endswith("-USD"):
+                continue  # crypto has no premarket gap concept here
+            try:
+                pm_bars = fetch_premarket_bars(sym)
+                if pm_bars is None or pm_bars.empty:
+                    continue
+                prior = fetch_prior_day(sym)
+                if not prior:
+                    continue
+                brief = compute_premarket_brief(sym, pm_bars, prior)
+                if not brief:
+                    continue
+            except Exception:
+                summary["fetch_failures"] += 1
+                logger.debug("premarket gap scan failed for %s", sym, exc_info=True)
+                continue
+
+            closes = [float(x) for x in pm_bars["Close"].tolist()]
+            vols = [float(x) for x in pm_bars["Volume"].tolist()]
+            pm_vol = float(sum(vols))
+            pm_dvol = pm_dollar_volume(closes, vols)
+
+            if not passes_gap_filters(brief.get("gap_pct"), pm_dvol, brief.get("pm_last")):
+                continue
+
+            entries.append({
+                "symbol": sym,
+                "bucket": bucket_for(sym, momentum_symbols),
+                "on_watchlist": sym in watchlist,
+                "gap_pct": brief.get("gap_pct"),
+                "gap_type": brief.get("gap_type"),
+                "pm_last": brief.get("pm_last"),
+                "pm_high": brief.get("pm_high"),
+                "pm_low": brief.get("pm_low"),
+                "pm_change_pct": brief.get("pm_change_pct"),
+                "pm_volume": int(pm_vol),
+                "pm_dollar_vol": round(pm_dvol, 0),
+                "prior_close": round(float(prior.get("close") or 0), 2) or None,
+                "pdh": round(float(prior["high"]), 2) if prior.get("high") else None,
+                "pdl": round(float(prior["low"]), 2) if prior.get("low") else None,
+                "pwh": round(float(prior["prior_week_high"]), 2) if prior.get("prior_week_high") else None,
+                "pwl": round(float(prior["prior_week_low"]), 2) if prior.get("prior_week_low") else None,
+                "flags": brief.get("flags") or [],
+                "catalyst": None,  # filled for the top N below
+            })
+
+        # Rank by absolute gap (the magnitude of the move), cap the board.
+        entries.sort(key=lambda e: abs(e.get("gap_pct") or 0), reverse=True)
+        entries = entries[:TOP_N]
+        summary["gappers"] = len(entries)
+
+        # Catalyst enrichment — only the top N (one Finnhub call each, throttled).
+        for e in entries[:TOP_ENRICH_NEWS]:
+            try:
+                e["catalyst"] = _latest_headline(e["symbol"])
+                if e["catalyst"]:
+                    summary["enriched"] += 1
+            except Exception:
+                logger.debug("catalyst fetch failed for %s", e["symbol"], exc_info=True)
+
+        snap = PremarketGapSnapshot(captured_at=datetime.utcnow(), entries=entries)
+        session.add(snap)
+        session.commit()
+        session.refresh(snap)
+        summary["snapshot_id"] = snap.id
+
+    logger.info("Premarket gaps refresh: %s", summary)
+    return summary
