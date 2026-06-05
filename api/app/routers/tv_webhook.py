@@ -1263,21 +1263,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _slope_pct = getattr(sig, "_tv_vwap_slope_pct", None)
             from analytics.alert_grade import compute_grade as _grade
             _alert_grade = _grade(_vol_ratio, _slope_pct)
-            # Spec 61 — market-regime grade-down. Breakout / MA-bounce longs
-            # that fire while SPY isn't holding above its session open are
-            # weak-tape setups: still delivered (so relative-strength names
-            # like TSLA/SNDK reach the user), but capped at Grade C so they
-            # rank below clean A/B setups. spy_above_open None (older Pine) =
-            # no change. HELD / reclaim / proximity / gap-up are unaffected.
-            _spy_above_open = getattr(sig, "_tv_spy_above_open", None)
-            if _spy_above_open is False:
-                _base_t = alert_type_full.replace("tv_", "", 1)
-                if (
-                    "_break" in _base_t
-                    or _base_t.startswith("ma_bounce_long_v3")
-                    or _base_t == "pullback_long"
-                ):
-                    _alert_grade = "C"
+            # Spec 61 (2026-06-05) — the SPY-OPEN grade-down was REMOVED. Price
+            # shops around the open line all day, so it was an unreliable signal.
+            # PDL is now the ONLY SPY-regime gate (the hard block above); nothing
+            # keys on the open anymore. Grades come purely from vol + slope.
 
             alert = Alert(
                 user_id=user.id,
