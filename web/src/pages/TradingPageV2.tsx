@@ -303,6 +303,21 @@ function formatSessionDate(iso: string): string {
 const fmtPrice = (v: number | null | undefined) =>
   v != null ? `$${v.toFixed(2)}` : "—";
 
+// Short, human label for an alert that fired but was NOT routed to Telegram
+// (recorded for review). Kept visible in-feed, greyed + badged, so the user
+// can evaluate what the gates caught. type_not_enabled / confluence_collapsed
+// are filtered out upstream — they never reach here.
+const NOT_ROUTED_LABELS: Record<string, string> = {
+  spy_below_pdl: "SPY < PDL",
+  uptrend_gate_failed: "uptrend gate",
+  basing_chop: "chop",
+  outside_session: "off-hours",
+};
+function notRoutedLabel(reason?: string | null): string | null {
+  if (!reason) return null;
+  return NOT_ROUTED_LABELS[reason] ?? reason.replace(/_/g, " ").slice(0, 24);
+}
+
 function SignalFeedTab({
   alerts,
   alertsError,
@@ -630,11 +645,14 @@ function SignalFeedTab({
           : a.direction === "SHORT"
             ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
             : "bg-warning/10 text-warning-text border-warning/20";
+        // Fired but not routed to Telegram (e.g. SPY < PDL) — show greyed +
+        // badged so it's reviewable without reading as a live, delivered call.
+        const nrLabel = notRoutedLabel(a.suppressed_reason);
 
         return (
           <div
             key={a.id}
-            className="bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer"
+            className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer${nrLabel ? " opacity-55" : ""}`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
             {/* Header — symbol, direction, grade, (AI badge if AI), time */}
@@ -664,6 +682,14 @@ function SignalFeedTab({
                 {isAIScan && (
                   <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">
                     AI
+                  </span>
+                )}
+                {nrLabel && (
+                  <span
+                    title={`Not sent to Telegram — ${a.suppressed_reason}. Recorded for review.`}
+                    className="text-[8px] font-bold px-1 py-0.5 rounded bg-bearish/15 text-bearish-text border border-bearish/30 cursor-help"
+                  >
+                    NOT SENT · {nrLabel}
                   </span>
                 )}
               </div>
@@ -877,7 +903,9 @@ export default function TradingPageV2() {
       if (seen.has(a.id)) continue;
       seen.add(a.id);
       const g = (a.grade || "").toUpperCase();
-      if ((g === "A" || g === "B") && isFeedSignal(a.alert_type) && a.suppressed_reason !== "type_not_enabled") {
+      // Only truly-routed A/B alerts pop a toast — a not-routed alert (any
+      // suppressed_reason, e.g. SPY < PDL) is review-only, never a live ping.
+      if ((g === "A" || g === "B") && isFeedSignal(a.alert_type) && !a.suppressed_reason) {
         latest = a; // show the most recent qualifying one if several arrive together
       }
     }

@@ -32,15 +32,27 @@ export default function SpyRegimeStrip() {
   const biasText = r.bias === "WAIT" ? "Inside Day" : (r.bias?.replace("_", " ") ?? "");
 
   return (
-    <div
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 ${c.bg} border ${c.border} rounded-full text-[11px]`}
-      title={r.bias_label}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />
-      <span className={`font-semibold ${c.text}`}>SPY {biasText}</span>
-      <span className="text-text-faint">·</span>
-      <span className="font-mono text-text-muted">${r.price?.toFixed(2)}</span>
-      <span className="font-mono text-text-faint">VWAP {slope}</span>
+    <div className="inline-flex items-center gap-1.5">
+      <div
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 ${c.bg} border ${c.border} rounded-full text-[11px]`}
+        title={r.bias_label}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />
+        <span className={`font-semibold ${c.text}`}>SPY {biasText}</span>
+        <span className="text-text-faint">·</span>
+        <span className="font-mono text-text-muted">${r.price?.toFixed(2)}</span>
+        <span className="font-mono text-text-faint">VWAP {slope}</span>
+      </div>
+      {/* Spec 61 — SPY below its prior-day low hard-blocks every buy alert.
+          Loud red chip so a quiet feed reads as "gate active", not "no setups". */}
+      {r.below_pdl && (
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 bg-bearish/20 border border-bearish/50 rounded-full text-[11px] font-semibold text-bearish-text"
+          title={`SPY is below its prior-day low${r.pdl ? ` ($${r.pdl.toFixed(2)})` : ""} — all buy alerts are suppressed until SPY reclaims it. Don't counter-trend the market.`}
+        >
+          ⛔ Buys suppressed · SPY &lt; PDL
+        </span>
+      )}
     </div>
   );
 }

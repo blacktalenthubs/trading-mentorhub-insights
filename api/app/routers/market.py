@@ -801,6 +801,10 @@ def _compute_spy_regime() -> dict:
         "today_open": round(today_open, 2),
         "pdh": pdh,
         "pdl": pdl,
+        # Spec 61 — drives the "buys suppressed" banner chip. Mirrors the
+        # webhook's SPY-below-PDL hard block: while SPY is under its prior-day
+        # low, every buy alert is suppressed (don't counter-trend the tape).
+        "below_pdl": bool(pdl is not None and last_price < pdl),
         "inside_day": inside_day,
         "bias": bias,
         "bias_label": bias_label,
