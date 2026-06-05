@@ -1,0 +1,11 @@
+# Keep the build context lean and avoid copying host artifacts into the image.
+.git
+**/node_modules
+web/dist
+**/__pycache__
+*.pyc
+.venv
+venv
+data/*.db
+*.log
+.DS_Store
