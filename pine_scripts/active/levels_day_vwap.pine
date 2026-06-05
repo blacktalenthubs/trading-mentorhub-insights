@@ -140,43 +140,15 @@ sma200_d = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookah
 
 uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close > nz(ema50_d, 1e9) and close > nz(sma50_d, 1e9) and close > nz(ema100_d, 1e9) and close > nz(sma100_d, 1e9) and close > nz(ema200_d, 1e9) and close > nz(sma200_d, 1e9)
 
-// Spec 61 — market-regime gate. When SPY isn't holding above its session
-// OPEN, the broad tape is weak and breakouts-into-resistance rarely follow
-// through (the open is the day's strength pivot — more responsive than PDL,
-// which only breaks on a real trend change). ANDed into the PDH/PWH BREAK
-// family ONLY. Deliberately NOT gated:
-//   • GAP-UP continuation — strong-momentum gap-and-go can run counter to
-//     a weak tape, and it already uses a tight first-15m-low stop.
-//   • HELD / reclaim / proximity — a stock defending its level while SPY
-//     is weak is a relative-strength tell, the one case that still works.
-// Stateless "unless reclaimed": the moment SPY reclaims AND holds above its
-// open, the break family fires again.
-// Default OFF — the gate now GRADES DOWN (not blocks): Pine emits
-// spy_above_open and the backend caps weak-tape breakouts at Grade C while
-// still delivering them (relative-strength names like TSLA/SNDK still reach
-// you). Flip this ON to hard-block instead (max noise cut, no record).
-spy_regime_gate_on = input.bool(false, "HARD-BLOCK breaks when SPY < its open (off = grade-down instead)", group = "Market regime gate")
-spy_open_61  = request.security("SPY", "D", open, lookahead = barmerge.lookahead_on)
+// Spec 61 — market-regime gate. The OPEN gate was REMOVED 2026-06-05: price
+// shops around the open line all day (too noisy to gate on). PDL is now the
+// ONLY gate — SPY breaking its PRIOR-DAY LOW is rare in a real uptrend, and
+// when it does the broad tape is genuinely broken (e.g. 2026-06-05: SPY broke
+// PDL and sold off to -2.2%). The backend HARD-BLOCKS every buy when
+// spy_above_pdl=false; self-healing (two closes back above PDL re-enables).
+// Carried in every payload (build_payload_v2).
 spy_close_61 = request.security("SPY", timeframe.period, close)
-// The OPEN is the day's strength pivot — a faster, truer read than PDL,
-// which only breaks on a real trend change. Gate opens only after SPY
-// RECLAIMS AND HOLDS above its open — two consecutive closes above (covers
-// both opened-above-and-held and dipped-then-reclaimed). A single-bar poke
-// does NOT open it; any close back below the open re-blocks immediately.
-spy_below_now_61  = (not na(spy_open_61)) and (not na(spy_close_61)) and spy_close_61 < spy_open_61
-spy_below_prev_61 = (not na(spy_open_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_open_61
-spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61)
-// Carried in every payload (build_payload_v2) so the backend can grade-down
-// weak-tape breakouts. False = SPY isn't holding above its open.
-spy_above_open_61 = not (spy_below_now_61 or spy_below_prev_61)
-
-// Spec 61 (2026-06-05) — SPY PDL HARD regime block. SPY loses its session open
-// constantly (noise), but breaking its PRIOR-DAY LOW is rare in a real uptrend
-// — when it happens the broad tape is broken and we do NOT counter-trade it.
-// The backend HARD-BLOCKS every buy on every equity when spy_above_pdl=false
-// (wider + stricter than the open grade-down). Self-healing: two closes back
-// above PDL re-enables. Carried in build_payload_v2.
-spy_pdl_61 = request.security("SPY", "D", low[1], lookahead = barmerge.lookahead_on)
+spy_pdl_61   = request.security("SPY", "D", low[1], lookahead = barmerge.lookahead_on)
 spy_below_pdl_now  = (not na(spy_pdl_61)) and (not na(spy_close_61)) and spy_close_61 < spy_pdl_61
 spy_below_pdl_prev = (not na(spy_pdl_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_pdl_61
 spy_above_pdl_61   = not (spy_below_pdl_now or spy_below_pdl_prev)
@@ -967,7 +939,6 @@ build_payload_v2(rule, direction,
       + '","overhead_mas":"' + overhead_mas_str_58
       + '","nearby_levels":"' + nearby_levels_csv_58
       + '","mtd_avwap":"' + (na(mtd_avwap_58) ? "" : str.tostring(mtd_avwap_58, "#.##"))
-      + '","spy_above_open":"' + (spy_above_open_61 ? "true" : "false")
       + '","spy_above_pdl":"' + (spy_above_pdl_61 ? "true" : "false") + '"}'
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
@@ -1193,7 +1164,7 @@ v2_break_pmh = (not na(pmh)) and (not na(close[1])) and close > pmh and close[1]
 v2_break_vol_ok = (not na(volume_ratio)) and volume_ratio >= v2_break_vol_min
 v2_break_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= v2_break_slope_min
 v2_break_vwap_ok = (not na(vwap_v)) and close > vwap_v
-v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok and v2_break_vwap_ok and uptrend_pass_58 and not spy_regime_block
+v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok and v2_break_vwap_ok and uptrend_pass_58
 
 // Spec 61 (2026-06-04) — PDH/PWH BREAK DROPPED. A break into PDH after a rally
 // from below is buying resistance/exhaustion (AAOI ran +$24 into PDH, then a
