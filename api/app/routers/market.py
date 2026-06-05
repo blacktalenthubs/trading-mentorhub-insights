@@ -770,13 +770,30 @@ def _compute_spy_regime() -> dict:
         slope_pct = (last_vwap - prev) / prev * 100.0
 
     today_open = float(today_bars["Open"].iloc[0])
+    today_high = float(today_bars["High"].max())
+    today_low = float(today_bars["Low"].min())
     pdh = float(prior.get("high")) if prior.get("high") is not None else None
     pdl = float(prior.get("low")) if prior.get("low") is not None else None
-    inside_day = bool(pdh is not None and pdl is not None and pdl < today_open < pdh)
+    # Inside day = today's ENTIRE realized range stays within yesterday's range
+    # (high < PDH AND low > PDL). The old check only required the OPEN to be
+    # inside — true almost every day — so it mislabeled trend/breakdown days
+    # (e.g. 2026-06-05: SPY opened 752.31 inside the range but broke to 740.51,
+    # ~1.5% below PDL, and still showed "Inside Day"). Use the session high/low.
+    inside_day = bool(
+        pdh is not None and pdl is not None
+        and today_high < pdh and today_low > pdl
+    )
+    below_pdl = bool(pdl is not None and last_price < pdl)
 
-    # Bias.
+    # Bias. SPY trading UNDER its prior-day low is the strongest stand-down
+    # signal (broad-tape breakdown) and overrides everything — it can never read
+    # inside-day / neutral / long while below PDL.
     abs_slope = abs(slope_pct)
-    if inside_day and abs_slope < 0.05:
+    if below_pdl:
+        bias = "STAND_DOWN"
+        bias_label = "Stand down — SPY below its prior-day low (broad-tape breakdown)"
+        bias_color = "red"
+    elif inside_day and abs_slope < 0.05:
         bias = "WAIT"
         bias_label = "Inside day — scalp edges, wait for break"
         bias_color = "amber"
@@ -801,10 +818,10 @@ def _compute_spy_regime() -> dict:
         "today_open": round(today_open, 2),
         "pdh": pdh,
         "pdl": pdl,
-        # Spec 61 — drives the "buys suppressed" banner chip. Mirrors the
-        # webhook's SPY-below-PDL hard block: while SPY is under its prior-day
-        # low, every buy alert is suppressed (don't counter-trend the tape).
-        "below_pdl": bool(pdl is not None and last_price < pdl),
+        # Spec 61 — drives the "buys suppressed" banner chip + forces STAND_DOWN
+        # above. Mirrors the webhook's SPY-below-PDL hard block: while SPY is
+        # under its prior-day low, every buy alert is suppressed.
+        "below_pdl": below_pdl,
         "inside_day": inside_day,
         "bias": bias,
         "bias_label": bias_label,
