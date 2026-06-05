@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from functools import partial
 from pathlib import Path
@@ -734,7 +735,9 @@ def _compute_spy_regime() -> dict:
     from analytics.intraday_data import _fetch_alpaca_bars, fetch_prior_day
 
     try:
-        bars = _fetch_alpaca_bars("SPY", interval="5m", hours_back=8)
+        # 48h so the prior session is in-frame — we derive PDH/PDL from Alpaca
+        # below (yfinance is blocked from cloud IPs and zeroed the PDL in prod).
+        bars = _fetch_alpaca_bars("SPY", interval="5m", hours_back=48)
         prior = fetch_prior_day("SPY") or {}
     except Exception:
         return {"status": "unavailable", "reason": "data fetch failed"}
@@ -772,8 +775,26 @@ def _compute_spy_regime() -> dict:
     today_open = float(today_bars["Open"].iloc[0])
     today_high = float(today_bars["High"].max())
     today_low = float(today_bars["Low"].min())
-    pdh = float(prior.get("high")) if prior.get("high") is not None else None
-    pdl = float(prior.get("low")) if prior.get("low") is not None else None
+    # PDH/PDL — derive from ALPACA's prior-session bars (reliable in prod).
+    # yfinance (fetch_prior_day) is rate-limited/blocked from cloud IPs, which
+    # silently returned pdl=None → below_pdl=false → the gate failed open AND
+    # the "SPY < PDL" banner chip vanished even with SPY clearly below it.
+    # Alpaca already powers last_price here, so use it for the prior low too;
+    # fall back to yfinance only when Alpaca lacks the prior session (dev/local).
+    pdh = pdl = None
+    _pdl_src = "alpaca"
+    _prior_dates = sorted({ts.date() for ts in bars.index if ts.date() != last_date})
+    if _prior_dates:
+        _pbars = bars[bars.index.date == _prior_dates[-1]]
+        _rth = _pbars.between_time("09:30", "16:00")
+        _use = _rth if len(_rth) else _pbars
+        if len(_use):
+            pdh = float(_use["High"].max())
+            pdl = float(_use["Low"].min())
+    if pdl is None:
+        _pdl_src = "yfinance"
+        pdh = float(prior.get("high")) if prior.get("high") is not None else None
+        pdl = float(prior.get("low")) if prior.get("low") is not None else None
     # Inside day = today's ENTIRE realized range stays within yesterday's range
     # (high < PDH AND low > PDL). The old check only required the OPEN to be
     # inside — true almost every day — so it mislabeled trend/breakdown days
@@ -784,6 +805,10 @@ def _compute_spy_regime() -> dict:
         and today_high < pdh and today_low > pdl
     )
     below_pdl = bool(pdl is not None and last_price < pdl)
+    logging.getLogger(__name__).info(
+        "SPY regime: price=%.2f pdl=%s (src=%s) below_pdl=%s",
+        last_price, pdl, _pdl_src, below_pdl,
+    )
 
     # Bias. SPY trading UNDER its prior-day low is the strongest stand-down
     # signal (broad-tape breakdown) and overrides everything — it can never read
