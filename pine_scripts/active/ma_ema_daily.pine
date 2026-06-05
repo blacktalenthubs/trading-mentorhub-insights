@@ -110,6 +110,13 @@ proximity_pct         = input.float (0.3,  "Proximity threshold (% of MA price)"
 ma_quality_enable    = input.bool  (false, "Gate MA bounces on volume + VWAP slope (DISABLED 2026-06-01 — validation phase)", group = "MA bounce quality")
 ma_quality_vol_min   = input.float (0.8,   "Min volume_ratio on the bounce bar — captures buyers stepping in", minval = 0.1, maxval = 3.0, step = 0.1, group = "MA bounce quality")
 ma_quality_slope_min = input.float (-0.3,  "Min VWAP slope (%) — session not in freefall", minval = -1.0, maxval = 1.0, step = 0.05, group = "MA bounce quality")
+// Spec 61 — "support, not resistance" gate. The MA bounce only fires if price
+// was ABOVE the MA somewhere in the last N bars (it's pulling back to support
+// it established), never on a rally UP into the MA from below (resistance).
+// GOOGL opening a hair under its 50 EMA after an uptrend still qualifies (it
+// was above the 50 EMA through the trend); RKLB rallying from a base below
+// EMA 21 does not. Wider N = more lenient. Tune down if it lets resistance in.
+ma_support_lookback  = input.int   (40,    "MA bounce: bars price must have been above the MA (support vs resistance)", minval = 2, maxval = 200, group = "MA bounce quality")
 
 label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
 
@@ -251,14 +258,29 @@ plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0)
 // of the false longs when price grinds UP through a stack of overhead MAs
 // (INTC → 8EMA): those MAs are resistance / targets, not buy triggers.
 //
+// Spec 61 (2026-06-04) — "support, not resistance" gate. The MA bounce only
+// fires if price was ABOVE the MA somewhere in the last `ma_support_lookback`
+// bars (pulling back to established support), never on a rally UP into the MA
+// from below (resistance — RKLB into EMA 21). A single prior-bar check was too
+// tight — it missed GOOGL opening a hair under its 50 EMA after an uptrend.
+// The lookback catches GOOGL (above the 50 EMA through the trend) and still
+// blocks RKLB (it sat below the 21 in its base).
+recently_above_ma(float ma) =>
+    res = false
+    if not na(ma)
+        for i = 1 to ma_support_lookback
+            if not na(close[i]) and close[i] > ma
+                res := true
+    res
+
 strict_long(float ma) =>
-    not na(ma) and low <= ma and close > ma and close > open
+    not na(ma) and recently_above_ma(ma) and low <= ma and close > ma and close > open
 
 strict_short(float ma) =>
     not na(ma) and high >= ma and close < ma and close < open
 
 band_long(float ma) =>
-    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+    not na(ma) and recently_above_ma(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
 
 band_short(float ma) =>
     not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open

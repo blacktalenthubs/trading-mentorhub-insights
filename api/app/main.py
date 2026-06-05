@@ -1122,6 +1122,32 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Failed to register Social Buzz cron")
 
+        # Premarket Gap Board — scan watchlist ∪ universe for premarket gappers
+        # every 15 min during the premarket window (7:00-9:45 ET, Mon-Fri) so the
+        # board is ready before the open. Set PREMARKET_GAPS_ENABLED=0 to disable.
+        if os.environ.get("PREMARKET_GAPS_ENABLED", "true").lower() not in ("0", "false", "no"):
+            try:
+                from apscheduler.triggers.cron import CronTrigger as _CT_PMG
+                import pytz as _pytz_pmg
+                _et_pmg = _pytz_pmg.timezone("America/New_York")
+
+                def _premarket_gaps_refresh():
+                    try:
+                        from analytics.premarket_gaps import refresh_premarket_gaps
+                        summary = refresh_premarket_gaps(sync_session_factory)
+                        logger.info("Premarket gaps refresh: %s", summary)
+                    except Exception:
+                        logger.exception("Premarket gaps refresh failed")
+
+                scheduler.add_job(
+                    _premarket_gaps_refresh,
+                    _CT_PMG(day_of_week="mon-fri", hour="7-9", minute="0,15,30,45", timezone=_et_pmg),
+                    id="premarket_gaps_refresh", misfire_grace_time=300, replace_existing=True,
+                )
+                logger.info("Registered Premarket Gaps cron: every 15m, 7:00-9:45 ET Mon-Fri")
+            except Exception:
+                logger.exception("Failed to register Premarket Gaps cron")
+
         # scheduler already started at the top of this block (start-early so a
         # late registration failure can't kill all scheduled jobs).
         logger.info("Background monitor jobs registered (3-min poll + EOD/premarket/weekly jobs)")

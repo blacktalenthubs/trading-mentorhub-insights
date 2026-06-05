@@ -807,3 +807,66 @@ def _compute_spy_regime() -> dict:
         "bias_color": bias_color,
         "last_bar_time": today_bars.index[-1].isoformat(),
     }
+
+
+# ── Premarket Gap Board ──────────────────────────────────────────────
+
+def _pmgaps_sync_session_factory():
+    """Standalone sync session factory (independent of app.state)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.config import get_settings
+    url = get_settings().DATABASE_URL
+    if url.startswith("sqlite"):
+        url = url.replace("+aiosqlite", "")
+    else:
+        for suffix in ("+asyncpg", "+psycopg2", "+psycopg"):
+            url = url.replace(suffix, "")
+    engine = create_engine(url, pool_pre_ping=True)
+    return engine, sessionmaker(bind=engine)
+
+
+@router.get("/premarket-gaps")
+async def premarket_gaps(user: User = Depends(get_current_user)):
+    """Latest premarket gap snapshot — stocks gapping pre-bell (clean + momentum
+    buckets) with PM volume, key levels, and a news catalyst. Read-only; the
+    snapshot is produced by the premarket cron / refresh."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, desc
+    from app.database import get_db as get_db_dep
+    from app.models.premarket_gap import PremarketGapSnapshot
+
+    async for db in get_db_dep():
+        row = (await db.execute(
+            select(PremarketGapSnapshot).order_by(desc(PremarketGapSnapshot.captured_at)).limit(1)
+        )).scalar_one_or_none()
+        if row is None:
+            return {"captured_at": None, "entries": [], "stale": False}
+        stale = (datetime.utcnow() - row.captured_at) > timedelta(hours=6)
+        return {
+            "captured_at": row.captured_at.isoformat() + "Z",
+            "entries": row.entries or [],
+            "stale": stale,
+        }
+
+
+@router.post("/premarket-gaps/refresh", status_code=200)
+async def refresh_premarket_gaps_now(user: User = Depends(get_current_user)):
+    """Manual premarket gap scan — same code path as the cron, synchronous,
+    returns the scan summary (so the UI can show 'blocked' vs 'refreshed')."""
+    import logging
+
+    def _run() -> dict:
+        from analytics.premarket_gaps import refresh_premarket_gaps
+        engine, factory = _pmgaps_sync_session_factory()
+        try:
+            return refresh_premarket_gaps(factory)
+        finally:
+            engine.dispose()
+
+    try:
+        summary = await asyncio.to_thread(_run)
+    except Exception:
+        logging.getLogger(__name__).exception("Manual premarket gaps refresh failed")
+        return {"status": "error", "gappers": 0, "snapshot_id": None}
+    return {"status": "ok", **summary}
