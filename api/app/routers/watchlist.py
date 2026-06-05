@@ -8,9 +8,10 @@ adding/removing groups never affects which alerts a user receives.
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,24 @@ from app.schemas.watchlist import (
     WatchlistItemResponse,
 )
 from app.services.symbol_resolver import resolve_symbol
+
+logger = logging.getLogger(__name__)
+
+
+def _auto_generate_brief(symbol: str) -> None:
+    """Background task: generate the AI investment brief for a newly-added symbol
+    if it doesn't have one yet. Briefs are per-symbol (shared by all users), so
+    this runs once per symbol and is a no-op (numbers-only) when Anthropic is off."""
+    try:
+        from app.routers.fundamentals import _sync_session_factory
+        from analytics.fundamentals_refresh import generate_brief_if_missing
+        engine, factory = _sync_session_factory()
+        try:
+            generate_brief_if_missing(factory, symbol)
+        finally:
+            engine.dispose()
+    except Exception:
+        logger.exception("auto AI brief failed for %s", symbol)
 
 router = APIRouter()
 
@@ -324,6 +343,7 @@ async def clear_focus(
 @router.post("", response_model=WatchlistItemResponse, status_code=status.HTTP_201_CREATED)
 async def add_symbol(
     body: AddSymbolRequest,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -395,6 +415,8 @@ async def add_symbol(
         item = WatchlistItem(user_id=user.id, symbol=symbol)
     db.add(item)
     await db.flush()
+    # Newly-added symbol → generate its AI brief once (background, best-effort).
+    background.add_task(_auto_generate_brief, symbol)
     return item
 
 

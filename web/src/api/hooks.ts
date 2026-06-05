@@ -350,6 +350,30 @@ export function useUpcomingEarnings() {
 
 // --- Fundamentals / Details tab ---
 
+export interface AIBrief {
+  summary?: string;
+  business?: string;
+  growth?: string;
+  valuation?: string;
+  analyst?: string;
+  bull_case?: string;
+  risks?: string;
+  short_term?: string;
+  long_term?: string;
+  model?: string;
+}
+
+export interface FundMetrics {
+  revenue_growth_pct: number | null;
+  gross_margin_pct: number | null;
+  net_margin_pct: number | null;
+  week52_high: number | null;
+  week52_low: number | null;
+  last_price: number | null;
+  ma50: number | null;
+  ma200: number | null;
+}
+
 export interface FundamentalsItem {
   symbol: string;
   company_name: string | null;
@@ -370,6 +394,9 @@ export interface FundamentalsItem {
   rec_period: string | null;
   short_term_view: string | null;
   long_term_view: string | null;
+  ai_brief: AIBrief | null;          // structured investment brief
+  ai_generated_at: string | null;    // ISO; when the brief was generated
+  metrics: FundMetrics | null;
   fetched_at: string | null;         // ISO; null = never fetched
 }
 
@@ -397,6 +424,23 @@ export function useRefreshFundamentals() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fundamentals-watchlist"] });
     },
+  });
+}
+
+// Admin-only: (re)generate the structured AI brief (Sonnet) for a symbol or the
+// whole watchlist. Heavier than the numbers refresh; poll a few times to catch up.
+export function useGenerateAIBrief() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (symbol?: string) =>
+      api.post("/fundamentals/ai-refresh", symbol ? { symbol } : { all: true }),
+    onSuccess: (_d, symbol) => {
+      toast.info(symbol ? `Generating AI brief for ${symbol}…` : "Generating AI briefs…");
+      [8000, 20000, 40000, 70000].forEach((delay) =>
+        setTimeout(() => qc.invalidateQueries({ queryKey: ["fundamentals-watchlist"] }), delay),
+      );
+    },
+    onError: () => toast.error("Couldn't generate the AI brief"),
   });
 }
 

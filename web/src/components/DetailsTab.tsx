@@ -17,14 +17,36 @@ import { useNavigate } from "react-router-dom";
 import {
   useWatchlistFundamentals,
   useRefreshFundamentals,
+  useGenerateAIBrief,
+  useMe,
   type FundamentalsItem,
+  type AIBrief,
 } from "../api/hooks";
 import Card from "./ui/Card";
 import { Skeleton, SkeletonRow } from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
 import {
-  Info, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronRight,
+  Info, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronRight, Sparkles,
 } from "lucide-react";
+
+/** AI brief: regenerating it costs LLM, so only the admin who pays for it can.
+ *  Mirrors require_ai_access on the backend (the endpoint 403s for everyone else). */
+const AI_ADMIN_EMAIL = "vbolofinde@gmail.com";
+
+const BRIEF_SECTIONS: { key: keyof AIBrief; label: string }[] = [
+  { key: "business", label: "Business & moat" },
+  { key: "growth", label: "Growth & margins" },
+  { key: "valuation", label: "Valuation" },
+  { key: "analyst", label: "Analyst take" },
+  { key: "bull_case", label: "Bull case" },
+  { key: "risks", label: "Key risks" },
+  { key: "short_term", label: "Short-term" },
+  { key: "long_term", label: "Long-term" },
+];
+
+function pctText(v: number | null | undefined): string {
+  return v != null ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : "—";
+}
 
 function fmtRelativeAge(iso: string | null): string {
   if (!iso) return "never";
@@ -98,15 +120,67 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
   );
 }
 
+/* ── Extra decision metrics (revenue growth, margins, 52w, vs MAs) ── */
+
+function MetricsRow({ it }: { it: FundamentalsItem }) {
+  const m = it.metrics;
+  if (!m) return null;
+  const range =
+    m.last_price != null && m.week52_high != null && m.week52_low != null && m.week52_high > m.week52_low
+      ? Math.round(((m.last_price - m.week52_low) / (m.week52_high - m.week52_low)) * 100)
+      : null;
+  const vsMa = (ma: number | null) =>
+    m.last_price != null && ma != null
+      ? { above: m.last_price >= ma, txt: `${m.last_price >= ma ? "+" : ""}${(((m.last_price - ma) / ma) * 100).toFixed(0)}%` }
+      : null;
+  const ma50 = vsMa(m.ma50);
+  const ma200 = vsMa(m.ma200);
+  const has = m.revenue_growth_pct != null || m.gross_margin_pct != null || ma50 || range != null;
+  if (!has) return null;
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <Stat label="Rev growth" value={pctText(m.revenue_growth_pct)} color={growthColor(m.revenue_growth_pct)} />
+      <Stat label="Gross mgn" value={m.gross_margin_pct != null ? `${m.gross_margin_pct.toFixed(0)}%` : "—"} />
+      <Stat label="Net mgn" value={m.net_margin_pct != null ? `${m.net_margin_pct.toFixed(0)}%` : "—"} color={growthColor(m.net_margin_pct)} />
+      <Stat label="vs 50DMA" value={ma50 ? ma50.txt : "—"} color={ma50 ? (ma50.above ? "text-bullish-text" : "text-bearish-text") : undefined} />
+      <Stat label="vs 200DMA" value={ma200 ? ma200.txt : "—"} color={ma200 ? (ma200.above ? "text-bullish-text" : "text-bearish-text") : undefined} />
+      <Stat label="52w range" value={range != null ? `${range}%` : "—"} />
+    </div>
+  );
+}
+
+/* ── Structured AI investment brief ──────────────────────────────── */
+
+function BriefView({ brief }: { brief: AIBrief }) {
+  return (
+    <div className="space-y-2">
+      {brief.summary && (
+        <p className="text-[11px] font-medium leading-relaxed text-text-primary">{brief.summary}</p>
+      )}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {BRIEF_SECTIONS.filter((s) => brief[s.key]).map((s) => (
+          <div key={s.key}>
+            <div className="text-[10px] uppercase tracking-wider text-accent">{s.label}</div>
+            <p className="text-[11px] leading-relaxed text-text-secondary">{brief[s.key]}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── One symbol card ─────────────────────────────────────────────── */
 
 function DetailCard({
-  it, onOpen, onRefresh, refreshing,
+  it, onOpen, onRefresh, refreshing, isAdmin, onGenerate, generating,
 }: {
   it: FundamentalsItem;
   onOpen: () => void;
   onRefresh: () => void;
   refreshing: boolean;
+  isAdmin: boolean;
+  onGenerate: () => void;
+  generating: boolean;
 }) {
   const [showFull, setShowFull] = useState(false);
   const fetched = it.fetched_at != null;
@@ -147,7 +221,7 @@ function DetailCard({
 
       {!fetched ? (
         <p className="text-[11px] text-text-faint">
-          Not fetched yet — tap Fetch to load fundamentals, analyst ratings, and the AI view.
+          Not fetched yet — tap Fetch to load fundamentals, analyst ratings, and metrics.
         </p>
       ) : (
         <>
@@ -179,28 +253,46 @@ function DetailCard({
             <Stat label="P/E" value={it.pe_ratio != null ? it.pe_ratio.toFixed(1) : "—"} />
           </div>
 
+          {/* Extra decision metrics */}
+          <MetricsRow it={it} />
+
           {/* Analyst ratings */}
           <RatingBar it={it} />
 
-          {/* AI views */}
+          {/* AI investment brief */}
           <div className="space-y-2 border-t border-border-subtle/40 pt-2">
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-accent">Short-term view</div>
-              <p className="text-[11px] leading-relaxed text-text-secondary">
-                {it.short_term_view || <span className="text-text-faint italic">AI view unavailable — tap Refresh.</span>}
-              </p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-accent">
+                <Sparkles className="h-3 w-3" /> AI brief
+                {it.ai_generated_at && (
+                  <span className="text-text-faint normal-case tracking-normal">· {fmtRelativeAge(it.ai_generated_at)}</span>
+                )}
+              </div>
+              {isAdmin && (
+                <button
+                  onClick={onGenerate}
+                  disabled={generating}
+                  className="flex items-center gap-1 rounded-md bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-40"
+                >
+                  {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  {it.ai_brief ? "Regenerate" : "Generate"}
+                </button>
+              )}
             </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-accent">Long-term view</div>
-              <p className="text-[11px] leading-relaxed text-text-secondary">
-                {it.long_term_view || <span className="text-text-faint italic">AI view unavailable — tap Refresh.</span>}
+            {it.ai_brief ? (
+              <BriefView brief={it.ai_brief} />
+            ) : (
+              <p className="text-[11px] italic text-text-faint">
+                {isAdmin
+                  ? "No AI brief yet — tap Generate to write one (Sonnet)."
+                  : "AI brief not generated yet — it'll appear here once it's run."}
               </p>
-            </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between text-[10px] text-text-faint">
             <span>Market cap {fmtMarketCap(it.market_cap)}</span>
-            <span>Updated {fmtRelativeAge(it.fetched_at)}</span>
+            <span>Numbers updated {fmtRelativeAge(it.fetched_at)}</span>
           </div>
         </>
       )}
@@ -213,6 +305,9 @@ function DetailCard({
 export default function DetailsTab() {
   const { data, isLoading, error } = useWatchlistFundamentals();
   const refresh = useRefreshFundamentals();
+  const aiGen = useGenerateAIBrief();
+  const { data: me } = useMe();
+  const isAdmin = (me?.email ?? "").trim().toLowerCase() === AI_ADMIN_EMAIL;
   const navigate = useNavigate();
 
   function openSymbol(symbol: string) {
@@ -257,24 +352,40 @@ export default function DetailsTab() {
   // mutation (undefined for "refresh all").
   const refreshingAll = refresh.isPending && refresh.variables === undefined;
   const refreshingSymbol = refresh.isPending ? (refresh.variables as string | undefined) : undefined;
+  const genAll = aiGen.isPending && aiGen.variables === undefined;
+  const genSymbol = aiGen.isPending ? (aiGen.variables as string | undefined) : undefined;
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between text-xs text-text-faint">
+      <div className="flex items-center justify-between gap-2 text-xs text-text-faint">
         <span>Updated {fmtRelativeAge(data?.last_refreshed_at ?? null)}</span>
-        <button
-          onClick={() => refresh.mutate(undefined)}
-          disabled={refresh.isPending}
-          className="flex items-center gap-1.5 rounded-md bg-surface-3 px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-4 disabled:opacity-40 active:scale-95"
-        >
-          {refreshingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Refresh all
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={() => aiGen.mutate(undefined)}
+              disabled={aiGen.isPending}
+              className="flex items-center gap-1.5 rounded-md bg-accent/15 px-2.5 py-1.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-40 active:scale-95"
+            >
+              {genAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Generate all briefs
+            </button>
+          )}
+          <button
+            onClick={() => refresh.mutate(undefined)}
+            disabled={refresh.isPending}
+            className="flex items-center gap-1.5 rounded-md bg-surface-3 px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-4 disabled:opacity-40 active:scale-95"
+          >
+            {refreshingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh numbers
+          </button>
+        </div>
       </div>
 
-      {refreshingAll && (
+      {(refreshingAll || genAll) && (
         <p className="text-[10px] text-text-faint">
-          Refreshing all symbols — this can take a minute or two (throttled data + AI views).
+          {genAll
+            ? "Generating AI briefs for all symbols — this can take a few minutes (Sonnet, one per symbol)."
+            : "Refreshing all symbols — this can take a minute or two (throttled data)."}
         </p>
       )}
 
@@ -286,6 +397,9 @@ export default function DetailsTab() {
             onOpen={() => openSymbol(it.symbol)}
             onRefresh={() => refresh.mutate(it.symbol)}
             refreshing={refreshingAll || refreshingSymbol === it.symbol}
+            isAdmin={isAdmin}
+            onGenerate={() => aiGen.mutate(it.symbol)}
+            generating={genAll || genSymbol === it.symbol}
           />
         ))}
       </div>
