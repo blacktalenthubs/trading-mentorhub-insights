@@ -359,6 +359,10 @@ function SignalFeedTab({
     try { localStorage.setItem("signal_feed_grade", g); } catch {}
   }
 
+  // Which panel is showing: the live delivered feed, or the not-routed
+  // (suppressed-for-review) panel. Suppressed alerts never appear in "live".
+  const [view, setView] = useState<"live" | "unrouted">("live");
+
   // Type hide-list — view-only. Set of alert_type strings to exclude from
   // the feed. Lets the user temporarily mute noisy types (e.g. historical
   // mtd_avwap_held already in DB) without touching Settings/routing.
@@ -399,21 +403,23 @@ function SignalFeedTab({
     );
   }
 
-  // AI scanner signals + every fired TradingView signal. WAITs and
-  // non-routed alerts are excluded — the user filters via Settings
-  // (alert types + grade), not in the feed.
-  //
-  // suppressed_reason filter list:
-  //   • type_not_enabled — user toggled the type off; not interesting
-  //   • confluence_collapsed:* — same-moment confluence (e.g. gap_up_continuation
-  //     and staged_pdh_break fired together; the break already shows). Showing
-  //     both makes the feed look like double-fires per stock.
-  const feedAlerts = (alerts ?? []).filter((a) => {
-    if (!isFeedSignal(a.alert_type)) return false;
-    if (a.suppressed_reason === "type_not_enabled") return false;
-    if (a.suppressed_reason?.startsWith("confluence_collapsed")) return false;
-    return true;
-  });
+  // LIVE feed — only DELIVERED signals (no suppressed_reason). Anything the
+  // gates held back is NOT mixed in here; it lives in its own "Not routed"
+  // panel below (toggle at the top).
+  const feedAlerts = (alerts ?? []).filter(
+    (a) => isFeedSignal(a.alert_type) && !a.suppressed_reason,
+  );
+  // NOT ROUTED — recorded but not sent to Telegram/feed (SPY<PDL, chop,
+  // uptrend gate, off-hours…). A separate review panel for evaluation.
+  // type_not_enabled (type toggled off) and confluence_collapsed (same-moment
+  // dup) are noise rather than gate catches, so they're left out.
+  const notRoutedAlerts = (alerts ?? []).filter(
+    (a) =>
+      isFeedSignal(a.alert_type) &&
+      !!a.suppressed_reason &&
+      a.suppressed_reason !== "type_not_enabled" &&
+      !a.suppressed_reason.startsWith("confluence_collapsed"),
+  );
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -473,6 +479,16 @@ function SignalFeedTab({
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
+  // Not-routed panel list — search-filtered, newest first. No grade/type
+  // filters: this is a review surface for what the gates caught, not the feed.
+  const notRoutedVisible = (q
+    ? notRoutedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
+    : notRoutedAlerts
+  ).slice().sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  const listAlerts = view === "unrouted" ? notRoutedVisible : visible;
+
   // Grade chip — visual style per letter.
   const CHIP_STYLES: Record<GradeFilter, { active: string; inactive: string }> = {
     all: {
@@ -495,7 +511,34 @@ function SignalFeedTab({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Grade filter chips — view-only, doesn't affect Telegram routing */}
+      {/* Panel toggle — live delivered signals vs the not-routed review panel.
+          Suppressed alerts (SPY<PDL, chop…) live ONLY under "Not routed". */}
+      <div className="px-3 pt-2 shrink-0 flex items-center gap-1">
+        <button
+          onClick={() => setView("live")}
+          className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-colors ${
+            view === "live"
+              ? "bg-accent text-bg-base border-accent"
+              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+          }`}
+        >
+          Signals <span className="opacity-70 font-normal">{feedAlerts.length}</span>
+        </button>
+        <button
+          onClick={() => setView("unrouted")}
+          className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-colors ${
+            view === "unrouted"
+              ? "bg-bearish text-bg-base border-bearish"
+              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+          }`}
+          title="Recorded but not sent to Telegram/feed — SPY<PDL, chop, uptrend gate…"
+        >
+          Not routed <span className="opacity-70 font-normal">{notRoutedAlerts.length}</span>
+        </button>
+      </div>
+
+      {/* Grade filter chips — live feed only; view-only, no routing effect */}
+      {view === "live" && (
       <div className="px-3 pt-2 pb-1 shrink-0 flex items-center gap-1">
         {(["all", "A", "B", "C"] as const).map((g) => {
           const style = gradeFilter === g ? CHIP_STYLES[g].active : CHIP_STYLES[g].inactive;
@@ -512,6 +555,7 @@ function SignalFeedTab({
           );
         })}
       </div>
+      )}
 
       {/* Search + Types + Sort dropdowns — single row */}
       <div className="px-3 pt-1 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
@@ -622,15 +666,17 @@ function SignalFeedTab({
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" aria-busy="true">
           <SkeletonRow count={6} h={88} gap={8} />
         </div>
-      ) : visible.length === 0 ? (
+      ) : listAlerts.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-text-faint">
-            {q ? `No ${q} signals in this session` : "No signals in this session"}
+            {view === "unrouted"
+              ? (q ? `No not-routed ${q} alerts` : "Nothing held back this session")
+              : (q ? `No ${q} signals in this session` : "No signals in this session")}
           </p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-          {visible.map((a) => {
+          {listAlerts.map((a) => {
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
