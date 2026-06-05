@@ -32,6 +32,46 @@ from analytics.tv_signal_adapter import (
     parse_fired_at,
     payload_to_alert_signal,
 )
+from api.app.routers.tv_webhook import (
+    INDEX_REGIME_ALLOWLIST,
+    spy_pdl_blocks_buy,
+)
+
+
+# -----------------------------------------------------------------------------
+# Spec 61 — SPY-below-PDL gate decision (proven exhaustively, not assumed)
+# -----------------------------------------------------------------------------
+
+
+class TestSpyPdlBlocksBuy:
+    def test_blocks_non_index_buy_when_below_pdl(self):
+        # THE live-failing case: a normal equity BUY while SPY is under its PDL.
+        assert spy_pdl_blocks_buy(False, "BUY", "AAPL") is True
+        assert spy_pdl_blocks_buy(False, "BUY", "AAOI") is True
+
+    def test_exempts_index_allowlist(self):
+        for sym in ("SPY", "QQQ", "IWM", "DRAM"):
+            assert sym in INDEX_REGIME_ALLOWLIST
+            assert spy_pdl_blocks_buy(False, "BUY", sym) is False
+
+    def test_never_blocks_shorts_or_notices(self):
+        assert spy_pdl_blocks_buy(False, "SHORT", "AAPL") is False
+        assert spy_pdl_blocks_buy(False, "SELL", "AAPL") is False
+        assert spy_pdl_blocks_buy(False, "NOTICE", "AAPL") is False
+
+    def test_fail_open_when_field_absent(self):
+        # None = Pine didn't stamp spy_above_pdl (e.g. an alert still running the
+        # OLD compiled script) → NEVER block. This is exactly why a BUY can still
+        # deliver with SPY under PDL: the field never arrived, so the gate can't
+        # fire. The fix is on the Pine/alert side, not here.
+        assert spy_pdl_blocks_buy(None, "BUY", "AAPL") is False
+
+    def test_no_block_when_spy_above_pdl(self):
+        assert spy_pdl_blocks_buy(True, "BUY", "AAPL") is False
+
+    def test_case_insensitive(self):
+        assert spy_pdl_blocks_buy(False, "buy", "aapl") is True
+        assert spy_pdl_blocks_buy(False, "buy", "spy") is False
 
 
 # -----------------------------------------------------------------------------
