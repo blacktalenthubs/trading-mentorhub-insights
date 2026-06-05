@@ -25,6 +25,7 @@ import {
   useWatchlistGroups,
   useCreateGroup,
   useAddSymbolToGroup,
+  useQuotes,
   type FocusListHistoryItem,
   type SocialBuzzEntry,
 } from "../api/hooks";
@@ -322,6 +323,37 @@ function AIScansTab() {
 
 /* ── Social Buzz tab — Apewisdom-fed top discussed tickers ─────────── */
 
+type Quote = { price: number; change_pct: number };
+type SocialFilter = "watchlist" | "gradeA" | "rising" | "earnings";
+
+function isRising(e: SocialBuzzEntry): boolean {
+  return !!e.accelerating || (e.growth_pct ?? 0) > 0;
+}
+function isErSoon(e: SocialBuzzEntry): boolean {
+  return e.earnings_in_days != null && e.earnings_in_days >= 0 && e.earnings_in_days <= 7;
+}
+
+/** Watch Score — one priority number combining the signals we already track, so
+ *  the strongest confluence floats to the top. Heuristic weights, 0..~108. */
+function watchScore(e: SocialBuzzEntry, owned: boolean, q?: Quote): number {
+  let s = 0;
+  if (e.has_grade_a_today) s += 40;                            // technical confluence (biggest)
+  const g = e.growth_pct ?? 0;
+  if (g > 0) s += (Math.min(g, 300) / 300) * 25;              // rising attention
+  if (e.accelerating) s += 15;
+  if (isErSoon(e)) s += 10;                                   // catalyst soon
+  if (owned) s += 8;                                          // it's one of your names
+  if (q) s += (Math.min(Math.abs(q.change_pct), 8) / 8) * 10; // actual price momentum
+  return Math.round(s);
+}
+
+const SOCIAL_FILTERS: { key: SocialFilter; label: string }[] = [
+  { key: "watchlist", label: "Watchlist" },
+  { key: "gradeA", label: "Grade-A 🔥" },
+  { key: "rising", label: "Rising" },
+  { key: "earnings", label: "Earnings soon" },
+];
+
 function SocialBuzzTab() {
   const navigate = useNavigate();
   const [runId, setRunId] = useState<number | null>(null);  // null = latest live run
@@ -334,11 +366,25 @@ function SocialBuzzTab() {
   const addToGroup = useAddSymbolToGroup();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SocialSortKey; dir: "asc" | "desc" }>({ key: "mentions", dir: "desc" });
+  const [smart, setSmart] = useState(true);  // default: rank by Watch Score
+  const [filters, setFilters] = useState<Set<SocialFilter>>(new Set());
 
   const watchSet = useMemo(
     () => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())),
     [watchlist],
   );
+
+  // Live price + day %% for every trending symbol (not just watchlist names).
+  const symbols = useMemo(() => (data?.entries ?? []).map((e) => e.symbol), [data]);
+  const quotes = useQuotes(symbols).data?.prices ?? {};
+
+  function toggleFilter(f: SocialFilter) {
+    setFilters((cur) => {
+      const next = new Set(cur);
+      next.has(f) ? next.delete(f) : next.add(f);
+      return next;
+    });
+  }
 
   // Add a trending ticker into a dedicated "Trending" watchlist group, creating
   // the group on first use so social adds stay separate from curated names.
@@ -358,6 +404,7 @@ function SocialBuzzTab() {
     setExpanded((cur) => (cur === symbol ? null : symbol));
   }
   function toggleSort(key: SocialSortKey) {
+    setSmart(false);  // manual column sort overrides Watch Score
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
   }
 
@@ -385,12 +432,23 @@ function SocialBuzzTab() {
   }
 
   const entries = data?.entries ?? [];
+  const scoreOf = (e: SocialBuzzEntry) =>
+    watchScore(e, watchSet.has(e.symbol.toUpperCase()), quotes[e.symbol.toUpperCase()]);
   const sortedEntries = [...entries].sort((a, b) => {
+    if (smart) return scoreOf(b) - scoreOf(a);
     const av = socialSortVal(a, sort.key);
     const bv = socialSortVal(b, sort.key);
     const dir = sort.dir === "asc" ? 1 : -1;
     if (typeof av === "string" || typeof bv === "string") return String(av).localeCompare(String(bv)) * dir;
     return (av - bv) * dir;
+  });
+  const visibleEntries = sortedEntries.filter((e) => {
+    const owned = watchSet.has(e.symbol.toUpperCase());
+    if (filters.has("watchlist") && !owned) return false;
+    if (filters.has("gradeA") && !e.has_grade_a_today) return false;
+    if (filters.has("rising") && !isRising(e)) return false;
+    if (filters.has("earnings") && !isErSoon(e)) return false;
+    return true;
   });
   const trendingOwned = entries.filter((e) => watchSet.has(e.symbol.toUpperCase()));
   if (entries.length === 0) {
@@ -413,7 +471,8 @@ function SocialBuzzTab() {
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-faint">
         <div className="flex flex-col gap-0.5">
           <span>
-            {entries.length} tickers · tap a column to sort · sources: Apewisdom + StockTwits
+            {filters.size > 0 ? `${visibleEntries.length} of ${entries.length}` : entries.length} tickers ·{" "}
+            {smart ? "ranked by Watch Score" : "tap a column to sort"} · sources: Apewisdom + StockTwits
           </span>
           {trendingOwned.length > 0 && (
             <span className="text-accent">
@@ -455,6 +514,46 @@ function SocialBuzzTab() {
         </div>
       </div>
 
+      {/* Watch Score toggle + quick filters */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => setSmart((v) => !v)}
+          className={`flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+            smart
+              ? "bg-accent/15 text-accent border-accent/40"
+              : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-secondary"
+          }`}
+          title="Rank by Watch Score — combines Grade-A, mention growth, rising, earnings, your watchlist, and price momentum"
+        >
+          <Zap className="h-3 w-3" /> Watch Score
+        </button>
+        <span className="mx-1 h-4 w-px bg-border-subtle" />
+        {SOCIAL_FILTERS.map((f) => {
+          const on = filters.has(f.key);
+          return (
+            <button
+              key={f.key}
+              onClick={() => toggleFilter(f.key)}
+              className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                on
+                  ? "bg-accent/15 text-accent border-accent/40"
+                  : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-secondary"
+              }`}
+            >
+              {f.label}
+            </button>
+          );
+        })}
+        {filters.size > 0 && (
+          <button
+            onClick={() => setFilters(new Set())}
+            className="text-[11px] text-text-faint hover:text-text-secondary px-1.5 py-1"
+          >
+            clear
+          </button>
+        )}
+      </div>
+
       <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
         {/* Header */}
         <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-text-faint font-medium border-b border-border-subtle/50 bg-surface-2/30">
@@ -466,11 +565,17 @@ function SocialBuzzTab() {
           <SocialTh label="🔥" k="confluence" sort={sort} onSort={toggleSort} align="right" className="col-span-1" title="🔥 = this buzz ticker ALSO fired a Grade-A alert in our scanner today" />
           <span className="col-span-1 text-right">Add</span>
         </div>
-        {sortedEntries.map((e, i) => (
+        {visibleEntries.length === 0 ? (
+          <div className="px-4 py-8 text-center text-xs text-text-faint">
+            No tickers match these filters. <button onClick={() => setFilters(new Set())} className="text-accent hover:underline">Clear filters</button>
+          </div>
+        ) : visibleEntries.map((e, i) => (
           <SocialBuzzRow
             key={e.symbol}
             entry={e}
             rank={i + 1}
+            score={smart ? scoreOf(e) : undefined}
+            quote={quotes[e.symbol.toUpperCase()]}
             expanded={expanded === e.symbol}
             owned={watchSet.has(e.symbol.toUpperCase())}
             adding={addToGroup.isPending}
@@ -488,6 +593,7 @@ function SocialBuzzTab() {
         <p><span className="text-text-secondary font-medium">Δ24h</span> — change in mentions vs 24h ago. <span className="text-bullish-text">Green +</span> = attention is <em>rising</em> (fresh); <span className="text-bearish-text">red −</span> = <em>cooling</em>. <span className="text-text-faint">“—”</span> = too little prior data to trust.</p>
         <p><span className="text-text-secondary font-medium">Sentiment</span> — StockTwits bull/bear lean of recent tagged posts (<span className="text-bullish-text">▲ bullish</span> / <span className="text-bearish-text">▼ bearish</span> / <span className="text-amber-400">◆ mixed</span>). Hover for the exact bull/bear %.</p>
         <p><span className="text-text-secondary font-medium">Grade A</span> — 🔥 means this ticker <em>also</em> fired an A-grade technical alert in the scanner today (buzz <strong>+</strong> conviction). “—” = no A-grade alert.</p>
+        <p><span className="text-text-secondary font-medium">🎯 Watch Score</span> — one priority number combining Grade-A confluence, mention growth, rising, earnings-soon, your watchlist, and today's price move. The list is ranked by it by default — toggle <span className="text-accent">Watch Score</span> off to sort columns manually. The <span className="font-mono">$price + %</span> by each symbol shows what's actually moving.</p>
         <p className="text-text-faint pt-1">Buzz only — not a buy signal. Use Grade A for conviction; tap a row to see what's being said.</p>
       </div>
     </div>
@@ -554,10 +660,12 @@ function earningsLabel(days: number): string {
 }
 
 function SocialBuzzRow({
-  entry: e, rank, expanded, owned, adding, onToggleExpand, onOpenChart, onAdd,
+  entry: e, rank, score, quote, expanded, owned, adding, onToggleExpand, onOpenChart, onAdd,
 }: {
   entry: SocialBuzzEntry;
   rank: number;
+  score?: number;
+  quote?: Quote;
   expanded: boolean;
   owned: boolean;
   adding: boolean;
@@ -591,12 +699,32 @@ function SocialBuzzRow({
         <div className="col-span-3 min-w-0">
           <button onClick={onOpenChart} className="text-left w-full" title={`Open chart for ${e.symbol}`}>
             <span className="font-semibold text-text-primary">{e.symbol}</span>
+            {quote && (
+              <span className="block font-mono text-[10px] mt-0.5">
+                <span className="text-text-muted">${quote.price.toFixed(2)}</span>
+                <span className={quote.change_pct >= 0 ? "text-bullish-text ml-1" : "text-bearish-text ml-1"}>
+                  {quote.change_pct >= 0 ? "+" : ""}{quote.change_pct.toFixed(1)}%
+                </span>
+              </span>
+            )}
             {e.name && (
               <span className="block text-[10px] text-text-faint truncate mt-0.5">{e.name}</span>
             )}
           </button>
-          {(e.accelerating || erSoon) && (
+          {(score != null || e.accelerating || erSoon) && (
             <div className="flex flex-wrap items-center gap-1 mt-1">
+              {score != null && (
+                <span
+                  className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded ${
+                    score >= 60 ? "text-accent bg-accent/15"
+                    : score >= 35 ? "text-amber-400 bg-amber-400/10"
+                    : "text-text-faint bg-surface-3"
+                  }`}
+                  title="Watch Score — combined confluence (Grade-A + buzz growth + rising + earnings + your watchlist + price momentum)"
+                >
+                  🎯 {score}
+                </span>
+              )}
               {e.accelerating && (
                 <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-accent bg-accent/10 px-1 py-0.5 rounded" title="Mentions accelerating across recent snapshots">
                   <Zap className="h-2.5 w-2.5" /> rising

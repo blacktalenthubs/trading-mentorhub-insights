@@ -592,6 +592,23 @@ export function useLivePrices() {
   });
 }
 
+/** Batch quotes for an arbitrary symbol list (price + day % change).
+ *  Unlike useLivePrices (watchlist-scoped), this works for any symbols — used by
+ *  the Social board. Polls every 30s; server caches 30s. */
+export function useQuotes(symbols: string[]) {
+  const key = [...symbols].map((s) => s.toUpperCase()).sort().join(",");
+  return useQuery({
+    queryKey: ["quotes", key],
+    enabled: symbols.length > 0,
+    queryFn: () =>
+      api.get<{ prices: Record<string, { price: number; change_pct: number }> }>(
+        `/market/quotes?symbols=${encodeURIComponent(key)}`,
+      ),
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  });
+}
+
 export function useAddSymbol() {
   const qc = useQueryClient();
   return useMutation({

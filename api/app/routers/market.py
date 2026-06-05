@@ -88,6 +88,41 @@ async def live_prices(user: User = Depends(get_current_user)):
     return {"prices": prices}
 
 
+@router.get("/quotes")
+async def quotes(symbols: str = "", user: User = Depends(get_current_user)):
+    """Latest price + day %% change for an arbitrary comma-separated symbol list
+    (unlike /prices, which is watchlist-scoped). Used by the Social board to show
+    price action next to buzz. Cached 30s; capped at 50 symbols."""
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:50]
+    if not syms:
+        return {"prices": {}}
+
+    cache_key = f"quotes:{','.join(sorted(syms))}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    def _fetch_prices(ss):
+        import yfinance as yf
+        out = {}
+        for sym in ss:
+            try:
+                fi = yf.Ticker(sym).fast_info
+                price = round(float(fi.last_price), 2)
+                prev = float(fi.previous_close) if getattr(fi, "previous_close", None) else price
+                change = round(((price - prev) / prev) * 100, 2) if prev else 0
+                out[sym] = {"price": price, "change_pct": change}
+            except Exception:
+                pass
+        return out
+
+    loop = asyncio.get_event_loop()
+    prices = await loop.run_in_executor(None, partial(_fetch_prices, syms))
+    result = {"prices": prices}
+    cache_set(cache_key, result, 30)
+    return result
+
+
 def _fetch_and_serialize_intraday(symbol: str) -> List[dict]:
     df = fetch_intraday(symbol)
     if df.empty:
