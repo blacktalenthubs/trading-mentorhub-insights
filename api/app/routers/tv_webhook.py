@@ -884,6 +884,30 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return {"dispatched": False, "reason": "unknown_type"}
 
     # ──────────────────────────────────────────────────────────────────
+    # Spec 61 — SPY-below-PDL HARD regime block (2026-06-05)
+    # ──────────────────────────────────────────────────────────────────
+    # SPY loses its session open constantly (noise), but breaking its
+    # PRIOR-DAY LOW is rare in a genuine uptrend — when it happens the broad
+    # tape is broken and we will NOT counter-trade it. Hard-block EVERY buy
+    # alert on EVERY equity (wider + stricter than the soft open grade-down,
+    # which only touched breaks + MA-bounce). Self-healing: when SPY reclaims
+    # and holds its PDL (spy_above_pdl flips true — two closes back above)
+    # buys flow again, no manual reset. Pine stamps spy_above_pdl on every
+    # payload; legacy alerts without the field (None) are let through so a
+    # Pine rollback can't silently kill all delivery.
+    _spy_above_pdl = getattr(sig, "_tv_spy_above_pdl", None)
+    if _spy_above_pdl is False and (sig.direction or "").upper() == "BUY":
+        logger.info(
+            "TV webhook: SPY below PDL — market-regime blocked %s for %s "
+            "(no counter-trend longs while the broad tape is broken)",
+            alert_type_full, sig.symbol,
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason="spy_below_pdl",
+        )
+
+    # ──────────────────────────────────────────────────────────────────
     # Spec 58 — uptrend gate enforcement (FR-001 / FR-003, refined 2026-05-23)
     # ──────────────────────────────────────────────────────────────────
     # The uptrend gate applies ONLY to MA-based entries (`tv_ma_*` family).
