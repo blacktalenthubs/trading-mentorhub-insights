@@ -34,8 +34,24 @@ from analytics.tv_signal_adapter import (
 )
 from api.app.routers.tv_webhook import (
     INDEX_REGIME_ALLOWLIST,
+    resolve_spy_above_pdl,
     spy_pdl_blocks_buy,
 )
+
+
+class TestResolveSpyAbovePdl:
+    # Backend's own below-PDL reading (same as the banner) is authoritative for
+    # routing; the Pine field is only a fallback when backend data is missing.
+    def test_backend_is_authoritative(self):
+        assert resolve_spy_above_pdl(True, None) is False   # below → block
+        assert resolve_spy_above_pdl(True, True) is False    # backend overrides pine
+        assert resolve_spy_above_pdl(False, None) is True    # not below → deliver
+        assert resolve_spy_above_pdl(False, False) is True   # backend overrides pine
+
+    def test_falls_back_to_pine_when_backend_unavailable(self):
+        assert resolve_spy_above_pdl(None, False) is False
+        assert resolve_spy_above_pdl(None, True) is True
+        assert resolve_spy_above_pdl(None, None) is None
 
 
 # -----------------------------------------------------------------------------

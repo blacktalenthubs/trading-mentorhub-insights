@@ -203,6 +203,41 @@ def spy_pdl_blocks_buy(
     return True
 
 
+def _spy_below_pdl_now() -> Optional[bool]:
+    """Is SPY below its prior-day low RIGHT NOW — the BACKEND'S own reading,
+    the exact same one that drives the regime banner (cache key 'spy_regime').
+
+    Routing is the backend's decision: the Pine just fires the alert, WE decide
+    where it goes — and we already know SPY's PDL state here. Reads the cached
+    banner snapshot; computes it on a cache miss (same _compute_spy_regime).
+    Returns True/False, or None if market data is unavailable (premarket /
+    outage) → fail-open (never block on missing data).
+    """
+    from app.cache import cache_get, cache_set
+    snap = cache_get("spy_regime")
+    if snap is None:
+        try:
+            from api.app.routers.market import _compute_spy_regime
+            snap = _compute_spy_regime()
+            cache_set("spy_regime", snap, 30)
+        except Exception:
+            return None
+    if not isinstance(snap, dict) or snap.get("status") != "ok":
+        return None
+    return bool(snap.get("below_pdl"))
+
+
+def resolve_spy_above_pdl(
+    backend_below: Optional[bool], pine_value: Optional[bool]
+) -> Optional[bool]:
+    """Backend's own below-PDL reading is AUTHORITATIVE for routing (we decide
+    where alerts go); the Pine-stamped field is only a fallback when our market
+    data is unavailable. Returns the resolved spy_above_pdl (True/False/None)."""
+    if backend_below is not None:
+        return not backend_below
+    return pine_value
+
+
 def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bool:
     """Returns True if a futures symbol's alert fires outside the trading window.
 
@@ -917,29 +952,36 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # ──────────────────────────────────────────────────────────────────
     # Spec 61 — SPY-below-PDL HARD regime block (2026-06-05)
     # ──────────────────────────────────────────────────────────────────
-    # SPY loses its session open constantly (noise), but breaking its
-    # PRIOR-DAY LOW is rare in a genuine uptrend — when it happens the broad
-    # tape is broken and we will NOT counter-trade it. Hard-block EVERY buy
-    # alert on EVERY equity (wider + stricter than the soft open grade-down,
-    # which only touched breaks + MA-bounce). Self-healing: when SPY reclaims
-    # and holds its PDL (spy_above_pdl flips true — two closes back above)
-    # buys flow again, no manual reset. Pine stamps spy_above_pdl on every
-    # payload; legacy alerts without the field (None) are let through so a
-    # Pine rollback can't silently kill all delivery.
-    # Index allow-list (SPY/QQQ/IWM/DRAM) is EXEMPT — we trust their levels on
-    # red days and it's far fewer alerts than 40 stocks. Everything else blocked.
-    if spy_pdl_blocks_buy(
-        getattr(sig, "_tv_spy_above_pdl", None), sig.direction, sig.symbol
-    ):
-        logger.info(
-            "TV webhook: SPY below PDL — market-regime blocked %s for %s "
-            "(no counter-trend longs while the broad tape is broken)",
-            alert_type_full, sig.symbol,
+    # Breaking the PRIOR-DAY LOW is rare in a genuine uptrend — when it happens
+    # the broad tape is broken and we will NOT counter-trade it. Hard-block
+    # EVERY buy on EVERY equity; the index allow-list (SPY/QQQ/IWM/DRAM) is
+    # exempt. Self-healing: when SPY reclaims PDL, buys flow again.
+    #
+    # ROUTING IS OURS. The Pine fires the alert; the backend decides where it
+    # goes — and the backend already knows SPY's PDL state (same reading that
+    # drives the STAND_DOWN banner). So we route on THAT, not on a field the
+    # Pine has to stamp (which depends on recreating every TV alert). The
+    # Pine-stamped spy_above_pdl is kept only as a fallback when our market
+    # data is unavailable. Cheap: only consulted for non-index buys.
+    _direction = (sig.direction or "").upper()
+    if _direction == "BUY" and (sig.symbol or "").upper() not in INDEX_REGIME_ALLOWLIST:
+        _backend_below = await asyncio.get_running_loop().run_in_executor(
+            None, _spy_below_pdl_now
         )
-        return await _persist_unrouted(
-            sig, alert_type_full, session_date,
-            suppressed_reason="spy_below_pdl",
+        _spy_above_pdl = resolve_spy_above_pdl(
+            _backend_below, getattr(sig, "_tv_spy_above_pdl", None)
         )
+        if spy_pdl_blocks_buy(_spy_above_pdl, sig.direction, sig.symbol):
+            logger.info(
+                "TV webhook: SPY below PDL — market-regime blocked %s for %s "
+                "(backend_below=%s, pine=%s)",
+                alert_type_full, sig.symbol,
+                _backend_below, getattr(sig, "_tv_spy_above_pdl", None),
+            )
+            return await _persist_unrouted(
+                sig, alert_type_full, session_date,
+                suppressed_reason="spy_below_pdl",
+            )
 
     # ──────────────────────────────────────────────────────────────────
     # Spec 58 — uptrend gate enforcement (FR-001 / FR-003, refined 2026-05-23)
