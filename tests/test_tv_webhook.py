@@ -174,6 +174,23 @@ class TestPayloadToAlertSignal:
         assert getattr(sig, "_tv_interval") == "1d"
         assert getattr(sig, "_source") == "tradingview"
 
+    def test_spy_above_pdl_parsed(self):
+        # Spec 61 — SPY-below-PDL hard regime block. The webhook reads
+        # _tv_spy_above_pdl to suppress every buy when the broad tape breaks
+        # its prior-day low. true→True, false→False, absent→None (let through).
+        assert getattr(
+            payload_to_alert_signal(self._base_payload(spy_above_pdl="true")),
+            "_tv_spy_above_pdl",
+        ) is True
+        assert getattr(
+            payload_to_alert_signal(self._base_payload(spy_above_pdl="false")),
+            "_tv_spy_above_pdl",
+        ) is False
+        assert getattr(
+            payload_to_alert_signal(self._base_payload()),
+            "_tv_spy_above_pdl",
+        ) is None
+
     def test_missing_symbol_raises(self):
         with pytest.raises(TVAdapterError, match="symbol"):
             payload_to_alert_signal({"price": "100", "rule": "test"})

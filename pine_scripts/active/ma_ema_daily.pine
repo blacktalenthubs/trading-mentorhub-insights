@@ -172,6 +172,17 @@ spy_regime_block = spy_regime_gate_on and (spy_below_now_61 or spy_below_prev_61
 // Carried in build_v3_payload so the backend can grade-down weak-tape bounces.
 spy_above_open_61 = not (spy_below_now_61 or spy_below_prev_61)
 
+// Spec 61 (2026-06-05) — SPY PDL HARD regime block. SPY loses its session open
+// constantly (noise), but breaking its PRIOR-DAY LOW is rare in a real uptrend
+// — when it happens the broad tape is broken and we do NOT counter-trade it.
+// The backend HARD-BLOCKS every buy on every equity when spy_above_pdl=false
+// (wider + stricter than the open grade-down). Self-healing: two closes back
+// above PDL re-enables. Carried in build_v3_payload.
+spy_pdl_61 = request.security("SPY", "D", low[1], lookahead = barmerge.lookahead_on)
+spy_below_pdl_now  = (not na(spy_pdl_61)) and (not na(spy_close_61)) and spy_close_61 < spy_pdl_61
+spy_below_pdl_prev = (not na(spy_pdl_61)) and (not na(spy_close_61[1])) and spy_close_61[1] < spy_pdl_61
+spy_above_pdl_61   = not (spy_below_pdl_now or spy_below_pdl_prev)
+
 // Chart-TF VWAP — used as primary structural T1 for SHORTs (first support
 // below an MA rejection). Resets daily by default on TV.
 vwap_v = ta.vwap(hlc3)
@@ -502,7 +513,8 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","vwap":"' + (na(session_vwap) ? "" : str.tostring(session_vwap, "#.##"))
       + '","vwap_slope_pct":"' + (na(vwap_slope_pct) ? "" : str.tostring(vwap_slope_pct, "#.##"))
       + '","above_vwap":"' + (above_vwap ? "true" : "false")
-      + '","spy_above_open":"' + (spy_above_open_61 ? "true" : "false") + '"}'
+      + '","spy_above_open":"' + (spy_above_open_61 ? "true" : "false")
+      + '","spy_above_pdl":"' + (spy_above_pdl_61 ? "true" : "false") + '"}'
 
 // S0 targets — the MAs on the far side of entry are the structural targets.
 //   LONG  → the nearest MAs ABOVE entry (overhead resistance to aim for).

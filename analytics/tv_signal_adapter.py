@@ -316,6 +316,11 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     # Pine), which leaves grading unchanged.
     _spy_above_raw = (payload.get("spy_above_open") or "").strip().lower()
     sig._tv_spy_above_open = (_spy_above_raw == "true") if _spy_above_raw else None  # type: ignore[attr-defined]
+    # Spec 61 (2026-06-05): SPY below its PRIOR-DAY LOW = broken broad-tape
+    # uptrend. The webhook HARD-BLOCKS every buy when this is False (don't
+    # counter-trend the market). None when absent (older Pine) → no block.
+    _spy_pdl_raw = (payload.get("spy_above_pdl") or "").strip().lower()
+    sig._tv_spy_above_pdl = (_spy_pdl_raw == "true") if _spy_pdl_raw else None  # type: ignore[attr-defined]
     # 2026-05-16: gap_context boolean — overloaded meaning per alert type:
     #   • staged_pdh_break: gap-up (open above PDH) → tighter stop
     #   • staged_pdl_reclaim: gap-down recovery (open below PDL) → label
