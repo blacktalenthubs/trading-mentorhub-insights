@@ -8,11 +8,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  RefreshCw, Target, History, Sparkles, Crosshair, Flame,
+  RefreshCw, Target, History, Sparkles, Flame,
   ChevronDown, ChevronUp, ChevronRight, MessageSquare, Plus, Check, Zap, CalendarClock,
 } from "lucide-react";
 import {
-  useAlertsToday,
   useLatestFocusList,
   useFocusListHistory,
   useFocusListDetail,
@@ -29,18 +28,13 @@ import {
   type FocusListHistoryItem,
   type SocialBuzzEntry,
 } from "../api/hooks";
-import SwingScreenerView from "../components/SwingScreenerView";
-// InPlayView removed 2026-06-01 — scanner was too static + redundant with
-// Swing+AI Scan. Component file kept on disk for git history.
-import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
 import { Skeleton, SkeletonRow } from "../components/ui/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
-import type { Alert } from "../types";
 import { type FocusRecommendation } from "../api/hooks";
 
-type IdeasTab = "day" | "swing" | "ai" | "social";
+type IdeasTab = "social" | "ai";
 
 function historyLabel(item: FocusListHistoryItem): string {
   const iso = item.generated_at;
@@ -63,29 +57,28 @@ function historyLabel(item: FocusListHistoryItem): string {
   return `${when} · ${win} · ${tag}`;
 }
 
-const IDEAS_TABS_ALL: { id: IdeasTab; label: string; icon: typeof Crosshair; adminOnly?: boolean }[] = [
-  { id: "day",    label: "Day Trades",   icon: Crosshair },
-  { id: "swing",  label: "Swing Trades", icon: Target },
-  { id: "ai",     label: "AI Scans",     icon: Sparkles, adminOnly: true },
-  { id: "social", label: "Social",       icon: Flame },
+const IDEAS_TABS_ALL: { id: IdeasTab; label: string; icon: typeof Target; adminOnly?: boolean }[] = [
+  { id: "social", label: "Social",   icon: Flame },
+  { id: "ai",     label: "AI Scans", icon: Sparkles, adminOnly: true },
 ];
 
 export default function FocusListPage() {
-  // AI Scans is admin-only (LLM cost). Non-admins don't see the tab at all.
+  // AI Scans is admin-only (LLM cost) — gated on the admin tier (consistent
+  // with the rest of the app). Non-admins see only the Social tab.
   const { data: me } = useMe();
-  const isAdmin = (me?.email || "").toLowerCase() === "vbolofinde@gmail.com";
+  const isAdmin = me?.tier === "admin";
   const IDEAS_TABS = IDEAS_TABS_ALL.filter((t) => !t.adminOnly || isAdmin);
 
   const [tab, setTab] = useState<IdeasTab>(() => {
-    if (typeof window === "undefined") return "day";
-    const saved = localStorage.getItem("ideas_active_tab") as IdeasTab | null;
-    return saved || "day";
+    if (typeof window === "undefined") return "social";
+    const saved = localStorage.getItem("ideas_active_tab");
+    return saved === "ai" || saved === "social" ? saved : "social";  // drop legacy day/swing
   });
-  // If the saved tab is AI but the user isn't admin, snap back to "day".
+  // If the saved tab is AI but the user isn't admin, snap back to Social.
   useEffect(() => {
     if (tab === "ai" && !isAdmin) {
-      setTab("day");
-      try { localStorage.setItem("ideas_active_tab", "day"); } catch {}
+      setTab("social");
+      try { localStorage.setItem("ideas_active_tab", "social"); } catch { /* ignore */ }
     }
   }, [tab, isAdmin]);
   function pickTab(t: IdeasTab) {
@@ -103,7 +96,7 @@ export default function FocusListPage() {
             <div>
               <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
               <p className="text-[11px] text-text-muted">
-                Day trade setups, swing scanner output, and AI scans — what to look at this session.
+                Trending tickers and AI scans — what to look at this session.
               </p>
             </div>
           </div>
@@ -128,87 +121,15 @@ export default function FocusListPage() {
           </div>
         </div>
 
-        {/* Swing is no longer hard-locked: free users see the full screener
-            with the top-N rows visible and the rest blurred + an upgrade
-            CTA (preview, not padlock). Gating lives in ScreenerTable. */}
-        {tab === "day" && <DayTradesTab />}
-        {tab === "swing" && <SwingScreenerView />}
-        {tab === "ai" && <AIScansTab />}
         {tab === "social" && <SocialBuzzTab />}
+        {tab === "ai" && <AIScansTab />}
       </div>
     </div>
   );
 }
 
-/* ── Day Trades tab — today's Pine-rule alerts grouped by symbol ── */
-
+/* Shared money formatter (used by the AI Scans recommendations table). */
 const money = (n: number | null | undefined) => (n != null ? `$${n.toFixed(2)}` : "—");
-
-function DayTradesTab() {
-  const navigate = useNavigate();
-  const { data: alerts } = useAlertsToday();
-  const { visibleAlerts } = useFeatureGate();
-
-  const bySymbol = new Map<string, Alert>();
-  (alerts ?? []).forEach((a) => {
-    if (a.direction !== "BUY") return;
-    if (a.user_action === "skipped") return;
-    const prev = bySymbol.get(a.symbol);
-    if (!prev || a.created_at > prev.created_at) bySymbol.set(a.symbol, a);
-  });
-  const ideas = [...bySymbol.values()];
-
-  const ruleLabel = (a: Alert) => (a.alert_type || "").replace(/^tv_/, "").replace(/_/g, " ");
-  const timeOf = (a: Alert) =>
-    new Date(a.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago" });
-
-  const columns: Column<Alert>[] = [
-    { key: "time", label: "Time", align: "left", cls: "w-16", value: (a) => a.created_at, render: (a) => <span className="font-mono text-[11px] text-text-faint">{timeOf(a)}</span> },
-    { key: "grade", label: "Grade", align: "left", cls: "w-14", value: (a) => GRADE_RANK[(a.grade || "C").toUpperCase()] ?? 1, render: (a) => <GradeBadge grade={a.grade} /> },
-    { key: "symbol", label: "Symbol", align: "left", value: (a) => a.symbol, render: (a) => (
-      <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{a.symbol}</span><span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span></span>
-    ) },
-    { key: "setup", label: "Setup", align: "left", render: (a) => <span className="text-text-muted capitalize">{ruleLabel(a)}</span> },
-    { key: "price", label: "Price", align: "right", value: (a) => a.price ?? 0, render: (a) => <span className="font-mono text-text-primary">{money(a.price)}</span> },
-    { key: "entry", label: "Entry", align: "right", cls: "hidden lg:table-cell", value: (a) => a.entry ?? 0, render: (a) => <span className="font-mono text-text-secondary">{money(a.entry)}</span> },
-    { key: "stop", label: "Stop", align: "right", cls: "hidden lg:table-cell", render: (a) => <span className="font-mono text-bearish-text">{money(a.stop)}</span> },
-    { key: "target", label: "Target", align: "right", cls: "hidden lg:table-cell", render: (a) => <span className="font-mono text-bullish-text">{money(a.target_1)}</span> },
-    { key: "took", label: "", align: "right", render: (a) => (a.user_action === "took" ? <span className="text-[10px] text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">Took</span> : null) },
-  ];
-
-  const mobileRow = (a: Alert) => (
-    <>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><GradeBadge grade={a.grade} /><span className="font-bold text-text-primary">{a.symbol}</span>
-          <span className="text-[10px] font-bold text-bullish-text bg-bullish/10 px-1.5 py-0.5 rounded">BUY</span>
-          {a.user_action === "took" && <span className="text-[10px] text-bullish-text">Took</span>}</div>
-        <span className="font-mono text-sm text-text-primary">{money(a.price)}</span>
-      </div>
-      <div className="flex gap-3 mt-1 text-[11px] text-text-muted font-mono">
-        <span className="capitalize text-text-faint">{ruleLabel(a)}</span>
-        <span>E {money(a.entry)}</span><span>S {money(a.stop)}</span><span>T {money(a.target_1)}</span>
-      </div>
-    </>
-  );
-
-  return (
-    <div className="space-y-3">
-      <p className="text-[11px] text-text-faint">Pine-rule alerts fired today, one row per symbol (latest fire). Tap a row to open the chart.</p>
-      <ScreenerTable
-        rows={ideas}
-        columns={columns}
-        rowKey={(a) => String(a.id)}
-        onRowClick={(a) => navigate(`/trading?symbol=${encodeURIComponent(a.symbol)}`)}
-        defaultSort={{ key: "time", dir: "desc" }}
-        previewRows={visibleAlerts}
-        previewLabel="day-trade ideas"
-        mobileRow={mobileRow}
-        isLoading={!alerts}
-        empty={<EmptyState icon={Crosshair} title="No day-trade ideas firing right now" hint="The intraday scanner watches your watchlist for Pine entry alerts. They'll appear here as they fire — usually within the first 90 minutes of the open." primary={{ label: "Edit watchlist", to: "/watchlist" }} secondary={{ label: "Open trading view", to: "/trading" }} />}
-      />
-    </div>
-  );
-}
 
 /* ── AI Scans recommendations as a screener table ── */
 
