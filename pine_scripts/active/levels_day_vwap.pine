@@ -968,41 +968,6 @@ atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1],
 atr_d     = nz(atr_d_raw, close * 0.005)
 
 // =====================================================================
-// Spec 61 — Rolling higher-low support tracker (the ORL idea, all day).
-// =====================================================================
-// Generalizes staged_orl_held to every RISING intraday swing-low. When price
-// makes a higher low (a pivot low above the prior pivot low), pulls back to it
-// and holds green, with ROOM to the next overhead level (so we never buy into
-// PDH/PWH resistance), fire a long — stop just below that swing-low (the same
-// can't-say-no stop). One fire per rung; re-arms on each new pivot. The OR-low
-// is just the first rung. Default OFF — watch the daily count before trusting.
-// Pine fires it (default ON) so it's RECORDED for EOD review; the Settings →
-// Alert Types catalog toggle (default OFF) keeps it out of Telegram until you
-// trust the daily count. So it logs silently, you watch, then you flip it on.
-fire_higher_low_held = input.bool (true,  "Fire rolling higher-low held (intraday support ladder)", group = "Higher-low tracker")
-hl_pivot_len    = input.int  (3,    "Higher-low: pivot strength (bars each side)", minval = 2, maxval = 10, group = "Higher-low tracker")
-hl_headroom_pct = input.float(1.0,  "Higher-low: min % room to next overhead level (PDH/PWH)", minval = 0.0, maxval = 5.0, step = 0.25, group = "Higher-low tracker")
-hl_require_vwap = input.bool (true, "Higher-low: require close above VWAP (rising support)", group = "Higher-low tracker")
-
-hl_pl = ta.pivotlow(low, hl_pivot_len, hl_pivot_len)
-var float hl_curr  = na      // most recent confirmed swing low
-var float hl_prev  = na      // the swing low before it
-var bool  hl_fired = false   // already fired for the current rung?
-if session_open_now
-    hl_curr  := na
-    hl_prev  := na
-    hl_fired := false
-if not na(hl_pl)
-    hl_prev  := hl_curr
-    hl_curr  := hl_pl
-    hl_fired := false         // new rung → re-arm
-// Rising structure (uptrend), retest-and-hold of the rung, optional VWAP gate.
-hl_rising  = not na(hl_curr) and not na(hl_prev) and hl_curr > hl_prev
-hl_test    = not na(hl_curr) and low <= hl_curr + atr14 * 0.25 and low >= hl_curr - atr14 * 0.75 and close > hl_curr and close > open
-hl_vwap_ok = (not hl_require_vwap) or (not na(vwap_v) and close > vwap_v)
-hl_signal  = fire_higher_low_held and hl_rising and hl_test and (not hl_fired) and hl_vwap_ok
-
-// =====================================================================
 // Gap-and-go detection (spec C1) — uses today_open + bar1_low
 // =====================================================================
 // today_open / bar1_low / first_bar_time are computed above (before
@@ -1381,22 +1346,6 @@ if fire_orl_held and s58_orl_held and v2_body_ok
     t1_orl = below_open_orl ? today_open : t1_hier_orl
     t2_orl = below_open_orl ? t1_hier_orl : t2_extend_long(e_orl, t1_orl)
     alert(build_payload_v2("staged_orl_held", "BUY", e_orl, s_orl, t1_orl, t2_orl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
-
-// Spec 61 — rolling higher-low held. Headroom gate lives here (nearest_above
-// is defined above): only fire when the next overhead level (PDH/PWH) has
-// room — never buy a higher-low that's rallying into resistance. Entry = close,
-// stop = the swing-low − ATR buffer (the visible can't-say-no stop), target =
-// the overhead level (what the bounce is aiming at).
-if hl_signal
-    hl_next_res = nearest_above(close, pdh, pwh)
-    hl_room_ok = na(hl_next_res) or (close > 0 and (hl_next_res - close) / close * 100.0 >= hl_headroom_pct)
-    if hl_room_ok
-        hl_fired := true
-        e_hl  = close
-        s_hl  = hl_curr - atr_buffer
-        t1_hl = not na(hl_next_res) ? hl_next_res : t1_long_hier(e_hl, pdh, pwh, atr_d)
-        t2_hl = t2_extend_long(e_hl, t1_hl)
-        alert(build_payload_v2("staged_higher_low_held", "BUY", e_hl, s_hl, t1_hl, t2_hl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // Spec 61 — PDH reclaim. PDH was lost on a close then reclaimed green =
 // failed-breakdown-of-support continuation. Entry = close, stop = bar low
