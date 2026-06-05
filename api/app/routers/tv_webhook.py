@@ -171,6 +171,16 @@ FUTURES_SESSION_SYMBOLS: frozenset[str] = frozenset({
     "ES1!", "NQ1!", "MES1!", "MNQ1!",
 })
 
+# Spec 61 — index/core allow-list EXEMPT from the SPY-below-PDL buy block.
+# On a downtrend day (SPY < PDL) we still trust these liquid index levels and
+# they're few alerts (vs 40 stocks), so their buys keep flowing while every
+# other equity is suppressed. Editable via env (comma-separated).
+INDEX_REGIME_ALLOWLIST: frozenset[str] = frozenset(
+    s.strip().upper()
+    for s in os.getenv("INDEX_REGIME_ALLOWLIST", "SPY,QQQ,IWM,DRAM").split(",")
+    if s.strip()
+)
+
 
 def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bool:
     """Returns True if a futures symbol's alert fires outside the trading window.
@@ -895,8 +905,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # buys flow again, no manual reset. Pine stamps spy_above_pdl on every
     # payload; legacy alerts without the field (None) are let through so a
     # Pine rollback can't silently kill all delivery.
+    # Index allow-list (SPY/QQQ/IWM/DRAM) is EXEMPT — we trust their levels on
+    # red days and it's far fewer alerts than 40 stocks. Everything else blocked.
     _spy_above_pdl = getattr(sig, "_tv_spy_above_pdl", None)
-    if _spy_above_pdl is False and (sig.direction or "").upper() == "BUY":
+    _is_index = (sig.symbol or "").upper() in INDEX_REGIME_ALLOWLIST
+    if _spy_above_pdl is False and (sig.direction or "").upper() == "BUY" and not _is_index:
         logger.info(
             "TV webhook: SPY below PDL — market-regime blocked %s for %s "
             "(no counter-trend longs while the broad tape is broken)",
