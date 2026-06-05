@@ -182,6 +182,27 @@ INDEX_REGIME_ALLOWLIST: frozenset[str] = frozenset(
 )
 
 
+def spy_pdl_blocks_buy(
+    spy_above_pdl: Optional[bool], direction: Optional[str], symbol: Optional[str]
+) -> bool:
+    """Decide whether the SPY-below-PDL gate must SUPPRESS this alert.
+
+    Pure + exhaustively tested so the rule is provable, not assumed. True ⇒
+    suppress (don't deliver). The gate only bites when ALL hold:
+      • spy_above_pdl is exactly False  — SPY confirmed under its PDL. None
+        (field absent / legacy Pine) or True ⇒ never block (fail-open).
+      • direction is BUY                — shorts/notices are unaffected.
+      • symbol is NOT in the index allow-list — SPY/QQQ/IWM/DRAM stay exempt.
+    """
+    if spy_above_pdl is not False:
+        return False
+    if (direction or "").upper() != "BUY":
+        return False
+    if (symbol or "").upper() in INDEX_REGIME_ALLOWLIST:
+        return False
+    return True
+
+
 def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bool:
     """Returns True if a futures symbol's alert fires outside the trading window.
 
@@ -907,9 +928,9 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # Pine rollback can't silently kill all delivery.
     # Index allow-list (SPY/QQQ/IWM/DRAM) is EXEMPT — we trust their levels on
     # red days and it's far fewer alerts than 40 stocks. Everything else blocked.
-    _spy_above_pdl = getattr(sig, "_tv_spy_above_pdl", None)
-    _is_index = (sig.symbol or "").upper() in INDEX_REGIME_ALLOWLIST
-    if _spy_above_pdl is False and (sig.direction or "").upper() == "BUY" and not _is_index:
+    if spy_pdl_blocks_buy(
+        getattr(sig, "_tv_spy_above_pdl", None), sig.direction, sig.symbol
+    ):
         logger.info(
             "TV webhook: SPY below PDL — market-regime blocked %s for %s "
             "(no counter-trend longs while the broad tape is broken)",
