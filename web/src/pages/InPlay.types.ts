@@ -77,6 +77,46 @@ export interface SwingRun {
   count: number;
 }
 
+/* ── Conviction screener (analyst-backed long-term uptrends) ── */
+export interface ConvictionEntry {
+  rank: number;
+  symbol: string;
+  theme: string;
+  last_price: number;
+  market_cap: number | null;
+  sector: string | null;
+  // trend
+  above_ma50: boolean;
+  above_ma200: boolean;
+  ma_stacked: boolean;
+  pct_days_above_50: number;   // 0–100
+  ma50_slope_up: boolean;
+  ret_20d: number;
+  rs_vs_spy: number;
+  // analyst
+  rec_mean: number | null;     // 1=Strong Buy … 5=Sell
+  rec_key: string | null;      // "strong_buy" | "buy" | "hold" | ...
+  num_analysts: number | null;
+  target_mean: number | null;
+  target_upside_pct: number | null;
+  // composite
+  score: number;
+  grade: string;
+}
+
+export interface ConvictionSnapshot {
+  id?: number | null;
+  captured_at: string | null;
+  stale: boolean;
+  entries: ConvictionEntry[];
+}
+
+export interface ConvictionRun {
+  id: number;
+  captured_at: string;
+  count: number;
+}
+
 export type InPlayPreset = "any" | "momentum_long" | "pullback" | "breakout" | "short";
 
 export const IN_PLAY_PRESETS: { id: InPlayPreset; label: string }[] = [

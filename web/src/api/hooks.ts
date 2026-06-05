@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
-import type { InPlaySnapshot, SwingSnapshot, SwingRun } from "../pages/InPlay.types";
+import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun } from "../pages/InPlay.types";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -75,6 +75,43 @@ export function useRefreshSwing(cap: "mega" | "small" = "mega") {
         }, delay);
       });
     },
+  });
+}
+
+// --- Conviction screener (analyst-backed long-term uptrends) ---
+
+export function useConviction(runId?: number | null) {
+  return useQuery({
+    queryKey: ["conviction", runId ?? "latest"],
+    queryFn: () =>
+      api.get<ConvictionSnapshot>(`/screener/conviction${runId ? `?run_id=${runId}` : ""}`),
+    refetchInterval: runId ? false : 5 * 60_000,  // saved runs are immutable
+  });
+}
+
+export function useConvictionHistory() {
+  return useQuery({
+    queryKey: ["conviction-history"],
+    queryFn: () => api.get<{ runs: ConvictionRun[] }>("/screener/conviction/history"),
+  });
+}
+
+export function useRefreshConviction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/screener/conviction/refresh", {}),
+    onSuccess: () => {
+      // Analyst .info over the universe is slow (~60–120s). Poll a few times so
+      // the table catches up when the scan finishes.
+      toast.info("Conviction scan started — results refresh as it completes (~90s)");
+      [20000, 45000, 75000, 110000].forEach((delay) =>
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["conviction", "latest"] });
+          qc.invalidateQueries({ queryKey: ["conviction-history"] });
+        }, delay),
+      );
+    },
+    onError: () => toast.error("Couldn't start the conviction scan"),
   });
 }
 

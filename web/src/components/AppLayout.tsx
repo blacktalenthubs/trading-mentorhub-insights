@@ -22,6 +22,7 @@ import {
   Star,
   Activity,
   Target,
+  Gem,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +48,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/trading",     label: "Trading",     icon: Crosshair },
   { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
+  { to: "/conviction",  label: "Conviction",  icon: Gem },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
   { to: "/premarket",   label: "Premarket",   icon: Activity },
   { to: "/performance", label: "Performance", icon: ArrowLeftRight },
@@ -56,6 +58,7 @@ const NAV_ITEMS: NavItem[] = [
 const MOBILE_TABS: NavItem[] = [
   { to: "/trading",     label: "Trade",  icon: Crosshair },
   { to: "/trade-ideas", label: "Ideas",  icon: Target },
+  { to: "/conviction",  label: "Picks",  icon: Gem },
   { to: "/watchlist",   label: "List",   icon: Star },
   { to: "/premarket",   label: "AM",     icon: Activity },
   { to: "/performance", label: "Perf",   icon: ArrowLeftRight },
