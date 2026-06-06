@@ -598,9 +598,10 @@ class TestRoutingLogic:
             assert downgrade is None
 
     def test_index_short_whitelisted_rules_action(self):
-        """SPY/QQQ/IWM shorts on the structural rules pass through (spec 61)."""
+        """SPY/QQQ/IWM + BTC shorts on the structural rules pass through (spec 61).
+        BTC included so the short logic can be validated 24/7."""
         from api.app.routers.tv_webhook import _route_alert
-        for symbol in ("SPY", "QQQ", "IWM"):
+        for symbol in ("SPY", "QQQ", "IWM", "BTC-USD"):
             for rule in ("staged_pdl_break", "staged_pdh_rejection"):
                 sig = _FakeSig(symbol, "SHORT", rule)
                 deliver, _ = _run(_route_alert(sig))

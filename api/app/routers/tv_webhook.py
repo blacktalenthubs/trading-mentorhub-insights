@@ -1810,11 +1810,12 @@ _SPY_SHORT_ACTION_RULES = {
     "tv_staged_pml_break",
 }
 
-# Index symbols allowed to fire SHORTs (spec 61, 2026-06-06). Was SPY-only;
-# extended to SPY/QQQ/IWM so you can short index breakdowns. Env-configurable.
+# Symbols allowed to fire SHORTs (spec 61, 2026-06-06). Was SPY-only; extended
+# to the index set + BTC (24/7, so the short logic can be validated overnight).
+# Normalized form (BTC-USD) — the adapter normalizes before routing. Env-editable.
 INDEX_SHORT_ALLOWLIST: frozenset[str] = frozenset(
     s.strip().upper()
-    for s in os.getenv("INDEX_SHORT_ALLOWLIST", "SPY,QQQ,IWM").split(",")
+    for s in os.getenv("INDEX_SHORT_ALLOWLIST", "SPY,QQQ,IWM,BTC-USD").split(",")
     if s.strip()
 )
 

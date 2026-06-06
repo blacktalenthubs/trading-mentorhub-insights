@@ -1196,7 +1196,7 @@ if false and v2_break_pwh and v2_break_confluence
 // it (records for review); the Settings catalog toggle (default OFF) gates
 // Telegram until you trust the count. Structural stops above the level.
 fire_index_shorts = input.bool (true,  "Fire index SHORT alerts (PDL break / PDH rejection)", group = "Index shorts")
-short_index_list  = input.string("SPY,QQQ,IWM", "Symbols allowed to fire shorts (comma-separated)", group = "Index shorts")
+short_index_list  = input.string("SPY,QQQ,IWM,BTCUSD,BTCUSDT,BTCUSDC", "Symbols allowed to fire shorts — RAW TV tickers (BTC runs 24/7 to validate)", group = "Index shorts")
 short_vol_min     = input.float (1.5,  "Short: min volume ratio (heavy volume)", minval = 1.0, step = 0.1, group = "Index shorts")
 _short_syms    = "," + str.replace_all(str.upper(short_index_list), " ", "") + ","
 is_short_index = str.contains(_short_syms, "," + str.upper(syminfo.ticker) + ",")
