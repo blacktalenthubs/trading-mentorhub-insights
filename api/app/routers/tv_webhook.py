@@ -183,7 +183,10 @@ INDEX_REGIME_ALLOWLIST: frozenset[str] = frozenset(
 
 
 def spy_pdl_blocks_buy(
-    spy_above_pdl: Optional[bool], direction: Optional[str], symbol: Optional[str]
+    spy_above_pdl: Optional[bool],
+    direction: Optional[str],
+    symbol: Optional[str],
+    allowlist: frozenset = INDEX_REGIME_ALLOWLIST,
 ) -> bool:
     """Decide whether the SPY-below-PDL gate must SUPPRESS this alert.
 
@@ -192,13 +195,14 @@ def spy_pdl_blocks_buy(
       • spy_above_pdl is exactly False  — SPY confirmed under its PDL. None
         (field absent / legacy Pine) or True ⇒ never block (fail-open).
       • direction is BUY                — shorts/notices are unaffected.
-      • symbol is NOT in the index allow-list — SPY/QQQ/IWM/DRAM stay exempt.
+      • symbol is NOT in the exempt allow-list (default SPY/QQQ/IWM/DRAM; the
+        admin can edit it live from Settings, passed in as `allowlist`).
     """
     if spy_above_pdl is not False:
         return False
     if (direction or "").upper() != "BUY":
         return False
-    if (symbol or "").upper() in INDEX_REGIME_ALLOWLIST:
+    if (symbol or "").upper() in allowlist:
         return False
     return True
 
@@ -255,20 +259,31 @@ def _is_crypto_symbol(symbol: Optional[str]) -> bool:
 
 
 def crypto_pdl_blocks_buy(
-    btc_above_pdl: Optional[bool], direction: Optional[str], symbol: Optional[str]
+    btc_above_pdl: Optional[bool],
+    direction: Optional[str],
+    symbol: Optional[str],
+    allowlist: frozenset = CRYPTO_REGIME_ALLOWLIST,
 ) -> bool:
     """Crypto twin of spy_pdl_blocks_buy. True ⇒ suppress. Bites only when BTC
     is confirmed below its PDL, the alert is a crypto BUY, and the symbol isn't
-    the exempt BTC 'index'. None/True ⇒ fail-open."""
+    in the exempt allow-list (default BTC-USD; admin-editable). None/True ⇒
+    fail-open."""
     if btc_above_pdl is not False:
         return False
     if (direction or "").upper() != "BUY":
         return False
     if not _is_crypto_symbol(symbol):
         return False
-    if (symbol or "").upper() in CRYPTO_REGIME_ALLOWLIST:
+    if (symbol or "").upper() in allowlist:
         return False
     return True
+
+
+def _parse_exempt_syms(s: Optional[str]) -> frozenset:
+    """Parse a comma-separated exempt list into an upper-cased frozenset."""
+    if not s:
+        return frozenset()
+    return frozenset(x.strip().upper() for x in s.split(",") if x.strip())
 
 
 def _btc_below_pdl_now() -> Optional[bool]:
@@ -969,14 +984,26 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # is actually delivered, so each type is enabled/tested independently
     # from Settings > Alert Types. A DB-read failure falls back to the
     # static allow-list so delivery never goes fully dark.
+    # Admin-editable exempt allow-lists default to the env constants; the DB
+    # read below overrides them when present. Defined up-front so they're always
+    # set even if the read fails.
+    index_exempt: frozenset = INDEX_REGIME_ALLOWLIST
+    crypto_exempt: frozenset = CRYPTO_REGIME_ALLOWLIST
     try:
         from app.models.alert_type_config import AlertTypeConfig
+        from app.models.regime_config import RegimeConfig
         async with async_session_factory() as _cfg_db:
             _cfg_rows = (await _cfg_db.execute(
                 select(AlertTypeConfig.alert_type, AlertTypeConfig.enabled)
             )).all()
+            _rc_rows = (await _cfg_db.execute(
+                select(RegimeConfig.key, RegimeConfig.value)
+            )).all()
         enabled_types: Optional[set[str]] = {at for at, en in _cfg_rows if en}
         known_types: Optional[set[str]] = {at for at, _ in _cfg_rows}
+        _rc = {k: v for k, v in _rc_rows}
+        index_exempt = _parse_exempt_syms(_rc.get("index_exempt")) or INDEX_REGIME_ALLOWLIST
+        crypto_exempt = _parse_exempt_syms(_rc.get("crypto_exempt")) or CRYPTO_REGIME_ALLOWLIST
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
@@ -1019,7 +1046,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     if (
         _direction == "BUY"
         and not _is_crypto_symbol(sig.symbol)
-        and _sym_u not in INDEX_REGIME_ALLOWLIST
+        and _sym_u not in index_exempt
     ):
         _backend_below = await asyncio.get_running_loop().run_in_executor(
             None, _spy_below_pdl_now
@@ -1027,7 +1054,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         _spy_above_pdl = resolve_spy_above_pdl(
             _backend_below, getattr(sig, "_tv_spy_above_pdl", None)
         )
-        if spy_pdl_blocks_buy(_spy_above_pdl, sig.direction, sig.symbol):
+        if spy_pdl_blocks_buy(_spy_above_pdl, sig.direction, sig.symbol, index_exempt):
             logger.info(
                 "TV webhook: SPY below PDL — market-regime blocked %s for %s "
                 "(backend_below=%s, pine=%s)",
@@ -1048,14 +1075,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     if (
         _direction == "BUY"
         and _is_crypto_symbol(sig.symbol)
-        and _sym_u not in CRYPTO_REGIME_ALLOWLIST
+        and _sym_u not in crypto_exempt
     ):
         _btc_below = await asyncio.get_running_loop().run_in_executor(
             None, _btc_below_pdl_now
         )
         if crypto_pdl_blocks_buy(
             (not _btc_below) if _btc_below is not None else None,
-            sig.direction, sig.symbol,
+            sig.direction, sig.symbol, crypto_exempt,
         ):
             logger.info(
                 "TV webhook: BTC below PDL — crypto-regime blocked %s for %s",
