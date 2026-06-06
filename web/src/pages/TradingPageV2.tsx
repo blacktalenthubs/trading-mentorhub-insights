@@ -701,9 +701,9 @@ function SignalFeedTab({
             className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer${nrLabel ? " opacity-55" : ""}`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
-            {/* Header — symbol, direction, grade, (AI badge if AI), time */}
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1.5">
+            {/* Line 1 — symbol · direction · grade · (AI) · (NOT SENT) · time */}
+            <div className="flex items-center justify-between gap-1.5 mb-0.5">
+              <div className="flex items-center gap-1.5 min-w-0">
                 <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
                 <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirCls}`}>
                   {dirText}
@@ -717,18 +717,13 @@ function SignalFeedTab({
                     : g === "B" ? "Grade B — partial gate (one of vol/slope passes)"
                     : "Grade C — no quality gate passed";
                   return (
-                    <span
-                      title={gTitle}
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}
-                    >
+                    <span title={gTitle} className={`text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}>
                       {g}
                     </span>
                   );
                 })()}
                 {isAIScan && (
-                  <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">
-                    AI
-                  </span>
+                  <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">AI</span>
                 )}
                 {nrLabel && (
                   <span
@@ -739,69 +734,45 @@ function SignalFeedTab({
                   </span>
                 )}
               </div>
-              <span className="text-[10px] font-mono text-text-faint">{time}</span>
+              <span className="text-[10px] font-mono text-text-faint shrink-0">{time}</span>
             </div>
 
-            {/* Setup name (description on hover via tooltip) */}
-            <div
-              className="text-[11px] font-medium text-text-secondary mb-1 cursor-help"
-              title={a.description || formatSetup(a.alert_type)}
-            >
-              {formatSetup(a.alert_type)}
+            {/* Line 2 — setup name + vol/slope tucked right (secondary) */}
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span
+                className="text-[11px] font-medium text-text-secondary truncate cursor-help"
+                title={a.description || formatSetup(a.alert_type)}
+              >
+                {formatSetup(a.alert_type)}
+              </span>
+              {(a.volume_ratio != null || a.vwap_slope_pct != null) && (
+                <span className="shrink-0 flex items-center gap-2 text-[9px] font-mono">
+                  {a.volume_ratio != null && (
+                    <span className={a.volume_ratio >= 2 ? "text-bullish-text" : a.volume_ratio >= 1.5 ? "text-warning-text" : "text-text-faint"}>
+                      {a.volume_ratio.toFixed(2)}×
+                    </span>
+                  )}
+                  {a.vwap_slope_pct != null && (
+                    <span className={a.vwap_slope_pct >= 0.05 ? "text-bullish-text" : a.vwap_slope_pct >= -0.3 ? "text-text-faint" : "text-bearish-text"}>
+                      {a.vwap_slope_pct > 0 ? "+" : ""}{a.vwap_slope_pct.toFixed(2)}%
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
 
-            {/* Quality strip — vol + slope */}
-            {(a.volume_ratio != null || a.vwap_slope_pct != null) && (
-              <div className="flex items-center gap-3 mb-1.5 text-[10px] font-mono">
-                {a.volume_ratio != null && (() => {
-                  const v = a.volume_ratio;
-                  const cls = v >= 2.0 ? "text-bullish-text"
-                    : v >= 1.5 ? "text-warning-text"
-                    : v >= 1.0 ? "text-text-secondary"
-                    : "text-text-faint";
-                  return (
-                    <span className={cls}>
-                      Vol <span className="font-semibold">{v.toFixed(2)}×</span>
-                    </span>
-                  );
-                })()}
-                {a.vwap_slope_pct != null && (() => {
-                  const s = a.vwap_slope_pct;
-                  const cls = s >= 0.05 ? "text-bullish-text"
-                    : s >= 0 ? "text-text-secondary"
-                    : s >= -0.30 ? "text-warning-text"
-                    : "text-bearish-text";
-                  const sign = s > 0 ? "+" : "";
-                  return (
-                    <span className={cls}>
-                      Slope <span className="font-semibold">{sign}{s.toFixed(2)}%</span>
-                    </span>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* Trade levels — entry / stop / T1 only (T2 dropped per UX cleanup) */}
+            {/* Line 3 — compact levels: entry → target · stop */}
             {a.entry != null ? (
-              <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-                <div>
-                  <div className="text-text-faint">Entry</div>
-                  <div className="font-mono font-bold text-accent">{fmtPrice(a.entry)}</div>
-                </div>
-                <div>
-                  <div className="text-text-faint">Stop</div>
-                  <div className="font-mono text-bearish-text">{fmtPrice(a.stop)}</div>
-                </div>
-                <div>
-                  <div className="text-text-faint">Target</div>
-                  <div className="font-mono text-bullish-text">{fmtPrice(a.target_1)}</div>
-                </div>
+              <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                <span className="font-bold text-accent">{fmtPrice(a.entry)}</span>
+                <span className="text-text-faint">→</span>
+                <span className="text-bullish-text">{fmtPrice(a.target_1)}</span>
+                <span className="text-text-faint">· stop</span>
+                <span className="text-bearish-text">{fmtPrice(a.stop)}</span>
               </div>
             ) : (
               a.message && (
-                <p className="text-[10px] text-text-muted leading-relaxed line-clamp-2">
-                  {a.message}
-                </p>
+                <p className="text-[10px] text-text-muted leading-relaxed line-clamp-2">{a.message}</p>
               )
             )}
           </div>
