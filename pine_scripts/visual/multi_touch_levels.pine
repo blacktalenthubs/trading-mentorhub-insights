@@ -35,6 +35,13 @@ show_top = input.bool(true,  "Tops (resistance, red)", group = "Display")
 ext_r    = input.bool(true,  "Extend lines to the right", group = "Display")
 show_piv = input.bool(false, "Mark raw pivots", group = "Display")
 
+// ── Alerts (informational — price closing across a heavily-tested level) ──
+fire_alerts   = input.bool(true,  "Fire level-cross alerts (info)", group = "Alerts")
+alert_symbols = input.string("SPY", "Symbols allowed to alert (raw TV tickers, comma-sep)", group = "Alerts")
+alert_min     = input.int (3,     "Min touches to ALERT (separate from the visual floor)", minval = 2, maxval = 8, group = "Alerts")
+_alert_syms = "," + str.replace_all(str.upper(alert_symbols), " ", "") + ","
+is_alert_sym = str.contains(_alert_syms, "," + str.upper(syminfo.ticker) + ",")
+
 // ── Confirmed pivots, kept in rolling history ───────────────────────
 ph = ta.pivothigh(high, piv_len, piv_len)
 pl = ta.pivotlow (low,  piv_len, piv_len)
@@ -97,6 +104,10 @@ if barstate.islast
                     lb = label.new(bar_index, lvl, str.tostring(cnt) + "× bottom " + str.tostring(lvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(color.lime, 50), textcolor = color.white, size = size.small)
                     array.push(dLn, ln)
                     array.push(dLb, lb)
+                    if fire_alerts and is_alert_sym and (cnt >= alert_min) and (((close > lvl) and (close[1] <= lvl)) or ((close < lvl) and (close[1] >= lvl)))
+                        bnote = str.tostring(cnt) + "x support " + str.tostring(lvl, format.mintick) + " - closed " + (close > lvl ? "above" : "below")
+                        bpl = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(lvl, format.mintick) + '","note":"' + bnote + '","fired_at":"' + str.tostring(timenow) + '"}'
+                        alert(bpl, alert.freq_once_per_bar_close)
 
     // ----- cluster TOPS (resistance) -----
     nH = array.size(highP)
@@ -122,6 +133,10 @@ if barstate.islast
                     hlb = label.new(bar_index, hlvl, str.tostring(hcnt) + "× top " + str.tostring(hlvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 50), textcolor = color.white, size = size.small)
                     array.push(dLn, hln)
                     array.push(dLb, hlb)
+                    if fire_alerts and is_alert_sym and (hcnt >= alert_min) and (((close > hlvl) and (close[1] <= hlvl)) or ((close < hlvl) and (close[1] >= hlvl)))
+                        hnote = str.tostring(hcnt) + "x resistance " + str.tostring(hlvl, format.mintick) + " - closed " + (close > hlvl ? "above" : "below")
+                        hpl = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(hlvl, format.mintick) + '","note":"' + hnote + '","fired_at":"' + str.tostring(timenow) + '"}'
+                        alert(hpl, alert.freq_once_per_bar_close)
 
 // ── Raw pivot markers (off by default) ──────────────────────────────
 plotshape(show_piv and not na(pl), title = "pivot low",  location = location.belowbar, style = shape.circle, size = size.tiny, color = color.new(color.green, 35), offset = -piv_len)

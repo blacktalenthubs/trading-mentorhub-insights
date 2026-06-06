@@ -251,6 +251,9 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
         msg_parts.append(pretty_ma_tag)
     if interval_label:
         msg_parts.append(f"({interval_label})")
+    note = (payload.get("note") or "").strip()
+    if note:
+        msg_parts.append(f"· {note}")
     if direction == "NOTICE":
         msg_parts.append("— heads-up only")
     message = " ".join(msg_parts)

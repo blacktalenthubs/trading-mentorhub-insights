@@ -108,6 +108,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdl_break", "PDL break — index short (volume)", "Index shorts", False),
     ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
 
+    # Multi-touch level cross (spec 61, 2026-06-06) — informational NOTICE from
+    # the MultiTB indicator when price closes across a heavily-tested (3×+)
+    # level. SPY only to start. Default OFF — awareness, not a trade trigger.
+    ("multitouch_level", "Multi-touch level cross (SPY · info)", "Multi-touch levels", False),
+
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
     # OBSOLETE_ALERT_TYPES below for DB cleanup.
@@ -167,6 +172,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
     "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
     "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
+    "multitouch_level": "SPY closed across a level the market has tested 3+ times (from the MultiTB indicator) — informational heads-up that a heavily-defended level just flipped; the higher the touch count, the more it matters. Not a trade trigger.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
