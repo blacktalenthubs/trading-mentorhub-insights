@@ -165,8 +165,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
-    "staged_pdl_break": "Index (SPY/QQQ/IWM) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
-    "staged_pdh_rejection": "Index (SPY/QQQ/IWM) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
+    "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
+    "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
