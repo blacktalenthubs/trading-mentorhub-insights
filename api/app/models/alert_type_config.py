@@ -112,6 +112,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # the MultiTB indicator when price closes across a heavily-tested (3×+)
     # level. SPY only to start. Default OFF — awareness, not a trade trigger.
     ("multitouch_level", "Multi-touch level cross (SPY · info)", "Multi-touch levels", False),
+    ("gap_zone", "Gap entered / filled (SPY/NBIS · info)", "Multi-touch levels", False),
 
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
@@ -173,6 +174,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
     "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
     "multitouch_level": "SPY closed across a level the market has tested 3+ times (from the MultiTB indicator) — informational heads-up that a heavily-defended level just flipped; the higher the touch count, the more it matters. Not a trade trigger.",
+    "gap_zone": "Price entered (testing) or filled an unfilled gap on SPY/NBIS (from the Gaps indicator) — a green gap below is support, a red gap above is resistance; entering = watch for bounce/reject, filled = the void is closed. Informational, not a trade trigger.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
