@@ -743,43 +743,54 @@ async def btc_regime(request: Request, user: User = Depends(get_current_user)):
 
 
 def _spy_prior_levels(bars, last_date) -> tuple:
-    """Prior-session PDH/PDL — CACHED per session-date.
+    """PDH/PDL of the most recent COMPLETED RTH session — cached per that date.
 
-    PDH/PDL are STATIC for a trading day (yesterday's fixed high/low don't move),
-    so we compute them once and cache them for the whole session — a transient
-    Alpaca blip can't drop the level mid-day. The cache key includes the
-    session-date, so a NEW trading day is a cache MISS and recomputes fresh
-    (never carries yesterday's levels into today). Only the live price / VWAP /
-    below_pdl recompute on the 30s cycle — those genuinely change.
+    During RTH today's session is in progress, so 'prior' = yesterday. After the
+    4pm ET close today is COMPLETE, so the levels ROLL FORWARD to today's low —
+    instead of showing yesterday's level all evening until the next open. The
+    cache key is the session date used, so it rolls automatically at the close
+    and never carries a stale level across the day boundary.
 
-    Derived from Alpaca's prior-session bars (RTH-filtered, reliable in prod);
-    yfinance fetch_prior_day is the dev/local fallback only. Returns
-    (pdh, pdl, source). Also feeds inside-day / outside-day.
+    Derived from Alpaca's RTH bars (reliable in prod); yfinance fetch_prior_day
+    is the dev/local fallback. Returns (pdh, pdl, source). Feeds inside-day too.
     """
-    key = f"spy_levels:SPY:{last_date.isoformat()}"
+    from datetime import datetime as _dt
+    from analytics.intraday_data import ET
+
+    dates = sorted({ts.date() for ts in bars.index})
+    if not dates:
+        return None, None, "none"
+    # The most recent session whose RTH (16:00 ET) has fully closed. Bars are
+    # naive-ET, so compare against naive-ET wall-clock now.
+    now_et = _dt.now(ET).replace(tzinfo=None)
+    prior_date = None
+    for d in reversed(dates):
+        if now_et >= _dt(d.year, d.month, d.day, 16, 0):
+            prior_date = d
+            break
+    if prior_date is None:  # nothing closed yet (rare) → session before latest
+        prior_date = dates[-2] if len(dates) >= 2 else dates[-1]
+
+    key = f"spy_levels:SPY:{prior_date.isoformat()}"
     cached = cache_get(key)
     if isinstance(cached, dict) and cached.get("pdl") is not None:
         return cached.get("pdh"), cached.get("pdl"), "cache"
 
     pdh = pdl = None
     src = "alpaca"
-    prior_dates = sorted({ts.date() for ts in bars.index if ts.date() != last_date})
-    if prior_dates:
-        pbars = bars[bars.index.date == prior_dates[-1]]
-        rth = pbars.between_time("09:30", "16:00")
-        use = rth if len(rth) else pbars
-        if len(use):
-            pdh = float(use["High"].max())
-            pdl = float(use["Low"].min())
-    if pdl is None:  # Alpaca lacked the prior session (dev/local) → yfinance
+    pbars = bars[bars.index.date == prior_date]
+    rth = pbars.between_time("09:30", "16:00")
+    use = rth if len(rth) else pbars
+    if len(use):
+        pdh = float(use["High"].max())
+        pdl = float(use["Low"].min())
+    if pdl is None:  # Alpaca lacked the session (dev/local) → yfinance
         src = "yfinance"
         from analytics.intraday_data import fetch_prior_day
         prior = fetch_prior_day("SPY") or {}
         pdh = float(prior["high"]) if prior.get("high") is not None else None
         pdl = float(prior["low"]) if prior.get("low") is not None else None
     if pdl is not None:
-        # 8h TTL covers a session; the date-keyed key guarantees a fresh value
-        # next trading day regardless of TTL — so it never goes stale across days.
         cache_set(key, {"pdh": pdh, "pdl": pdl}, 8 * 3600)
     return pdh, pdl, src
 
