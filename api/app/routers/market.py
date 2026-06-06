@@ -915,16 +915,42 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
     }
 
 
-def _compute_spy_regime() -> dict:
-    """SPY regime (stocks). Alpaca intraday + session-cached PDH/PDL."""
-    from analytics.intraday_data import _fetch_alpaca_bars
+def _regime_or_last_good(key: str, fresh: dict) -> dict:
+    """ALWAYS try to return usable data. On a successful compute, stash it as
+    the 'last good' snapshot; on a failed one (data outage), return the last
+    good snapshot marked stale rather than going blind — the gate keeps working
+    on slightly-old data instead of failing open. Only truly returns
+    'unavailable' when there is no last-good to fall back to."""
+    if fresh.get("status") == "ok":
+        cache_set(f"{key}_lastgood", fresh, 6 * 3600)
+        return fresh
+    last = cache_get(f"{key}_lastgood")
+    if isinstance(last, dict) and last.get("status") == "ok":
+        return {**last, "stale": True}
+    return fresh
 
+
+def _compute_spy_regime() -> dict:
+    """SPY regime (stocks) — last-good fallback so it almost never goes blind."""
+    return _regime_or_last_good("spy_regime", _spy_regime_fresh())
+
+
+def _spy_regime_fresh() -> dict:
+    from analytics.intraday_data import _fetch_alpaca_bars, fetch_intraday
+
+    bars = None
     try:
         bars = _fetch_alpaca_bars("SPY", interval="5m", hours_back=48)
     except Exception:
-        return {"status": "unavailable", "reason": "data fetch failed"}
+        bars = None
     if bars is None or len(bars) == 0:
-        return {"status": "unavailable", "reason": "no SPY bars yet (premarket?)"}
+        # Alpaca down → try yfinance intraday (works sometimes from cloud).
+        try:
+            bars = fetch_intraday("SPY", period="2d", interval="5m")
+        except Exception:
+            bars = None
+    if bars is None or len(bars) == 0:
+        return {"status": "unavailable", "reason": "no SPY bars"}
 
     last_date = bars.index[-1].date()
     today_bars = bars[bars.index.date == last_date]
@@ -951,10 +977,16 @@ def _crypto_prior_levels(product: str, last_date, prior: dict) -> tuple:
 
 
 def _compute_btc_regime() -> dict:
-    """BTC regime (crypto, 24/7). Coinbase/Alpaca intraday + prior-day low.
+    """BTC regime (crypto, 24/7) — last-good fallback so it almost never blinds.
     BTC is the crypto 'index': it gates ETH/alt buys but is itself exempt, and
     runs around the clock so the gate flow can be validated before equity open.
     """
+    return _regime_or_last_good("btc_regime", _btc_regime_fresh())
+
+
+def _btc_regime_fresh() -> dict:
+    # fetch_intraday_crypto already chains Alpaca → Coinbase → yfinance, so the
+    # data path is robust; fetch_prior_day(is_crypto) uses Coinbase daily.
     from analytics.intraday_data import fetch_intraday_crypto, fetch_prior_day
 
     try:

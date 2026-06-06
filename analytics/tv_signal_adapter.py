@@ -315,17 +315,6 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     # counter-trend the market). None when absent (older Pine) → no block.
     _spy_pdl_raw = (payload.get("spy_above_pdl") or "").strip().lower()
     sig._tv_spy_above_pdl = (_spy_pdl_raw == "true") if _spy_pdl_raw else None  # type: ignore[attr-defined]
-    # TEMP DIAGNOSTIC (2026-06-05) — log the raw spy_above_pdl value TradingView
-    # actually sends on each buy, so we can tell whether the field is arriving:
-    #   None  → the alert is still running an OLD compiled script (recreate it)
-    #   'true'  → Pine logic bug (computing SPY-above-PDL wrong)
-    #   'false' → field IS arriving (backend should be blocking). Remove once
-    # the gate is confirmed firing. Grep Railway logs for "SPY_PDL_DIAG".
-    if (payload.get("direction") or "").upper() in ("BUY", "LONG"):
-        logger.info(
-            "SPY_PDL_DIAG %s: spy_above_pdl=%r",
-            payload.get("symbol"), payload.get("spy_above_pdl"),
-        )
     # 2026-05-16: gap_context boolean — overloaded meaning per alert type:
     #   • staged_pdh_break: gap-up (open above PDH) → tighter stop
     #   • staged_pdl_reclaim: gap-down recovery (open below PDL) → label

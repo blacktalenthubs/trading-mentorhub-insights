@@ -712,6 +712,7 @@ export interface SpyRegimeSnapshot {
   inside_day?: boolean;
   rsi?: number | null;                                  // daily RSI(14)
   rsi_zone?: "oversold" | "overbought" | "neutral" | null;
+  stale?: boolean;   // serving last-good snapshot (fresh fetch failed)
   bias?: "LONG" | "WAIT" | "NEUTRAL" | "STAND_DOWN";
   bias_label?: string;
   bias_color?: "green" | "amber" | "red" | "gray";
