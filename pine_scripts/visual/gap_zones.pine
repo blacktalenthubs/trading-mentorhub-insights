@@ -1,0 +1,83 @@
+// @version=5
+//
+// Gap Zones (VISUAL) — UNFILLED gaps as support / resistance.
+//
+// A gap is a price jump where NO trading happened:
+//   • bar low  ABOVE prior bar high  → gap UP   → the void is SUPPORT below (green)
+//   • bar high BELOW prior bar low   → gap DOWN → the void is RESISTANCE above (red)
+// The untraded zone acts as S/R and tends to get "filled" (price is drawn back
+// to it). This draws every UNFILLED gap as a shaded box extended right, and
+// removes it once price trades back to the far edge (filled).
+//
+// Complements multi-touch levels: those are heavily-TESTED walls; gaps are
+// NEVER-tested voids price wants to revisit. Run both for the full S/R picture.
+//
+// Pine v5: every function call on one line; arrays guarded by size checks;
+// backward while-loop removal (safe — removing index i doesn't shift i-1..0).
+//
+indicator("Gap Zones", "Gaps", overlay = true, max_boxes_count = 60, max_labels_count = 60)
+
+// ── Detection ───────────────────────────────────────────────────────
+min_gap_pct = input.float(0.15, "Min gap size % (skip tiny gaps)", minval = 0.0, step = 0.05, group = "Detection")
+lookback    = input.int  (300,  "Lookback bars (drop gaps older than this)", minval = 20, group = "Detection")
+
+// ── Display ─────────────────────────────────────────────────────────
+show_up     = input.bool(true, "Gap-up = support (green)", group = "Display")
+show_dn     = input.bool(true, "Gap-down = resistance (red)", group = "Display")
+hide_filled = input.bool(true, "Remove a gap once filled", group = "Display")
+
+// Unfilled gaps — parallel arrays (top, bottom, bar, is-up) + draw handles.
+var array<float> gTop = array.new_float()
+var array<float> gBot = array.new_float()
+var array<int>   gBar = array.new_int()
+var array<bool>  gUp  = array.new_bool()
+var array<box>   gBox = array.new<box>()
+var array<label> gLab = array.new<label>()
+
+// A new gap is the void between the prior bar and this one.
+up_gap = (low > high[1]) and (high[1] > 0) and ((low - high[1]) / high[1] * 100.0 >= min_gap_pct)
+dn_gap = (high < low[1]) and (low[1] > 0) and ((low[1] - high) / low[1] * 100.0 >= min_gap_pct)
+
+if up_gap and show_up
+    topv = low
+    botv = high[1]
+    bx = box.new(bar_index - 1, topv, bar_index, botv, xloc = xloc.bar_index, border_color = color.new(color.green, 30), bgcolor = color.new(color.green, 88), extend = extend.right)
+    lb = label.new(bar_index, botv, "gap ↑ " + str.tostring(botv, format.mintick) + "–" + str.tostring(topv, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny)
+    array.push(gTop, topv)
+    array.push(gBot, botv)
+    array.push(gBar, bar_index)
+    array.push(gUp, true)
+    array.push(gBox, bx)
+    array.push(gLab, lb)
+
+if dn_gap and show_dn
+    topv = low[1]
+    botv = high
+    bx = box.new(bar_index - 1, topv, bar_index, botv, xloc = xloc.bar_index, border_color = color.new(color.red, 30), bgcolor = color.new(color.red, 88), extend = extend.right)
+    lb = label.new(bar_index, topv, "gap ↓ " + str.tostring(botv, format.mintick) + "–" + str.tostring(topv, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 60), textcolor = color.white, size = size.tiny)
+    array.push(gTop, topv)
+    array.push(gBot, botv)
+    array.push(gBar, bar_index)
+    array.push(gUp, false)
+    array.push(gBox, bx)
+    array.push(gLab, lb)
+
+// Clean up: remove gaps that are filled (price reached the far edge) or stale.
+if array.size(gTop) > 0
+    i = array.size(gTop) - 1
+    while i >= 0
+        topv = array.get(gTop, i)
+        botv = array.get(gBot, i)
+        isup = array.get(gUp, i)
+        filled = isup ? (low <= botv) : (high >= topv)
+        stale = (bar_index - array.get(gBar, i)) > lookback
+        if stale or (hide_filled and filled)
+            box.delete(array.get(gBox, i))
+            label.delete(array.get(gLab, i))
+            array.remove(gTop, i)
+            array.remove(gBot, i)
+            array.remove(gBar, i)
+            array.remove(gUp, i)
+            array.remove(gBox, i)
+            array.remove(gLab, i)
+        i := i - 1
