@@ -102,6 +102,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
     ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
 
+    # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
+    # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
+    # heavy volume. Default OFF — record + watch the count before delivering.
+    ("staged_pdl_break", "PDL break — index short (volume)", "Index shorts", False),
+    ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
+
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
     # OBSOLETE_ALERT_TYPES below for DB cleanup.
@@ -159,6 +165,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
+    "staged_pdl_break": "Index (SPY/QQQ/IWM) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
+    "staged_pdh_rejection": "Index (SPY/QQQ/IWM) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
@@ -202,8 +210,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # Pulled by request; the trusted ORL-held (staged_orl_held) stays.
     "staged_higher_low_held",
 
-    # All SHORT alerts — removed from Pine 2026-05-23 (long-only Pine)
-    "staged_pdh_rejection", "staged_pdh_failed_short", "staged_pdl_break",
+    # SHORT alerts — staged_pdl_break + staged_pdh_rejection REVIVED 2026-06-06
+    # (SPY/QQQ/IWM index shorts, see _BASE_CATALOG). The rest stay retired.
+    "staged_pdh_failed_short",
     "staged_pwh_rejection", "staged_pwh_failed_short", "staged_pwl_break",
     "staged_pmh_rejection", "staged_pmh_failed_short", "staged_pml_break",
 
