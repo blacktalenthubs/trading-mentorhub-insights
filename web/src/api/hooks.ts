@@ -725,6 +725,16 @@ export function useSpyLiveRegime() {
   });
 }
 
+/** Live BTC regime — the crypto market gate (24/7). Same shape as SPY. */
+export function useBtcLiveRegime() {
+  return useQuery({
+    queryKey: ["btc-live-regime"],
+    queryFn: () => api.get<SpyRegimeSnapshot>("/market/btc-regime"),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+}
+
 /** Live prices — polls every 15 seconds during market hours. */
 export function useLivePrices() {
   return useQuery({
