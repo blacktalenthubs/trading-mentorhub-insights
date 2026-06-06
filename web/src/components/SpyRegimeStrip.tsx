@@ -21,8 +21,19 @@ const COLORS = {
 } as const;
 
 function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
-  // Collapse to nothing while loading/unavailable so it costs zero space.
-  if (!r || r.status !== "ok") return null;
+  if (!r) return null;  // still loading — no space
+  // Data outage — tell the user the gate is flying blind (it fails OPEN, so
+  // setups still deliver, but apply your own caution). Shown subtly in grey.
+  if (r.status !== "ok") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-3 border border-border-subtle rounded-full text-[11px] text-text-muted"
+        title={`${label} regime data unavailable — the gate can't read ${label}'s PDL right now (market closed or a data outage). Trade with manual caution.`}
+      >
+        ⚠ {label} regime unavailable
+      </span>
+    );
+  }
 
   const c = COLORS[r.bias_color ?? "gray"];
   const slopeSign = (r.vwap_slope_pct ?? 0) >= 0 ? "+" : "";
@@ -40,6 +51,9 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
         <span className="text-text-faint">·</span>
         <span className="font-mono text-text-muted">${r.price?.toFixed(2)}</span>
         <span className="font-mono text-text-faint">VWAP {slope}</span>
+        {r.stale && (
+          <span className="text-warning-text" title="Live fetch failed — showing the last known regime.">⚠</span>
+        )}
       </div>
       {r.below_pdl && (
         <span
@@ -72,8 +86,10 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
 export default function SpyRegimeStrip() {
   const { data: spy } = useSpyLiveRegime();
   const { data: btc } = useBtcLiveRegime();
-  // Render nothing if neither is available (keeps the row collapsed).
-  if ((!spy || spy.status !== "ok") && (!btc || btc.status !== "ok")) return null;
+  // Collapse only while BOTH are still loading; once either has loaded we show
+  // its chip — including a grey "unavailable" state so the gate is never
+  // silently blind.
+  if (!spy && !btc) return null;
   return (
     <div className="inline-flex items-center gap-2 flex-wrap">
       <RegimeChip r={spy} label="SPY" />
