@@ -238,6 +238,56 @@ def resolve_spy_above_pdl(
     return pine_value
 
 
+# ── Crypto regime gate — BTC is the 'index', mirrors the SPY/equity gate ──
+# 24/7 market, so it validates the whole gate flow before equity open: when BTC
+# is below its prior-day low, ETH/alt buys route to Not-routed; BTC reclaims →
+# they flow. BTC itself is EXEMPT (always sends) so you can still trade BTC
+# bounces at key levels and monitor the market — same as SPY/QQQ for stocks.
+CRYPTO_REGIME_ALLOWLIST: frozenset[str] = frozenset(
+    s.strip().upper()
+    for s in os.getenv("CRYPTO_REGIME_ALLOWLIST", "BTC-USD").split(",")
+    if s.strip()
+)
+
+
+def _is_crypto_symbol(symbol: Optional[str]) -> bool:
+    return (symbol or "").upper().endswith("-USD")
+
+
+def crypto_pdl_blocks_buy(
+    btc_above_pdl: Optional[bool], direction: Optional[str], symbol: Optional[str]
+) -> bool:
+    """Crypto twin of spy_pdl_blocks_buy. True ⇒ suppress. Bites only when BTC
+    is confirmed below its PDL, the alert is a crypto BUY, and the symbol isn't
+    the exempt BTC 'index'. None/True ⇒ fail-open."""
+    if btc_above_pdl is not False:
+        return False
+    if (direction or "").upper() != "BUY":
+        return False
+    if not _is_crypto_symbol(symbol):
+        return False
+    if (symbol or "").upper() in CRYPTO_REGIME_ALLOWLIST:
+        return False
+    return True
+
+
+def _btc_below_pdl_now() -> Optional[bool]:
+    """Is BTC below its prior-day low right now — same reading as the BTC banner
+    (cache key 'btc_regime'), computed on a miss. None if data unavailable."""
+    from app.cache import cache_get, cache_set
+    snap = cache_get("btc_regime")
+    if snap is None:
+        try:
+            from api.app.routers.market import _compute_btc_regime
+            snap = _compute_btc_regime()
+            cache_set("btc_regime", snap, 30)
+        except Exception:
+            return None
+    if not isinstance(snap, dict) or snap.get("status") != "ok":
+        return None
+    return bool(snap.get("below_pdl"))
+
+
 def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bool:
     """Returns True if a futures symbol's alert fires outside the trading window.
 
@@ -963,8 +1013,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # Pine has to stamp (which depends on recreating every TV alert). The
     # Pine-stamped spy_above_pdl is kept only as a fallback when our market
     # data is unavailable. Cheap: only consulted for non-index buys.
+    # SPY gate applies to STOCKS only; crypto has its own BTC gate below.
     _direction = (sig.direction or "").upper()
-    if _direction == "BUY" and (sig.symbol or "").upper() not in INDEX_REGIME_ALLOWLIST:
+    _sym_u = (sig.symbol or "").upper()
+    if (
+        _direction == "BUY"
+        and not _is_crypto_symbol(sig.symbol)
+        and _sym_u not in INDEX_REGIME_ALLOWLIST
+    ):
         _backend_below = await asyncio.get_running_loop().run_in_executor(
             None, _spy_below_pdl_now
         )
@@ -981,6 +1037,33 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             return await _persist_unrouted(
                 sig, alert_type_full, session_date,
                 suppressed_reason="spy_below_pdl",
+            )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Spec 61 — BTC-below-PDL crypto regime block (the crypto twin)
+    # ──────────────────────────────────────────────────────────────────
+    # 24/7 market, so this validates the whole gate flow before equity open:
+    # when BTC is below its prior-day low, ETH/alt buys route to Not-routed.
+    # BTC-USD is exempt (always sends — trade its bounces + monitor the market).
+    if (
+        _direction == "BUY"
+        and _is_crypto_symbol(sig.symbol)
+        and _sym_u not in CRYPTO_REGIME_ALLOWLIST
+    ):
+        _btc_below = await asyncio.get_running_loop().run_in_executor(
+            None, _btc_below_pdl_now
+        )
+        if crypto_pdl_blocks_buy(
+            (not _btc_below) if _btc_below is not None else None,
+            sig.direction, sig.symbol,
+        ):
+            logger.info(
+                "TV webhook: BTC below PDL — crypto-regime blocked %s for %s",
+                alert_type_full, sig.symbol,
+            )
+            return await _persist_unrouted(
+                sig, alert_type_full, session_date,
+                suppressed_reason="btc_below_pdl",
             )
 
     # ──────────────────────────────────────────────────────────────────

@@ -33,10 +33,34 @@ from analytics.tv_signal_adapter import (
     payload_to_alert_signal,
 )
 from api.app.routers.tv_webhook import (
+    CRYPTO_REGIME_ALLOWLIST,
     INDEX_REGIME_ALLOWLIST,
+    crypto_pdl_blocks_buy,
     resolve_spy_above_pdl,
     spy_pdl_blocks_buy,
 )
+
+
+class TestCryptoPdlBlocksBuy:
+    # BTC is the crypto 'index': gates ETH/alt buys, exempt itself.
+    def test_blocks_eth_buy_when_btc_below_pdl(self):
+        assert crypto_pdl_blocks_buy(False, "BUY", "ETH-USD") is True
+        assert crypto_pdl_blocks_buy(False, "BUY", "SOL-USD") is True
+
+    def test_exempts_btc_itself(self):
+        assert "BTC-USD" in CRYPTO_REGIME_ALLOWLIST
+        assert crypto_pdl_blocks_buy(False, "BUY", "BTC-USD") is False
+
+    def test_never_touches_stocks(self):
+        # Stocks are gated by the SPY gate, not BTC — crypto gate ignores them.
+        assert crypto_pdl_blocks_buy(False, "BUY", "AAPL") is False
+
+    def test_fail_open_and_above_pdl(self):
+        assert crypto_pdl_blocks_buy(None, "BUY", "ETH-USD") is False
+        assert crypto_pdl_blocks_buy(True, "BUY", "ETH-USD") is False
+
+    def test_never_blocks_shorts(self):
+        assert crypto_pdl_blocks_buy(False, "SHORT", "ETH-USD") is False
 
 
 class TestResolveSpyAbovePdl:

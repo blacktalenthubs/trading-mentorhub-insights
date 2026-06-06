@@ -727,6 +727,21 @@ async def spy_regime(request: Request, user: User = Depends(get_current_user)):
     return snapshot
 
 
+@router.get("/btc-regime")
+@limiter.limit("60/minute")
+async def btc_regime(request: Request, user: User = Depends(get_current_user)):
+    """Live BTC regime snapshot — the crypto market gate (24/7). Same shape as
+    /spy-regime; drives the BTC banner chip and gates ETH/alt buys."""
+    cached = cache_get("btc_regime")
+    if cached is not None:
+        return cached
+
+    loop = asyncio.get_event_loop()
+    snapshot = await loop.run_in_executor(None, _compute_btc_regime)
+    cache_set("btc_regime", snapshot, _SPY_REGIME_TTL)
+    return snapshot
+
+
 def _spy_prior_levels(bars, last_date) -> tuple:
     """Prior-session PDH/PDL — CACHED per session-date.
 
@@ -769,31 +784,11 @@ def _spy_prior_levels(bars, last_date) -> tuple:
     return pdh, pdl, src
 
 
-def _compute_spy_regime() -> dict:
-    """Pull SPY intraday, compute VWAP slope + regime. PDH/PDL come from the
-    session-cached _spy_prior_levels (static), price/VWAP recompute each call.
-    Returns a dict for the 30s cache; failures return a safe 'unavailable'.
-    """
-    from analytics.intraday_data import _fetch_alpaca_bars
-
-    try:
-        # 48h so the prior session is in-frame (PDH/PDL derived from Alpaca;
-        # yfinance is blocked from cloud IPs and zeroed the PDL in prod).
-        bars = _fetch_alpaca_bars("SPY", interval="5m", hours_back=48)
-    except Exception:
-        return {"status": "unavailable", "reason": "data fetch failed"}
-
-    if bars is None or len(bars) == 0:
-        return {"status": "unavailable", "reason": "no SPY bars yet (premarket?)"}
-
-    # Use only TODAY's session bars (the last date in the index) so VWAP
-    # is session-anchored, not a multi-day average.
-    last_date = bars.index[-1].date()
-    today_bars = bars[bars.index.date == last_date]
-    if len(today_bars) == 0:
-        return {"status": "unavailable", "reason": "no today bars"}
-
-    # Session VWAP from today's bars.
+def _regime_dict(today_bars, pdh, pdl, pdl_src, label) -> dict:
+    """Shared regime computation from ONE session's bars + prior levels —
+    used by both SPY (Alpaca) and BTC (Coinbase). Computes session VWAP/slope,
+    inside-day, below_pdl, and the bias label. `label` is the market name for
+    the log + bias text (e.g. "SPY", "BTC")."""
     typical = (today_bars["High"] + today_bars["Low"] + today_bars["Close"]) / 3.0
     pv = typical * today_bars["Volume"]
     cum_pv = pv.cumsum()
@@ -805,8 +800,7 @@ def _compute_spy_regime() -> dict:
     last_vwap = float(vwap_series.iloc[-1])
     last_price = float(today_bars["Close"].iloc[-1])
 
-    # Slope as % over the last ~30 minutes (6 × 5m bars) — short enough to
-    # react to regime shifts, long enough to ignore single-bar noise.
+    # Slope as % over the last ~30 minutes (6 × 5m bars).
     look = min(6, len(vwap_series) - 1)
     slope_pct = 0.0
     if look > 0 and vwap_series.iloc[-1 - look] != 0:
@@ -816,30 +810,21 @@ def _compute_spy_regime() -> dict:
     today_open = float(today_bars["Open"].iloc[0])
     today_high = float(today_bars["High"].max())
     today_low = float(today_bars["Low"].min())
-    # PDH/PDL — static for the day, cached per session-date (see _spy_prior_levels).
-    pdh, pdl, _pdl_src = _spy_prior_levels(bars, last_date)
-    # Inside day = today's ENTIRE realized range stays within yesterday's range
-    # (high < PDH AND low > PDL). The old check only required the OPEN to be
-    # inside — true almost every day — so it mislabeled trend/breakdown days
-    # (e.g. 2026-06-05: SPY opened 752.31 inside the range but broke to 740.51,
-    # ~1.5% below PDL, and still showed "Inside Day"). Use the session high/low.
     inside_day = bool(
         pdh is not None and pdl is not None
         and today_high < pdh and today_low > pdl
     )
     below_pdl = bool(pdl is not None and last_price < pdl)
     logging.getLogger(__name__).info(
-        "SPY regime: price=%.2f pdl=%s (src=%s) below_pdl=%s",
-        last_price, pdl, _pdl_src, below_pdl,
+        "%s regime: price=%.2f pdl=%s (src=%s) below_pdl=%s",
+        label, last_price, pdl, pdl_src, below_pdl,
     )
 
-    # Bias. SPY trading UNDER its prior-day low is the strongest stand-down
-    # signal (broad-tape breakdown) and overrides everything — it can never read
-    # inside-day / neutral / long while below PDL.
+    # Below PDL is the strongest stand-down signal and overrides everything.
     abs_slope = abs(slope_pct)
     if below_pdl:
         bias = "STAND_DOWN"
-        bias_label = "Stand down — SPY below its prior-day low (broad-tape breakdown)"
+        bias_label = f"Stand down — {label} below its prior-day low (broad-tape breakdown)"
         bias_color = "red"
     elif inside_day and abs_slope < 0.05:
         bias = "WAIT"
@@ -866,9 +851,6 @@ def _compute_spy_regime() -> dict:
         "today_open": round(today_open, 2),
         "pdh": pdh,
         "pdl": pdl,
-        # Spec 61 — drives the "buys suppressed" banner chip + forces STAND_DOWN
-        # above. Mirrors the webhook's SPY-below-PDL hard block: while SPY is
-        # under its prior-day low, every buy alert is suppressed.
         "below_pdl": below_pdl,
         "inside_day": inside_day,
         "bias": bias,
@@ -876,6 +858,61 @@ def _compute_spy_regime() -> dict:
         "bias_color": bias_color,
         "last_bar_time": today_bars.index[-1].isoformat(),
     }
+
+
+def _compute_spy_regime() -> dict:
+    """SPY regime (stocks). Alpaca intraday + session-cached PDH/PDL."""
+    from analytics.intraday_data import _fetch_alpaca_bars
+
+    try:
+        bars = _fetch_alpaca_bars("SPY", interval="5m", hours_back=48)
+    except Exception:
+        return {"status": "unavailable", "reason": "data fetch failed"}
+    if bars is None or len(bars) == 0:
+        return {"status": "unavailable", "reason": "no SPY bars yet (premarket?)"}
+
+    last_date = bars.index[-1].date()
+    today_bars = bars[bars.index.date == last_date]
+    if len(today_bars) == 0:
+        return {"status": "unavailable", "reason": "no today bars"}
+
+    pdh, pdl, src = _spy_prior_levels(bars, last_date)
+    return _regime_dict(today_bars, pdh, pdl, src, "SPY")
+
+
+def _crypto_prior_levels(product: str, last_date, prior: dict) -> tuple:
+    """Prior-day PDH/PDL for a crypto product — cached per date (static all day,
+    fresh each new day). Coinbase (via fetch_prior_day is_crypto=True) is
+    reliable in prod, so no Alpaca-style workaround is needed."""
+    key = f"crypto_levels:{product}:{last_date.isoformat()}"
+    cached = cache_get(key)
+    if isinstance(cached, dict) and cached.get("pdl") is not None:
+        return cached.get("pdh"), cached.get("pdl"), "cache"
+    pdh = float(prior["high"]) if prior.get("high") is not None else None
+    pdl = float(prior["low"]) if prior.get("low") is not None else None
+    if pdl is not None:
+        cache_set(key, {"pdh": pdh, "pdl": pdl}, 8 * 3600)
+    return pdh, pdl, "coinbase"
+
+
+def _compute_btc_regime() -> dict:
+    """BTC regime (crypto, 24/7). Coinbase/Alpaca intraday + prior-day low.
+    BTC is the crypto 'index': it gates ETH/alt buys but is itself exempt, and
+    runs around the clock so the gate flow can be validated before equity open.
+    """
+    from analytics.intraday_data import fetch_intraday_crypto, fetch_prior_day
+
+    try:
+        today_bars = fetch_intraday_crypto("BTC-USD", "5m")  # already today-only
+        prior = fetch_prior_day("BTC-USD", is_crypto=True) or {}
+    except Exception:
+        return {"status": "unavailable", "reason": "data fetch failed"}
+    if today_bars is None or len(today_bars) == 0:
+        return {"status": "unavailable", "reason": "no BTC bars"}
+
+    last_date = today_bars.index[-1].date()
+    pdh, pdl, src = _crypto_prior_levels("BTC-USD", last_date, prior)
+    return _regime_dict(today_bars, pdh, pdl, src, "BTC")
 
 
 # ── Premarket Gap Board ──────────────────────────────────────────────
