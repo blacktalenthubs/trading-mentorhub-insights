@@ -11,9 +11,11 @@
 //      and a genuine double shows even when price ISN'T sitting on it now
 //      (e.g. a prior double top above current price — the IREN 46.97 case).
 //
-// Because clustering collapses to distinct levels, the chart is self-limiting
-// (a handful of lines), so no proximity filter is needed — near_pct is OPTIONAL
-// (default 0 = show every genuine double/triple, near price or not).
+// Relevance rule (so the map stays clean AND complete): levels with MORE than
+// the floor count (3×+ by default) always show, anywhere on the chart; levels
+// AT the floor (2×) show only within near_pct of current price. So heavily-
+// tested far levels stay, near-price doubles stay, distant 2× junk drops.
+// Tolerance is 1.0% by default so tops/bottoms "a few points apart" still group.
 //
 // Pine v5: every function call on one line; `and`/`or` not short-circuited
 // (array reads guarded by size checks); typed arrays; one statement per line.
@@ -22,12 +24,12 @@ indicator("Multi-touch Levels", "MultiTB", overlay = true, max_lines_count = 100
 
 // ── Detection ───────────────────────────────────────────────────────
 piv_len     = input.int  (3,   "Pivot strength (bars each side)", minval = 1, group = "Detection")
-tol_pct     = input.float(0.6, "Match tolerance % (how close lows/highs must be)", minval = 0.05, maxval = 5.0, step = 0.05, group = "Detection")
+tol_pct     = input.float(1.0, "Match tolerance % — how close lows/highs must be to group (wider = 'a few points off' still cluster)", minval = 0.05, maxval = 5.0, step = 0.05, group = "Detection")
 lookback    = input.int  (250, "Lookback (bars of history to scan)", minval = 20, group = "Detection")
-min_touches = input.int  (3,   "Min touches (2 = double, 3 = triple+) — 3 drops 2× noise", minval = 2, maxval = 6, group = "Detection")
+min_touches = input.int  (2,   "Min touches (floor: 2 = double). Counts ABOVE this always show; AT it show only near price", minval = 2, maxval = 6, group = "Detection")
 
 // ── Display ─────────────────────────────────────────────────────────
-near_pct = input.float(0.0,  "Only show levels within % of price (0 = show all)", minval = 0.0, step = 1.0, group = "Display")
+near_pct = input.float(8.0,  "Weakest (floor-count) levels only shown within this % of price (0 = show all everywhere)", minval = 0.0, step = 1.0, group = "Display")
 show_bot = input.bool(true,  "Bottoms (support, green)", group = "Display")
 show_top = input.bool(true,  "Tops (resistance, red)", group = "Display")
 ext_r    = input.bool(true,  "Extend lines to the right", group = "Display")
@@ -90,7 +92,7 @@ if barstate.islast
                                 cnt := cnt + 1
                                 lvl := math.min(lvl, q)
                 near_ok = (near_pct <= 0.0) or (close > 0 and math.abs(lvl - close) / close * 100.0 <= near_pct)
-                if (cnt >= min_touches) and near_ok
+                if (cnt >= min_touches) and ((cnt > min_touches) or near_ok)
                     ln = line.new(earliest, lvl, bar_index, lvl, xloc = xloc.bar_index, color = color.new(color.lime, 10), width = 2, extend = ext_r ? extend.right : extend.none)
                     lb = label.new(bar_index, lvl, str.tostring(cnt) + "× bottom " + str.tostring(lvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(color.lime, 50), textcolor = color.white, size = size.small)
                     array.push(dLn, ln)
@@ -115,7 +117,7 @@ if barstate.islast
                                 hcnt := hcnt + 1
                                 hlvl := math.max(hlvl, hq)
                 hnear = (near_pct <= 0.0) or (close > 0 and math.abs(hlvl - close) / close * 100.0 <= near_pct)
-                if (hcnt >= min_touches) and hnear
+                if (hcnt >= min_touches) and ((hcnt > min_touches) or hnear)
                     hln = line.new(hearl, hlvl, bar_index, hlvl, xloc = xloc.bar_index, color = color.new(color.red, 10), width = 2, extend = ext_r ? extend.right : extend.none)
                     hlb = label.new(bar_index, hlvl, str.tostring(hcnt) + "× top " + str.tostring(hlvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 50), textcolor = color.white, size = size.small)
                     array.push(dLn, hln)
