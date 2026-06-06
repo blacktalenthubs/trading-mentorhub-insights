@@ -98,7 +98,7 @@ if not na(pl) and show_bot
 if not na(pl)
     array.push(lowP, pl)
     array.push(lowB, piv_b)
-    if array.size(lowP) > 80
+    if array.size(lowP) > 120
         array.shift(lowP)
         array.shift(lowB)
 
@@ -144,7 +144,7 @@ if not na(ph) and show_top
 if not na(ph)
     array.push(highP, ph)
     array.push(highB, piv_b)
-    if array.size(highP) > 80
+    if array.size(highP) > 120
         array.shift(highP)
         array.shift(highB)
 
