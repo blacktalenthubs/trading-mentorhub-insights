@@ -2,152 +2,125 @@
 //
 // Multi-touch levels — double / triple TOPS & BOTTOMS (VISUAL). Daily charts.
 //
-// Finds horizontal levels TESTED MULTIPLE TIMES — a cluster of swing LOWS within
-// tolerance = support (green "N× bottom"); swing HIGHS = resistance (red "N× top").
-// The power case: price returning to a level it bottomed at MONTHS ago (e.g. BTC
-// today sitting on its Feb double bottom) — same level, long apart = significant.
+// v3: CLUSTER + REDRAW. Every bar we re-derive the whole S/R map from scratch:
+//   1. Greedily group confirmed pivots into DISTINCT levels — pivots within
+//      tol_pct of each other collapse to ONE level; the touch count = how many
+//      pivots landed there.
+//   2. Keep levels with >= min_touches touches and draw each ONCE, labeled N×.
+//   3. Redraw on every bar, so no stale lines linger, nothing stacks per-touch,
+//      and a genuine double shows even when price ISN'T sitting on it now
+//      (e.g. a prior double top above current price — the IREN 46.97 case).
 //
-// CLUTTER CONTROL (the whole point of v2):
-//   • near_pct  — only draw levels within this % of CURRENT price (relevance).
-//                 A level 40% away isn't actionable; hide it.
-//   • max_levels — keep at most this many per side, rolling (drop the oldest).
-//   • dedup      — one line per level: a new touch UPDATES the existing line's
-//                  count instead of stacking another line on top of it.
-//   • max_age stays generous so long-term levels (months apart) still count.
+// Because clustering collapses to distinct levels, the chart is self-limiting
+// (a handful of lines), so no proximity filter is needed — near_pct is OPTIONAL
+// (default 0 = show every genuine double/triple, near price or not).
 //
-// Pine v5 notes: every function call on one line; `and`/`or` not short-circuited
-// (array reads guarded by a size check first); typed arrays for the line/label
-// handles; one statement per line (no semicolons).
+// Pine v5: every function call on one line; `and`/`or` not short-circuited
+// (array reads guarded by size checks); typed arrays; one statement per line.
 //
-indicator("Multi-touch Levels", "MultiTB", overlay = true, max_lines_count = 60, max_labels_count = 60)
+indicator("Multi-touch Levels", "MultiTB", overlay = true, max_lines_count = 100, max_labels_count = 100)
 
 // ── Detection ───────────────────────────────────────────────────────
 piv_len     = input.int  (3,   "Pivot strength (bars each side)", minval = 1, group = "Detection")
-tol_pct     = input.float(0.6, "Match tolerance % (how close lows/highs must be)", minval = 0.05, maxval = 3.0, step = 0.05, group = "Detection")
-max_age     = input.int  (200, "Max bars between touches (200 ≈ 10 months — keeps long-term levels)", minval = 5, group = "Detection")
-min_touches = input.int  (2,   "Min touches to draw (2 = double, 3 = triple)", minval = 2, maxval = 6, group = "Detection")
-
-// ── Relevance / clutter control ─────────────────────────────────────
-near_pct   = input.float(12.0, "Only show levels within this % of current price (0 = all)", minval = 0.0, step = 0.5, group = "Clutter control")
-max_levels = input.int  (6,    "Max levels per side (rolling — drops the oldest)", minval = 1, maxval = 20, group = "Clutter control")
+tol_pct     = input.float(0.6, "Match tolerance % (how close lows/highs must be)", minval = 0.05, maxval = 5.0, step = 0.05, group = "Detection")
+lookback    = input.int  (250, "Lookback (bars of history to scan)", minval = 20, group = "Detection")
+min_touches = input.int  (2,   "Min touches (2 = double, 3 = triple)", minval = 2, maxval = 6, group = "Detection")
 
 // ── Display ─────────────────────────────────────────────────────────
-show_bot = input.bool(true, "Double bottoms (support)", group = "Display")
-show_top = input.bool(true, "Double tops (resistance)", group = "Display")
-ext_r    = input.bool(true, "Extend level lines to the right", group = "Display")
+near_pct = input.float(0.0,  "Only show levels within % of price (0 = show all)", minval = 0.0, step = 1.0, group = "Display")
+show_bot = input.bool(true,  "Bottoms (support, green)", group = "Display")
+show_top = input.bool(true,  "Tops (resistance, red)", group = "Display")
+ext_r    = input.bool(true,  "Extend lines to the right", group = "Display")
 show_piv = input.bool(false, "Mark raw pivots", group = "Display")
 
-// ── Confirmed pivots ────────────────────────────────────────────────
+// ── Confirmed pivots, kept in rolling history ───────────────────────
 ph = ta.pivothigh(high, piv_len, piv_len)
 pl = ta.pivotlow (low,  piv_len, piv_len)
 piv_b = bar_index - piv_len
 
-// Recent pivots for cluster counting (pruned to last 80).
 var array<float> lowP  = array.new_float()
 var array<int>   lowB  = array.new_int()
 var array<float> highP = array.new_float()
 var array<int>   highB = array.new_int()
 
-// Active drawn levels (rolling) — line + label + price, per side.
-var array<line>  botLn = array.new<line>()
-var array<label> botLb = array.new<label>()
-var array<float> botLv = array.new_float()
-var array<line>  topLn = array.new<line>()
-var array<label> topLb = array.new<label>()
-var array<float> topLv = array.new_float()
-
-// ── Double / triple BOTTOM ──────────────────────────────────────────
-if not na(pl) and show_bot
-    cnt = 0
-    earliest = piv_b
-    lvl = pl
-    sz = array.size(lowP)
-    if sz > 0
-        for i = sz - 1 to 0
-            pp = array.get(lowP, i)
-            pb = array.get(lowB, i)
-            if (pp > 0) and (math.abs(pl - pp) / pp * 100.0 <= tol_pct) and ((piv_b - pb) <= max_age)
-                cnt := cnt + 1
-                earliest := math.min(earliest, pb)
-                lvl := math.min(lvl, pp)
-    near_ok = (near_pct <= 0.0) or (close > 0 and math.abs(lvl - close) / close * 100.0 <= near_pct)
-    if (cnt + 1 >= min_touches) and near_ok
-        ex = -1
-        nb = array.size(botLv)
-        if nb > 0
-            for k = 0 to nb - 1
-                lk = array.get(botLv, k)
-                if (lk > 0) and (math.abs(lvl - lk) / lk * 100.0 <= tol_pct)
-                    ex := k
-                    break
-        txt = str.tostring(cnt + 1) + "× bottom " + str.tostring(lvl, format.mintick)
-        if ex >= 0
-            label.set_xy(array.get(botLb, ex), bar_index, lvl)
-            label.set_text(array.get(botLb, ex), txt)
-            array.set(botLv, ex, lvl)
-        else
-            l  = line.new(earliest, lvl, bar_index, lvl, xloc = xloc.bar_index, color = color.new(color.lime, 20), width = 2, extend = ext_r ? extend.right : extend.none)
-            lb = label.new(bar_index, lvl, txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(color.lime, 55), textcolor = color.white, size = size.small)
-            array.push(botLn, l)
-            array.push(botLb, lb)
-            array.push(botLv, lvl)
-            if array.size(botLn) > max_levels
-                line.delete(array.shift(botLn))
-                label.delete(array.shift(botLb))
-                array.shift(botLv)
 if not na(pl)
     array.push(lowP, pl)
     array.push(lowB, piv_b)
-    if array.size(lowP) > 120
+    if array.size(lowP) > 250
         array.shift(lowP)
         array.shift(lowB)
-
-// ── Double / triple TOP ─────────────────────────────────────────────
-if not na(ph) and show_top
-    cnt2 = 0
-    earliest2 = piv_b
-    lvl2 = ph
-    sz2 = array.size(highP)
-    if sz2 > 0
-        for j = sz2 - 1 to 0
-            pp2 = array.get(highP, j)
-            pb2 = array.get(highB, j)
-            if (pp2 > 0) and (math.abs(ph - pp2) / pp2 * 100.0 <= tol_pct) and ((piv_b - pb2) <= max_age)
-                cnt2 := cnt2 + 1
-                earliest2 := math.min(earliest2, pb2)
-                lvl2 := math.max(lvl2, pp2)
-    near_ok2 = (near_pct <= 0.0) or (close > 0 and math.abs(lvl2 - close) / close * 100.0 <= near_pct)
-    if (cnt2 + 1 >= min_touches) and near_ok2
-        ex2 = -1
-        nt = array.size(topLv)
-        if nt > 0
-            for m = 0 to nt - 1
-                lm = array.get(topLv, m)
-                if (lm > 0) and (math.abs(lvl2 - lm) / lm * 100.0 <= tol_pct)
-                    ex2 := m
-                    break
-        txt2 = str.tostring(cnt2 + 1) + "× top " + str.tostring(lvl2, format.mintick)
-        if ex2 >= 0
-            label.set_xy(array.get(topLb, ex2), bar_index, lvl2)
-            label.set_text(array.get(topLb, ex2), txt2)
-            array.set(topLv, ex2, lvl2)
-        else
-            l2  = line.new(earliest2, lvl2, bar_index, lvl2, xloc = xloc.bar_index, color = color.new(color.red, 20), width = 2, extend = ext_r ? extend.right : extend.none)
-            lb2 = label.new(bar_index, lvl2, txt2, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 55), textcolor = color.white, size = size.small)
-            array.push(topLn, l2)
-            array.push(topLb, lb2)
-            array.push(topLv, lvl2)
-            if array.size(topLn) > max_levels
-                line.delete(array.shift(topLn))
-                label.delete(array.shift(topLb))
-                array.shift(topLv)
 if not na(ph)
     array.push(highP, ph)
     array.push(highB, piv_b)
-    if array.size(highP) > 120
+    if array.size(highP) > 250
         array.shift(highP)
         array.shift(highB)
 
-// ── Raw pivot markers (off by default; turn on while tuning) ────────
+// ── Drawn handles (cleared + rebuilt each bar) ──────────────────────
+var array<line>  dLn = array.new<line>()
+var array<label> dLb = array.new<label>()
+
+// ── Redraw the whole map on the last bar ────────────────────────────
+if barstate.islast
+    if array.size(dLn) > 0
+        for i = 0 to array.size(dLn) - 1
+            line.delete(array.get(dLn, i))
+    if array.size(dLb) > 0
+        for i = 0 to array.size(dLb) - 1
+            label.delete(array.get(dLb, i))
+    array.clear(dLn)
+    array.clear(dLb)
+
+    // ----- cluster BOTTOMS (support) -----
+    nL = array.size(lowP)
+    if show_bot and nL > 0
+        usedL = array.new_bool(nL, false)
+        for a = 0 to nL - 1
+            if not array.get(usedL, a)
+                base = array.get(lowP, a)
+                cnt = 0
+                lvl = base
+                earliest = array.get(lowB, a)
+                if base > 0
+                    for b = a to nL - 1
+                        if not array.get(usedL, b)
+                            q = array.get(lowP, b)
+                            if (q > 0) and (math.abs(q - base) / base * 100.0 <= tol_pct) and ((bar_index - array.get(lowB, b)) <= lookback)
+                                array.set(usedL, b, true)
+                                cnt := cnt + 1
+                                lvl := math.min(lvl, q)
+                near_ok = (near_pct <= 0.0) or (close > 0 and math.abs(lvl - close) / close * 100.0 <= near_pct)
+                if (cnt >= min_touches) and near_ok
+                    ln = line.new(earliest, lvl, bar_index, lvl, xloc = xloc.bar_index, color = color.new(color.lime, 10), width = 2, extend = ext_r ? extend.right : extend.none)
+                    lb = label.new(bar_index, lvl, str.tostring(cnt) + "× bottom " + str.tostring(lvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(color.lime, 50), textcolor = color.white, size = size.small)
+                    array.push(dLn, ln)
+                    array.push(dLb, lb)
+
+    // ----- cluster TOPS (resistance) -----
+    nH = array.size(highP)
+    if show_top and nH > 0
+        usedH = array.new_bool(nH, false)
+        for ha = 0 to nH - 1
+            if not array.get(usedH, ha)
+                hbase = array.get(highP, ha)
+                hcnt = 0
+                hlvl = hbase
+                hearl = array.get(highB, ha)
+                if hbase > 0
+                    for hb = ha to nH - 1
+                        if not array.get(usedH, hb)
+                            hq = array.get(highP, hb)
+                            if (hq > 0) and (math.abs(hq - hbase) / hbase * 100.0 <= tol_pct) and ((bar_index - array.get(highB, hb)) <= lookback)
+                                array.set(usedH, hb, true)
+                                hcnt := hcnt + 1
+                                hlvl := math.max(hlvl, hq)
+                hnear = (near_pct <= 0.0) or (close > 0 and math.abs(hlvl - close) / close * 100.0 <= near_pct)
+                if (hcnt >= min_touches) and hnear
+                    hln = line.new(hearl, hlvl, bar_index, hlvl, xloc = xloc.bar_index, color = color.new(color.red, 10), width = 2, extend = ext_r ? extend.right : extend.none)
+                    hlb = label.new(bar_index, hlvl, str.tostring(hcnt) + "× top " + str.tostring(hlvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 50), textcolor = color.white, size = size.small)
+                    array.push(dLn, hln)
+                    array.push(dLb, hlb)
+
+// ── Raw pivot markers (off by default) ──────────────────────────────
 plotshape(show_piv and not na(pl), title = "pivot low",  location = location.belowbar, style = shape.circle, size = size.tiny, color = color.new(color.green, 35), offset = -piv_len)
 plotshape(show_piv and not na(ph), title = "pivot high", location = location.abovebar, style = shape.circle, size = size.tiny, color = color.new(color.red, 35),   offset = -piv_len)
