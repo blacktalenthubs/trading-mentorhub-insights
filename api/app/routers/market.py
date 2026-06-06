@@ -727,18 +727,59 @@ async def spy_regime(request: Request, user: User = Depends(get_current_user)):
     return snapshot
 
 
-def _compute_spy_regime() -> dict:
-    """Pull SPY intraday + prior-day, compute VWAP slope + inside-day,
-    classify the regime. Returns a dict for the cache. Failure modes
-    return a safe 'unknown' regime so the UI degrades gracefully.
+def _spy_prior_levels(bars, last_date) -> tuple:
+    """Prior-session PDH/PDL — CACHED per session-date.
+
+    PDH/PDL are STATIC for a trading day (yesterday's fixed high/low don't move),
+    so we compute them once and cache them for the whole session — a transient
+    Alpaca blip can't drop the level mid-day. The cache key includes the
+    session-date, so a NEW trading day is a cache MISS and recomputes fresh
+    (never carries yesterday's levels into today). Only the live price / VWAP /
+    below_pdl recompute on the 30s cycle — those genuinely change.
+
+    Derived from Alpaca's prior-session bars (RTH-filtered, reliable in prod);
+    yfinance fetch_prior_day is the dev/local fallback only. Returns
+    (pdh, pdl, source). Also feeds inside-day / outside-day.
     """
-    from analytics.intraday_data import _fetch_alpaca_bars, fetch_prior_day
+    key = f"spy_levels:SPY:{last_date.isoformat()}"
+    cached = cache_get(key)
+    if isinstance(cached, dict) and cached.get("pdl") is not None:
+        return cached.get("pdh"), cached.get("pdl"), "cache"
+
+    pdh = pdl = None
+    src = "alpaca"
+    prior_dates = sorted({ts.date() for ts in bars.index if ts.date() != last_date})
+    if prior_dates:
+        pbars = bars[bars.index.date == prior_dates[-1]]
+        rth = pbars.between_time("09:30", "16:00")
+        use = rth if len(rth) else pbars
+        if len(use):
+            pdh = float(use["High"].max())
+            pdl = float(use["Low"].min())
+    if pdl is None:  # Alpaca lacked the prior session (dev/local) → yfinance
+        src = "yfinance"
+        from analytics.intraday_data import fetch_prior_day
+        prior = fetch_prior_day("SPY") or {}
+        pdh = float(prior["high"]) if prior.get("high") is not None else None
+        pdl = float(prior["low"]) if prior.get("low") is not None else None
+    if pdl is not None:
+        # 8h TTL covers a session; the date-keyed key guarantees a fresh value
+        # next trading day regardless of TTL — so it never goes stale across days.
+        cache_set(key, {"pdh": pdh, "pdl": pdl}, 8 * 3600)
+    return pdh, pdl, src
+
+
+def _compute_spy_regime() -> dict:
+    """Pull SPY intraday, compute VWAP slope + regime. PDH/PDL come from the
+    session-cached _spy_prior_levels (static), price/VWAP recompute each call.
+    Returns a dict for the 30s cache; failures return a safe 'unavailable'.
+    """
+    from analytics.intraday_data import _fetch_alpaca_bars
 
     try:
-        # 48h so the prior session is in-frame — we derive PDH/PDL from Alpaca
-        # below (yfinance is blocked from cloud IPs and zeroed the PDL in prod).
+        # 48h so the prior session is in-frame (PDH/PDL derived from Alpaca;
+        # yfinance is blocked from cloud IPs and zeroed the PDL in prod).
         bars = _fetch_alpaca_bars("SPY", interval="5m", hours_back=48)
-        prior = fetch_prior_day("SPY") or {}
     except Exception:
         return {"status": "unavailable", "reason": "data fetch failed"}
 
@@ -775,26 +816,8 @@ def _compute_spy_regime() -> dict:
     today_open = float(today_bars["Open"].iloc[0])
     today_high = float(today_bars["High"].max())
     today_low = float(today_bars["Low"].min())
-    # PDH/PDL — derive from ALPACA's prior-session bars (reliable in prod).
-    # yfinance (fetch_prior_day) is rate-limited/blocked from cloud IPs, which
-    # silently returned pdl=None → below_pdl=false → the gate failed open AND
-    # the "SPY < PDL" banner chip vanished even with SPY clearly below it.
-    # Alpaca already powers last_price here, so use it for the prior low too;
-    # fall back to yfinance only when Alpaca lacks the prior session (dev/local).
-    pdh = pdl = None
-    _pdl_src = "alpaca"
-    _prior_dates = sorted({ts.date() for ts in bars.index if ts.date() != last_date})
-    if _prior_dates:
-        _pbars = bars[bars.index.date == _prior_dates[-1]]
-        _rth = _pbars.between_time("09:30", "16:00")
-        _use = _rth if len(_rth) else _pbars
-        if len(_use):
-            pdh = float(_use["High"].max())
-            pdl = float(_use["Low"].min())
-    if pdl is None:
-        _pdl_src = "yfinance"
-        pdh = float(prior.get("high")) if prior.get("high") is not None else None
-        pdl = float(prior.get("low")) if prior.get("low") is not None else None
+    # PDH/PDL — static for the day, cached per session-date (see _spy_prior_levels).
+    pdh, pdl, _pdl_src = _spy_prior_levels(bars, last_date)
     # Inside day = today's ENTIRE realized range stays within yesterday's range
     # (high < PDH AND low > PDL). The old check only required the OPEN to be
     # inside — true almost every day — so it mislabeled trend/breakdown days
