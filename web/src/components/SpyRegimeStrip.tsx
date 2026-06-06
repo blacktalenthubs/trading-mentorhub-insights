@@ -49,6 +49,22 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
           ⛔ Buys suppressed · {label} &lt; PDL
         </span>
       )}
+      {r.rsi != null && r.rsi_zone && r.rsi_zone !== "neutral" && (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+            r.rsi_zone === "oversold"
+              ? "bg-accent/15 border-accent/40 text-accent"
+              : "bg-warning/15 border-warning/40 text-warning-text"
+          }`}
+          title={
+            r.rsi_zone === "oversold"
+              ? `${label} daily RSI ${r.rsi} — oversold. Possible reversal, but in a downtrend wait for a reclaim; don't catch the knife.`
+              : `${label} daily RSI ${r.rsi} — overbought. Trade light, reduce overnight exposure.`
+          }
+        >
+          RSI {r.rsi} · {r.rsi_zone === "oversold" ? "oversold" : "overbought"}
+        </span>
+      )}
     </div>
   );
 }

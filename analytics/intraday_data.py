@@ -185,6 +185,7 @@ def _fetch_alpaca_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -
             "5m": TimeFrame(5, TimeFrameUnit.Minute),
             "15m": TimeFrame(15, TimeFrameUnit.Minute),
             "1h": TimeFrame(1, TimeFrameUnit.Hour),
+            "1d": TimeFrame(1, TimeFrameUnit.Day),
         }
         tf = _interval_map.get(interval)
         if not tf:
@@ -250,6 +251,7 @@ def _fetch_alpaca_crypto_bars(symbol: str, interval: str = "5m", hours_back: int
             "5m": TimeFrame(5, TimeFrameUnit.Minute),
             "15m": TimeFrame(15, TimeFrameUnit.Minute),
             "1h": TimeFrame(1, TimeFrameUnit.Hour),
+            "1d": TimeFrame(1, TimeFrameUnit.Day),
         }
         tf = _interval_map.get(interval)
         if not tf:
