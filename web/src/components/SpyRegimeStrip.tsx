@@ -47,7 +47,7 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
       <span className={`font-semibold ${c.text}`}>{label}</span>
       <span className={c.text}>{biasText}</span>
       {r.below_pdl && (
-        <span className="font-semibold text-bearish-text">· ⛔ buys off</span>
+        <span className="font-semibold text-bearish-text">· ⛔ &lt; PDL · buys off</span>
       )}
       {r.rsi != null && (
         <span
