@@ -113,6 +113,13 @@ class TestSpyPdlBlocksBuy:
         assert spy_pdl_blocks_buy(False, "buy", "aapl") is True
         assert spy_pdl_blocks_buy(False, "buy", "spy") is False
 
+    def test_custom_allowlist_exempts(self):
+        # Admin adds AAPL to the exempt list (live, via Settings) → not blocked.
+        custom = frozenset({"SPY", "QQQ", "IWM", "DRAM", "AAPL"})
+        assert spy_pdl_blocks_buy(False, "BUY", "AAPL", custom) is False
+        # A name NOT in the custom list is still blocked.
+        assert spy_pdl_blocks_buy(False, "BUY", "NVDA", custom) is True
+
 
 # -----------------------------------------------------------------------------
 # Adapter — small helpers

@@ -1931,6 +1931,30 @@ export function useAlertConfig() {
   });
 }
 
+/** Market-gate exempt allow-lists (symbols the SPY/BTC gate never blocks). */
+export interface RegimeExemptConfig {
+  index_exempt: string;   // comma-separated stocks
+  crypto_exempt: string;  // comma-separated crypto
+}
+
+export function useRegimeConfig() {
+  return useQuery({
+    queryKey: ["regime-config"],
+    queryFn: () => api.get<RegimeExemptConfig>("/regime-config"),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+export function useUpdateRegimeConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: Partial<RegimeExemptConfig>) =>
+      api.put<RegimeExemptConfig>("/regime-config", v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["regime-config"] }),
+  });
+}
+
 export function useToggleAlertConfig() {
   const qc = useQueryClient();
   return useMutation({

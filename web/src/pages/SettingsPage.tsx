@@ -19,6 +19,8 @@ import {
   useTelegramUnlink,
   useAlertConfig,
   useToggleAlertConfig,
+  useRegimeConfig,
+  useUpdateRegimeConfig,
   type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
@@ -996,6 +998,94 @@ function SignalNotifications() {
   );
 }
 
+/* ── Market gate — exempt symbols ─────────────────────────────────── */
+
+function ExemptListEditor({ label, hint, list, onSave }: {
+  label: string;
+  hint: string;
+  list: string[];
+  onSave: (next: string[]) => void;
+}) {
+  const [input, setInput] = useState("");
+  const add = () => {
+    const sym = input.trim().toUpperCase();
+    if (sym && !list.includes(sym)) onSave([...list, sym]);
+    setInput("");
+  };
+  return (
+    <div>
+      <div className="text-xs font-semibold text-text-secondary mb-0.5">{label}</div>
+      <div className="text-[11px] text-text-muted mb-2">{hint}</div>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {list.length === 0 && <span className="text-xs text-text-faint">none</span>}
+        {list.map((sym) => (
+          <span key={sym} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-[11px] font-semibold text-accent">
+            {sym}
+            <button
+              onClick={() => onSave(list.filter((s) => s !== sym))}
+              className="text-accent/60 hover:text-bearish-text"
+              aria-label={`Remove ${sym}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="Add symbol…"
+          className="flex-1 bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
+        />
+        <button
+          onClick={add}
+          className="shrink-0 text-[11px] px-3 py-1 rounded bg-accent/15 text-accent border border-accent/40 hover:bg-accent/20"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MarketGateSection() {
+  const { data, isLoading } = useRegimeConfig();
+  const update = useUpdateRegimeConfig();
+  const toList = (s?: string) =>
+    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
+
+  return (
+    <Section title="Market gate — exempt symbols" icon={<Filter className="h-4 w-4 text-accent" />}>
+      <p className="text-xs text-text-muted mb-4">
+        These symbols are <strong>never blocked</strong> by the regime gate — their
+        buys deliver even when SPY (stocks) or BTC (crypto) is below its prior-day
+        low. Add genuine relative-strength names you'd still trade in a downtrend
+        (e.g. AAPL). Takes effect on the next alert — no redeploy.
+      </p>
+      {isLoading ? (
+        <div className="text-xs text-text-faint">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          <ExemptListEditor
+            label="Stocks — SPY gate"
+            hint="Exempt from the SPY-below-PDL block."
+            list={toList(data?.index_exempt)}
+            onSave={(l) => update.mutate({ index_exempt: l.join(",") })}
+          />
+          <ExemptListEditor
+            label="Crypto — BTC gate"
+            hint="Exempt from the BTC-below-PDL block (BTC-USD is the index)."
+            list={toList(data?.crypto_exempt)}
+            onSave={(l) => update.mutate({ crypto_exempt: l.join(",") })}
+          />
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -1025,6 +1115,9 @@ export default function SettingsPage() {
 
         {/* Per-alert-type enable/disable */}
         <AlertTypesSection />
+
+        {/* Regime-gate exempt symbols */}
+        <MarketGateSection />
 
         {/* Referral program */}
         <ReferralSection />

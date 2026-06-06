@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI):
     import app.models  # noqa: F401
     import app.models.journal  # noqa: F401
     import app.models.screener  # noqa: F401  # spec 62 — screener_universe + screener_snapshot
+    import app.models.regime_config  # noqa: F401  # spec 61 — gate exempt allow-lists
 
     # Auto-create new tables (usage_limits etc.) and add missing columns
     async with engine.begin() as conn:
@@ -41,6 +42,14 @@ async def lifespan(app: FastAPI):
             logger.info("Alert type config seeded/verified")
         except Exception as e:
             logger.warning("Alert type config seed skipped: %s", e)
+
+        # Seed the regime-gate exempt allow-lists (idempotent — admin edits persist).
+        try:
+            from app.models.regime_config import seed_regime_config
+            await seed_regime_config(conn)
+            logger.info("Regime config seeded/verified")
+        except Exception as e:
+            logger.warning("Regime config seed skipped: %s", e)
 
         # Spec 58 (2026-05-23) — retirement is now handled by
         # OBSOLETE_ALERT_TYPES in alert_type_config.py, which DELETES
@@ -1285,6 +1294,7 @@ def create_app() -> FastAPI:
         public,      # Public (unauth) EOD report endpoints
         focus_list,  # Persisted daily focus list from AI Best Setups
         alert_config,  # Per-alert-type enable/disable toggles
+        regime_config,  # Spec 61 — market-gate exempt allow-lists
         earnings,    # Spec 61 — Watchlist earnings calendar + T-7 notifications
         screener,    # Spec 62 — In-Play Volume Screener
         fundamentals,  # Watchlist Details tab — fundamentals + analyst ratings + AI views
@@ -1313,6 +1323,7 @@ def create_app() -> FastAPI:
     app.include_router(auto_trades.router, prefix="/api/v1/auto-trades", tags=["auto-trades"])
     app.include_router(focus_list.router, prefix="/api/v1/ai", tags=["focus-list"])
     app.include_router(alert_config.router, prefix="/api/v1/alert-config", tags=["alert-config"])
+    app.include_router(regime_config.router, prefix="/api/v1/regime-config", tags=["regime-config"])
     app.include_router(earnings.router, prefix="/api/v1/earnings", tags=["earnings"])
     app.include_router(fundamentals.router, prefix="/api/v1/fundamentals", tags=["fundamentals"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
