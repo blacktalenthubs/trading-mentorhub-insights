@@ -784,7 +784,55 @@ def _spy_prior_levels(bars, last_date) -> tuple:
     return pdh, pdl, src
 
 
-def _regime_dict(today_bars, pdh, pdl, pdl_src, label) -> dict:
+def _rsi(closes: list, period: int = 14):
+    """Wilder's RSI on a close series. None if not enough data."""
+    if len(closes) < period + 1:
+        return None
+    import pandas as pd
+    s = pd.Series([float(c) for c in closes])
+    delta = s.diff()
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    ag, al = float(avg_gain.iloc[-1]), float(avg_loss.iloc[-1])
+    if al == 0:
+        return 100.0 if ag > 0 else None
+    rs = ag / al
+    return 100.0 - 100.0 / (1.0 + rs)
+
+
+def _fetch_daily_closes(product: str, is_crypto: bool, n: int = 45) -> list:
+    """Recent DAILY closes (last bar ~= today's running close). Alpaca daily for
+    stocks, Coinbase daily for crypto — both reliable in prod."""
+    try:
+        if is_crypto:
+            from analytics.intraday_data import _fetch_coinbase_candles
+            df = _fetch_coinbase_candles(product, granularity=86400, num_candles=n)
+        else:
+            from analytics.intraday_data import _fetch_alpaca_bars
+            df = _fetch_alpaca_bars(product, interval="1d", hours_back=24 * (n + 12))
+        if df is None or df.empty:
+            return []
+        return [float(x) for x in df["Close"].tail(n)]
+    except Exception:
+        return []
+
+
+def _daily_rsi(product: str, is_crypto: bool, period: int = 14):
+    """Daily RSI(14) for the regime banner — context, not a gate. Cached 5 min
+    (RSI moves slowly). < 30 oversold (reversal watch / in a crash, wait),
+    > 73 overbought (trade light, reduce overnight)."""
+    key = f"daily_rsi:{product}"
+    cached = cache_get(key)
+    if isinstance(cached, dict):
+        return cached.get("rsi")
+    rsi = _rsi(_fetch_daily_closes(product, is_crypto), period)
+    cache_set(key, {"rsi": rsi}, 300)
+    return rsi
+
+
+def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
     """Shared regime computation from ONE session's bars + prior levels —
     used by both SPY (Alpaca) and BTC (Coinbase). Computes session VWAP/slope,
     inside-day, below_pdl, and the bias label. `label` is the market name for
@@ -843,6 +891,11 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label) -> dict:
         bias_label = "Neutral — no clean direction"
         bias_color = "gray"
 
+    # RSI context (daily) — informs sizing, not a gate.
+    rsi_zone = None
+    if rsi is not None:
+        rsi_zone = "oversold" if rsi < 30 else "overbought" if rsi > 73 else "neutral"
+
     return {
         "status": "ok",
         "price": round(last_price, 2),
@@ -853,6 +906,8 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label) -> dict:
         "pdl": pdl,
         "below_pdl": below_pdl,
         "inside_day": inside_day,
+        "rsi": round(rsi, 1) if rsi is not None else None,
+        "rsi_zone": rsi_zone,
         "bias": bias,
         "bias_label": bias_label,
         "bias_color": bias_color,
@@ -877,7 +932,7 @@ def _compute_spy_regime() -> dict:
         return {"status": "unavailable", "reason": "no today bars"}
 
     pdh, pdl, src = _spy_prior_levels(bars, last_date)
-    return _regime_dict(today_bars, pdh, pdl, src, "SPY")
+    return _regime_dict(today_bars, pdh, pdl, src, "SPY", rsi=_daily_rsi("SPY", False))
 
 
 def _crypto_prior_levels(product: str, last_date, prior: dict) -> tuple:
@@ -912,7 +967,7 @@ def _compute_btc_regime() -> dict:
 
     last_date = today_bars.index[-1].date()
     pdh, pdl, src = _crypto_prior_levels("BTC-USD", last_date, prior)
-    return _regime_dict(today_bars, pdh, pdl, src, "BTC")
+    return _regime_dict(today_bars, pdh, pdl, src, "BTC", rsi=_daily_rsi("BTC-USD", True))
 
 
 # ── Premarket Gap Board ──────────────────────────────────────────────

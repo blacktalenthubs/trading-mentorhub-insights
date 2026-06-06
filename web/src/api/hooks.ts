@@ -710,6 +710,8 @@ export interface SpyRegimeSnapshot {
   pdl?: number | null;
   below_pdl?: boolean;   // SPY under its prior-day low → buy alerts suppressed
   inside_day?: boolean;
+  rsi?: number | null;                                  // daily RSI(14)
+  rsi_zone?: "oversold" | "overbought" | "neutral" | null;
   bias?: "LONG" | "WAIT" | "NEUTRAL" | "STAND_DOWN";
   bias_label?: string;
   bias_color?: "green" | "amber" | "red" | "gray";
