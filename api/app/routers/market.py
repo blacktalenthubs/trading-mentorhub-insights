@@ -802,16 +802,18 @@ def _rsi(closes: list, period: int = 14):
     return 100.0 - 100.0 / (1.0 + rs)
 
 
-def _fetch_daily_closes(product: str, is_crypto: bool, n: int = 45) -> list:
-    """Recent DAILY closes (last bar ~= today's running close). Alpaca daily for
-    stocks, Coinbase daily for crypto — both reliable in prod."""
+def _fetch_daily_closes(product: str, is_crypto: bool, n: int = 250) -> list:
+    """A YEAR of DAILY closes (last bar ~= today's running close). Wilder's RSI
+    needs a long warmup to match TradingView — feeding only a few recent bars
+    (e.g. just a selloff) reads artificially oversold. Alpaca daily for stocks,
+    Coinbase daily for crypto. Coinbase caps at 300 candles/request."""
     try:
         if is_crypto:
             from analytics.intraday_data import _fetch_coinbase_candles
-            df = _fetch_coinbase_candles(product, granularity=86400, num_candles=n)
+            df = _fetch_coinbase_candles(product, granularity=86400, num_candles=min(n, 300))
         else:
             from analytics.intraday_data import _fetch_alpaca_bars
-            df = _fetch_alpaca_bars(product, interval="1d", hours_back=24 * (n + 12))
+            df = _fetch_alpaca_bars(product, interval="1d", hours_back=24 * 370)  # ~1yr
         if df is None or df.empty:
             return []
         return [float(x) for x in df["Close"].tail(n)]
@@ -819,15 +821,20 @@ def _fetch_daily_closes(product: str, is_crypto: bool, n: int = 45) -> list:
         return []
 
 
+# Need ample warmup or Wilder's RSI is skewed by the recent window.
+_RSI_MIN_BARS = 50
+
+
 def _daily_rsi(product: str, is_crypto: bool, period: int = 14):
-    """Daily RSI(14) for the regime banner — context, not a gate. Cached 5 min
-    (RSI moves slowly). < 30 oversold (reversal watch / in a crash, wait),
-    > 73 overbought (trade light, reduce overnight)."""
+    """Daily RSI(14) for the regime banner — context, not a gate. Cached 5 min.
+    Returns None (no badge) rather than a wrong value when there aren't enough
+    daily bars to warm up. Zones: <= 30 oversold, >= 70 overbought."""
     key = f"daily_rsi:{product}"
     cached = cache_get(key)
     if isinstance(cached, dict):
         return cached.get("rsi")
-    rsi = _rsi(_fetch_daily_closes(product, is_crypto), period)
+    closes = _fetch_daily_closes(product, is_crypto)
+    rsi = _rsi(closes, period) if len(closes) >= _RSI_MIN_BARS else None
     cache_set(key, {"rsi": rsi}, 300)
     return rsi
 
@@ -891,10 +898,11 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
         bias_label = "Neutral — no clean direction"
         bias_color = "gray"
 
-    # RSI context (daily) — informs sizing, not a gate.
+    # RSI context (daily) — informs sizing, not a gate. <= 30 oversold,
+    # >= 70 overbought (standard 30/70 bands).
     rsi_zone = None
     if rsi is not None:
-        rsi_zone = "oversold" if rsi < 30 else "overbought" if rsi > 73 else "neutral"
+        rsi_zone = "oversold" if rsi <= 30 else "overbought" if rsi >= 70 else "neutral"
 
     return {
         "status": "ok",
