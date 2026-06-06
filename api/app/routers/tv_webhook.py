@@ -1810,6 +1810,14 @@ _SPY_SHORT_ACTION_RULES = {
     "tv_staged_pml_break",
 }
 
+# Index symbols allowed to fire SHORTs (spec 61, 2026-06-06). Was SPY-only;
+# extended to SPY/QQQ/IWM so you can short index breakdowns. Env-configurable.
+INDEX_SHORT_ALLOWLIST: frozenset[str] = frozenset(
+    s.strip().upper()
+    for s in os.getenv("INDEX_SHORT_ALLOWLIST", "SPY,QQQ,IWM").split(",")
+    if s.strip()
+)
+
 
 async def _route_alert(sig) -> tuple[bool, Optional[str]]:
     """Decide whether to deliver an alert and whether to downgrade direction.
@@ -1820,17 +1828,17 @@ async def _route_alert(sig) -> tuple[bool, Optional[str]]:
         - (False, None)  → suppress entirely (no DB row, no Telegram)
 
     Rules:
-        - BUY / LONG / NOTICE              → ACTION
-        - SHORT, symbol != SPY             → DROP
-        - SHORT, symbol == SPY, whitelist  → ACTION
-        - SHORT, symbol == SPY, other      → DROP
+        - BUY / LONG / NOTICE                     → ACTION
+        - SHORT, symbol not in index allow-list   → DROP
+        - SHORT, index symbol, whitelisted rule   → ACTION
+        - SHORT, index symbol, other rule         → DROP
     """
     direction = (sig.direction or "").upper()
 
     if direction not in ("SHORT", "SELL"):
         return True, None
 
-    if sig.symbol != "SPY":
+    if (sig.symbol or "").upper() not in INDEX_SHORT_ALLOWLIST:
         return False, None
 
     rule = (getattr(sig, "_tv_rule", "") or "").strip()

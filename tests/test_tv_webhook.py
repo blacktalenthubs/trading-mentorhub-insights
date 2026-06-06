@@ -587,14 +587,24 @@ class TestRoutingLogic:
         assert deliver is True
         assert downgrade is None
 
-    def test_non_spy_short_always_dropped(self):
-        """Equity shorts are noise regardless of regime — hard-drop."""
+    def test_non_index_short_always_dropped(self):
+        """Single-name equity shorts are noise — hard-drop. Only the index set
+        (SPY/QQQ/IWM) may short (spec 61)."""
         from api.app.routers.tv_webhook import _route_alert
-        for symbol in ("NVDA", "AAPL", "AMD", "GOOGL", "QQQ", "TSLA"):
+        for symbol in ("NVDA", "AAPL", "AMD", "GOOGL", "TSLA"):
             sig = _FakeSig(symbol, "SHORT", "staged_pdl_break")
             deliver, downgrade = _run(_route_alert(sig))
             assert deliver is False, f"{symbol} SHORT should drop"
             assert downgrade is None
+
+    def test_index_short_whitelisted_rules_action(self):
+        """SPY/QQQ/IWM shorts on the structural rules pass through (spec 61)."""
+        from api.app.routers.tv_webhook import _route_alert
+        for symbol in ("SPY", "QQQ", "IWM"):
+            for rule in ("staged_pdl_break", "staged_pdh_rejection"):
+                sig = _FakeSig(symbol, "SHORT", rule)
+                deliver, _ = _run(_route_alert(sig))
+                assert deliver is True, f"{symbol} {rule} SHORT should deliver"
 
     def test_spy_short_whitelisted_rules_action(self):
         """The 3 structural SPY SHORT rules pass through as ACTION."""

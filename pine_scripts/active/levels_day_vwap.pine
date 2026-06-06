@@ -1185,6 +1185,47 @@ if false and v2_break_pwh and v2_break_confluence
     t2_b = t2_extend_long(e_b, t1_b)
     alert(build_payload_v2("staged_pwh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
+// =====================================================================
+// Spec 61 (2026-06-06) — SPY/QQQ/IWM index SHORT alerts.
+// =====================================================================
+// Trade WITH the breakdown, not against it: short a CONFIRMED PDL break on
+// heavy volume (the same break that gates your longs off), and short a PDH
+// REJECTION (rallied into resistance, sellers defended it). Both confirm on a
+// CLOSE (red bar) — wick-only triggers get squeezed. Fires only on the index
+// allow-list; the backend short-routing delivers SPY/QQQ/IWM only. Pine fires
+// it (records for review); the Settings catalog toggle (default OFF) gates
+// Telegram until you trust the count. Structural stops above the level.
+fire_index_shorts = input.bool (true,  "Fire index SHORT alerts (PDL break / PDH rejection)", group = "Index shorts")
+short_index_list  = input.string("SPY,QQQ,IWM", "Symbols allowed to fire shorts (comma-separated)", group = "Index shorts")
+short_vol_min     = input.float (1.5,  "Short: min volume ratio (heavy volume)", minval = 1.0, step = 0.1, group = "Index shorts")
+_short_syms    = "," + str.replace_all(str.upper(short_index_list), " ", "") + ","
+is_short_index = str.contains(_short_syms, "," + str.upper(syminfo.ticker) + ",")
+
+pdl_break_short  = not na(pdl) and close < pdl and close < open and not na(volume_ratio) and volume_ratio >= short_vol_min
+pdh_reject_short = not na(pdh) and high >= pdh and close < pdh and close < open and not na(volume_ratio) and volume_ratio >= short_vol_min
+
+var bool pdl_break_fired  = false
+var bool pdh_reject_fired = false
+if session_open_now
+    pdl_break_fired  := false
+    pdh_reject_fired := false
+
+if fire_index_shorts and is_short_index and pdl_break_short and not pdl_break_fired
+    pdl_break_fired := true
+    e_sh  = close
+    s_sh  = pdl + atr_buffer
+    t1_sh = not na(pwl) and pwl < e_sh ? pwl : e_sh - atr_d
+    t2_sh = t1_sh - atr_d
+    alert(build_payload_v2("staged_pdl_break", "SHORT", e_sh, s_sh, t1_sh, t2_sh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+if fire_index_shorts and is_short_index and pdh_reject_short and not pdh_reject_fired
+    pdh_reject_fired := true
+    e_sh  = close
+    s_sh  = pdh + atr_buffer
+    t1_sh = not na(today_open) and today_open < e_sh ? today_open : e_sh - atr_d
+    t2_sh = not na(pdl) and pdl < t1_sh ? pdl : t1_sh - atr_d
+    alert(build_payload_v2("staged_pdh_rejection", "SHORT", e_sh, s_sh, t1_sh, t2_sh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
 // 2026-06-01 — staged_pmh_break DISABLED. Monthly TF too coarse for
 // intraday triggers; PMH stays drawn on chart as visual only.
 // if v2_break_pmh and v2_break_confluence
