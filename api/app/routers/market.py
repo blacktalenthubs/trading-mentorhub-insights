@@ -886,15 +886,17 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
         label, last_price, pdl, pdl_src, below_pdl,
     )
 
-    # Below PDL is the strongest stand-down signal and overrides everything.
-    abs_slope = abs(slope_pct)
+    # Range-relative first: below PDL = broke the floor (stand down); inside the
+    # prior range (neither PDH nor PDL broken) = INSIDE DAY regardless of the
+    # intraday VWAP slope — you're range-bound until a level breaks. Only when
+    # price is OUTSIDE the realized range do we fall back to a slope read.
     if below_pdl:
         bias = "STAND_DOWN"
         bias_label = f"Stand down — {label} below its prior-day low (broad-tape breakdown)"
         bias_color = "red"
-    elif inside_day and abs_slope < 0.05:
+    elif inside_day:
         bias = "WAIT"
-        bias_label = "Inside day — scalp edges, wait for break"
+        bias_label = "Inside day — within prior range (neither PDH nor PDL broken); wait for a break"
         bias_color = "amber"
     elif slope_pct >= 0.05 and last_price > last_vwap:
         bias = "LONG"
@@ -980,18 +982,30 @@ def _spy_regime_fresh() -> dict:
     return _regime_dict(today_bars, pdh, pdl, src, "SPY", rsi=_daily_rsi("SPY", False))
 
 
-def _crypto_prior_levels(product: str, last_date, prior: dict) -> tuple:
-    """Prior-day PDH/PDL for a crypto product — cached per date (static all day,
-    fresh each new day). Coinbase (via fetch_prior_day is_crypto=True) is
-    reliable in prod, so no Alpaca-style workaround is needed."""
+def _crypto_prior_levels(product: str, last_date) -> tuple:
+    """Prior-day PDH/PDL for a crypto product — taken straight from the last
+    COMPLETED Coinbase daily candle (iloc[-2]; iloc[-1] is the in-progress day),
+    which matches what the chart plots. We do NOT use fetch_prior_day's crypto
+    path: its iloc[-2 vs -1] 'market hours' logic is meaningless for a 24/7
+    market and returned the wrong candle (e.g. 59448 vs the chart's 59073),
+    making inside-day false and producing phantom below-PDL blocks. Cached 1h
+    (the UTC day boundary is fuzzy vs the ET intraday date)."""
     key = f"crypto_levels:{product}:{last_date.isoformat()}"
     cached = cache_get(key)
     if isinstance(cached, dict) and cached.get("pdl") is not None:
         return cached.get("pdh"), cached.get("pdl"), "cache"
-    pdh = float(prior["high"]) if prior.get("high") is not None else None
-    pdl = float(prior["low"]) if prior.get("low") is not None else None
+    pdh = pdl = None
+    try:
+        from analytics.intraday_data import _fetch_coinbase_candles
+        d = _fetch_coinbase_candles(product, granularity=86400, num_candles=5)
+        if d is not None and len(d) >= 2:
+            prior = d.iloc[-2]  # last fully-completed daily candle
+            pdh = float(prior["High"])
+            pdl = float(prior["Low"])
+    except Exception:
+        pass
     if pdl is not None:
-        cache_set(key, {"pdh": pdh, "pdl": pdl}, 8 * 3600)
+        cache_set(key, {"pdh": pdh, "pdl": pdl}, 3600)
     return pdh, pdl, "coinbase"
 
 
@@ -1004,20 +1018,19 @@ def _compute_btc_regime() -> dict:
 
 
 def _btc_regime_fresh() -> dict:
-    # fetch_intraday_crypto already chains Alpaca → Coinbase → yfinance, so the
-    # data path is robust; fetch_prior_day(is_crypto) uses Coinbase daily.
-    from analytics.intraday_data import fetch_intraday_crypto, fetch_prior_day
+    # fetch_intraday_crypto chains Alpaca → Coinbase → yfinance (robust). PDH/PDL
+    # come from the Coinbase daily candle directly (see _crypto_prior_levels).
+    from analytics.intraday_data import fetch_intraday_crypto
 
     try:
         today_bars = fetch_intraday_crypto("BTC-USD", "5m")  # already today-only
-        prior = fetch_prior_day("BTC-USD", is_crypto=True) or {}
     except Exception:
         return {"status": "unavailable", "reason": "data fetch failed"}
     if today_bars is None or len(today_bars) == 0:
         return {"status": "unavailable", "reason": "no BTC bars"}
 
     last_date = today_bars.index[-1].date()
-    pdh, pdl, src = _crypto_prior_levels("BTC-USD", last_date, prior)
+    pdh, pdl, src = _crypto_prior_levels("BTC-USD", last_date)
     return _regime_dict(today_bars, pdh, pdl, src, "BTC", rsi=_daily_rsi("BTC-USD", True))
 
 
