@@ -1,0 +1,99 @@
+// @version=5
+//
+// Multi-touch levels — double / triple TOPS & BOTTOMS (VISUAL). Daily charts.
+//
+// Your framing: "multiple days of lows are the same → double bottom; multiple
+// days of tops near the same → double top." So this finds horizontal levels
+// TESTED MULTIPLE TIMES, not just two back-to-back pivots:
+//   • a cluster of swing LOWS  within tolerance → support  (green) — "N× bottom"
+//   • a cluster of swing HIGHS within tolerance → resistance (red) — "N× top"
+//
+// How: every confirmed pivot is compared against ALL recent pivots of the same
+// type (within `tol_pct` and `max_age` bars). The count of matches + 1 = how
+// many times the level's been tested; the line is drawn at the support (lowest)
+// / resistance (highest) edge of the cluster and labeled 2×, 3×, …
+//
+// Visual-first: load on the daily, tune pivot strength / tolerance / min-touches
+// until the lines match the double tops/bottoms you'd mark by eye. Once it maps
+// cleanly we wire alerts off these levels (reclaim of a 2× bottom, reject at a
+// 2× top, break of a triple, etc.).
+//
+// Pine v5 notes: every function call on one line; `and`/`or` not short-circuited
+// (array reads guarded before the condition); standalone `if` (no type clash).
+//
+indicator("Multi-touch Levels (Double Tops/Bottoms)", "MultiTB", overlay = true, max_lines_count = 200, max_labels_count = 200)
+
+// ── Detection ───────────────────────────────────────────────────────
+piv_len     = input.int  (3,    "Pivot strength (bars each side)", minval = 1, group = "Detection", tooltip = "A pivot low is the lowest low with this many higher lows on each side. 3 → an 7-bar swing.")
+tol_pct     = input.float(0.5,  "Match tolerance % (how close two lows/highs must be)", minval = 0.05, maxval = 3.0, step = 0.05, group = "Detection")
+max_age     = input.int  (60,   "Max bars between the touches", minval = 2, group = "Detection", tooltip = "Touches older than this no longer count toward a level. 60 ≈ 3 trading months on the daily.")
+min_touches = input.int  (2,    "Min touches to draw (2 = double, 3 = triple)", minval = 2, maxval = 6, group = "Detection")
+
+// ── Display ─────────────────────────────────────────────────────────
+show_bot = input.bool(true, "Double bottoms (support)", group = "Display")
+show_top = input.bool(true, "Double tops (resistance)", group = "Display")
+ext_r    = input.bool(true, "Extend level lines to the right", group = "Display")
+show_piv = input.bool(true, "Mark raw pivots", group = "Display")
+
+// ── Confirmed pivots (print piv_len bars after they occur) ──────────
+ph = ta.pivothigh(high, piv_len, piv_len)
+pl = ta.pivotlow (low,  piv_len, piv_len)
+piv_b = bar_index - piv_len   // the bar where the pivot actually happened
+
+// Recent pivots — parallel (price, bar) arrays, pruned to the last 40.
+var array<float> lowP  = array.new_float()
+var array<int>   lowB  = array.new_int()
+var array<float> highP = array.new_float()
+var array<int>   highB = array.new_int()
+
+// ── Double / triple BOTTOM ──────────────────────────────────────────
+if not na(pl) and show_bot
+    cnt      = 0
+    earliest = piv_b
+    lvl      = pl
+    sz = array.size(lowP)
+    if sz > 0
+        for i = sz - 1 to 0
+            pp = array.get(lowP, i)
+            pb = array.get(lowB, i)
+            if (pp > 0) and (math.abs(pl - pp) / pp * 100.0 <= tol_pct) and ((piv_b - pb) <= max_age)
+                cnt := cnt + 1
+                earliest := math.min(earliest, pb)
+                lvl := math.min(lvl, pp)
+    if cnt + 1 >= min_touches
+        line.new(earliest, lvl, piv_b, lvl, xloc = xloc.bar_index, color = color.new(color.lime, 0), width = 2, extend = ext_r ? extend.right : extend.none)
+        label.new(piv_b, lvl, str.tostring(cnt + 1) + "× bottom " + str.tostring(lvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(color.lime, 55), textcolor = color.white, size = size.small)
+if not na(pl)
+    array.push(lowP, pl)
+    array.push(lowB, piv_b)
+    if array.size(lowP) > 40
+        array.shift(lowP)
+        array.shift(lowB)
+
+// ── Double / triple TOP ─────────────────────────────────────────────
+if not na(ph) and show_top
+    cnt2      = 0
+    earliest2 = piv_b
+    lvl2      = ph
+    sz2 = array.size(highP)
+    if sz2 > 0
+        for j = sz2 - 1 to 0
+            pp2 = array.get(highP, j)
+            pb2 = array.get(highB, j)
+            if (pp2 > 0) and (math.abs(ph - pp2) / pp2 * 100.0 <= tol_pct) and ((piv_b - pb2) <= max_age)
+                cnt2 := cnt2 + 1
+                earliest2 := math.min(earliest2, pb2)
+                lvl2 := math.max(lvl2, pp2)
+    if cnt2 + 1 >= min_touches
+        line.new(earliest2, lvl2, piv_b, lvl2, xloc = xloc.bar_index, color = color.new(color.red, 0), width = 2, extend = ext_r ? extend.right : extend.none)
+        label.new(piv_b, lvl2, str.tostring(cnt2 + 1) + "× top " + str.tostring(lvl2, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 55), textcolor = color.white, size = size.small)
+if not na(ph)
+    array.push(highP, ph)
+    array.push(highB, piv_b)
+    if array.size(highP) > 40
+        array.shift(highP)
+        array.shift(highB)
+
+// ── Raw pivot markers (dots at the actual pivot bar) ───────────────
+plotshape(show_piv and not na(pl), title = "pivot low",  location = location.belowbar, style = shape.circle, size = size.tiny, color = color.new(color.green, 35), offset = -piv_len)
+plotshape(show_piv and not na(ph), title = "pivot high", location = location.abovebar, style = shape.circle, size = size.tiny, color = color.new(color.red, 35),   offset = -piv_len)
