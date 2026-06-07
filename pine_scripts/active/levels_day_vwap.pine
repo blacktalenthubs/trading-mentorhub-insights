@@ -1718,3 +1718,61 @@ near_pct(float lvl, float pct) =>
 htf_prox_count = (near_pct(pwh, htf_proximity_pct) ? 1 : 0) + (near_pct(pwl, htf_proximity_pct) ? 1 : 0) + (near_pct(pmh, htf_proximity_pct) ? 1 : 0) + (near_pct(pml, htf_proximity_pct) ? 1 : 0)
 // Spec 58 (2026-05-23 night) — htf_proximity NOTICE alert removed (long-only).
 // htf_prox_count still computed in case htf_support_held wants confluence context.
+
+// ═══════════════════════════════════════════════════════════════════════
+// Weekly Stage alerts (spec 61, 2026-06-07) — fire the long-term RC/BUY/ADD/
+// EXIT through THIS indicator's existing alert (TradingView caps the watchlist
+// at 2 alerts). VISUALS live in the separate "WkStage" indicator; this block is
+// ALERTS ONLY (no plots). Computed on the weekly via request.security so it's
+// correct regardless of the chart TF the alert is set on; fires ~once/week.
+// ═══════════════════════════════════════════════════════════════════════
+wk_alerts    = input.bool(true,  "Weekly Stage alerts (RC/BUY/ADD/EXIT)", group = "Weekly Stage alerts")
+wk_ma_len    = input.int  (30,   "Weekly — MA length (weeks)", minval = 5, group = "Weekly Stage alerts")
+wk_slope_lb  = input.int  (4,    "Weekly — slope lookback", minval = 1, group = "Weekly Stage alerts")
+wk_slope_thr = input.float(0.5,  "Weekly — flat band %", minval = 0.0, step = 0.05, group = "Weekly Stage alerts")
+wk_ma_buf    = input.float(3.0,  "Weekly — pullback buffer %", minval = 0.0, step = 0.5, group = "Weekly Stage alerts")
+
+f_wkstage() =>
+    _m = ta.sma(close, wk_ma_len)
+    _sl = _m[wk_slope_lb] != 0 ? (_m - _m[wk_slope_lb]) / _m[wk_slope_lb] * 100.0 : 0.0
+    _rising = _sl > wk_slope_thr
+    _above = close > _m
+    _maup = _m > _m[wk_slope_lb]
+    _buy = (not na(_m)) and (close > _m) and (close[1] <= _m[1]) and _maup
+    _trail = low[1]
+    var bool _inp = false
+    _b = _buy and (not _inp)
+    _x = _inp and (not na(_trail)) and (close < _trail)
+    if _b
+        _inp := true
+    if _x
+        _inp := false
+    _inzone = (not na(_m)) and (low <= _m * (1.0 + wk_ma_buf / 100.0)) and (close > _m)
+    _add = _rising and _above and _inzone and (low[1] > _m[1] * (1.0 + wk_ma_buf / 100.0))
+    _rcbase = (low < low[1]) and (close > low[1]) and (not na(_m))
+    _rcb = _rcbase and (close < _m)
+    _rca = _rcbase and (close >= _m)
+    [_m, _b, _x, _trail, _add, _rcb, _rca, low]
+
+[wk_ma, wk_buy, wk_exit, wk_trail, wk_add, wk_rcb, wk_rca, wk_low] = request.security(syminfo.tickerid, "W", f_wkstage(), lookahead = barmerge.lookahead_off)
+
+if wk_alerts and wk_buy and not wk_buy[1]
+    wbn = "BUY · Stage 2 (close above rising 30wMA) · stop " + str.tostring(wk_trail, format.mintick)
+    wbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_trail, format.mintick) + '","note":"' + wbn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(wbp, alert.freq_once_per_bar_close)
+if wk_alerts and wk_add and not wk_add[1]
+    wadn = "ADD · pullback to the rising MA · stop " + str.tostring(wk_ma, format.mintick)
+    wadp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_ma, format.mintick) + '","note":"' + wadn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(wadp, alert.freq_once_per_bar_close)
+if wk_alerts and wk_rcb and not wk_rcb[1]
+    wrbn = "RC · bottoming (undercut & reclaim, below MA) · stop " + str.tostring(wk_low, format.mintick)
+    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(wrbp, alert.freq_once_per_bar_close)
+if wk_alerts and wk_rca and not wk_rca[1]
+    wran = "rc · in-uptrend dip-reclaim (above MA) · stop " + str.tostring(wk_low, format.mintick)
+    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(wrap, alert.freq_once_per_bar_close)
+if wk_alerts and wk_exit and not wk_exit[1]
+    wxn = "EXIT · weekly close below the trail " + str.tostring(wk_trail, format.mintick)
+    wxp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_trail, format.mintick) + '","note":"' + wxn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(wxp, alert.freq_once_per_bar_close)
