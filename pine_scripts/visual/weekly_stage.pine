@@ -33,6 +33,7 @@ piv_lb    = input.int(3, "Swing-low strength (Swing-low mode only)", minval = 1,
 
 show_add  = input.bool(true, "Mark pullback-to-MA 'ADD' (MA = support in Stage 2)", group = "Entry")
 ma_buf    = input.float(3.0, "Pullback buffer % — how near the rising MA counts as a test", minval = 0.0, step = 0.5, group = "Entry")
+show_rc   = input.bool(true, "Mark prior-week-low undercut & reclaim (bottoming tell, below MA)", group = "Entry")
 
 ma    = ta.sma(close, ma_len)
 slope = ma[slope_lb] != 0 ? (ma - ma[slope_lb]) / ma[slope_lb] * 100.0 : 0.0
@@ -86,6 +87,13 @@ plotshape(show_sig and exit_sig, title = "exit", style = shape.triangledown, loc
 in_ma_zone = (not na(ma)) and (low <= ma * (1.0 + ma_buf / 100.0)) and (close > ma)
 add_sig = show_add and rising and (stage == 2) and in_ma_zone and (low[1] > ma[1] * (1.0 + ma_buf / 100.0))
 plotshape(add_sig, title = "add", style = shape.circle, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "ADD")
+
+// Undercut & reclaim of the PRIOR WEEK's low, BELOW the MA — the bottoming tell:
+// price runs the stops under last week's low, then CLOSES back above it. Often
+// the first sign a Stage-4 decline is ending, well before the MA turns up. Shown
+// (yellow ◆ RC) so you can eyeball these early reversals against the trend signals.
+rc_sig = show_rc and (low < low[1]) and (close > low[1]) and (not na(ma)) and (close < ma)
+plotshape(rc_sig, title = "reclaim", style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.tiny, text = "RC")
 
 bg = stage == 2 ? color.new(color.lime, 92) : stage == 4 ? color.new(color.red, 92) : stage == 3 ? color.new(color.orange, 94) : stage == 1 ? color.new(color.gray, 95) : na
 bgcolor(show_bg ? bg : na, title = "stage tint")
