@@ -53,11 +53,24 @@ stage = cur != 0 ? cur : (last_trend == 2 ? 3 : (last_trend == 4 ? 1 : 0))
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
 plot(ma, "30wMA", color = stage_col, linewidth = 2)
 
-// Weekly open — pulled from the W timeframe so it's correct on any chart TF
-// (on the weekly it's this bar's open; on a daily/intraday it's a flat line at
-// the week's open across the week). Above it = week bid, below = offered.
+// Weekly open — ONE horizontal line at the CURRENT week's open, anchored at the
+// week's first bar and extended right, so you watch how price treats this week's
+// open all week (best on a lower TF). Rolls to the new open each Monday. Pulled
+// from the W timeframe so it's correct on any chart TF. Above = week bid, below
+// = offered.
 wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
-plot(show_wo ? wk_open : na, "Weekly open", color = color.new(color.blue, 0), style = plot.style_stepline, linewidth = 1)
+var int wk_start = bar_index
+if wk_open != wk_open[1]
+    wk_start := bar_index
+var line  wo_line = na
+var label wo_lab  = na
+if show_wo and barstate.islast
+    if not na(wo_line)
+        line.delete(wo_line)
+    if not na(wo_lab)
+        label.delete(wo_lab)
+    wo_line := line.new(wk_start, wk_open, bar_index, wk_open, xloc = xloc.bar_index, extend = extend.right, color = color.new(color.blue, 0), width = 1, style = line.style_dashed)
+    wo_lab := label.new(bar_index, wk_open, "wk open " + str.tostring(wk_open, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(color.blue, 85), textcolor = color.new(color.blue, 0), size = size.tiny)
 
 // Entry = enters Stage 2 (close above a rising 30wMA).
 // Exit  = a weekly close below the TRAILING STOP. Default "Prior week low" rides
