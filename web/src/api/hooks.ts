@@ -1920,6 +1920,7 @@ export interface AlertTypeConfigItem {
   label: string;
   category: string;
   enabled: boolean;
+  description?: string;
 }
 
 export function useAlertConfig() {
