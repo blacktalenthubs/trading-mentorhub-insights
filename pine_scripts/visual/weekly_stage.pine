@@ -27,6 +27,7 @@ slope_lb  = input.int  (4,   "Slope lookback (weeks)", minval = 1, group = "Tren
 slope_thr = input.float(0.5, "Min |slope %| to count as rising/falling — BELOW this = FLAT (chop, no Stage 2/4). Higher = stricter, fewer chop entries", minval = 0.0, step = 0.05, group = "Trend")
 show_sig  = input.bool(true, "Entry / exit markers", group = "Display")
 show_bg   = input.bool(true, "Stage background tint", group = "Display")
+show_wo   = input.bool(true, "Weekly open line (this week's open as a reference)", group = "Display")
 
 exit_mode = input.string("Prior week low", "Trailing stop / exit rule", options = ["Prior week low", "Swing low", "30-week MA"], group = "Exit")
 piv_lb    = input.int(3, "Swing-low strength (Swing-low mode only)", minval = 1, group = "Exit")
@@ -51,6 +52,12 @@ stage = cur != 0 ? cur : (last_trend == 2 ? 3 : (last_trend == 4 ? 1 : 0))
 
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
 plot(ma, "30wMA", color = stage_col, linewidth = 2)
+
+// Weekly open — pulled from the W timeframe so it's correct on any chart TF
+// (on the weekly it's this bar's open; on a daily/intraday it's a flat line at
+// the week's open across the week). Above it = week bid, below = offered.
+wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
+plot(show_wo ? wk_open : na, "Weekly open", color = color.new(color.blue, 0), style = plot.style_stepline, linewidth = 1)
 
 // Entry = enters Stage 2 (close above a rising 30wMA).
 // Exit  = a weekly close below the TRAILING STOP. Default "Prior week low" rides
