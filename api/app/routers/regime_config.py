@@ -24,6 +24,7 @@ router = APIRouter()
 class RegimeConfigUpdate(BaseModel):
     index_exempt: Optional[str] = None   # comma-separated stock symbols
     crypto_exempt: Optional[str] = None  # comma-separated crypto symbols
+    alert_symbols: Optional[str] = None  # symbols allowed to fire info alerts
 
 
 def _norm(s: str) -> str:
@@ -61,6 +62,7 @@ async def set_regime_config(
     updates = {
         "index_exempt": body.index_exempt,
         "crypto_exempt": body.crypto_exempt,
+        "alert_symbols": body.alert_symbols,
     }
     for key, raw in updates.items():
         if raw is None:

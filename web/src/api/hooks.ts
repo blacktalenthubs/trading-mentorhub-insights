@@ -1935,6 +1935,7 @@ export function useAlertConfig() {
 export interface RegimeExemptConfig {
   index_exempt: string;   // comma-separated stocks
   crypto_exempt: string;  // comma-separated crypto
+  alert_symbols: string;  // symbols allowed to fire info alerts (multi-touch / gap)
 }
 
 export function useRegimeConfig() {

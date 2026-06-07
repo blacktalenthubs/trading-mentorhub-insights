@@ -28,9 +28,9 @@ hide_filled = input.bool(true, "Remove a gap once filled", group = "Display")
 
 // ── Alerts (informational — price interacting with an unfilled gap) ──
 fire_alerts   = input.bool(true,  "Fire gap alerts (info)", group = "Alerts")
-alert_symbols = input.string("SPY,NBIS", "Symbols allowed to alert (raw TV tickers, comma-sep)", group = "Alerts")
+alert_symbols = input.string("", "Pine-side symbol filter (blank = all; manage the real list in Settings)", group = "Alerts")
 _alert_syms = "," + str.replace_all(str.upper(alert_symbols), " ", "") + ","
-is_alert_sym = str.contains(_alert_syms, "," + str.upper(syminfo.ticker) + ",")
+is_alert_sym = (str.replace_all(alert_symbols, " ", "") == "") or str.contains(_alert_syms, "," + str.upper(syminfo.ticker) + ",")
 
 // Unfilled gaps — parallel arrays (top, bottom, bar, is-up) + draw handles.
 var array<float> gTop = array.new_float()

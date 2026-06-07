@@ -1086,6 +1086,34 @@ function MarketGateSection() {
   );
 }
 
+function InfoAlertSymbolsSection() {
+  const { data, isLoading } = useRegimeConfig();
+  const update = useUpdateRegimeConfig();
+  const toList = (s?: string) =>
+    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
+
+  return (
+    <Section title="Info-alert symbols" icon={<Zap className="h-4 w-4 text-accent" />}>
+      <p className="text-xs text-text-muted mb-4">
+        Which symbols fire the <strong>informational</strong> alerts — multi-touch
+        level crosses and gap entered/filled. The indicators fire broadly; only
+        these symbols are kept. Add a stock here to start watching it — no need to
+        edit the Pine. Toggle the alerts themselves on/off in <strong>Alert Types</strong> above.
+      </p>
+      {isLoading ? (
+        <div className="text-xs text-text-faint">Loading…</div>
+      ) : (
+        <ExemptListEditor
+          label="Symbols that fire multi-touch & gap alerts"
+          hint="e.g. SPY, NBIS, QQQ. Applies to both the level-cross and gap alerts."
+          list={toList(data?.alert_symbols)}
+          onSave={(l) => update.mutate({ alert_symbols: l.join(",") })}
+        />
+      )}
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -1118,6 +1146,9 @@ export default function SettingsPage() {
 
         {/* Regime-gate exempt symbols */}
         <MarketGateSection />
+
+        {/* Which symbols fire the info alerts (multi-touch / gap) */}
+        <InfoAlertSymbolsSection />
 
         {/* Referral program */}
         <ReferralSection />
