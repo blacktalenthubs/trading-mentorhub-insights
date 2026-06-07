@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.alert_type_config import AlertTypeConfig
+from app.models.alert_type_config import AlertTypeConfig, describe_alert_type
 from app.models.user import User
 
 router = APIRouter()
@@ -40,6 +40,7 @@ async def list_alert_config(
             "label": r.label,
             "category": r.category,
             "enabled": r.enabled,
+            "description": describe_alert_type(r.alert_type),
         }
         for r in rows
     ]
