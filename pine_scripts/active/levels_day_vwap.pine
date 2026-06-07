@@ -1776,3 +1776,28 @@ if wk_alerts and wk_exit and not wk_exit[1]
     wxn = "EXIT · weekly close below the trail " + str.tostring(wk_trail, format.mintick)
     wxp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_trail, format.mintick) + '","note":"' + wxn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wxp, alert.freq_once_per_bar_close)
+
+// ═══════════════════════════════════════════════════════════════════════
+// 4h RC alerts (spec 61, 2026-06-07) — undercut & reclaim on the 4h, fired
+// through THIS indicator's alert. RC LONG (reclaim of the prior 4h low) for the
+// WHOLE watchlist; RC SHORT (rejection at the prior 4h high) for SPY/QQQ only.
+// Informational NOTICE — the chart tells the details, not every one is an entry.
+// Stop = the wick (the undercut low / the reject high). Visuals live in "RC4h".
+// Pulled from the 4h via request.security so it's right on any chart TF; fires
+// once per 4h candle when it occurs (~<=1/day per name).
+// ═══════════════════════════════════════════════════════════════════════
+rc4_alerts = input.bool(true, "4h RC alerts (long = watchlist · short = SPY/QQQ)", group = "4h RC alerts")
+
+[rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
+rc4_long   = (rc4_low < rc4_plow) and (rc4_close > rc4_plow)
+rc4_short  = (rc4_high > rc4_phigh) and (rc4_close < rc4_phigh)
+rc4_is_idx = (syminfo.ticker == "SPY") or (syminfo.ticker == "QQQ")
+
+if rc4_alerts and rc4_long and not rc4_long[1]
+    rcln = "RC LONG · 4h undercut & reclaim of prior low · stop = wick low " + str.tostring(rc4_low, format.mintick)
+    rclp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rcln + '","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(rclp, alert.freq_once_per_bar_close)
+if rc4_alerts and rc4_is_idx and rc4_short and not rc4_short[1]
+    rcsn = "RC SHORT · 4h rejection at prior high · stop = wick high " + str.tostring(rc4_high, format.mintick)
+    rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(rcsp, alert.freq_once_per_bar_close)
