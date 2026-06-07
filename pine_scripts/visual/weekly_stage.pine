@@ -23,7 +23,7 @@ indicator("Weekly Stage (Weinstein)", "WkStage", overlay = true, max_labels_coun
 
 ma_len    = input.int  (30,  "Trend MA length (weeks)", minval = 5, group = "Trend")
 slope_lb  = input.int  (4,   "Slope lookback (weeks)", minval = 1, group = "Trend")
-slope_thr = input.float(0.1, "Flat band — |slope %| below this = flat", minval = 0.0, step = 0.05, group = "Trend")
+slope_thr = input.float(0.5, "Min |slope %| to count as rising/falling — BELOW this = FLAT (chop, no Stage 2/4). Higher = stricter, fewer chop entries", minval = 0.0, step = 0.05, group = "Trend")
 show_sig  = input.bool(true, "Entry / exit markers", group = "Display")
 show_bg   = input.bool(true, "Stage background tint", group = "Display")
 
