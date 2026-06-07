@@ -36,7 +36,7 @@ delivered with **full transparency of strategies** and a strict **education-not-
 
 | Value | What it means on social |
 |-------|-------------------------|
-| **You decide** | "AI finds the setup, you make the call." Never a recommendation. |
+| **You decide** | The desk surfaces the setup; you make the call. Never a recommendation. |
 | **Radical transparency** | Public EOD reports; losses shown with equal detail to wins; real outcomes, not synthetic win rates. |
 | **Education first** | Every observation links to a teachable, documented pattern. |
 | **Built for busy professionals** | 30–60 min/day, not chart-all-day. |
@@ -101,8 +101,12 @@ story, which is exactly the weekend additions.
 - **Fri 5 PM** — Weekly retrospective thread (wins **and** losses, per pattern)
 
 **Bio:**
-> AI-powered trade research for people with day jobs. Setups graded A/B/C, real outcomes,
-> public EOD reports. Educational — not financial advice. 👇 tradingwithai.ai/tw
+> Trade & invest research for people with day jobs. Documented patterns, A/B/C-graded
+> setups, public EOD reports — short-term to long-term. Educational, not financial advice.
+> 👇 tradingwithai.ai/tw
+
+*(Positioning note: lead with the substance — patterns, strategies, transparency. Automated
+scanning is a mechanism, not the headline; AI is one tool inside the desk, not the product.)*
 
 ## Instagram — weekly rhythm
 
@@ -170,7 +174,8 @@ Attribution captured on signup, visible at `/admin`.
 1. **Naming consolidation** — `BusyTradersDesk` (brand) vs `tradesignalwithai.com` (domain) vs
    `tradingwithai.ai` (short links). Handle resolved to `@BusyTradersDesk`; confirm the public
    domain shown in bios.
-2. **Founder voice vs faceless** — current default is faceless (AI is the product). Confirm.
+2. **Founder voice vs faceless** — current default is faceless: the strategies, patterns, and
+   transparent track record are the product, not a founder persona (and not "AI" as the headline). Confirm.
 3. **Cross-post automation** — manual at launch; revisit Buffer/Make automation after week 4.
 
 ## Out of scope (v1)
