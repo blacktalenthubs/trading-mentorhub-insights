@@ -11,7 +11,8 @@
 //   Stage 3  Topping      — flat MA after an advance; tighten / trim.
 //   Stage 4  Declining    — price BELOW a FALLING MA; out / avoid.
 //
-// Markers: ▲ BUY when it enters Stage 2; ▼ EXIT on a weekly close below the MA.
+// Markers: ▲ BUY = weekly close back above a RISING MA (the break itself, not
+// a lagging slope-threshold cross); ▼ EXIT on the trailing-stop break.
 // Stage is a small state machine: definitive Stage 2 (above+rising) or 4
 // (below+falling); when the MA goes flat it's Stage 3 if we were just advancing,
 // Stage 1 if we were just declining.
@@ -61,8 +62,13 @@ if not na(sw_piv)
     swing_low := sw_piv
 trail = exit_mode == "Prior week low" ? low[1] : (exit_mode == "Swing low" ? swing_low : ma)
 
+// BUY = the BREAK itself: a weekly CLOSE back above the MA while the MA is
+// RISING (net up over slope_lb weeks). This fires at the reclaim, not weeks
+// later when the 4-week slope finally clears the 0.5% band. The MA-rising gate
+// keeps it out of flat-MA chop (a reclaim of a flat/declining MA won't fire).
 var bool in_pos = false
-buy_sig  = (stage == 2) and (stage[1] != 2) and (not in_pos)
+ma_up   = ma > ma[slope_lb]
+buy_sig  = (not in_pos) and (close > ma) and (close[1] <= ma[1]) and ma_up
 exit_sig = in_pos and (not na(trail)) and (close < trail)
 if buy_sig
     in_pos := true
