@@ -1,0 +1,32 @@
+// @version=5
+//
+// 4h Reclaim (RC) — undercut & reclaim of the PRIOR candle's low. TEST / VISUAL.
+//
+// The intraday reversal tell: this candle WICKS BELOW the prior candle's low
+// (runs the stops) but CLOSES BACK ABOVE it — the undercut wick is rejected, so
+// the low is likely in. Load on the 4h (works on any TF, "prior candle" = the
+// chart's prior bar). Pure visual — no alerts, just markers to eyeball whether
+// it catches reversals on SPY/QQQ/AAPL/GOOGL over a week.
+//
+//   ▲ RC  = low < prior low AND close > prior low (undercut then reclaim).
+//   dashed line = the reclaimed level (the prior low) — a defended support to
+//   watch / bounce intraday.
+//
+// Optional min lower-wick filter isolates the *sharp* undercut-and-reject
+// candles (where the reversal signal is strongest) from shallow dips.
+//
+indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
+
+min_wick_pct = input.float(0.0, "Min lower-wick % of candle range (0 = all reclaims)", minval = 0.0, maxval = 90.0, step = 0.5, group = "Detection")
+show_lvl     = input.bool(true, "Draw the reclaimed level (prior low) line", group = "Display")
+lvl_bars     = input.int(24, "Extend the level this many bars", minval = 1, group = "Display")
+
+rng        = high - low
+lower_wick = math.min(open, close) - low
+wick_ok    = rng > 0 ? (lower_wick / rng * 100.0 >= min_wick_pct) : false
+rc = (low < low[1]) and (close > low[1]) and ((min_wick_pct <= 0.0) or wick_ok)
+
+plotshape(rc, title = "RC", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
+
+if show_lvl and rc
+    line.new(bar_index, low[1], bar_index + lvl_bars, low[1], xloc = xloc.bar_index, color = color.new(color.lime, 30), width = 1, style = line.style_dashed)
