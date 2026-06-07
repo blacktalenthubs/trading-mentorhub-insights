@@ -20,6 +20,8 @@ indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max
 min_wick_pct = input.float(0.0, "Min wick % of candle range (0 = all)", minval = 0.0, maxval = 90.0, step = 0.5, group = "Detection")
 show_long    = input.bool(true, "▲ RC long — reclaim of prior LOW (undercut & reclaim, green)", group = "Detection")
 show_short   = input.bool(true, "▼ rejection short — failed break of prior HIGH (wick above, close back below, red)", group = "Detection")
+vol_len      = input.int(20,  "Volume average length", minval = 1, group = "Detection")
+vol_min      = input.float(0.0, "Min volume vs average (0 = off · 1.5 = need 50% above avg = a real sweep)", minval = 0.0, step = 0.1, group = "Detection")
 show_lvl     = input.bool(true, "Draw the reclaimed/rejected level line", group = "Display")
 lvl_bars     = input.int(24, "Extend the level this many bars", minval = 1, group = "Display")
 
@@ -29,10 +31,15 @@ upper_wick = high - math.max(open, close)
 lwick_ok   = rng > 0 ? (lower_wick / rng * 100.0 >= min_wick_pct) : false
 uwick_ok   = rng > 0 ? (upper_wick / rng * 100.0 >= min_wick_pct) : false
 
+// Volume confirmation — a wick-reject on ABOVE-AVERAGE volume = more stops swept,
+// more trapped traders, a stronger reversal. 0 = off (mark all).
+vavg   = ta.sma(volume, vol_len)
+vol_ok = (vol_min <= 0.0) or ((not na(vavg)) and vavg > 0 and volume >= vavg * vol_min)
+
 // ▲ LONG — undercut the prior low, closed back above it (reversal up).
-rc_long = show_long and (low < low[1]) and (close > low[1]) and ((min_wick_pct <= 0.0) or lwick_ok)
+rc_long = show_long and (low < low[1]) and (close > low[1]) and ((min_wick_pct <= 0.0) or lwick_ok) and vol_ok
 // ▼ SHORT — poked above the prior high, closed back below it (reversal down / failed break).
-rc_short = show_short and (high > high[1]) and (close < high[1]) and ((min_wick_pct <= 0.0) or uwick_ok)
+rc_short = show_short and (high > high[1]) and (close < high[1]) and ((min_wick_pct <= 0.0) or uwick_ok) and vol_ok
 
 plotshape(rc_long, title = "RC long", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
 plotshape(rc_short, title = "RC short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "↓")
