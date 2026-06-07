@@ -25,11 +25,16 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     from app.database import Base, engine
-    # Import all models so Base.metadata knows about them
-    import app.models  # noqa: F401
-    import app.models.journal  # noqa: F401
-    import app.models.screener  # noqa: F401  # spec 62 — screener_universe + screener_snapshot
-    import app.models.regime_config  # noqa: F401  # spec 61 — gate exempt allow-lists
+    # Import all models so Base.metadata knows about them.
+    # MUST use `as` aliases: the bare `import app.models` form binds the name
+    # `app` as a LOCAL in this function, shadowing the `app: FastAPI` parameter —
+    # which made `app.state.… = …` below throw AttributeError and silently kill
+    # the entire scheduler (candle pings, EOD cleanup, swing scan). Aliasing
+    # binds the alias, not `app`, so the FastAPI instance stays in scope.
+    import app.models as _m_models  # noqa: F401
+    import app.models.journal as _m_journal  # noqa: F401
+    import app.models.screener as _m_screener  # noqa: F401  # spec 62 — screener_universe + screener_snapshot
+    import app.models.regime_config as _m_regime  # noqa: F401  # spec 61 — gate exempt allow-lists
 
     # Auto-create new tables (usage_limits etc.) and add missing columns
     async with engine.begin() as conn:
