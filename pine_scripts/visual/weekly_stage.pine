@@ -1,67 +1,84 @@
 // @version=5
 //
-// Weekly Stage (Weinstein) — long-term trend entry/exit. LOAD ON THE WEEKLY.
+// Weekly Stage (Weinstein) — long-term trend entry/exit, ANCHORED TO THE WEEKLY.
 //
-// The 30-week moving average is the trend spine. You only hold in STAGE 2; you
-// exit when a weekly close breaks back below the 30-week MA. "Ride the trend
-// until it's over."
+// Everything (30-week MA, stage, signals, trailing stop, weekly open) is computed
+// on the WEEKLY timeframe via request.security, so it stays the SAME when you
+// drop to a lower chart TF. On a 1h chart the MA is still the 30-WEEK MA (not a
+// 30-bar 1h MA), the stage tint is the weekly stage, and the levels are fixed —
+// so you can watch how intraday/daily price acts against the weekly structure.
+// Read it on the weekly for decisions; zoom to a lower TF to time/observe.
 //
-//   Stage 1  Basing      — flat MA after a decline; watch for a breakout.
-//   Stage 2  Advancing   — price ABOVE a RISING MA; HOLD / add. (the only buy zone)
-//   Stage 3  Topping      — flat MA after an advance; tighten / trim.
-//   Stage 4  Declining    — price BELOW a FALLING MA; out / avoid.
+//   Stage 1 Basing · 2 Advancing (hold/add) · 3 Topping · 4 Declining (out).
+//   ▲ BUY  = weekly close back above a rising MA (the break).
+//   ● ADD  = pullback to the rising MA (dynamic support).
+//   ◆ RC   = undercut & reclaim of the prior-week low (yellow = below MA,
+//            bottoming; gray = above MA, in-uptrend dip).
+//   ▼ EXIT = weekly close below the trailing stop (default prior-week low).
 //
-// Markers: ▲ BUY = weekly close back above a RISING MA (the break itself, not
-// a lagging slope-threshold cross); ▼ EXIT on the trailing-stop break.
-// Stage is a small state machine: definitive Stage 2 (above+rising) or 4
-// (below+falling); when the MA goes flat it's Stage 3 if we were just advancing,
-// Stage 1 if we were just declining.
+// Pine v5: the HTF logic is wrapped in one function returning a tuple, pulled
+// once via request.security; markers fire once via "and not [1]"; single-line
+// calls; weekly open is one horizontal line redrawn on the last bar.
 //
-// Pine v5: every function call on one line; single status label redrawn on the
-// last bar.
-//
-indicator("Weekly Stage (Weinstein)", "WkStage", overlay = true, max_labels_count = 20)
+indicator("Weekly Stage (Weinstein)", "WkStage", overlay = true, max_labels_count = 20, max_lines_count = 20)
 
 ma_len    = input.int  (30,  "Trend MA length (weeks)", minval = 5, group = "Trend")
 slope_lb  = input.int  (4,   "Slope lookback (weeks)", minval = 1, group = "Trend")
-slope_thr = input.float(0.5, "Min |slope %| to count as rising/falling — BELOW this = FLAT (chop, no Stage 2/4). Higher = stricter, fewer chop entries", minval = 0.0, step = 0.05, group = "Trend")
+slope_thr = input.float(0.5, "Min |slope %| to count as rising/falling — below = FLAT (chop)", minval = 0.0, step = 0.05, group = "Trend")
+ctx_lb    = input.int  (12,  "Flat-MA context (disambiguate Stage 1 basing vs 3 topping)", minval = 4, group = "Trend")
 show_sig  = input.bool(true, "Entry / exit markers", group = "Display")
 show_bg   = input.bool(true, "Stage background tint", group = "Display")
-show_wo   = input.bool(true, "Weekly open line (this week's open as a reference)", group = "Display")
+show_wo   = input.bool(true, "Weekly open line (horizontal, rolls each Monday)", group = "Display")
 
 exit_mode = input.string("Prior week low", "Trailing stop / exit rule", options = ["Prior week low", "Swing low", "30-week MA"], group = "Exit")
 piv_lb    = input.int(3, "Swing-low strength (Swing-low mode only)", minval = 1, group = "Exit")
 
 show_add  = input.bool(true, "Mark pullback-to-MA 'ADD' (MA = support in Stage 2)", group = "Entry")
-ma_buf    = input.float(3.0, "Pullback buffer % — how near the rising MA counts as a test", minval = 0.0, step = 0.5, group = "Entry")
-show_rc    = input.bool(true, "Mark RC below MA — undercut & reclaim (yellow ◆, bottoming tell)", group = "Entry")
-show_rc_up = input.bool(true, "Also mark RC above MA (gray ◆, in-uptrend dip-reclaim — not a long-term entry)", group = "Entry")
+ma_buf    = input.float(3.0, "Pullback buffer %", minval = 0.0, step = 0.5, group = "Entry")
+show_rc    = input.bool(true, "Mark RC below MA (yellow ◆, bottoming)", group = "Entry")
+show_rc_up = input.bool(true, "Mark RC above MA (gray ◆, in-uptrend dip)", group = "Entry")
 
-ma    = ta.sma(close, ma_len)
-slope = ma[slope_lb] != 0 ? (ma - ma[slope_lb]) / ma[slope_lb] * 100.0 : 0.0
-rising  = slope > slope_thr
-falling = slope < -slope_thr
-above   = close > ma
+// ── Everything computed on the WEEKLY, returned as a tuple ──────────
+f_wk() =>
+    _ma = ta.sma(close, ma_len)
+    _slope = _ma[slope_lb] != 0 ? (_ma - _ma[slope_lb]) / _ma[slope_lb] * 100.0 : 0.0
+    _rising = _slope > slope_thr
+    _falling = _slope < -slope_thr
+    _above = close > _ma
+    _stage = (_above and _rising) ? 2 : (((not _above) and _falling) ? 4 : ((_ma > _ma[ctx_lb]) ? 3 : 1))
+    _ma_up = _ma > _ma[slope_lb]
+    _buy = (not na(_ma)) and (close > _ma) and (close[1] <= _ma[1]) and _ma_up
+    _sw = ta.pivotlow(low, piv_lb, piv_lb)
+    var float _swing = na
+    if not na(_sw)
+        _swing := _sw
+    _trail = exit_mode == "Prior week low" ? low[1] : (exit_mode == "Swing low" ? _swing : _ma)
+    var bool _inpos = false
+    _b = _buy and (not _inpos)
+    _x = _inpos and (not na(_trail)) and (close < _trail)
+    if _b
+        _inpos := true
+    if _x
+        _inpos := false
+    _inzone = (not na(_ma)) and (low <= _ma * (1.0 + ma_buf / 100.0)) and (close > _ma)
+    _add = show_add and _rising and (_stage == 2) and _inzone and (low[1] > _ma[1] * (1.0 + ma_buf / 100.0))
+    _rcbase = (low < low[1]) and (close > low[1]) and (not na(_ma))
+    _rcb = show_rc and _rcbase and (close < _ma)
+    _rca = show_rc_up and _rcbase and (close >= _ma)
+    [_ma, _slope, _stage, _b, _x, _trail, _inpos, _add, _rcb, _rca]
 
-// State machine — last definitive trend disambiguates a flat MA (1 vs 3).
-var int last_trend = 0
-cur = (above and rising) ? 2 : (((not above) and falling) ? 4 : 0)
-if cur != 0
-    last_trend := cur
-stage = cur != 0 ? cur : (last_trend == 2 ? 3 : (last_trend == 4 ? 1 : 0))
+[ma, wslope, stage, buy_sig, exit_sig, trail, in_pos, add_sig, rc_below, rc_above] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_off)
+wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
 
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
 plot(ma, "30wMA", color = stage_col, linewidth = 2)
+plot(in_pos ? trail : na, "trailing stop", color = color.new(color.red, 10), style = plot.style_stepline, linewidth = 1)
 
-// Weekly open — ONE horizontal line at the CURRENT week's open, anchored at the
-// week's first bar and extended right, so you watch how price treats this week's
-// open all week (best on a lower TF). Rolls to the new open each Monday. Pulled
-// from the W timeframe so it's correct on any chart TF. Above = week bid, below
-// = offered.
-wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
-var int wk_start = bar_index
-if wk_open != wk_open[1]
-    wk_start := bar_index
+bg = stage == 2 ? color.new(color.lime, 92) : stage == 4 ? color.new(color.red, 92) : stage == 3 ? color.new(color.orange, 94) : stage == 1 ? color.new(color.gray, 95) : na
+bgcolor(show_bg ? bg : na, title = "stage tint")
+
+// Weekly open — ONE horizontal line at the current week's open, redrawn on the
+// last bar, rolling to the new open each Monday.
 var line  wo_line = na
 var label wo_lab  = na
 if show_wo and barstate.islast
@@ -69,65 +86,22 @@ if show_wo and barstate.islast
         line.delete(wo_line)
     if not na(wo_lab)
         label.delete(wo_lab)
-    wo_line := line.new(wk_start, wk_open, bar_index, wk_open, xloc = xloc.bar_index, extend = extend.right, color = color.new(color.blue, 0), width = 1, style = line.style_dashed)
+    wo_line := line.new(bar_index - 1, wk_open, bar_index, wk_open, xloc = xloc.bar_index, extend = extend.both, color = color.new(color.blue, 0), width = 1, style = line.style_dashed)
     wo_lab := label.new(bar_index, wk_open, "wk open " + str.tostring(wk_open, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(color.blue, 85), textcolor = color.new(color.blue, 0), size = size.tiny)
 
-// Entry = enters Stage 2 (close above a rising 30wMA).
-// Exit  = a weekly close below the TRAILING STOP. Default "Prior week low" rides
-//         the higher-lows of a clean trend (never triggers while each week's low
-//         holds — AMD/MRVL held it the whole run) but exits NEAR THE TOP, instead
-//         of giving it all back waiting for the lagging MA. Swing-low is looser
-//         (rides bigger pullbacks); 30wMA is the loosest.
-sw_piv = ta.pivotlow(low, piv_lb, piv_lb)
-var float swing_low = na
-if not na(sw_piv)
-    swing_low := sw_piv
-trail = exit_mode == "Prior week low" ? low[1] : (exit_mode == "Swing low" ? swing_low : ma)
+// Markers — the weekly value repeats across LTF bars, so fire once with "and not [1]".
+plotshape(show_sig and buy_sig and not buy_sig[1], title = "entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "BUY")
+plotshape(show_sig and exit_sig and not exit_sig[1], title = "exit", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "EXIT")
+plotshape(add_sig and not add_sig[1], title = "add", style = shape.circle, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "ADD")
+plotshape(rc_below and not rc_below[1], title = "RC below", style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.tiny, text = "RC")
+plotshape(rc_above and not rc_above[1], title = "rc above", style = shape.diamond, location = location.belowbar, color = color.new(color.gray, 30), size = size.tiny, text = "rc")
 
-// BUY = the BREAK itself: a weekly CLOSE back above the MA while the MA is
-// RISING (net up over slope_lb weeks). This fires at the reclaim, not weeks
-// later when the 4-week slope finally clears the 0.5% band. The MA-rising gate
-// keeps it out of flat-MA chop (a reclaim of a flat/declining MA won't fire).
-var bool in_pos = false
-ma_up   = ma > ma[slope_lb]
-buy_sig  = (not in_pos) and (close > ma) and (close[1] <= ma[1]) and ma_up
-exit_sig = in_pos and (not na(trail)) and (close < trail)
-if buy_sig
-    in_pos := true
-if exit_sig
-    in_pos := false
-
-plot(in_pos ? trail : na, "trailing stop", color = color.new(color.red, 10), style = plot.style_stepline, linewidth = 1)
-plotshape(show_sig and buy_sig, title = "entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "BUY")
-plotshape(show_sig and exit_sig, title = "exit", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "EXIT")
-
-// ADD — in Stage 2, price pulls back to the RISING MA and holds (close above):
-// the MA caught it as support. A lower-risk continuation buy (stop just under
-// the MA). Requires the prior week to have been CLEAR of the MA zone (a fresh
-// test, not weeks hugging the line).
-in_ma_zone = (not na(ma)) and (low <= ma * (1.0 + ma_buf / 100.0)) and (close > ma)
-add_sig = show_add and rising and (stage == 2) and in_ma_zone and (low[1] > ma[1] * (1.0 + ma_buf / 100.0))
-plotshape(add_sig, title = "add", style = shape.circle, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "ADD")
-
-// Undercut & reclaim of the PRIOR WEEK's low, BELOW the MA — the bottoming tell:
-// price runs the stops under last week's low, then CLOSES back above it. Often
-// the first sign a Stage-4 decline is ending, well before the MA turns up. Shown
-// (yellow ◆ RC) so you can eyeball these early reversals against the trend signals.
-rc_base  = (low < low[1]) and (close > low[1]) and (not na(ma))
-rc_below = show_rc and rc_base and (close < ma)
-rc_above = show_rc_up and rc_base and (close >= ma)
-plotshape(rc_below, title = "RC below MA", style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.tiny, text = "RC")
-plotshape(rc_above, title = "rc above MA", style = shape.diamond, location = location.belowbar, color = color.new(color.gray, 30), size = size.tiny, text = "rc")
-
-bg = stage == 2 ? color.new(color.lime, 92) : stage == 4 ? color.new(color.red, 92) : stage == 3 ? color.new(color.orange, 94) : stage == 1 ? color.new(color.gray, 95) : na
-bgcolor(show_bg ? bg : na, title = "stage tint")
-
-// Status label on the last bar.
+// Status label (current price vs the WEEKLY MA).
 stage_name = stage == 2 ? "STAGE 2 · Advancing — HOLD / add" : stage == 4 ? "STAGE 4 · Declining — OUT / avoid" : stage == 3 ? "STAGE 3 · Topping — tighten / trim" : stage == 1 ? "STAGE 1 · Basing — watch for breakout" : "—"
 var label statusLab = na
 if barstate.islast
     if not na(statusLab)
         label.delete(statusLab)
-    dist = ma != 0 ? (close - ma) / ma * 100.0 : 0.0
-    txt = stage_name + "\n30wMA " + str.tostring(ma, format.mintick) + "  ·  slope " + str.tostring(slope, "#.##") + "%  ·  price " + (dist >= 0 ? "+" : "") + str.tostring(dist, "#.#") + "% vs MA"
+    dist = (not na(ma)) and ma != 0 ? (close - ma) / ma * 100.0 : 0.0
+    txt = stage_name + "\n30wMA " + str.tostring(ma, format.mintick) + "  ·  wk slope " + str.tostring(wslope, "#.##") + "%  ·  price " + (dist >= 0 ? "+" : "") + str.tostring(dist, "#.#") + "% vs MA"
     statusLab := label.new(bar_index, high, txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(stage_col, 75), textcolor = color.white, size = size.normal)
