@@ -29,6 +29,8 @@ ctx_lb    = input.int  (12,  "Flat-MA context (disambiguate Stage 1 basing vs 3 
 show_sig  = input.bool(true, "Entry / exit markers", group = "Display")
 show_bg   = input.bool(true, "Stage background tint", group = "Display")
 show_wo   = input.bool(true, "Weekly open line (horizontal, rolls each Monday)", group = "Display")
+wo_color  = input.color(color.new(color.blue, 0), "  Weekly open — color", group = "Display")
+wo_width  = input.int(1, "  Weekly open — thickness", minval = 1, maxval = 5, group = "Display")
 
 exit_mode = input.string("Prior week low", "Trailing stop / exit rule", options = ["Prior week low", "Swing low", "30-week MA"], group = "Exit")
 piv_lb    = input.int(3, "Swing-low strength (Swing-low mode only)", minval = 1, group = "Exit")
@@ -86,8 +88,8 @@ if show_wo and barstate.islast
         line.delete(wo_line)
     if not na(wo_lab)
         label.delete(wo_lab)
-    wo_line := line.new(bar_index - 1, wk_open, bar_index, wk_open, xloc = xloc.bar_index, extend = extend.both, color = color.new(color.blue, 0), width = 1, style = line.style_dashed)
-    wo_lab := label.new(bar_index, wk_open, "wk open " + str.tostring(wk_open, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(color.blue, 85), textcolor = color.new(color.blue, 0), size = size.tiny)
+    wo_line := line.new(bar_index - 1, wk_open, bar_index, wk_open, xloc = xloc.bar_index, extend = extend.both, color = wo_color, width = wo_width, style = line.style_dashed)
+    wo_lab := label.new(bar_index, wk_open, "wk open " + str.tostring(wk_open, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(wo_color, 85), textcolor = wo_color, size = size.tiny)
 
 // Markers — the weekly value repeats across LTF bars, so fire once with "and not [1]".
 plotshape(show_sig and buy_sig and not buy_sig[1], title = "entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "BUY")
