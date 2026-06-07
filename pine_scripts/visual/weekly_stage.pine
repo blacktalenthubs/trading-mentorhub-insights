@@ -39,12 +39,8 @@ show_add  = input.bool(true, "Mark pullback-to-MA 'ADD' (MA = support in Stage 2
 ma_buf    = input.float(3.0, "Pullback buffer %", minval = 0.0, step = 0.5, group = "Entry")
 show_rc    = input.bool(true, "Mark RC below MA (yellow ◆, bottoming)", group = "Entry")
 show_rc_up = input.bool(true, "Mark RC above MA (gray ◆, in-uptrend dip)", group = "Entry")
-
-fire_alerts = input.bool(true, "Fire weekly alerts (RC / BUY / ADD / EXIT) — set the TV alert on the WEEKLY chart", group = "Alerts")
-
-acct      = input.float(80000, "Account size ($)", minval = 0, group = "Position size")
-risk_pct  = input.float(1.5,   "Risk per trade (%)", minval = 0.1, step = 0.1, group = "Position size")
-show_size = input.bool(true,   "Show position-size table", group = "Position size")
+// Visual only — the weekly ALERTS fire from levels-day-vwap (one TV alert slot
+// runs the whole watchlist); this indicator is just the chart you read.
 
 // ── Everything computed on the WEEKLY, returned as a tuple ──────────
 f_wk() =>
@@ -73,9 +69,9 @@ f_wk() =>
     _rcbase = (low < low[1]) and (close > low[1]) and (not na(_ma))
     _rcb = show_rc and _rcbase and (close < _ma)
     _rca = show_rc_up and _rcbase and (close >= _ma)
-    [_ma, _slope, _stage, _b, _x, _trail, _inpos, _add, _rcb, _rca, low]
+    [_ma, _slope, _stage, _b, _x, _trail, _inpos, _add, _rcb, _rca]
 
-[ma, wslope, stage, buy_sig, exit_sig, trail, in_pos, add_sig, rc_below, rc_above, wlow] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_off)
+[ma, wslope, stage, buy_sig, exit_sig, trail, in_pos, add_sig, rc_below, rc_above] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_off)
 wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
 
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
@@ -103,57 +99,6 @@ plotshape(show_sig and exit_sig and not exit_sig[1], title = "exit", style = sha
 plotshape(add_sig and not add_sig[1], title = "add", style = shape.circle, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "ADD")
 plotshape(rc_below and not rc_below[1], title = "RC below", style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.tiny, text = "RC")
 plotshape(rc_above and not rc_above[1], title = "rc above", style = shape.diamond, location = location.belowbar, color = color.new(color.gray, 30), size = size.tiny, text = "rc")
-
-// ── Weekly alerts (informational NOTICE; SET THE TV ALERT ON THE WEEKLY CHART) ──
-// Each carries entry (current price) + the structural stop in the note so you can
-// size it. Whole watchlist — weekly lows aren't undercut often, so these are rare.
-if fire_alerts and buy_sig and not buy_sig[1]
-    nbuy = "BUY · Stage 2 (close above rising 30wMA) · stop " + str.tostring(trail, format.mintick)
-    pbuy = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(trail, format.mintick) + '","note":"' + nbuy + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(pbuy, alert.freq_once_per_bar_close)
-if fire_alerts and add_sig and not add_sig[1]
-    nadd = "ADD · pullback to the rising MA · stop " + str.tostring(ma, format.mintick)
-    padd = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(ma, format.mintick) + '","note":"' + nadd + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(padd, alert.freq_once_per_bar_close)
-if fire_alerts and rc_below and not rc_below[1]
-    nrcb = "RC · bottoming (undercut & reclaim, below MA) · stop " + str.tostring(wlow, format.mintick)
-    prcb = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wlow, format.mintick) + '","note":"' + nrcb + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(prcb, alert.freq_once_per_bar_close)
-if fire_alerts and rc_above and not rc_above[1]
-    nrca = "rc · in-uptrend dip-reclaim (above MA) · stop " + str.tostring(wlow, format.mintick)
-    prca = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wlow, format.mintick) + '","note":"' + nrca + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(prca, alert.freq_once_per_bar_close)
-if fire_alerts and exit_sig and not exit_sig[1]
-    nexit = "EXIT · weekly close below the trail " + str.tostring(trail, format.mintick)
-    pexit = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(trail, format.mintick) + '","note":"' + nexit + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(pexit, alert.freq_once_per_bar_close)
-
-// ── Position-size helper — size to keep risk at risk_pct of the account ──────
-// entry = current price, stop = the active trailing stop. A WIDER stop → FEWER
-// shares → SAME dollar risk, so a wide RC wick auto-sizes down (no extra
-// drawdown). If shares is tiny / the stop is far, the trade may not be worth it.
-rps = (not na(trail)) and (close > trail) ? close - trail : na
-sz_shares = (not na(rps)) and rps > 0 ? math.floor(acct * risk_pct / 100.0 / rps) : 0
-sz_pos = sz_shares * close
-sz_pct = acct > 0 ? sz_pos / acct * 100.0 : 0.0
-var table szt = table.new(position.top_right, 2, 8, border_width = 1)
-if show_size and barstate.islast
-    table.cell(szt, 0, 0, "Position size", text_color = color.white, bgcolor = color.new(color.blue, 20), text_size = size.small)
-    table.cell(szt, 1, 0, "$" + str.tostring(acct, "#") + " · " + str.tostring(risk_pct, "#.#") + "%", text_color = color.white, bgcolor = color.new(color.blue, 20), text_size = size.small)
-    table.cell(szt, 0, 1, "Entry", text_size = size.tiny)
-    table.cell(szt, 1, 1, str.tostring(close, format.mintick), text_size = size.tiny)
-    table.cell(szt, 0, 2, "Stop", text_size = size.tiny)
-    table.cell(szt, 1, 2, na(trail) ? "—" : str.tostring(trail, format.mintick), text_size = size.tiny)
-    table.cell(szt, 0, 3, "$/share", text_size = size.tiny)
-    table.cell(szt, 1, 3, na(rps) ? "—" : str.tostring(rps, format.mintick), text_size = size.tiny)
-    table.cell(szt, 0, 4, "Risk $", text_size = size.tiny)
-    table.cell(szt, 1, 4, str.tostring(acct * risk_pct / 100.0, "#"), text_size = size.tiny)
-    table.cell(szt, 0, 5, "Shares", text_color = color.white, bgcolor = color.new(color.green, 30), text_size = size.small)
-    table.cell(szt, 1, 5, str.tostring(sz_shares, "#"), text_color = color.white, bgcolor = color.new(color.green, 30), text_size = size.small)
-    table.cell(szt, 0, 6, "Position $", text_size = size.tiny)
-    table.cell(szt, 1, 6, str.tostring(sz_pos, "#"), text_size = size.tiny)
-    table.cell(szt, 0, 7, "% account", text_size = size.tiny)
-    table.cell(szt, 1, 7, str.tostring(sz_pct, "#.#") + "%", text_size = size.tiny)
 
 // Status label (current price vs the WEEKLY MA).
 stage_name = stage == 2 ? "STAGE 2 · Advancing — HOLD / add" : stage == 4 ? "STAGE 4 · Declining — OUT / avoid" : stage == 3 ? "STAGE 3 · Topping — tighten / trim" : stage == 1 ? "STAGE 1 · Basing — watch for breakout" : "—"
