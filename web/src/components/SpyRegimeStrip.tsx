@@ -65,14 +65,57 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
   );
 }
 
+/* ── Risk posture — turns regime + RSI into a plain exposure command ──── */
+type Posture = { word: string; tone: keyof typeof COLORS; hint: string };
+
+function postureOf(r?: SpyRegimeSnapshot): Posture | null {
+  if (!r || r.status !== "ok") return null;
+  if (r.below_pdl)
+    return { word: "STAND DOWN", tone: "red", hint: "below PDL — no new longs, reduce exposure; the tape can drag you anywhere" };
+  if (r.rsi != null && r.rsi >= 70)
+    return { word: "REDUCE", tone: "amber", hint: "overbought — trim & trade light" };
+  if (r.rsi != null && r.rsi <= 30)
+    return { word: "SIZE SMALL", tone: "amber", hint: "oversold bounce — not a trend, size small" };
+  return { word: "NORMAL", tone: "green", hint: "stops on every position" };
+}
+
+function PostureChip({ label, p }: { label: string; p: Posture }) {
+  const c = COLORS[p.tone];
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${c.bg}`} title={p.hint}>
+      <span className="text-text-faint">{label}</span>
+      <span className={`font-semibold ${c.text}`}>{p.word}</span>
+    </span>
+  );
+}
+
+/** A persistent risk reminder under the regime pills — "stops on" + the
+ *  exposure call (STAND DOWN / REDUCE / SIZE SMALL / NORMAL) per market, so the
+ *  Redler/Burns discipline stays in front of you every time you open the app. */
+function RiskLine({ spy, btc }: { spy?: SpyRegimeSnapshot; btc?: SpyRegimeSnapshot }) {
+  const sp = postureOf(spy);
+  const bp = postureOf(btc);
+  if (!sp && !bp) return null;
+  return (
+    <div className="inline-flex items-center gap-1.5 text-[11px] flex-wrap text-text-muted">
+      <span className="font-semibold">🛡 Stops on every position</span>
+      {sp && <PostureChip label="Stocks" p={sp} />}
+      {bp && <PostureChip label="Crypto" p={bp} />}
+    </div>
+  );
+}
+
 export default function SpyRegimeStrip() {
   const { data: spy } = useSpyLiveRegime();
   const { data: btc } = useBtcLiveRegime();
   if (!spy && !btc) return null;
   return (
-    <div className="inline-flex items-center gap-2 flex-wrap">
-      <RegimeChip r={spy} label="SPY" />
-      <RegimeChip r={btc} label="BTC" />
+    <div className="flex flex-col gap-1">
+      <div className="inline-flex items-center gap-2 flex-wrap">
+        <RegimeChip r={spy} label="SPY" />
+        <RegimeChip r={btc} label="BTC" />
+      </div>
+      <RiskLine spy={spy} btc={btc} />
     </div>
   );
 }
