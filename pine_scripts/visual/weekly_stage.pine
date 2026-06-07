@@ -33,7 +33,8 @@ piv_lb    = input.int(3, "Swing-low strength (Swing-low mode only)", minval = 1,
 
 show_add  = input.bool(true, "Mark pullback-to-MA 'ADD' (MA = support in Stage 2)", group = "Entry")
 ma_buf    = input.float(3.0, "Pullback buffer % — how near the rising MA counts as a test", minval = 0.0, step = 0.5, group = "Entry")
-show_rc   = input.bool(true, "Mark prior-week-low undercut & reclaim (bottoming tell, below MA)", group = "Entry")
+show_rc    = input.bool(true, "Mark RC below MA — undercut & reclaim (yellow ◆, bottoming tell)", group = "Entry")
+show_rc_up = input.bool(true, "Also mark RC above MA (gray ◆, in-uptrend dip-reclaim — not a long-term entry)", group = "Entry")
 
 ma    = ta.sma(close, ma_len)
 slope = ma[slope_lb] != 0 ? (ma - ma[slope_lb]) / ma[slope_lb] * 100.0 : 0.0
@@ -92,8 +93,11 @@ plotshape(add_sig, title = "add", style = shape.circle, location = location.belo
 // price runs the stops under last week's low, then CLOSES back above it. Often
 // the first sign a Stage-4 decline is ending, well before the MA turns up. Shown
 // (yellow ◆ RC) so you can eyeball these early reversals against the trend signals.
-rc_sig = show_rc and (low < low[1]) and (close > low[1]) and (not na(ma)) and (close < ma)
-plotshape(rc_sig, title = "reclaim", style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.tiny, text = "RC")
+rc_base  = (low < low[1]) and (close > low[1]) and (not na(ma))
+rc_below = show_rc and rc_base and (close < ma)
+rc_above = show_rc_up and rc_base and (close >= ma)
+plotshape(rc_below, title = "RC below MA", style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.tiny, text = "RC")
+plotshape(rc_above, title = "rc above MA", style = shape.diamond, location = location.belowbar, color = color.new(color.gray, 30), size = size.tiny, text = "rc")
 
 bg = stage == 2 ? color.new(color.lime, 92) : stage == 4 ? color.new(color.red, 92) : stage == 3 ? color.new(color.orange, 94) : stage == 1 ? color.new(color.gray, 95) : na
 bgcolor(show_bg ? bg : na, title = "stage tint")
