@@ -1,0 +1,63 @@
+// @version=5
+//
+// Weekly Stage (Weinstein) — long-term trend entry/exit. LOAD ON THE WEEKLY.
+//
+// The 30-week moving average is the trend spine. You only hold in STAGE 2; you
+// exit when a weekly close breaks back below the 30-week MA. "Ride the trend
+// until it's over."
+//
+//   Stage 1  Basing      — flat MA after a decline; watch for a breakout.
+//   Stage 2  Advancing   — price ABOVE a RISING MA; HOLD / add. (the only buy zone)
+//   Stage 3  Topping      — flat MA after an advance; tighten / trim.
+//   Stage 4  Declining    — price BELOW a FALLING MA; out / avoid.
+//
+// Markers: ▲ BUY when it enters Stage 2; ▼ EXIT on a weekly close below the MA.
+// Stage is a small state machine: definitive Stage 2 (above+rising) or 4
+// (below+falling); when the MA goes flat it's Stage 3 if we were just advancing,
+// Stage 1 if we were just declining.
+//
+// Pine v5: every function call on one line; single status label redrawn on the
+// last bar.
+//
+indicator("Weekly Stage (Weinstein)", "WkStage", overlay = true, max_labels_count = 20)
+
+ma_len    = input.int  (30,  "Trend MA length (weeks)", minval = 5, group = "Trend")
+slope_lb  = input.int  (4,   "Slope lookback (weeks)", minval = 1, group = "Trend")
+slope_thr = input.float(0.1, "Flat band — |slope %| below this = flat", minval = 0.0, step = 0.05, group = "Trend")
+show_sig  = input.bool(true, "Entry / exit markers", group = "Display")
+show_bg   = input.bool(true, "Stage background tint", group = "Display")
+
+ma    = ta.sma(close, ma_len)
+slope = ma[slope_lb] != 0 ? (ma - ma[slope_lb]) / ma[slope_lb] * 100.0 : 0.0
+rising  = slope > slope_thr
+falling = slope < -slope_thr
+above   = close > ma
+
+// State machine — last definitive trend disambiguates a flat MA (1 vs 3).
+var int last_trend = 0
+cur = (above and rising) ? 2 : (((not above) and falling) ? 4 : 0)
+if cur != 0
+    last_trend := cur
+stage = cur != 0 ? cur : (last_trend == 2 ? 3 : (last_trend == 4 ? 1 : 0))
+
+stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
+plot(ma, "30wMA", color = stage_col, linewidth = 2)
+
+// Signals — enter Stage 2 = BUY; weekly close back below the MA = EXIT.
+entry_sig = (stage == 2) and (stage[1] != 2)
+exit_sig  = (close < ma) and (close[1] >= ma[1])
+plotshape(show_sig and entry_sig, title = "entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "BUY")
+plotshape(show_sig and exit_sig, title = "exit", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "EXIT")
+
+bg = stage == 2 ? color.new(color.lime, 92) : stage == 4 ? color.new(color.red, 92) : stage == 3 ? color.new(color.orange, 94) : stage == 1 ? color.new(color.gray, 95) : na
+bgcolor(show_bg ? bg : na, title = "stage tint")
+
+// Status label on the last bar.
+stage_name = stage == 2 ? "STAGE 2 · Advancing — HOLD / add" : stage == 4 ? "STAGE 4 · Declining — OUT / avoid" : stage == 3 ? "STAGE 3 · Topping — tighten / trim" : stage == 1 ? "STAGE 1 · Basing — watch for breakout" : "—"
+var label statusLab = na
+if barstate.islast
+    if not na(statusLab)
+        label.delete(statusLab)
+    dist = ma != 0 ? (close - ma) / ma * 100.0 : 0.0
+    txt = stage_name + "\n30wMA " + str.tostring(ma, format.mintick) + "  ·  slope " + str.tostring(slope, "#.##") + "%  ·  price " + (dist >= 0 ? "+" : "") + str.tostring(dist, "#.#") + "% vs MA"
+    statusLab := label.new(bar_index, high, txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(stage_col, 75), textcolor = color.white, size = size.normal)
