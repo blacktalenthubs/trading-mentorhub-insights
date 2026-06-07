@@ -17,16 +17,27 @@
 //
 indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
 
-min_wick_pct = input.float(0.0, "Min lower-wick % of candle range (0 = all reclaims)", minval = 0.0, maxval = 90.0, step = 0.5, group = "Detection")
-show_lvl     = input.bool(true, "Draw the reclaimed level (prior low) line", group = "Display")
+min_wick_pct = input.float(0.0, "Min wick % of candle range (0 = all)", minval = 0.0, maxval = 90.0, step = 0.5, group = "Detection")
+show_long    = input.bool(true, "▲ RC long — reclaim of prior LOW (undercut & reclaim, green)", group = "Detection")
+show_short   = input.bool(true, "▼ rejection short — failed break of prior HIGH (wick above, close back below, red)", group = "Detection")
+show_lvl     = input.bool(true, "Draw the reclaimed/rejected level line", group = "Display")
 lvl_bars     = input.int(24, "Extend the level this many bars", minval = 1, group = "Display")
 
 rng        = high - low
 lower_wick = math.min(open, close) - low
-wick_ok    = rng > 0 ? (lower_wick / rng * 100.0 >= min_wick_pct) : false
-rc = (low < low[1]) and (close > low[1]) and ((min_wick_pct <= 0.0) or wick_ok)
+upper_wick = high - math.max(open, close)
+lwick_ok   = rng > 0 ? (lower_wick / rng * 100.0 >= min_wick_pct) : false
+uwick_ok   = rng > 0 ? (upper_wick / rng * 100.0 >= min_wick_pct) : false
 
-plotshape(rc, title = "RC", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
+// ▲ LONG — undercut the prior low, closed back above it (reversal up).
+rc_long = show_long and (low < low[1]) and (close > low[1]) and ((min_wick_pct <= 0.0) or lwick_ok)
+// ▼ SHORT — poked above the prior high, closed back below it (reversal down / failed break).
+rc_short = show_short and (high > high[1]) and (close < high[1]) and ((min_wick_pct <= 0.0) or uwick_ok)
 
-if show_lvl and rc
+plotshape(rc_long, title = "RC long", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
+plotshape(rc_short, title = "RC short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "↓")
+
+if show_lvl and rc_long
     line.new(bar_index, low[1], bar_index + lvl_bars, low[1], xloc = xloc.bar_index, color = color.new(color.lime, 30), width = 1, style = line.style_dashed)
+if show_lvl and rc_short
+    line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = color.new(color.red, 30), width = 1, style = line.style_dashed)
