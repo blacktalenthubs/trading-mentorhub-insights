@@ -30,6 +30,9 @@ show_bg   = input.bool(true, "Stage background tint", group = "Display")
 exit_mode = input.string("Prior week low", "Trailing stop / exit rule", options = ["Prior week low", "Swing low", "30-week MA"], group = "Exit")
 piv_lb    = input.int(3, "Swing-low strength (Swing-low mode only)", minval = 1, group = "Exit")
 
+show_add  = input.bool(true, "Mark pullback-to-MA 'ADD' (MA = support in Stage 2)", group = "Entry")
+ma_buf    = input.float(3.0, "Pullback buffer % — how near the rising MA counts as a test", minval = 0.0, step = 0.5, group = "Entry")
+
 ma    = ta.sma(close, ma_len)
 slope = ma[slope_lb] != 0 ? (ma - ma[slope_lb]) / ma[slope_lb] * 100.0 : 0.0
 rising  = slope > slope_thr
@@ -69,6 +72,14 @@ if exit_sig
 plot(in_pos ? trail : na, "trailing stop", color = color.new(color.red, 10), style = plot.style_stepline, linewidth = 1)
 plotshape(show_sig and buy_sig, title = "entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "BUY")
 plotshape(show_sig and exit_sig, title = "exit", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "EXIT")
+
+// ADD — in Stage 2, price pulls back to the RISING MA and holds (close above):
+// the MA caught it as support. A lower-risk continuation buy (stop just under
+// the MA). Requires the prior week to have been CLEAR of the MA zone (a fresh
+// test, not weeks hugging the line).
+in_ma_zone = (not na(ma)) and (low <= ma * (1.0 + ma_buf / 100.0)) and (close > ma)
+add_sig = show_add and rising and (stage == 2) and in_ma_zone and (low[1] > ma[1] * (1.0 + ma_buf / 100.0))
+plotshape(add_sig, title = "add", style = shape.circle, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "ADD")
 
 bg = stage == 2 ? color.new(color.lime, 92) : stage == 4 ? color.new(color.red, 92) : stage == 3 ? color.new(color.orange, 94) : stage == 1 ? color.new(color.gray, 95) : na
 bgcolor(show_bg ? bg : na, title = "stage tint")
