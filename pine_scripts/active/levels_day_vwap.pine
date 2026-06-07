@@ -1761,7 +1761,7 @@ if wk_alerts and wk_buy and not wk_buy[1]
     wbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_trail, format.mintick) + '","note":"' + wbn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wbp, alert.freq_once_per_bar_close)
 if wk_alerts and wk_add and not wk_add[1]
-    wadn = "ADD · pullback to the rising MA · stop " + str.tostring(wk_ma, format.mintick)
+    wadn = "ADD · pullback to the rising MA · stop = weekly close below MA " + str.tostring(wk_ma, format.mintick)
     wadp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_ma, format.mintick) + '","note":"' + wadn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wadp, alert.freq_once_per_bar_close)
 if wk_alerts and wk_rcb and not wk_rcb[1]
