@@ -37,10 +37,10 @@ show_piv = input.bool(false, "Mark raw pivots", group = "Display")
 
 // ── Alerts (informational — price closing across a heavily-tested level) ──
 fire_alerts   = input.bool(true,  "Fire level-cross alerts (info)", group = "Alerts")
-alert_symbols = input.string("SPY", "Symbols allowed to alert (raw TV tickers, comma-sep)", group = "Alerts")
+alert_symbols = input.string("", "Pine-side symbol filter (blank = all; manage the real list in Settings)", group = "Alerts")
 alert_min     = input.int (3,     "Min touches to ALERT (separate from the visual floor)", minval = 2, maxval = 8, group = "Alerts")
 _alert_syms = "," + str.replace_all(str.upper(alert_symbols), " ", "") + ","
-is_alert_sym = str.contains(_alert_syms, "," + str.upper(syminfo.ticker) + ",")
+is_alert_sym = (str.replace_all(alert_symbols, " ", "") == "") or str.contains(_alert_syms, "," + str.upper(syminfo.ticker) + ",")
 
 // ── Confirmed pivots, kept in rolling history ───────────────────────
 ph = ta.pivothigh(high, piv_len, piv_len)

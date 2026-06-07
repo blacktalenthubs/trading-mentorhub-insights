@@ -253,6 +253,12 @@ CRYPTO_REGIME_ALLOWLIST: frozenset[str] = frozenset(
     if s.strip()
 )
 
+# Informational alert types (multi-touch level cross / gap enter-fill) — they
+# fire broadly from the Pine and are filtered to the Settings-managed
+# `alert_symbols` list. Default used when the config row is missing / unread.
+_INFO_ALERT_TYPES: frozenset[str] = frozenset({"multitouch_level", "gap_zone"})
+_ALERT_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "NBIS"})
+
 
 def _is_crypto_symbol(symbol: Optional[str]) -> bool:
     return (symbol or "").upper().endswith("-USD")
@@ -989,6 +995,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # set even if the read fails.
     index_exempt: frozenset = INDEX_REGIME_ALLOWLIST
     crypto_exempt: frozenset = CRYPTO_REGIME_ALLOWLIST
+    alert_syms: frozenset = _ALERT_SYMS_DEFAULT
     try:
         from app.models.alert_type_config import AlertTypeConfig
         from app.models.regime_config import RegimeConfig
@@ -1004,10 +1011,18 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         _rc = {k: v for k, v in _rc_rows}
         index_exempt = _parse_exempt_syms(_rc.get("index_exempt")) or INDEX_REGIME_ALLOWLIST
         crypto_exempt = _parse_exempt_syms(_rc.get("crypto_exempt")) or CRYPTO_REGIME_ALLOWLIST
+        alert_syms = _parse_exempt_syms(_rc.get("alert_symbols")) or _ALERT_SYMS_DEFAULT
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
         known_types = None
+
+    # Informational alerts (multitouch_level / gap_zone) fire broadly from the
+    # Pine; keep only the Settings-listed symbols. Non-listed → drop entirely
+    # (no record), so the feed isn't flooded with names you didn't ask for.
+    _base_type = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    if _base_type in _INFO_ALERT_TYPES and (sig.symbol or "").upper() not in alert_syms:
+        return {"dispatched": False, "reason": "alert_symbol_not_listed", "recorded": False}
 
     if not _is_allowed_alert_type(alert_type_full, enabled_types):
         # Known type, just toggled OFF → record it (deduped) for EOD review:

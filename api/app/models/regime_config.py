@@ -33,6 +33,10 @@ class RegimeConfig(Base):
 REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     "index_exempt": "SPY,QQQ,IWM,DRAM",
     "crypto_exempt": "BTC-USD",
+    # Symbols allowed to fire the INFORMATIONAL multi-touch / gap alerts
+    # (multitouch_level, gap_zone). The Pine fires broadly; the webhook keeps
+    # only these. Edited live from Settings → so adding a stock needs no Pine edit.
+    "alert_symbols": "SPY,NBIS",
 }
 
 
