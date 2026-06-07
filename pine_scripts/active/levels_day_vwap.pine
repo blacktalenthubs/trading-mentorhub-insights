@@ -1801,3 +1801,130 @@ if rc4_alerts and rc4_is_idx and rc4_short and not rc4_short[1]
     rcsn = "RC SHORT · 4h rejection at prior high · stop = wick high " + str.tostring(rc4_high, format.mintick)
     rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rcsp, alert.freq_once_per_bar_close)
+
+// ═══════════════════════════════════════════════════════════════════════
+// Gap alerts (spec 61, 2026-06-07) — fire from THIS indicator (one of your 2
+// bound TV alerts). DETECTION ONLY — the visual gap boxes live in the "Gaps"
+// indicator. Tracks unfilled gaps; alerts when price ENTERS or FILLS one. The
+// backend gates delivery by Settings → Info-alert symbols (so it only delivers
+// for the symbols you list, even though this runs on the whole watchlist).
+// ═══════════════════════════════════════════════════════════════════════
+gp_alerts   = input.bool(true, "Gap alerts (entering / filled · info)", group = "Gap alerts")
+gp_min_pct  = input.float(0.15, "Gap — min size %", minval = 0.0, step = 0.05, group = "Gap alerts")
+gp_lookback = input.int(300, "Gap — drop gaps older than N bars", minval = 20, group = "Gap alerts")
+
+var array<float> gpTop = array.new_float()
+var array<float> gpBot = array.new_float()
+var array<int>   gpBar = array.new_int()
+var array<bool>  gpUp  = array.new_bool()
+
+gp_up_new = (low > high[1]) and (high[1] > 0) and ((low - high[1]) / high[1] * 100.0 >= gp_min_pct)
+gp_dn_new = (high < low[1]) and (low[1] > 0) and ((low[1] - high) / low[1] * 100.0 >= gp_min_pct)
+if gp_up_new
+    array.push(gpTop, low)
+    array.push(gpBot, high[1])
+    array.push(gpBar, bar_index)
+    array.push(gpUp, true)
+if gp_dn_new
+    array.push(gpTop, low[1])
+    array.push(gpBot, high)
+    array.push(gpBar, bar_index)
+    array.push(gpUp, false)
+
+if array.size(gpTop) > 0
+    gp_i = array.size(gpTop) - 1
+    while gp_i >= 0
+        gp_top = array.get(gpTop, gp_i)
+        gp_bot = array.get(gpBot, gp_i)
+        gp_isup = array.get(gpUp, gp_i)
+        gp_filled = gp_isup ? (low <= gp_bot) : (high >= gp_top)
+        gp_stale = (bar_index - array.get(gpBar, gp_i)) > gp_lookback
+        gp_entered = gp_isup ? ((low <= gp_top) and (low[1] > gp_top)) : ((high >= gp_bot) and (high[1] < gp_bot))
+        if gp_alerts and (gp_entered or gp_filled)
+            gp_kind = gp_isup ? "support" : "resistance"
+            gp_evt = gp_filled ? "filled" : "entering"
+            gp_note = gp_evt + " gap " + gp_kind + " " + str.tostring(gp_bot, format.mintick) + "-" + str.tostring(gp_top, format.mintick)
+            gp_pl = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"gap_zone","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(gp_isup ? gp_top : gp_bot, format.mintick) + '","note":"' + gp_note + '","fired_at":"' + str.tostring(timenow) + '"}'
+            alert(gp_pl, alert.freq_once_per_bar_close)
+        if gp_stale or gp_filled
+            array.remove(gpTop, gp_i)
+            array.remove(gpBot, gp_i)
+            array.remove(gpBar, gp_i)
+            array.remove(gpUp, gp_i)
+        gp_i := gp_i - 1
+
+// ═══════════════════════════════════════════════════════════════════════
+// Multi-touch level alerts (spec 61, 2026-06-07) — fire from THIS indicator.
+// DETECTION ONLY (the visual lines live in "MultiTB"). Clusters confirmed pivots
+// into levels; alerts when price closes ACROSS a level touched >= mt_alert_min
+// times. Backend gates delivery by Settings → Info-alert symbols.
+// ═══════════════════════════════════════════════════════════════════════
+mt_alerts    = input.bool(true, "Multi-touch level alerts (info)", group = "Multi-touch alerts")
+mt_piv       = input.int(3, "MT — pivot strength", minval = 1, group = "Multi-touch alerts")
+mt_tol       = input.float(1.0, "MT — match tolerance %", minval = 0.05, maxval = 5.0, step = 0.05, group = "Multi-touch alerts")
+mt_lb        = input.int(250, "MT — lookback bars", minval = 20, group = "Multi-touch alerts")
+mt_alert_min = input.int(3, "MT — min touches to alert", minval = 2, maxval = 8, group = "Multi-touch alerts")
+
+mt_ph = ta.pivothigh(high, mt_piv, mt_piv)
+mt_pl = ta.pivotlow(low, mt_piv, mt_piv)
+mt_pb = bar_index - mt_piv
+
+var array<float> mtLowP  = array.new_float()
+var array<int>   mtLowB  = array.new_int()
+var array<float> mtHighP = array.new_float()
+var array<int>   mtHighB = array.new_int()
+
+if not na(mt_pl)
+    array.push(mtLowP, mt_pl)
+    array.push(mtLowB, mt_pb)
+    if array.size(mtLowP) > 250
+        array.shift(mtLowP)
+        array.shift(mtLowB)
+if not na(mt_ph)
+    array.push(mtHighP, mt_ph)
+    array.push(mtHighB, mt_pb)
+    if array.size(mtHighP) > 250
+        array.shift(mtHighP)
+        array.shift(mtHighB)
+
+if mt_alerts and barstate.islast and array.size(mtLowP) > 0
+    mt_nl = array.size(mtLowP)
+    mt_usedL = array.new_bool(mt_nl, false)
+    for mt_a = 0 to mt_nl - 1
+        if not array.get(mt_usedL, mt_a)
+            mt_base = array.get(mtLowP, mt_a)
+            mt_cnt = 0
+            mt_lvl = mt_base
+            if mt_base > 0
+                for mt_b = mt_a to mt_nl - 1
+                    if not array.get(mt_usedL, mt_b)
+                        mt_q = array.get(mtLowP, mt_b)
+                        if (mt_q > 0) and (math.abs(mt_q - mt_base) / mt_base * 100.0 <= mt_tol) and ((bar_index - array.get(mtLowB, mt_b)) <= mt_lb)
+                            array.set(mt_usedL, mt_b, true)
+                            mt_cnt := mt_cnt + 1
+                            mt_lvl := math.min(mt_lvl, mt_q)
+            if (mt_cnt >= mt_alert_min) and (((close > mt_lvl) and (close[1] <= mt_lvl)) or ((close < mt_lvl) and (close[1] >= mt_lvl)))
+                mt_bn = str.tostring(mt_cnt) + "x support " + str.tostring(mt_lvl, format.mintick) + " - closed " + (close > mt_lvl ? "above" : "below")
+                mt_bp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(mt_lvl, format.mintick) + '","note":"' + mt_bn + '","fired_at":"' + str.tostring(timenow) + '"}'
+                alert(mt_bp, alert.freq_once_per_bar_close)
+
+if mt_alerts and barstate.islast and array.size(mtHighP) > 0
+    mt_nh = array.size(mtHighP)
+    mt_usedH = array.new_bool(mt_nh, false)
+    for mt_ha = 0 to mt_nh - 1
+        if not array.get(mt_usedH, mt_ha)
+            mt_hbase = array.get(mtHighP, mt_ha)
+            mt_hcnt = 0
+            mt_hlvl = mt_hbase
+            if mt_hbase > 0
+                for mt_hb = mt_ha to mt_nh - 1
+                    if not array.get(mt_usedH, mt_hb)
+                        mt_hq = array.get(mtHighP, mt_hb)
+                        if (mt_hq > 0) and (math.abs(mt_hq - mt_hbase) / mt_hbase * 100.0 <= mt_tol) and ((bar_index - array.get(mtHighB, mt_hb)) <= mt_lb)
+                            array.set(mt_usedH, mt_hb, true)
+                            mt_hcnt := mt_hcnt + 1
+                            mt_hlvl := math.max(mt_hlvl, mt_hq)
+            if (mt_hcnt >= mt_alert_min) and (((close > mt_hlvl) and (close[1] <= mt_hlvl)) or ((close < mt_hlvl) and (close[1] >= mt_hlvl)))
+                mt_hn = str.tostring(mt_hcnt) + "x resistance " + str.tostring(mt_hlvl, format.mintick) + " - closed " + (close > mt_hlvl ? "above" : "below")
+                mt_hp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(mt_hlvl, format.mintick) + '","note":"' + mt_hn + '","fired_at":"' + str.tostring(timenow) + '"}'
+                alert(mt_hp, alert.freq_once_per_bar_close)
