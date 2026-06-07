@@ -1,9 +1,13 @@
 /** Landing Page — Research toolkit for self-directed investors.
- *  Repositioned 2026-05-27: three pillars (AI Market Analysis, Pattern
- *  Education, Public EOD Reports). Dark terminal aesthetic. Mobile-first.
+ *  Repositioned 2026-05-27: pillars for Market Analysis, Pattern Education,
+ *  Public EOD Reports. Extended 2026-06-07: long-term investing as an equal
+ *  co-headline (weekly trend + fundamentals + analyst consensus), an explicit
+ *  values section, and a who-it's-for split. Dark terminal aesthetic.
+ *  Mobile-first. Lead with the substance — analysis is a mechanism, not the
+ *  identity; "AI" is one tool inside the desk, never the headline.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import StickyLandingCTA from "../components/StickyLandingCTA";
@@ -12,27 +16,8 @@ import {
   Check, Zap, Clock,
   ArrowRight, BookOpen,
   Scan, Target, ChevronRight,
+  TrendingUp, Eye, ShieldCheck, GraduationCap, X,
 } from "lucide-react";
-
-/* ── Live track record hook ───────────────────────────────────────── */
-
-interface TrackRecord {
-  total_signals: number;
-  wins: number;
-  losses: number;
-  win_rate: number;
-}
-
-function usePublicTrackRecord(): TrackRecord | null {
-  const [data, setData] = useState<TrackRecord | null>(null);
-  useEffect(() => {
-    fetch("/api/v1/intel/public-track-record?days=90")
-      .then((r) => r.json())
-      .then(setData)
-      .catch(() => {});
-  }, []);
-  return data;
-}
 
 /* ── Shared components ────────────────────────────────────────────── */
 
@@ -92,7 +77,7 @@ function LandingNav() {
 
 /* ── Hero Section ─────────────────────────────────────────────────── */
 
-function Hero({ track: _track }: { track: TrackRecord | null }) {
+function Hero() {
   return (
     <section className="relative pt-32 pb-16 flex flex-col items-center px-6 overflow-hidden">
       {/* Background grid + glow */}
@@ -111,15 +96,17 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         </Badge>
 
         <h1 className="mt-8 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-text-primary leading-[1.08]">
-          Your trading desk
+          Trade the setups.
           <br />
-          <span className="text-gradient-ai">for the hours you're not at one.</span>
+          <span className="text-gradient-ai">Invest in the trends.</span>
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto leading-relaxed">
-          Setups graded A / B / C by volume + VWAP slope. Real outcomes computed from
-          actual post-fire price action — not synthetic win rates. A Friday AI retro of
-          what worked. Built for traders with day jobs.
+          One desk for both horizons. <span className="text-text-primary font-medium">Short-term:</span> intraday
+          and swing setups graded A / B / C by volume + structure.{" "}
+          <span className="text-text-primary font-medium">Long-term:</span> weekly trend reads, fundamentals,
+          and analyst consensus for the positions you hold for weeks. Real outcomes, public reports —
+          built for investors with day jobs.
         </p>
 
         {/* CTA */}
@@ -146,9 +133,9 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         {/* What the toolkit covers */}
         <div className="mt-16 flex flex-wrap justify-center gap-6 sm:gap-10">
           {[
-            { label: "Setup grade per alert", value: "A / B / C", color: "text-accent" },
-            { label: "Daily EOD reports", value: "Public", color: "text-bullish-text" },
-            { label: "Real outcomes (no synthetic)", value: "MFE / MAE", color: "text-text-primary" },
+            { label: "Short-term setups", value: "A / B / C", color: "text-accent" },
+            { label: "Long-term positions", value: "Weekly + fundamentals", color: "text-purple-400" },
+            { label: "Real outcomes (public)", value: "MFE / MAE", color: "text-bullish-text" },
           ].map((m) => (
             <div key={m.label} className="flex flex-col items-center">
               <span className={`font-mono text-2xl sm:text-3xl font-bold ${m.color}`}>{m.value}</span>
@@ -254,28 +241,42 @@ function Problem() {
 /* ── 5 AI Pillars ────────────────────────────────────────────────── */
 
 function AIPillars() {
-  // Three-pillar repositioning (2026-05-27): AI Analysis / Education /
-  // Public Strategy Evaluation. Replaces the old "5 AI capabilities" framing
-  // which leaned too hard on the "alert service" positioning.
+  // Four pillars (2026-06-07): Short-term Analysis / Long-term Investing /
+  // Education / Transparency. Long-term added as an equal co-headline so
+  // position investors self-identify. Pillar 1 de-AI'd — automated scanning
+  // is a mechanism, not the product's identity.
   const pillars = [
     {
       icon: Scan,
-      title: "AI Market Analysis",
-      subtitle: "Automated scanning during market hours",
+      title: "Short-Term Setups",
+      subtitle: "Intraday & swing analysis during market hours",
       color: "accent",
-      desc: "Pattern recognition runs on your watchlist while you work. Results delivered in plain English — observations with entry, stop, target levels. You make the call.",
+      desc: "Automated scanning runs on your watchlist while you work. Setups surface in plain English — observations with entry, stop, and target levels, graded A / B / C. You make the call.",
       bullets: [
-        "Scans across stocks + crypto with multi-timeframe context",
-        "Maps every observation to a documented pattern",
-        "Volume + structure context built into every setup",
+        "Scans stocks + crypto with multi-timeframe context",
+        "Every setup graded A / B / C on volume + structure",
+        "Maps each observation to a documented pattern",
         "Position-aware — won't duplicate setups you're already in",
+      ],
+    },
+    {
+      icon: TrendingUp,
+      title: "Long-Term Investing",
+      subtitle: "Weekly trends, fundamentals & analyst consensus",
+      color: "purple-400",
+      desc: "For the positions you hold for weeks, not minutes. Weekly moving-average trend reads, base/pullback setups, fundamentals, and analyst buy/hold/sell consensus — plus a plain-English long-term view to judge any name you own.",
+      bullets: [
+        "Weekly trend analysis (10/20/50-week moving averages)",
+        "Position-style setups — 2–8 week holds, major levels",
+        "Fundamentals + analyst buy / hold / sell consensus",
+        "A long-term view per symbol, beside the short-term read",
       ],
     },
     {
       icon: BookOpen,
       title: "Pattern Education",
       subtitle: "14 documented setups, taught with real data",
-      color: "purple-400",
+      color: "amber",
       desc: "Every signal links to a teachable pattern. Study the structure, see real historical examples, and replay any past setup bar-by-bar.",
       bullets: [
         "14 patterns from beginner to advanced",
@@ -289,7 +290,7 @@ function AIPillars() {
       title: "Public EOD Reports",
       subtitle: "Transparent strategy evaluation",
       color: "bullish-text",
-      desc: "Daily reports published after market close. See what triggered, what worked, what didn't — with full data, not curated highlights. Learn from transparent outcomes.",
+      desc: "Daily reports published after market close. See what triggered, what worked, what didn't — with full data, not curated highlights. Losses shown beside wins.",
       bullets: [
         "Published daily — every signal, every outcome",
         "Filter by pattern, symbol, or your own took/skipped decisions",
@@ -302,6 +303,7 @@ function AIPillars() {
   const colorMap: Record<string, { bg: string; border: string; text: string }> = {
     "accent": { bg: "bg-accent/10", border: "border-accent/20", text: "text-accent" },
     "purple-400": { bg: "bg-purple-500/10", border: "border-purple-500/20", text: "text-purple-400" },
+    "amber": { bg: "bg-amber-500/10", border: "border-amber-500/20", text: "text-amber-400" },
     "bullish-text": { bg: "bg-bullish/10", border: "border-bullish/20", text: "text-bullish-text" },
   };
 
@@ -309,13 +311,13 @@ function AIPillars() {
     <section id="pillars" className="py-24 px-6 bg-surface-1/50">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-16">
-          <Badge variant="blue">Three pillars</Badge>
+          <Badge variant="blue">The toolkit</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-            Analysis. Education. Transparency.
+            Short-term. Long-term. Fully transparent.
           </h2>
           <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
-            A toolkit built around what serious self-directed investors actually need —
-            not another inbox of buy/sell calls.
+            One desk for both horizons — trade the setups, invest the trends, and study every
+            outcome in the open. Not another inbox of buy/sell calls.
           </p>
         </div>
 
@@ -372,8 +374,8 @@ function HowItWorks() {
     },
     {
       num: "02",
-      title: "Setups surface with full context",
-      desc: "When price interacts with a key structural level, you get an observation: entry zone, stop reference, target levels, and which pattern it matches. You make the call.",
+      title: "Get both reads on every name",
+      desc: "Short-term: intraday/swing setups surface with entry, stop, target, and the pattern they match. Long-term: a weekly-trend, fundamentals, and analyst-consensus view to judge the position. You make the call.",
       icon: Scan,
     },
     {
@@ -390,7 +392,7 @@ function HowItWorks() {
         <div className="text-center mb-16">
           <Badge variant="green">How it works</Badge>
           <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
-            Build your watchlist, watch the analysis, learn from the data
+            Build your watchlist, get both horizons, learn from the data
           </h2>
         </div>
 
@@ -473,6 +475,7 @@ function DailyWorkflow() {
     { time: "All Day", label: "Mobile observations", desc: "Mark Took / Skipped from your phone", color: "text-blue-400" },
     { time: "04:35 PM", label: "EOD Report (public)", desc: "What triggered, what worked, what didn't", color: "text-orange-400" },
     { time: "04:40 PM", label: "Setup replays", desc: "Bar-by-bar replay of every observation", color: "text-yellow-400" },
+    { time: "Weekly", label: "Position review", desc: "Weekly trend, fundamentals + analyst consensus on your holdings", color: "text-purple-400" },
     { time: "Friday", label: "Weekly Summary", desc: "Pattern performance, recurring lessons", color: "text-purple-400" },
   ];
 
@@ -599,6 +602,7 @@ function Pricing() {
         "Top setups preview (Swing & In-Play)",
         "1 setup scan/day",
         "A-grade observations only",
+        "Long-term view on watchlist names",
         "Today's observations only",
         "1 setup replay/day",
         "Pattern Library access",
@@ -615,10 +619,11 @@ function Pricing() {
         "Unlimited watchlist",
         "Full Swing & In-Play screeners",
         "Every observation, real-time — all grades",
+        "Long-term research: weekly trend + fundamentals + analyst consensus",
         "50 setup scans/day",
         "Pre-market brief + daily EOD review",
         "Personal Took/Skipped analytics",
-        "Weekly AI retrospective",
+        "Weekly retrospective",
         "Full observation history",
       ],
       highlight: true,
@@ -754,6 +759,10 @@ function FAQ() {
       a: "No. BusyTradersDesk is a research toolkit and educational platform for self-directed investors. We surface structural observations with entry, stop, and target levels — you decide whether and how to act. Nothing here is investment advice.",
     },
     {
+      q: "Is this for day-trading or long-term investing?",
+      a: "Both. Short-term: intraday and swing setups graded A/B/C surface during market hours. Long-term: weekly-trend analysis (10/20/50-week moving averages), position-style setups for 2–8 week holds, plus fundamentals and analyst buy/hold/sell consensus and a plain-English long-term view on any name you follow. One desk, both horizons.",
+    },
+    {
       q: "How is this different from a general AI chatbot?",
       a: "The analysis layer is trained on a specific playbook (14 documented patterns), reads real-time OHLCV bars, computes VWAP from live session data, tracks your watchlist positions, and produces structured setup observations — not generic market commentary.",
     },
@@ -824,6 +833,128 @@ function FAQ() {
   );
 }
 
+/* ── What We Stand For (core values) ─────────────────────────────── */
+
+function WhatWeStandFor() {
+  const values = [
+    {
+      icon: Target,
+      title: "You decide",
+      desc: "We surface setups and analysis — you choose whether and how to act. Nothing here is a recommendation or a buy/sell call.",
+    },
+    {
+      icon: Eye,
+      title: "Radical transparency",
+      desc: "Every outcome is public, losses included. No hidden track record, no cherry-picked wins — the EOD reports show all of it.",
+    },
+    {
+      icon: GraduationCap,
+      title: "Education first",
+      desc: "Every observation maps to a documented pattern you can study and replay. The goal is for you to recognize setups yourself.",
+    },
+    {
+      icon: TrendingUp,
+      title: "Both horizons",
+      desc: "Short-term setups and long-term positions live in one desk — not two apps. Trade the move, invest the trend.",
+    },
+    {
+      icon: ShieldCheck,
+      title: "No hype",
+      desc: "Data and structure, not gurus, rockets, or guaranteed returns. Built for people who want to think for themselves.",
+    },
+  ];
+
+  return (
+    <section className="py-24 px-6">
+      <div className="max-w-5xl mx-auto">
+        <div className="text-center mb-12">
+          <Badge variant="blue">What we stand for</Badge>
+          <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
+            The principles behind every screen
+          </h2>
+          <p className="mt-4 text-text-secondary max-w-2xl mx-auto">
+            We built this for self-directed investors who want control, transparency, and a way
+            to actually learn — across both short-term and long-term decisions.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {values.map((v) => (
+            <div key={v.title} className="bg-surface-1 border border-border-subtle rounded-xl p-5">
+              <div className="w-10 h-10 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center mb-3">
+                <v.icon className="h-5 w-5 text-accent" />
+              </div>
+              <h3 className="text-base font-bold text-text-primary mb-1.5">{v.title}</h3>
+              <p className="text-sm text-text-secondary leading-relaxed">{v.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Who This Is For / Not For ───────────────────────────────────── */
+
+function WhoFor() {
+  const forYou = [
+    "You manage your own brokerage account and want to keep control of every decision",
+    "You have a day job and can't watch charts tick-by-tick",
+    "You trade short-term setups and hold long-term positions",
+    "You want to learn the patterns, not just be handed a call",
+    "You want a transparent track record you can actually inspect",
+  ];
+  const notForYou = [
+    "You want someone to tell you exactly what to buy and when",
+    "You're looking for guaranteed returns or a \"can't-lose\" system",
+    "You day-trade every tick with no interest in structure or learning",
+    "You want hot tips and hype, not data and context",
+  ];
+
+  return (
+    <section className="py-24 px-6 bg-surface-1/50">
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-12">
+          <Badge>Is this for you?</Badge>
+          <h2 className="mt-6 text-3xl sm:text-4xl font-bold text-text-primary">
+            Built for self-directed investors — not tip-seekers
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-surface-1 border border-bullish/20 rounded-2xl p-6">
+            <h3 className="flex items-center gap-2 text-base font-bold text-bullish-text mb-4">
+              <Check className="h-5 w-5" /> Built for you if…
+            </h3>
+            <ul className="space-y-3">
+              {forYou.map((t) => (
+                <li key={t} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                  <Check className="h-4 w-4 text-bullish-text shrink-0 mt-0.5" />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="bg-surface-1 border border-bearish/20 rounded-2xl p-6">
+            <h3 className="flex items-center gap-2 text-base font-bold text-bearish-text mb-4">
+              <X className="h-5 w-5" /> Not the right fit if…
+            </h3>
+            <ul className="space-y-3">
+              {notForYou.map((t) => (
+                <li key={t} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                  <X className="h-4 w-4 text-bearish-text shrink-0 mt-0.5" />
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ── Final CTA ────────────────────────────────────────────────────── */
 
 function FinalCTA() {
@@ -834,8 +965,8 @@ function FinalCTA() {
           Stop staring at charts.<br />Pull up the desk instead.
         </h2>
         <p className="mt-4 text-text-secondary max-w-xl mx-auto">
-          For traders with day jobs who want structured analysis,
-          transparent EOD reports, and a pattern library — without quitting the day job.
+          For investors with day jobs who want structured short-term setups, long-term position
+          research, transparent EOD reports, and a pattern library — without quitting the day job.
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
@@ -897,7 +1028,6 @@ function Footer() {
 /* ── Main Landing Page ────────────────────────────────────────────── */
 
 export default function LandingPage() {
-  const track = usePublicTrackRecord();
   const user = useAuthStore((s) => s.user);
 
   // If hydrate restored a session, send the user straight into the app
@@ -911,14 +1041,16 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-surface-0 text-text-primary overflow-x-hidden">
       <LandingNav />
-      <Hero track={track} />
+      <Hero />
       <Problem />
       <div id="pillars"><AIPillars /></div>
       <HowItWorks />
+      <WhatWeStandFor />
       <AIvsManual />
       <DailyWorkflow />
       <TelegramDemo />
       <PatternPreview />
+      <WhoFor />
       <div id="pricing"><Pricing /></div>
       <FAQ />
       <FinalCTA />
