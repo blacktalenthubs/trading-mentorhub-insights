@@ -104,4 +104,4 @@ if barstate.islast
         label.delete(statusLab)
     dist = (not na(ma)) and ma != 0 ? (close - ma) / ma * 100.0 : 0.0
     txt = stage_name + "\n30wMA " + str.tostring(ma, format.mintick) + "  ·  wk slope " + str.tostring(wslope, "#.##") + "%  ·  price " + (dist >= 0 ? "+" : "") + str.tostring(dist, "#.#") + "% vs MA"
-    statusLab := label.new(bar_index, high, txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(stage_col, 75), textcolor = color.white, size = size.normal)
+    statusLab := label.new(bar_index, high, txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.black, 10), textcolor = stage_col, size = size.normal)
