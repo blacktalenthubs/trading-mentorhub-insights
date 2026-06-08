@@ -1795,18 +1795,23 @@ rc4_is_idx = (syminfo.ticker == "SPY") or (syminfo.ticker == "QQQ")
 // RC-H — dipped BELOW the prior 4h high then closed back above it: the broken high
 // held as support = breakout-retest CONTINUATION long (whole watchlist).
 rc4_hrec   = (rc4_low < rc4_phigh) and (rc4_close > rc4_phigh)
+// Fire ONLY when a 4h bar has just CLOSED (a new 4h bar opened) — NOT intra-bar.
+// Without this, the forming 4h candle re-triggers on every 5m bar at the wrong
+// (current) price, flooding the feed. At this boundary request.security returns
+// the just-CLOSED 4h bar, so we stamp rc4_close (its close), not the live price.
+rc4_newbar = ta.change(time("240")) != 0
 
-if rc4_alerts and rc4_long and not rc4_long[1]
-    rcln = "RC LONG · 4h undercut & reclaim of prior low · stop = wick low " + str.tostring(rc4_low, format.mintick)
-    rclp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rcln + '","fired_at":"' + str.tostring(timenow) + '"}'
+if rc4_alerts and rc4_newbar and rc4_long
+    rcln = "RC · RECLAIM FROM LOW — 4h undercut & reclaim of the prior 4h low · stop = 4h low " + str.tostring(rc4_low, format.mintick)
+    rclp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rcln + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rclp, alert.freq_once_per_bar_close)
-if rc4_alerts and rc4_is_idx and rc4_short and not rc4_short[1]
-    rcsn = "RC SHORT · 4h rejection at prior high · stop = wick high " + str.tostring(rc4_high, format.mintick)
-    rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
+if rc4_alerts and rc4_newbar and rc4_is_idx and rc4_short
+    rcsn = "RC · REJECTION AT HIGH — 4h failed break of the prior 4h high · stop = 4h high " + str.tostring(rc4_high, format.mintick)
+    rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rcsp, alert.freq_once_per_bar_close)
-if rc4_alerts and rc4_hrec and not rc4_hrec[1]
-    rchn = "RC-H · 4h breakout-retest — reclaimed prior high " + str.tostring(rc4_phigh, format.mintick) + " · stop = retest low " + str.tostring(rc4_low, format.mintick)
-    rchp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rchn + '","fired_at":"' + str.tostring(timenow) + '"}'
+if rc4_alerts and rc4_newbar and rc4_hrec
+    rchn = "RC-H · RECLAIM FROM HIGH — 4h breakout-retest of the prior 4h high " + str.tostring(rc4_phigh, format.mintick) + " · stop = retest low " + str.tostring(rc4_low, format.mintick)
+    rchp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rchn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rchp, alert.freq_once_per_bar_close)
 
 // ═══════════════════════════════════════════════════════════════════════
