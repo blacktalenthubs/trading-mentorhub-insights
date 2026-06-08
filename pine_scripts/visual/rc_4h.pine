@@ -8,9 +8,15 @@
 // chart's prior bar). Pure visual — no alerts, just markers to eyeball whether
 // it catches reversals on SPY/QQQ/AAPL/GOOGL over a week.
 //
-//   ▲ RC  = low < prior low AND close > prior low (undercut then reclaim).
-//   dashed line = the reclaimed level (the prior low) — a defended support to
-//   watch / bounce intraday.
+//   ▲ RC   = low < prior low AND close > prior low — reclaim of the prior LOW
+//            (undercut & reclaim = reversal / bottoming, lime).
+//   ▼ ↓    = high > prior high AND close < prior high — failed break of the prior
+//            HIGH (rejection / top, red).
+//   ▲ RC-H = low < prior high AND close > prior high — dip below the prior HIGH
+//            then close back above it: the broken high held as support =
+//            breakout-retest CONTINUATION long (teal). Use the "highs become
+//            support once you're above them" play.
+//   dashed line = the reclaimed/rejected level (a defended level to watch).
 //
 // Optional min lower-wick filter isolates the *sharp* undercut-and-reject
 // candles (where the reversal signal is strongest) from shallow dips.
@@ -18,8 +24,9 @@
 indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
 
 min_wick_pct = input.float(0.0, "Min wick % of candle range (0 = all)", minval = 0.0, maxval = 90.0, step = 0.5, group = "Detection")
-show_long    = input.bool(true, "▲ RC long — reclaim of prior LOW (undercut & reclaim, green)", group = "Detection")
+show_long    = input.bool(true, "▲ RC long — reclaim of prior LOW (undercut & reclaim — reversal, lime)", group = "Detection")
 show_short   = input.bool(true, "▼ rejection short — failed break of prior HIGH (wick above, close back below, red)", group = "Detection")
+show_hrec    = input.bool(true, "▲ RC-H — reclaim of prior HIGH (dip below then close back above — breakout-retest continuation, teal)", group = "Detection")
 vol_len      = input.int(20,  "Volume average length", minval = 1, group = "Detection")
 vol_min      = input.float(0.0, "Min volume vs average (0 = off · 1.5 = need 50% above avg = a real sweep)", minval = 0.0, step = 0.1, group = "Detection")
 show_lvl     = input.bool(true, "Draw the reclaimed/rejected level line", group = "Display")
@@ -40,11 +47,17 @@ vol_ok = (vol_min <= 0.0) or ((not na(vavg)) and vavg > 0 and volume >= vavg * v
 rc_long = show_long and (low < low[1]) and (close > low[1]) and ((min_wick_pct <= 0.0) or lwick_ok) and vol_ok
 // ▼ SHORT — poked above the prior high, closed back below it (reversal down / failed break).
 rc_short = show_short and (high > high[1]) and (close < high[1]) and ((min_wick_pct <= 0.0) or uwick_ok) and vol_ok
+// ▲ RC-H — dipped BELOW the prior high then CLOSED BACK ABOVE it: the broken high
+// held as support = breakout-retest CONTINUATION (not a reversal-bottom like RC).
+rc_hrec = show_hrec and (low < high[1]) and (close > high[1]) and ((min_wick_pct <= 0.0) or lwick_ok) and vol_ok
 
 plotshape(rc_long, title = "RC long", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
 plotshape(rc_short, title = "RC short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "↓")
+plotshape(rc_hrec, title = "RC-H", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "RC-H")
 
 if show_lvl and rc_long
     line.new(bar_index, low[1], bar_index + lvl_bars, low[1], xloc = xloc.bar_index, color = color.new(color.lime, 30), width = 1, style = line.style_dashed)
 if show_lvl and rc_short
     line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = color.new(color.red, 30), width = 1, style = line.style_dashed)
+if show_lvl and rc_hrec
+    line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = color.new(color.teal, 30), width = 1, style = line.style_dashed)
