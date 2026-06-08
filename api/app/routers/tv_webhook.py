@@ -1013,11 +1013,9 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # is actually delivered, so each type is enabled/tested independently
     # from Settings > Alert Types. A DB-read failure falls back to the
     # static allow-list so delivery never goes fully dark.
-    # Admin-editable exempt allow-lists default to the env constants; the DB
-    # read below overrides them when present. Defined up-front so they're always
-    # set even if the read fails.
-    index_exempt: frozenset = INDEX_REGIME_ALLOWLIST
-    crypto_exempt: frozenset = CRYPTO_REGIME_ALLOWLIST
+    # (index_exempt / crypto_exempt were consumed by the SPY/BTC below-PDL
+    # gates, removed 2026-06-08. The RegimeConfig rows + Settings UI stay so
+    # the lists survive for an easy gate revival, but nothing reads them now.)
     alert_syms: frozenset = _ALERT_SYMS_DEFAULT
     try:
         from app.models.alert_type_config import AlertTypeConfig
@@ -1032,8 +1030,6 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         enabled_types: Optional[set[str]] = {at for at, en in _cfg_rows if en}
         known_types: Optional[set[str]] = {at for at, _ in _cfg_rows}
         _rc = {k: v for k, v in _rc_rows}
-        index_exempt = _parse_exempt_syms(_rc.get("index_exempt")) or INDEX_REGIME_ALLOWLIST
-        crypto_exempt = _parse_exempt_syms(_rc.get("crypto_exempt")) or CRYPTO_REGIME_ALLOWLIST
         alert_syms = _parse_exempt_syms(_rc.get("alert_symbols")) or _ALERT_SYMS_DEFAULT
         alert_watchlist = _parse_exempt_syms(_rc.get("alert_watchlist"))  # exception symbols
         alerts_all = (_rc.get("alerts_all_symbols", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
@@ -1077,71 +1073,19 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return {"dispatched": False, "reason": "unknown_type"}
 
     # ──────────────────────────────────────────────────────────────────
-    # Spec 61 — SPY-below-PDL HARD regime block (2026-06-05)
+    # SPY/BTC below-PDL regime gates — REMOVED 2026-06-08
     # ──────────────────────────────────────────────────────────────────
-    # Breaking the PRIOR-DAY LOW is rare in a genuine uptrend — when it happens
-    # the broad tape is broken and we will NOT counter-trade it. Hard-block
-    # EVERY buy on EVERY equity; the index allow-list (SPY/QQQ/IWM/DRAM) is
-    # exempt. Self-healing: when SPY reclaims PDL, buys flow again.
+    # We pulled the SPY-below-PDL hard block (Spec 61) and its BTC twin so
+    # alerts flow UNGATED. Reason: the gate was suppressing the very data we
+    # need to learn how to trade SPY<PDL / inside-day / outside-day regimes.
+    # We now limit volume by NAME instead (Settings → Alert symbols master
+    # switch, alerts_all_symbols + alert_watchlist) — enable a few stocks on
+    # all alert types and study which alerts work in which regime.
     #
-    # ROUTING IS OURS. The Pine fires the alert; the backend decides where it
-    # goes — and the backend already knows SPY's PDL state (same reading that
-    # drives the STAND_DOWN banner). So we route on THAT, not on a field the
-    # Pine has to stamp (which depends on recreating every TV alert). The
-    # Pine-stamped spy_above_pdl is kept only as a fallback when our market
-    # data is unavailable. Cheap: only consulted for non-index buys.
-    # SPY gate applies to STOCKS only; crypto has its own BTC gate below.
-    _direction = (sig.direction or "").upper()
-    _sym_u = (sig.symbol or "").upper()
-    if (
-        _direction == "BUY"
-        and not _is_crypto_symbol(sig.symbol)
-        and _sym_u not in index_exempt
-    ):
-        _backend_below = await asyncio.get_running_loop().run_in_executor(
-            None, _spy_below_pdl_now
-        )
-        _spy_above_pdl = resolve_spy_above_pdl(
-            _backend_below, getattr(sig, "_tv_spy_above_pdl", None)
-        )
-        if spy_pdl_blocks_buy(_spy_above_pdl, sig.direction, sig.symbol, index_exempt):
-            logger.info(
-                "TV webhook: SPY below PDL — market-regime blocked %s for %s "
-                "(backend_below=%s, pine=%s)",
-                alert_type_full, sig.symbol,
-                _backend_below, getattr(sig, "_tv_spy_above_pdl", None),
-            )
-            return await _persist_unrouted(
-                sig, alert_type_full, session_date,
-                suppressed_reason="spy_below_pdl",
-            )
-
-    # ──────────────────────────────────────────────────────────────────
-    # Spec 61 — BTC-below-PDL crypto regime block (the crypto twin)
-    # ──────────────────────────────────────────────────────────────────
-    # 24/7 market, so this validates the whole gate flow before equity open:
-    # when BTC is below its prior-day low, ETH/alt buys route to Not-routed.
-    # BTC-USD is exempt (always sends — trade its bounces + monitor the market).
-    if (
-        _direction == "BUY"
-        and _is_crypto_symbol(sig.symbol)
-        and _sym_u not in crypto_exempt
-    ):
-        _btc_below = await asyncio.get_running_loop().run_in_executor(
-            None, _btc_below_pdl_now
-        )
-        if crypto_pdl_blocks_buy(
-            (not _btc_below) if _btc_below is not None else None,
-            sig.direction, sig.symbol, crypto_exempt,
-        ):
-            logger.info(
-                "TV webhook: BTC below PDL — crypto-regime blocked %s for %s",
-                alert_type_full, sig.symbol,
-            )
-            return await _persist_unrouted(
-                sig, alert_type_full, session_date,
-                suppressed_reason="btc_below_pdl",
-            )
+    # The pure gate predicates (spy_pdl_blocks_buy / crypto_pdl_blocks_buy /
+    # resolve_spy_above_pdl + the *_below_pdl_now readers) are intentionally
+    # KEPT but unwired — fully unit-tested, so the gate is a few lines away
+    # from revival once we know what each regime actually warrants.
 
     # ──────────────────────────────────────────────────────────────────
     # Spec 58 — uptrend gate enforcement (FR-001 / FR-003, refined 2026-05-23)
