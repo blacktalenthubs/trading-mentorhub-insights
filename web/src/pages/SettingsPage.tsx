@@ -19,6 +19,7 @@ import {
   useTelegramUnlink,
   useAlertConfig,
   useToggleAlertConfig,
+  useToggleAllAlertConfig,
   useRegimeConfig,
   useUpdateRegimeConfig,
   type AlertTypeConfigItem,
@@ -722,12 +723,15 @@ function ThemeToggle() {
 function AlertTypesSection() {
   const { data: types, isLoading } = useAlertConfig();
   const toggle = useToggleAlertConfig();
+  const toggleAll = useToggleAllAlertConfig();
 
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
     (grouped[t.category] ??= []).push(t);
   }
   const enabledCount = (types ?? []).filter((t) => t.enabled).length;
+  const total = types?.length ?? 0;
+  const busy = toggle.isPending || toggleAll.isPending;
 
   return (
     <Section title="Alert Types" icon={<Zap className="h-4 w-4 text-accent" />}>
@@ -741,6 +745,25 @@ function AlertTypesSection() {
           </span>
         )}
       </p>
+
+      {total > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <button
+            onClick={() => toggleAll.mutate(false)}
+            disabled={busy || enabledCount === 0}
+            className="rounded-md border border-border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
+          >
+            Uncheck all
+          </button>
+          <button
+            onClick={() => toggleAll.mutate(true)}
+            disabled={busy || enabledCount === total}
+            className="rounded-md border border-border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
+          >
+            Check all
+          </button>
+        </div>
+      )}
 
       {isLoading && <p className="text-xs text-text-faint">Loading…</p>}
 
@@ -768,7 +791,7 @@ function AlertTypesSection() {
                     onClick={() =>
                       toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })
                     }
-                    disabled={toggle.isPending}
+                    disabled={busy}
                     role="switch"
                     aria-checked={t.enabled}
                     title={t.description || undefined}

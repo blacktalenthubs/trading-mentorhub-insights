@@ -23,6 +23,10 @@ class AlertConfigUpdate(BaseModel):
     enabled: bool
 
 
+class AlertConfigBulkUpdate(BaseModel):
+    enabled: bool
+
+
 @router.get("")
 async def list_alert_config(
     user: User = Depends(get_current_user),
@@ -44,6 +48,22 @@ async def list_alert_config(
         }
         for r in rows
     ]
+
+
+@router.put("")
+async def set_all_alert_config(
+    body: AlertConfigBulkUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk enable/disable EVERY alert type in one call — backs the
+    'All off' / 'All on' buttons in Settings > Alert Types, so the user can
+    clear the board then pick only the few they care about. Takes effect on
+    the next fired alert."""
+    rows = (await db.execute(select(AlertTypeConfig))).scalars().all()
+    for r in rows:
+        r.enabled = body.enabled
+    return {"updated": len(rows), "enabled": body.enabled}
 
 
 @router.put("/{alert_type}")
