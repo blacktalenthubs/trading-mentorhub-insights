@@ -552,6 +552,22 @@ def _record_level_fire(
 
 _same_bar_fires: dict[str, list[tuple[str, datetime]]] = {}  # symbol → [(type, time)]
 
+# Info/NOTICE alert types are EXEMPT from the entry collapser. The collapser
+# exists to fold ENTRY rules that fire on one breakout candle (PDH break + VWAP
+# reclaim + MA bounce) into a single alert. The info alerts are context — a level
+# cross, a gap fill, a weekly/4h reversal — not entries on a shared candle, so
+# they must never be folded into (nor suppress) a staged entry. Without this,
+# turning an info type ON makes it WORSE than OFF: ON it enters the routed
+# pipeline and gets confluence_collapsed into a nearby entry → invisible.
+_COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
+    "multitouch_level", "gap_zone", "weekly_stage", "rc_4h",
+})
+
+
+def _is_collapse_exempt(alert_type_full: str) -> bool:
+    base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    return base in _COLLAPSE_EXEMPT_BASE
+
 
 def _check_same_bar_collapse(
     symbol: str, alert_type_full: str
@@ -559,6 +575,9 @@ def _check_same_bar_collapse(
     """Look for any OTHER rule that fired for this symbol within the
     collapse window. Returns prior fire info if found."""
     if os.environ.get("V2_SAME_BAR_COLLAPSE_ENABLED", "true").lower() in ("0", "false", "no"):
+        return None
+    # Info/NOTICE alerts are never collapsed — they're context, not entries.
+    if _is_collapse_exempt(alert_type_full):
         return None
     try:
         win_min = int(_envf("V2_SAME_BAR_COLLAPSE_MIN", 10))
@@ -573,6 +592,8 @@ def _check_same_bar_collapse(
     for prior_type, prior_time in fires:
         if prior_type == alert_type_full:
             continue  # identity dedup handles same-type re-fires
+        if _is_collapse_exempt(prior_type):
+            continue  # an info alert never collapses an entry
         return {
             "prior_type": prior_type,
             "prior_time": prior_time,
@@ -583,6 +604,8 @@ def _check_same_bar_collapse(
 
 def _record_same_bar_fire(symbol: str, alert_type_full: str) -> None:
     """Track this fire for the generic same-bar collapser."""
+    if _is_collapse_exempt(alert_type_full):
+        return  # info alerts never participate in the entry collapser
     _same_bar_fires.setdefault(symbol, []).append(
         (alert_type_full, datetime.utcnow())
     )
