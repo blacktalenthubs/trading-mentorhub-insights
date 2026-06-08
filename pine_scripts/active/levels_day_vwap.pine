@@ -1792,9 +1792,6 @@ rc4_alerts = input.bool(true, "4h RC alerts (long = watchlist · short = SPY/QQQ
 rc4_long   = (rc4_low < rc4_plow) and (rc4_close > rc4_plow)
 rc4_short  = (rc4_high > rc4_phigh) and (rc4_close < rc4_phigh)
 rc4_is_idx = (syminfo.ticker == "SPY") or (syminfo.ticker == "QQQ")
-// RC-H — dipped BELOW the prior 4h high then closed back above it: the broken high
-// held as support = breakout-retest CONTINUATION long (whole watchlist).
-rc4_hrec   = (rc4_low < rc4_phigh) and (rc4_close > rc4_phigh)
 // Fire ONLY when a 4h bar has just CLOSED (a new 4h bar opened) — NOT intra-bar.
 // Without this, the forming 4h candle re-triggers on every 5m bar at the wrong
 // (current) price, flooding the feed. At this boundary request.security returns
@@ -1809,10 +1806,9 @@ if rc4_alerts and rc4_newbar and rc4_is_idx and rc4_short
     rcsn = "RC · REJECTION AT HIGH — 4h failed break of the prior 4h high · stop = 4h high " + str.tostring(rc4_high, format.mintick)
     rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rcsp, alert.freq_once_per_bar_close)
-if rc4_alerts and rc4_newbar and rc4_hrec
-    rchn = "RC-H · RECLAIM FROM HIGH — 4h breakout-retest of the prior 4h high " + str.tostring(rc4_phigh, format.mintick) + " · stop = retest low " + str.tostring(rc4_low, format.mintick)
-    rchp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rchn + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(rchp, alert.freq_once_per_bar_close)
+// RC-H (reclaim-from-high / breakout-retest) ALERT removed 2026-06-08 — too noisy
+// (in a steady uptrend price sits above the prior high, so it fires almost every
+// 4h bar). It stays as a VISUAL marker in the RC4h indicator; just no alert.
 
 // ═══════════════════════════════════════════════════════════════════════
 // Gap alerts (spec 61, 2026-06-07) — fire from THIS indicator (one of your 2
