@@ -1859,35 +1859,32 @@ if array.size(gpTop) > 0
 // into levels; alerts when price closes ACROSS a level touched >= mt_alert_min
 // times. Backend gates delivery by Settings → Info-alert symbols.
 // ═══════════════════════════════════════════════════════════════════════
-mt_alerts    = input.bool(true, "Multi-touch level alerts (info)", group = "Multi-touch alerts")
-mt_piv       = input.int(3, "MT — pivot strength", minval = 1, group = "Multi-touch alerts")
+mt_alerts    = input.bool(true, "Multi-touch level alerts (info · anchored to 1h)", group = "Multi-touch alerts")
+mt_piv       = input.int(3, "MT — pivot strength (on the 1h)", minval = 1, group = "Multi-touch alerts")
 mt_tol       = input.float(1.0, "MT — match tolerance %", minval = 0.05, maxval = 5.0, step = 0.05, group = "Multi-touch alerts")
-mt_lb        = input.int(250, "MT — lookback bars", minval = 20, group = "Multi-touch alerts")
 mt_alert_min = input.int(3, "MT — min touches to alert", minval = 2, maxval = 8, group = "Multi-touch alerts")
 
-mt_ph = ta.pivothigh(high, mt_piv, mt_piv)
-mt_pl = ta.pivotlow(low, mt_piv, mt_piv)
-mt_pb = bar_index - mt_piv
+// Anchored to the 1h via request.security — the levels are HOURLY S/R and the
+// cross fires on the 1h close, regardless of the chart/alert timeframe (5m).
+mt_ph = request.security(syminfo.tickerid, "60", ta.pivothigh(high, mt_piv, mt_piv), lookahead = barmerge.lookahead_off)
+mt_pl = request.security(syminfo.tickerid, "60", ta.pivotlow(low, mt_piv, mt_piv), lookahead = barmerge.lookahead_off)
+[mt_hc, mt_hcp] = request.security(syminfo.tickerid, "60", [close, close[1]], lookahead = barmerge.lookahead_off)
+mt_newh = ta.change(time("60")) != 0
 
 var array<float> mtLowP  = array.new_float()
-var array<int>   mtLowB  = array.new_int()
 var array<float> mtHighP = array.new_float()
-var array<int>   mtHighB = array.new_int()
 
-if not na(mt_pl)
+// Push each NEW 1h pivot once (request.security repeats the value across LTF bars).
+if not na(mt_pl) and (na(mt_pl[1]) or mt_pl != mt_pl[1])
     array.push(mtLowP, mt_pl)
-    array.push(mtLowB, mt_pb)
     if array.size(mtLowP) > 250
         array.shift(mtLowP)
-        array.shift(mtLowB)
-if not na(mt_ph)
+if not na(mt_ph) and (na(mt_ph[1]) or mt_ph != mt_ph[1])
     array.push(mtHighP, mt_ph)
-    array.push(mtHighB, mt_pb)
     if array.size(mtHighP) > 250
         array.shift(mtHighP)
-        array.shift(mtHighB)
 
-if mt_alerts and barstate.islast and array.size(mtLowP) > 0
+if mt_alerts and barstate.islast and mt_newh and array.size(mtLowP) > 0
     mt_nl = array.size(mtLowP)
     mt_usedL = array.new_bool(mt_nl, false)
     for mt_a = 0 to mt_nl - 1
@@ -1899,16 +1896,16 @@ if mt_alerts and barstate.islast and array.size(mtLowP) > 0
                 for mt_b = mt_a to mt_nl - 1
                     if not array.get(mt_usedL, mt_b)
                         mt_q = array.get(mtLowP, mt_b)
-                        if (mt_q > 0) and (math.abs(mt_q - mt_base) / mt_base * 100.0 <= mt_tol) and ((bar_index - array.get(mtLowB, mt_b)) <= mt_lb)
+                        if (mt_q > 0) and (math.abs(mt_q - mt_base) / mt_base * 100.0 <= mt_tol)
                             array.set(mt_usedL, mt_b, true)
                             mt_cnt := mt_cnt + 1
                             mt_lvl := math.min(mt_lvl, mt_q)
-            if (mt_cnt >= mt_alert_min) and (((close > mt_lvl) and (close[1] <= mt_lvl)) or ((close < mt_lvl) and (close[1] >= mt_lvl)))
-                mt_bn = str.tostring(mt_cnt) + "x support " + str.tostring(mt_lvl, format.mintick) + " - closed " + (close > mt_lvl ? "above" : "below")
-                mt_bp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(mt_lvl, format.mintick) + '","note":"' + mt_bn + '","fired_at":"' + str.tostring(timenow) + '"}'
+            if (mt_cnt >= mt_alert_min) and (((mt_hc > mt_lvl) and (mt_hcp <= mt_lvl)) or ((mt_hc < mt_lvl) and (mt_hcp >= mt_lvl)))
+                mt_bn = str.tostring(mt_cnt) + "x support " + str.tostring(mt_lvl, format.mintick) + " - 1h closed " + (mt_hc > mt_lvl ? "above" : "below")
+                mt_bp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"60","entry":"' + str.tostring(mt_lvl, format.mintick) + '","note":"' + mt_bn + '","fired_at":"' + str.tostring(timenow) + '"}'
                 alert(mt_bp, alert.freq_once_per_bar_close)
 
-if mt_alerts and barstate.islast and array.size(mtHighP) > 0
+if mt_alerts and barstate.islast and mt_newh and array.size(mtHighP) > 0
     mt_nh = array.size(mtHighP)
     mt_usedH = array.new_bool(mt_nh, false)
     for mt_ha = 0 to mt_nh - 1
@@ -1920,11 +1917,11 @@ if mt_alerts and barstate.islast and array.size(mtHighP) > 0
                 for mt_hb = mt_ha to mt_nh - 1
                     if not array.get(mt_usedH, mt_hb)
                         mt_hq = array.get(mtHighP, mt_hb)
-                        if (mt_hq > 0) and (math.abs(mt_hq - mt_hbase) / mt_hbase * 100.0 <= mt_tol) and ((bar_index - array.get(mtHighB, mt_hb)) <= mt_lb)
+                        if (mt_hq > 0) and (math.abs(mt_hq - mt_hbase) / mt_hbase * 100.0 <= mt_tol)
                             array.set(mt_usedH, mt_hb, true)
                             mt_hcnt := mt_hcnt + 1
                             mt_hlvl := math.max(mt_hlvl, mt_hq)
-            if (mt_hcnt >= mt_alert_min) and (((close > mt_hlvl) and (close[1] <= mt_hlvl)) or ((close < mt_hlvl) and (close[1] >= mt_hlvl)))
-                mt_hn = str.tostring(mt_hcnt) + "x resistance " + str.tostring(mt_hlvl, format.mintick) + " - closed " + (close > mt_hlvl ? "above" : "below")
-                mt_hp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(mt_hlvl, format.mintick) + '","note":"' + mt_hn + '","fired_at":"' + str.tostring(timenow) + '"}'
+            if (mt_hcnt >= mt_alert_min) and (((mt_hc > mt_hlvl) and (mt_hcp <= mt_hlvl)) or ((mt_hc < mt_hlvl) and (mt_hcp >= mt_hlvl)))
+                mt_hn = str.tostring(mt_hcnt) + "x resistance " + str.tostring(mt_hlvl, format.mintick) + " - 1h closed " + (mt_hc > mt_hlvl ? "above" : "below")
+                mt_hp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"multitouch_level","direction":"NOTICE","interval":"60","entry":"' + str.tostring(mt_hlvl, format.mintick) + '","note":"' + mt_hn + '","fired_at":"' + str.tostring(timenow) + '"}'
                 alert(mt_hp, alert.freq_once_per_bar_close)
