@@ -2000,3 +2000,16 @@ export function useToggleAlertConfig() {
     },
   });
 }
+
+/** Bulk-toggle EVERY alert type at once ("All off" / "All on"). */
+export function useToggleAllAlertConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      api.put<{ updated: number; enabled: boolean }>("/alert-config", { enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-config"] }),
+    onError: (err: { message?: string; detail?: { message?: string } }) => {
+      toast.error(err.detail?.message || err.message || "Failed to update alert types");
+    },
+  });
+}
