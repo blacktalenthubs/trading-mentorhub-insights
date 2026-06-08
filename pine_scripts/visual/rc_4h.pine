@@ -29,8 +29,14 @@ show_short   = input.bool(true, "▼ rejection short — failed break of prior H
 show_hrec    = input.bool(true, "▲ RC-H — reclaim of prior HIGH (dip below then close back above — breakout-retest continuation, teal)", group = "Detection")
 vol_len      = input.int(20,  "Volume average length", minval = 1, group = "Detection")
 vol_min      = input.float(0.0, "Min volume vs average (0 = off · 1.5 = need 50% above avg = a real sweep)", minval = 0.0, step = 0.1, group = "Detection")
-show_lvl     = input.bool(true, "Draw the reclaimed/rejected level line", group = "Display")
+show_lvl     = input.bool(true, "Draw the level lines (turn OFF = keep only the RC markers/labels)", group = "Display")
 lvl_bars     = input.int(24, "Extend the level this many bars", minval = 1, group = "Display")
+lvl_style_in = input.string("Dashed", "Level line — style", options = ["Solid", "Dashed", "Dotted"], group = "Display")
+lvl_width    = input.int(1, "Level line — width", minval = 1, maxval = 5, group = "Display")
+lvl_col_long = input.color(color.new(color.lime, 30), "  Level color — RC (reclaim low)", group = "Display")
+lvl_col_short= input.color(color.new(color.red, 30),  "  Level color — rejection (prior high)", group = "Display")
+lvl_col_hrec = input.color(color.new(color.teal, 30), "  Level color — RC-H (reclaim high)", group = "Display")
+lvl_style    = lvl_style_in == "Solid" ? line.style_solid : (lvl_style_in == "Dotted" ? line.style_dotted : line.style_dashed)
 
 rng        = high - low
 lower_wick = math.min(open, close) - low
@@ -56,8 +62,8 @@ plotshape(rc_short, title = "RC short", style = shape.triangledown, location = l
 plotshape(rc_hrec, title = "RC-H", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "RC-H")
 
 if show_lvl and rc_long
-    line.new(bar_index, low[1], bar_index + lvl_bars, low[1], xloc = xloc.bar_index, color = color.new(color.lime, 30), width = 1, style = line.style_dashed)
+    line.new(bar_index, low[1], bar_index + lvl_bars, low[1], xloc = xloc.bar_index, color = lvl_col_long, width = lvl_width, style = lvl_style)
 if show_lvl and rc_short
-    line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = color.new(color.red, 30), width = 1, style = line.style_dashed)
+    line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = lvl_col_short, width = lvl_width, style = lvl_style)
 if show_lvl and rc_hrec
-    line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = color.new(color.teal, 30), width = 1, style = line.style_dashed)
+    line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = lvl_col_hrec, width = lvl_width, style = lvl_style)
