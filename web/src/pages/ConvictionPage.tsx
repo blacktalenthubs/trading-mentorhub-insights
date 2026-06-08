@@ -6,15 +6,16 @@
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Gem, RefreshCw, History, Plus, Check } from "lucide-react";
+import { Gem, RefreshCw, History, Plus, Check, Layers } from "lucide-react";
 import {
   useConviction, useConvictionHistory, useRefreshConviction,
   useAddSymbol, useWatchlist,
+  useWeeklyStage, useRefreshWeeklyStage,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import ScreenerTable, { type Column } from "../components/ScreenerTable";
 import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
-import type { ConvictionEntry } from "./InPlay.types";
+import type { ConvictionEntry, WeeklyStageEntry } from "./InPlay.types";
 
 const money = (n: number | null | undefined) => (n != null ? `$${n.toFixed(2)}` : "—");
 
@@ -83,7 +84,193 @@ function AddButton({ owned, onAdd, label }: { owned: boolean; onAdd: () => void;
 
 const THEME_ORDER = ["AI Chips", "Semicap", "AI Software", "AI Infra", "AI Optics", "Disruptive"];
 
+/** Bucket → color + label. watch = amber (early), own = green (confirmed), add = blue (pullback). */
+const BUCKET_META: Record<string, { label: string; cls: string }> = {
+  watch: { label: "WATCH", cls: "bg-amber-400/15 text-amber-400 border-amber-400/30" },
+  own: { label: "OWN", cls: "bg-bullish-bg text-bullish-text border-bullish-text/30" },
+  add: { label: "ADD", cls: "bg-accent/15 text-accent border-accent/30" },
+};
+
+const STAGE_CLS: Record<number, string> = {
+  1: "text-text-muted",
+  2: "text-bullish-text",
+  3: "text-amber-400",
+  4: "text-bearish-text",
+};
+
+function BucketBadge({ bucket }: { bucket: string }) {
+  const m = BUCKET_META[bucket] ?? { label: bucket.toUpperCase(), cls: "bg-surface-3 text-text-muted border-border-subtle" };
+  return (
+    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${m.cls}`}>{m.label}</span>
+  );
+}
+
+const BUCKET_RANK: Record<string, number> = { watch: 3, own: 2, add: 1 };
+
+function WeeklyStageView() {
+  const navigate = useNavigate();
+  const { data, isLoading, isError } = useWeeklyStage();
+  const refresh = useRefreshWeeklyStage();
+  const { isPro } = useFeatureGate();
+
+  const { data: watchlist } = useWatchlist();
+  const addSym = useAddSymbol();
+  const owned = useMemo(
+    () => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())),
+    [watchlist],
+  );
+  const isOwned = (s: string) => owned.has(s.toUpperCase());
+  const addToWatchlist = (s: string) => { if (!isOwned(s)) addSym.mutate(s); };
+
+  const [bucket, setBucket] = useState<string>("All");
+  const allRows = data?.entries ?? [];
+  const rows = bucket === "All" ? allRows : allRows.filter((r) => r.bucket === bucket);
+  const captured = data?.captured_at ? new Date(`${data.captured_at}Z`) : null;
+
+  const buckets = useMemo(() => {
+    const present = new Set(allRows.map((r) => r.bucket));
+    return ["watch", "own", "add"].filter((b) => present.has(b as WeeklyStageEntry["bucket"]));
+  }, [allRows]);
+
+  const distCls = (d: number) => (d >= 0 ? "text-bullish-text" : "text-bearish-text");
+
+  const columns: Column<WeeklyStageEntry>[] = [
+    { key: "bucket", label: "Bucket", align: "left", cls: "w-16", value: (r) => BUCKET_RANK[r.bucket] ?? 0, render: (r) => <BucketBadge bucket={r.bucket} /> },
+    { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => <span className="font-bold text-text-primary">{r.symbol}</span> },
+    { key: "stage", label: "Stage", align: "left", value: (r) => r.stage, render: (r) => <span className={`text-xs font-semibold ${STAGE_CLS[r.stage] ?? "text-text-secondary"}`}>{r.stage_label}</span> },
+    { key: "ma", label: "30wMA", align: "right", cls: "hidden sm:table-cell", value: (r) => r.ma, render: (r) => <span className="font-mono text-text-secondary">{money(r.ma)}</span> },
+    { key: "slope", label: "MA slope", align: "right", cls: "hidden md:table-cell", value: (r) => r.slope_pct, render: (r) => <span className={`font-mono ${r.slope_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.slope_pct >= 0 ? "+" : ""}{r.slope_pct.toFixed(1)}%</span> },
+    { key: "price", label: "Price", align: "right", value: (r) => r.price, render: (r) => <span className="font-mono text-text-primary">{money(r.price)}</span> },
+    { key: "dist", label: "vs MA", align: "right", value: (r) => r.dist_vs_ma_pct, render: (r) => <span className={`font-mono ${distCls(r.dist_vs_ma_pct)}`}>{r.dist_vs_ma_pct >= 0 ? "+" : ""}{r.dist_vs_ma_pct.toFixed(1)}%</span> },
+    { key: "add", label: "", align: "right", cls: "w-10", render: (r) => <AddButton owned={isOwned(r.symbol)} onAdd={() => addToWatchlist(r.symbol)} label={`Add ${r.symbol} to watchlist`} /> },
+  ];
+
+  const pill = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-3 text-text-muted";
+  const mobileRow = (r: WeeklyStageEntry) => (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <BucketBadge bucket={r.bucket} />
+          <span className="text-[15px] font-bold text-text-primary">{r.symbol}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="font-mono text-sm text-text-primary">{money(r.price)}</span>
+          <AddButton owned={isOwned(r.symbol)} onAdd={() => addToWatchlist(r.symbol)} label={`Add ${r.symbol} to watchlist`} />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`text-xs font-semibold ${STAGE_CLS[r.stage] ?? "text-text-secondary"}`}>{r.stage_label}</span>
+        <span className={`font-mono text-[11px] ${distCls(r.dist_vs_ma_pct)}`}>{r.dist_vs_ma_pct >= 0 ? "+" : ""}{r.dist_vs_ma_pct.toFixed(1)}% vs MA</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={pill}>30wMA {money(r.ma)}</span>
+        <span className={`${pill} ${r.slope_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>slope {r.slope_pct >= 0 ? "+" : ""}{r.slope_pct.toFixed(1)}%</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Layers className="h-5 w-5 text-amber-400" />
+          <div>
+            <h1 className="text-lg font-bold text-text-primary">Weekly Stage</h1>
+            <p className="text-[11px] text-text-muted">
+              Weinstein 30-week-MA stage — <span className="text-amber-400 font-semibold">WATCH</span> = basing &amp; turning up (early), <span className="text-bullish-text font-semibold">OWN</span> = confirmed Stage 2, <span className="text-accent font-semibold">ADD</span> = pullback to the rising MA. Refreshed Mondays.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          {captured && <span className="text-text-faint">Updated {captured.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
+          {isPro && (
+            <button
+              onClick={() => refresh.mutate()}
+              disabled={refresh.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400/15 text-amber-400 hover:bg-amber-400/25 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
+              {refresh.isPending ? "Scanning…" : "Run scan"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {buckets.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {["All", ...buckets].map((b) => (
+            <button
+              key={b}
+              onClick={() => setBucket(b)}
+              className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                bucket === b
+                  ? "bg-amber-400/15 text-amber-400 border-amber-400/40"
+                  : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-secondary"
+              }`}
+            >
+              {b === "All" ? "All" : (BUCKET_META[b]?.label ?? b)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <ScreenerTable<WeeklyStageEntry>
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => r.symbol}
+        onRowClick={(r) => navigate(`/trading?symbol=${encodeURIComponent(r.symbol)}`)}
+        defaultSort={{ key: "bucket", dir: "desc" }}
+        mobileRow={mobileRow}
+        isLoading={isLoading}
+        isError={isError}
+        errorText="Couldn't load the weekly-stage screen."
+        empty={
+          <div className="px-4 py-10 text-center text-sm text-text-muted">
+            No weekly-stage candidates in the latest run.
+            {isPro && " Tap Run scan to refresh — 30-week-MA stage over the swing universe."}
+          </div>
+        }
+      />
+
+      <p className="text-[11px] text-text-faint leading-relaxed">
+        <strong>Weinstein stages</strong> classify a name by its 30-week MA: Stage 1 basing, Stage 2 advancing (own/add), Stage 3 topping, Stage 4 declining. <strong>WATCH</strong> surfaces Stage 1/4 names within ~8% of the MA whose 4-week MA slope is improving — the early turn. Research only — not financial advice.
+      </p>
+    </div>
+  );
+}
+
+const PAGE_TABS = [
+  { key: "conviction", label: "Conviction" },
+  { key: "weekly", label: "Weekly Stage" },
+] as const;
+
 export default function ConvictionPage() {
+  const [view, setView] = useState<"conviction" | "weekly">("conviction");
+  return (
+    <div className="h-full overflow-y-auto bg-surface-0">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5 space-y-4">
+        <div className="flex items-center gap-1.5">
+          {PAGE_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                view === t.key
+                  ? "bg-accent/15 text-accent border-accent/40"
+                  : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-secondary"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {view === "conviction" ? <ConvictionView /> : <WeeklyStageView />}
+      </div>
+    </div>
+  );
+}
+
+function ConvictionView() {
   const navigate = useNavigate();
   const [runId, setRunId] = useState<number | null>(null);
   const [theme, setTheme] = useState<string>("All");
@@ -175,8 +362,7 @@ export default function ConvictionPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-surface-0">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5 space-y-4">
+    <div className="space-y-4">
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -260,7 +446,6 @@ export default function ConvictionPage() {
         <p className="text-[11px] text-text-faint leading-relaxed">
           <strong>Score (0–100)</strong> blends analyst rating, mean-target upside, how persistently price holds above the 50-day MA, the 50&gt;200 stack, and relative strength vs SPY. Strong analyst rating + above-50MA are required to appear. Research only — not financial advice; verify the live thesis before acting.
         </p>
-      </div>
     </div>
   );
 }

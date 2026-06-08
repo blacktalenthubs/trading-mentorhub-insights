@@ -1034,7 +1034,8 @@ async def lifespan(app: FastAPI):
             # the bell — the "trade the close" read). Plus on-demand.
             from app.services.screener_service import (
                 refresh_swing_job, refresh_swing_small_job,
-                refresh_swing_close_job, refresh_swing_small_close_job, bootstrap_job,
+                refresh_swing_close_job, refresh_swing_small_close_job,
+                refresh_weekly_stage_job, bootstrap_job,
             )
             scheduler.add_job(
                 refresh_swing_job, "cron", hour=7, minute=30,
@@ -1056,6 +1057,13 @@ async def lifespan(app: FastAPI):
                 refresh_swing_small_close_job, "cron", day_of_week="mon-fri", hour=15, minute=35,
                 timezone="America/New_York",
                 id="screener_swing_small_close", replace_existing=True,
+            )
+            # Weekly Stage (Weinstein 30wMA) — weekly bars change weekly, so scan
+            # once a week (Monday ~08:00 ET). Read-only discovery; no alerts.
+            scheduler.add_job(
+                refresh_weekly_stage_job, "cron", day_of_week="mon", hour=8, minute=0,
+                timezone="America/New_York",
+                id="screener_weekly_stage", replace_existing=True,
             )
             # Scheduler jobs run on worker threads but the async DB engine is bound
             # to this (the app's main) loop — hand it to the service so jobs submit

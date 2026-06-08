@@ -593,6 +593,50 @@ async def get_latest_conviction() -> ScreenerSnapshot | None:
     return await get_latest_snapshot("conviction")
 
 
+# ---------------------------------------------------------------------------
+# Weekly Stage scanner — Stan Weinstein 30-week-MA stage classification over the
+# full swing universe. READ-ONLY discovery (no alerts). WEEKLY bars only change
+# weekly, so it's scheduled once a week (Monday morning); no market-hours gate.
+# ---------------------------------------------------------------------------
+
+# AI-focused universe for the Weekly Stage scan (user request 2026-06-08): solid
+# market-cap AI names — semis/hardware, AI software/platforms, and the AI-driven
+# mega caps. The point of the scan is to surface Stage-2 / about-to-turn AI names
+# the user hasn't already eyeballed on their 30-name watchlist. Edit here to tune.
+_AI_STAGE_UNIVERSE: list[str] = [
+    # AI semis / hardware / infrastructure
+    "NVDA", "AMD", "AVGO", "MRVL", "ARM", "TSM", "ASML", "MU", "SMCI", "QCOM",
+    "ANET", "DELL", "AMAT", "LRCX", "KLAC", "VRT", "INTC", "NBIS",
+    # AI software / platforms / security
+    "PLTR", "SNOW", "NOW", "CRM", "DDOG", "MDB", "CRWD", "PANW", "NET", "ORCL",
+    # AI-driven mega caps
+    "MSFT", "GOOGL", "META", "AMZN", "AAPL", "ADBE", "IBM",
+]
+
+
+def _gather_weekly_stage() -> list:
+    """Classify the 30-week-MA stage for the AI-focused universe and bucket into
+    own / add / watch. Per-symbol failures are skipped, not fatal."""
+    from app.services.scanner import gather_weekly_stage
+    return gather_weekly_stage(_AI_STAGE_UNIVERSE)
+
+
+async def refresh_weekly_stage() -> None:
+    """Run the weekly-stage scan and persist a snapshot (kind='weekly_stage').
+    Always writes (even 0 names) so the UI can show 'last run' freshness."""
+    try:
+        cands = await asyncio.to_thread(_gather_weekly_stage)
+        await _save_snapshot(cands, kind="weekly_stage", market_open=False, top_n=get_settings().SCREENER_TOP_N)
+        logger.info("weekly_stage: snapshot refreshed (%d names)", len(cands))
+    except Exception:
+        logger.exception("weekly_stage: refresh failed — marking last snapshot stale")
+        await _mark_latest_stale("weekly_stage")
+
+
+async def get_latest_weekly_stage() -> ScreenerSnapshot | None:
+    return await get_latest_snapshot("weekly_stage")
+
+
 # Sync wrappers for BackgroundScheduler — run on the app's main loop (where the
 # async DB engine lives), NOT a fresh asyncio.run() loop.
 def refresh_in_play_job() -> None:
@@ -619,6 +663,10 @@ def refresh_swing_small_close_job() -> None:
     _run(refresh_swing_small(alert=True, slot="pm"))  # 3:35 PM run → today's near-final bar
 
 
+def refresh_weekly_stage_job() -> None:
+    _run(refresh_weekly_stage())  # Monday ~08:00 ET — weekly bars change weekly
+
+
 async def bootstrap() -> None:
     """One-shot self-populate on deploy: build the universe if it's empty, then run
     an initial swing scan if no swing snapshot exists yet. Idempotent across restarts
@@ -633,6 +681,9 @@ async def bootstrap() -> None:
         if await get_latest_snapshot("swing_small") is None:
             logger.info("screener: bootstrap — initial small-cap swing scan")
             await refresh_swing_small()
+        if await get_latest_snapshot("weekly_stage") is None:
+            logger.info("screener: bootstrap — initial weekly-stage scan")
+            await refresh_weekly_stage()
         logger.info("screener: bootstrap complete")
     except Exception:
         logger.exception("screener: bootstrap failed")
