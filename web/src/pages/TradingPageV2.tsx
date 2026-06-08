@@ -386,6 +386,11 @@ function SignalFeedTab({
     setHiddenTypes(new Set());
     try { localStorage.removeItem("signal_feed_hidden_types"); } catch {}
   }
+  function hideAllTypes(types: string[]) {
+    const next = new Set(types);
+    setHiddenTypes(next);
+    try { localStorage.setItem("signal_feed_hidden_types", JSON.stringify([...next])); } catch {}
+  }
 
   if (alertsError) {
     return (
@@ -623,13 +628,23 @@ function SignalFeedTab({
             <div className="absolute right-3 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[260px] max-h-[60vh] flex flex-col">
               <div className="flex items-center justify-between px-3 py-1.5 border-b border-border-subtle bg-surface-2/40">
                 <span className="text-[10px] uppercase tracking-wide text-text-faint">Show / hide types</span>
-                <button
-                  onClick={clearHiddenTypes}
-                  className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-30 disabled:cursor-default"
-                  disabled={hiddenTypes.size === 0}
-                >
-                  Show all
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => hideAllTypes(typeOptions.map(([t]) => t))}
+                    className="text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:cursor-default"
+                    disabled={typeOptions.length === 0 || hiddenTypes.size === typeOptions.length}
+                  >
+                    Hide all
+                  </button>
+                  <span className="text-text-faint">·</span>
+                  <button
+                    onClick={clearHiddenTypes}
+                    className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-30 disabled:cursor-default"
+                    disabled={hiddenTypes.size === 0}
+                  >
+                    Show all
+                  </button>
+                </div>
               </div>
               <div className="overflow-y-auto">
                 {typeOptions.length === 0 ? (
