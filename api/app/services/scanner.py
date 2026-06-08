@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # Add project root to path so analytics package is importable
 _project_root = str(Path(__file__).resolve().parents[3])
@@ -80,3 +82,147 @@ def _serialize(r: SignalResult) -> dict:
         "ref_day_high": _safe_round(getattr(r, "ref_day_high", None)),
         "ref_day_low": _safe_round(getattr(r, "ref_day_low", None)),
     }
+
+
+# ---------------------------------------------------------------------------
+# Weekly Stage scanner (Stan Weinstein 30-week-MA) — Python port of the Pine
+# indicator pine_scripts/visual/weekly_stage.pine (f_wk). READ-ONLY discovery:
+# classify each symbol's weekly stage and bucket it (own / add / watch).
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger("scanner")
+
+# Minimum weekly bars: 30 for the MA + the slope/context lookbacks (ma[-13]).
+_WK_MIN_BARS = 35
+_WK_SLOPE_THR = 0.5   # |4-week slope %| below this = flat (chop), per the Pine.
+
+_STAGE_LABELS = {
+    1: "Stage 1 · Basing",
+    2: "Stage 2 · Advancing",
+    3: "Stage 3 · Topping",
+    4: "Stage 4 · Declining",
+}
+
+
+@dataclass
+class WeeklyStageCandidate:
+    symbol: str
+    stage: int
+    stage_label: str
+    bucket: str           # "own" | "add" | "watch"
+    ma: float             # the 30-week MA (rounded)
+    slope_pct: float      # 4-week slope of the MA, %
+    price: float          # latest weekly close
+    dist_vs_ma_pct: float  # (price - ma) / ma * 100
+
+    def to_dict(self) -> dict:
+        return {
+            "symbol": self.symbol,
+            "stage": self.stage,
+            "stage_label": self.stage_label,
+            "bucket": self.bucket,
+            "ma": _safe_round(self.ma),
+            "slope_pct": _safe_round(self.slope_pct),
+            "price": _safe_round(self.price),
+            "dist_vs_ma_pct": _safe_round(self.dist_vs_ma_pct),
+        }
+
+
+def classify_weekly_stage(close) -> Optional[WeeklyStageCandidate]:
+    """Port of weekly_stage.pine f_wk for a weekly close series → a candidate, or
+    None when the series is too short or the name doesn't belong in a bucket.
+
+    ``close`` is a pandas Series (or anything with a 30-window rolling mean and
+    positional .iloc indexing). The symbol is filled in by the caller.
+    """
+    import pandas as pd
+
+    s = pd.Series(close).dropna()
+    if len(s) < _WK_MIN_BARS:
+        return None
+
+    ma = s.rolling(30).mean()
+    if pd.isna(ma.iloc[-1]) or pd.isna(ma.iloc[-9]):
+        return None
+
+    ma_now = float(ma.iloc[-1])
+    ma_4ago = float(ma.iloc[-5])   # 4 weeks ago
+    ma_8ago = float(ma.iloc[-9])   # 8 weeks ago
+    ma_12ago = float(ma.iloc[-13])  # 12 weeks ago
+    if ma_now == 0 or ma_4ago == 0 or ma_8ago == 0:
+        return None
+
+    price = float(s.iloc[-1])
+    slope = (ma_now - ma_4ago) / ma_4ago * 100.0
+    slope_prior = (ma_4ago - ma_8ago) / ma_8ago * 100.0
+
+    rising = slope > _WK_SLOPE_THR
+    falling = slope < -_WK_SLOPE_THR
+    above = price > ma_now
+
+    if above and rising:
+        stage = 2
+    elif (not above) and falling:
+        stage = 4
+    elif ma_now > ma_12ago:
+        stage = 3
+    else:
+        stage = 1
+
+    dist = (price - ma_now) / ma_now * 100.0
+
+    # Bucket — own (confirmed Stage 2), add (Stage 2 pullback to the rising MA),
+    # watch (basing/declining but turning up near the MA). Everything else excluded.
+    bucket: Optional[str] = None
+    if stage == 2:
+        bucket = "add" if 0.0 <= dist <= 3.0 else "own"
+    elif stage in (1, 4) and -8.0 <= dist <= 8.0 and slope > slope_prior:
+        bucket = "watch"
+
+    if bucket is None:
+        return None
+
+    return WeeklyStageCandidate(
+        symbol="",
+        stage=stage,
+        stage_label=_STAGE_LABELS.get(stage, f"Stage {stage}"),
+        bucket=bucket,
+        ma=ma_now,
+        slope_pct=slope,
+        price=price,
+        dist_vs_ma_pct=dist,
+    )
+
+
+# Sort buckets: watch first (most improving slope), then own, then add.
+_BUCKET_ORDER = {"watch": 0, "own": 1, "add": 2}
+
+
+def gather_weekly_stage(universe) -> List[WeeklyStageCandidate]:
+    """Fetch ~2y of WEEKLY bars per symbol, classify the 30-week-MA stage, and
+    bucket. One bad symbol must NOT kill the snapshot (per-symbol try/except).
+
+    ``universe`` is a list of analytics.screener.UniverseRow (only .symbol used).
+    """
+    from analytics.market_data import fetch_ohlc  # lazy, read-only
+
+    cands: List[WeeklyStageCandidate] = []
+    for u in universe:
+        sym = getattr(u, "symbol", u)
+        try:
+            df = fetch_ohlc(sym, period="2y", interval="1wk")
+            if df is None or df.empty or "Close" not in df.columns:
+                continue
+            c = classify_weekly_stage(df["Close"])
+            if c is None:
+                continue
+            c.symbol = sym
+            cands.append(c)
+        except Exception:  # one bad symbol must not kill the snapshot
+            logger.debug("weekly_stage: skipped %s", sym, exc_info=True)
+
+    cands.sort(key=lambda c: (
+        _BUCKET_ORDER.get(c.bucket, 9),
+        -c.slope_pct if c.bucket == "watch" else 0.0,
+    ))
+    return cands

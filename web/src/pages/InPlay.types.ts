@@ -117,6 +117,25 @@ export interface ConvictionRun {
   count: number;
 }
 
+/* ── Weekly Stage screener (Weinstein 30-week-MA stage) ── */
+export interface WeeklyStageEntry {
+  symbol: string;
+  stage: number;             // 1=Basing · 2=Advancing · 3=Topping · 4=Declining
+  stage_label: string;       // e.g. "Stage 2 · Advancing"
+  bucket: "own" | "add" | "watch";
+  ma: number;                // 30-week MA
+  slope_pct: number;         // 4-week slope of the MA, %
+  price: number;             // latest weekly close
+  dist_vs_ma_pct: number;    // (price - ma) / ma * 100
+}
+
+export interface WeeklyStageSnapshot {
+  id?: number | null;
+  captured_at: string | null;
+  stale: boolean;
+  entries: WeeklyStageEntry[];
+}
+
 export type InPlayPreset = "any" | "momentum_long" | "pullback" | "breakout" | "short";
 
 export const IN_PLAY_PRESETS: { id: InPlayPreset; label: string }[] = [

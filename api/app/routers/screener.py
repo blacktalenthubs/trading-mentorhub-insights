@@ -155,6 +155,35 @@ async def refresh_conviction(background: BackgroundTasks, user: User = Depends(r
     return {"status": "conviction scan started"}
 
 
+# --- Weekly Stage screener: Stan Weinstein 30-week-MA stage discovery ---
+
+@router.get("/weekly-stage")
+async def get_weekly_stage(
+    run_id: Optional[int] = Query(None),
+    user: User = Depends(get_current_user),  # output readable by any user
+):
+    """Weekly-stage candidates (Weinstein 30-week-MA stage, bucketed own/add/watch).
+    run_id selects a saved run; omit for the latest. Not market-gated (weekly data)."""
+    snap = await svc.get_snapshot(run_id) if run_id is not None else await svc.get_latest_weekly_stage()
+    if snap is None:
+        return {"id": None, "captured_at": None, "stale": False, "entries": []}
+    return {"id": snap.id, "captured_at": snap.captured_at, "stale": bool(snap.stale), "entries": snap.entries or []}
+
+
+@router.get("/weekly-stage/history")
+async def weekly_stage_history(user: User = Depends(get_current_user)):
+    """Recent saved weekly-stage runs (for the history selector)."""
+    return {"runs": await svc.list_snapshots("weekly_stage")}
+
+
+@router.post("/weekly-stage/refresh", status_code=202)
+async def refresh_weekly_stage(background: BackgroundTasks, user: User = Depends(require_pro)):
+    """On-demand weekly-stage rescan ('Run scan'). Pulls ~2y weekly bars over the
+    full swing universe — heavier than swing, so Pro-gated like conviction."""
+    background.add_task(svc.refresh_weekly_stage)
+    return {"status": "weekly-stage scan started"}
+
+
 @router.post("/universe/rebuild", status_code=202)
 async def rebuild_universe(background: BackgroundTasks, user: User = Depends(require_pro)):
     """Trigger an on-demand universe rebuild (FR-7). Admin-only (T029)."""

@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
-import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun } from "../pages/InPlay.types";
+import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun, WeeklyStageSnapshot } from "../pages/InPlay.types";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -112,6 +112,33 @@ export function useRefreshConviction() {
       );
     },
     onError: () => toast.error("Couldn't start the conviction scan"),
+  });
+}
+
+// --- Weekly Stage screener (Weinstein 30-week-MA stage) ---
+
+export function useWeeklyStage(runId?: number | null) {
+  return useQuery({
+    queryKey: ["weekly-stage", runId ?? "latest"],
+    queryFn: () =>
+      api.get<WeeklyStageSnapshot>(`/screener/weekly-stage${runId ? `?run_id=${runId}` : ""}`),
+    refetchInterval: runId ? false : 5 * 60_000,  // weekly data; saved runs immutable
+  });
+}
+
+export function useRefreshWeeklyStage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/screener/weekly-stage/refresh", {}),
+    onSuccess: () => {
+      // ~2y weekly bars over the full swing universe is slow (~60–120s). Poll a
+      // few times so the table catches up when the scan finishes.
+      toast.info("Weekly-stage scan started — results refresh as it completes (~90s)");
+      [20000, 45000, 75000, 110000].forEach((delay) =>
+        setTimeout(() => qc.invalidateQueries({ queryKey: ["weekly-stage", "latest"] }), delay),
+      );
+    },
+    onError: () => toast.error("Couldn't start the weekly-stage scan"),
   });
 }
 
