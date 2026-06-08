@@ -1035,10 +1035,22 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         index_exempt = _parse_exempt_syms(_rc.get("index_exempt")) or INDEX_REGIME_ALLOWLIST
         crypto_exempt = _parse_exempt_syms(_rc.get("crypto_exempt")) or CRYPTO_REGIME_ALLOWLIST
         alert_syms = _parse_exempt_syms(_rc.get("alert_symbols")) or _ALERT_SYMS_DEFAULT
+        alert_watchlist = _parse_exempt_syms(_rc.get("alert_watchlist"))  # exception symbols
+        alerts_all = (_rc.get("alerts_all_symbols", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
         known_types = None
+        alert_watchlist = frozenset()  # read failed → don't drop anything
+        alerts_all = True              # read failed → allow all (non-breaking)
+
+    # Global alert switch (Settings → Alert symbols). alerts_all_symbols ON (the
+    # DEFAULT) = EVERY symbol alerts — nothing dropped here. OFF = alerts are
+    # turned off EXCEPT for the symbols listed in alert_watchlist (the exceptions);
+    # applies to every alert type. The narrower _INFO_ALERT_TYPES filter still
+    # applies on top. OFF with an empty exception list = no alerts at all.
+    if (not alerts_all) and (sig.symbol or "").upper() not in alert_watchlist:
+        return {"dispatched": False, "reason": "alerts_off_not_in_exceptions", "recorded": False}
 
     # Informational alerts (multitouch_level / gap_zone) fire broadly from the
     # Pine; keep only the Settings-listed symbols. Non-listed → drop entirely

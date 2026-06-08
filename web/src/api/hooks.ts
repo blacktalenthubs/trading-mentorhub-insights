@@ -1964,6 +1964,8 @@ export interface RegimeExemptConfig {
   index_exempt: string;   // comma-separated stocks
   crypto_exempt: string;  // comma-separated crypto
   alert_symbols: string;  // symbols allowed to fire info alerts (multi-touch / gap)
+  alerts_all_symbols: string;  // master switch "true"/"false": all symbols vs exceptions only
+  alert_watchlist: string;  // exception symbols that still alert when the master switch is off
 }
 
 export function useRegimeConfig() {

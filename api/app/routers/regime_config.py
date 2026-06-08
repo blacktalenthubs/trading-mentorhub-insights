@@ -25,6 +25,8 @@ class RegimeConfigUpdate(BaseModel):
     index_exempt: Optional[str] = None   # comma-separated stock symbols
     crypto_exempt: Optional[str] = None  # comma-separated crypto symbols
     alert_symbols: Optional[str] = None  # symbols allowed to fire info alerts
+    alerts_all_symbols: Optional[str] = None  # master switch: "true"=all, "false"=exceptions only
+    alert_watchlist: Optional[str] = None  # exception symbols when the master switch is off
 
 
 def _norm(s: str) -> str:
@@ -63,11 +65,17 @@ async def set_regime_config(
         "index_exempt": body.index_exempt,
         "crypto_exempt": body.crypto_exempt,
         "alert_symbols": body.alert_symbols,
+        "alerts_all_symbols": body.alerts_all_symbols,
+        "alert_watchlist": body.alert_watchlist,
     }
     for key, raw in updates.items():
         if raw is None:
             continue
-        value = _norm(raw)
+        # the master switch is a bool flag, not a symbol list — store true/false
+        if key == "alerts_all_symbols":
+            value = "false" if (raw or "").strip().lower() in ("false", "0", "no", "off") else "true"
+        else:
+            value = _norm(raw)
         row = (await db.execute(
             select(RegimeConfig).where(RegimeConfig.key == key)
         )).scalar_one_or_none()
