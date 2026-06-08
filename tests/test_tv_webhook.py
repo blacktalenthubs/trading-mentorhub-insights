@@ -1016,3 +1016,161 @@ class TestIsChopRefire:
             "tv_staged_pmh_break", "tv_staged_pml_reclaim",
         ):
             assert t in _LEVEL_ALERT_TYPES_FOR_PRICE_BAND, f"{t} missing"
+
+
+# -----------------------------------------------------------------------------
+# Global alert-symbol allowlist (alert_watchlist) — gates EVERY alert type.
+# EMPTY (default) = all symbols allowed (non-breaking). Non-empty = only those
+# symbols deliver; anything else is dropped with reason `not_in_alert_watchlist`.
+# These drive _dispatch_signal directly with upstream/downstream deps mocked so
+# we exercise the real gate code path (not a re-implementation).
+# -----------------------------------------------------------------------------
+
+
+class _WatchlistSig:
+    """Stand-in AlertSignal carrying the fields _dispatch_signal reads up to
+    (and just past) the alert_watchlist gate."""
+
+    def __init__(self, symbol: str):
+        self.symbol = symbol
+        self.direction = "BUY"
+        self.entry = 100.0
+        self.stop = 99.5
+        self.target_1 = 101.0
+        self.target_2 = 102.0
+        self.message = "test"
+        self._tv_rule = "staged_pdh_break"
+        self._tv_ma_tag = ""
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _FakeCfgSession:
+    """Async-context-manager DB session returning the regime_config rows that
+    _dispatch_signal reads for the gate. The first execute() is the
+    alert_type_config query, the second the regime_config query."""
+
+    def __init__(self, regime_rows):
+        self._regime_rows = regime_rows
+        self._calls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, _stmt):
+        self._calls += 1
+        # 1st execute → alert_type_config (none enabled-list needed here);
+        # 2nd execute → regime_config (key, value) rows.
+        if self._calls == 1:
+            # Enable the alert type so the gate (which runs BEFORE the type
+            # filter) is what decides the outcome for allowed symbols.
+            return _FakeResult([("staged_pdh_break", True)])
+        return _FakeResult(self._regime_rows)
+
+
+def _run_gate(monkeypatch, symbol: str, watchlist_value: str, alerts_all: str = "true"):
+    """Drive _dispatch_signal through the alert_watchlist gate with all the
+    heavy upstream/downstream deps mocked. Returns the dict the function
+    produced (drop dict, or `no_subscribers` once it passed the gate)."""
+    import sys
+    import api.app.routers.tv_webhook as mod
+    import api.app as _api_app
+
+    # In production the webhook runs with api/ as the import root, so `app`
+    # resolves to the api package everywhere (api/app/*.py use `from app.* ...`
+    # internally). Under pytest the package is loaded as `api.app` and bare
+    # `app` would hit the colliding top-level streamlit app.py. Alias the api
+    # package onto `app` FIRST, then load app.database through that alias — so
+    # the runtime `from app.database import async_session_factory` inside
+    # _dispatch_signal resolves to (and our patch below targets) the SAME object.
+    monkeypatch.setitem(sys.modules, "app", _api_app)
+
+    # api/app/config.Settings reads .env from cwd; under pytest (repo root) that
+    # .env holds streamlit-app keys it rejects (extra_forbidden). Force a clean
+    # Settings (defaults only, no .env) so the app.database import chain — which
+    # instantiates Settings at module load — succeeds in the test sandbox.
+    import importlib
+    _cfg_mod = importlib.import_module("app.config")
+    _clean_settings = _cfg_mod.Settings(_env_file=None)  # type: ignore[call-arg]
+    monkeypatch.setattr(_cfg_mod, "get_settings", lambda: _clean_settings)
+    _db_mod = importlib.import_module("app.database")
+
+    # prior_day fetch is a yfinance call wrapped in try/except — stub it out.
+    monkeypatch.setattr(
+        "analytics.intraday_data.fetch_prior_day",
+        lambda *a, **k: None,
+        raising=False,
+    )
+    # Routing gate is downstream-independent of the watchlist — let it pass.
+    async def _pass_route(sig):
+        return (True, None)
+    monkeypatch.setattr(mod, "_route_alert", _pass_route)
+
+    # Regime-config read: only alert_watchlist is set; others fall back so the
+    # info-alert filter doesn't interfere (staged_pdh_break isn't an info type).
+    # Patch async_session_factory on the same module object _dispatch_signal
+    # binds from (loaded above). A string path would re-trigger the streamlit
+    # app.py collision.
+    regime_rows = [("alert_watchlist", watchlist_value), ("alerts_all_symbols", alerts_all)]
+    monkeypatch.setattr(
+        _db_mod,
+        "async_session_factory",
+        lambda: _FakeCfgSession(regime_rows),
+        raising=False,
+    )
+
+    # If the signal passes the gate it reaches the per-user persist, which
+    # opens the session factory again and calls _users_watching → return [] so
+    # we land on the clean `no_subscribers` terminal (proof it passed the gate).
+    async def _no_users(db, symbol):
+        return []
+    monkeypatch.setattr(mod, "_users_watching", _no_users)
+
+    return _run(mod._dispatch_signal(_WatchlistSig(symbol)))
+
+
+class TestAlertWatchlistGate:
+    DROP = "alerts_off_not_in_exceptions"
+
+    def test_master_on_allows_all_symbols(self, monkeypatch):
+        """DEFAULT: alerts_all_symbols ON never drops anything, even with
+        exceptions set — every symbol passes (lands on no_subscribers)."""
+        for symbol in ("NVDA", "AAPL", "SPY", "TSLA"):
+            result = _run_gate(monkeypatch, symbol, "NVDA", alerts_all="true")
+            assert result["reason"] != self.DROP, f"master ON must allow {symbol}"
+            assert result["reason"] == "no_subscribers"
+
+    def test_master_off_drops_symbol_not_in_exceptions(self, monkeypatch):
+        """Switch OFF + symbol not in the exceptions → dropped, not recorded."""
+        result = _run_gate(monkeypatch, "AAPL", "NVDA,TSLA", alerts_all="false")
+        assert result == {
+            "dispatched": False,
+            "reason": self.DROP,
+            "recorded": False,
+        }
+
+    def test_master_off_empty_exceptions_drops_everything(self, monkeypatch):
+        """Switch OFF + no exceptions = alerts fully off."""
+        result = _run_gate(monkeypatch, "NVDA", "", alerts_all="false")
+        assert result["reason"] == self.DROP
+
+    def test_master_off_exception_passes(self, monkeypatch):
+        """Switch OFF + symbol IS an exception → passes the gate."""
+        result = _run_gate(monkeypatch, "NVDA", "NVDA,TSLA", alerts_all="false")
+        assert result["reason"] != self.DROP
+        assert result["reason"] == "no_subscribers"
+
+    def test_exceptions_case_insensitive(self, monkeypatch):
+        """Lowercase config entries still match (both sides upper-cased)."""
+        result = _run_gate(monkeypatch, "NVDA", "nvda,tsla", alerts_all="false")
+        assert result["reason"] != self.DROP
+        assert result["reason"] == "no_subscribers"

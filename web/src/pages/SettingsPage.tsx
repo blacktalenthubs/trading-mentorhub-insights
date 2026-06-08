@@ -1095,6 +1095,63 @@ function MarketGateSection() {
   );
 }
 
+function AlertWatchlistSection() {
+  const { data, isLoading } = useRegimeConfig();
+  const update = useUpdateRegimeConfig();
+  const toList = (s?: string) =>
+    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
+  const allOn = (data?.alerts_all_symbols ?? "true").toLowerCase() !== "false";
+
+  return (
+    <Section title="Alert symbols — all types" icon={<Zap className="h-4 w-4 text-accent" />}>
+      <p className="text-xs text-text-muted mb-3">
+        Master switch for alerts across ALL types (entries, weekly, 4h RC, multi-touch, gaps).
+        Default ON = every symbol alerts. Turn OFF to silence everything except your exceptions.
+      </p>
+      {isLoading ? (
+        <div className="text-xs text-text-faint">Loading…</div>
+      ) : (
+        <>
+          <button
+            onClick={() => update.mutate({ alerts_all_symbols: allOn ? "false" : "true" })}
+            disabled={update.isPending}
+            role="switch"
+            aria-checked={allOn}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left w-full mb-3 transition-colors disabled:opacity-60 ${
+              allOn
+                ? "border-accent/50 bg-accent/10"
+                : "border-border-subtle bg-surface-1 hover:bg-surface-2"
+            }`}
+          >
+            <span
+              className={`shrink-0 h-4 w-4 rounded flex items-center justify-center ${
+                allOn ? "bg-accent" : "bg-surface-3 border border-border-subtle"
+              }`}
+            >
+              {allOn && <Check className="h-3 w-3 text-white" />}
+            </span>
+            <span className="text-[11px] leading-snug text-text-primary font-medium">
+              {allOn
+                ? "ON — alerts on ALL symbols (default)"
+                : "OFF — alerts only for the exceptions below"}
+            </span>
+          </button>
+          <ExemptListEditor
+            label="Exceptions — symbols that still alert when the switch is OFF"
+            hint={
+              allOn
+                ? "Ignored while the switch is ON. e.g. SPY, NVDA, TSLA."
+                : "Only these alert right now. e.g. SPY, NVDA, TSLA."
+            }
+            list={toList(data?.alert_watchlist)}
+            onSave={(l) => update.mutate({ alert_watchlist: l.join(",") })}
+          />
+        </>
+      )}
+    </Section>
+  );
+}
+
 function InfoAlertSymbolsSection() {
   const { data, isLoading } = useRegimeConfig();
   const update = useUpdateRegimeConfig();
@@ -1155,6 +1212,9 @@ export default function SettingsPage() {
 
         {/* Regime-gate exempt symbols */}
         <MarketGateSection />
+
+        {/* Global alert-symbol allow-list — gates ALL alert types */}
+        <AlertWatchlistSection />
 
         {/* Which symbols fire the info alerts (multi-touch / gap) */}
         <InfoAlertSymbolsSection />

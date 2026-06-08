@@ -37,6 +37,14 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # (multitouch_level, gap_zone). The Pine fires broadly; the webhook keeps
     # only these. Edited live from Settings → so adding a stock needs no Pine edit.
     "alert_symbols": "SPY,NBIS",
+    # Master alert switch. "true" (DEFAULT) = every symbol alerts, for every type
+    # (non-breaking). "false" = alerts are OFF except for the EXCEPTION symbols in
+    # alert_watchlist below. Lets the user turn alerts off broadly while keeping a
+    # few names live, without clearing the list.
+    "alerts_all_symbols": "true",
+    # Exception symbols — when alerts_all_symbols is "false", ONLY these still
+    # alert (across every alert type). Ignored when alerts_all_symbols is "true".
+    "alert_watchlist": "",
 }
 
 
