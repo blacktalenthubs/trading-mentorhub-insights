@@ -975,6 +975,15 @@ def _spy_regime_fresh() -> dict:
 
     last_date = bars.index[-1].date()
     today_bars = bars[bars.index.date == last_date]
+    # RTH-only (09:30–16:00 ET) so today's high/low/open/VWAP are measured over
+    # the SAME session as the RTH prior levels in _spy_prior_levels. Alpaca 5m
+    # bars include pre/after-hours; a thin premarket print poking outside
+    # yesterday's range would flip inside_day off and mis-read an inside day as
+    # NEUTRAL. Pre-open (no RTH bar yet) → keep premarket so the banner isn't
+    # blank. Equities only — _btc_regime_fresh is 24/7 and stays full-session.
+    _rth = today_bars.between_time("09:30", "16:00")
+    if len(_rth):
+        today_bars = _rth
     if len(today_bars) == 0:
         return {"status": "unavailable", "reason": "no today bars"}
 
