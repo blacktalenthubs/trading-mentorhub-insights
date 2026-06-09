@@ -255,7 +255,7 @@ SPY_TREND_EXEMPT_DEFAULT: frozenset[str] = frozenset(
 )
 
 
-def spy_trend_blocks_buy(
+def spy_trend_blocks(
     spy_below_8_21: Optional[bool],
     direction: Optional[str],
     symbol: Optional[str],
@@ -263,22 +263,28 @@ def spy_trend_blocks_buy(
     enabled: bool = True,
 ) -> bool:
     """Decide whether the SPY-trend gate must SUPPRESS this alert. Pure + tested.
-    True ⇒ suppress. Bites only when ALL hold:
+    True ⇒ suppress. When SPY is below BOTH its 8 & 21 EMA, the broad tape is
+    chop and EVERY alert on a non-exempt symbol — long, short AND notice — is
+    suppressed to prevent meaningless alerts in a non-trending market. Only the
+    exempt set (default SPY/QQQ/DRAM/NVDA; editable) still alerts, in any form.
+    Bites only when ALL hold:
       • enabled is True                 — gate switched on in Settings.
-      • spy_below_8_21 is exactly True  — SPY confirmed below BOTH EMAs. None
-        (data unavailable) or False ⇒ never block (fail-open).
-      • direction is BUY                — shorts / notices unaffected.
-      • symbol is NOT in the exempt set (default SPY/QQQ/DRAM/NVDA; editable).
-    """
+      • spy_below_8_21 is exactly True  — None (data unavailable) / False ⇒
+        never block (fail-open).
+      • symbol is NOT in the exempt set.
+    `direction` is accepted for signature compatibility but NOT used — the gate
+    is direction-agnostic (notices are gated too)."""
     if not enabled:
         return False
     if spy_below_8_21 is not True:
         return False
-    if (direction or "").upper() != "BUY":
-        return False
     if (symbol or "").upper() in exempt:
         return False
     return True
+
+
+# Backward-compat alias — older imports/tests may reference the BUY-only name.
+spy_trend_blocks_buy = spy_trend_blocks
 
 
 def _spy_below_8_21_now() -> Optional[bool]:
@@ -1105,27 +1111,27 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return {"dispatched": False, "reason": "unknown_type"}
 
     # ──────────────────────────────────────────────────────────────────
-    # SPY-trend long gate (2026-06-09) — SPY below BOTH its 8 & 21 EMA
+    # SPY-trend gate (2026-06-09) — SPY below BOTH its 8 & 21 EMA
     # ──────────────────────────────────────────────────────────────────
-    # Non-trending tape → day-trade longs are mostly traps (SPY rolls over after
-    # losing the 21 and everything turns to chop). Block equity BUY alerts except
-    # the exempt set (Settings → SPY trend gate; default SPY/QQQ/DRAM/NVDA).
-    # Crypto unaffected. Fail-open: gate off / SPY data missing ⇒ never block.
+    # Non-trending tape → the whole watchlist is meaningless chop. When SPY rolls
+    # over (below its 8 AND 21), suppress EVERY alert — long, short AND notice —
+    # on every equity EXCEPT the exempt set (Settings → SPY trend gate; default
+    # SPY/QQQ/DRAM/NVDA). Only those names alert, in any form. Crypto unaffected
+    # (doesn't follow SPY). Fail-open: gate off / SPY data missing ⇒ no block.
     if (
         spy_trend_gate_on
-        and (sig.direction or "").upper() == "BUY"
         and not _is_crypto_symbol(sig.symbol)
         and (sig.symbol or "").upper() not in spy_trend_exempt
     ):
         _spy_below_8_21 = await asyncio.get_running_loop().run_in_executor(
             None, _spy_below_8_21_now
         )
-        if spy_trend_blocks_buy(
+        if spy_trend_blocks(
             _spy_below_8_21, sig.direction, sig.symbol, spy_trend_exempt, spy_trend_gate_on
         ):
             logger.info(
-                "TV webhook: SPY below 8&21 EMA — trend-gated %s for %s",
-                alert_type_full, sig.symbol,
+                "TV webhook: SPY below 8&21 EMA — trend-gated %s %s for %s",
+                sig.direction, alert_type_full, sig.symbol,
             )
             return await _persist_unrouted(
                 sig, alert_type_full, session_date,

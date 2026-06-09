@@ -22,10 +22,14 @@ class TestSpyTrendBlocksBuy:
         assert spy_trend_blocks_buy(False, "BUY", "AAPL") is False
         assert spy_trend_blocks_buy(None, "BUY", "AAPL") is False
 
-    def test_only_buys_blocked(self):
-        assert spy_trend_blocks_buy(True, "SHORT", "AAPL") is False
-        assert spy_trend_blocks_buy(True, "SELL", "AAPL") is False
-        assert spy_trend_blocks_buy(True, "NOTICE", "AAPL") is False
+    def test_gates_every_direction_including_notices(self):
+        # Direction-agnostic: when SPY is below 8/21 a non-exempt symbol is
+        # silenced entirely — long, short AND notice — to kill chop-market noise.
+        for d in ("BUY", "SHORT", "SELL", "NOTICE"):
+            assert spy_trend_blocks_buy(True, d, "AAPL") is True, d
+        # ...but the exempt names still get every direction through.
+        for d in ("BUY", "SHORT", "SELL", "NOTICE"):
+            assert spy_trend_blocks_buy(True, d, "SPY") is False, d
 
     def test_gate_disabled_never_blocks(self):
         assert spy_trend_blocks_buy(True, "BUY", "AAPL", enabled=False) is False
