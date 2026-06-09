@@ -1,0 +1,81 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Prior Levels Backtest — PDH/PDL/PWH/PWL as FLAT per-period segments, full
+// history. For backtesting the prior-level reclaim/rejection model.
+// ─────────────────────────────────────────────────────────────────────────────
+// A prior-day high/low is one fixed value for the whole day, so each day's level
+// is drawn as ONE flat horizontal segment spanning just that day (and each week's
+// PWH/PWL spans that week). Discrete segments — NOT a connected step-plot — so
+// they read as clean flat lines back through history, no staircase.
+//   • PDH (solid) / PWH (dashed)  — prior highs → resistance / targets (red)
+//   • PDL (solid) / PWL (dashed)  — prior lows  → support (green)
+// SIGNALS across all history (same logic the alerts fire on):
+//   ▲ LONG  — reclaim (was below a level, closed back above) or hold above it.
+//   ▼ SHORT — rejection (below a level, wicked up into it, closed back below red).
+// VISUAL — no alerts. NOTE: TV caps drawings, so the daily segments cover the
+// most recent ~250 days; weekly segments reach much further back.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Prior Levels Backtest", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+show_daily  = input.bool (true,  "Show PDH / PDL (daily)")
+show_weekly = input.bool (true,  "Show PWH / PWL (weekly)")
+show_long   = input.bool (true,  "Long signals (reclaim / hold)")
+show_short  = input.bool (true,  "Short signals (rejection)")
+col_res     = input.color(#EF5350, "Prior-high color (resistance)")
+col_sup     = input.color(#26A69A, "Prior-low color (support)")
+
+// ── prior-day / prior-week high & low (flat per period) ──────────────────────
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
+
+new_d = ta.change(time("D")) != 0
+new_w = ta.change(time("W")) != 0
+
+// ── draw one flat segment per period; extend it across the period each bar ───
+var line pdh_ln = na
+var line pdl_ln = na
+var line pwh_ln = na
+var line pwl_ln = na
+
+if show_daily and new_d and not na(pdh)
+    pdh_ln := line.new(bar_index, pdh, bar_index + 1, pdh, color = col_res, width = 1)
+if show_daily and new_d and not na(pdl)
+    pdl_ln := line.new(bar_index, pdl, bar_index + 1, pdl, color = col_sup, width = 1)
+if show_weekly and new_w and not na(pwh)
+    pwh_ln := line.new(bar_index, pwh, bar_index + 1, pwh, color = col_res, width = 2, style = line.style_dashed)
+if show_weekly and new_w and not na(pwl)
+    pwl_ln := line.new(bar_index, pwl, bar_index + 1, pwl, color = col_sup, width = 2, style = line.style_dashed)
+
+if not na(pdh_ln)
+    line.set_x2(pdh_ln, bar_index)
+if not na(pdl_ln)
+    line.set_x2(pdl_ln, bar_index)
+if not na(pwh_ln)
+    line.set_x2(pwh_ln, bar_index)
+if not na(pwl_ln)
+    line.set_x2(pwl_ln, bar_index)
+
+// ── signals across all history (same logic the alerts use) ───────────────────
+levels = array.from(pdh, pdl, pwh, pwl)
+
+var bool any_long  = false
+var bool any_short = false
+any_long  := false
+any_short := false
+if not na(close[1])
+    for i = 0 to array.size(levels) - 1
+        float L = array.get(levels, i)
+        if not na(L)
+            reclaim = close > L and close[1] <= L
+            hold    = close[1] > L and low <= L and close > L and close > open
+            reject  = close[1] < L and high >= L and close < L and close < open
+            if reclaim or hold
+                any_long := true
+            if reject
+                any_short := true
+
+plotshape(show_long and any_long, title = "LONG", location = location.belowbar, color = col_sup, style = shape.triangleup, size = size.tiny)
+plotshape(show_short and any_short, title = "SHORT", location = location.abovebar, color = col_res, style = shape.triangledown, size = size.tiny)
