@@ -632,16 +632,25 @@ if fire_alerts and any_long and ma_quality_pass
     msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
     alert(msg_long, alert.freq_once_per_bar_close)
 
-// Spec 58 (2026-05-23 night) — SHORT + NOTICE alerts removed entirely.
-// This Pine now fires LONG entries only. The deleted blocks were:
-//   • ma_rejection_short_v3  (SHORT — high tags MA, closes back below)
-//   • ma_proximity_long_v3   (NOTICE — bar near MA from above)
-//   • ma_proximity_short_v3  (NOTICE — bar near MA from below)
-// Detection helpers (strict_short, band_short, proximity_long/short) and
-// aggregate vars (any_short, any_prox_*) remain in the file as dead code
-// in case any future signal is built on them. Visual SHORT/proximity
-// markers (plotshape calls + bgcolor) are also retained as toggleable
-// chart context — disable via the show_markers input if not wanted.
+// MA REJECTION short — RE-ENABLED 2026-06-09. Exact mirror of the bounce long:
+// an MA is dual-role — support from above (bounce = long), resistance from below
+// (rejection = short). strict_short already detects it (high tags the MA, closes
+// back below on a RED bar — a liquidity grab into resistance). Entry = close,
+// stop ABOVE the rejection wick, targets = nearest levels BELOW (ma_targets_below
+// now includes PDH/PDL/PWH/PWL). Backend/SPY-trend gate decide delivery.
+if fire_alerts and any_short
+    e_s = close
+    s_s = is_intraday_mode ? (high + atr_chart * 0.3) : ((not na(rejected_ma_short) ? rejected_ma_short : high) + atr_chart * 0.3)
+    rsk_s = s_s - e_s
+    dns = ma_targets_below(e_s)
+    n_dn = array.size(dns)
+    t1_short = n_dn >= 1 ? array.get(dns, 0) : e_s - rsk_s * r_t1
+    t2_short = n_dn >= 2 ? array.get(dns, 1) : e_s - rsk_s * r_t2
+    msg_short = build_v3_payload("ma_rejection_short_v3", "SHORT", short_tag, e_s, s_s, t1_short, t2_short, false, near_pdh)
+    alert(msg_short, alert.freq_once_per_bar_close)
+
+// (ma_proximity_long/short NOTICE alerts stay removed — too noisy. Their
+// detection + visual markers remain as toggleable chart context.)
 
 // Uptrend pullback continuation ----------------------------------------------
 // Setup: stock cleanly trending up (close > EMA8 > EMA21), pulled back for a

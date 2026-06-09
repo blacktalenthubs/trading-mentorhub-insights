@@ -1833,20 +1833,28 @@ async def _route_alert(sig) -> tuple[bool, Optional[str]]:
 
     Rules:
         - BUY / LONG / NOTICE                     → ACTION
-        - SHORT, symbol not in index allow-list   → DROP
-        - SHORT, index symbol, whitelisted rule   → ACTION
-        - SHORT, index symbol, other rule         → DROP
+        - SHORT, MA rejection (tv_ma_*short*)     → ACTION (any symbol)
+        - SHORT, structural, index symbol, wl rule → ACTION
+        - SHORT, structural, anything else        → DROP
     """
     direction = (sig.direction or "").upper()
 
     if direction not in ("SHORT", "SELL"):
         return True, None
 
-    if (sig.symbol or "").upper() not in INDEX_SHORT_ALLOWLIST:
-        return False, None
-
     rule = (getattr(sig, "_tv_rule", "") or "").strip()
     rule_full = f"tv_{rule}" if rule and not rule.startswith("tv_") else rule
+
+    # MA REJECTION shorts (ma_rejection_short_v3*) are first-class on ANY symbol
+    # (re-enabled 2026-06-09 — an MA is resistance from below, the mirror of the
+    # bounce long). Delivery is shaped downstream by the SPY-trend gate + dedup,
+    # not by an index whitelist.
+    if rule_full.startswith("tv_ma_") and "short" in rule_full:
+        return True, None
+
+    # Structural shorts (PDL break / PDH rejection …) stay INDEX-only for now.
+    if (sig.symbol or "").upper() not in INDEX_SHORT_ALLOWLIST:
+        return False, None
     if rule_full in _SPY_SHORT_ACTION_RULES:
         return True, None
     return False, None

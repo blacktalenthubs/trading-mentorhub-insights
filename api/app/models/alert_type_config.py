@@ -32,12 +32,13 @@ class AlertTypeConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# ── Active MA family — only ma_bounce_long_v3 survives spec 58 ───────────
-# Generates 6 per-MA toggles: ma_bounce_long_v3_{ema8,ema21,ema50,ema100,ema200,sma}.
-# The SHORT (rejection) and NOTICE (proximity) families were removed from
-# Pine — they get cleaned out of the catalog via OBSOLETE_ALERT_TYPES below.
+# ── Active MA families — bounce LONG + rejection SHORT (re-enabled 2026-06-09).
+# Each generates 6 per-MA toggles: {fam}_{ema8,ema21,ema50,ema100,ema200,sma}.
+# An MA is dual-role: support from above (bounce=long) / resistance from below
+# (rejection=short). The NOTICE (proximity) family stays removed (too noisy).
 MA_SPLIT_FAMILIES = (
     ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
+    ("ma_rejection_short_v3", "MA rejection short", "MA / EMA · Rejection Short"),
 )
 _MA_TOGGLES = (
     ("ema8",   "EMA 8"),
@@ -229,10 +230,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "staged_pwh_rejection", "staged_pwh_failed_short", "staged_pwl_break",
     "staged_pmh_rejection", "staged_pmh_failed_short", "staged_pml_break",
 
-    # MA SHORT (per-MA) — Pine no longer emits
-    "ma_rejection_short_v3_ema8", "ma_rejection_short_v3_ema21",
-    "ma_rejection_short_v3_ema50", "ma_rejection_short_v3_ema100",
-    "ma_rejection_short_v3_ema200", "ma_rejection_short_v3_sma",
+    # MA SHORT (per-MA) RE-ENABLED 2026-06-09 — now active in _MA_CATALOG, so
+    # NOT obsolete. (The bare prefix ma_rejection_short_v3 stays obsolete above,
+    # same as ma_bounce_long_v3 — real types are per-MA.)
 
     # MA proximity NOTICEs (long + short, per-MA) — Pine no longer emits
     "ma_proximity_long_v3_ema8", "ma_proximity_long_v3_ema21",
