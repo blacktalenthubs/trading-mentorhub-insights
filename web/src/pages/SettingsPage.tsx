@@ -31,7 +31,7 @@ import type { NotificationPrefs, NotificationRouting, AlertChannel } from "../ty
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Zap, Award,
+  Sun, Moon, Zap, Award, ShieldAlert,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -885,6 +885,60 @@ function AlertWatchlistSection() {
   );
 }
 
+function SpyTrendGateSection() {
+  const { data, isLoading } = useRegimeConfig();
+  const update = useUpdateRegimeConfig();
+  const toList = (s?: string) =>
+    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
+  const gateOn = (data?.spy_trend_gate_enabled ?? "true").toLowerCase() !== "false";
+
+  return (
+    <Section title="SPY trend gate — longs" icon={<ShieldAlert className="h-4 w-4 text-accent" />}>
+      <p className="text-xs text-text-muted mb-3">
+        When SPY is below BOTH its daily 8 &amp; 21 EMA (broad tape rolled over),
+        block long alerts on everything except the exceptions below — non-trending
+        days, most longs are traps. Takes effect on the next alert, no redeploy.
+      </p>
+      {isLoading ? (
+        <div className="text-xs text-text-faint">Loading…</div>
+      ) : (
+        <>
+          <button
+            onClick={() => update.mutate({ spy_trend_gate_enabled: gateOn ? "false" : "true" })}
+            disabled={update.isPending}
+            role="switch"
+            aria-checked={gateOn}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left w-full mb-3 transition-colors disabled:opacity-60 ${
+              gateOn
+                ? "border-accent/50 bg-accent/10"
+                : "border-border-subtle bg-surface-1 hover:bg-surface-2"
+            }`}
+          >
+            <span
+              className={`shrink-0 h-4 w-4 rounded flex items-center justify-center ${
+                gateOn ? "bg-accent" : "bg-surface-3 border border-border-subtle"
+              }`}
+            >
+              {gateOn && <Check className="h-3 w-3 text-white" />}
+            </span>
+            <span className="text-[11px] leading-snug text-text-primary font-medium">
+              {gateOn
+                ? "ON — block longs when SPY is below its 8 & 21 EMA"
+                : "OFF — longs always flow"}
+            </span>
+          </button>
+          <ExemptListEditor
+            label="Exceptions — names that still fire longs when SPY has rolled over"
+            hint="e.g. SPY, QQQ, DRAM, NVDA — index + relative-strength names you'd still trade."
+            list={toList(data?.spy_trend_exempt)}
+            onSave={(l) => update.mutate({ spy_trend_exempt: l.join(",") })}
+          />
+        </>
+      )}
+    </Section>
+  );
+}
+
 function InfoAlertSymbolsSection() {
   const { data, isLoading } = useRegimeConfig();
   const update = useUpdateRegimeConfig();
@@ -945,6 +999,9 @@ export default function SettingsPage() {
 
         {/* Global alert-symbol allow-list — gates ALL alert types */}
         <AlertWatchlistSection />
+
+        {/* SPY-trend long gate — block longs when SPY below its 8 & 21 EMA */}
+        <SpyTrendGateSection />
 
         {/* Which symbols fire the info alerts (multi-touch / gap) */}
         <InfoAlertSymbolsSection />

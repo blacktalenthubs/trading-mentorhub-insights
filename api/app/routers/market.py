@@ -832,6 +832,35 @@ def _fetch_daily_closes(product: str, is_crypto: bool, n: int = 250) -> list:
         return []
 
 
+def _spy_below_8_and_21() -> Optional[bool]:
+    """Is SPY trading below BOTH its daily 8-EMA and 21-EMA right now?
+
+    The day-trade-long gate: when the broad tape has rolled over (SPY under its
+    short-term EMAs) most longs are traps, so equity longs are suppressed except
+    the exempt names. Must be below BOTH — above the 21 (or back above it) lets
+    longs flow. Cached 60s. Returns True/False, or None when data is unavailable
+    (caller fails open — never block on missing data).
+    """
+    cached = cache_get("spy_trend_8_21")
+    if isinstance(cached, bool):
+        return cached
+    try:
+        import pandas as pd
+        from analytics.intraday_data import fetch_latest_price
+        closes = _fetch_daily_closes("SPY", False)
+        if len(closes) < 22:
+            return None
+        s = pd.Series(closes, dtype="float64")
+        ema8 = float(s.ewm(span=8, adjust=False).mean().iloc[-1])
+        ema21 = float(s.ewm(span=21, adjust=False).mean().iloc[-1])
+        price = fetch_latest_price("SPY") or float(closes[-1])
+        below = bool(price < ema8 and price < ema21)
+        cache_set("spy_trend_8_21", below, 60)
+        return below
+    except Exception:
+        return None
+
+
 # Need ample warmup or Wilder's RSI is skewed by the recent window.
 _RSI_MIN_BARS = 50
 
