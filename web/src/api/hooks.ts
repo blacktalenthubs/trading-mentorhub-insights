@@ -1959,12 +1959,10 @@ export function useAlertConfig() {
   });
 }
 
-/** Alert-symbol + gate config. (The SPY/BTC below-PDL exempt lists were removed
- *  with those gates, #169/#173.) */
+/** Gate config — just the SPY-trend long gate now (the per-symbol master switch
+ *  + info-symbol lists were removed 2026-06-09; alert delivery = Alert Types +
+ *  this gate). */
 export interface RegimeExemptConfig {
-  alert_symbols: string;  // symbols allowed to fire info alerts (multi-touch / gap)
-  alerts_all_symbols: string;  // master switch "true"/"false": all symbols vs exceptions only
-  alert_watchlist: string;  // exception symbols that still alert when the master switch is off
   spy_trend_gate_enabled: string;  // "true"/"false" — block longs when SPY below its 8 & 21 EMA
   spy_trend_exempt: string;  // symbols still allowed to fire longs when SPY has rolled over
 }
