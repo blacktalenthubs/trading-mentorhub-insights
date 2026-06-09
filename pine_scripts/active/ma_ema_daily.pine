@@ -143,6 +143,10 @@ atr_chart = nz(ta.atr(14)[1], close * 0.005)
 
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+// Prior-week high/low — also targets (price must clear the nearest level of ANY
+// kind, MA or prior level, on the way to the next). 2026-06-09.
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
 
 // Spec 61 — market-regime gate. The OPEN gate was REMOVED 2026-06-05: SPY
 // shops around its open line all day (too noisy), so it over-blocked MA
@@ -526,12 +530,16 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","above_vwap":"' + (above_vwap ? "true" : "false")
       + '","spy_above_pdl":"' + (spy_above_pdl_61 ? "true" : "false") + '"}'
 
-// S0 targets — the MAs on the far side of entry are the structural targets.
-//   LONG  → the nearest MAs ABOVE entry (overhead resistance to aim for).
-//   SHORT → the nearest MAs BELOW entry (underfoot support to aim for).
+// Structural targets — the nearest LEVELS on the far side of entry. Levels =
+// the 8 daily MAs PLUS the prior-day/week highs & lows (PDH/PDL/PWH/PWL). Price
+// has to clear the nearest one of ANY kind first, so they all belong in the
+// ladder (2026-06-09 — e.g. a SPY long below its PDL targets the PDL first, not
+// the EMA 21 above it).
+//   LONG  → nearest levels ABOVE entry (overhead resistance to aim for).
+//   SHORT → nearest levels BELOW entry (underfoot support to aim for).
 // Returns a sorted array (ascending for above, descending for below) so
-// element [0] is the nearest target, [1] the next. R-multiple fallback
-// when fewer than 2 MAs sit on the target side.
+// element [0] is the nearest target, [1] the next. R-multiple fallback when
+// fewer than 2 levels sit on the target side.
 ma_targets_above(float p) =>
     arr = array.new<float>()
     if not na(ema8)   and ema8   > p
@@ -550,6 +558,14 @@ ma_targets_above(float p) =>
         array.push(arr, sma100)
     if not na(sma200) and sma200 > p
         array.push(arr, sma200)
+    if not na(pdh) and pdh > p
+        array.push(arr, pdh)
+    if not na(pdl) and pdl > p
+        array.push(arr, pdl)
+    if not na(pwh) and pwh > p
+        array.push(arr, pwh)
+    if not na(pwl) and pwl > p
+        array.push(arr, pwl)
     array.sort(arr, order.ascending)
     arr
 
@@ -571,6 +587,14 @@ ma_targets_below(float p) =>
         array.push(arr, sma100)
     if not na(sma200) and sma200 < p
         array.push(arr, sma200)
+    if not na(pdh) and pdh < p
+        array.push(arr, pdh)
+    if not na(pdl) and pdl < p
+        array.push(arr, pdl)
+    if not na(pwh) and pwh < p
+        array.push(arr, pwh)
+    if not na(pwl) and pwl < p
+        array.push(arr, pwl)
     array.sort(arr, order.descending)
     arr
 
