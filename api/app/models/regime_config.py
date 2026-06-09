@@ -37,6 +37,11 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # Exception symbols — when alerts_all_symbols is "false", ONLY these still
     # alert (across every alert type). Ignored when alerts_all_symbols is "true".
     "alert_watchlist": "",
+    # SPY-trend long gate (2026-06-09). When ON and SPY is below BOTH its daily
+    # 8-EMA and 21-EMA (broad tape rolled over), equity BUY alerts are suppressed
+    # EXCEPT for spy_trend_exempt. Non-trending market = most longs are traps.
+    "spy_trend_gate_enabled": "true",
+    "spy_trend_exempt": "SPY,QQQ,DRAM,NVDA",
 }
 
 

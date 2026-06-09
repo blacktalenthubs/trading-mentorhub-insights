@@ -242,6 +242,55 @@ def resolve_spy_above_pdl(
     return pine_value
 
 
+# ── SPY-trend long gate (2026-06-09) ──────────────────────────────────────
+# When SPY is below BOTH its daily 8-EMA and 21-EMA the broad tape has rolled
+# over and day-trade longs are mostly traps. Block equity BUY alerts except a
+# small exempt set (index + strongest names), editable from Settings. Must be
+# below BOTH — above/back-above the 21 lets longs flow. Crypto is unaffected
+# (it doesn't follow SPY); fail-open on missing data.
+SPY_TREND_EXEMPT_DEFAULT: frozenset[str] = frozenset(
+    s.strip().upper()
+    for s in os.getenv("SPY_TREND_EXEMPT", "SPY,QQQ,DRAM,NVDA").split(",")
+    if s.strip()
+)
+
+
+def spy_trend_blocks_buy(
+    spy_below_8_21: Optional[bool],
+    direction: Optional[str],
+    symbol: Optional[str],
+    exempt: frozenset = SPY_TREND_EXEMPT_DEFAULT,
+    enabled: bool = True,
+) -> bool:
+    """Decide whether the SPY-trend gate must SUPPRESS this alert. Pure + tested.
+    True ⇒ suppress. Bites only when ALL hold:
+      • enabled is True                 — gate switched on in Settings.
+      • spy_below_8_21 is exactly True  — SPY confirmed below BOTH EMAs. None
+        (data unavailable) or False ⇒ never block (fail-open).
+      • direction is BUY                — shorts / notices unaffected.
+      • symbol is NOT in the exempt set (default SPY/QQQ/DRAM/NVDA; editable).
+    """
+    if not enabled:
+        return False
+    if spy_below_8_21 is not True:
+        return False
+    if (direction or "").upper() != "BUY":
+        return False
+    if (symbol or "").upper() in exempt:
+        return False
+    return True
+
+
+def _spy_below_8_21_now() -> Optional[bool]:
+    """Backend's SPY 8&21-EMA read (cached, same source as the regime banner).
+    None if market data is unavailable → caller fails open."""
+    try:
+        from api.app.routers.market import _spy_below_8_and_21
+        return _spy_below_8_and_21()
+    except Exception:
+        return None
+
+
 # ── Crypto regime gate — BTC is the 'index', mirrors the SPY/equity gate ──
 # 24/7 market, so it validates the whole gate flow before equity open: when BTC
 # is below its prior-day low, ETH/alt buys route to Not-routed; BTC reclaims →
@@ -1033,12 +1082,16 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         alert_syms = _parse_exempt_syms(_rc.get("alert_symbols")) or _ALERT_SYMS_DEFAULT
         alert_watchlist = _parse_exempt_syms(_rc.get("alert_watchlist"))  # exception symbols
         alerts_all = (_rc.get("alerts_all_symbols", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
+        spy_trend_exempt = _parse_exempt_syms(_rc.get("spy_trend_exempt")) or SPY_TREND_EXEMPT_DEFAULT
+        spy_trend_gate_on = (_rc.get("spy_trend_gate_enabled", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
         known_types = None
         alert_watchlist = frozenset()  # read failed → don't drop anything
         alerts_all = True              # read failed → allow all (non-breaking)
+        spy_trend_exempt = SPY_TREND_EXEMPT_DEFAULT
+        spy_trend_gate_on = False      # read failed → don't gate (fail-open)
 
     # Global alert switch (Settings → Alert symbols). alerts_all_symbols ON (the
     # DEFAULT) = EVERY symbol alerts — nothing dropped here. OFF = alerts are
@@ -1071,6 +1124,34 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             alert_type_full, sig.symbol,
         )
         return {"dispatched": False, "reason": "unknown_type"}
+
+    # ──────────────────────────────────────────────────────────────────
+    # SPY-trend long gate (2026-06-09) — SPY below BOTH its 8 & 21 EMA
+    # ──────────────────────────────────────────────────────────────────
+    # Non-trending tape → day-trade longs are mostly traps (SPY rolls over after
+    # losing the 21 and everything turns to chop). Block equity BUY alerts except
+    # the exempt set (Settings → SPY trend gate; default SPY/QQQ/DRAM/NVDA).
+    # Crypto unaffected. Fail-open: gate off / SPY data missing ⇒ never block.
+    if (
+        spy_trend_gate_on
+        and (sig.direction or "").upper() == "BUY"
+        and not _is_crypto_symbol(sig.symbol)
+        and (sig.symbol or "").upper() not in spy_trend_exempt
+    ):
+        _spy_below_8_21 = await asyncio.get_running_loop().run_in_executor(
+            None, _spy_below_8_21_now
+        )
+        if spy_trend_blocks_buy(
+            _spy_below_8_21, sig.direction, sig.symbol, spy_trend_exempt, spy_trend_gate_on
+        ):
+            logger.info(
+                "TV webhook: SPY below 8&21 EMA — trend-gated %s for %s",
+                alert_type_full, sig.symbol,
+            )
+            return await _persist_unrouted(
+                sig, alert_type_full, session_date,
+                suppressed_reason="spy_below_8_21",
+            )
 
     # ──────────────────────────────────────────────────────────────────
     # SPY/BTC below-PDL regime gates — REMOVED 2026-06-08

@@ -26,6 +26,8 @@ class RegimeConfigUpdate(BaseModel):
     alert_symbols: Optional[str] = None  # symbols allowed to fire info alerts
     alerts_all_symbols: Optional[str] = None  # master switch: "true"=all, "false"=exceptions only
     alert_watchlist: Optional[str] = None  # exception symbols when the master switch is off
+    spy_trend_gate_enabled: Optional[str] = None  # "true"/"false" — SPY-below-8&21 long gate
+    spy_trend_exempt: Optional[str] = None  # symbols still allowed to fire longs when SPY rolled over
 
 
 def _norm(s: str) -> str:
@@ -64,12 +66,15 @@ async def set_regime_config(
         "alert_symbols": body.alert_symbols,
         "alerts_all_symbols": body.alerts_all_symbols,
         "alert_watchlist": body.alert_watchlist,
+        "spy_trend_gate_enabled": body.spy_trend_gate_enabled,
+        "spy_trend_exempt": body.spy_trend_exempt,
     }
+    _BOOL_KEYS = {"alerts_all_symbols", "spy_trend_gate_enabled"}
     for key, raw in updates.items():
         if raw is None:
             continue
-        # the master switch is a bool flag, not a symbol list — store true/false
-        if key == "alerts_all_symbols":
+        # bool flags store true/false; the rest are normalized symbol lists.
+        if key in _BOOL_KEYS:
             value = "false" if (raw or "").strip().lower() in ("false", "0", "no", "off") else "true"
         else:
             value = _norm(raw)
