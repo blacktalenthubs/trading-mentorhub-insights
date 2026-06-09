@@ -1,0 +1,89 @@
+//@version=5
+indicator("Key Daily Highs & Lows", overlay = true, max_lines_count = 60, max_labels_count = 60)
+
+// VISUAL-ONLY. No alerts.
+//
+// Finds the most recent KEY swing highs and lows on the Daily timeframe
+// via ta.pivothigh/ta.pivotlow with N daily bars of confirmation on each
+// side. Keeps the last N highs and N lows as horizontal lines extending
+// infinitely to the right, so structural daily resistance/support stays
+// visible regardless of the chart timeframe.
+//
+// CONFIRMATION DELAY (intentional): a pivot only appears `N` daily bars
+// AFTER the actual high/low. That's the price of not getting false
+// pivots that fail the moment a new extreme prints. If a pivot can't be
+// drawn yet, the high/low is still live action — don't treat it as fixed.
+//
+// SIBLINGS:
+//   key_levels_weekly.pine     — same idea on Weekly TF
+//   levels_week_month.pine     — single PRIOR week H/L + PRIOR month H/L
+
+// ── Inputs ──────────────────────────────────────────────────────────
+strength = input.int(5, "Pivot strength (bars on each side)", group = "Pivots", minval = 2, maxval = 50, tooltip = "Higher = stronger / fewer. 5 ≈ a week of confirmation. 10 ≈ two weeks. 20 ≈ a month.")
+keepN    = input.int(5, "Keep last N highs and N lows",       group = "Pivots", minval = 1, maxval = 15)
+
+showHi = input.bool(true, "Show daily highs", group = "Display", inline = "h")
+cHi    = input.color(color.new(#ef4444, 20), "", group = "Display", inline = "h")
+showLo = input.bool(true, "Show daily lows",  group = "Display", inline = "l")
+cLo    = input.color(color.new(#22c55e, 20), "", group = "Display", inline = "l")
+
+lw           = input.int(1,  "Line width",                group = "Style", minval = 1, maxval = 4)
+lookbackBars = input.int(80, "Line extends back N bars",  group = "Style", minval = 10, maxval = 500, tooltip = "How far LEFT the line extends from the current bar. Right edge always extends forever.")
+showLabels   = input.bool(true, "Right-edge labels",      group = "Style")
+
+// ── Pull daily pivots ───────────────────────────────────────────────
+// lookahead_off → no future-bar leak. Pivot value lands on the intraday
+// bar where the `strength`-th daily bar after the actual pivot has closed.
+dPH = request.security(syminfo.tickerid, "D", ta.pivothigh(high, strength, strength), lookahead = barmerge.lookahead_off)
+dPL = request.security(syminfo.tickerid, "D", ta.pivotlow(low,   strength, strength), lookahead = barmerge.lookahead_off)
+
+// ── Persistent pivot arrays ─────────────────────────────────────────
+var array<float> hPx = array.new<float>()
+var array<float> lPx = array.new<float>()
+
+// Push only when v is non-na AND different from the last stored value
+// (dedup across intraday bars within the same daily candle).
+// Nested ifs — Pine v5 `and`/`or` do NOT short-circuit.
+f_push(array<float> a, float v, int cap) =>
+    if not na(v)
+        bool is_new = true
+        if array.size(a) > 0
+            is_new := array.get(a, array.size(a) - 1) != v
+        if is_new
+            array.push(a, v)
+            if array.size(a) > cap
+                array.shift(a)
+
+f_push(hPx, dPH, keepN)
+f_push(lPx, dPL, keepN)
+
+// ── Draw / redraw on last bar only ──────────────────────────────────
+var array<line>  drawnLines  = array.new<line>()
+var array<label> drawnLabels = array.new<label>()
+
+f_clear() =>
+    if array.size(drawnLines) > 0
+        for i = 0 to array.size(drawnLines) - 1
+            line.delete(array.get(drawnLines, i))
+        array.clear(drawnLines)
+    if array.size(drawnLabels) > 0
+        for i = 0 to array.size(drawnLabels) - 1
+            label.delete(array.get(drawnLabels, i))
+        array.clear(drawnLabels)
+
+f_draw(array<float> a, color col, string tag) =>
+    if array.size(a) > 0
+        for i = 0 to array.size(a) - 1
+            float p = array.get(a, i)
+            line ln = line.new(bar_index - lookbackBars, p, bar_index, p, color = col, width = lw, extend = extend.right)
+            array.push(drawnLines, ln)
+            if showLabels
+                label lb = label.new(bar_index, p, tag + " " + str.tostring(p, format.mintick), color = col, textcolor = color.white, style = label.style_label_left, size = size.small)
+                array.push(drawnLabels, lb)
+
+if barstate.islast
+    f_clear()
+    if showHi
+        f_draw(hPx, cHi, "D Hi")
+    if showLo
+        f_draw(lPx, cLo, "D Lo")
