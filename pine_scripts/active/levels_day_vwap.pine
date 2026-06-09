@@ -443,11 +443,14 @@ highest_sup_just_reclaimed() =>
     m = math.max(p_pdl, math.max(p_pwl, p_pml))
     m == -9.0e15 ? float(na) : m
 
-// Highest resistance just rejected: wick tagged level from below + closed back under.
+// Highest resistance just rejected: a LIQUIDITY GRAB above the level — wick
+// pokes up THROUGH it (high >= level), closes back UNDER it on a RED bar. The
+// `close < open` (2026-06-09) makes it a true down-bar, the exact mirror of the
+// MA-bounce long (wick below support, close back above on a GREEN bar).
 highest_res_just_rejected() =>
-    p_pdh = not na(pdh) and high >= pdh and close < pdh and high[1] < pdh ? pdh : -9.0e15
-    p_pwh = not na(pwh) and high >= pwh and close < pwh and high[1] < pwh ? pwh : -9.0e15
-    p_pmh = not na(pmh) and high >= pmh and close < pmh and high[1] < pmh ? pmh : -9.0e15
+    p_pdh = not na(pdh) and high >= pdh and close < pdh and close < open and high[1] < pdh ? pdh : -9.0e15
+    p_pwh = not na(pwh) and high >= pwh and close < pwh and close < open and high[1] < pwh ? pwh : -9.0e15
+    p_pmh = not na(pmh) and high >= pmh and close < pmh and close < open and high[1] < pmh ? pmh : -9.0e15
     m = math.max(p_pdh, math.max(p_pwh, p_pmh))
     m == -9.0e15 ? float(na) : m
 
