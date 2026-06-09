@@ -1,14 +1,9 @@
-"""Regime-gate exempt symbols — admin-editable allow-lists (no redeploy).
+"""Alert-symbol config — admin-editable key/value table (no redeploy).
 
-A tiny key/value table holding two comma-separated lists:
-  • index_exempt  — stock 'index' symbols the SPY gate never blocks
-                    (relative-strength names you'd trade even on a red day).
-  • crypto_exempt — crypto symbols the BTC gate never blocks.
-
-Edited live from Settings → Market gate. The webhook reads these per dispatch
-(same session as the alert_type_config read) and falls back to the env defaults
-(INDEX_REGIME_ALLOWLIST / CRYPTO_REGIME_ALLOWLIST) if a row is missing or the
-read fails — so the gate never goes dark.
+Holds the Alert-symbols settings the webhook reads per dispatch (same session
+as the alert_type_config read). The SPY/BTC regime-gate exempt lists
+(index_exempt / crypto_exempt) were REMOVED 2026-06-08 with the gates
+themselves (#169/#173) — only the alert-delivery keys remain.
 """
 
 from __future__ import annotations
@@ -29,10 +24,7 @@ class RegimeConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-# Defaults mirror the env constants in tv_webhook.py.
 REGIME_CONFIG_DEFAULTS: dict[str, str] = {
-    "index_exempt": "SPY,QQQ,IWM,DRAM",
-    "crypto_exempt": "BTC-USD",
     # Symbols allowed to fire the INFORMATIONAL multi-touch / gap alerts
     # (multitouch_level, gap_zone). The Pine fires broadly; the webhook keeps
     # only these. Edited live from Settings → so adding a stock needs no Pine edit.
@@ -49,7 +41,9 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
 
 
 async def seed_regime_config(conn) -> None:
-    """Insert default exempt lists ONLY if missing — never overwrites admin edits."""
+    """Insert default alert-symbol rows ONLY if missing — never overwrites edits.
+    (Stale index_exempt / crypto_exempt rows may linger in old DBs; harmless —
+    nothing reads them. Not worth a migration.)"""
     for k, v in REGIME_CONFIG_DEFAULTS.items():
         await conn.execute(
             text(

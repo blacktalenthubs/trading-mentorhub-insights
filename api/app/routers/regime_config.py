@@ -1,7 +1,8 @@
-"""Regime-gate exempt allow-lists API — view/edit the symbols that the SPY and
-BTC gates never block. Backs Settings → Market gate. The TradingView webhook
-reads the same table per dispatch (with env fallback), so edits take effect on
-the next fired alert — no redeploy.
+"""Alert-symbol config API — view/edit the alert-delivery lists (info-alert
+symbols + the alerts_all_symbols master switch / alert_watchlist exceptions).
+The TradingView webhook reads the same table per dispatch, so edits take effect
+on the next fired alert — no redeploy. (The SPY/BTC regime-gate exempt lists
+were removed with the gates, #169/#173.)
 """
 
 from __future__ import annotations
@@ -22,8 +23,6 @@ router = APIRouter()
 
 
 class RegimeConfigUpdate(BaseModel):
-    index_exempt: Optional[str] = None   # comma-separated stock symbols
-    crypto_exempt: Optional[str] = None  # comma-separated crypto symbols
     alert_symbols: Optional[str] = None  # symbols allowed to fire info alerts
     alerts_all_symbols: Optional[str] = None  # master switch: "true"=all, "false"=exceptions only
     alert_watchlist: Optional[str] = None  # exception symbols when the master switch is off
@@ -62,8 +61,6 @@ async def set_regime_config(
 ):
     """Update one or both exempt lists. Takes effect on the next fired alert."""
     updates = {
-        "index_exempt": body.index_exempt,
-        "crypto_exempt": body.crypto_exempt,
         "alert_symbols": body.alert_symbols,
         "alerts_all_symbols": body.alerts_all_symbols,
         "alert_watchlist": body.alert_watchlist,
