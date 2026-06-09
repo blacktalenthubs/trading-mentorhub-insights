@@ -12,8 +12,6 @@ import {
   useChangePassword,
   useNotificationPrefs,
   useUpdateNotificationPrefs,
-  useNotificationRouting,
-  useUpdateNotificationRouting,
   useTelegramStatus,
   useTelegramLink,
   useTelegramUnlink,
@@ -33,7 +31,7 @@ import type { NotificationPrefs, NotificationRouting, AlertChannel } from "../ty
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Filter, Zap, Award,
+  Sun, Moon, Zap, Award,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -244,262 +242,6 @@ function channelLabel(c: AlertChannel): string {
     case "both":     return "Both";
     case "off":      return "Off";
   }
-}
-
-// @ts-expect-error — kept for rollback; removed from render per 2026-05-27 cleanup
-function ChannelRouting() {
-  const { data } = useNotificationRouting();
-  const update = useUpdateNotificationRouting();
-  const [routing, setRouting] = useState<NotificationRouting | null>(null);
-  const [synced, setSynced] = useState(false);
-
-  useEffect(() => {
-    if (data && !synced) {
-      setRouting(data);
-      setSynced(true);
-    }
-  }, [data, synced]);
-
-  if (!routing) return null;
-
-  const dirty = data && (
-    ROUTING_ROWS.some(({ key }) => routing[key] !== data[key]) ||
-    (routing.telegram_update_symbols || "") !== (data.telegram_update_symbols || "")
-  );
-
-  function setChannel(key: keyof NotificationRouting, c: AlertChannel) {
-    setRouting((prev) => (prev ? { ...prev, [key]: c } : prev));
-  }
-
-  function save() {
-    if (!routing) return;
-    update.mutate(routing, {
-      onSuccess: (saved) => {
-        setRouting(saved);
-        toast.success("Alert routing saved");
-      },
-    });
-  }
-
-  return (
-    <Section title="Alert Channel Routing" icon={<Send className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-faint mb-4">
-        Choose where each AI alert type is delivered. Email uses your account address ({/* read-only */}).
-      </p>
-
-      <div className="space-y-3">
-        {ROUTING_ROWS.map(({ key, label, sub }) => (
-          <div key={key} className="flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-text-primary">{label}</div>
-              <div className="text-[10px] text-text-faint leading-tight">{sub}</div>
-            </div>
-            <select
-              value={routing[key]}
-              onChange={(e) => setChannel(key, e.target.value as AlertChannel)}
-              className="text-xs bg-surface-3 border border-border-subtle rounded-md px-2 py-1 text-text-primary focus:border-accent focus:outline-none"
-            >
-              {CHANNEL_OPTIONS.map((c) => (
-                <option key={c} value={c}>{channelLabel(c)}</option>
-              ))}
-            </select>
-          </div>
-        ))}
-      </div>
-
-      {/* Per-symbol Telegram override for AI Updates */}
-      <div className="mt-4 pt-4 border-t border-border-subtle/50">
-        <label className="text-xs font-semibold text-text-primary block mb-1">
-          Always send AI Updates to Telegram for
-        </label>
-        <input
-          type="text"
-          value={routing.telegram_update_symbols || ""}
-          onChange={(e) =>
-            setRouting((prev) =>
-              prev ? { ...prev, telegram_update_symbols: e.target.value.toUpperCase() } : prev
-            )
-          }
-          placeholder="SPY, NVDA, QQQ"
-          className="w-full rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:outline-none"
-        />
-        <p className="text-[10px] text-text-faint mt-1">
-          Comma-separated symbols. These symbols always get Telegram delivery for
-          AI Updates, even when the general AI Updates routing is set to Email or Off.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3 mt-4">
-        <button
-          onClick={save}
-          disabled={!dirty || update.isPending}
-          className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
-        >
-          {update.isPending ? "Saving..." : "Save Routing"}
-        </button>
-        {update.isSuccess && !dirty && (
-          <span className="text-[10px] text-bullish-text flex items-center gap-1">
-            <Check className="h-3 w-3" /> Saved
-          </span>
-        )}
-      </div>
-    </Section>
-  );
-}
-
-/* ── AI Alert Filters (Spec 36) ────────────────────────────────────
- *  User-controlled alert volume. Replaces deprecated rule-engine
- *  pattern toggles.
- */
-
-const ALL_DIRECTIONS = ["LONG", "SHORT", "RESISTANCE", "EXIT"] as const;
-type Direction = (typeof ALL_DIRECTIONS)[number];
-
-// @ts-expect-error — kept for rollback; removed from render per 2026-05-27 cleanup
-function AIAlertFilters() {
-  const { data: prefs } = useNotificationPrefs();
-  const update = useUpdateNotificationPrefs();
-
-  const [minConviction, setMinConviction] = useState<"low" | "medium" | "high">("medium");
-  const [waitEnabled, setWaitEnabled] = useState(false);
-  const [directions, setDirections] = useState<Set<Direction>>(new Set(ALL_DIRECTIONS));
-  const [synced, setSynced] = useState(false);
-
-  if (prefs && !synced) {
-    setMinConviction((prefs.min_conviction as "low" | "medium" | "high") || "medium");
-    setWaitEnabled(!!prefs.wait_alerts_enabled);
-    const dirStr = prefs.alert_directions || "LONG,SHORT,RESISTANCE,EXIT";
-    setDirections(new Set(
-      dirStr.split(",").map((d) => d.trim().toUpperCase()).filter(Boolean) as Direction[]
-    ));
-    setSynced(true);
-  }
-
-  function toggleDirection(d: Direction) {
-    const next = new Set(directions);
-    if (next.has(d)) next.delete(d);
-    else next.add(d);
-    setDirections(next);
-  }
-
-  const dirty = synced && prefs && (
-    minConviction !== (prefs.min_conviction || "medium") ||
-    waitEnabled !== !!prefs.wait_alerts_enabled ||
-    Array.from(directions).sort().join(",") !==
-      (prefs.alert_directions || "LONG,SHORT,RESISTANCE,EXIT").split(",").map((s) => s.trim().toUpperCase()).sort().join(",")
-  );
-
-  const noDirections = directions.size === 0;
-
-  function save() {
-    if (!prefs) return;
-    update.mutate({
-      ...(prefs as NotificationPrefs),
-      min_conviction: minConviction,
-      wait_alerts_enabled: waitEnabled,
-      alert_directions: Array.from(directions).join(","),
-    });
-  }
-
-  if (!prefs) return null;
-
-  return (
-    <Section title="AI Alert Filters" icon={<Filter className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-faint mb-4">
-        Control which AI alerts reach your Telegram. These apply on top of your tier's daily limit.
-      </p>
-
-      {/* Minimum conviction */}
-      <div className="mb-5">
-        <label className="text-xs font-semibold text-text-primary block mb-2">Minimum conviction</label>
-        <div className="grid grid-cols-3 gap-2">
-          {(["high", "medium", "low"] as const).map((level) => (
-            <button
-              key={level}
-              onClick={() => setMinConviction(level)}
-              className={`text-xs font-medium px-3 py-2 rounded-md border transition-colors ${
-                minConviction === level
-                  ? "bg-accent/15 border-accent/40 text-accent"
-                  : "bg-surface-2/40 border-border-subtle text-text-muted hover:bg-surface-2"
-              }`}
-            >
-              {level === "high" ? "High only" : level === "medium" ? "Medium+" : "All (Low+)"}
-            </button>
-          ))}
-        </div>
-        <p className="text-[10px] text-text-faint mt-1.5">
-          {minConviction === "high" && "Tightest filter — only the highest-probability AI signals."}
-          {minConviction === "medium" && "Balanced — skip low conviction, deliver medium and high."}
-          {minConviction === "low" && "Full firehose — every AI signal, including low conviction."}
-        </p>
-      </div>
-
-      {/* AI Updates */}
-      <div className="mb-5 pb-5 border-b border-border-subtle/50">
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={waitEnabled}
-            onChange={(e) => setWaitEnabled(e.target.checked)}
-            className="mt-0.5 rounded border-border-subtle"
-          />
-          <div className="flex-1">
-            <span className="text-xs font-semibold text-text-primary">Send AI Updates</span>
-            <p className="text-[10px] text-text-faint leading-tight mt-0.5">
-              Context between trades — what the AI is watching and why it's staying out of chop.
-              Chatty during sideways markets. Updates always appear in the dashboard regardless of this setting.
-            </p>
-          </div>
-        </label>
-      </div>
-
-      {/* Direction filters */}
-      <div className="mb-4">
-        <label className="text-xs font-semibold text-text-primary block mb-2">Alert me on</label>
-        <div className="grid grid-cols-2 gap-2">
-          {ALL_DIRECTIONS.map((d) => {
-            const on = directions.has(d);
-            const label =
-              d === "LONG" ? "LONG entries" :
-              d === "SHORT" ? "SHORT entries" :
-              d === "RESISTANCE" ? "Resistance notices" :
-              "Exit signals";
-            return (
-              <label key={d} className="flex items-center gap-2 cursor-pointer p-2 rounded-md hover:bg-surface-2/50 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => toggleDirection(d)}
-                  className="rounded border-border-subtle"
-                />
-                <span className={`text-xs ${on ? "text-text-primary" : "text-text-muted"}`}>{label}</span>
-              </label>
-            );
-          })}
-        </div>
-        {noDirections && (
-          <p className="text-[10px] text-warning-text mt-1.5">
-            ⚠︎ You've disabled all alert directions. You won't receive any AI Telegram alerts.
-          </p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={!dirty || update.isPending}
-          className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
-        >
-          {update.isPending ? "Saving..." : "Save Filters"}
-        </button>
-        {update.isSuccess && !dirty && (
-          <span className="text-[10px] text-bullish-text flex items-center gap-1">
-            <Check className="h-3 w-3" /> Saved
-          </span>
-        )}
-      </div>
-    </Section>
-  );
 }
 
 /* ── Profile & Account ────────────────────────────────────────────── */
@@ -1179,10 +921,10 @@ export default function SettingsPage() {
 
         {/* Two-column on desktop: alerts left, account right */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Left column: Alerts + preferences */}
-          {/* Removed 2026-05-27 per user — focus on essential settings:
-             - ChannelRouting: redundant with TelegramSetup + AlertTypesSection
-             - AIAlertFilters: AI Updates not actively used; clutters UI */}
+          {/* Left column: Alerts + preferences.
+             ChannelRouting, AIAlertFilters (unused since 2026-05-27) and the
+             Market-gate exempt lists (gates removed #169/#173) were deleted
+             2026-06-08 — settings focused on what's actually used. */}
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
