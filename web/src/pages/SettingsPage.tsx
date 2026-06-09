@@ -27,6 +27,7 @@ import {
   signalNotificationsEnabled,
   setSignalNotificationsEnabled,
 } from "../hooks/useSignalNotifications";
+import type { NotificationPrefs } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
