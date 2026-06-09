@@ -406,20 +406,12 @@ plotshape(show_markers and any_prox_short,
           color = color.new(color.red, 30), style = shape.circle,
           size = size.tiny)
 
-if show_markers and any_long
-    label.new(bar_index, low, long_tag,
-              style = label.style_label_up,
-              color = color.new(color.green, 0),
-              textcolor = color.white,
-              size = label_size,
-              yloc = yloc.belowbar)
-if show_markers and any_short
-    label.new(bar_index, high, short_tag,
-              style = label.style_label_down,
-              color = color.new(color.red, 0),
-              textcolor = color.white,
-              size = label_size,
-              yloc = yloc.abovebar)
+// On-chart MA tag labels ("21E" / "8E") REMOVED 2026-06-08 — misleading. They
+// sat at the bar's price, but with the flat S/R lines drawn at the MA's CURRENT
+// value, a tag from an older bar (e.g. a 21 EMA bounce) reads as if it's on a
+// different line (the 50). The triangle still marks WHERE a long/short fired;
+// which MA it was lives in the alert payload (ma_tag from long_tag/short_tag,
+// kept) and is obvious from the colored flat line the bar is touching.
 
 bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
 bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
