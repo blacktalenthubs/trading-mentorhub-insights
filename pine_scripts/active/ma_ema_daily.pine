@@ -258,8 +258,21 @@ recently_above_ma(float ma) =>
                 res := true
     res
 
+// 2026-06-08 — FLAT-LEVEL model. A DAILY MA is a flat S/R level intraday (it
+// only updates on the daily close), exactly like PDL. strict_long fires when
+// price respects that level AS SUPPORT, two clean per-bar ways:
+//   • HOLD    — price was above the MA, dipped to it, closed back above (green) = support held.
+//   • RECLAIM — price was below the MA, closed back above it = resistance flips to support.
+// Replaces the recently_above_ma() 40-bar heuristic (compared OLD closes to the
+// CURRENT MA → leaked resistance longs). RECLAIM was dropped in spec 61 (grinding
+// up through overhead stacks); re-introduced now that entries are UNGATED and
+// every alert ships `overhead_mas`, so the trader sees the resistance above and
+// judges the setup. Per-bar close vs the MA's own value — no stale-lookback.
 strict_long(float ma) =>
-    not na(ma) and recently_above_ma(ma) and low <= ma and close > ma and close > open
+    ok      = not na(ma) and not na(close[1])
+    hold    = ok and close[1] > ma and low <= ma and close > ma and close > open
+    reclaim = ok and close > ma and close[1] <= ma
+    hold or reclaim
 
 strict_short(float ma) =>
     not na(ma) and high >= ma and close < ma and close < open
