@@ -44,12 +44,16 @@ reclaim(float lvl)    => not na(lvl) and not na(close[1]) and close > lvl and cl
 var line[]  g_lines  = array.new_line(0)
 var label[] g_labels = array.new_label(0)
 
-draw_level(float lvl, string nm, bool dotted) =>
+// loff = bars to extend the line/label past the last bar. Staggered per level
+// so a PDL sitting near the MA cluster (or coinciding with PWL) doesn't hide
+// behind another label — each prior-level label sits at its own x, clear of the
+// ma-ema-daily labels (which end ~6 bars out).
+draw_level(float lvl, string nm, bool dotted, int loff) =>
     if not na(lvl)
         sup = is_support(lvl)
         col = sup ? col_sup : col_res
-        ln  = line.new(bar_index - line_len, lvl, bar_index + 6, lvl, color = col, width = 2, style = dotted ? line.style_dotted : line.style_solid)
-        lb  = label.new(bar_index + 6, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        ln  = line.new(bar_index - line_len, lvl, bar_index + loff, lvl, color = col, width = 2, style = dotted ? line.style_dotted : line.style_solid)
+        lb  = label.new(bar_index + loff, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
         array.push(g_lines, ln)
         array.push(g_labels, lb)
 
@@ -63,13 +67,13 @@ if barstate.islast
             label.delete(array.get(g_labels, i))
         array.clear(g_labels)
     if show_pdh
-        draw_level(pdh, "PDH", false)
+        draw_level(pdh, "PDH", false, 8)
     if show_pdl
-        draw_level(pdl, "PDL", false)
+        draw_level(pdl, "PDL", false, 18)
     if show_pwh
-        draw_level(pwh, "PWH", true)
+        draw_level(pwh, "PWH", true, 28)
     if show_pwl
-        draw_level(pwl, "PWL", true)
+        draw_level(pwl, "PWL", true, 38)
 
 // ── RC (reclaim) tags — close back ABOVE a level from below, per confirmed bar ─
 rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
