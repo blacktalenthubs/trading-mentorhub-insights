@@ -1,42 +1,24 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// MA Flat S/R (test) — daily MAs as FLAT horizontal levels, like PDL. v4.
+// MA Flat S/R — daily MAs as FLAT horizontal levels, like PDL. v5.
 // ─────────────────────────────────────────────────────────────────────────────
-// PURPOSE: validate the "treat each daily MA as a flat S/R level" model BEFORE
-// we wire any alerts. A DAILY moving average only updates on the daily close, so
-// intraday it's a flat horizontal line — exactly like PDL/PWL.
-//
-// Each daily MA is drawn as ONE clean horizontal line at its current value,
-// colored by its DYNAMIC role:
+// A DAILY moving average only updates on the daily close, so intraday it's a
+// flat horizontal line — exactly like PDL/PWL. This draws each daily MA as one
+// clean horizontal level at its current value, colored by its DYNAMIC role:
 //   • SUPPORT  (green) — price is currently ABOVE the level
 //   • RESISTANCE (red) — price is currently BELOW the level (overhead = TARGET)
-// The role flips the instant price closes back across the line.
-//
-// EVENT MARKERS (would-be alert points — still NO alerts):
-//   • R  reclaim — price was below the MA, closed back ABOVE it (resistance→support = long)
-//   • H  hold    — price above the MA, dipped to it, closed back above on a green bar (support held = long)
-//   • x  reject  — price below the MA, rallied into it, closed back below on a red bar (resistance = no-long / target)
-// Green up-label below the bar lists long triggers (e.g. "21R" / "50H"); red
-// down-label above lists rejections (e.g. "8x"). The number is the MA period.
-//
-// NOTE: the lines sit at TODAY's MA value, but a daily MA drifts day to day, so
-// markers on OLDER bars sit at the MA's value back then — they won't always
-// touch today's flat line. The label (e.g. "21R") is always the right MA; the
-// line just shows where that MA is NOW. Use `Markers: recent bars only` to keep
-// markers to the window where the MA hasn't drifted far from its current line.
-//
-// MAs are computed identically to `ma-ema-daily`. VISUAL TEST ONLY.
+// The role flips the instant price closes back across the line. So at a glance:
+// green lines below price are support (entries), red lines above are resistance
+// (targets / where a long stalls). MAs are computed identically to ma-ema-daily.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("MA Flat S/R (test)", overlay = true, max_lines_count = 50, max_labels_count = 500)
+indicator("MA Flat S/R", overlay = true, max_lines_count = 50, max_labels_count = 50)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
-show_ema      = input.bool (true,  "Show EMAs  (8 / 21 / 50 / 100 / 200)")
-show_sma      = input.bool (true,  "Show SMAs  (50 / 100 / 200)")
-show_markers  = input.bool (true,  "Show reclaim / hold / reject event markers")
-markers_recent= input.int  (0,     "Markers: recent bars only (0 = all history)", minval = 0, maxval = 1000)
-line_len      = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
-col_sup       = input.color(#26A69A, "Support color")
-col_res       = input.color(#EF5350, "Resistance color")
+show_ema = input.bool (true,  "Show EMAs  (8 / 21 / 50 / 100 / 200)")
+show_sma = input.bool (true,  "Show SMAs  (50 / 100 / 200)")
+line_len = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
+col_sup  = input.color(#26A69A, "Support color")
+col_res  = input.color(#EF5350, "Resistance color")
 
 // ── daily MAs (flat intraday) — same computation as ma-ema-daily ─────────────
 ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
@@ -85,30 +67,3 @@ if barstate.islast
         draw_level(sma50,  "SMA 50",  true)
         draw_level(sma100, "SMA 100", true)
         draw_level(sma200, "SMA 200", true)
-
-// ── event markers (reclaim / hold / reject) — would-be alert points ──────────
-// Per MA, classify THIS confirmed bar against that MA's own per-bar value.
-mas   = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma100, sma200)
-names = array.from("8", "21", "50", "100", "200", "S50", "S100", "S200")
-in_window = markers_recent == 0 or (last_bar_index - bar_index) <= markers_recent
-
-if show_markers and barstate.isconfirmed and in_window and not na(close[1])
-    string longtxt = ""
-    string rejtxt  = ""
-    for i = 0 to array.size(mas) - 1
-        float L  = array.get(mas, i)
-        string nm = array.get(names, i)
-        if not na(L)
-            reclaim = close > L and close[1] <= L
-            hold    = close[1] > L and low <= L and close > L and close > open
-            reject  = close[1] < L and high >= L and close < L and close < open
-            if reclaim
-                longtxt := longtxt + nm + "R "
-            else if hold
-                longtxt := longtxt + nm + "H "
-            else if reject
-                rejtxt := rejtxt + nm + "x "
-    if longtxt != ""
-        label.new(bar_index, low, longtxt, yloc = yloc.belowbar, style = label.style_label_up, color = col_sup, textcolor = color.white, size = size.tiny)
-    if rejtxt != ""
-        label.new(bar_index, high, rejtxt, yloc = yloc.abovebar, style = label.style_label_down, color = col_res, textcolor = color.white, size = size.tiny)
