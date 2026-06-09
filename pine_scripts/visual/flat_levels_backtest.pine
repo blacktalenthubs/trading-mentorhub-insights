@@ -1,0 +1,82 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Flat Levels Backtest — full-history version of the flat S/R model.
+// ─────────────────────────────────────────────────────────────────────────────
+// SEPARATE from the live indicators (ma-ema-daily / Prior Levels Flat) — built
+// for backtesting, so it spans ALL history instead of a short flat segment.
+//
+// Unlike the live view (one flat line at TODAY's value), this plots each level
+// at its TRUE per-bar value so the past is honest — a 50-EMA bounce 3 months ago
+// shows where the 50 actually was then. Levels: the 8 daily MAs + PDH/PDL/PWH/PWL.
+// Each colored by role per bar (green = price above = support, red = below).
+//
+// SIGNALS marked across all history (the same logic the alerts fire on):
+//   ▲ LONG  — reclaim (was below, closed back above) OR support-hold (above,
+//             dipped to it, held above on a green bar).
+//   ▼ SHORT — rejection (below the level, wicked up into it, closed back below
+//             on a red bar) — the mirror of the long, e.g. today's SPY 50-EMA
+//             bounce flipped to the resistance side.
+// Scroll back and eyeball: did price respect these levels? VISUAL — no alerts.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Flat Levels Backtest", overlay = true, max_labels_count = 500)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+show_ema    = input.bool (true,  "Show EMAs (8/21/50/100/200)")
+show_sma    = input.bool (true,  "Show SMAs (50/100/200)")
+show_levels = input.bool (true,  "Show PDH/PDL/PWH/PWL")
+show_long   = input.bool (true,  "Long signals (reclaim / hold)")
+show_short  = input.bool (true,  "Short signals (rejection)")
+col_sup     = input.color(#26A69A, "Support color (price above)")
+col_res     = input.color(#EF5350, "Resistance color (price below)")
+
+// ── levels (true per-bar values) — same computation as the live indicators ───
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
+
+rc(float L) => not na(L) and close > L ? col_sup : col_res
+
+// ── plot every level at its true per-bar value, colored by role ──────────────
+plot(show_ema    ? ema8   : na, "EMA 8",   color = rc(ema8),   linewidth = 2)
+plot(show_ema    ? ema21  : na, "EMA 21",  color = rc(ema21),  linewidth = 2)
+plot(show_ema    ? ema50  : na, "EMA 50",  color = rc(ema50),  linewidth = 2)
+plot(show_ema    ? ema100 : na, "EMA 100", color = rc(ema100), linewidth = 1)
+plot(show_ema    ? ema200 : na, "EMA 200", color = rc(ema200), linewidth = 1)
+plot(show_sma    ? sma50  : na, "SMA 50",  color = rc(sma50),  linewidth = 1)
+plot(show_sma    ? sma100 : na, "SMA 100", color = rc(sma100), linewidth = 1)
+plot(show_sma    ? sma200 : na, "SMA 200", color = rc(sma200), linewidth = 1)
+plot(show_levels ? pdh : na, "PDH", color = rc(pdh), linewidth = 1, style = plot.style_circles)
+plot(show_levels ? pdl : na, "PDL", color = rc(pdl), linewidth = 1, style = plot.style_circles)
+plot(show_levels ? pwh : na, "PWH", color = rc(pwh), linewidth = 1, style = plot.style_circles)
+plot(show_levels ? pwl : na, "PWL", color = rc(pwl), linewidth = 1, style = plot.style_circles)
+
+// ── signals across all history (same logic the alerts use) ───────────────────
+levels = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma100, sma200, pdh, pdl, pwh, pwl)
+
+var bool any_long  = false
+var bool any_short = false
+any_long  := false
+any_short := false
+if not na(close[1])
+    for i = 0 to array.size(levels) - 1
+        float L = array.get(levels, i)
+        if not na(L)
+            reclaim = close > L and close[1] <= L
+            hold    = close[1] > L and low <= L and close > L and close > open
+            reject  = close[1] < L and high >= L and close < L and close < open
+            if reclaim or hold
+                any_long := true
+            if reject
+                any_short := true
+
+plotshape(show_long and any_long, title = "LONG", location = location.belowbar, color = col_sup, style = shape.triangleup, size = size.tiny)
+plotshape(show_short and any_short, title = "SHORT", location = location.abovebar, color = col_res, style = shape.triangledown, size = size.tiny)
