@@ -1088,58 +1088,19 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # from revival once we know what each regime actually warrants.
 
     # ──────────────────────────────────────────────────────────────────
-    # Spec 58 — uptrend gate enforcement (FR-001 / FR-003, refined 2026-05-23)
+    # Spec 58 entry gates — REMOVED 2026-06-08 (no gating)
     # ──────────────────────────────────────────────────────────────────
-    # The uptrend gate applies ONLY to MA-based entries (`tv_ma_*` family).
-    # Level-based entries (PDH/PDL/PWH/PWL/PMH/PML reclaim / held) MAY fire
-    # regardless of MA stack — in downtrend regimes the trader plays the
-    # levels with the overhead MAs as targets / resistance, not as entry
-    # blockers (FR-003 refined). SWMR / PLTR case from 2026-05-22 — they
-    # have overhead MA stacks but valid level plays the user wants to take.
+    # Pulled BOTH the uptrend gate (tv_ma_* required price above the whole MA
+    # stack) and the basing-chop filter (tv_staged_* suppressed on BASING +
+    # flat VWAP). Reason: we're rebuilding the MA entry on a flat-level model
+    # (treat each daily MA as a horizontal S/R level, like PDL) and we want
+    # every entry to flow UNGATED so we can see what each rule actually does
+    # before deciding what to suppress. Volume is controlled by NAME (the
+    # alerts_all_symbols master switch), not by regime/quality gates.
     #
-    # Pine already gates MA-bounce on uptrend_pass=true; this is belt-and-
-    # suspenders against a Pine-side regression. Backward-compat: legacy
-    # alerts with no `uptrend_pass` field treated as None → let through.
-    _uptrend_pass = getattr(sig, "_tv_uptrend_pass", None)
-    if is_uptrend_gate_rejected(alert_type_full, sig.direction, _uptrend_pass):
-        _overhead = getattr(sig, "_tv_overhead_mas", []) or []
-        logger.info(
-            "TV webhook: uptrend gate rejected %s for %s — overhead MAs: %s",
-            alert_type_full, sig.symbol,
-            ", ".join(_overhead) or "(none reported)",
-        )
-        return await _persist_unrouted(
-            sig, alert_type_full, session_date,
-            suppressed_reason="uptrend_gate_failed",
-        )
-
-    # ──────────────────────────────────────────────────────────────────
-    # Spec 58 — basing-chop filter (2026-05-24, refined drop inside_day)
-    # ──────────────────────────────────────────────────────────────────
-    # Suppress staged_* level entries when BOTH signals agree the regime
-    # is pure chop: stage='BASING' AND |vwap_slope_pct| < 0.3.
-    # The alert still records (suppressed_reason='basing_chop') so the
-    # 'Not routed' filter surfaces it for EOD review — just no Telegram.
-    # Scoped to staged_* (level + AVWAP) BUY alerts; MA bounces have their
-    # own uptrend gate and can still be valid in slow grinds.
-    if (
-        (sig.direction or "").upper() == "BUY"
-        and alert_type_full.startswith("tv_staged_")
-        and is_basing_chop(
-            getattr(sig, "_tv_stage", ""),
-            getattr(sig, "_tv_vwap_slope_pct", None),
-        )
-    ):
-        logger.info(
-            "TV webhook: basing-chop suppressed %s for %s (stage=%s, vwap_slope=%.2f)",
-            alert_type_full, sig.symbol,
-            getattr(sig, "_tv_stage", "")[:40],
-            getattr(sig, "_tv_vwap_slope_pct", 0) or 0,
-        )
-        return await _persist_unrouted(
-            sig, alert_type_full, session_date,
-            suppressed_reason="basing_chop",
-        )
+    # The predicates (is_uptrend_gate_rejected / is_basing_chop) are kept but
+    # unwired — fully unit-tested, so either gate is a few lines from revival.
+    # The Alert Quality v2 gate was already disabled (2026-06-01).
 
     # ──────────────────────────────────────────────────────────────────
     # Alert Quality v2 — asymmetric volume + slope gates (spec 60)
