@@ -52,7 +52,7 @@ draw_level(float lvl, string nm, bool dotted, int loff) =>
     if not na(lvl)
         sup = is_support(lvl)
         col = sup ? col_sup : col_res
-        ln  = line.new(bar_index - line_len, lvl, bar_index + loff, lvl, color = col, width = 2, style = dotted ? line.style_dotted : line.style_solid)
+        ln  = line.new(bar_index - line_len, lvl, bar_index + loff, lvl, color = col, width = 2, style = dotted ? line.style_dashed : line.style_solid)
         lb  = label.new(bar_index + loff, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
         array.push(g_lines, ln)
         array.push(g_labels, lb)
@@ -67,13 +67,13 @@ if barstate.islast
             label.delete(array.get(g_labels, i))
         array.clear(g_labels)
     if show_pdh
-        draw_level(pdh, "PDH", false, 8)
+        draw_level(pdh, "PDH", false, 3)
     if show_pdl
-        draw_level(pdl, "PDL", false, 18)
+        draw_level(pdl, "PDL", false, 9)
     if show_pwh
-        draw_level(pwh, "PWH", true, 28)
+        draw_level(pwh, "PWH", true, 15)
     if show_pwl
-        draw_level(pwl, "PWL", true, 38)
+        draw_level(pwl, "PWL", true, 21)
 
 // ── RC (reclaim) tags — close back ABOVE a level from below, per confirmed bar ─
 rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
