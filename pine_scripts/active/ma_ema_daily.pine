@@ -47,7 +47,7 @@
 // are `ma_bounce_long_v3` / `ma_rejection_short_v3` so v3 alerts can be
 // distinguished from v2 in the DB.
 //
-indicator("ma-ema-daily", overlay = true, max_labels_count = 550, max_lines_count = 60)
+indicator("ma-ema-daily", overlay = true, max_labels_count = 500, max_lines_count = 60)
 
 // Inputs ---------------------------------------------------------------------
 // Re-enabled 2026-05-19 after "also allow mas/ema alerts" directive.
