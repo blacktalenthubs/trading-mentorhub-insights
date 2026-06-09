@@ -1,0 +1,88 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Prior Levels Flat — PDH/PDL (daily) + PWH/PWL (weekly) as pure horizontal S/R.
+// ─────────────────────────────────────────────────────────────────────────────
+// Prior-day and prior-week highs/lows are single values set by the prior
+// period, so they're flat — like a daily MA intraday. Each is drawn as ONE clean
+// horizontal line (no curving), colored by role:
+//   • SUPPORT  (green) — price is currently ABOVE the level
+//   • RESISTANCE (red) — price is currently BELOW the level (overhead / target)
+// Daily levels are solid, weekly levels dotted. Right-edge label names + values.
+//
+// RC tag — when price closes back ABOVE a level it was below (a reclaim), an "RC"
+// label drops below the bar naming the level(s) reclaimed (e.g. "RC PWL"). This
+// is the liquidity-grab reclaim you trade — works on the weekly levels too.
+//
+// VISUAL ONLY — no alerts. NOTE: lines sit at the level's CURRENT value; older
+// RC tags sit at the level's value back then (PDL/PWL step each day/week), so
+// on history a tag may float off today's line. Use "RC tags: recent bars only".
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Prior Levels Flat", overlay = true, max_lines_count = 10, max_labels_count = 500)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+show_pdh  = input.bool (true,  "Show PDH")
+show_pdl  = input.bool (true,  "Show PDL")
+show_pwh  = input.bool (true,  "Show PWH")
+show_pwl  = input.bool (true,  "Show PWL")
+show_rc   = input.bool (true,  "Show RC (reclaim) tags")
+rc_recent = input.int  (0,     "RC tags: recent bars only (0 = all)", minval = 0, maxval = 2000)
+line_len  = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
+col_sup   = input.color(#26A69A, "Support color (price above)")
+col_res   = input.color(#EF5350, "Resistance color (price below)")
+col_rc    = input.color(#2962FF, "RC tag color")
+
+// ── prior-day / prior-week high & low (flat intraday) ────────────────────────
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
+
+is_support(float lvl) => not na(lvl) and close > lvl
+reclaim(float lvl)    => not na(lvl) and not na(close[1]) and close > lvl and close[1] <= lvl
+
+// ── flat lines + labels, redrawn on the last bar ────────────────────────────
+var line[]  g_lines  = array.new_line(0)
+var label[] g_labels = array.new_label(0)
+
+draw_level(float lvl, string nm, bool dotted) =>
+    if not na(lvl)
+        sup = is_support(lvl)
+        col = sup ? col_sup : col_res
+        ln  = line.new(bar_index - line_len, lvl, bar_index + 6, lvl, color = col, width = 2, style = dotted ? line.style_dotted : line.style_solid)
+        lb  = label.new(bar_index + 6, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        array.push(g_lines, ln)
+        array.push(g_labels, lb)
+
+if barstate.islast
+    if array.size(g_lines) > 0
+        for i = 0 to array.size(g_lines) - 1
+            line.delete(array.get(g_lines, i))
+        array.clear(g_lines)
+    if array.size(g_labels) > 0
+        for i = 0 to array.size(g_labels) - 1
+            label.delete(array.get(g_labels, i))
+        array.clear(g_labels)
+    if show_pdh
+        draw_level(pdh, "PDH", false)
+    if show_pdl
+        draw_level(pdl, "PDL", false)
+    if show_pwh
+        draw_level(pwh, "PWH", true)
+    if show_pwl
+        draw_level(pwl, "PWL", true)
+
+// ── RC (reclaim) tags — close back ABOVE a level from below, per confirmed bar ─
+rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
+
+if show_rc and barstate.isconfirmed and rc_window
+    string rctxt = ""
+    if show_pdh and reclaim(pdh)
+        rctxt := rctxt + "PDH "
+    if show_pdl and reclaim(pdl)
+        rctxt := rctxt + "PDL "
+    if show_pwh and reclaim(pwh)
+        rctxt := rctxt + "PWH "
+    if show_pwl and reclaim(pwl)
+        rctxt := rctxt + "PWL "
+    if rctxt != ""
+        label.new(bar_index, low, "RC " + rctxt, yloc = yloc.belowbar, style = label.style_label_up, color = col_rc, textcolor = color.white, size = size.tiny)
