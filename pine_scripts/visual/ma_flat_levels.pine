@@ -1,31 +1,37 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// MA Flat S/R (test) — daily MAs rendered as FLAT horizontal levels, like PDL.
+// MA Flat S/R (test) — daily MAs as FLAT horizontal levels, like PDL. v2.
 // ─────────────────────────────────────────────────────────────────────────────
 // PURPOSE: validate the "treat each daily MA as a flat S/R level" model BEFORE
 // we wire any alerts. A DAILY moving average only updates on the daily close,
-// so intraday it is a flat horizontal line — exactly like PDL/PWL. This plots
-// each daily MA as that flat level and colors it by ROLE:
-//   • SUPPORT  (green) — the stock came into the day ABOVE this level
-//   • RESISTANCE (red) — the stock came into the day BELOW this level
-// Role is anchored on the PRIOR DAILY CLOSE (stable all session, PDL-style), so
-// the S/R call doesn't flicker as price wobbles. Flip `Role from live price` to
-// watch the role change live instead.
+// so intraday it is a flat horizontal line — exactly like PDL/PWL.
 //
-// This is a VISUAL TEST ONLY — no alerts. Eyeball whether the green/red mapping
-// matches how each MA is actually acting on the chart (support vs resistance).
-// MAs are computed identically to the `ma-ema-daily` indicator so the levels
-// line up 1:1 with the lines you already use.
+// Each daily MA is drawn as a flat level, colored by its DYNAMIC role:
+//   • SUPPORT  (green) — price is currently ABOVE the level (sitting on it)
+//   • RESISTANCE (red) — price is currently BELOW the level (it's overhead)
+// The role flips the instant price closes back across the line (a reclaim turns
+// red→green; losing it turns green→red), so the color always matches reality.
+// Overhead RED lines double as TARGETS (where a long is likely to stall).
+//
+// EVENT MARKERS (would-be alert points — still NO alerts):
+//   • R  reclaim — price was below the MA, closed back ABOVE it (resistance→support = long)
+//   • H  hold    — price above the MA, dipped to it, closed back above on a green bar (support held = long)
+//   • x  reject  — price below the MA, rallied into it, closed back below on a red bar (resistance = no-long / target)
+// A green up-label below the bar lists which MA(s) gave a long trigger (e.g.
+// "21R" / "50H"); a red down-label above the bar lists rejections (e.g. "8x").
+//
+// MAs are computed identically to `ma-ema-daily` so the levels line up 1:1 with
+// the lines you already use. Eyeball the markers: "would I have taken that?"
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("MA Flat S/R (test)", overlay = true, max_lines_count = 50, max_labels_count = 50)
+indicator("MA Flat S/R (test)", overlay = true, max_lines_count = 50, max_labels_count = 500)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
-show_ema    = input.bool (true,  "Show EMAs  (8 / 21 / 50 / 100 / 200)")
-show_sma    = input.bool (true,  "Show SMAs  (50 / 100 / 200)")
-anchor_live = input.bool (false, "Role from LIVE price (default: prior daily close, PDL-style)")
-line_len    = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
-col_sup     = input.color(#26A69A, "Support color")
-col_res     = input.color(#EF5350, "Resistance color")
+show_ema     = input.bool (true,  "Show EMAs  (8 / 21 / 50 / 100 / 200)")
+show_sma     = input.bool (true,  "Show SMAs  (50 / 100 / 200)")
+show_markers = input.bool (true,  "Show reclaim / hold / reject event markers")
+line_len     = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
+col_sup      = input.color(#26A69A, "Support color")
+col_res      = input.color(#EF5350, "Resistance color")
 
 // ── daily MAs (flat intraday) — same computation as ma-ema-daily ─────────────
 ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
@@ -37,14 +43,10 @@ sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahea
 sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// Side anchor: prior daily close (stable, PDL-style) unless the user wants live.
-dclose_prev = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_on)
-ref_price   = anchor_live ? close : dclose_prev
+// SUPPORT = price is currently above the level (dynamic — flips on a close across).
+is_support(float ma) => not na(ma) and close > ma
 
-// SUPPORT = reference price is ABOVE the level (we're sitting on top of it).
-is_support(float ma) => not na(ma) and not na(ref_price) and ref_price > ma
-
-// ── render: one flat line + right-edge label per MA, redrawn on the last bar ─
+// ── flat level lines + labels, redrawn on the last bar ───────────────────────
 var line[]  g_lines  = array.new_line(0)
 var label[] g_labels = array.new_label(0)
 
@@ -78,3 +80,31 @@ if barstate.islast
         draw_level(sma50,  "SMA 50",  true)
         draw_level(sma100, "SMA 100", true)
         draw_level(sma200, "SMA 200", true)
+
+// ── event markers (reclaim / hold / reject) — would-be alert points ──────────
+// Per MA, classify THIS confirmed bar against that MA's level. Each MA's series
+// holds its own per-bar daily value, so close vs ma is a clean per-bar test
+// (no stale-lookback contamination).
+mas   = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma100, sma200)
+names = array.from("8", "21", "50", "100", "200", "S50", "S100", "S200")
+
+if show_markers and barstate.isconfirmed and not na(close[1])
+    string longtxt = ""
+    string rejtxt  = ""
+    for i = 0 to array.size(mas) - 1
+        float L  = array.get(mas, i)
+        string nm = array.get(names, i)
+        if not na(L)
+            reclaim = close > L and close[1] <= L
+            hold    = close[1] > L and low <= L and close > L and close > open
+            reject  = close[1] < L and high >= L and close < L and close < open
+            if reclaim
+                longtxt := longtxt + nm + "R "
+            else if hold
+                longtxt := longtxt + nm + "H "
+            else if reject
+                rejtxt := rejtxt + nm + "x "
+    if longtxt != ""
+        label.new(bar_index, low, longtxt, yloc = yloc.belowbar, style = label.style_label_up, color = col_sup, textcolor = color.white, size = size.tiny)
+    if rejtxt != ""
+        label.new(bar_index, high, rejtxt, yloc = yloc.abovebar, style = label.style_label_down, color = col_res, textcolor = color.white, size = size.tiny)
