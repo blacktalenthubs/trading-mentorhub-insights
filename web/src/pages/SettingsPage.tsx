@@ -580,83 +580,6 @@ function AlertTypesSection() {
   );
 }
 
-/* ── Setup Grade Filter — spec 61 follow-up ───────────────────────── */
-
-function SetupGradeFilter() {
-  const { data: prefs } = useNotificationPrefs();
-  const update = useUpdateNotificationPrefs();
-  const [grade, setGrade] = useState<"A" | "B" | "C">("C");
-  const [synced, setSynced] = useState(false);
-
-  if (prefs && !synced) {
-    setGrade((prefs.min_alert_grade as "A" | "B" | "C") || "C");
-    setSynced(true);
-  }
-
-  const dirty = synced && prefs && grade !== ((prefs.min_alert_grade as "A" | "B" | "C") || "C");
-
-  if (!prefs) return null;
-
-  const LEVELS: { id: "A" | "B" | "C"; title: string; subtitle: string }[] = [
-    { id: "A", title: "A only",  subtitle: "High conviction — vol ≥ 2× AND slope ≥ +0.05%" },
-    { id: "B", title: "A + B",   subtitle: "Either gate passed — moderate filter" },
-    { id: "C", title: "All",     subtitle: "No filter — every alert reaches you" },
-  ];
-
-  return (
-    <Section title="Setup Grade Filter" icon={<Award className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-faint mb-3">
-        Filter your alert feed by setup grade. Computed per-alert from volume + VWAP slope —
-        the same gates the v2 quality pipeline uses.
-      </p>
-      <div className="space-y-2">
-        {LEVELS.map((lvl) => (
-          <button
-            key={lvl.id}
-            onClick={() => setGrade(lvl.id)}
-            className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-md border text-left transition-colors ${
-              grade === lvl.id
-                ? "bg-accent/15 border-accent/40"
-                : "bg-surface-2/40 border-border-subtle hover:bg-surface-2"
-            }`}
-          >
-            <span className={`text-sm font-bold w-6 text-center ${
-              grade === lvl.id ? "text-accent" : "text-text-muted"
-            }`}>
-              {lvl.id}
-            </span>
-            <div className="flex-1">
-              <div className={`text-xs font-semibold ${
-                grade === lvl.id ? "text-accent" : "text-text-primary"
-              }`}>
-                {lvl.title}
-              </div>
-              <div className="text-[10px] text-text-faint mt-0.5">{lvl.subtitle}</div>
-            </div>
-          </button>
-        ))}
-      </div>
-      {dirty && (
-        <button
-          onClick={() => update.mutate({
-            ...(prefs as NotificationPrefs),
-            min_alert_grade: grade,
-          })}
-          disabled={update.isPending}
-          className="mt-3 text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
-        >
-          {update.isPending ? "Saving..." : "Save filter"}
-        </button>
-      )}
-      {update.isSuccess && !dirty && (
-        <span className="mt-2 text-[10px] text-bullish-text flex items-center gap-1">
-          <Check className="h-3 w-3" /> Saved
-        </span>
-      )}
-    </Section>
-  );
-}
-
 /* ── Signal Notifications (browser alerts) ────────────────────────── */
 
 function SignalNotifications() {
@@ -824,67 +747,6 @@ function ExemptListEditor({ label, hint, list, onSave }: {
   );
 }
 
-// MarketGateSection (SPY/BTC below-PDL exempt lists) REMOVED 2026-06-08 — the
-// regime gates were pulled (#169/#173), so the exempt lists configured nothing.
-// ExemptListEditor above is kept — the Alert-symbols sections below reuse it.
-
-function AlertWatchlistSection() {
-  const { data, isLoading } = useRegimeConfig();
-  const update = useUpdateRegimeConfig();
-  const toList = (s?: string) =>
-    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
-  const allOn = (data?.alerts_all_symbols ?? "true").toLowerCase() !== "false";
-
-  return (
-    <Section title="Alert symbols — all types" icon={<Zap className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-muted mb-3">
-        Master switch for alerts across ALL types (entries, weekly, 4h RC, multi-touch, gaps).
-        Default ON = every symbol alerts. Turn OFF to silence everything except your exceptions.
-      </p>
-      {isLoading ? (
-        <div className="text-xs text-text-faint">Loading…</div>
-      ) : (
-        <>
-          <button
-            onClick={() => update.mutate({ alerts_all_symbols: allOn ? "false" : "true" })}
-            disabled={update.isPending}
-            role="switch"
-            aria-checked={allOn}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left w-full mb-3 transition-colors disabled:opacity-60 ${
-              allOn
-                ? "border-accent/50 bg-accent/10"
-                : "border-border-subtle bg-surface-1 hover:bg-surface-2"
-            }`}
-          >
-            <span
-              className={`shrink-0 h-4 w-4 rounded flex items-center justify-center ${
-                allOn ? "bg-accent" : "bg-surface-3 border border-border-subtle"
-              }`}
-            >
-              {allOn && <Check className="h-3 w-3 text-white" />}
-            </span>
-            <span className="text-[11px] leading-snug text-text-primary font-medium">
-              {allOn
-                ? "ON — alerts on ALL symbols (default)"
-                : "OFF — alerts only for the exceptions below"}
-            </span>
-          </button>
-          <ExemptListEditor
-            label="Exceptions — symbols that still alert when the switch is OFF"
-            hint={
-              allOn
-                ? "Ignored while the switch is ON. e.g. SPY, NVDA, TSLA."
-                : "Only these alert right now. e.g. SPY, NVDA, TSLA."
-            }
-            list={toList(data?.alert_watchlist)}
-            onSave={(l) => update.mutate({ alert_watchlist: l.join(",") })}
-          />
-        </>
-      )}
-    </Section>
-  );
-}
-
 function SpyTrendGateSection() {
   const { data, isLoading } = useRegimeConfig();
   const update = useUpdateRegimeConfig();
@@ -939,34 +801,6 @@ function SpyTrendGateSection() {
   );
 }
 
-function InfoAlertSymbolsSection() {
-  const { data, isLoading } = useRegimeConfig();
-  const update = useUpdateRegimeConfig();
-  const toList = (s?: string) =>
-    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
-
-  return (
-    <Section title="Info-alert symbols" icon={<Zap className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-muted mb-4">
-        Which symbols fire the <strong>informational</strong> alerts — multi-touch
-        level crosses and gap entered/filled. The indicators fire broadly; only
-        these symbols are kept. Add a stock here to start watching it — no need to
-        edit the Pine. Toggle the alerts themselves on/off in <strong>Alert Types</strong> above.
-      </p>
-      {isLoading ? (
-        <div className="text-xs text-text-faint">Loading…</div>
-      ) : (
-        <ExemptListEditor
-          label="Symbols that fire multi-touch & gap alerts"
-          hint="e.g. SPY, NBIS, QQQ. Applies to both the level-cross and gap alerts."
-          list={toList(data?.alert_symbols)}
-          onSave={(l) => update.mutate({ alert_symbols: l.join(",") })}
-        />
-      )}
-    </Section>
-  );
-}
-
 export default function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-5">
@@ -982,7 +816,6 @@ export default function SettingsPage() {
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
-            <SetupGradeFilter />
             <SignalNotifications />
             <ThemeToggle />
           </div>
@@ -997,14 +830,8 @@ export default function SettingsPage() {
         {/* Per-alert-type enable/disable */}
         <AlertTypesSection />
 
-        {/* Global alert-symbol allow-list — gates ALL alert types */}
-        <AlertWatchlistSection />
-
         {/* SPY-trend long gate — block longs when SPY below its 8 & 21 EMA */}
         <SpyTrendGateSection />
-
-        {/* Which symbols fire the info alerts (multi-touch / gap) */}
-        <InfoAlertSymbolsSection />
 
         {/* Referral program */}
         <ReferralSection />

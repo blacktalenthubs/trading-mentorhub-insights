@@ -302,12 +302,6 @@ CRYPTO_REGIME_ALLOWLIST: frozenset[str] = frozenset(
     if s.strip()
 )
 
-# Informational alert types (multi-touch level cross / gap enter-fill) — they
-# fire broadly from the Pine and are filtered to the Settings-managed
-# `alert_symbols` list. Default used when the config row is missing / unread.
-_INFO_ALERT_TYPES: frozenset[str] = frozenset({"multitouch_level", "gap_zone"})
-_ALERT_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "NBIS"})
-
 
 def _is_crypto_symbol(symbol: Optional[str]) -> bool:
     return (symbol or "").upper().endswith("-USD")
@@ -1065,7 +1059,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # (index_exempt / crypto_exempt were consumed by the SPY/BTC below-PDL
     # gates, removed 2026-06-08. The RegimeConfig rows + Settings UI stay so
     # the lists survive for an easy gate revival, but nothing reads them now.)
-    alert_syms: frozenset = _ALERT_SYMS_DEFAULT
+    # Alert delivery is controlled by just two things now (2026-06-09 cleanup):
+    #   • Alert Types (alert_type_config) — which types are on, below.
+    #   • SPY trend gate (spy_trend_*) — mute equity longs in a weak market.
+    # The old per-symbol master switch (alerts_all_symbols/alert_watchlist) and
+    # the multitouch/gap info-symbol filter (alert_symbols) were removed — too
+    # many overlapping symbol lists; the trend gate is the one switch.
     try:
         from app.models.alert_type_config import AlertTypeConfig
         from app.models.regime_config import RegimeConfig
@@ -1079,34 +1078,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         enabled_types: Optional[set[str]] = {at for at, en in _cfg_rows if en}
         known_types: Optional[set[str]] = {at for at, _ in _cfg_rows}
         _rc = {k: v for k, v in _rc_rows}
-        alert_syms = _parse_exempt_syms(_rc.get("alert_symbols")) or _ALERT_SYMS_DEFAULT
-        alert_watchlist = _parse_exempt_syms(_rc.get("alert_watchlist"))  # exception symbols
-        alerts_all = (_rc.get("alerts_all_symbols", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
         spy_trend_exempt = _parse_exempt_syms(_rc.get("spy_trend_exempt")) or SPY_TREND_EXEMPT_DEFAULT
         spy_trend_gate_on = (_rc.get("spy_trend_gate_enabled", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
         known_types = None
-        alert_watchlist = frozenset()  # read failed → don't drop anything
-        alerts_all = True              # read failed → allow all (non-breaking)
         spy_trend_exempt = SPY_TREND_EXEMPT_DEFAULT
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
-
-    # Global alert switch (Settings → Alert symbols). alerts_all_symbols ON (the
-    # DEFAULT) = EVERY symbol alerts — nothing dropped here. OFF = alerts are
-    # turned off EXCEPT for the symbols listed in alert_watchlist (the exceptions);
-    # applies to every alert type. The narrower _INFO_ALERT_TYPES filter still
-    # applies on top. OFF with an empty exception list = no alerts at all.
-    if (not alerts_all) and (sig.symbol or "").upper() not in alert_watchlist:
-        return {"dispatched": False, "reason": "alerts_off_not_in_exceptions", "recorded": False}
-
-    # Informational alerts (multitouch_level / gap_zone) fire broadly from the
-    # Pine; keep only the Settings-listed symbols. Non-listed → drop entirely
-    # (no record), so the feed isn't flooded with names you didn't ask for.
-    _base_type = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
-    if _base_type in _INFO_ALERT_TYPES and (sig.symbol or "").upper() not in alert_syms:
-        return {"dispatched": False, "reason": "alert_symbol_not_listed", "recorded": False}
 
     if not _is_allowed_alert_type(alert_type_full, enabled_types):
         # Known type, just toggled OFF → record it (deduped) for EOD review:
@@ -1154,34 +1133,16 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             )
 
     # ──────────────────────────────────────────────────────────────────
-    # SPY/BTC below-PDL regime gates — REMOVED 2026-06-08
+    # Retired gates (history) — the only live gate is the SPY-trend gate above.
     # ──────────────────────────────────────────────────────────────────
-    # We pulled the SPY-below-PDL hard block (Spec 61) and its BTC twin so
-    # alerts flow UNGATED. Reason: the gate was suppressing the very data we
-    # need to learn how to trade SPY<PDL / inside-day / outside-day regimes.
-    # We now limit volume by NAME instead (Settings → Alert symbols master
-    # switch, alerts_all_symbols + alert_watchlist) — enable a few stocks on
-    # all alert types and study which alerts work in which regime.
-    #
-    # The pure gate predicates (spy_pdl_blocks_buy / crypto_pdl_blocks_buy /
-    # resolve_spy_above_pdl + the *_below_pdl_now readers) are intentionally
-    # KEPT but unwired — fully unit-tested, so the gate is a few lines away
-    # from revival once we know what each regime actually warrants.
-
-    # ──────────────────────────────────────────────────────────────────
-    # Spec 58 entry gates — REMOVED 2026-06-08 (no gating)
-    # ──────────────────────────────────────────────────────────────────
-    # Pulled BOTH the uptrend gate (tv_ma_* required price above the whole MA
-    # stack) and the basing-chop filter (tv_staged_* suppressed on BASING +
-    # flat VWAP). Reason: we're rebuilding the MA entry on a flat-level model
-    # (treat each daily MA as a horizontal S/R level, like PDL) and we want
-    # every entry to flow UNGATED so we can see what each rule actually does
-    # before deciding what to suppress. Volume is controlled by NAME (the
-    # alerts_all_symbols master switch), not by regime/quality gates.
-    #
-    # The predicates (is_uptrend_gate_rejected / is_basing_chop) are kept but
-    # unwired — fully unit-tested, so either gate is a few lines from revival.
-    # The Alert Quality v2 gate was already disabled (2026-06-01).
+    # Removed and kept UNWIRED for easy revival (all pure + unit-tested):
+    #   • SPY/BTC below-PDL hard block — spy_pdl_blocks_buy / crypto_pdl_blocks_buy
+    #     / resolve_spy_above_pdl / *_below_pdl_now (#169, 2026-06-08).
+    #   • Spec-58 uptrend gate + basing-chop filter — is_uptrend_gate_rejected /
+    #     is_basing_chop (#173).
+    #   • Alert Quality v2 (volume+slope) — disabled 2026-06-01.
+    # The per-symbol master switch + info-symbol filter were deleted 2026-06-09.
+    # Delivery now = Alert Types (below) + the SPY-trend gate.
 
     # ──────────────────────────────────────────────────────────────────
     # Alert Quality v2 — asymmetric volume + slope gates (spec 60)

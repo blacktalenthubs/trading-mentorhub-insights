@@ -1,8 +1,8 @@
-"""Alert-symbol config API — view/edit the alert-delivery lists (info-alert
-symbols + the alerts_all_symbols master switch / alert_watchlist exceptions).
-The TradingView webhook reads the same table per dispatch, so edits take effect
-on the next fired alert — no redeploy. (The SPY/BTC regime-gate exempt lists
-were removed with the gates, #169/#173.)
+"""Gate config API — view/edit the SPY-trend long gate (on/off + exempt
+symbols). The TradingView webhook reads the same table per dispatch, so edits
+take effect on the next fired alert — no redeploy. (The per-symbol master switch
++ info-symbol lists were removed 2026-06-09; alert delivery is now just Alert
+Types + this gate. The older SPY/BTC PDL exempt lists went with #169/#173.)
 """
 
 from __future__ import annotations
@@ -23,9 +23,6 @@ router = APIRouter()
 
 
 class RegimeConfigUpdate(BaseModel):
-    alert_symbols: Optional[str] = None  # symbols allowed to fire info alerts
-    alerts_all_symbols: Optional[str] = None  # master switch: "true"=all, "false"=exceptions only
-    alert_watchlist: Optional[str] = None  # exception symbols when the master switch is off
     spy_trend_gate_enabled: Optional[str] = None  # "true"/"false" — SPY-below-8&21 long gate
     spy_trend_exempt: Optional[str] = None  # symbols still allowed to fire longs when SPY rolled over
 
@@ -63,13 +60,10 @@ async def set_regime_config(
 ):
     """Update one or both exempt lists. Takes effect on the next fired alert."""
     updates = {
-        "alert_symbols": body.alert_symbols,
-        "alerts_all_symbols": body.alerts_all_symbols,
-        "alert_watchlist": body.alert_watchlist,
         "spy_trend_gate_enabled": body.spy_trend_gate_enabled,
         "spy_trend_exempt": body.spy_trend_exempt,
     }
-    _BOOL_KEYS = {"alerts_all_symbols", "spy_trend_gate_enabled"}
+    _BOOL_KEYS = {"spy_trend_gate_enabled"}
     for key, raw in updates.items():
         if raw is None:
             continue
