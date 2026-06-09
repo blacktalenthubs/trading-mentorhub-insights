@@ -27,11 +27,10 @@ import {
   signalNotificationsEnabled,
   setSignalNotificationsEnabled,
 } from "../hooks/useSignalNotifications";
-import type { NotificationPrefs, NotificationRouting, AlertChannel } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Zap, Award, ShieldAlert,
+  Sun, Moon, Zap, ShieldAlert,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -220,29 +219,6 @@ function NotificationChannels() {
   );
 }
 
-/* ── Channel Routing (per alert type) ─────────────────────────────
- *  Pick where each AI alert type goes: Telegram, Email, Both, or Off.
- *  Default for new users is Telegram for every type (legacy behavior).
- */
-
-const CHANNEL_OPTIONS: AlertChannel[] = ["telegram", "email", "both", "off"];
-
-const ROUTING_ROWS: { key: keyof NotificationRouting; label: string; sub: string }[] = [
-  { key: "ai_update",     label: "AI Updates",        sub: "Context / WAIT commentary" },
-  { key: "ai_long",       label: "LONG Entries",      sub: "New long setups" },
-  { key: "ai_short",      label: "SHORT Entries",     sub: "SPY structural rejections" },
-  { key: "ai_resistance", label: "Resistance Notices", sub: "Tighten-stop warnings" },
-  { key: "ai_exit",       label: "Exit Signals",      sub: "EXIT_NOW / TAKE_PROFITS" },
-];
-
-function channelLabel(c: AlertChannel): string {
-  switch (c) {
-    case "telegram": return "Telegram";
-    case "email":    return "Email";
-    case "both":     return "Both";
-    case "off":      return "Off";
-  }
-}
 
 /* ── Profile & Account ────────────────────────────────────────────── */
 
