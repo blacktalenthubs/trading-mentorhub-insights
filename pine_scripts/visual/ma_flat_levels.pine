@@ -1,21 +1,16 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// MA Flat S/R (test) — daily MAs as flat-per-day S/R levels, like PDL. v3.
+// MA Flat S/R (test) — daily MAs as FLAT horizontal levels, like PDL. v4.
 // ─────────────────────────────────────────────────────────────────────────────
 // PURPOSE: validate the "treat each daily MA as a flat S/R level" model BEFORE
-// we wire any alerts. A DAILY moving average only updates on the daily close,
-// so it is FLAT within each trading day — exactly like PDL/PWL — and steps to a
-// new flat level at each daily boundary. We plot each daily MA as that line so:
-//   • today's segment is a clean flat S/R level (the actionable level), and
-//   • history steps to where the MA ACTUALLY was, so the event markers below
-//     land exactly on the line they fired against (v1/v2 drew one flat line at
-//     today's value across all history, which made markers float off the line).
+// we wire any alerts. A DAILY moving average only updates on the daily close, so
+// intraday it's a flat horizontal line — exactly like PDL/PWL.
 //
-// Each line is colored by its role, PER BAR:
-//   • SUPPORT  (green) — price was ABOVE the level on that bar
-//   • RESISTANCE (red) — price was BELOW the level on that bar
-// So a line is red where it was overhead resistance and green where price held
-// above it. Overhead red lines double as TARGETS (where a long is likely to stall).
+// Each daily MA is drawn as ONE clean horizontal line at its current value,
+// colored by its DYNAMIC role:
+//   • SUPPORT  (green) — price is currently ABOVE the level
+//   • RESISTANCE (red) — price is currently BELOW the level (overhead = TARGET)
+// The role flips the instant price closes back across the line.
 //
 // EVENT MARKERS (would-be alert points — still NO alerts):
 //   • R  reclaim — price was below the MA, closed back ABOVE it (resistance→support = long)
@@ -24,18 +19,26 @@
 // Green up-label below the bar lists long triggers (e.g. "21R" / "50H"); red
 // down-label above lists rejections (e.g. "8x"). The number is the MA period.
 //
+// NOTE: the lines sit at TODAY's MA value, but a daily MA drifts day to day, so
+// markers on OLDER bars sit at the MA's value back then — they won't always
+// touch today's flat line. The label (e.g. "21R") is always the right MA; the
+// line just shows where that MA is NOW. Use `Markers: recent bars only` to keep
+// markers to the window where the MA hasn't drifted far from its current line.
+//
 // MAs are computed identically to `ma-ema-daily`. VISUAL TEST ONLY.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("MA Flat S/R (test)", overlay = true, max_labels_count = 500)
+indicator("MA Flat S/R (test)", overlay = true, max_lines_count = 50, max_labels_count = 500)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
-show_ema     = input.bool (true,  "Show EMAs  (8 / 21 / 50 / 100 / 200)")
-show_sma     = input.bool (true,  "Show SMAs  (50 / 100 / 200)")
-show_markers = input.bool (true,  "Show reclaim / hold / reject event markers")
-col_sup      = input.color(#26A69A, "Support color")
-col_res      = input.color(#EF5350, "Resistance color")
+show_ema      = input.bool (true,  "Show EMAs  (8 / 21 / 50 / 100 / 200)")
+show_sma      = input.bool (true,  "Show SMAs  (50 / 100 / 200)")
+show_markers  = input.bool (true,  "Show reclaim / hold / reject event markers")
+markers_recent= input.int  (0,     "Markers: recent bars only (0 = all history)", minval = 0, maxval = 1000)
+line_len      = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
+col_sup       = input.color(#26A69A, "Support color")
+col_res       = input.color(#EF5350, "Resistance color")
 
-// ── daily MAs (flat per day) — same computation as ma-ema-daily ──────────────
+// ── daily MAs (flat intraday) — same computation as ma-ema-daily ─────────────
 ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
 ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
 ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
@@ -45,52 +48,51 @@ sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahea
 sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// SUPPORT (per bar) = price is above the level on that bar.
+// SUPPORT = price is currently above the level (dynamic — flips on a close across).
 is_support(float ma) => not na(ma) and close > ma
-role_col(float ma) => is_support(ma) ? col_sup : col_res
 
-// ── lines: plot each daily MA at its TRUE per-bar value, colored by role ──────
-plot(show_ema ? ema8   : na, "EMA 8 (D)",   color = role_col(ema8),   linewidth = 2)
-plot(show_ema ? ema21  : na, "EMA 21 (D)",  color = role_col(ema21),  linewidth = 2)
-plot(show_ema ? ema50  : na, "EMA 50 (D)",  color = role_col(ema50),  linewidth = 2)
-plot(show_ema ? ema100 : na, "EMA 100 (D)", color = role_col(ema100), linewidth = 2)
-plot(show_ema ? ema200 : na, "EMA 200 (D)", color = role_col(ema200), linewidth = 2)
-plot(show_sma ? sma50  : na, "SMA 50 (D)",  color = role_col(sma50),  linewidth = 1)
-plot(show_sma ? sma100 : na, "SMA 100 (D)", color = role_col(sma100), linewidth = 1)
-plot(show_sma ? sma200 : na, "SMA 200 (D)", color = role_col(sma200), linewidth = 1)
-
-// ── right-edge labels: name + current role + value, redrawn on the last bar ──
+// ── flat level lines + labels, redrawn on the last bar ───────────────────────
+var line[]  g_lines  = array.new_line(0)
 var label[] g_labels = array.new_label(0)
 
-tag_level(float ma, string name) =>
+draw_level(float ma, string name, bool dotted) =>
     if not na(ma)
         sup = is_support(ma)
-        lb  = label.new(bar_index + 2, ma, name + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = sup ? col_sup : col_res, textcolor = color.white, size = size.small)
+        col = sup ? col_sup : col_res
+        x1  = bar_index - line_len
+        x2  = bar_index + 6
+        ln  = line.new(x1, ma, x2, ma, color = col, width = dotted ? 1 : 2, style = dotted ? line.style_dotted : line.style_solid)
+        lb  = label.new(x2, ma, name + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        array.push(g_lines, ln)
         array.push(g_labels, lb)
 
 if barstate.islast
+    if array.size(g_lines) > 0
+        for i = 0 to array.size(g_lines) - 1
+            line.delete(array.get(g_lines, i))
+        array.clear(g_lines)
     if array.size(g_labels) > 0
         for i = 0 to array.size(g_labels) - 1
             label.delete(array.get(g_labels, i))
         array.clear(g_labels)
     if show_ema
-        tag_level(ema8,   "EMA 8")
-        tag_level(ema21,  "EMA 21")
-        tag_level(ema50,  "EMA 50")
-        tag_level(ema100, "EMA 100")
-        tag_level(ema200, "EMA 200")
+        draw_level(ema8,   "EMA 8",   false)
+        draw_level(ema21,  "EMA 21",  false)
+        draw_level(ema50,  "EMA 50",  false)
+        draw_level(ema100, "EMA 100", false)
+        draw_level(ema200, "EMA 200", false)
     if show_sma
-        tag_level(sma50,  "SMA 50")
-        tag_level(sma100, "SMA 100")
-        tag_level(sma200, "SMA 200")
+        draw_level(sma50,  "SMA 50",  true)
+        draw_level(sma100, "SMA 100", true)
+        draw_level(sma200, "SMA 200", true)
 
 // ── event markers (reclaim / hold / reject) — would-be alert points ──────────
-// Each MA's series holds its own per-bar daily value, so close vs ma is a clean
-// per-bar test (no stale-lookback contamination). Markers now sit on the line.
+// Per MA, classify THIS confirmed bar against that MA's own per-bar value.
 mas   = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma100, sma200)
 names = array.from("8", "21", "50", "100", "200", "S50", "S100", "S200")
+in_window = markers_recent == 0 or (last_bar_index - bar_index) <= markers_recent
 
-if show_markers and barstate.isconfirmed and not na(close[1])
+if show_markers and barstate.isconfirmed and in_window and not na(close[1])
     string longtxt = ""
     string rejtxt  = ""
     for i = 0 to array.size(mas) - 1
