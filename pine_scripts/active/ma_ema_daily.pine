@@ -47,7 +47,7 @@
 // are `ma_bounce_long_v3` / `ma_rejection_short_v3` so v3 alerts can be
 // distinguished from v2 in the DB.
 //
-indicator("ma-ema-daily", overlay = true, max_labels_count = 500)
+indicator("ma-ema-daily", overlay = true, max_labels_count = 550, max_lines_count = 60)
 
 // Inputs ---------------------------------------------------------------------
 // Re-enabled 2026-05-19 after "also allow mas/ema alerts" directive.
@@ -216,15 +216,47 @@ if not na(mtd_avwap)
     array.push(nearby_parts, "mtd_avwap|" + str.tostring(mtd_avwap, "#.##") + "|MTD AVWAP")
 nearby_levels_csv = array.join(nearby_parts, ",")
 
-// Plot daily MAs -------------------------------------------------------------
-plot(show_lines ? ema8   : na, "EMA 8 (D)",   color = color.new(#9C27B0,      0), linewidth = 2)
-plot(show_lines ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
-plot(show_lines ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
-plot(show_lines ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
-plot(show_lines ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3)
-plot(show_lines ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles)
-plot(show_lines ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles)
-plot(show_lines ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles)
+// Daily MAs as FLAT horizontal S/R levels ------------------------------------
+// A daily MA is flat intraday (it only updates on the daily close), like PDL.
+// Draw each as ONE horizontal line at its current value, colored by role:
+// green = SUPPORT (price above it), red = RESISTANCE (price below = overhead
+// target). The role flips when price closes back across the line. This is the
+// same view as the (now retired) MA Flat S/R visual — one indicator does both.
+flat_sup_col = input.color(#26A69A, "Support line color",     group = "Flat S/R lines")
+flat_res_col = input.color(#EF5350, "Resistance line color",  group = "Flat S/R lines")
+flat_len     = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = "Flat S/R lines")
+
+flat_is_support(float ma) => not na(ma) and close > ma
+
+var line[]  flat_lines  = array.new_line(0)
+var label[] flat_labels = array.new_label(0)
+
+flat_draw(float ma, string nm, bool dotted) =>
+    if not na(ma)
+        sup = flat_is_support(ma)
+        col = sup ? flat_sup_col : flat_res_col
+        ln  = line.new(bar_index - flat_len, ma, bar_index + 6, ma, color = col, width = dotted ? 1 : 2, style = dotted ? line.style_dotted : line.style_solid)
+        lb  = label.new(bar_index + 6, ma, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        array.push(flat_lines, ln)
+        array.push(flat_labels, lb)
+
+if show_lines and barstate.islast
+    if array.size(flat_lines) > 0
+        for i = 0 to array.size(flat_lines) - 1
+            line.delete(array.get(flat_lines, i))
+        array.clear(flat_lines)
+    if array.size(flat_labels) > 0
+        for i = 0 to array.size(flat_labels) - 1
+            label.delete(array.get(flat_labels, i))
+        array.clear(flat_labels)
+    flat_draw(ema8,   "EMA 8",   false)
+    flat_draw(ema21,  "EMA 21",  false)
+    flat_draw(ema50,  "EMA 50",  false)
+    flat_draw(ema100, "EMA 100", false)
+    flat_draw(ema200, "EMA 200", false)
+    flat_draw(sma50,  "SMA 50",  true)
+    flat_draw(sma100, "SMA 100", true)
+    flat_draw(sma200, "SMA 200", true)
 
 // Detection helpers — strict (intraday) and band (swing) ---------------------
 //
