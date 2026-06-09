@@ -1959,10 +1959,9 @@ export function useAlertConfig() {
   });
 }
 
-/** Market-gate exempt allow-lists (symbols the SPY/BTC gate never blocks). */
+/** Alert-symbol config (the SPY/BTC regime-gate exempt lists were removed with
+ *  the gates, #169/#173 — these fields back the Alert-symbols sections only). */
 export interface RegimeExemptConfig {
-  index_exempt: string;   // comma-separated stocks
-  crypto_exempt: string;  // comma-separated crypto
   alert_symbols: string;  // symbols allowed to fire info alerts (multi-touch / gap)
   alerts_all_symbols: string;  // master switch "true"/"false": all symbols vs exceptions only
   alert_watchlist: string;  // exception symbols that still alert when the master switch is off

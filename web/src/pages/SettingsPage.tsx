@@ -1082,41 +1082,9 @@ function ExemptListEditor({ label, hint, list, onSave }: {
   );
 }
 
-function MarketGateSection() {
-  const { data, isLoading } = useRegimeConfig();
-  const update = useUpdateRegimeConfig();
-  const toList = (s?: string) =>
-    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
-
-  return (
-    <Section title="Market gate — exempt symbols" icon={<Filter className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-muted mb-4">
-        These symbols are <strong>never blocked</strong> by the regime gate — their
-        buys deliver even when SPY (stocks) or BTC (crypto) is below its prior-day
-        low. Add genuine relative-strength names you'd still trade in a downtrend
-        (e.g. AAPL). Takes effect on the next alert — no redeploy.
-      </p>
-      {isLoading ? (
-        <div className="text-xs text-text-faint">Loading…</div>
-      ) : (
-        <div className="space-y-4">
-          <ExemptListEditor
-            label="Stocks — SPY gate"
-            hint="Exempt from the SPY-below-PDL block."
-            list={toList(data?.index_exempt)}
-            onSave={(l) => update.mutate({ index_exempt: l.join(",") })}
-          />
-          <ExemptListEditor
-            label="Crypto — BTC gate"
-            hint="Exempt from the BTC-below-PDL block (BTC-USD is the index)."
-            list={toList(data?.crypto_exempt)}
-            onSave={(l) => update.mutate({ crypto_exempt: l.join(",") })}
-          />
-        </div>
-      )}
-    </Section>
-  );
-}
+// MarketGateSection (SPY/BTC below-PDL exempt lists) REMOVED 2026-06-08 — the
+// regime gates were pulled (#169/#173), so the exempt lists configured nothing.
+// ExemptListEditor above is kept — the Alert-symbols sections below reuse it.
 
 function AlertWatchlistSection() {
   const { data, isLoading } = useRegimeConfig();
@@ -1232,9 +1200,6 @@ export default function SettingsPage() {
 
         {/* Per-alert-type enable/disable */}
         <AlertTypesSection />
-
-        {/* Regime-gate exempt symbols */}
-        <MarketGateSection />
 
         {/* Global alert-symbol allow-list — gates ALL alert types */}
         <AlertWatchlistSection />
