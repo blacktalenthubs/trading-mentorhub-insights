@@ -89,4 +89,4 @@ if show_rc and barstate.isconfirmed and rc_window
     if show_pwl and reclaim(pwl)
         rctxt := rctxt + "PWL "
     if rctxt != ""
-        label.new(bar_index, low, "RC " + rctxt, yloc = yloc.belowbar, style = label.style_label_up, color = col_rc, textcolor = color.white, size = size.tiny)
+        label.new(bar_index, low, "RC " + rctxt, yloc = yloc.belowbar, style = label.style_none, textcolor = col_rc, size = size.tiny)
