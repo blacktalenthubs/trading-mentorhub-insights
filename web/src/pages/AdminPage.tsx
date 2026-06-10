@@ -1,14 +1,16 @@
-/** Admin Dashboard — user management + platform stats.
- *  Only accessible to admin users.
+/** Admin Dashboard — traffic, growth, alert-engine health, and user management.
+ *  Redesigned 2026-06-10: meaningful panels up front, debug/backfill tools moved
+ *  into a collapsed Maintenance drawer. Only accessible to admin users.
  */
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import {
-  Users, Send, BarChart3, RefreshCw,
-  Crown, Search, ChevronDown, ChevronRight,
+  Users, Send, RefreshCw, Crown, Search, ChevronDown, ChevronRight,
+  Eye, TrendingUp, Activity, Wrench, DollarSign, UserPlus,
 } from "lucide-react";
 
+// ───────────────────────── types ─────────────────────────
 interface UserInfo {
   id: number;
   email: string;
@@ -45,16 +47,34 @@ interface AttributionStats {
   by_campaign: { campaign: string; count: number }[];
 }
 
+interface TrafficStats {
+  visits_today: number;
+  visits_7d: number;
+  visits_30d: number;
+  unique_today: number;
+  unique_7d: number;
+  unique_30d: number;
+  logged_in_7d: number;
+  anon_7d: number;
+  top_paths: { path: string; views: number; visitors: number }[];
+  daily: { date: string; views: number; visitors: number }[];
+}
+
+interface AlertHealth {
+  delivered_rows_today: number;
+  suppressed_rows_today: number;
+  fired_signals_today: number;
+  by_type: { alert_type: string; fired_7d: number }[];
+  by_direction: { direction: string; fired: number }[];
+  suppressed_reasons: { reason: string; rows: number }[];
+  daily: { date: string; fired: number }[];
+}
+
 interface AIAlertRow {
   id: number;
   symbol: string;
   alert_type: string;
   direction: string;
-  entry: number | null;
-  stop: number | null;
-  target_1: number | null;
-  target_2: number | null;
-  confidence: string | null;
   message: string;
   fired_at: string | null;
   user_copies: number;
@@ -66,40 +86,59 @@ interface UserDebug {
   resolved_tier: string;
   trial_active: boolean;
   trial_days_left: number;
-  limits: {
-    ai_scan_alerts_per_day: number | null;
-    visible_alerts: number | null;
-    telegram_alerts: boolean;
-  };
-  today_stats: {
-    ai_actionable_alerts_in_db: number;
-    ai_wait_alerts_in_db: number;
-    rule_alerts_in_db: number;
-    ai_telegram_delivered_counter: number | null;
-    limit_reached_notified: boolean | null;
-  };
 }
 
-function StatCard({ label, value, icon, color }: {
-  label: string; value: string | number; icon: React.ReactNode; color?: string;
+// ───────────────────────── small UI helpers ─────────────────────────
+function StatCard({ label, value, sub, icon, color }: {
+  label: string; value: string | number; sub?: string; icon: React.ReactNode; color?: string;
 }) {
   return (
-    <div className="bg-surface-1 border border-border-subtle rounded-xl p-5">
+    <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
       <div className="flex items-center gap-2 mb-2">
         {icon}
         <span className="text-[10px] text-text-faint uppercase tracking-wider font-medium">{label}</span>
       </div>
       <span className={`font-mono text-2xl font-bold ${color || "text-text-primary"}`}>{value}</span>
+      {sub && <div className="text-[11px] text-text-faint mt-0.5">{sub}</div>}
     </div>
   );
 }
 
-function TierSelector({
-  userId, currentTier, onChanged,
-}: {
-  userId: number;
-  currentTier: string;
-  onChanged: () => void;
+/** Tiny CSS bar chart for a daily trend. */
+function MiniBars({ data, color = "bg-accent/60" }: { data: number[]; color?: string }) {
+  const max = Math.max(1, ...data);
+  return (
+    <div className="flex items-end gap-0.5 h-12">
+      {data.map((v, i) => (
+        <div
+          key={i}
+          className={`flex-1 rounded-sm ${color}`}
+          style={{ height: `${Math.max(3, (v / max) * 100)}%` }}
+          title={String(v)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function Panel({ title, icon, action, children }: {
+  title: string; icon: React.ReactNode; action?: React.ReactNode; children: React.ReactNode;
+}) {
+  return (
+    <section className="bg-surface-1 border border-border-subtle rounded-2xl p-5 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+          {icon}{title}
+        </h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function TierSelector({ userId, currentTier, onChanged }: {
+  userId: number; currentTier: string; onChanged: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -118,7 +157,6 @@ function TierSelector({
     }
   }
   const options = ["free", "comp", "pro", "premium"];
-  // If currently trial, show it as current (read-only label) since trial isn't a real tier to save
   const value = options.includes(currentTier) ? currentTier : "free";
   return (
     <select
@@ -128,9 +166,7 @@ function TierSelector({
       onChange={handleChange}
       className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-surface-0 border-border-subtle text-text-primary uppercase cursor-pointer hover:border-accent/40 disabled:opacity-50"
     >
-      {options.map((t) => (
-        <option key={t} value={t}>{t.toUpperCase()}</option>
-      ))}
+      {options.map((t) => <option key={t} value={t}>{t.toUpperCase()}</option>)}
     </select>
   );
 }
@@ -148,93 +184,18 @@ function TierBadge({ tier, trialDays, trialExpired }: { tier: string; trialDays?
   const label = tier === "trial" && trialDays ? `TRIAL ${trialDays}d` : tier.toUpperCase();
   return (
     <span className="inline-flex items-center gap-1">
-      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${styles[tier] || styles.free}`}>
-        {label}
-      </span>
+      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${styles[tier] || styles.free}`}>{label}</span>
       {trialExpired && <span className="text-[9px] text-bearish-text">expired</span>}
     </span>
   );
 }
 
+// ───────────────────────── page ─────────────────────────
 export default function AdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
+  const [traffic, setTraffic] = useState<TrafficStats | null>(null);
+  const [health, setHealth] = useState<AlertHealth | null>(null);
   const [attribution, setAttribution] = useState<AttributionStats | null>(null);
-  const [debugEmail, setDebugEmail] = useState("");
-  const [debugData, setDebugData] = useState<UserDebug | null>(null);
-  const [debugError, setDebugError] = useState("");
-  const [debugLoading, setDebugLoading] = useState(false);
-
-  function runUserDebug() {
-    if (!debugEmail.trim()) return;
-    setDebugLoading(true);
-    setDebugError("");
-    setDebugData(null);
-    api.get<UserDebug>(`/admin/user-debug?email=${encodeURIComponent(debugEmail.trim())}`)
-      .then((d) => setDebugData(d))
-      .catch((err) => setDebugError(err instanceof Error ? err.message : "Lookup failed"))
-      .finally(() => setDebugLoading(false));
-  }
-
-  // Watchlists overview
-  const [watchlists, setWatchlists] = useState<{
-    users: { user_id: number; email: string; display_name: string | null; tier: string; symbol_count: number; symbols: string[] }[];
-    symbol_popularity: { symbol: string; watchers: number }[];
-    total_users: number;
-    total_distinct_symbols: number;
-  } | null>(null);
-  const [watchlistsLoading, setWatchlistsLoading] = useState(false);
-  const [watchlistsError, setWatchlistsError] = useState("");
-
-  function loadWatchlists() {
-    setWatchlistsLoading(true);
-    setWatchlistsError("");
-    api.get<typeof watchlists>("/admin/watchlists")
-      .then((d) => setWatchlists(d))
-      .catch((err) => setWatchlistsError(err instanceof Error ? err.message : "Failed"))
-      .finally(() => setWatchlistsLoading(false));
-  }
-
-  // Watchlist cleanup state
-  type CleanupDiff = {
-    dry_run: boolean;
-    applied: boolean;
-    total_rows: number;
-    unchanged: number;
-    rewrites: { id: number; user_id: number; from: string; to: string; action?: string }[];
-    deletes: { id: number; user_id: number; symbol: string; reason: string }[];
-  };
-  const [cleanup, setCleanup] = useState<CleanupDiff | null>(null);
-  const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [cleanupError, setCleanupError] = useState("");
-
-  function runCleanup(apply: boolean) {
-    if (apply && !confirm("Apply these changes? This modifies user watchlists.")) return;
-    setCleanupLoading(true);
-    setCleanupError("");
-    api.post<CleanupDiff>(`/admin/watchlists/cleanup?dry_run=${apply ? "false" : "true"}`, {})
-      .then((d) => {
-        setCleanup(d);
-        if (apply) loadWatchlists();  // refresh the main list
-      })
-      .catch((err) => setCleanupError(err instanceof Error ? err.message : "Failed"))
-      .finally(() => setCleanupLoading(false));
-  }
-
-  // AI Alerts Audit
-  const [aiAlertsDays, setAiAlertsDays] = useState(1);
-  const [aiAlerts, setAiAlerts] = useState<AIAlertRow[] | null>(null);
-  const [aiAlertsLoading, setAiAlertsLoading] = useState(false);
-  const [aiAlertsError, setAiAlertsError] = useState("");
-
-  function loadAIAlerts(days: number) {
-    setAiAlertsDays(days);
-    setAiAlertsLoading(true);
-    setAiAlertsError("");
-    api.get<AIAlertRow[]>(`/admin/recent-ai-alerts?days=${days}`)
-      .then(setAiAlerts)
-      .catch((err) => setAiAlertsError(err instanceof Error ? err.message : "Failed to load"))
-      .finally(() => setAiAlertsLoading(false));
-  }
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -248,11 +209,15 @@ export default function AdminPage() {
       api.get<PlatformStats>("/admin/stats"),
       api.get<{ total: number; users: UserInfo[] }>("/admin/users"),
       api.get<AttributionStats>("/admin/attribution?days=30"),
+      api.get<TrafficStats>("/admin/traffic").catch(() => null),
+      api.get<AlertHealth>("/admin/alert-health").catch(() => null),
     ])
-      .then(([s, u, a]) => {
+      .then(([s, u, a, t, h]) => {
         setStats(s);
         setUsers(u.users);
         setAttribution(a);
+        setTraffic(t);
+        setHealth(h);
         setLoading(false);
       })
       .catch((err) => {
@@ -263,543 +228,311 @@ export default function AdminPage() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const filtered = users.filter((u) =>
-    !search || u.email.toLowerCase().includes(search.toLowerCase()) ||
-    (u.display_name || "").toLowerCase().includes(search.toLowerCase())
+  const filtered = users.filter(
+    (u) =>
+      u.email.toLowerCase().includes(search.toLowerCase()) ||
+      (u.display_name || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  // Separate real users from test accounts
-  const realUsers = filtered.filter((u) => !u.email.includes("test") && !u.email.includes("example"));
-  const testUsers = filtered.filter((u) => u.email.includes("test") || u.email.includes("example"));
-
+  if (loading) {
+    return <div className="p-8 text-text-faint">Loading admin dashboard…</div>;
+  }
   if (error) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <p className="text-bearish-text">{error}</p>
-      </div>
-    );
+    return <div className="p-8 text-bearish-text">{error}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto p-5">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold text-text-primary">Admin Dashboard</h1>
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-        </div>
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold text-text-primary">Admin</h1>
+        <button
+          onClick={fetchData}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40 hover:text-text-primary"
+        >
+          <RefreshCw size={13} /> Refresh
+        </button>
+      </div>
 
-        {/* Stats cards */}
-        {stats && (<>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
-            <StatCard
-              label="Total Users"
-              value={stats.total_users}
-              icon={<Users className="h-4 w-4 text-accent" />}
-            />
-            <StatCard
-              label="Pro Users"
-              value={stats.pro_users}
-              icon={<Crown className="h-4 w-4 text-warning" />}
-              color="text-warning-text"
-            />
-            <StatCard
-              label="Premium"
-              value={stats.premium_users}
-              icon={<Crown className="h-4 w-4 text-purple-text" />}
-              color="text-purple-text"
-            />
-            <StatCard
-              label="Active Trials"
-              value={stats.trial_users}
-              icon={<Users className="h-4 w-4 text-amber-400" />}
-              color="text-amber-400"
-            />
-            <StatCard
-              label="Telegram"
-              value={stats.telegram_linked}
-              icon={<Send className="h-4 w-4 text-accent" />}
-            />
-            <StatCard
-              label="Total Alerts"
-              value={stats.total_alerts.toLocaleString()}
-              icon={<BarChart3 className="h-4 w-4 text-bullish" />}
-            />
+      {/* ── Traffic ── */}
+      <Panel
+        title="Traffic"
+        icon={<Eye size={15} className="text-accent" />}
+        action={traffic && <span className="text-[11px] text-text-faint">last 14 days</span>}
+      >
+        {!traffic ? (
+          <div className="text-xs text-text-faint">
+            No visit data yet — tracking starts once the new build is deployed.
           </div>
-
-          {/* Growth + Revenue row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-            <StatCard
-              label="Alerts Today"
-              value={stats.alerts_today}
-              icon={<BarChart3 className="h-4 w-4 text-accent" />}
-            />
-            <StatCard
-              label="Signups (7d)"
-              value={stats.signups_7d}
-              icon={<Users className="h-4 w-4 text-bullish" />}
-              color="text-bullish-text"
-            />
-            <StatCard
-              label="Signups (30d)"
-              value={stats.signups_30d}
-              icon={<Users className="h-4 w-4 text-bullish" />}
-            />
-            <StatCard
-              label="Est. MRR"
-              value={`$${stats.monthly_revenue_estimate.toLocaleString()}`}
-              icon={<Crown className="h-4 w-4 text-bullish" />}
-              color="text-bullish-text"
-            />
-          </div>
-        </>)}
-
-        {/* Attribution — where signups came from */}
-        {attribution && (
-          <section className="mb-8">
-            <h2 className="text-sm font-bold text-text-primary mb-3 flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-accent" />
-              Signup Attribution — last {attribution.days} days ({attribution.total_signups} signups)
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-3">By source</h3>
-                {attribution.by_source.length === 0 ? (
-                  <p className="text-xs text-text-faint">No signups yet</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {attribution.by_source.map((row) => (
-                      <li key={row.source} className="flex items-center justify-between text-sm">
-                        <span className="text-text-secondary">{row.source}</span>
-                        <span className="font-mono font-bold text-text-primary">{row.count}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-3">By medium</h3>
-                {attribution.by_medium.length === 0 ? (
-                  <p className="text-xs text-text-faint">No signups yet</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {attribution.by_medium.map((row) => (
-                      <li key={row.medium} className="flex items-center justify-between text-sm">
-                        <span className="text-text-secondary">{row.medium}</span>
-                        <span className="font-mono font-bold text-text-primary">{row.count}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="bg-surface-1 border border-border-subtle rounded-xl p-4">
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint font-medium mb-3">Top campaigns</h3>
-                {attribution.by_campaign.length === 0 ? (
-                  <p className="text-xs text-text-faint">No campaign-tagged signups yet</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {attribution.by_campaign.slice(0, 8).map((row) => (
-                      <li key={row.campaign} className="flex items-center justify-between text-sm">
-                        <span className="text-text-secondary truncate mr-2">{row.campaign}</span>
-                        <span className="font-mono font-bold text-text-primary shrink-0">{row.count}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <StatCard label="Visits today" value={traffic.visits_today} sub={`${traffic.unique_today} unique`} icon={<Eye size={13} className="text-accent" />} />
+              <StatCard label="Visits 7d" value={traffic.visits_7d} sub={`${traffic.unique_7d} unique`} icon={<Eye size={13} className="text-text-faint" />} />
+              <StatCard label="Visits 30d" value={traffic.visits_30d} sub={`${traffic.unique_30d} unique`} icon={<Eye size={13} className="text-text-faint" />} />
+              <StatCard label="Logged-in 7d" value={traffic.logged_in_7d} sub={`${traffic.anon_7d} anonymous`} icon={<Users size={13} className="text-bullish-text" />} />
             </div>
-          </section>
-        )}
-
-        {/* Watchlists — who watches what */}
-        <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-text-primary">User Watchlists</h2>
-            <div className="flex gap-2">
-              <button
-                onClick={() => runCleanup(false)}
-                disabled={cleanupLoading}
-                className="text-xs px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 disabled:opacity-50"
-              >
-                {cleanupLoading ? "…" : "Preview Cleanup"}
-              </button>
-              {cleanup && !cleanup.applied && (cleanup.rewrites.length > 0 || cleanup.deletes.length > 0) && (
-                <button
-                  onClick={() => runCleanup(true)}
-                  disabled={cleanupLoading}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 disabled:opacity-50"
-                >
-                  Apply {cleanup.rewrites.length + cleanup.deletes.length} changes
-                </button>
-              )}
-              <button
-                onClick={loadWatchlists}
-                disabled={watchlistsLoading}
-                className="text-xs px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50"
-              >
-                {watchlistsLoading ? "Loading…" : watchlists ? "Refresh" : "Load"}
-              </button>
-            </div>
-          </div>
-          {cleanupError && <p className="text-xs text-red-400 mb-2">{cleanupError}</p>}
-          {cleanup && (
-            <div className={`mb-4 p-3 rounded-lg text-xs ${cleanup.applied ? "bg-green-500/5 border border-green-500/30" : "bg-yellow-500/5 border border-yellow-500/30"}`}>
-              <div className="font-bold mb-1">
-                {cleanup.applied ? "✅ Changes applied" : "🔍 Dry-run preview"} —
-                {" "}{cleanup.rewrites.length} rewrite{cleanup.rewrites.length !== 1 ? "s" : ""},
-                {" "}{cleanup.deletes.length} delete{cleanup.deletes.length !== 1 ? "s" : ""},
-                {" "}{cleanup.unchanged} unchanged
+            {traffic.daily.length > 0 && (
+              <div className="mb-4">
+                <div className="text-[10px] text-text-faint uppercase tracking-wider mb-1">Daily views</div>
+                <MiniBars data={traffic.daily.map((d) => d.views)} />
               </div>
-              {cleanup.rewrites.length > 0 && (
-                <div className="mt-2">
-                  <div className="text-text-faint mb-1">Rewrites:</div>
-                  <ul className="space-y-0.5 font-mono">
-                    {cleanup.rewrites.map((r) => (
-                      <li key={r.id}>
-                        uid={r.user_id} · <span className="text-red-400">{r.from}</span> → <span className="text-green-400">{r.to}</span>
-                        {r.action && <span className="text-text-faint ml-2">({r.action})</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {cleanup.deletes.length > 0 && (
-                <div className="mt-2">
-                  <div className="text-text-faint mb-1">Deletes:</div>
-                  <ul className="space-y-0.5 font-mono">
-                    {cleanup.deletes.map((d) => (
-                      <li key={d.id}>
-                        uid={d.user_id} · <span className="text-red-400">{d.symbol}</span> <span className="text-text-faint">— {d.reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-          {watchlistsError && <p className="text-xs text-red-400 mb-2">{watchlistsError}</p>}
-          {watchlists && (
-            <div className="grid md:grid-cols-2 gap-4">
+            )}
+            {traffic.top_paths.length > 0 && (
               <div>
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">
-                  {watchlists.total_users} users · {watchlists.total_distinct_symbols} symbols
-                </h3>
-                <div className="max-h-96 overflow-y-auto space-y-2">
-                  {watchlists.users.map((u) => (
-                    <div key={u.user_id} className="bg-surface-2 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-text-primary truncate mr-2">
-                          {u.email}
-                        </span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/10 text-accent shrink-0">
-                          {u.tier} · {u.symbol_count}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-text-muted">
-                        {u.symbols.length > 0 ? u.symbols.join(" · ") : "—"}
-                      </div>
+                <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">Top pages (7d)</div>
+                <div className="space-y-1">
+                  {traffic.top_paths.map((p) => (
+                    <div key={p.path} className="flex items-center justify-between text-xs">
+                      <span className="font-mono text-text-secondary truncate max-w-[60%]">{p.path}</span>
+                      <span className="text-text-faint">{p.views} views · {p.visitors} visitors</span>
                     </div>
                   ))}
                 </div>
               </div>
-              <div>
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">
-                  Most-watched symbols
-                </h3>
-                <div className="max-h-96 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <tbody>
-                      {watchlists.symbol_popularity.map((row) => (
-                        <tr key={row.symbol} className="border-b border-border-subtle/50">
-                          <td className="py-1.5 font-mono font-medium text-text-primary">{row.symbol}</td>
-                          <td className="py-1.5 text-right font-mono text-text-secondary">
-                            {row.watchers}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+            )}
+          </>
+        )}
+      </Panel>
+
+      {/* ── Growth ── */}
+      {stats && (
+        <Panel title="Growth & revenue" icon={<TrendingUp size={15} className="text-bullish-text" />}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <StatCard label="Total users" value={stats.total_users} icon={<Users size={13} className="text-accent" />} />
+            <StatCard label="Signups 7d" value={stats.signups_7d} sub={`${stats.signups_30d} in 30d`} icon={<UserPlus size={13} className="text-bullish-text" />} />
+            <StatCard label="Telegram linked" value={stats.telegram_linked} sub={`${Math.round((stats.telegram_linked / Math.max(1, stats.total_users)) * 100)}% of users`} icon={<Send size={13} className="text-accent" />} />
+            <StatCard label="Est. MRR" value={`$${stats.monthly_revenue_estimate.toLocaleString()}`} icon={<DollarSign size={13} className="text-bullish-text" />} color="text-bullish-text" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["FREE", stats.free_users],
+              ["TRIAL", stats.trial_users],
+              ["PRO", stats.pro_users],
+              ["PREMIUM", stats.premium_users],
+            ].map(([k, v]) => (
+              <span key={k as string} className="text-[11px] px-2.5 py-1 rounded-lg bg-surface-2 border border-border-subtle text-text-secondary">
+                <span className="font-bold text-text-primary">{v}</span> {k}
+              </span>
+            ))}
+          </div>
+          {attribution && attribution.by_source.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">Signup sources (30d)</div>
+              <div className="flex flex-wrap gap-2">
+                {attribution.by_source.slice(0, 8).map((s) => (
+                  <span key={s.source} className="text-[11px] px-2 py-0.5 rounded bg-surface-2 border border-border-subtle text-text-secondary">
+                    {s.source || "direct"} · <span className="font-bold">{s.count}</span>
+                  </span>
+                ))}
               </div>
             </div>
           )}
-        </section>
+        </Panel>
+      )}
 
-        {/* User Debug — inspect tier + rate limit state for a specific account */}
-        <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">
-          <h2 className="text-sm font-bold text-text-primary mb-3 flex items-center gap-2">
-            <Search className="h-4 w-4 text-accent" />
-            User Debug — inspect tier + alert limits
-          </h2>
-          <p className="text-xs text-text-muted mb-3">
-            Enter a user's email to see their resolved tier, trial status, today's alert counts, and Telegram rate limit state.
-          </p>
-          <div className="flex gap-2 mb-4">
+      {/* ── Alert engine health ── */}
+      <Panel title="Alert engine" icon={<Activity size={15} className="text-purple-text" />}>
+        {!health ? (
+          <div className="text-xs text-text-faint">No alert data.</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+              <StatCard label="Fired today" value={health.fired_signals_today} sub="distinct setups" icon={<Activity size={13} className="text-purple-text" />} />
+              <StatCard label="Delivered (rows)" value={health.delivered_rows_today.toLocaleString()} icon={<Send size={13} className="text-bullish-text" />} color="text-bullish-text" />
+              <StatCard label="Suppressed (rows)" value={health.suppressed_rows_today.toLocaleString()} icon={<Activity size={13} className="text-text-faint" />} />
+            </div>
+            {health.by_direction.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {health.by_direction.map((d) => (
+                  <span key={d.direction} className="text-[11px] px-2.5 py-1 rounded-lg bg-surface-2 border border-border-subtle text-text-secondary">
+                    <span className="font-bold text-text-primary">{d.fired}</span> {d.direction}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="grid md:grid-cols-2 gap-5">
+              {health.by_type.length > 0 && (
+                <div>
+                  <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">Fired by type (7d)</div>
+                  <div className="space-y-1">
+                    {health.by_type.map((t) => (
+                      <div key={t.alert_type} className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-text-secondary truncate max-w-[70%]">{t.alert_type}</span>
+                        <span className="text-text-faint">{t.fired_7d}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {health.suppressed_reasons.length > 0 && (
+                <div>
+                  <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">Top suppressed reasons (7d)</div>
+                  <div className="space-y-1">
+                    {health.suppressed_reasons.map((r) => (
+                      <div key={r.reason} className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-text-secondary truncate max-w-[70%]">{r.reason}</span>
+                        <span className="text-text-faint">{r.rows.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            {health.daily.length > 0 && (
+              <div className="mt-4">
+                <div className="text-[10px] text-text-faint uppercase tracking-wider mb-1">Daily fired</div>
+                <MiniBars data={health.daily.map((d) => d.fired)} color="bg-purple/60" />
+              </div>
+            )}
+          </>
+        )}
+      </Panel>
+
+      {/* ── Users ── */}
+      <Panel
+        title={`Users (${users.length})`}
+        icon={<Crown size={15} className="text-warning-text" />}
+        action={
+          <div className="relative">
+            <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-faint" />
             <input
-              type="email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search email / name"
+              className="text-xs pl-7 pr-2 py-1.5 rounded-lg bg-surface-0 border border-border-subtle text-text-primary w-48 focus:outline-none focus:border-accent/40"
+            />
+          </div>
+        }
+      >
+        <div className="divide-y divide-border-subtle">
+          {filtered.map((u) => (
+            <div key={u.id}>
+              <div
+                className="flex items-center gap-3 py-2 cursor-pointer hover:bg-surface-2/40 -mx-2 px-2 rounded-lg"
+                onClick={() => setExpandedUser(expandedUser === u.id ? null : u.id)}
+              >
+                {expandedUser === u.id ? <ChevronDown size={13} className="text-text-faint" /> : <ChevronRight size={13} className="text-text-faint" />}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-text-primary truncate">{u.display_name || u.email}</div>
+                  <div className="text-[11px] text-text-faint truncate">{u.email}</div>
+                </div>
+                {u.telegram_linked && <Send size={12} className="text-accent" />}
+                <TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} />
+                <TierSelector userId={u.id} currentTier={u.tier} onChanged={fetchData} />
+              </div>
+              {expandedUser === u.id && (
+                <div className="ml-6 mb-2 grid grid-cols-3 gap-2 text-[11px] text-text-faint">
+                  <span>Joined {new Date(u.created_at).toLocaleDateString()}</span>
+                  <span>{u.watchlist_count} watchlist symbols</span>
+                  <span>{u.alert_count} alerts</span>
+                </div>
+              )}
+            </div>
+          ))}
+          {filtered.length === 0 && <div className="py-4 text-xs text-text-faint">No users match.</div>}
+        </div>
+      </Panel>
+
+      {/* ── Maintenance (collapsed) ── */}
+      <MaintenanceDrawer />
+    </div>
+  );
+}
+
+// ───────────────────────── maintenance drawer ─────────────────────────
+function MaintenanceDrawer() {
+  const [debugEmail, setDebugEmail] = useState("");
+  const [debugData, setDebugData] = useState<UserDebug | null>(null);
+  const [debugError, setDebugError] = useState("");
+  const [aiAlerts, setAiAlerts] = useState<AIAlertRow[] | null>(null);
+  const [busy, setBusy] = useState("");
+
+  function runUserDebug() {
+    if (!debugEmail.trim()) return;
+    setDebugError("");
+    setDebugData(null);
+    api.get<UserDebug>(`/admin/user-debug?email=${encodeURIComponent(debugEmail.trim())}`)
+      .then(setDebugData)
+      .catch((err) => setDebugError(err instanceof Error ? err.message : "Lookup failed"));
+  }
+
+  async function runTool(path: string, label: string) {
+    if (!confirm(`Run: ${label}?`)) return;
+    setBusy(label);
+    try {
+      const r = await api.post<unknown>(path, {});
+      alert(`${label} — done.\n` + JSON.stringify(r).slice(0, 300));
+    } catch (err) {
+      alert(`${label} failed: ` + (err instanceof Error ? err.message : "unknown"));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <details className="bg-surface-1 border border-border-subtle rounded-2xl p-5 group">
+      <summary className="flex items-center gap-2 text-sm font-semibold text-text-secondary cursor-pointer select-none">
+        <Wrench size={15} className="text-text-faint" />
+        Maintenance &amp; tools
+        <span className="text-[11px] text-text-faint font-normal ml-1">(debug · backfills)</span>
+      </summary>
+
+      <div className="mt-4 space-y-5">
+        {/* user debug */}
+        <div>
+          <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">User debug</div>
+          <div className="flex gap-2">
+            <input
               value={debugEmail}
               onChange={(e) => setDebugEmail(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") runUserDebug(); }}
-              placeholder="user@example.com"
-              className="flex-1 max-w-sm bg-surface-2 border border-border-subtle rounded-lg py-2 px-3 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
+              placeholder="user@email.com"
+              className="text-xs px-2 py-1.5 rounded-lg bg-surface-0 border border-border-subtle text-text-primary flex-1"
             />
-            <button
-              onClick={runUserDebug}
-              disabled={debugLoading || !debugEmail.trim()}
-              className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors"
-            >
-              {debugLoading ? "Loading..." : "Inspect"}
-            </button>
+            <button onClick={runUserDebug} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40">Look up</button>
           </div>
-
-          {debugError && (
-            <p className="text-xs text-red-400 mb-2">{debugError}</p>
-          )}
-
+          {debugError && <div className="text-[11px] text-bearish-text mt-1">{debugError}</div>}
           {debugData && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Identity */}
-              <div className="bg-surface-2/40 rounded-lg p-3 border border-border-subtle/50">
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">Identity</h3>
-                <dl className="space-y-1 text-xs">
-                  <div className="flex justify-between"><dt className="text-text-muted">ID</dt><dd className="text-text-primary font-mono">{debugData.user.id}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">Email</dt><dd className="text-text-primary truncate ml-2">{debugData.user.email}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">Telegram</dt><dd className={debugData.user.telegram_chat_id ? "text-bullish-text" : "text-text-faint"}>{debugData.user.telegram_chat_id ? "Linked" : "Not linked"}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">TG enabled</dt><dd className={debugData.user.telegram_enabled ? "text-bullish-text" : "text-text-faint"}>{debugData.user.telegram_enabled ? "Yes" : "No"}</dd></div>
-                </dl>
-              </div>
-
-              {/* Tier */}
-              <div className="bg-surface-2/40 rounded-lg p-3 border border-border-subtle/50">
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">Tier &amp; Trial</h3>
-                <dl className="space-y-1 text-xs">
-                  <div className="flex justify-between"><dt className="text-text-muted">Resolved tier</dt><dd className="text-accent font-bold uppercase">{debugData.resolved_tier}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">Sub tier</dt><dd className="text-text-primary">{debugData.subscription?.tier ?? "—"}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">Trial active</dt><dd className={debugData.trial_active ? "text-bullish-text" : "text-text-faint"}>{debugData.trial_active ? "Yes" : "No"}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">Trial days left</dt><dd className="text-text-primary">{debugData.trial_days_left}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">AI cap/day</dt><dd className="text-text-primary">{debugData.limits.ai_scan_alerts_per_day ?? "unlimited"}</dd></div>
-                </dl>
-              </div>
-
-              {/* Today stats */}
-              <div className="bg-surface-2/40 rounded-lg p-3 border border-border-subtle/50">
-                <h3 className="text-[10px] uppercase tracking-wider text-text-faint mb-2">Today</h3>
-                <dl className="space-y-1 text-xs">
-                  <div className="flex justify-between"><dt className="text-text-muted">AI actionable</dt><dd className="text-text-primary font-mono">{debugData.today_stats.ai_actionable_alerts_in_db}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">AI waits</dt><dd className="text-text-faint font-mono">{debugData.today_stats.ai_wait_alerts_in_db}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">Rule alerts</dt><dd className={debugData.today_stats.rule_alerts_in_db > 0 ? "text-yellow-400 font-mono" : "text-text-faint font-mono"}>{debugData.today_stats.rule_alerts_in_db}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">TG delivered</dt><dd className="text-text-primary font-mono">{debugData.today_stats.ai_telegram_delivered_counter ?? "—"}</dd></div>
-                  <div className="flex justify-between"><dt className="text-text-muted">Cap hit</dt><dd className={debugData.today_stats.limit_reached_notified ? "text-yellow-400" : "text-text-faint"}>{debugData.today_stats.limit_reached_notified ? "Yes" : "No"}</dd></div>
-                </dl>
-              </div>
-            </div>
+            <pre className="text-[11px] text-text-faint mt-2 bg-surface-0 rounded-lg p-2 overflow-x-auto">
+              {JSON.stringify(debugData, null, 2)}
+            </pre>
           )}
-        </section>
+        </div>
 
-        {/* AI Alerts Audit — every distinct AI signal fired (deduped across users) */}
-        <section className="mb-8 bg-surface-1 border border-border-subtle rounded-xl p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-text-primary flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-accent" />
-              AI Alerts Audit (LONG / SHORT)
-            </h2>
-            <div className="flex gap-1">
-              {[1, 3, 7, 30].map((d) => (
-                <button
-                  key={d}
-                  onClick={() => loadAIAlerts(d)}
-                  className={`text-[10px] font-medium px-2.5 py-1 rounded ${
-                    aiAlertsDays === d && aiAlerts != null
-                      ? "bg-accent/15 text-accent border border-accent/30"
-                      : "bg-surface-2 text-text-muted hover:bg-surface-3 border border-transparent"
-                  }`}
-                >
-                  {d === 1 ? "Today" : `${d}d`}
-                </button>
+        {/* recent ai alerts */}
+        <div>
+          <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">Recent AI alerts</div>
+          <button
+            onClick={() => api.get<AIAlertRow[]>("/admin/recent-ai-alerts?days=1").then(setAiAlerts).catch(() => setAiAlerts([]))}
+            className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40"
+          >
+            Load today
+          </button>
+          {aiAlerts && (
+            <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+              {aiAlerts.length === 0 && <div className="text-[11px] text-text-faint">None.</div>}
+              {aiAlerts.map((a) => (
+                <div key={a.id} className="text-[11px] text-text-secondary flex justify-between">
+                  <span className="font-mono">{a.symbol} {a.direction} · {a.alert_type}</span>
+                  <span className="text-text-faint">×{a.user_copies}</span>
+                </div>
               ))}
             </div>
-          </div>
-          <p className="text-xs text-text-muted mb-3">
-            Every distinct AI LONG/SHORT signal (deduped across per-user copies). Click an alert ID to inspect details + auto-trade status.
-          </p>
-
-          {aiAlertsLoading && <p className="text-xs text-text-faint">Loading…</p>}
-          {aiAlertsError && <p className="text-xs text-bearish-text">{aiAlertsError}</p>}
-
-          {aiAlerts && (
-            aiAlerts.length === 0 ? (
-              <p className="text-xs text-text-faint">No AI LONG/SHORT alerts in the selected window.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="text-text-faint">
-                    <tr className="border-b border-border-subtle/50">
-                      <th className="text-left py-2 pr-3">Time</th>
-                      <th className="text-left py-2 pr-3">Symbol</th>
-                      <th className="text-left py-2 pr-3">Dir</th>
-                      <th className="text-right py-2 pr-3">Entry</th>
-                      <th className="text-right py-2 pr-3">Stop</th>
-                      <th className="text-right py-2 pr-3">T1</th>
-                      <th className="text-right py-2 pr-3">T2</th>
-                      <th className="text-left py-2 pr-3">Conv</th>
-                      <th className="text-right py-2 pr-3">Users</th>
-                      <th className="text-right py-2">ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {aiAlerts.map((a) => (
-                      <tr key={a.id} className="border-b border-border-subtle/20 hover:bg-surface-2/30">
-                        <td className="py-2 pr-3 text-text-faint text-[10px]">
-                          {a.fired_at ? new Date(a.fired_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
-                        </td>
-                        <td className="py-2 pr-3 font-bold text-text-primary">{a.symbol}</td>
-                        <td className="py-2 pr-3">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            a.direction === "BUY" ? "bg-bullish/10 text-bullish-text" : "bg-bearish/10 text-bearish-text"
-                          }`}>
-                            {a.direction === "BUY" ? "LONG" : "SHORT"}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-3 text-right font-mono">${a.entry?.toFixed(2) ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-bearish-text">${a.stop?.toFixed(2) ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-bullish-text">${a.target_1?.toFixed(2) ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-bullish-text">${a.target_2?.toFixed(2) ?? "—"}</td>
-                        <td className="py-2 pr-3 text-text-muted">{a.confidence ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-text-muted">{a.user_copies}</td>
-                        <td className="py-2 text-right">
-                          <a
-                            href={`/api/v1/admin/alert-debug?alert_id=${a.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] text-accent hover:text-accent-hover font-mono"
-                          >
-                            #{a.id} →
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-[10px] text-text-faint mt-2">{aiAlerts.length} distinct signals</p>
-              </div>
-            )
           )}
-
-          {!aiAlerts && !aiAlertsLoading && (
-            <button
-              onClick={() => loadAIAlerts(1)}
-              className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors"
-            >
-              Load today's AI alerts
-            </button>
-          )}
-        </section>
-
-        {/* User search */}
-        <div className="mb-4">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search users..."
-              className="w-full bg-surface-2 border border-border-subtle rounded-lg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-faint focus:border-accent focus:outline-none"
-            />
-          </div>
         </div>
 
-        {/* Users table */}
-        <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-border-subtle bg-surface-2/20">
-            <h2 className="text-sm font-semibold text-text-primary">
-              Users <span className="text-text-faint font-normal">({realUsers.length} real, {testUsers.length} test)</span>
-            </h2>
+        {/* one-shot tools */}
+        <div>
+          <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">One-shot jobs</div>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={!!busy} onClick={() => runTool("/admin/backfill-real-outcomes", "Backfill real outcomes")} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40 disabled:opacity-50">Backfill outcomes</button>
+            <button disabled={!!busy} onClick={() => runTool("/admin/backfill-ai-alerts", "Backfill AI alerts")} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40 disabled:opacity-50">Backfill AI alerts</button>
+            <button disabled={!!busy} onClick={() => runTool("/admin/run-weekly-retro", "Run weekly retro")} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40 disabled:opacity-50">Run weekly retro</button>
+            <button disabled={!!busy} onClick={() => runTool("/admin/watchlists/cleanup?dry_run=true", "Watchlist cleanup (dry run)")} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40 disabled:opacity-50">Watchlist cleanup (dry)</button>
           </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-text-faint border-b border-border-subtle/50">
-                  <th className="px-5 py-2.5 text-left font-medium">User</th>
-                  <th className="px-3 py-2.5 text-center font-medium">Tier</th>
-                  <th className="px-3 py-2.5 text-center font-medium">Telegram</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Watchlist</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Alerts</th>
-                  <th className="px-5 py-2.5 text-right font-medium">Joined</th>
-                </tr>
-              </thead>
-              <tbody>
-                {realUsers.map((u) => (
-                  <tr
-                    key={u.id}
-                    onClick={() => setExpandedUser(expandedUser === u.id ? null : u.id)}
-                    className="border-b border-border-subtle/30 hover:bg-surface-2/30 cursor-pointer transition-colors"
-                  >
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        {expandedUser === u.id ? <ChevronDown className="h-3 w-3 text-text-faint" /> : <ChevronRight className="h-3 w-3 text-text-faint" />}
-                        <div>
-                          <div className="font-medium text-text-primary">{u.display_name || u.email.split("@")[0]}</div>
-                          <div className="text-[10px] text-text-faint">{u.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} />
-                        <TierSelector userId={u.id} currentTier={u.tier} onChanged={fetchData} />
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {u.telegram_linked ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-bullish-text">
-                          <span className="w-1.5 h-1.5 rounded-full bg-bullish" /> Linked
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-text-faint">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-right font-mono text-text-muted">{u.watchlist_count}</td>
-                    <td className="px-3 py-3 text-right font-mono text-text-muted">{u.alert_count}</td>
-                    <td className="px-5 py-3 text-right text-text-faint text-xs">{u.created_at.slice(0, 10)}</td>
-                  </tr>
-                ))}
-
-                {/* Test accounts collapsed */}
-                {testUsers.length > 0 && (
-                  <>
-                    <tr className="bg-surface-0/50">
-                      <td colSpan={6} className="px-5 py-2 text-[10px] text-text-faint uppercase tracking-wider">
-                        Test Accounts ({testUsers.length})
-                      </td>
-                    </tr>
-                    {testUsers.map((u) => (
-                      <tr key={u.id} className="border-b border-border-subtle/20 opacity-50">
-                        <td className="px-5 py-2">
-                          <span className="text-xs text-text-faint">{u.email}</span>
-                        </td>
-                        <td className="px-3 py-2 text-center"><TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} /></td>
-                        <td className="px-3 py-2 text-center text-[10px] text-text-faint">{u.telegram_linked ? "✓" : "—"}</td>
-                        <td className="px-3 py-2 text-right font-mono text-text-faint text-xs">{u.watchlist_count}</td>
-                        <td className="px-3 py-2 text-right font-mono text-text-faint text-xs">{u.alert_count}</td>
-                        <td className="px-5 py-2 text-right text-text-faint text-[10px]">{u.created_at.slice(0, 10)}</td>
-                      </tr>
-                    ))}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
+          {busy && <div className="text-[11px] text-text-faint mt-1">Running {busy}…</div>}
         </div>
       </div>
-    </div>
+    </details>
   );
 }

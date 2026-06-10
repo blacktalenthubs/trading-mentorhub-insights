@@ -720,3 +720,128 @@ async def backfill_real_outcomes(
 
     total_updated = sum(s["alerts_updated"] for s in summaries)
     return {"days_scanned": len(summaries), "total_updated": total_updated, "per_day": summaries}
+
+
+@router.get("/traffic")
+async def traffic_stats(
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Site traffic — page views + unique visitors over time.
+
+    Backed by the `site_visits` table (logged by the frontend on every route
+    change via POST /api/v1/public/track). "Today" is UTC for simplicity.
+    """
+    from sqlalchemy import text
+
+    async def _scalar(sql: str) -> int:
+        return (await db.execute(text(sql))).scalar() or 0
+
+    visits_today = await _scalar(
+        "SELECT COUNT(*) FROM site_visits WHERE created_at >= CURRENT_DATE")
+    visits_7d = await _scalar(
+        "SELECT COUNT(*) FROM site_visits WHERE created_at >= NOW() - INTERVAL '7 days'")
+    visits_30d = await _scalar(
+        "SELECT COUNT(*) FROM site_visits WHERE created_at >= NOW() - INTERVAL '30 days'")
+    uniq_today = await _scalar(
+        "SELECT COUNT(DISTINCT visitor_id) FROM site_visits WHERE created_at >= CURRENT_DATE")
+    uniq_7d = await _scalar(
+        "SELECT COUNT(DISTINCT visitor_id) FROM site_visits WHERE created_at >= NOW() - INTERVAL '7 days'")
+    uniq_30d = await _scalar(
+        "SELECT COUNT(DISTINCT visitor_id) FROM site_visits WHERE created_at >= NOW() - INTERVAL '30 days'")
+    logged_in_7d = await _scalar(
+        "SELECT COUNT(*) FROM site_visits WHERE user_id IS NOT NULL "
+        "AND created_at >= NOW() - INTERVAL '7 days'")
+
+    top_rows = (await db.execute(text(
+        "SELECT path, COUNT(*) AS n, COUNT(DISTINCT visitor_id) AS u "
+        "FROM site_visits WHERE created_at >= NOW() - INTERVAL '7 days' "
+        "GROUP BY path ORDER BY n DESC LIMIT 12"
+    ))).fetchall()
+    top_paths = [{"path": r[0], "views": r[1], "visitors": r[2]} for r in top_rows]
+
+    trend_rows = (await db.execute(text(
+        "SELECT created_at::date AS d, COUNT(*) AS n, COUNT(DISTINCT visitor_id) AS u "
+        "FROM site_visits WHERE created_at >= NOW() - INTERVAL '14 days' "
+        "GROUP BY d ORDER BY d"
+    ))).fetchall()
+    daily = [{"date": str(r[0]), "views": r[1], "visitors": r[2]} for r in trend_rows]
+
+    return {
+        "visits_today": visits_today,
+        "visits_7d": visits_7d,
+        "visits_30d": visits_30d,
+        "unique_today": uniq_today,
+        "unique_7d": uniq_7d,
+        "unique_30d": uniq_30d,
+        "logged_in_7d": logged_in_7d,
+        "anon_7d": max(0, visits_7d - logged_in_7d),
+        "top_paths": top_paths,
+        "daily": daily,
+    }
+
+
+@router.get("/alert-health")
+async def alert_health(
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alert-engine health — what fired vs got suppressed, today + last 7d.
+
+    Each fired signal fans out to ~one row per subscribed user, so raw row
+    counts are inflated; the "fired_signals" numbers de-fan-out via DISTINCT on
+    (symbol, alert_type, direction, session_date).
+    """
+    from datetime import date
+    from sqlalchemy import text
+
+    today = date.today().isoformat()
+
+    delivered_rows_today = (await db.execute(text(
+        "SELECT COUNT(*) FROM alerts WHERE session_date = :d AND suppressed_reason IS NULL"
+    ), {"d": today})).scalar() or 0
+    suppressed_rows_today = (await db.execute(text(
+        "SELECT COUNT(*) FROM alerts WHERE session_date = :d AND suppressed_reason IS NOT NULL"
+    ), {"d": today})).scalar() or 0
+    fired_signals_today = (await db.execute(text(
+        "SELECT COUNT(*) FROM (SELECT DISTINCT symbol, alert_type, direction FROM alerts "
+        "WHERE session_date = :d AND suppressed_reason IS NULL) t"
+    ), {"d": today})).scalar() or 0
+
+    type_rows = (await db.execute(text(
+        "SELECT alert_type, COUNT(*) AS fired FROM (SELECT DISTINCT symbol, alert_type, "
+        "direction, session_date FROM alerts WHERE created_at >= NOW() - INTERVAL '7 days' "
+        "AND suppressed_reason IS NULL) t GROUP BY alert_type ORDER BY fired DESC LIMIT 15"
+    ))).fetchall()
+    by_type = [{"alert_type": r[0], "fired_7d": r[1]} for r in type_rows]
+
+    dir_rows = (await db.execute(text(
+        "SELECT direction, COUNT(*) AS fired FROM (SELECT DISTINCT symbol, alert_type, "
+        "direction, session_date FROM alerts WHERE session_date = :d "
+        "AND suppressed_reason IS NULL) t GROUP BY direction ORDER BY fired DESC"
+    ), {"d": today})).fetchall()
+    by_direction = [{"direction": r[0], "fired": r[1]} for r in dir_rows]
+
+    supp_rows = (await db.execute(text(
+        "SELECT suppressed_reason, COUNT(*) AS n FROM alerts "
+        "WHERE created_at >= NOW() - INTERVAL '7 days' AND suppressed_reason IS NOT NULL "
+        "GROUP BY suppressed_reason ORDER BY n DESC LIMIT 10"
+    ))).fetchall()
+    suppressed_reasons = [{"reason": r[0], "rows": r[1]} for r in supp_rows]
+
+    daily_rows = (await db.execute(text(
+        "SELECT session_date, COUNT(*) AS fired FROM (SELECT DISTINCT symbol, alert_type, "
+        "direction, session_date FROM alerts WHERE created_at >= NOW() - INTERVAL '14 days' "
+        "AND suppressed_reason IS NULL) t GROUP BY session_date ORDER BY session_date"
+    ))).fetchall()
+    daily = [{"date": str(r[0]), "fired": r[1]} for r in daily_rows]
+
+    return {
+        "delivered_rows_today": delivered_rows_today,
+        "suppressed_rows_today": suppressed_rows_today,
+        "fired_signals_today": fired_signals_today,
+        "by_type": by_type,
+        "by_direction": by_direction,
+        "suppressed_reasons": suppressed_reasons,
+        "daily": daily,
+    }
