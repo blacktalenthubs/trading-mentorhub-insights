@@ -29,3 +29,4 @@ from app.models.strategy_analysis import StrategyAnalysisCache  # noqa: F401
 from app.models.strategy_week_ai import StrategyWeekAICache  # noqa: F401
 from app.models.social_buzz import SocialBuzzSnapshot  # noqa: F401
 from app.models.premarket_gap import PremarketGapSnapshot  # noqa: F401
+from app.models.site_visit import SiteVisit  # noqa: F401

@@ -12,18 +12,72 @@ import logging
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from jose import jwt
+from pydantic import BaseModel
 from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import ADMIN_EMAILS
 from app.models.alert import Alert
+from app.models.site_visit import SiteVisit
 from app.models.user import User
 from app.schemas.alert import AlertResponse
 
 logger = logging.getLogger("public")
 router = APIRouter()
+
+
+class TrackVisitIn(BaseModel):
+    path: str
+    visitor_id: str
+    referrer: Optional[str] = None
+
+
+@router.post("/track", status_code=204)
+async def track_visit(
+    payload: TrackVisitIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public page-view logger — the frontend pings this on every route change.
+
+    No auth required; if a valid bearer token is present we best-effort attach
+    the user_id (so we can split logged-in vs anonymous traffic). Never raises
+    to the client — analytics must not break navigation.
+    """
+    settings = get_settings()
+    user_id: Optional[int] = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            data = jwt.decode(
+                auth.split(" ", 1)[1],
+                settings.JWT_SECRET,
+                algorithms=[settings.JWT_ALGORITHM],
+            )
+            user_id = int(data.get("sub", 0)) or None
+        except Exception:
+            user_id = None
+
+    ua = request.headers.get("User-Agent")
+    ref = payload.referrer
+    try:
+        db.add(
+            SiteVisit(
+                visitor_id=(payload.visitor_id or "anon")[:64],
+                user_id=user_id,
+                path=(payload.path or "/")[:300],
+                referrer=ref[:500] if ref else None,
+                user_agent=ua[:400] if ua else None,
+            )
+        )
+        await db.commit()
+    except Exception:  # pragma: no cover - analytics is best-effort
+        await db.rollback()
+    return None
 
 
 async def _public_user_id(db: AsyncSession) -> int:

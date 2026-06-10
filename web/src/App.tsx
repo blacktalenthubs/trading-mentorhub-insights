@@ -5,6 +5,7 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import { useAuthStore } from "./stores/auth";
 import { useNativePlatform } from "./hooks/useNativePlatform";
 import { usePushRegistration } from "./lib/usePushRegistration";
+import { useTrackPageView } from "./lib/useTrackPageView";
 
 import AppLayout from "./components/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -64,10 +65,12 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Inner component — placed inside BrowserRouter so useNavigate() in
-// usePushRegistration has Router context. Returns null (no UI).
+// Inner component — placed inside BrowserRouter so router-context hooks
+// (usePushRegistration's useNavigate, useTrackPageView's useLocation) work.
+// Returns null (no UI).
 function PushRegistrationListener() {
   usePushRegistration();
+  useTrackPageView();
   return null;
 }
 
