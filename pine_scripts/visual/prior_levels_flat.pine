@@ -27,6 +27,8 @@ show_pwl  = input.bool (true,  "Show PWL")
 show_pmh  = input.bool (true,  "Show PMH")
 show_pml  = input.bool (true,  "Show PML")
 show_rc   = input.bool (true,  "Show RC (reclaim) tags")
+show_long = input.bool (true,  "▲ Long markers (reclaim / hold)")
+show_short= input.bool (true,  "▼ Short markers (rejection)")
 rc_recent = input.int  (0,     "RC tags: recent bars only (0 = all)", minval = 0, maxval = 2000)
 line_len  = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
 col_sup   = input.color(#26A69A, "Support color (price above)")
@@ -103,3 +105,28 @@ if show_rc and barstate.isconfirmed and rc_window
         rctxt := rctxt + "PML "
     if rctxt != ""
         label.new(bar_index, low, "RC " + rctxt, yloc = yloc.belowbar, style = label.style_none, textcolor = col_rc, size = size.tiny)
+
+// ── Long / Short markers — same logic as the alerts + the MA indicator ───────
+// ▲ LONG  = reclaim (was below a level, closed back above) OR support-hold
+//           (above it, dipped to it, held on a green bar).
+// ▼ SHORT = rejection (below a level, wicked up into it, closed back below on a
+//           red bar). Computed across all six prior levels, on confirmed bars.
+lv_arr = array.from(pdh, pdl, pwh, pwl, pmh, pml)
+var bool any_long  = false
+var bool any_short = false
+any_long  := false
+any_short := false
+if barstate.isconfirmed and not na(close[1])
+    for i = 0 to array.size(lv_arr) - 1
+        float L = array.get(lv_arr, i)
+        if not na(L)
+            mk_reclaim = close > L and close[1] <= L
+            mk_hold    = close[1] > L and low <= L and close > L and close > open
+            mk_reject  = close[1] < L and high >= L and close < L and close < open
+            if mk_reclaim or mk_hold
+                any_long := true
+            if mk_reject
+                any_short := true
+
+plotshape(show_long and any_long, title = "LONG", location = location.belowbar, color = col_sup, style = shape.triangleup, size = size.tiny)
+plotshape(show_short and any_short, title = "SHORT", location = location.abovebar, color = col_res, style = shape.triangledown, size = size.tiny)
