@@ -58,15 +58,16 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Pullback continuation (uptrend-gated long entry — companion to MA bounce)
     ("pullback_long", "Uptrend pullback continuation (Buy 1)", "Pullback", False),
 
-    # Buy 2 — Prior-high held as support (spec 58 FR-004)
-    # Monthly (staged_pmh_held) removed 2026-06-01 — visual only, too noisy.
+    # Buy 2 — Prior-high held as support (spec 58 FR-004). Monthly RE-ACTIVATED
+    # 2026-06-09 — structural focus (D/W/M highs & lows are the validated set).
     ("staged_pdh_held", "PDH held as support (Buy 2)", "Daily PDH/PDL", False),
     ("staged_pwh_held", "PWH held as support (Buy 2)", "Weekly", False),
+    ("staged_pmh_held", "PMH held as support (Buy 2)", "Monthly", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
-    # Monthly (staged_pml_held) removed 2026-06-01 — visual only, too noisy.
     ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
     ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly", False),
+    ("staged_pml_held", "PML held — wick test (Buy 2)", "Monthly", False),
 
     # Proximity bounce DROPPED 2026-06-04 (spec 61) — entry = close, which
     # after a bounce off the level lands far away (TSLA PDL 416, alert fired
@@ -77,17 +78,16 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # low of day, stop below the OR low, PDH = first target.
     ("staged_orl_held", "Opening-range low held (15m)", "Daily PDH/PDL", False),
 
-    # Buy 2 — Prior-low reclaim (existing — lost-and-recovered)
-    # Monthly (staged_pml_reclaim) removed 2026-06-01 — visual only.
+    # Buy 2 — Prior-low reclaim (lost-and-recovered)
     ("staged_pdl_reclaim", "PDL reclaim", "Daily PDH/PDL", False),
     ("staged_pwl_reclaim", "PWL reclaim", "Weekly", False),
+    ("staged_pml_reclaim", "PML reclaim", "Monthly", False),
 
-    # Buy 2 — Prior-high reclaim (2026-06-01) — mirrors low-side reclaim trio.
-    # Pattern: gap above the prior high, dip below it briefly, reclaim it
-    # on a green bar. Catches PLTR/AVGO/ORCL/SPCE-style continuation setups.
-    # Monthly (staged_pmh_reclaim) removed same day — visual only.
+    # Buy 2 — Prior-high reclaim — gap above the prior high, dip below it
+    # briefly, reclaim on a green bar (PLTR/AVGO/ORCL-style continuation).
     ("staged_pdh_reclaim", "PDH reclaim", "Daily PDH/PDL", False),
     ("staged_pwh_reclaim", "PWH reclaim", "Weekly", False),
+    ("staged_pmh_reclaim", "PMH reclaim", "Monthly", False),
 
     # 2026-06-01 — Anchored-VWAP family (MTD / prior-month / 2mo-prior)
     # REMOVED. AVWAP levels stay drawn on chart as visual reference only;
@@ -109,13 +109,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdl_break", "PDL break — index short (volume)", "Index shorts", False),
     ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
 
-    # Multi-touch level cross (spec 61, 2026-06-06) — informational NOTICE from
-    # the MultiTB indicator when price closes across a heavily-tested (3×+)
-    # level. SPY only to start. Default OFF — awareness, not a trade trigger.
-    ("multitouch_level", "Multi-touch level cross (SPY · info)", "Multi-touch levels", False),
-    ("gap_zone", "Gap entered / filled (SPY/NBIS · info)", "Multi-touch levels", False),
-    ("weekly_stage", "Weekly Stage — RC / BUY / ADD / EXIT (long-term · info)", "Weekly trend", False),
-    ("rc_4h", "4h RC — undercut/reclaim long (watchlist) + rejection short (SPY/QQQ · info)", "4h reversal", False),
+    # Notices (multitouch_level / gap_zone / weekly_stage / rc_4h) RETIRED
+    # 2026-06-09 — structural-levels focus. They were context, not entries, and
+    # added confusion; the visual indicators still show that context on the
+    # chart. Moved to OBSOLETE_ALERT_TYPES below (backend drops them).
 
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
@@ -270,15 +267,16 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # the staged_*_held family which always tests a level.
     "pullback_long",
 
-    # 2026-06-01 — Anchored-VWAP family + ALL monthly (PMH / PML) alerts
-    # REMOVED per founder request. AVWAP levels + monthly highs/lows stay
-    # drawn on chart as visual reference only; no alerts emit. Live-eval
-    # found mtd_avwap_held fires too noisy (8 of today's 15 missed-TG
-    # alerts were avwap), and monthly TF too coarse for intraday triggers.
+    # Anchored-VWAP family REMOVED — too noisy. AVWAP stays drawn on chart as
+    # visual reference only; no alerts emit.
     "staged_mtd_avwap_held", "staged_pm_avwap_held", "staged_p2m_avwap_held",
-    "staged_pmh_held", "staged_pml_held",
-    "staged_pmh_reclaim", "staged_pml_reclaim",
+    # Monthly PMH/PML held + reclaim RE-ACTIVATED 2026-06-09 (now in _BASE_CATALOG
+    # — structural focus). Only the monthly *break* stays retired here.
     "staged_pmh_break",
+
+    # Notices RETIRED 2026-06-09 — structural-levels focus; context, not entries.
+    # The Pine still emits them; the backend drops them as unknown/obsolete.
+    "multitouch_level", "gap_zone", "weekly_stage", "rc_4h",
 
     # 2026-06-01 — Swing scanner alerts REMOVED from Settings per founder
     # request. Swing scanner not currently working reliably; types pulled

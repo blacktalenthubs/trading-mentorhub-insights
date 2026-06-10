@@ -7,7 +7,7 @@
 // horizontal line (no curving), colored by role:
 //   • SUPPORT  (green) — price is currently ABOVE the level
 //   • RESISTANCE (red) — price is currently BELOW the level (overhead / target)
-// Daily levels are solid, weekly levels dotted. Right-edge label names + values.
+// Daily solid, weekly dashed, monthly dotted. Right-edge label names + values.
 //
 // RC tag — when price closes back ABOVE a level it was below (a reclaim), an "RC"
 // label drops below the bar naming the level(s) reclaimed (e.g. "RC PWL"). This
@@ -17,13 +17,15 @@
 // RC tags sit at the level's value back then (PDL/PWL step each day/week), so
 // on history a tag may float off today's line. Use "RC tags: recent bars only".
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Prior Levels Flat", overlay = true, max_lines_count = 10, max_labels_count = 500)
+indicator("Prior Levels Flat", overlay = true, max_lines_count = 12, max_labels_count = 500)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 show_pdh  = input.bool (true,  "Show PDH")
 show_pdl  = input.bool (true,  "Show PDL")
 show_pwh  = input.bool (true,  "Show PWH")
 show_pwl  = input.bool (true,  "Show PWL")
+show_pmh  = input.bool (true,  "Show PMH")
+show_pml  = input.bool (true,  "Show PML")
 show_rc   = input.bool (true,  "Show RC (reclaim) tags")
 rc_recent = input.int  (0,     "RC tags: recent bars only (0 = all)", minval = 0, maxval = 2000)
 line_len  = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
@@ -36,6 +38,8 @@ pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.look
 pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
 pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
+pmh = request.security(syminfo.tickerid, "M", high[1], lookahead = barmerge.lookahead_on)
+pml = request.security(syminfo.tickerid, "M", low[1],  lookahead = barmerge.lookahead_on)
 
 is_support(float lvl) => not na(lvl) and close > lvl
 reclaim(float lvl)    => not na(lvl) and not na(close[1]) and close > lvl and close[1] <= lvl
@@ -48,11 +52,12 @@ var label[] g_labels = array.new_label(0)
 // so a PDL sitting near the MA cluster (or coinciding with PWL) doesn't hide
 // behind another label — each prior-level label sits at its own x, clear of the
 // ma-ema-daily labels (which end ~6 bars out).
-draw_level(float lvl, string nm, bool dotted, int loff) =>
+draw_level(float lvl, string nm, int sty, int loff) =>
     if not na(lvl)
         sup = is_support(lvl)
         col = sup ? col_sup : col_res
-        ln  = line.new(bar_index - line_len, lvl, bar_index + loff, lvl, color = col, width = 2, style = dotted ? line.style_dashed : line.style_solid)
+        lstyle = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
+        ln  = line.new(bar_index - line_len, lvl, bar_index + loff, lvl, color = col, width = 2, style = lstyle)
         lb  = label.new(bar_index + loff, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
         array.push(g_lines, ln)
         array.push(g_labels, lb)
@@ -67,13 +72,17 @@ if barstate.islast
             label.delete(array.get(g_labels, i))
         array.clear(g_labels)
     if show_pdh
-        draw_level(pdh, "PDH", false, 3)
+        draw_level(pdh, "PDH", 0, 2)
     if show_pdl
-        draw_level(pdl, "PDL", false, 9)
+        draw_level(pdl, "PDL", 0, 6)
     if show_pwh
-        draw_level(pwh, "PWH", true, 15)
+        draw_level(pwh, "PWH", 1, 10)
     if show_pwl
-        draw_level(pwl, "PWL", true, 21)
+        draw_level(pwl, "PWL", 1, 14)
+    if show_pmh
+        draw_level(pmh, "PMH", 2, 18)
+    if show_pml
+        draw_level(pml, "PML", 2, 22)
 
 // ── RC (reclaim) tags — close back ABOVE a level from below, per confirmed bar ─
 rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
@@ -88,5 +97,9 @@ if show_rc and barstate.isconfirmed and rc_window
         rctxt := rctxt + "PWH "
     if show_pwl and reclaim(pwl)
         rctxt := rctxt + "PWL "
+    if show_pmh and reclaim(pmh)
+        rctxt := rctxt + "PMH "
+    if show_pml and reclaim(pml)
+        rctxt := rctxt + "PML "
     if rctxt != ""
         label.new(bar_index, low, "RC " + rctxt, yloc = yloc.belowbar, style = label.style_none, textcolor = col_rc, size = size.tiny)
