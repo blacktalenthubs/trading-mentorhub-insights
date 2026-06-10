@@ -9,9 +9,9 @@
 //   • RESISTANCE (red) — price is currently BELOW the level (overhead / target)
 // Daily solid, weekly dashed, monthly dotted. Right-edge label names + values.
 //
-// RC tag — when price closes back ABOVE a level it was below (a reclaim), an "RC"
-// label drops below the bar naming the level(s) reclaimed (e.g. "RC PWL"). This
-// is the liquidity-grab reclaim you trade — works on the weekly levels too.
+// RC tag — LOW-side reclaims only: price undercut a prior LOW (PDL/PWL/PML) and
+// closed back above it (e.g. "RC PWL") — the liquidity-grab long you trade.
+// (High-side reclaims are breakouts, a different setup — not tagged.)
 //
 // VISUAL ONLY — no alerts. NOTE: lines sit at the level's CURRENT value; older
 // RC tags sit at the level's value back then (PDL/PWL step each day/week), so
@@ -90,17 +90,13 @@ if barstate.islast
 rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
 
 if show_rc and barstate.isconfirmed and rc_window
+    // LOW-side reclaims only — the liquidity-grab long (undercut a prior LOW,
+    // close back above). High-side reclaims are breakouts, not this setup.
     string rctxt = ""
-    if show_pdh and reclaim(pdh)
-        rctxt := rctxt + "PDH "
     if show_pdl and reclaim(pdl)
         rctxt := rctxt + "PDL "
-    if show_pwh and reclaim(pwh)
-        rctxt := rctxt + "PWH "
     if show_pwl and reclaim(pwl)
         rctxt := rctxt + "PWL "
-    if show_pmh and reclaim(pmh)
-        rctxt := rctxt + "PMH "
     if show_pml and reclaim(pml)
         rctxt := rctxt + "PML "
     if rctxt != ""

@@ -109,10 +109,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdl_break", "PDL break — index short (volume)", "Index shorts", False),
     ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
 
-    # Notices (multitouch_level / gap_zone / weekly_stage / rc_4h) RETIRED
-    # 2026-06-09 — structural-levels focus. They were context, not entries, and
-    # added confusion; the visual indicators still show that context on the
-    # chart. Moved to OBSOLETE_ALERT_TYPES below (backend drops them).
+    # 4h-low reclaim — RE-ACTIVATED 2026-06-10. The liquidity-grab long: a stock
+    # undercuts its recent 4h low then closes back above it. Low-side, matches
+    # the structural-reclaim model. Default OFF.
+    ("rc_4h", "4h low reclaim (undercut + reclaim long)", "4h reversal", False),
+
+    # Notices (multitouch_level / gap_zone / weekly_stage) RETIRED 2026-06-09 —
+    # structural-levels focus. Context, not entries; still drawn on the visual
+    # indicators. Moved to OBSOLETE_ALERT_TYPES below (backend drops them).
 
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
@@ -276,7 +280,7 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
 
     # Notices RETIRED 2026-06-09 — structural-levels focus; context, not entries.
     # The Pine still emits them; the backend drops them as unknown/obsolete.
-    "multitouch_level", "gap_zone", "weekly_stage", "rc_4h",
+    "multitouch_level", "gap_zone", "weekly_stage",
 
     # 2026-06-01 — Swing scanner alerts REMOVED from Settings per founder
     # request. Swing scanner not currently working reliably; types pulled
