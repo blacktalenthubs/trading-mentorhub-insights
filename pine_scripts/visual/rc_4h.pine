@@ -8,6 +8,9 @@
 // chart's prior bar). Pure visual — no alerts, just markers to eyeball whether
 // it catches reversals on SPY/QQQ/AAPL/GOOGL over a week.
 //
+// DEFAULT = LOW-side only (▲ RC). The two HIGH-side signals (▼ rejection, RC-H)
+// are OFF by default — this pine focuses on reclaimed LOWS. Flip them on if wanted.
+//
 //   ▲ RC   = low < prior low AND close > prior low — reclaim of the prior LOW
 //            (undercut & reclaim = reversal / bottoming, lime).
 //   ▼ ↓    = high > prior high AND close < prior high — failed break of the prior
@@ -24,9 +27,9 @@
 indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
 
 min_wick_pct = input.float(0.0, "Min wick % of candle range (0 = all)", minval = 0.0, maxval = 90.0, step = 0.5, group = "Detection")
-show_long    = input.bool(true, "▲ RC long — reclaim of prior LOW (undercut & reclaim — reversal, lime)", group = "Detection")
-show_short   = input.bool(true, "▼ rejection short — failed break of prior HIGH (wick above, close back below, red)", group = "Detection")
-show_hrec    = input.bool(true, "▲ RC-H — reclaim of prior HIGH (dip below then close back above — breakout-retest continuation, teal)", group = "Detection")
+show_long    = input.bool(true,  "▲ RC long — reclaim of prior LOW (undercut & reclaim — reversal, lime)", group = "Detection")
+show_short   = input.bool(false, "▼ rejection short — failed break of prior HIGH (high-side, OFF by default)", group = "Detection")
+show_hrec    = input.bool(false, "▲ RC-H — reclaim of prior HIGH (high-side, OFF by default)", group = "Detection")
 vol_len      = input.int(20,  "Volume average length", minval = 1, group = "Detection")
 vol_min      = input.float(0.0, "Min volume vs average (0 = off · 1.5 = need 50% above avg = a real sweep)", minval = 0.0, step = 0.1, group = "Detection")
 show_lvl     = input.bool(true, "Draw the level lines (turn OFF = keep only the RC markers/labels)", group = "Display")
