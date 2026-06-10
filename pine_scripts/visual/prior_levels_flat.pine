@@ -104,7 +104,7 @@ if show_rc and barstate.isconfirmed and rc_window
     if show_pml and reclaim(pml)
         rctxt := rctxt + "PML "
     if rctxt != ""
-        label.new(bar_index, low, "RC " + rctxt, yloc = yloc.belowbar, style = label.style_none, textcolor = col_rc, size = size.tiny)
+        label.new(bar_index, low, "RC " + rctxt, yloc = yloc.belowbar, style = label.style_none, textcolor = col_rc, size = size.small)
 
 // ── Long / Short markers — same logic as the alerts + the MA indicator ───────
 // ▲ LONG  = reclaim (was below a level, closed back above) OR support-hold
@@ -128,5 +128,5 @@ if barstate.isconfirmed and not na(close[1])
             if mk_reject
                 any_short := true
 
-plotshape(show_long and any_long, title = "LONG", location = location.belowbar, color = col_sup, style = shape.triangleup, size = size.tiny)
-plotshape(show_short and any_short, title = "SHORT", location = location.abovebar, color = col_res, style = shape.triangledown, size = size.tiny)
+plotshape(show_long and any_long, title = "LONG", location = location.belowbar, color = col_sup, style = shape.triangleup, size = size.small)
+plotshape(show_short and any_short, title = "SHORT", location = location.abovebar, color = col_res, style = shape.triangledown, size = size.small)
