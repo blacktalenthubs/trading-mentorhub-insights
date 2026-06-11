@@ -114,9 +114,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # the structural-reclaim model. Default OFF.
     ("rc_4h", "4h low reclaim (undercut + reclaim long)", "4h reversal", False),
 
-    # Notices (multitouch_level / gap_zone / weekly_stage) RETIRED 2026-06-09 —
-    # structural-levels focus. Context, not entries; still drawn on the visual
-    # indicators. Moved to OBSOLETE_ALERT_TYPES below (backend drops them).
+    # Multi-touch level cross — RE-ACTIVATED 2026-06-10. Informational NOTICE from
+    # the MultiTB indicator when price closes across a heavily-tested (3×+) level.
+    # SPY only to start. Default OFF — awareness, not a trade trigger.
+    ("multitouch_level", "Multi-touch level cross (SPY · info)", "Multi-touch levels", False),
+
+    # Notices (gap_zone / weekly_stage) RETIRED 2026-06-09 — structural-levels
+    # focus. Context, not entries; still drawn on the visual indicators. Moved to
+    # OBSOLETE_ALERT_TYPES below (backend drops them).
 
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
@@ -280,7 +285,8 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
 
     # Notices RETIRED 2026-06-09 — structural-levels focus; context, not entries.
     # The Pine still emits them; the backend drops them as unknown/obsolete.
-    "multitouch_level", "gap_zone", "weekly_stage",
+    # (multitouch_level RE-ACTIVATED 2026-06-10 — back in _BASE_CATALOG above.)
+    "gap_zone", "weekly_stage",
 
     # 2026-06-01 — Swing scanner alerts REMOVED from Settings per founder
     # request. Swing scanner not currently working reliably; types pulled
