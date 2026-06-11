@@ -36,6 +36,7 @@ from api.app.routers.tv_webhook import (
     CRYPTO_REGIME_ALLOWLIST,
     INDEX_REGIME_ALLOWLIST,
     crypto_pdl_blocks_buy,
+    multitouch_symbol_blocks,
     resolve_spy_above_pdl,
     spy_pdl_blocks_buy,
 )
@@ -119,6 +120,36 @@ class TestSpyPdlBlocksBuy:
         assert spy_pdl_blocks_buy(False, "BUY", "AAPL", custom) is False
         # A name NOT in the custom list is still blocked.
         assert spy_pdl_blocks_buy(False, "BUY", "NVDA", custom) is True
+
+
+# -----------------------------------------------------------------------------
+# Multi-touch (MultiTB) notice — per-symbol allowlist (2026-06-10)
+# -----------------------------------------------------------------------------
+
+
+class TestMultitouchSymbolBlocks:
+    def test_blocks_symbol_not_in_allowlist(self):
+        wl = frozenset({"SPY"})
+        assert multitouch_symbol_blocks("AAPL", wl) is True
+        assert multitouch_symbol_blocks("NVDA", wl) is True
+
+    def test_allows_symbol_in_allowlist(self):
+        wl = frozenset({"SPY", "QQQ"})
+        assert multitouch_symbol_blocks("SPY", wl) is False
+        assert multitouch_symbol_blocks("QQQ", wl) is False
+
+    def test_empty_allowlist_allows_all(self):
+        # Blank list = no restriction (back-compat / fail-open).
+        assert multitouch_symbol_blocks("AAPL", frozenset()) is False
+        assert multitouch_symbol_blocks("SPY", frozenset()) is False
+
+    def test_case_insensitive(self):
+        assert multitouch_symbol_blocks("spy", frozenset({"SPY"})) is False
+        assert multitouch_symbol_blocks("aapl", frozenset({"SPY"})) is True
+
+    def test_none_symbol_blocked_when_allowlist_set(self):
+        assert multitouch_symbol_blocks(None, frozenset({"SPY"})) is True
+        assert multitouch_symbol_blocks(None, frozenset()) is False
 
 
 # -----------------------------------------------------------------------------

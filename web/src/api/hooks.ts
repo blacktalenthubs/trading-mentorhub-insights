@@ -1959,12 +1959,13 @@ export function useAlertConfig() {
   });
 }
 
-/** Gate config — just the SPY-trend long gate now (the per-symbol master switch
- *  + info-symbol lists were removed 2026-06-09; alert delivery = Alert Types +
- *  this gate). */
+/** Gate config — the SPY-trend long gate + the multi-touch notice symbol
+ *  allowlist (re-added 2026-06-10). The old per-symbol master switch was
+ *  removed 2026-06-09; alert delivery = Alert Types + these. */
 export interface RegimeExemptConfig {
   spy_trend_gate_enabled: string;  // "true"/"false" — block longs when SPY below its 8 & 21 EMA
   spy_trend_exempt: string;  // symbols still allowed to fire longs when SPY has rolled over
+  multitouch_symbols: string;  // symbols allowed to deliver the multitouch_level notice (blank = all)
 }
 
 export function useRegimeConfig() {

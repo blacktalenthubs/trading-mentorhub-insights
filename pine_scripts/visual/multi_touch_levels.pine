@@ -35,6 +35,13 @@ show_top = input.bool(true,  "Tops (resistance, red)", group = "Display")
 ext_r    = input.bool(true,  "Extend lines to the right", group = "Display")
 show_piv = input.bool(false, "Mark raw pivots", group = "Display")
 
+// Low-count levels are the noisy ones (2× / 3× clusters everywhere). Toggle
+// them off to keep only the heavily-tested walls; 4×+ ALWAYS show. Default:
+// 2× off (noisiest), 3× on. Turn 3× off too for a 4×-only "key walls" view.
+show_2x  = input.bool(false, "Show 2× levels (noisiest — off by default)", group = "Display · level counts")
+show_3x  = input.bool(true,  "Show 3× levels", group = "Display · level counts")
+count_shown(int c) => (c >= 4) or (c == 3 and show_3x) or (c == 2 and show_2x)
+
 // ── Alerts (informational — price closing across a heavily-tested level) ──
 fire_alerts   = input.bool(true,  "Fire level-cross alerts (info)", group = "Alerts")
 alert_symbols = input.string("", "Pine-side symbol filter (blank = all; manage the real list in Settings)", group = "Alerts")
@@ -99,7 +106,7 @@ if barstate.islast
                                 cnt := cnt + 1
                                 lvl := math.min(lvl, q)
                 near_ok = (near_pct <= 0.0) or (close > 0 and math.abs(lvl - close) / close * 100.0 <= near_pct)
-                if (cnt >= min_touches) and ((cnt > min_touches) or near_ok)
+                if (cnt >= min_touches) and count_shown(cnt) and ((cnt > min_touches) or near_ok)
                     ln = line.new(earliest, lvl, bar_index, lvl, xloc = xloc.bar_index, color = color.new(color.lime, 10), width = 2, extend = ext_r ? extend.right : extend.none)
                     lb = label.new(bar_index, lvl, str.tostring(cnt) + "× bottom " + str.tostring(lvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(color.lime, 50), textcolor = color.white, size = size.small)
                     array.push(dLn, ln)
@@ -128,7 +135,7 @@ if barstate.islast
                                 hcnt := hcnt + 1
                                 hlvl := math.max(hlvl, hq)
                 hnear = (near_pct <= 0.0) or (close > 0 and math.abs(hlvl - close) / close * 100.0 <= near_pct)
-                if (hcnt >= min_touches) and ((hcnt > min_touches) or hnear)
+                if (hcnt >= min_touches) and count_shown(hcnt) and ((hcnt > min_touches) or hnear)
                     hln = line.new(hearl, hlvl, bar_index, hlvl, xloc = xloc.bar_index, color = color.new(color.red, 10), width = 2, extend = ext_r ? extend.right : extend.none)
                     hlb = label.new(bar_index, hlvl, str.tostring(hcnt) + "× top " + str.tostring(hlvl, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.red, 50), textcolor = color.white, size = size.small)
                     array.push(dLn, hln)
