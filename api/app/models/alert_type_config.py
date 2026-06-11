@@ -119,9 +119,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # SPY only to start. Default OFF — awareness, not a trade trigger.
     ("multitouch_level", "Multi-touch level cross (SPY · info)", "Multi-touch levels", False),
 
-    # Notices (gap_zone / weekly_stage) RETIRED 2026-06-09 — structural-levels
-    # focus. Context, not entries; still drawn on the visual indicators. Moved to
-    # OBSOLETE_ALERT_TYPES below (backend drops them).
+    # Weekly Stage (RC / BUY / ADD / EXIT) — RE-ACTIVATED 2026-06-10. Long-term
+    # swing signal from the WkStage indicator (weekly chart): RC = undercut &
+    # reclaim bottoming. Default OFF — context for the swing book.
+    ("weekly_stage", "Weekly Stage — RC / BUY / ADD / EXIT (long-term · info)", "Weekly trend", False),
+
+    # Notice (gap_zone) RETIRED 2026-06-09 — structural-levels focus. Context,
+    # not entries; still drawn on the visual indicators. Moved to
+    # OBSOLETE_ALERT_TYPES below (backend drops it).
 
     # Swing scanner — REMOVED from Settings 2026-06-01 per founder request.
     # Swing scanner not currently working reliably; types listed in
@@ -283,10 +288,11 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # — structural focus). Only the monthly *break* stays retired here.
     "staged_pmh_break",
 
-    # Notices RETIRED 2026-06-09 — structural-levels focus; context, not entries.
-    # The Pine still emits them; the backend drops them as unknown/obsolete.
-    # (multitouch_level RE-ACTIVATED 2026-06-10 — back in _BASE_CATALOG above.)
-    "gap_zone", "weekly_stage",
+    # Notice RETIRED 2026-06-09 — structural-levels focus; context, not entries.
+    # The Pine still emits it; the backend drops it as unknown/obsolete.
+    # (multitouch_level + weekly_stage RE-ACTIVATED 2026-06-10 — back in
+    # _BASE_CATALOG above. Only gap_zone stays retired.)
+    "gap_zone",
 
     # 2026-06-01 — Swing scanner alerts REMOVED from Settings per founder
     # request. Swing scanner not currently working reliably; types pulled
