@@ -14,6 +14,9 @@
 //   ● ADD  = pullback to the rising MA (dynamic support).
 //   ◆ RC   = undercut & reclaim of the prior-week low (yellow = below MA,
 //            bottoming; gray = above MA, in-uptrend dip).
+//   ◆ RC2  = DEEPER grab — undercut & reclaim of the prior-2-WEEK low (lowest of
+//            the last two weekly lows). Orange below MA, blue above. Fires
+//            INSTEAD of RC when both lows get taken (a stronger reversal tell).
 //   ▼ EXIT = weekly close below the trailing stop (default prior-week low).
 //
 // Pine v5: the HTF logic is wrapped in one function returning a tuple, pulled
@@ -39,6 +42,7 @@ show_add  = input.bool(true, "Mark pullback-to-MA 'ADD' (MA = support in Stage 2
 ma_buf    = input.float(3.0, "Pullback buffer %", minval = 0.0, step = 0.5, group = "Entry")
 show_rc    = input.bool(true, "Mark RC below MA (yellow ◆, bottoming)", group = "Entry")
 show_rc_up = input.bool(true, "Mark RC above MA (gray ◆, in-uptrend dip)", group = "Entry")
+show_rc2   = input.bool(true, "Mark RC of prior 2-WEEK low (deeper grab — orange/blue ◆)", group = "Entry")
 // Visual only — the weekly ALERTS fire from levels-day-vwap (one TV alert slot
 // runs the whole watchlist); this indicator is just the chart you read.
 
@@ -67,11 +71,19 @@ f_wk() =>
     _inzone = (not na(_ma)) and (low <= _ma * (1.0 + ma_buf / 100.0)) and (close > _ma)
     _add = show_add and _rising and (_stage == 2) and _inzone and (low[1] > _ma[1] * (1.0 + ma_buf / 100.0))
     _rcbase = (low < low[1]) and (close > low[1]) and (not na(_ma))
-    _rcb = show_rc and _rcbase and (close < _ma)
-    _rca = show_rc_up and _rcbase and (close >= _ma)
-    [_ma, _slope, _stage, _b, _x, _trail, _inpos, _add, _rcb, _rca]
+    // Prior 2-WEEK low = lowest of the last two weekly lows. A reclaim here is a
+    // deeper liquidity grab (two weeks of stops taken, then recovered).
+    _2wlow = math.min(low[1], low[2])
+    _rcbase2 = (not na(low[2])) and (low < _2wlow) and (close > _2wlow) and (not na(_ma))
+    // 1-week RC fires only when the 2-week low was NOT also taken — RC2 wins on
+    // those bars so we don't double-stack a diamond on the same candle.
+    _rcb = show_rc and _rcbase and (not _rcbase2) and (close < _ma)
+    _rca = show_rc_up and _rcbase and (not _rcbase2) and (close >= _ma)
+    _rcb2 = show_rc2 and _rcbase2 and (close < _ma)
+    _rca2 = show_rc2 and _rcbase2 and (close >= _ma)
+    [_ma, _slope, _stage, _b, _x, _trail, _inpos, _add, _rcb, _rca, _rcb2, _rca2]
 
-[ma, wslope, stage, buy_sig, exit_sig, trail, in_pos, add_sig, rc_below, rc_above] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_off)
+[ma, wslope, stage, buy_sig, exit_sig, trail, in_pos, add_sig, rc_below, rc_above, rc2_below, rc2_above] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_off)
 wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
 
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
@@ -99,6 +111,8 @@ plotshape(show_sig and exit_sig and not exit_sig[1], title = "exit", style = sha
 plotshape(add_sig and not add_sig[1], title = "add", style = shape.circle, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "ADD")
 plotshape(rc_below and not rc_below[1], title = "RC below", style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.tiny, text = "RC")
 plotshape(rc_above and not rc_above[1], title = "rc above", style = shape.diamond, location = location.belowbar, color = color.new(color.gray, 30), size = size.tiny, text = "rc")
+plotshape(rc2_below and not rc2_below[1], title = "RC2 below", style = shape.diamond, location = location.belowbar, color = color.new(color.orange, 0), size = size.small, text = "RC2")
+plotshape(rc2_above and not rc2_above[1], title = "RC2 above", style = shape.diamond, location = location.belowbar, color = color.new(color.blue, 0), size = size.small, text = "RC2")
 
 // Status label (current price vs the WEEKLY MA).
 stage_name = stage == 2 ? "STAGE 2 · Advancing — HOLD / add" : stage == 4 ? "STAGE 4 · Declining — OUT / avoid" : stage == 3 ? "STAGE 3 · Topping — tighten / trim" : stage == 1 ? "STAGE 1 · Basing — watch for breakout" : "—"
