@@ -38,6 +38,11 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # it delivers ONLY for these symbols. Non-empty = allowlist; BLANK = all
     # symbols (no restriction). Default SPY only — managed live from Settings.
     "multitouch_symbols": "SPY",
+    # 4h RC rejection-SHORT symbol allowlist (2026-06-12). The rc_4h SHORT (failed
+    # break of the prior 4h high) is opt-in per symbol — it delivers ONLY for these.
+    # Non-empty = allowlist; BLANK = NONE (block all — a SHORT is opt-in, the
+    # opposite of the multitouch default). Default SPY,DRAM — add more live in Settings.
+    "rc_4h_short_symbols": "SPY,DRAM",
 }
 
 

@@ -37,6 +37,7 @@ from api.app.routers.tv_webhook import (
     INDEX_REGIME_ALLOWLIST,
     crypto_pdl_blocks_buy,
     multitouch_symbol_blocks,
+    rc4_short_symbol_blocks,
     resolve_spy_above_pdl,
     spy_pdl_blocks_buy,
 )
@@ -150,6 +151,29 @@ class TestMultitouchSymbolBlocks:
     def test_none_symbol_blocked_when_allowlist_set(self):
         assert multitouch_symbol_blocks(None, frozenset({"SPY"})) is True
         assert multitouch_symbol_blocks(None, frozenset()) is False
+
+
+class TestRc4ShortSymbolBlocks:
+    # The 4h RC short is OPT-IN: only allowlisted symbols deliver, and a BLANK
+    # list blocks everything (opposite of the multitouch notice).
+    def test_allows_listed_symbols(self):
+        wl = frozenset({"SPY", "DRAM"})
+        assert rc4_short_symbol_blocks("SPY", wl) is False
+        assert rc4_short_symbol_blocks("DRAM", wl) is False
+
+    def test_blocks_unlisted_symbols(self):
+        wl = frozenset({"SPY", "DRAM"})
+        assert rc4_short_symbol_blocks("AAPL", wl) is True
+        assert rc4_short_symbol_blocks("QQQ", wl) is True
+
+    def test_empty_allowlist_blocks_all(self):
+        # Opt-in: blank = none deliver (never short the whole tape).
+        assert rc4_short_symbol_blocks("SPY", frozenset()) is True
+        assert rc4_short_symbol_blocks("AAPL", frozenset()) is True
+
+    def test_case_insensitive(self):
+        assert rc4_short_symbol_blocks("dram", frozenset({"SPY", "DRAM"})) is False
+        assert rc4_short_symbol_blocks("aapl", frozenset({"SPY", "DRAM"})) is True
 
 
 # -----------------------------------------------------------------------------

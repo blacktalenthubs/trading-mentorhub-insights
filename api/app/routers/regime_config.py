@@ -26,6 +26,7 @@ class RegimeConfigUpdate(BaseModel):
     spy_trend_gate_enabled: Optional[str] = None  # "true"/"false" — SPY-below-8&21 long gate
     spy_trend_exempt: Optional[str] = None  # symbols still allowed to fire longs when SPY rolled over
     multitouch_symbols: Optional[str] = None  # symbols allowed to deliver the multitouch_level notice (blank = all)
+    rc_4h_short_symbols: Optional[str] = None  # symbols allowed to deliver the rc_4h SHORT (blank = none)
 
 
 def _norm(s: str) -> str:
@@ -64,6 +65,7 @@ async def set_regime_config(
         "spy_trend_gate_enabled": body.spy_trend_gate_enabled,
         "spy_trend_exempt": body.spy_trend_exempt,
         "multitouch_symbols": body.multitouch_symbols,
+        "rc_4h_short_symbols": body.rc_4h_short_symbols,
     }
     _BOOL_KEYS = {"spy_trend_gate_enabled"}
     for key, raw in updates.items():

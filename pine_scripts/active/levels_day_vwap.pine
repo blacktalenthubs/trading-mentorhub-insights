@@ -1782,9 +1782,10 @@ if wk_alerts and wk_exit and not wk_exit[1]
 
 // ═══════════════════════════════════════════════════════════════════════
 // 4h RC alerts (spec 61, 2026-06-07) — undercut & reclaim on the 4h, fired
-// through THIS indicator's alert. RC LONG (reclaim of the prior 4h low) for the
-// WHOLE watchlist; RC SHORT (rejection at the prior 4h high) for SPY/QQQ only.
-// Informational NOTICE — the chart tells the details, not every one is an entry.
+// through THIS indicator's alert. RC LONG (reclaim of the prior 4h low) and RC
+// SHORT (rejection at the prior 4h high) both fire for the WHOLE watchlist as
+// BUY / SHORT. Delivery is gated server-side: the SHORT delivers only for the
+// rc_4h_short_symbols allowlist (Settings → 4h RC short; default SPY,DRAM).
 // Stop = the wick (the undercut low / the reject high). Visuals live in "RC4h".
 // Pulled from the 4h via request.security so it's right on any chart TF; fires
 // once per 4h candle when it occurs (~<=1/day per name).
@@ -1794,7 +1795,6 @@ rc4_alerts = input.bool(true, "4h RC alerts (long = watchlist · short = SPY/QQQ
 [rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
 rc4_long   = (rc4_low < rc4_plow) and (rc4_close > rc4_plow)
 rc4_short  = (rc4_high > rc4_phigh) and (rc4_close < rc4_phigh)
-rc4_is_idx = (syminfo.ticker == "SPY") or (syminfo.ticker == "QQQ")
 // Fire ONLY when a 4h bar has just CLOSED (a new 4h bar opened) — NOT intra-bar.
 // Without this, the forming 4h candle re-triggers on every 5m bar at the wrong
 // (current) price, flooding the feed. At this boundary request.security returns
@@ -1805,9 +1805,9 @@ if rc4_alerts and rc4_newbar and rc4_long
     rcln = "RC · RECLAIM FROM LOW — 4h undercut & reclaim of the prior 4h low · stop = 4h low " + str.tostring(rc4_low, format.mintick)
     rclp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"BUY","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rcln + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rclp, alert.freq_once_per_bar_close)
-if rc4_alerts and rc4_newbar and rc4_is_idx and rc4_short
+if rc4_alerts and rc4_newbar and rc4_short
     rcsn = "RC · REJECTION AT HIGH — 4h failed break of the prior 4h high · stop = 4h high " + str.tostring(rc4_high, format.mintick)
-    rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"SHORT","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rcsp, alert.freq_once_per_bar_close)
 // RC-H (reclaim-from-high / breakout-retest) ALERT removed 2026-06-08 — too noisy
 // (in a steady uptrend price sits above the prior high, so it fires almost every

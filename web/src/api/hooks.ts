@@ -1966,6 +1966,7 @@ export interface RegimeExemptConfig {
   spy_trend_gate_enabled: string;  // "true"/"false" — block longs when SPY below its 8 & 21 EMA
   spy_trend_exempt: string;  // symbols still allowed to fire longs when SPY has rolled over
   multitouch_symbols: string;  // symbols allowed to deliver the multitouch_level notice (blank = all)
+  rc_4h_short_symbols: string;  // symbols allowed to deliver the rc_4h SHORT (blank = none)
 }
 
 export function useRegimeConfig() {

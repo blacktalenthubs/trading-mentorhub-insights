@@ -795,12 +795,20 @@ function MultiTouchAlertSection() {
       {isLoading ? (
         <div className="text-xs text-text-faint">Loading…</div>
       ) : (
-        <ExemptListEditor
-          label="Symbols that deliver the multi-touch notice"
-          hint="e.g. SPY — keep it to a few clean charts. Empty = all symbols."
-          list={toList(data?.multitouch_symbols)}
-          onSave={(l) => update.mutate({ multitouch_symbols: l.join(",") })}
-        />
+        <div className="space-y-5">
+          <ExemptListEditor
+            label="Symbols that deliver the multi-touch notice"
+            hint="e.g. SPY — keep it to a few clean charts. Empty = all symbols."
+            list={toList(data?.multitouch_symbols)}
+            onSave={(l) => update.mutate({ multitouch_symbols: l.join(",") })}
+          />
+          <ExemptListEditor
+            label="4h RC SHORT — symbols"
+            hint="The 4h failed-break rejection short fires only for these. e.g. SPY, DRAM — add more anytime. Empty = none (the short is opt-in)."
+            list={toList(data?.rc_4h_short_symbols)}
+            onSave={(l) => update.mutate({ rc_4h_short_symbols: l.join(",") })}
+          />
+        </div>
       )}
     </Section>
   );

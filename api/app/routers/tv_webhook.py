@@ -324,6 +324,22 @@ def multitouch_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> boo
     return (symbol or "").upper() not in allowlist
 
 
+# Fallback when the config read fails — keep the rc_4h SHORT tight (opt-in),
+# never open it up to the whole watchlist on a DB hiccup.
+RC4H_SHORT_DEFAULT: frozenset[str] = frozenset({"SPY", "DRAM"})
+
+
+def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
+    """Decide whether the rc_4h SHORT (4h failed-break rejection) must be
+    suppressed for this symbol. Pure + tested. True ⇒ suppress. The short is
+    OPT-IN per symbol (Settings → 4h RC short; default SPY,DRAM). Unlike the
+    multitouch notice, an EMPTY allowlist means NONE — block everything (a
+    SHORT is opt-in, so a blank list must never deliver to the whole tape)."""
+    if not allowlist:
+        return True
+    return (symbol or "").upper() not in allowlist
+
+
 def crypto_pdl_blocks_buy(
     btc_above_pdl: Optional[bool],
     direction: Optional[str],
@@ -1099,6 +1115,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_gate_on = (_rc.get("spy_trend_gate_enabled", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
         # Multi-touch notice allowlist — blank/missing ⇒ empty set ⇒ all symbols.
         multitouch_symbols = _parse_exempt_syms(_rc.get("multitouch_symbols"))
+        # 4h RC short allowlist — opt-in; missing key ⇒ the SPY,DRAM default.
+        rc_4h_short_symbols = (
+            _parse_exempt_syms(_rc["rc_4h_short_symbols"])
+            if "rc_4h_short_symbols" in _rc else RC4H_SHORT_DEFAULT
+        )
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
@@ -1106,6 +1127,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_exempt = SPY_TREND_EXEMPT_DEFAULT
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
         multitouch_symbols = frozenset()   # read failed → don't restrict (fail-open)
+        rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
 
     if not _is_allowed_alert_type(alert_type_full, enabled_types):
         # Known type, just toggled OFF → record it (deduped) for EOD review:
@@ -1139,6 +1161,27 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return await _persist_unrouted(
             sig, alert_type_full, session_date,
             suppressed_reason="multitouch_symbol_filter",
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    # 4h RC rejection SHORT — per-symbol allowlist (2026-06-12)
+    # ──────────────────────────────────────────────────────────────────
+    # The rc_4h SHORT (failed break of the prior 4h high) is opt-in per symbol
+    # so it never shorts the whole watchlist. Delivers ONLY for the allowlist
+    # (Settings → 4h RC short; default SPY,DRAM — extend live). Everything else
+    # records as not-routed so you can still see candidates to add.
+    if (
+        alert_type_full == "tv_rc_4h"
+        and (sig.direction or "").upper() in ("SHORT", "SELL")
+        and rc4_short_symbol_blocks(sig.symbol, rc_4h_short_symbols)
+    ):
+        logger.info(
+            "TV webhook: rc_4h SHORT not in symbol allowlist — suppressed for %s",
+            sig.symbol,
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason="rc4_short_symbol_filter",
         )
 
     # ──────────────────────────────────────────────────────────────────
@@ -1881,6 +1924,12 @@ async def _route_alert(sig) -> tuple[bool, Optional[str]]:
     # bounce long). Delivery is shaped downstream by the SPY-trend gate + dedup,
     # not by an index whitelist.
     if rule_full.startswith("tv_ma_") and "short" in rule_full:
+        return True, None
+
+    # 4h RC rejection SHORT — symbol-gated by its own Settings allowlist
+    # (rc_4h_short_symbols, default SPY,DRAM), applied downstream, NOT by the
+    # structural index whitelist. Let it pass here so the allowlist decides.
+    if rule_full == "tv_rc_4h":
         return True, None
 
     # Structural shorts (PDL break / PDH rejection …) stay INDEX-only for now.
