@@ -123,6 +123,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # swing signal from the WkStage indicator (weekly chart): RC = undercut &
     # reclaim bottoming. Default OFF — context for the swing book.
     ("weekly_stage", "Weekly Stage — RC / BUY / ADD / EXIT (long-term · info)", "Weekly trend", False),
+    # RC2 (2026-06-12) — DEEPER weekly reclaim: undercut & reclaim of the prior
+    # 2-WEEK low (vs RC's prior-1-week). Earlier entry on a stronger reversal,
+    # stop = the weekly low. Distinct rule so it's separable from weekly_stage RC.
+    ("weekly_rc2", "Weekly RC2 — 2-week low reclaim (deeper grab, long)", "Weekly trend", False),
 
     # Notice (gap_zone) RETIRED 2026-06-09 — structural-levels focus. Context,
     # not entries; still drawn on the visual indicators. Moved to
@@ -199,6 +203,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "multitouch_level": "SPY closed across a level the market has tested 3+ times (from the MultiTB indicator) — informational heads-up that a heavily-defended level just flipped; the higher the touch count, the more it matters. Not a trade trigger.",
     "gap_zone": "Price entered (testing) or filled an unfilled gap on SPY/NBIS (from the Gaps indicator) — a green gap below is support, a red gap above is resistance; entering = watch for bounce/reject, filled = the void is closed. Informational, not a trade trigger.",
     "weekly_stage": "Weekly long-term signal from the WkStage indicator (set on the weekly chart): RC (undercut & reclaim bottoming), BUY (close above a rising 30-week MA), ADD (pullback to the rising MA), or EXIT (weekly close below the trailing stop). Each carries the entry + structural stop. For the long-term/swing book — size off the stop.",
+    "weekly_rc2": "Deeper weekly reclaim — price undercut its prior 2-WEEK low (the lowest of the last two weekly lows) and closed back above it. A stronger reversal tell than the 1-week RC, and an earlier entry: stop = the current weekly low (the level just swept). For the swing book — size off that tight stop.",
     "rc_4h": "4h reversal/continuation reclaims (whole watchlist): RC LONG (wicked below the prior 4h low then closed back above — swept low / bounce), RC-H (dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long), and RC SHORT (wicked above the prior 4h high then closed back below — failed break, SPY/QQQ only). Stop = the wick / retest low. A heads-up — eyeball the 4h and decide; not every one is an entry.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
