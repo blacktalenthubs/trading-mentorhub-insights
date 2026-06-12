@@ -1769,11 +1769,11 @@ if wk_alerts and wk_add and not wk_add[1]
     alert(wadp, alert.freq_once_per_bar_close)
 if wk_alerts and wk_rcb and not wk_rcb[1]
     wrbn = "RC · bottoming (undercut & reclaim, below MA) · stop " + str.tostring(wk_low, format.mintick)
-    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrbp, alert.freq_once_per_bar_close)
 if wk_alerts and wk_rca and not wk_rca[1]
     wran = "rc · in-uptrend dip-reclaim (above MA) · stop " + str.tostring(wk_low, format.mintick)
-    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
+    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrap, alert.freq_once_per_bar_close)
 if wk_alerts and wk_exit and not wk_exit[1]
     wxn = "EXIT · weekly close below the trail " + str.tostring(wk_trail, format.mintick)
@@ -1803,7 +1803,7 @@ rc4_newbar = ta.change(time("240")) != 0
 
 if rc4_alerts and rc4_newbar and rc4_long
     rcln = "RC · RECLAIM FROM LOW — 4h undercut & reclaim of the prior 4h low · stop = 4h low " + str.tostring(rc4_low, format.mintick)
-    rclp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"NOTICE","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rcln + '","fired_at":"' + str.tostring(timenow) + '"}'
+    rclp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"BUY","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rcln + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(rclp, alert.freq_once_per_bar_close)
 if rc4_alerts and rc4_newbar and rc4_is_idx and rc4_short
     rcsn = "RC · REJECTION AT HIGH — 4h failed break of the prior 4h high · stop = 4h high " + str.tostring(rc4_high, format.mintick)
