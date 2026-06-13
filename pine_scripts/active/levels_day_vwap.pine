@@ -1754,20 +1754,13 @@ f_wkstage() =>
     _add = _rising and _above and _inzone and (low[1] > _m[1] * (1.0 + wk_ma_buf / 100.0))
     // close > open (GREEN week) required — a reclaim that closes the week DOWN
     // (red) is a weak/false reclaim (OKLO + GOOGL 2026-06-08 both swept the level
-    // but closed red). Applies to RC and RC2.
+    // but closed red). A real reclaim finishes the week up.
     _rcbase = (low < low[1]) and (close > low[1]) and (close > open) and (not na(_m))
-    // RC2 — DEEPER grab: undercut & reclaim of the prior 2-WEEK low (lowest of
-    // the last two weekly lows). Earlier entry on a stronger reversal, with the
-    // stop still the current weekly low. RC2 wins on bars where both lows fall.
-    _2wlow = math.min(low[1], low[2])
-    _rcbase2 = (not na(low[2])) and (low < _2wlow) and (close > _2wlow) and (close > open) and (not na(_m))
-    _rcb = _rcbase and (not _rcbase2) and (close < _m)
-    _rca = _rcbase and (not _rcbase2) and (close >= _m)
-    _rcb2 = _rcbase2 and (close < _m)
-    _rca2 = _rcbase2 and (close >= _m)
-    [_m, _b, _x, _trail, _add, _rcb, _rca, low, _rcb2, _rca2]
+    _rcb = _rcbase and (close < _m)
+    _rca = _rcbase and (close >= _m)
+    [_m, _b, _x, _trail, _add, _rcb, _rca, low]
 
-[wk_ma, wk_buy, wk_exit, wk_trail, wk_add, wk_rcb, wk_rca, wk_low, wk_rcb2, wk_rca2] = request.security(syminfo.tickerid, "W", f_wkstage(), lookahead = barmerge.lookahead_off)
+[wk_ma, wk_buy, wk_exit, wk_trail, wk_add, wk_rcb, wk_rca, wk_low] = request.security(syminfo.tickerid, "W", f_wkstage(), lookahead = barmerge.lookahead_off)
 
 if wk_alerts and wk_buy and not wk_buy[1]
     wbn = "BUY · Stage 2 (close above rising 30wMA) · stop " + str.tostring(wk_trail, format.mintick)
@@ -1785,14 +1778,6 @@ if wk_alerts and wk_rca and not wk_rca[1]
     wran = "rc · in-uptrend dip-reclaim (above MA) · stop " + str.tostring(wk_low, format.mintick)
     wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrap, alert.freq_once_per_bar_close)
-if wk_alerts and wk_rcb2 and not wk_rcb2[1]
-    wrb2n = "RC2 · DEEPER grab — undercut & reclaim of the 2-week low (below MA, bottoming) · stop " + str.tostring(wk_low, format.mintick)
-    wrb2p = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc2","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrb2n + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wrb2p, alert.freq_once_per_bar_close)
-if wk_alerts and wk_rca2 and not wk_rca2[1]
-    wra2n = "RC2 · DEEPER grab — undercut & reclaim of the 2-week low (above MA, in-uptrend dip) · stop " + str.tostring(wk_low, format.mintick)
-    wra2p = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc2","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wra2n + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wra2p, alert.freq_once_per_bar_close)
 if wk_alerts and wk_exit and not wk_exit[1]
     wxn = "EXIT · weekly close below the trail " + str.tostring(wk_trail, format.mintick)
     wxp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_trail, format.mintick) + '","note":"' + wxn + '","fired_at":"' + str.tostring(timenow) + '"}'
