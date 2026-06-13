@@ -1,0 +1,43 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Momentum — RSI 70 + 5/20 EMA cross. Two DAILY momentum triggers.
+// ─────────────────────────────────────────────────────────────────────────────
+// RSI is only useful at the extremes; this fires the BULLISH one — a daily close
+// pushing RSI above 70 often kicks off a parabolic run (MU → 85 RSI). Plus the
+// classic Steve Burns 5/20 EMA bullish cross, which frequently starts a
+// sustained up-move. Both computed on the DAILY via request.security so they
+// fire the same on any chart timeframe; once per daily signal (and not [1]).
+//
+//   ▲ RSI70 (orange) — daily RSI(14) crosses ABOVE 70.
+//   ▲ 5/20  (lime)   — daily 5 EMA crosses ABOVE the 20 EMA.
+//
+// Pine v5: HTF logic wrapped in one function, pulled once via request.security;
+// single-line alert() payloads matching the backend schema. NOTE: the daily
+// value develops intraday, so a signal can be provisional until the daily close.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Momentum — RSI 70 + 5/20 EMA cross", "Momentum", overlay = true, max_labels_count = 100)
+
+fire    = input.bool(true, "Fire alerts")
+show_ma = input.bool(true, "Plot daily 5 / 20 EMA")
+
+f_daily() =>
+    r   = ta.rsi(close, 14)
+    e5  = ta.ema(close, 5)
+    e20 = ta.ema(close, 20)
+    rsi70 = ta.crossover(r, 70.0)
+    cross = ta.crossover(e5, e20)
+    [rsi70, cross, e5, e20, r]
+
+[d_rsi70, d_cross, d_e5, d_e20, d_rsi] = request.security(syminfo.tickerid, "D", f_daily(), lookahead = barmerge.lookahead_off)
+
+if fire and d_rsi70 and not d_rsi70[1]
+    pr = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_70","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI 70 — daily RSI crossed above 70; a close above 70 can begin a parabolic run","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(pr, alert.freq_once_per_bar_close)
+if fire and d_cross and not d_cross[1]
+    pc = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(d_e20, format.mintick) + '","note":"5/20 EMA bullish cross (Steve Burns) — 5 EMA crossed above the 20 EMA; can start a sustained up-move","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(pc, alert.freq_once_per_bar_close)
+
+plot(show_ma ? d_e5  : na, "EMA 5 (D)",  color = color.new(color.yellow, 0), linewidth = 2)
+plot(show_ma ? d_e20 : na, "EMA 20 (D)", color = color.new(color.green, 0),  linewidth = 2)
+plotshape(d_rsi70 and not d_rsi70[1], title = "RSI70", style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0), text = "RSI70", size = size.small)
+plotshape(d_cross and not d_cross[1], title = "5x20",  style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),   text = "5/20", size = size.small)
