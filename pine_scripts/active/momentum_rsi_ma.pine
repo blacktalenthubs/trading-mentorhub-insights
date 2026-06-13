@@ -42,10 +42,10 @@ if fire and rsi70
     pr = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_70","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI 70 — daily close pushed RSI above 70; a close above 70 can begin a parabolic run","fired_at":"' + str.tostring(timenow) + '"}'
     alert(pr, alert.freq_once_per_bar_close)
 if fire and cross
-    pc = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(e20, format.mintick) + '","note":"5/20 EMA bullish cross (Steve Burns) — daily 5 EMA crossed above the 20 EMA; can start a sustained up-move","fired_at":"' + str.tostring(timenow) + '"}'
+    pc = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(e20, format.mintick) + '","note":"5/20 EMA bullish cross (Steve Burns) — daily 5 EMA crossed above the 20. STOP = 5/20 cross-under at the close (~20 EMA). Target = RSI 70","fired_at":"' + str.tostring(timenow) + '"}'
     alert(pc, alert.freq_once_per_bar_close)
 if fire and os_recover
-    po = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI oversold buy zone — daily RSI closed in the 30-35 zone (reclaimed 30 or holding above it; NEVER below 30 = no knife). Buy the turn/hold, esp. mega caps","fired_at":"' + str.tostring(timenow) + '"}'
+    po = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30). T1 = RSI 50, T2 = RSI 70. STOP = daily close back under RSI 30 (the NFLX stop-out)","fired_at":"' + str.tostring(timenow) + '"}'
     alert(po, alert.freq_once_per_bar_close)
 
 plot(show_ma ? e5  : na, "EMA 5",  color = color.new(color.yellow, 0), linewidth = 2)
