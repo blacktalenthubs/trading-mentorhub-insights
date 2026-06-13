@@ -104,6 +104,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
     ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
 
+    # Momentum (2026-06-13) — daily RSI/EMA triggers from the Momentum Pine. RSI
+    # is only useful at extremes; rsi_70 fires the bullish one (a close above 70
+    # can start a parabola). ema_5_20_cross = the Steve Burns 5/20 EMA cross.
+    ("rsi_70", "RSI 70 — daily RSI crossed above 70 (momentum)", "Momentum", False),
+    ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Momentum", False),
+
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
     # heavy volume. Default OFF — record + watch the count before delivering.
@@ -203,6 +209,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "multitouch_level": "SPY closed across a level the market has tested 3+ times (from the MultiTB indicator) — informational heads-up that a heavily-defended level just flipped; the higher the touch count, the more it matters. Not a trade trigger.",
     "gap_zone": "Price entered (testing) or filled an unfilled gap on SPY/NBIS (from the Gaps indicator) — a green gap below is support, a red gap above is resistance; entering = watch for bounce/reject, filled = the void is closed. Informational, not a trade trigger.",
     "weekly_stage": "Weekly long-term signal from the WkStage indicator (set on the weekly chart): RC (undercut & reclaim bottoming), BUY (close above a rising 30-week MA), ADD (pullback to the rising MA), or EXIT (weekly close below the trailing stop). Each carries the entry + structural stop. For the long-term/swing book — size off the stop.",
+    "rsi_70": "Daily RSI(14) just crossed above 70 — momentum/exhaustion gauge at the bullish extreme. A close above 70 often kicks off a parabolic run (e.g. MU → 85 RSI). A heads-up to look, not a defended entry; it has no structural stop of its own.",
+    "ema_5_20_cross": "The daily 5 EMA just crossed above the 20 EMA (Steve Burns's 5/20 cross) — a short-term trend flip that frequently starts a sustained up-move. Stop = the 20 EMA (the level that has to hold for the cross to stay valid).",
     "rc_4h": "4h reversal/continuation reclaims (whole watchlist): RC LONG (wicked below the prior 4h low then closed back above — swept low / bounce), RC-H (dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long), and RC SHORT (wicked above the prior 4h high then closed back below — failed break, SPY/QQQ only). Stop = the wick / retest low. A heads-up — eyeball the 4h and decide; not every one is an entry.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.

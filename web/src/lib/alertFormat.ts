@@ -31,6 +31,8 @@ export function formatSetup(alertType?: string): string {
     htf_support_held: "HTF support held",
     htf_proximity: "HTF proximity",
     pullback_long: "Pullback continuation",
+    rsi_70: "RSI 70 — momentum",
+    ema_5_20_cross: "5/20 EMA cross",
   };
   return NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
