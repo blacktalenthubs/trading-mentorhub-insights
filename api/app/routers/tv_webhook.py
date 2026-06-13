@@ -181,6 +181,16 @@ INDEX_REGIME_ALLOWLIST: frozenset[str] = frozenset(
     if s.strip()
 )
 
+# Swing book (2026-06-13) — the daily-close momentum/RSI alerts are SWING trades
+# (multi-day holds), a different book from the intraday day-trade entries. The
+# SPY-vs-PDL gate is a DAY-TRADE protection (intraday dips get knifed in a weak
+# tape); it does NOT apply to a multi-day swing thesis (and gating the oversold
+# bounce in a selloff would suppress it exactly when it's best). So these bypass
+# the gate entirely — they fire regardless of SPY's intraday PDL state.
+SWING_ALERT_TYPES: frozenset[str] = frozenset({
+    "tv_rsi_70", "tv_ema_5_20_cross", "tv_rsi_oversold",
+})
+
 
 def spy_pdl_blocks_buy(
     spy_above_pdl: Optional[bool],
@@ -1199,6 +1209,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_gate_on
         and not _is_crypto_symbol(sig.symbol)
         and (sig.direction or "").upper() == "BUY"
+        and alert_type_full not in SWING_ALERT_TYPES   # swing book bypasses the day-trade gate
         and (sig.symbol or "").upper() not in spy_trend_exempt
     ):
         _below_pdl = await asyncio.get_running_loop().run_in_executor(
