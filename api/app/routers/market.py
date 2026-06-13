@@ -915,30 +915,20 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
         label, last_price, pdl, pdl_src, below_pdl,
     )
 
-    # Range-relative first: below PDL = broke the floor (stand down); inside the
-    # prior range (neither PDH nor PDL broken) = INSIDE DAY regardless of the
-    # intraday VWAP slope — you're range-bound until a level breaks. Only when
-    # price is OUTSIDE the realized range do we fall back to a slope read.
+    # Regime = price vs PDL, the clean binary (2026-06-13). SPY held its PDL
+    # through the whole advance; losing it is where trouble starts. ABOVE PDL =
+    # HEALTHY (dip-buys flow); BELOW PDL = WEAK (dips get knifed — longs gated,
+    # shorts flow). The old INSIDE-DAY / VWAP-slope labels mislabeled a healthy
+    # above-PDL tape as "NEUTRAL" (Friday 06-12). inside_day stays in the dict
+    # below as context, but no longer drives the headline regime.
     if below_pdl:
-        bias = "STAND_DOWN"
-        bias_label = f"Stand down — {label} below its prior-day low (broad-tape breakdown)"
-        bias_color = "red"
-    elif inside_day:
-        bias = "WAIT"
-        bias_label = "Inside day — within prior range (neither PDH nor PDL broken); wait for a break"
-        bias_color = "amber"
-    elif slope_pct >= 0.05 and last_price > last_vwap:
-        bias = "LONG"
-        bias_label = "Long bias — VWAP rising, price above"
-        bias_color = "green"
-    elif slope_pct <= -0.05 and last_price < last_vwap:
-        bias = "STAND_DOWN"
-        bias_label = "Stand down — VWAP falling, price below"
+        bias = "WEAK"
+        bias_label = f"WEAK — {label} below its prior-day low (dips get knifed; longs gated)"
         bias_color = "red"
     else:
-        bias = "NEUTRAL"
-        bias_label = "Neutral — no clean direction"
-        bias_color = "gray"
+        bias = "HEALTHY"
+        bias_label = f"HEALTHY — {label} holding above its prior-day low"
+        bias_color = "green"
 
     # RSI context (daily) — informs sizing, not a gate. <= 30 oversold,
     # >= 70 overbought (standard 30/70 bands).

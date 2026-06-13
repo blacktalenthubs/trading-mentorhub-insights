@@ -1185,31 +1185,34 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         )
 
     # ──────────────────────────────────────────────────────────────────
-    # SPY-trend gate (2026-06-09) — SPY below BOTH its 8 & 21 EMA
+    # SPY-vs-PDL gate (2026-06-13) — regime = SPY vs its prior-day low. When SPY
     # ──────────────────────────────────────────────────────────────────
-    # Non-trending tape → the whole watchlist is meaningless chop. When SPY rolls
-    # over (below its 8 AND 21), suppress EVERY alert — long, short AND notice —
-    # on every equity EXCEPT the exempt set (Settings → SPY trend gate; default
-    # SPY/QQQ/DRAM/NVDA). Only those names alert, in any form. Crypto unaffected
-    # (doesn't follow SPY). Fail-open: gate off / SPY data missing ⇒ no block.
+    # is BELOW its PDL the tape is WEAK and dip-buys get knifed (stopped out too
+    # often), so suppress LONG (BUY) entries on every equity EXCEPT the exempt
+    # set (Settings → SPY trend gate; default SPY/QQQ/DRAM/NVDA). SHORTS + notices
+    # FLOW (a weak tape is the short side). Above PDL = healthy → everything
+    # flows. Crypto unaffected. Fail-open: gate off / SPY data missing ⇒ no block.
+    # Replaced the 8/21-EMA gate — PDL is the cleaner, forward-looking signal
+    # (SPY held its PDL through the whole advance; losing it is where trouble
+    # starts). The pdl predicate + reader were kept unwired since #169 for this.
     if (
         spy_trend_gate_on
         and not _is_crypto_symbol(sig.symbol)
+        and (sig.direction or "").upper() == "BUY"
         and (sig.symbol or "").upper() not in spy_trend_exempt
     ):
-        _spy_below_8_21 = await asyncio.get_running_loop().run_in_executor(
-            None, _spy_below_8_21_now
+        _below_pdl = await asyncio.get_running_loop().run_in_executor(
+            None, _spy_below_pdl_now
         )
-        if spy_trend_blocks(
-            _spy_below_8_21, sig.direction, sig.symbol, spy_trend_exempt, spy_trend_gate_on
-        ):
+        _above_pdl = None if _below_pdl is None else (not _below_pdl)
+        if spy_pdl_blocks_buy(_above_pdl, sig.direction, sig.symbol, spy_trend_exempt):
             logger.info(
-                "TV webhook: SPY below 8&21 EMA — trend-gated %s %s for %s",
-                sig.direction, alert_type_full, sig.symbol,
+                "TV webhook: SPY below PDL — weak-tape gated BUY %s for %s",
+                alert_type_full, sig.symbol,
             )
             return await _persist_unrouted(
                 sig, alert_type_full, session_date,
-                suppressed_reason="spy_below_8_21",
+                suppressed_reason="spy_below_pdl",
             )
 
     # ──────────────────────────────────────────────────────────────────
