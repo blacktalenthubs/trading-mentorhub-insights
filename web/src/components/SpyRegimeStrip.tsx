@@ -49,15 +49,13 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
       {r.below_pdl && (
         <span className="font-semibold text-bearish-text">· ⛔ &lt; PDL · buys off</span>
       )}
-      {r.rsi != null && (
+      {rsiZoned && (
         <span
           className={
-            r.rsi_zone === "oversold" ? "text-accent font-semibold"
-            : r.rsi_zone === "overbought" ? "text-warning-text font-semibold"
-            : "text-text-faint"
+            r.rsi_zone === "oversold" ? "text-accent font-semibold" : "text-warning-text font-semibold"
           }
         >
-          · RSI {r.rsi}{rsiZoned ? ` ${r.rsi_zone}` : ""}
+          · RSI {r.rsi} {r.rsi_zone}
         </span>
       )}
       {r.stale && <span className="text-warning-text" title="Live fetch failed — last known regime.">⚠</span>}
