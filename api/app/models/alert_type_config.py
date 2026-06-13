@@ -104,14 +104,17 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
     ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
 
-    # Momentum (2026-06-13) — daily RSI/EMA triggers from the Momentum Pine, all
-    # fired at the DAILY CLOSE (towards EOD, ≤ once/day each — rare by design). RSI
-    # is only useful at extremes; rsi_70 = bullish (close above 70 can start a
-    # parabola), rsi_oversold = first close in the 30-35 buy zone (reclaimed 30 or
-    # holding above it — NEVER below 30, the knife), ema_5_20_cross = Steve Burns.
-    ("rsi_70", "RSI 70 — daily RSI crossed above 70 (momentum)", "Momentum", False),
-    ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Momentum", False),
-    ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Momentum", False),
+    # SWING book (2026-06-13) — daily-close momentum/RSI triggers from the Momentum
+    # Pine. These are SWING trades (multi-day holds, lower-risk R:R), a separate
+    # book from the intraday day-trade entries above — and they BYPASS the
+    # SPY-vs-PDL gate (a day-trade protection; see SWING_ALERT_TYPES in tv_webhook).
+    # All fire at the DAILY CLOSE (towards EOD, ≤ once/day each — rare). rsi_70 =
+    # bullish (close above 70 can start a parabola), rsi_oversold = first close in
+    # the 30-35 buy zone (reclaim 30 or hold — NEVER below 30), ema_5_20_cross =
+    # Steve Burns 5/20.
+    ("rsi_70", "RSI 70 — daily RSI crossed above 70 (momentum)", "Swing", False),
+    ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
+    ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
 
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
