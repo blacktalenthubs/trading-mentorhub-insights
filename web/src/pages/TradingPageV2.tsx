@@ -323,11 +323,15 @@ function SignalFeedTab({
   alertsError,
   onSelectSymbol,
   signalDate: _signalDate = "",
+  assetFilter = "all",
+  onAssetFilterChange,
 }: {
   alerts?: Alert[];
   alertsError: unknown;
   onSelectSymbol: (sym: string) => void;
   signalDate?: string;
+  assetFilter?: "all" | "stocks" | "crypto";
+  onAssetFilterChange?: (a: "all" | "stocks" | "crypto") => void;
 }) {
   const [search, setSearch] = useState("");
   // Sort options — persisted to localStorage so refresh doesn't reset.
@@ -361,7 +365,7 @@ function SignalFeedTab({
 
   // Which panel is showing: the live delivered feed, or the not-routed
   // (suppressed-for-review) panel. Suppressed alerts never appear in "live".
-  const [view, setView] = useState<"live" | "unrouted">("live");
+  const [view, setView] = useState<"live" | "unrouted" | "muted">("live");
 
   // Type hide-list — view-only. Set of alert_type strings to exclude from
   // the feed. Lets the user temporarily mute noisy types (e.g. historical
@@ -373,7 +377,9 @@ function SignalFeedTab({
       return new Set(raw ? (JSON.parse(raw) as string[]) : []);
     } catch { return new Set(); }
   });
-  const [typeFilterOpen, setTypeFilterOpen] = useState(false);
+  // One combined "Filters" popover holds asset class + grade + type hide-list,
+  // so the toolbar stays at two rows instead of four.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   function toggleHiddenType(t: string) {
     setHiddenTypes((prev) => {
       const next = new Set(prev);
@@ -424,6 +430,12 @@ function SignalFeedTab({
       !!a.suppressed_reason &&
       a.suppressed_reason !== "type_not_enabled" &&
       !a.suppressed_reason.startsWith("confluence_collapsed"),
+  );
+  // MUTED — types you've toggled OFF (suppressed_reason === "type_not_enabled").
+  // A shadow feed: they still fire + log, they just don't deliver. Surfaced here
+  // so you can watch a disabled type's record before deciding to turn it back on.
+  const mutedAlerts = (alerts ?? []).filter(
+    (a) => isFeedSignal(a.alert_type) && a.suppressed_reason === "type_not_enabled",
   );
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
@@ -492,7 +504,14 @@ function SignalFeedTab({
   ).slice().sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
-  const listAlerts = view === "unrouted" ? notRoutedVisible : visible;
+  const mutedVisible = (q
+    ? mutedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
+    : mutedAlerts
+  ).slice().sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  const listAlerts =
+    view === "unrouted" ? notRoutedVisible : view === "muted" ? mutedVisible : visible;
 
   // Grade chip — visual style per letter.
   const CHIP_STYLES: Record<GradeFilter, { active: string; inactive: string }> = {
@@ -514,166 +533,210 @@ function SignalFeedTab({
     },
   };
 
+  // How many filters are active right now (grade/types only count in the live
+  // feed — the not-routed view ignores them). Drives the Filters badge + chips.
+  const activeFilterCount =
+    (assetFilter !== "all" ? 1 : 0) +
+    (view === "live" && gradeFilter !== "all" ? 1 : 0) +
+    (view === "live" && hiddenTypes.size > 0 ? 1 : 0);
+  function clearAllFilters() {
+    onAssetFilterChange?.("all");
+    changeGradeFilter("all");
+    clearHiddenTypes();
+    setSearch("");
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Panel toggle — live delivered signals vs the not-routed review panel.
-          Suppressed alerts (SPY<PDL, chop…) live ONLY under "Not routed". */}
-      <div className="px-3 pt-2 shrink-0 flex items-center gap-1">
-        <button
-          onClick={() => setView("live")}
-          className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-colors ${
-            view === "live"
-              ? "bg-accent text-bg-base border-accent"
-              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
-          }`}
-        >
-          Signals <span className="opacity-70 font-normal">{feedAlerts.length}</span>
-        </button>
-        <button
-          onClick={() => setView("unrouted")}
-          className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-colors ${
-            view === "unrouted"
-              ? "bg-bearish text-bg-base border-bearish"
-              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
-          }`}
-          title="Recorded but not sent to Telegram/feed — SPY<PDL, chop, uptrend gate…"
-        >
-          Not routed <span className="opacity-70 font-normal">{notRoutedAlerts.length}</span>
-        </button>
+      {/* Row 1 — Signals / Not-routed segmented control + Sort */}
+      <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
+        <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
+          <button
+            onClick={() => setView("live")}
+            className={`px-2.5 py-1 transition-colors ${view === "live" ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+          >
+            Signals <span className="opacity-70 font-normal">{feedAlerts.length}</span>
+          </button>
+          <button
+            onClick={() => setView("unrouted")}
+            title="Recorded but not sent to Telegram/feed — SPY<PDL, chop, uptrend gate…"
+            className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${view === "unrouted" ? "bg-bearish text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+          >
+            Not routed <span className="opacity-70 font-normal">{notRoutedAlerts.length}</span>
+          </button>
+          <button
+            onClick={() => setView("muted")}
+            title="Alert types you've switched OFF — fired + logged but not delivered. Watch them here to judge whether to turn them back on."
+            className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${view === "muted" ? "bg-text-muted text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+          >
+            Muted <span className="opacity-70 font-normal">{mutedAlerts.length}</span>
+          </button>
+        </div>
+        <div className="ml-auto relative">
+          <button
+            onClick={() => setSortOpen((v) => !v)}
+            className="text-[10px] px-2 py-1 rounded border bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2 flex items-center gap-1"
+            title="Sort signals"
+          >
+            <span className="text-text-faint">Sort</span>
+            <span className="text-text-secondary font-medium">{SORT_LABELS[sortBy]}</span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {sortOpen && (
+            <>
+              <button className="fixed inset-0 z-30 cursor-default" onClick={() => setSortOpen(false)} aria-label="Close sort menu" />
+              <div className="absolute right-0 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[140px]">
+                {(["time", "grade", "vol", "slope", "symbol"] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => changeSort(opt)}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${sortBy === opt ? "bg-accent/15 text-accent" : "text-text-secondary hover:bg-surface-2"}`}
+                  >
+                    {SORT_LABELS[opt]}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Grade filter chips — live feed only; view-only, no routing effect */}
-      {view === "live" && (
-      <div className="px-3 pt-2 pb-1 shrink-0 flex items-center gap-1">
-        {(["all", "A", "B", "C"] as const).map((g) => {
-          const style = gradeFilter === g ? CHIP_STYLES[g].active : CHIP_STYLES[g].inactive;
-          const count = g === "all" ? feedAlerts.length : gradeCounts[g];
-          return (
-            <button
-              key={g}
-              onClick={() => changeGradeFilter(g)}
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${style}`}
-              title={g === "all" ? "Show all grades" : `Show Grade ${g} only`}
-            >
-              {g === "all" ? "All" : g} <span className="opacity-70 font-normal">{count}</span>
+      {/* Row 2 — Search (primary) + one Filters popover (asset · grade · types) */}
+      <div className="px-3 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-text-faint pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search symbol…"
+            className="w-full bg-surface-1 border border-border-subtle rounded pl-7 pr-6 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-faint hover:text-text-secondary" aria-label="Clear search">
+              <X className="h-3 w-3" />
             </button>
-          );
-        })}
-      </div>
-      )}
-
-      {/* Search + Types + Sort dropdowns — single row */}
-      <div className="px-3 pt-1 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search symbol…"
-          className="flex-1 bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
-        />
+          )}
+        </div>
         <button
-          onClick={() => setTypeFilterOpen((v) => !v)}
+          onClick={() => setFiltersOpen((v) => !v)}
           className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
-            hiddenTypes.size > 0
+            activeFilterCount > 0
               ? "bg-accent/10 text-accent border-accent/40 hover:bg-accent/15"
               : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
           }`}
-          title={hiddenTypes.size > 0 ? `${hiddenTypes.size} type(s) hidden — click to manage` : "Hide alert types from feed"}
+          title="Filter by asset, grade, and alert type"
         >
-          <span className="text-text-faint">Types</span>
-          {hiddenTypes.size > 0 && (
-            <span className="text-accent font-semibold">{typeOptions.length - hiddenTypes.size}/{typeOptions.length}</span>
+          <SlidersHorizontal className="h-3 w-3" />
+          <span>Filters</span>
+          {activeFilterCount > 0 && (
+            <span className="ml-0.5 min-w-[14px] text-center text-[9px] font-bold rounded-full bg-accent text-bg-base px-1">{activeFilterCount}</span>
           )}
-          <ChevronDown className="h-3 w-3" />
         </button>
-        <button
-          onClick={() => setSortOpen((v) => !v)}
-          className="shrink-0 text-[10px] px-2 py-1 rounded border bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2 flex items-center gap-1"
-          title="Sort signals"
-        >
-          <span className="text-text-faint">Sort:</span>
-          <span className="text-text-secondary font-medium">{SORT_LABELS[sortBy]}</span>
-          <ChevronDown className="h-3 w-3" />
-        </button>
-        {sortOpen && (
+        {filtersOpen && (
           <>
-            <button
-              className="fixed inset-0 z-30 cursor-default"
-              onClick={() => setSortOpen(false)}
-              aria-label="Close sort menu"
-            />
-            <div className="absolute right-3 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[140px]">
-              {(["time", "grade", "vol", "slope", "symbol"] as const).map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => changeSort(opt)}
-                  className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
-                    sortBy === opt
-                      ? "bg-accent/15 text-accent"
-                      : "text-text-secondary hover:bg-surface-2"
-                  }`}
-                >
-                  {SORT_LABELS[opt]}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-        {typeFilterOpen && (
-          <>
-            <button
-              className="fixed inset-0 z-30 cursor-default"
-              onClick={() => setTypeFilterOpen(false)}
-              aria-label="Close type filter"
-            />
-            <div className="absolute right-3 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[260px] max-h-[60vh] flex flex-col">
-              <div className="flex items-center justify-between px-3 py-1.5 border-b border-border-subtle bg-surface-2/40">
-                <span className="text-[10px] uppercase tracking-wide text-text-faint">Show / hide types</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => hideAllTypes(typeOptions.map(([t]) => t))}
-                    className="text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:cursor-default"
-                    disabled={typeOptions.length === 0 || hiddenTypes.size === typeOptions.length}
-                  >
-                    Hide all
-                  </button>
-                  <span className="text-text-faint">·</span>
-                  <button
-                    onClick={clearHiddenTypes}
-                    className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-30 disabled:cursor-default"
-                    disabled={hiddenTypes.size === 0}
-                  >
-                    Show all
-                  </button>
+            <button className="fixed inset-0 z-30 cursor-default" onClick={() => setFiltersOpen(false)} aria-label="Close filters" />
+            <div className="absolute right-3 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden w-[260px] max-h-[70vh] flex flex-col">
+              {/* Asset class */}
+              <div className="px-3 py-2 border-b border-border-subtle">
+                <div className="text-[9px] uppercase tracking-wide text-text-faint mb-1.5">Asset</div>
+                <div className="flex items-center gap-1">
+                  {(["all", "stocks", "crypto"] as const).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => onAssetFilterChange?.(k)}
+                      className={`flex-1 text-[10px] px-2 py-1 rounded border transition-colors ${assetFilter === k ? "bg-accent/15 text-accent border-accent/40" : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"}`}
+                    >
+                      {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className="overflow-y-auto">
-                {typeOptions.length === 0 ? (
-                  <p className="px-3 py-3 text-[11px] text-text-faint">No alerts in feed</p>
-                ) : typeOptions.map(([t, n]) => {
-                  const hidden = hiddenTypes.has(t);
-                  return (
-                    <label
-                      key={t}
-                      className="flex items-center gap-2 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-surface-2 transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={!hidden}
-                        onChange={() => toggleHiddenType(t)}
-                        className="h-3 w-3 accent-accent"
-                      />
-                      <span className={`flex-1 truncate ${hidden ? "text-text-faint line-through" : "text-text-secondary"}`}>
-                        {formatSetup(t)}
-                      </span>
-                      <span className="text-text-faint">{n}</span>
-                    </label>
-                  );
-                })}
-              </div>
+              {/* Grade — live feed only */}
+              {view === "live" && (
+                <div className="px-3 py-2 border-b border-border-subtle">
+                  <div className="text-[9px] uppercase tracking-wide text-text-faint mb-1.5">Grade</div>
+                  <div className="flex items-center gap-1">
+                    {(["all", "A", "B", "C"] as const).map((g) => {
+                      const count = g === "all" ? feedAlerts.length : gradeCounts[g];
+                      return (
+                        <button
+                          key={g}
+                          onClick={() => changeGradeFilter(g)}
+                          className={`flex-1 text-[10px] px-1.5 py-1 rounded border transition-colors ${gradeFilter === g ? CHIP_STYLES[g].active : CHIP_STYLES[g].inactive}`}
+                          title={g === "all" ? "All grades" : `Grade ${g}`}
+                        >
+                          {g === "all" ? "All" : g} <span className="opacity-70 font-normal">{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {/* Types — live feed only */}
+              {view === "live" && (
+                <>
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border-subtle bg-surface-2/40">
+                    <span className="text-[9px] uppercase tracking-wide text-text-faint">Alert types</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => hideAllTypes(typeOptions.map(([t]) => t))}
+                        className="text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:cursor-default"
+                        disabled={typeOptions.length === 0 || hiddenTypes.size === typeOptions.length}
+                      >
+                        Hide all
+                      </button>
+                      <span className="text-text-faint">·</span>
+                      <button
+                        onClick={clearHiddenTypes}
+                        className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-30 disabled:cursor-default"
+                        disabled={hiddenTypes.size === 0}
+                      >
+                        Show all
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-y-auto">
+                    {typeOptions.length === 0 ? (
+                      <p className="px-3 py-3 text-[11px] text-text-faint">No alerts in feed</p>
+                    ) : typeOptions.map(([t, n]) => {
+                      const hidden = hiddenTypes.has(t);
+                      return (
+                        <label key={t} className="flex items-center gap-2 px-3 py-1.5 text-[11px] cursor-pointer hover:bg-surface-2 transition-colors">
+                          <input type="checkbox" checked={!hidden} onChange={() => toggleHiddenType(t)} className="h-3 w-3 accent-accent" />
+                          <span className={`flex-1 truncate ${hidden ? "text-text-faint line-through" : "text-text-secondary"}`}>{formatSetup(t)}</span>
+                          <span className="text-text-faint">{n}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}
       </div>
+
+      {/* Row 3 — active filter chips (only shown when something is filtering) */}
+      {activeFilterCount > 0 && (
+        <div className="px-3 pb-1.5 shrink-0 flex flex-wrap items-center gap-1">
+          {assetFilter !== "all" && (
+            <button onClick={() => onAssetFilterChange?.("all")} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/15">
+              {assetFilter === "crypto" ? "Crypto" : "Stocks"} <X className="h-2.5 w-2.5" />
+            </button>
+          )}
+          {view === "live" && gradeFilter !== "all" && (
+            <button onClick={() => changeGradeFilter("all")} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/15">
+              Grade {gradeFilter} <X className="h-2.5 w-2.5" />
+            </button>
+          )}
+          {view === "live" && hiddenTypes.size > 0 && (
+            <button onClick={clearHiddenTypes} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/15">
+              {hiddenTypes.size} type{hiddenTypes.size > 1 ? "s" : ""} off <X className="h-2.5 w-2.5" />
+            </button>
+          )}
+          <button onClick={clearAllFilters} className="text-[10px] text-text-faint hover:text-text-secondary px-1">Clear all</button>
+        </div>
+      )}
 
       {alerts === undefined ? (
         // Still loading the initial fetch — show skeleton cards rather than
@@ -686,6 +749,8 @@ function SignalFeedTab({
           <p className="text-xs text-text-faint">
             {view === "unrouted"
               ? (q ? `No not-routed ${q} alerts` : "Nothing held back this session")
+              : view === "muted"
+              ? (q ? `No muted ${q} alerts` : "No muted-type alerts this session")
               : (q ? `No ${q} signals in this session` : "No signals in this session")}
           </p>
         </div>
