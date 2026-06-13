@@ -230,9 +230,13 @@ nearby_levels_csv_58 = array.join(nearby_parts_58, ",")
 // from-above pattern. Distinct from staged_pwh_break/pmh_break (retired
 // breakout-into-resistance) and from the existing htf_support_held (which
 // uses a wider tolerance band and no uptrend gate).
-s58_pdh_held = not na(pdh) and not na(close[1]) and close[1] > pdh and low <= pdh and close >= pdh
-s58_pwh_held = not na(pwh) and not na(close[1]) and close[1] > pwh and low <= pwh and close >= pwh
-s58_pmh_held = not na(pmh) and not na(close[1]) and close[1] > pmh and low <= pmh and close >= pmh
+// Issue #4 (2026-06-13) — OPEN-ABOVE only (mirror of the MA bounce). A "held"
+// fires only when price is ESTABLISHED ABOVE the level (the bar OPENED above it
+// = support), dipped to it, held. A rally UP into the level from below is
+// resistance (a target), not a held — so `open > level` replaces `close[1] >`.
+s58_pdh_held = not na(pdh) and open > pdh and low <= pdh and close >= pdh
+s58_pwh_held = not na(pwh) and open > pwh and low <= pwh and close >= pwh
+s58_pmh_held = not na(pmh) and open > pmh and low <= pmh and close >= pmh
 
 // Spec 58 (2026-05-23) — symmetric low-held-from-above detection.
 // Wick tested the prior low and closed back above without closing below
@@ -241,9 +245,9 @@ s58_pmh_held = not na(pmh) and not na(close[1]) and close[1] > pmh and low <= pm
 // first), but the wick-and-hold is a real event the trader wants to take.
 // Strict touch: low <= level. No tolerance noise. If the level fails on
 // a future bar, the existing _reclaim/_break alerts cover the next event.
-s58_pdl_held = not na(pdl) and not na(close[1]) and close[1] > pdl and low <= pdl and close >= pdl
-s58_pwl_held = not na(pwl) and not na(close[1]) and close[1] > pwl and low <= pwl and close >= pwl
-s58_pml_held = not na(pml) and not na(close[1]) and close[1] > pml and low <= pml and close >= pml
+s58_pdl_held = not na(pdl) and open > pdl and low <= pdl and close >= pdl
+s58_pwl_held = not na(pwl) and open > pwl and low <= pwl and close >= pwl
+s58_pml_held = not na(pml) and open > pml and low <= pml and close >= pml
 
 // Proximity bounce — fires when price comes NEAR the prior low without
 // actually touching it, then closes green. HOOD 2026-06-02 example: PDL
@@ -1243,11 +1247,26 @@ if fire_index_shorts and is_short_index and pdh_reject_short and not pdh_reject_
 // rules fire because there's no retest bar. Stop = first-15m low (NOT
 // the alert bar's low) — gap thesis breaks when price falls back through
 // the opening range, not when this individual bar dips.
-v2_gap_up_cont = fire_gap_up_v2 and (not na(today_open)) and (not na(pdh)) and today_open > pdh and close > pdh and high > today_open and (not na(vwap_v)) and close > vwap_v and (not na(vwap_slope_pct)) and vwap_slope_pct >= v2_break_slope_min and (not na(volume_ratio)) and volume_ratio >= v2_gap_vol_min and uptrend_pass_58 and (not na(bar1_low))
+// Issue #2 (2026-06-13) — fire ONCE, EARLY, not as a mid-day continuation. ARM
+// at the open when the session gapped completely above PDH; fire on the first
+// holding/green bar so the entry lands near the OPEN LOW. Stop = the FIXED open
+// low (not a drifting session min). INVALIDATE the setup if price breaks the
+// open low or trades back below PDH — a failed gap-and-go (NBIS 2026-06-12).
+var float gap_open_low = na
+var bool  gap_armed    = false
+var bool  gap_fired    = false
+if session_open_now
+    gap_open_low := low
+    gap_armed := (not na(pdh)) and (open > pdh)
+    gap_fired := false
+if gap_armed and ((not na(gap_open_low) and low < gap_open_low) or (not na(pdh) and close < pdh))
+    gap_armed := false
+v2_gap_up_cont = fire_gap_up_v2 and gap_armed and (not gap_fired) and (not na(pdh)) and close > pdh and close > open and (not na(vwap_v)) and close > vwap_v and (not na(vwap_slope_pct)) and vwap_slope_pct >= v2_break_slope_min and (not na(volume_ratio)) and volume_ratio >= v2_gap_vol_min and uptrend_pass_58
 
 if v2_gap_up_cont
+    gap_fired := true
     e_g = close
-    s_g = bar1_low - atr_buffer * 0.5
+    s_g = gap_open_low - atr_buffer * 0.5
     t1_g = not na(pwh) and pwh > e_g ? pwh : e_g * 1.02
     t2_g = not na(pmh) and pmh > t1_g ? pmh : t2_extend_long(e_g, t1_g)
     alert(build_payload_v2("gap_up_continuation_long", "BUY", e_g, s_g, t1_g, t2_g, true, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
@@ -1762,26 +1781,19 @@ f_wkstage() =>
 
 [wk_ma, wk_buy, wk_exit, wk_trail, wk_add, wk_rcb, wk_rca, wk_low] = request.security(syminfo.tickerid, "W", f_wkstage(), lookahead = barmerge.lookahead_off)
 
-if wk_alerts and wk_buy and not wk_buy[1]
-    wbn = "BUY · Stage 2 (close above rising 30wMA) · stop " + str.tostring(wk_trail, format.mintick)
-    wbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_trail, format.mintick) + '","note":"' + wbn + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wbp, alert.freq_once_per_bar_close)
-if wk_alerts and wk_add and not wk_add[1]
-    wadn = "ADD · pullback to the rising MA · stop = weekly close below MA " + str.tostring(wk_ma, format.mintick)
-    wadp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_ma, format.mintick) + '","note":"' + wadn + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wadp, alert.freq_once_per_bar_close)
+// Issue #3 (2026-06-13) — the generic "weekly_stage" BUY/ADD/EXIT/stage NOTICEs
+// were unclear / not actionable in the day-trade feed, so they're SUPPRESSED
+// (removed). Only the actionable weekly reclaim survives, now under its own
+// clear rule "weekly_rc" (was mislabeled "weekly_stage"). wk_buy/wk_add/wk_exit
+// stay in the tuple but no longer fire.
 if wk_alerts and wk_rcb and not wk_rcb[1]
-    wrbn = "RC · bottoming (undercut & reclaim, below MA) · stop " + str.tostring(wk_low, format.mintick)
-    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
+    wrbn = "Weekly RC · undercut & reclaim of the prior-week low (below 30wMA = bottoming, green week) · stop " + str.tostring(wk_low, format.mintick)
+    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrbp, alert.freq_once_per_bar_close)
 if wk_alerts and wk_rca and not wk_rca[1]
-    wran = "rc · in-uptrend dip-reclaim (above MA) · stop " + str.tostring(wk_low, format.mintick)
-    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
+    wran = "Weekly RC · in-uptrend dip-reclaim of the prior-week low (above 30wMA, green week) · stop " + str.tostring(wk_low, format.mintick)
+    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrap, alert.freq_once_per_bar_close)
-if wk_alerts and wk_exit and not wk_exit[1]
-    wxn = "EXIT · weekly close below the trail " + str.tostring(wk_trail, format.mintick)
-    wxp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_stage","direction":"NOTICE","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_trail, format.mintick) + '","note":"' + wxn + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wxp, alert.freq_once_per_bar_close)
 
 // ═══════════════════════════════════════════════════════════════════════
 // 4h RC alerts (spec 61, 2026-06-07) — undercut & reclaim on the 4h, fired

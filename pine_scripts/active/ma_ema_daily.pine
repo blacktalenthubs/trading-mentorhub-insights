@@ -304,14 +304,20 @@ recently_above_ma(float ma) =>
 // up through overhead stacks); re-introduced now that entries are UNGATED and
 // every alert ships `overhead_mas`, so the trader sees the resistance above and
 // judges the setup. Per-bar close vs the MA's own value — no stale-lookback.
+// Issue #1 (2026-06-13) — OPEN-ABOVE only. A trustworthy MA bounce requires
+// price to be ESTABLISHED ABOVE the MA (the bar OPENED above it = the MA is
+// support beneath), then dip to it and close back above. The RECLAIM path
+// (price below the MA, rallies UP through it) is DROPPED — that's buying
+// resistance, not a bounce. A break up through an MA from below is a level
+// reclaim with the MA as a TARGET, never an MA-bounce long.
 strict_long(float ma) =>
-    ok      = not na(ma) and not na(close[1])
-    hold    = ok and close[1] > ma and low <= ma and close > ma and close > open
-    reclaim = ok and close > ma and close[1] <= ma
-    hold or reclaim
+    not na(ma) and open > ma and low <= ma and close > ma
 
+// Mirror: price OPENED BELOW the MA (it's resistance above), rallied up to it,
+// closed back below = a rejection short. Not fired when price falls DOWN into
+// the MA from above (that's support being tested, not resistance).
 strict_short(float ma) =>
-    not na(ma) and high >= ma and close < ma and close < open
+    not na(ma) and open < ma and high >= ma and close < ma
 
 band_long(float ma) =>
     not na(ma) and recently_above_ma(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open

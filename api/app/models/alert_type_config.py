@@ -83,11 +83,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pwl_reclaim", "PWL reclaim", "Weekly", False),
     ("staged_pml_reclaim", "PML reclaim", "Monthly", False),
 
-    # Buy 2 — Prior-high reclaim — gap above the prior high, dip below it
-    # briefly, reclaim on a green bar (PLTR/AVGO/ORCL-style continuation).
-    ("staged_pdh_reclaim", "PDH reclaim", "Daily PDH/PDL", False),
-    ("staged_pwh_reclaim", "PWH reclaim", "Weekly", False),
-    ("staged_pmh_reclaim", "PMH reclaim", "Monthly", False),
+    # Buy 2 — Prior-high reclaim — price was ABOVE the prior high, LOST it
+    # (dipped below), then RECOVERED above it = the high now holds as support.
+    # NOT a break (rally up through from below = buying resistance — see #1/#5).
+    ("staged_pdh_reclaim", "PDH reclaim — lost & recovered as support", "Daily PDH/PDL", False),
+    ("staged_pwh_reclaim", "PWH reclaim — lost & recovered", "Weekly", False),
+    ("staged_pmh_reclaim", "PMH reclaim — lost & recovered", "Monthly", False),
 
     # 2026-06-01 — Anchored-VWAP family (MTD / prior-month / 2mo-prior)
     # REMOVED. AVWAP levels stay drawn on chart as visual reference only;
@@ -98,7 +99,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # rally from below is buying resistance/exhaustion. The trusted PDH entry
     # is staged_pdh_held (retest of PDH as support). staged_pdh/pwh_break live
     # in OBSOLETE_ALERT_TYPES. Gap-up (open ABOVE PDH) KEPT — separate, valid.
-    ("gap_up_continuation_long","Gap-up continuation (opened above PDH)", "v2 · Gap-and-go", False),
+    ("gap_up_continuation_long","Gap-and-go — opened above PDH, ran (stop = open low)", "Gap-and-go", False),
 
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
     ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
@@ -119,10 +120,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # SPY only to start. Default OFF — awareness, not a trade trigger.
     ("multitouch_level", "Multi-touch level cross (SPY · info)", "Multi-touch levels", False),
 
-    # Weekly Stage (RC / BUY / ADD / EXIT) — RE-ACTIVATED 2026-06-10. Long-term
-    # swing signal from the WkStage indicator (weekly chart): RC = undercut &
-    # reclaim bottoming. Default OFF — context for the swing book.
-    ("weekly_stage", "Weekly Stage — RC / BUY / ADD / EXIT (long-term · info)", "Weekly trend", False),
+    # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
+    # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
+    # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
+    # unclear/not-actionable and are SUPPRESSED (weekly_stage → OBSOLETE).
+    ("weekly_rc", "Weekly RC — prior-week low reclaim (green week, swing)", "Weekly trend", False),
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
     # Pulled from the Pine + alert + catalog (now in OBSOLETE_ALERT_TYPES).
 
@@ -290,11 +292,10 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # — structural focus). Only the monthly *break* stays retired here.
     "staged_pmh_break",
 
-    # Notice RETIRED 2026-06-09 — structural-levels focus; context, not entries.
-    # The Pine still emits it; the backend drops it as unknown/obsolete.
-    # (multitouch_level + weekly_stage RE-ACTIVATED 2026-06-10 — back in
-    # _BASE_CATALOG above. Only gap_zone stays retired.)
+    # gap_zone retired (structural-levels focus). weekly_stage RETIRED 2026-06-13
+    # (Issue #3 — unclear/not-actionable; only the reclaim survives as weekly_rc).
     "gap_zone",
+    "weekly_stage",
 
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
     "weekly_rc2",
