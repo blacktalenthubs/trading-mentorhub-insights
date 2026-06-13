@@ -33,6 +33,7 @@ export function formatSetup(alertType?: string): string {
     pullback_long: "Pullback continuation",
     rsi_70: "RSI 70 — momentum",
     ema_5_20_cross: "5/20 EMA cross",
+    rsi_oversold: "RSI oversold buy zone (30-35)",
   };
   return NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
