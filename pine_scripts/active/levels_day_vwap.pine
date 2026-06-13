@@ -1752,12 +1752,15 @@ f_wkstage() =>
         _inp := false
     _inzone = (not na(_m)) and (low <= _m * (1.0 + wk_ma_buf / 100.0)) and (close > _m)
     _add = _rising and _above and _inzone and (low[1] > _m[1] * (1.0 + wk_ma_buf / 100.0))
-    _rcbase = (low < low[1]) and (close > low[1]) and (not na(_m))
+    // close > open (GREEN week) required — a reclaim that closes the week DOWN
+    // (red) is a weak/false reclaim (OKLO + GOOGL 2026-06-08 both swept the level
+    // but closed red). Applies to RC and RC2.
+    _rcbase = (low < low[1]) and (close > low[1]) and (close > open) and (not na(_m))
     // RC2 — DEEPER grab: undercut & reclaim of the prior 2-WEEK low (lowest of
     // the last two weekly lows). Earlier entry on a stronger reversal, with the
     // stop still the current weekly low. RC2 wins on bars where both lows fall.
     _2wlow = math.min(low[1], low[2])
-    _rcbase2 = (not na(low[2])) and (low < _2wlow) and (close > _2wlow) and (not na(_m))
+    _rcbase2 = (not na(low[2])) and (low < _2wlow) and (close > _2wlow) and (close > open) and (not na(_m))
     _rcb = _rcbase and (not _rcbase2) and (close < _m)
     _rca = _rcbase and (not _rcbase2) and (close >= _m)
     _rcb2 = _rcbase2 and (close < _m)

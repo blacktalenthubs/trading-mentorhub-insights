@@ -70,11 +70,14 @@ f_wk() =>
         _inpos := false
     _inzone = (not na(_ma)) and (low <= _ma * (1.0 + ma_buf / 100.0)) and (close > _ma)
     _add = show_add and _rising and (_stage == 2) and _inzone and (low[1] > _ma[1] * (1.0 + ma_buf / 100.0))
-    _rcbase = (low < low[1]) and (close > low[1]) and (not na(_ma))
+    // close > open (GREEN week) required — a reclaim that closes the week DOWN
+    // (red) is weak/false (OKLO + GOOGL 2026-06-08: swept the level but closed
+    // red). A real reclaim finishes the week up.
+    _rcbase = (low < low[1]) and (close > low[1]) and (close > open) and (not na(_ma))
     // Prior 2-WEEK low = lowest of the last two weekly lows. A reclaim here is a
     // deeper liquidity grab (two weeks of stops taken, then recovered).
     _2wlow = math.min(low[1], low[2])
-    _rcbase2 = (not na(low[2])) and (low < _2wlow) and (close > _2wlow) and (not na(_ma))
+    _rcbase2 = (not na(low[2])) and (low < _2wlow) and (close > _2wlow) and (close > open) and (not na(_ma))
     // 1-week RC fires only when the 2-week low was NOT also taken — RC2 wins on
     // those bars so we don't double-stack a diamond on the same candle.
     _rcb = show_rc and _rcbase and (not _rcbase2) and (close < _ma)
