@@ -115,6 +115,30 @@ export function useRefreshConviction() {
   });
 }
 
+/** Sync the latest conviction scan's Strong-Buy names into the platform
+ *  watchlist (a "Conviction" group). The Pine acts on them via the TV
+ *  watchlist — push those separately (scripts/tv_sync.py or MCP). */
+export function useSyncConvictionWatchlist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ added: string[]; skipped: string[]; strong_buy: string[] }>(
+        "/screener/conviction/sync-watchlist",
+        {},
+      ),
+    onSuccess: (res) => {
+      const n = res.added.length;
+      toast.success(
+        n > 0
+          ? `Added ${n} Strong-Buy name${n === 1 ? "" : "s"} to your Conviction watchlist group`
+          : `Watchlist already up to date (${res.strong_buy.length} Strong-Buy names)`,
+      );
+      qc.invalidateQueries({ queryKey: ["watchlist"] });
+    },
+    onError: () => toast.error("Couldn't sync the conviction names to your watchlist"),
+  });
+}
+
 // --- Weekly Stage screener (Weinstein 30-week-MA stage) ---
 
 export function useWeeklyStage(runId?: number | null) {

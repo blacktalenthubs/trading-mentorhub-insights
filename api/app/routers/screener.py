@@ -10,11 +10,16 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from analytics import screener as scr
 from app.config import get_settings
+from app.database import get_db
 from app.dependencies import get_current_user, is_admin_user, require_pro
+from app.models.screener import ScreenerSnapshot
 from app.models.user import User
+from app.models.watchlist import WatchlistGroup, WatchlistItem
 from app.schemas.screener import SettingsOut, SettingsUpdate, SnapshotOut
 from app.services import screener_service as svc
 
@@ -153,6 +158,65 @@ async def refresh_conviction(background: BackgroundTasks, user: User = Depends(r
     curated universe, so it's heavier than swing — Pro-gated."""
     background.add_task(svc.refresh_conviction)
     return {"status": "conviction scan started"}
+
+
+@router.post("/conviction/sync-watchlist")
+async def sync_conviction_to_watchlist(
+    user: User = Depends(require_pro),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sync the latest conviction scan's STRONG-BUY names into the caller's
+    platform watchlist, under a "Conviction" group. Idempotent — names already
+    on the watchlist are left where they are. These strong-buy names tend to
+    move; getting them on the watchlist means the Pine (via the TV watchlist)
+    can act on their setups, and they show in the platform charts/feed.
+
+    NOTE: this populates the PLATFORM watchlist. Pushing the same names to the
+    TradingView watchlist (so the Pine fires) is a separate, local CDP step —
+    the cloud backend can't reach the desktop app. See analytics/tv_sync.py."""
+    snap = (await db.execute(
+        select(ScreenerSnapshot)
+        .where(ScreenerSnapshot.kind == "conviction")
+        .order_by(ScreenerSnapshot.captured_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if snap is None or not snap.entries:
+        return {"added": [], "skipped": [], "strong_buy": [], "group": "Conviction",
+                "message": "No conviction scan found — run a scan first."}
+
+    strong = [
+        (e.get("symbol") or "").upper()
+        for e in snap.entries
+        if str(e.get("rec_key", "")).lower() == "strong_buy" and e.get("symbol")
+    ]
+
+    grp = (await db.execute(
+        select(WatchlistGroup).where(
+            WatchlistGroup.user_id == user.id, WatchlistGroup.name == "Conviction"
+        )
+    )).scalar_one_or_none()
+    if grp is None:
+        grp = WatchlistGroup(user_id=user.id, name="Conviction", color="#7c3aed", sort_order=0)
+        db.add(grp)
+        await db.flush()
+
+    existing = {
+        it.symbol.upper()
+        for it in (await db.execute(
+            select(WatchlistItem).where(WatchlistItem.user_id == user.id)
+        )).scalars().all()
+    }
+    added, skipped = [], []
+    for sym in strong:
+        if sym in existing:
+            skipped.append(sym)
+            continue
+        db.add(WatchlistItem(user_id=user.id, symbol=sym, group_id=grp.id))
+        existing.add(sym)
+        added.append(sym)
+    await db.commit()
+    return {"added": added, "skipped": skipped, "strong_buy": strong,
+            "group": "Conviction", "captured_at": snap.captured_at}
 
 
 # --- Weekly Stage screener: Stan Weinstein 30-week-MA stage discovery ---
