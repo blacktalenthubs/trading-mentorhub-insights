@@ -99,11 +99,13 @@ async def _public_user_id(db: AsyncSession) -> int:
 
 @router.get("/eod-report/session-dates")
 async def public_session_dates(db: AsyncSession = Depends(get_db)):
-    """Return distinct session dates with alerts, newest first. Public."""
+    """Return distinct session dates that have DELIVERED signals, newest first.
+    Public. Dates with only muted/unrouted alerts (no delivered signal) are
+    excluded so the report's date picker matches the Signals feed."""
     uid = await _public_user_id(db)
     result = await db.execute(
         select(distinct(Alert.session_date))
-        .where(Alert.user_id == uid)
+        .where(Alert.user_id == uid, Alert.suppressed_reason.is_(None))
         .order_by(Alert.session_date.desc())
         .limit(90)
     )
@@ -116,18 +118,20 @@ async def public_alerts_for_date(
     symbol: Optional[str] = Query(default=None, description="Optional symbol filter (e.g., NVDA)"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return all alerts for a session date (admin user's stream). Public.
+    """Return the DELIVERED signals for a session date (admin user's stream). Public.
 
-    If `date` is omitted, returns the most recent session with alerts. If
-    `symbol` is provided, restricts to just that symbol for the per-stock
-    review view.
+    Only delivered alerts (suppressed_reason IS NULL) — the same set as the live
+    Signals feed. Muted (type_not_enabled) and unrouted (gated / confluence-
+    collapsed) rows are EXCLUDED, so the EOD report and its stats reflect what
+    actually fired, not what was held back. If `date` is omitted, returns the
+    most recent session with delivered signals. `symbol` restricts to one stock.
     """
     uid = await _public_user_id(db)
 
     if not date:
         latest = await db.execute(
             select(Alert.session_date)
-            .where(Alert.user_id == uid)
+            .where(Alert.user_id == uid, Alert.suppressed_reason.is_(None))
             .order_by(Alert.session_date.desc())
             .limit(1)
         )
@@ -136,6 +140,7 @@ async def public_alerts_for_date(
     stmt = select(Alert).where(
         Alert.user_id == uid,
         Alert.session_date == date,
+        Alert.suppressed_reason.is_(None),
     )
     if symbol:
         stmt = stmt.where(Alert.symbol == symbol.upper())
