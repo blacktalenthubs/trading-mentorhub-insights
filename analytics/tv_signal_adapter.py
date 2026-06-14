@@ -246,7 +246,13 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     raw_ma_tag = (payload.get("ma_tag") or "").strip()
     pretty_ma_tag = _format_ma_tag(raw_ma_tag)
 
-    msg_parts = [f"[TV] {rule}"]
+    # SWING tag — mirror of _is_swing_alert (api/.../tv_webhook.py): the daily
+    # RSI/EMA momentum rules + any slow-MA bounce (50/100/200, EMA or SMA). Surfaces
+    # "SWING" in the Telegram message + the feed description for ALL swing alerts.
+    is_swing = rule in ("rsi_70", "ema_5_20_cross", "rsi_oversold") or (
+        rule == "ma_bounce_long_v3" and any(s in raw_ma_tag for s in ("50", "100", "200"))
+    )
+    msg_parts = [f"[TV] {'SWING ' if is_swing else ''}{rule}"]
     if pretty_ma_tag:
         msg_parts.append(pretty_ma_tag)
     if interval_label:
