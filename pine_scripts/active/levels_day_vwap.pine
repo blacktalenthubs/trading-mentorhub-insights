@@ -1795,6 +1795,34 @@ if wk_alerts and wk_rca and not wk_rca[1]
     wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrap, alert.freq_once_per_bar_close)
 
+// ── Swing book (2026-06-13) — daily RSI/EMA momentum, folded in so it fires from
+// this one watchlist-bound Pine (keeps the user at max 2 bound Pines). SAME
+// payload pattern as every other alert; the ONLY difference is a "SWING" tag in
+// the note + the expected hold length. Computed on the DAILY; fired ONCE at the
+// RTH close (the 16:00 bar — the daily RSI/EMA are final there, so confirmed +
+// towards-EOD). Visual markers live in the standalone "Momentum" indicator.
+fire_swing = input.bool(true, "Fire swing momentum alerts (daily RSI / 5-20 EMA)", group = "Swing")
+f_swing() =>
+    _r   = ta.rsi(close, 14)
+    _e5  = ta.ema(close, 5)
+    _e20 = ta.ema(close, 20)
+    _rsi70 = ta.crossover(_r, 70.0)
+    _xc    = ta.crossover(_e5, _e20)
+    _inz   = (_r >= 30.0) and (_r <= 35.0)
+    _os    = _inz and not _inz[1]
+    [_rsi70, _xc, _os, _e20]
+[sw_rsi70, sw_cross, sw_os, sw_e20] = request.security(syminfo.tickerid, "D", f_swing(), lookahead = barmerge.lookahead_off)
+sw_eod = (hour(time_close, "America/New_York") == 16) and (minute(time_close, "America/New_York") == 0)
+if fire_swing and sw_eod and sw_rsi70
+    swp1 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_70","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"SWING · RSI 70 — daily close above 70; can begin a parabolic run","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(swp1, alert.freq_once_per_bar_close)
+if fire_swing and sw_eod and sw_cross
+    swp2 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(sw_e20, format.mintick) + '","note":"SWING · 5/20 EMA bullish cross (Steve Burns). STOP = 5/20 cross-under at the close (~20 EMA). Target = RSI 70","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(swp2, alert.freq_once_per_bar_close)
+if fire_swing and sw_eod and sw_os
+    swp3 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"SWING · RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30). T1 RSI 50, T2 RSI 70. STOP = daily close back under RSI 30","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(swp3, alert.freq_once_per_bar_close)
+
 // ═══════════════════════════════════════════════════════════════════════
 // 4h RC alerts (spec 61, 2026-06-07) — undercut & reclaim on the 4h, fired
 // through THIS indicator's alert. RC LONG (reclaim of the prior 4h low) and RC
