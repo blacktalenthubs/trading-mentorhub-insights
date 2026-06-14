@@ -1,55 +1,33 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// Momentum — RSI 70 + 5/20 EMA cross + RSI oversold-recovery.  RUN ON 1D.
+// Momentum — RSI 70 + 5/20 EMA cross + RSI oversold-recovery.  VISUAL ONLY.
 // ─────────────────────────────────────────────────────────────────────────────
-// RSI is only useful at the extremes; these fire the actionable ones. ALL fire
-// at the DAILY CLOSE via alert.freq_once_per_bar_close — a CONFIRMED, towards-EOD
-// signal (no intraday wobble) and, since a daily bar closes once, each fires AT
-// MOST ONCE PER DAY PER STOCK. They are meant to be rare.
+// This is a CHART OVERLAY, not an alert source — drop it on any chart (any TF) to
+// SEE the swing-momentum markers. The ALERTS for these fire from levels-day-vwap
+// (folded in there so the watchlist stays at max 2 bound Pines); this Pine has no
+// alert() calls. Markers here are computed on the chart's own bars for a quick
+// visual; the alerts use the confirmed DAILY close.
 //
-//   ▲ RSI70 (orange) — daily RSI(14) crosses ABOVE 70; a close above 70 can begin
-//                      a parabolic run (MU → 85). Fired at the close = confirmed.
-//   ▲ 5/20  (lime)   — daily 5 EMA crosses ABOVE the 20 EMA (Steve Burns) — often
-//                      the start of a sustained up-move. Stop = the 20 EMA.
-//   ▲ OS↑   (aqua)   — daily RSI closes in the 30–35 BUY ZONE: reclaimed 30 from
-//                      below, or dipped/holding in 30–35 from above. NEVER below 30
-//                      (the falling knife — RSI 29 is not a buy). Fires on the first
-//                      close into the zone. Washed-out quality/mega caps mean-revert
-//                      here. Sent as a BUY (not a notice) so it's prominent, not lost.
-//
-// Pine v5: single-line alert() payloads matching the backend schema. NOTE: bind
-// this on a DAILY (1D) chart so the alerts are daily-close events.
+//   ▲ RSI70 (orange) — RSI(14) crosses ABOVE 70 (parabolic ignition).
+//   ▲ 5/20  (lime)   — 5 EMA crosses ABOVE the 20 EMA (Steve Burns).
+//   ▲ OS    (aqua)   — RSI first closes in the 30–35 buy zone (never below 30).
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Momentum — RSI 70 / 5-20 cross / oversold-recovery", "Momentum", overlay = true, max_labels_count = 100)
+indicator("Momentum — RSI 70 / 5-20 cross / oversold (visual)", "Momentum", overlay = true, max_labels_count = 100)
 
-fire      = input.bool(true,  "Fire alerts")
 show_ma   = input.bool(true,  "Plot 5 / 20 EMA")
-os_floor = input.float(30.0, "Oversold zone FLOOR — NEVER buy below this RSI (knife)", minval = 20.0, maxval = 35.0, step = 1.0)
-os_ceil  = input.float(35.0, "Oversold zone CEILING — RSI at/under this is the buy zone", minval = 30.0, maxval = 45.0, step = 1.0)
+os_floor  = input.float(30.0, "Oversold zone FLOOR — never below this RSI", minval = 20.0, maxval = 35.0, step = 1.0)
+os_ceil   = input.float(35.0, "Oversold zone CEILING", minval = 30.0, maxval = 45.0, step = 1.0)
 
 r   = ta.rsi(close, 14)
 e5  = ta.ema(close, 5)
 e20 = ta.ema(close, 20)
 rsi70   = ta.crossover(r, 70.0)
 cross   = ta.crossover(e5, e20)
-// In the buy zone = RSI in [floor, ceil]. Fire on the FIRST daily close into it —
-// which is exactly "reclaimed 30 from below" OR "dipped/holding in 30–35 from
-// above"; never while RSI < 30 (the falling knife). Once per entry = rare.
 in_zone    = (r >= os_floor) and (r <= os_ceil)
 os_recover = in_zone and not in_zone[1]
-
-if fire and rsi70
-    pr = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_70","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI 70 — daily close pushed RSI above 70; a close above 70 can begin a parabolic run","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(pr, alert.freq_once_per_bar_close)
-if fire and cross
-    pc = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(e20, format.mintick) + '","note":"5/20 EMA bullish cross (Steve Burns) — daily 5 EMA crossed above the 20. STOP = 5/20 cross-under at the close (~20 EMA). Target = RSI 70","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(pc, alert.freq_once_per_bar_close)
-if fire and os_recover
-    po = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30). T1 = RSI 50, T2 = RSI 70. STOP = daily close back under RSI 30 (the NFLX stop-out)","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(po, alert.freq_once_per_bar_close)
 
 plot(show_ma ? e5  : na, "EMA 5",  color = color.new(color.yellow, 0), linewidth = 2)
 plot(show_ma ? e20 : na, "EMA 20", color = color.new(color.green, 0),  linewidth = 2)
 plotshape(rsi70,      title = "RSI70", style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0), text = "RSI70", size = size.small)
 plotshape(cross,      title = "5x20",  style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),   text = "5/20",  size = size.small)
-plotshape(os_recover, title = "OS",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),   text = "OS↑",   size = size.small)
+plotshape(os_recover, title = "OS",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),   text = "OS",    size = size.small)
