@@ -194,14 +194,16 @@ SWING_ALERT_TYPES: frozenset[str] = frozenset({
 
 def _is_swing_alert(alert_type: Optional[str]) -> bool:
     """A SWING entry (multi-day hold) — EXEMPT from the SPY-vs-PDL day-trade gate.
-    The daily RSI/EMA momentum rules, PLUS the 200-EMA MA bounce: a bounce off the
-    daily 200 EMA is a swing (Steve Burns's AMZN-style 200-day bounce → 50-day
-    target, held for days), not an intraday scalp. Fast-MA bounces (8/21/50) stay
-    day-trades and remain gated."""
+    The daily RSI/EMA momentum rules, PLUS the SLOW-SMA bounces — the 50 / 100 / 200
+    SMA. For those three levels the user trades the SMA (not the EMA) as a swing
+    (Steve Burns's AMZN-style 200-day-SMA bounce → 50-day target, held for days).
+    The only SMAs in the system are sma50/sma100/sma200 (the fast 8/21 are EMA-only),
+    so "sma" in a bounce type == a slow-SMA swing — exact. The fast EMA bounces
+    (8/21) and the 50/100/200 EMA bounces stay day-trades and remain gated."""
     at = (alert_type or "")
     if at in SWING_ALERT_TYPES:
         return True
-    if at.startswith("tv_ma_bounce_long_v3") and "ema200" in at:
+    if at.startswith("tv_ma_bounce_long_v3") and "sma" in at:
         return True
     return False
 
