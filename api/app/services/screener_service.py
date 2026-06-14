@@ -584,9 +584,63 @@ async def refresh_conviction() -> None:
         cands = await asyncio.to_thread(_gather_conviction)
         await _save_snapshot(cands, kind="conviction", market_open=False, top_n=get_settings().SCREENER_TOP_N)
         logger.info("conviction: snapshot refreshed (%d names)", len(cands))
+        await _autosync_conviction_watchlist()
     except Exception:
         logger.exception("conviction: refresh failed — marking last snapshot stale")
         await _mark_latest_stale("conviction")
+
+
+async def _autosync_conviction_watchlist() -> None:
+    """After a conviction scan, add the Strong-Buy names to the main (admin) user's
+    'Conviction' watchlist group — so running the scan auto-populates it. Reads the
+    just-saved snapshot (same dict shape as the API). Idempotent + fail-safe: any
+    error is logged and never breaks the scan."""
+    try:
+        from app.dependencies import ADMIN_EMAILS
+        from app.models.user import User
+        from app.models.watchlist import WatchlistGroup, WatchlistItem
+        async with async_session_factory() as s:
+            snap = (await s.execute(
+                select(ScreenerSnapshot).where(ScreenerSnapshot.kind == "conviction")
+                .order_by(desc(ScreenerSnapshot.id)).limit(1)
+            )).scalar_one_or_none()
+            if snap is None or not snap.entries:
+                return
+            strong = [
+                (e.get("symbol") or "").upper() for e in snap.entries
+                if str(e.get("rec_key", "")).lower() == "strong_buy" and e.get("symbol")
+            ]
+            if not strong:
+                return
+            uid = (await s.execute(
+                select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
+            )).scalar_one_or_none()
+            if uid is None:
+                return
+            grp = (await s.execute(
+                select(WatchlistGroup).where(
+                    WatchlistGroup.user_id == uid, WatchlistGroup.name == "Conviction"
+                )
+            )).scalar_one_or_none()
+            if grp is None:
+                grp = WatchlistGroup(user_id=uid, name="Conviction", color="#7c3aed", sort_order=0)
+                s.add(grp)
+                await s.flush()
+            existing = {
+                it.symbol.upper() for it in (await s.execute(
+                    select(WatchlistItem).where(WatchlistItem.user_id == uid)
+                )).scalars().all()
+            }
+            added = 0
+            for sym in strong:
+                if sym not in existing:
+                    s.add(WatchlistItem(user_id=uid, symbol=sym, group_id=grp.id))
+                    existing.add(sym)
+                    added += 1
+            await s.commit()
+            logger.info("conviction: auto-synced %d Strong-Buy names to admin watchlist", added)
+    except Exception:
+        logger.exception("conviction: watchlist auto-sync failed (non-fatal)")
 
 
 async def get_latest_conviction() -> ScreenerSnapshot | None:

@@ -208,6 +208,35 @@ def _is_swing_alert(alert_type: Optional[str]) -> bool:
     return False
 
 
+async def _conviction_strong_buy(db) -> set:
+    """Symbols on the latest conviction scan's STRONG-BUY list (analyst-backed),
+    cached per-process (30 min). Used to flag alerts on high-conviction names: a
+    Pine setup on a Strong-Buy name = strong fundamentals + timing in one signal."""
+    from app.cache import cache_get, cache_set
+    cached = cache_get("conviction_strong_buy")
+    if cached is not None:
+        return cached
+    out: set = set()
+    try:
+        from app.models.screener import ScreenerSnapshot
+        snap = (await db.execute(
+            select(ScreenerSnapshot)
+            .where(ScreenerSnapshot.kind == "conviction")
+            .order_by(ScreenerSnapshot.captured_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if snap and snap.entries:
+            out = {
+                (e.get("symbol") or "").upper()
+                for e in snap.entries
+                if str(e.get("rec_key", "")).lower() == "strong_buy" and e.get("symbol")
+            }
+    except Exception:
+        out = set()
+    cache_set("conviction_strong_buy", out, 1800)
+    return out
+
+
 def spy_pdl_blocks_buy(
     spy_above_pdl: Optional[bool],
     direction: Optional[str],
@@ -1469,6 +1498,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         if not users:
             logger.info("TV webhook: no users watching %s", sig.symbol)
             return {"dispatched": False, "reason": "no_subscribers"}
+
+        # ⭐ CONVICTION — flag the alert when the symbol is on the latest conviction
+        # scan's Strong-Buy list (analyst-backed). The Pine setup is the trigger;
+        # conviction is the quality overlay — strong fundamentals + timing, one line.
+        if (sig.symbol or "").upper() in await _conviction_strong_buy(db):
+            sig.message = "⭐ CONVICTION — " + (sig.message or "")
 
         # Persist all alerts in one transaction; collect (user, alert) pairs
         # for the notification fan-out which happens AFTER commit so we don't
