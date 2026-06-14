@@ -8,7 +8,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Gem, RefreshCw, History, Plus, Check, Layers } from "lucide-react";
 import {
-  useConviction, useConvictionHistory, useRefreshConviction,
+  useConviction, useConvictionHistory, useRefreshConviction, useSyncConvictionWatchlist,
   useAddSymbol, useWatchlist,
   useWeeklyStage, useRefreshWeeklyStage,
 } from "../api/hooks";
@@ -278,6 +278,7 @@ function ConvictionView() {
   const { data, isLoading, isError } = useConviction(runId);
   const history = useConvictionHistory();
   const refresh = useRefreshConviction();
+  const syncWatchlist = useSyncConvictionWatchlist();
   const { isPro } = useFeatureGate();
 
   const { data: watchlist } = useWatchlist();
@@ -401,6 +402,17 @@ function ConvictionView() {
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
                 {refresh.isPending ? "Scanning…" : "Run scan"}
+              </button>
+            )}
+            {isPro && (
+              <button
+                onClick={() => syncWatchlist.mutate()}
+                disabled={syncWatchlist.isPending}
+                title="Add the Strong-Buy names from this scan to your watchlist (a 'Conviction' group)"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 disabled:opacity-50 transition-colors"
+              >
+                <Plus className={`h-3.5 w-3.5 ${syncWatchlist.isPending ? "animate-pulse" : ""}`} />
+                {syncWatchlist.isPending ? "Syncing…" : "Sync Strong-Buy → watchlist"}
               </button>
             )}
           </div>
