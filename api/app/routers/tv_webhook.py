@@ -192,6 +192,20 @@ SWING_ALERT_TYPES: frozenset[str] = frozenset({
 })
 
 
+def _is_swing_alert(alert_type: Optional[str]) -> bool:
+    """A SWING entry (multi-day hold) — EXEMPT from the SPY-vs-PDL day-trade gate.
+    The daily RSI/EMA momentum rules, PLUS the 200-EMA MA bounce: a bounce off the
+    daily 200 EMA is a swing (Steve Burns's AMZN-style 200-day bounce → 50-day
+    target, held for days), not an intraday scalp. Fast-MA bounces (8/21/50) stay
+    day-trades and remain gated."""
+    at = (alert_type or "")
+    if at in SWING_ALERT_TYPES:
+        return True
+    if at.startswith("tv_ma_bounce_long_v3") and "ema200" in at:
+        return True
+    return False
+
+
 def spy_pdl_blocks_buy(
     spy_above_pdl: Optional[bool],
     direction: Optional[str],
@@ -1209,7 +1223,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_gate_on
         and not _is_crypto_symbol(sig.symbol)
         and (sig.direction or "").upper() == "BUY"
-        and alert_type_full not in SWING_ALERT_TYPES   # swing book bypasses the day-trade gate
+        and not _is_swing_alert(alert_type_full)   # swing book (incl. 200-EMA bounce) bypasses the day-trade gate
         and (sig.symbol or "").upper() not in spy_trend_exempt
     ):
         _below_pdl = await asyncio.get_running_loop().run_in_executor(
