@@ -93,19 +93,14 @@ def trial_days_remaining(user: User) -> int:
 
 
 def require_tier(minimum: str):
-    """Dependency factory — require user tier >= minimum."""
+    """Dependency factory — tier gate.
+
+    OPENED 2026-06-14 — every AUTHENTICATED user gets FULL platform access (no
+    paywall), per product decision: users should have full access. The `minimum`
+    arg is kept so all call sites (require_pro / require_premium) stay unchanged;
+    to re-enable tiers later, restore the has_access(...) check below. Admin-only
+    endpoints are unaffected (they gate on is_admin_user, not on tier)."""
     async def _check(user: User = Depends(get_current_user)) -> User:
-        user_tier = get_user_tier(user)
-        if not has_access(user_tier, minimum):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "upgrade_required",
-                    "required_tier": minimum,
-                    "current_tier": user_tier,
-                    "message": f"{minimum.title()} subscription required",
-                },
-            )
         return user
     return _check
 
