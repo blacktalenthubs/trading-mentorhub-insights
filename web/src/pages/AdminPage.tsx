@@ -253,6 +253,7 @@ export default function AdminPage() {
   }
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-text-primary">Admin</h1>
@@ -469,6 +470,7 @@ export default function AdminPage() {
 
       {/* ── Maintenance (collapsed) ── */}
       <MaintenanceDrawer />
+    </div>
     </div>
   );
 }
