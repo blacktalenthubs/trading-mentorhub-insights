@@ -38,6 +38,29 @@ def _is_test_account(email: str) -> bool:
     )
 
 
+def _real_user_clause():
+    """SQLAlchemy WHERE clause selecting REAL (non-test) users — the query-side
+    mirror of _is_test_account, so the platform-stats headline counts match the
+    filtered Users list."""
+    from sqlalchemy import not_, or_
+    return not_(or_(
+        User.email.ilike("%@smoketest.%"),
+        User.email.ilike("smoke-%"),
+        User.email.ilike("qa.%"),
+        User.email.ilike("%+test%"),
+        User.email.ilike("%@test.com"),
+        User.email.ilike("%@example.com"),
+    ))
+
+
+# Raw-SQL equivalent for the text() signup-count queries.
+_NOT_TEST_SQL = (
+    "email NOT ILIKE '%@smoketest.%' AND email NOT ILIKE 'smoke-%' "
+    "AND email NOT ILIKE 'qa.%' AND email NOT ILIKE '%+test%' "
+    "AND email NOT ILIKE '%@test.com' AND email NOT ILIKE '%@example.com'"
+)
+
+
 @router.get("/users")
 async def list_users(
     include_test: bool = Query(default=False, description="Include smoke/QA test accounts (hidden by default)"),
@@ -120,13 +143,18 @@ async def platform_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """Platform-wide stats for admin dashboard."""
-    total_users = (await db.execute(select(func.count()).select_from(User))).scalar() or 0
+    # All user-count metrics exclude smoke/QA test accounts so the headline
+    # matches the filtered Users list.
+    total_users = (await db.execute(
+        select(func.count()).select_from(User).where(_real_user_clause())
+    )).scalar() or 0
     pro_users = (await db.execute(
         select(func.count()).select_from(Subscription).where(Subscription.tier == "pro")
     )).scalar() or 0
     total_alerts = (await db.execute(select(func.count()).select_from(Alert))).scalar() or 0
     telegram_linked = (await db.execute(
-        select(func.count()).select_from(User).where(User.telegram_chat_id.isnot(None))
+        select(func.count()).select_from(User)
+        .where(User.telegram_chat_id.isnot(None)).where(_real_user_clause())
     )).scalar() or 0
 
     # Premium users
@@ -147,12 +175,12 @@ async def platform_stats(
 
     # Signups last 7 days
     signups_7d = (await db.execute(
-        text("SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '7 days'")
+        text(f"SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '7 days' AND {_NOT_TEST_SQL}")
     )).scalar() or 0
 
     # Signups last 30 days
     signups_30d = (await db.execute(
-        text("SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '30 days'")
+        text(f"SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '30 days' AND {_NOT_TEST_SQL}")
     )).scalar() or 0
 
     # Alerts today
