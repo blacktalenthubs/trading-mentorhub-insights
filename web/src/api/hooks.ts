@@ -1469,7 +1469,12 @@ export function useAlertsForDate(date: string) {
     queryKey: ["alerts-date", date],
     queryFn: () => api.get<Alert[]>(`/alerts/history?days=90`),
     enabled: !!date,
-    select: (data) => data.filter((a) => a.session_date === date),
+    // EOD report = DELIVERED signals only (the live Signals feed). Exclude muted
+    // (type_not_enabled) + unrouted (gated/confluence-collapsed) so the counts
+    // reflect what actually fired, not what was held back. /alerts/history is
+    // shared with the live feed (which needs all), so we filter here, not there.
+    select: (data) =>
+      data.filter((a) => a.session_date === date && !a.suppressed_reason),
   });
 }
 
