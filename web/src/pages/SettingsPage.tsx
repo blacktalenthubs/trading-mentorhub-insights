@@ -778,30 +778,24 @@ function SpyTrendGateSection() {
   );
 }
 
-function MultiTouchAlertSection() {
+function Rc4hShortSection() {
   const { data, isLoading } = useRegimeConfig();
   const update = useUpdateRegimeConfig();
   const toList = (s?: string) =>
     s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
 
   return (
-    <Section title="Multi-touch alert — symbols" icon={<Zap className="h-4 w-4 text-accent" />}>
+    <Section title="4h RC short — symbols" icon={<Zap className="h-4 w-4 text-accent" />}>
       <p className="text-xs text-text-muted mb-3">
-        The Multi-touch level cross (MultiTB · info) notice is noisy on most
-        charts — every 2×/3× cluster fires. Deliver it ONLY for the symbols
-        below. Leave the list empty to allow every symbol. Takes effect on the
-        next alert, no redeploy. (Enable the type itself under Alert Types.)
+        The 4h failed-break rejection SHORT is opt-in per symbol — it delivers
+        ONLY for the symbols below. Empty = none (a short is opt-in). Takes
+        effect on the next alert, no redeploy. (Enable the type itself under
+        Alert Types.)
       </p>
       {isLoading ? (
         <div className="text-xs text-text-faint">Loading…</div>
       ) : (
         <div className="space-y-5">
-          <ExemptListEditor
-            label="Symbols that deliver the multi-touch notice"
-            hint="e.g. SPY — keep it to a few clean charts. Empty = all symbols."
-            list={toList(data?.multitouch_symbols)}
-            onSave={(l) => update.mutate({ multitouch_symbols: l.join(",") })}
-          />
           <ExemptListEditor
             label="4h RC SHORT — symbols"
             hint="The 4h failed-break rejection short fires only for these. e.g. SPY, DRAM — add more anytime. Empty = none (the short is opt-in)."
@@ -844,7 +838,7 @@ export default function SettingsPage() {
         <AlertTypesSection />
 
         {/* Multi-touch (MultiTB) notice — per-symbol allowlist */}
-        <MultiTouchAlertSection />
+        <Rc4hShortSection />
 
         {/* SPY-trend long gate — block longs when SPY below its 8 & 21 EMA */}
         <SpyTrendGateSection />

@@ -127,11 +127,6 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # the structural-reclaim model. Default OFF.
     ("rc_4h", "4h low reclaim (undercut + reclaim long)", "4h reversal", False),
 
-    # Multi-touch level cross — RE-ACTIVATED 2026-06-10. Informational NOTICE from
-    # the MultiTB indicator when price closes across a heavily-tested (3×+) level.
-    # SPY only to start. Default OFF — awareness, not a trade trigger.
-    ("multitouch_level", "Multi-touch level cross (SPY · info)", "Multi-touch levels", False),
-
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
@@ -212,7 +207,6 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
     "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
     "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
-    "multitouch_level": "SPY closed across a level the market has tested 3+ times (from the MultiTB indicator) — informational heads-up that a heavily-defended level just flipped; the higher the touch count, the more it matters. Not a trade trigger.",
     "gap_zone": "Price entered (testing) or filled an unfilled gap on SPY/NBIS (from the Gaps indicator) — a green gap below is support, a red gap above is resistance; entering = watch for bounce/reject, filled = the void is closed. Informational, not a trade trigger.",
     "weekly_stage": "Weekly long-term signal from the WkStage indicator (set on the weekly chart): RC (undercut & reclaim bottoming), BUY (close above a rising 30-week MA), ADD (pullback to the rising MA), or EXIT (weekly close below the trailing stop). Each carries the entry + structural stop. For the long-term/swing book — size off the stop.",
     "rsi_70": "Daily RSI(14) closed above 70 — momentum/exhaustion gauge at the bullish extreme. A close above 70 often kicks off a parabolic run (e.g. MU → 85 RSI). Fired at the daily close (confirmed, towards EOD), at most once a day. A heads-up to look, not a defended entry; no structural stop of its own.",

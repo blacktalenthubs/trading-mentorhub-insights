@@ -33,11 +33,6 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # EXCEPT for spy_trend_exempt. Non-trending market = most longs are traps.
     "spy_trend_gate_enabled": "true",
     "spy_trend_exempt": "SPY,QQQ,DRAM,NVDA",
-    # Multi-touch (MultiTB) info-notice symbol allowlist (2026-06-10). The
-    # multitouch_level NOTICE is noisy on most charts (every 2×/3× cluster), so
-    # it delivers ONLY for these symbols. Non-empty = allowlist; BLANK = all
-    # symbols (no restriction). Default SPY only — managed live from Settings.
-    "multitouch_symbols": "SPY",
     # 4h RC rejection-SHORT symbol allowlist (2026-06-12). The rc_4h SHORT (failed
     # break of the prior 4h high) is opt-in per symbol — it delivers ONLY for these.
     # Non-empty = allowlist; BLANK = NONE (block all — a SHORT is opt-in, the
