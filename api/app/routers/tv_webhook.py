@@ -1732,27 +1732,44 @@ async def _persist_unrouted(
 
 
 async def _users_watching(db, symbol: str):
-    """Return every active user — alerts fan out to ALL users.
+    """Return the users an alert for `symbol` should fan out to.
 
-    2026-06-01 — public-access launch. The previous behaviour was: fan-out
-    only to users whose personal watchlist contained the symbol, AND only
-    to vbolofinde@gmail.com (SCAN_USER_EMAIL gate). Both gates removed.
-    Pine emits alerts only for the admin's curated watchlist, so the
-    universe is already constrained at source; every signed-up user now
-    receives every alert. Per-user filtering still happens via:
-      - alert_type_config toggles (global enable/disable per type)
-      - per-user Telegram chat-id linking (no chat-id → no Telegram DM)
-      - per-user push subscription (no subscription → no push)
+    DEFAULT (env PER_USER_WATCHLIST_ALERTS off) = EVERY active user — the
+    2026-06-01 public-launch behaviour (everyone gets every alert; the admin's
+    curated TV watchlist constrains the universe at source).
 
-    Symbol arg kept for signature compatibility — unused in the new path.
+    MASTER-WATCHLIST MODE (PER_USER_WATCHLIST_ALERTS on) = each user gets only
+    the symbols on THEIR watchlist. The TV master list is the UNION of all users'
+    symbols so the Pine fires for any of them; this maps each fired symbol back to
+    the users who actually watch it. ADMINS are ALWAYS included (full feed for
+    monitoring + the EOD report). Matching is NORMALIZED (uppercase, strip
+    non-alphanumerics) so "BTC-USD" == "BTCUSD" — the format mismatch that bit the
+    earlier attempt. FLAG-GATED for safe rollout: flip ON to test (crypto, off
+    hours), OFF to revert instantly with no redeploy.
     """
     from sqlalchemy.orm import selectinload
     from app.models.user import User
 
-    _ = symbol  # intentionally unused — kept for caller compatibility
+    per_user = os.getenv("PER_USER_WATCHLIST_ALERTS", "false").strip().lower() in ("1", "true", "yes", "on")
+    if not per_user:
+        result = await db.execute(select(User).options(selectinload(User.subscription)))
+        return result.scalars().all()
+
+    import re
+    from sqlalchemy import or_
+    from app.dependencies import ADMIN_EMAILS
+    from app.models.watchlist import WatchlistItem
+
+    def _norm(s: str) -> str:
+        return re.sub(r"[^A-Z0-9]", "", (s or "").upper())
+
+    target = _norm(symbol)
+    rows = (await db.execute(select(WatchlistItem.user_id, WatchlistItem.symbol))).all()
+    matching = {uid for uid, sym in rows if _norm(sym) == target}
     stmt = (
         select(User)
         .options(selectinload(User.subscription))
+        .where(or_(User.email.in_(ADMIN_EMAILS), User.id.in_(matching)))
     )
     result = await db.execute(stmt)
     return result.scalars().all()

@@ -285,6 +285,25 @@ async def copy_sectors_to_my_watchlist(
     return list(final)
 
 
+@router.get("/master-symbols")
+async def master_watchlist_symbols(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The DISTINCT UNION of every user's watchlist symbols — the master set the
+    TradingView watchlist should mirror, so the Pine fires on any symbol any user
+    watches (the per-user filter in tv_webhook then routes each alert to the right
+    users). Admin-only; consumed by the TV sync (analytics/tv_sync.py --master, or
+    the MCP push). Returns sorted symbols + count."""
+    if not is_admin_user(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    rows = await db.execute(
+        select(WatchlistItem.symbol).distinct().order_by(WatchlistItem.symbol)
+    )
+    symbols = [r[0] for r in rows.all() if r[0]]
+    return {"count": len(symbols), "symbols": symbols}
+
+
 @router.get("", response_model=List[WatchlistItemResponse])
 async def get_watchlist(
     group_id: Optional[int] = Query(default=None, description="Filter by group; -1 for ungrouped"),

@@ -23,30 +23,57 @@ from __future__ import annotations
 import argparse, json, os, sys, urllib.request
 
 
-def fetch_conviction(api_base: str, token: str) -> list[dict]:
+def _get(api_base: str, path: str, token: str):
     req = urllib.request.Request(
-        f"{api_base.rstrip('/')}/api/v1/screener/conviction",
+        f"{api_base.rstrip('/')}{path}",
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(req, timeout=20) as r:
-        return (json.load(r) or {}).get("entries", [])
+        return json.load(r) or {}
+
+
+def fetch_conviction(api_base: str, token: str) -> list[dict]:
+    return _get(api_base, "/api/v1/screener/conviction", token).get("entries", [])
+
+
+def fetch_master(api_base: str, token: str) -> list[str]:
+    """The union of every user's watchlist symbols (admin token required)."""
+    return _get(api_base, "/api/v1/watchlist/master-symbols", token).get("symbols", [])
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Write a TV-importable list of Strong-Buy conviction names.")
-    ap.add_argument("--out", default="conviction_watchlist.txt")
-    ap.add_argument("--api-base", default=os.getenv("API_BASE", "https://tradesignalwithai.com"))
+    ap = argparse.ArgumentParser(description="Write a TV-importable symbol list (conviction Strong-Buy, or the master watchlist union).")
+    ap.add_argument("--master", action="store_true",
+                    help="Pull the UNION of all users' watchlists (master list) instead of conviction Strong-Buy.")
+    ap.add_argument("--out", default=None, help="Output file (defaults per mode).")
+    ap.add_argument("--api-base", default=os.getenv("API_BASE", "https://www.busytradersdesk.com"))
     args = ap.parse_args()
     token = os.getenv("API_TOKEN")
     if not token:
-        sys.exit("Set API_TOKEN (your BusyTradersDesk session token). "
-                 "Optionally API_BASE (default https://tradesignalwithai.com).")
+        sys.exit("Set API_TOKEN (an ADMIN BusyTradersDesk session token). "
+                 "Optionally API_BASE (default https://www.busytradersdesk.com).")
 
+    if args.master:
+        out = args.out or "master_watchlist.txt"
+        try:
+            syms = [s.upper() for s in fetch_master(args.api_base, token) if s]
+        except Exception as e:
+            sys.exit(f"Couldn't fetch the master watchlist from {args.api_base}: {str(e)[:120]} "
+                     "(needs an ADMIN token).")
+        if not syms:
+            sys.exit("Master watchlist is empty (no users have added symbols yet).")
+        with open(out, "w") as f:
+            f.write("\n".join(syms) + "\n")
+        print(f"{len(syms)} master watchlist symbols (union of all users): {','.join(syms[:30])}{'…' if len(syms) > 30 else ''}")
+        print(f"Wrote → {out}.  Import in TradingView: Watchlist menu ▸ Import list.")
+        print("If it exceeds your plan's per-alert symbol cap, split into 2+ watchlists/alerts — the backend doesn't care.")
+        return
+
+    out = args.out or "conviction_watchlist.txt"
     try:
         entries = fetch_conviction(args.api_base, token)
     except Exception as e:
         sys.exit(f"Couldn't fetch conviction from {args.api_base}: {str(e)[:120]}")
-
     strong = [
         (e.get("symbol") or "").upper()
         for e in entries
@@ -54,12 +81,10 @@ def main():
     ]
     if not strong:
         sys.exit("No Strong-Buy names in the latest conviction scan (run a scan first).")
-
-    # TradingView import accepts one symbol per line (bare tickers resolve).
-    with open(args.out, "w") as f:
+    with open(out, "w") as f:
         f.write("\n".join(strong) + "\n")
     print(f"{len(strong)} Strong-Buy conviction names: {','.join(strong)}")
-    print(f"Wrote → {args.out}.  Import in TradingView: Watchlist menu ▸ Import list.")
+    print(f"Wrote → {out}.  Import in TradingView: Watchlist menu ▸ Import list.")
 
 
 if __name__ == "__main__":
