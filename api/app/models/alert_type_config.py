@@ -108,10 +108,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Pine. These are SWING trades (multi-day holds, lower-risk R:R), a separate
     # book from the intraday day-trade entries above — and they BYPASS the
     # SPY-vs-PDL gate (a day-trade protection; see SWING_ALERT_TYPES in tv_webhook).
-    # All fire at the DAILY CLOSE (towards EOD, ≤ once/day each — rare). rsi_70 =
-    # bullish (close above 70 can start a parabola), rsi_oversold = first close in
-    # the 30-35 buy zone (reclaim 30 or hold — NEVER below 30), ema_5_20_cross =
-    # Steve Burns 5/20.
+    # Fire INTRADAY the moment the daily setup forms (#234 removed the 16:00 EOD
+    # gate), ≤ once/day each. rsi_70 = bullish (daily RSI above 70 can start a
+    # parabola), rsi_oversold = first time the daily RSI enters the 30-35 buy zone
+    # (reclaim 30 or hold — NEVER below 30), ema_5_20_cross = Steve Burns 5/20.
     ("rsi_70", "RSI 70 — daily RSI crossed above 70 (momentum)", "Swing", False),
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
     ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
