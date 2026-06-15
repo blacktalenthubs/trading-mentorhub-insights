@@ -201,6 +201,7 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expandedUser, setExpandedUser] = useState<number | null>(null);
+  const [wlSymbols, setWlSymbols] = useState<Record<number, string[]>>({});
 
   function fetchData() {
     setLoading(true);
@@ -211,13 +212,19 @@ export default function AdminPage() {
       api.get<AttributionStats>("/admin/attribution?days=30"),
       api.get<TrafficStats>("/admin/traffic").catch(() => null),
       api.get<AlertHealth>("/admin/alert-health").catch(() => null),
+      api.get<{ users: { user_id: number; symbols: string[] }[] }>("/admin/watchlists").catch(() => null),
     ])
-      .then(([s, u, a, t, h]) => {
+      .then(([s, u, a, t, h, w]) => {
         setStats(s);
         setUsers(u.users);
         setAttribution(a);
         setTraffic(t);
         setHealth(h);
+        if (w) {
+          const map: Record<number, string[]> = {};
+          for (const row of w.users) map[row.user_id] = row.symbols;
+          setWlSymbols(map);
+        }
         setLoading(false);
       })
       .catch((err) => {
@@ -421,10 +428,23 @@ export default function AdminPage() {
                 <TierSelector userId={u.id} currentTier={u.tier} onChanged={fetchData} />
               </div>
               {expandedUser === u.id && (
-                <div className="ml-6 mb-2 grid grid-cols-3 gap-2 text-[11px] text-text-faint">
-                  <span>Joined {new Date(u.created_at).toLocaleDateString()}</span>
-                  <span>{u.watchlist_count} watchlist symbols</span>
-                  <span>{u.alert_count} alerts</span>
+                <div className="ml-6 mb-2 space-y-1.5">
+                  <div className="grid grid-cols-3 gap-2 text-[11px] text-text-faint">
+                    <span>Joined {new Date(u.created_at).toLocaleDateString()}</span>
+                    <span>{u.watchlist_count} watchlist symbols</span>
+                    <span>{u.alert_count} alerts</span>
+                  </div>
+                  {(wlSymbols[u.id]?.length ?? 0) > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {wlSymbols[u.id].map((sym) => (
+                        <span key={sym} className="px-1.5 py-0.5 rounded bg-surface-2 text-[10px] text-text-secondary">
+                          {sym}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-text-faint">No symbols on watchlist.</div>
+                  )}
                 </div>
               )}
             </div>

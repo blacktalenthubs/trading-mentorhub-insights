@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,19 +24,41 @@ async def _require_admin(user: User = Depends(get_current_user)):
     return user
 
 
+def _is_test_account(email: str) -> bool:
+    """Heuristic for automated smoke/QA accounts (not real registrations). The DB
+    is dominated by smoke-<ts>@smoketest.* and qa.* accounts (wl=0) created by CI
+    — the admin wants the real signups, so these are flagged + hidden by default."""
+    e = (email or "").lower()
+    return (
+        "@smoketest." in e
+        or e.startswith("smoke-")
+        or e.startswith("qa.")
+        or "+test" in e
+        or e.endswith(("@example.com", "@test.com"))
+    )
+
+
 @router.get("/users")
 async def list_users(
+    include_test: bool = Query(default=False, description="Include smoke/QA test accounts (hidden by default)"),
     user: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all registered users with subscription and watchlist info."""
+    """List REAL registered users with subscription + watchlist info. Automated
+    smoke/QA accounts are hidden by default (pass include_test=true to show them).
+    Also returns test_hidden = how many were filtered out."""
     result = await db.execute(
         select(User).order_by(User.created_at.desc())
     )
     users = result.scalars().all()
 
     data = []
+    test_hidden = 0
     for u in users:
+        is_test = _is_test_account(u.email)
+        if not include_test and is_test:
+            test_hidden += 1
+            continue
         # Get subscription
         sub = await db.execute(
             select(Subscription).where(Subscription.user_id == u.id)
@@ -86,9 +108,10 @@ async def list_users(
             "telegram_linked": bool(u.telegram_chat_id),
             "watchlist_count": wl_count,
             "alert_count": alert_count,
+            "is_test": is_test,
         })
 
-    return {"total": len(data), "users": data}
+    return {"total": len(data), "users": data, "test_hidden": test_hidden}
 
 
 @router.get("/stats")
