@@ -368,17 +368,6 @@ def _is_crypto_symbol(symbol: Optional[str]) -> bool:
     return (symbol or "").upper().endswith("-USD")
 
 
-def multitouch_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
-    """Decide whether the multitouch_level NOTICE must be suppressed for this
-    symbol. Pure + tested. True ⇒ suppress. The MultiTB notice fires on every
-    2×/3× cluster on any chart it's loaded on, so it delivers ONLY for symbols
-    in the allowlist (Settings → Multi-touch alert; default SPY). An EMPTY
-    allowlist means "all symbols" — no restriction (fail-open / back-compat)."""
-    if not allowlist:
-        return False
-    return (symbol or "").upper() not in allowlist
-
-
 # Fallback when the config read fails — keep the rc_4h SHORT tight (opt-in),
 # never open it up to the whole watchlist on a DB hiccup.
 RC4H_SHORT_DEFAULT: frozenset[str] = frozenset({"SPY", "DRAM"})
@@ -691,7 +680,7 @@ _same_bar_fires: dict[str, list[tuple[str, datetime]]] = {}  # symbol → [(type
 # turning an info type ON makes it WORSE than OFF: ON it enters the routed
 # pipeline and gets confluence_collapsed into a nearby entry → invisible.
 _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
-    "multitouch_level", "gap_zone", "weekly_stage", "rc_4h",
+    "gap_zone", "weekly_stage", "rc_4h",
 })
 
 
@@ -1168,8 +1157,6 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         _rc = {k: v for k, v in _rc_rows}
         spy_trend_exempt = _parse_exempt_syms(_rc.get("spy_trend_exempt")) or SPY_TREND_EXEMPT_DEFAULT
         spy_trend_gate_on = (_rc.get("spy_trend_gate_enabled", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
-        # Multi-touch notice allowlist — blank/missing ⇒ empty set ⇒ all symbols.
-        multitouch_symbols = _parse_exempt_syms(_rc.get("multitouch_symbols"))
         # 4h RC short allowlist — opt-in; missing key ⇒ the SPY,DRAM default.
         rc_4h_short_symbols = (
             _parse_exempt_syms(_rc["rc_4h_short_symbols"])
@@ -1181,7 +1168,6 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         known_types = None
         spy_trend_exempt = SPY_TREND_EXEMPT_DEFAULT
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
-        multitouch_symbols = frozenset()   # read failed → don't restrict (fail-open)
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
 
     if not _is_allowed_alert_type(alert_type_full, enabled_types):
@@ -1200,23 +1186,6 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             alert_type_full, sig.symbol,
         )
         return {"dispatched": False, "reason": "unknown_type"}
-
-    # ──────────────────────────────────────────────────────────────────
-    # Multi-touch (MultiTB) notice — per-symbol allowlist (2026-06-10)
-    # ──────────────────────────────────────────────────────────────────
-    # The multitouch_level NOTICE fires on every 2×/3× cluster on any chart the
-    # Pine is loaded on — noisy across a full watchlist. So it delivers ONLY for
-    # the allowlist symbols (Settings → Multi-touch alert; default SPY). Blank
-    # list ⇒ all symbols. Other alert types are unaffected.
-    if alert_type_full == "tv_multitouch_level" and multitouch_symbol_blocks(sig.symbol, multitouch_symbols):
-        logger.info(
-            "TV webhook: multitouch_level not in symbol allowlist — suppressed for %s",
-            sig.symbol,
-        )
-        return await _persist_unrouted(
-            sig, alert_type_full, session_date,
-            suppressed_reason="multitouch_symbol_filter",
-        )
 
     # ──────────────────────────────────────────────────────────────────
     # 4h RC rejection SHORT — per-symbol allowlist (2026-06-12)
