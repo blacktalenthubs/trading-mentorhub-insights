@@ -321,6 +321,8 @@ function CandlestickChartInner({
 
       const smaMatch = ind.key.match(/^sma(\d+)$/);
       const emaMatch = ind.key.match(/^ema(\d+)$/);
+      // Right-edge label so you can tell which line is which MA (in the line's color).
+      const maLabel = emaMatch ? `EMA ${emaMatch[1]}` : smaMatch ? `SMA ${smaMatch[1]}` : ind.key === "vwap" ? "VWAP" : ind.key.toUpperCase();
       if (smaMatch) lineData = computeSMA(closes, parseInt(smaMatch[1]));
       else if (emaMatch) lineData = computeEMA(closes, parseInt(emaMatch[1]));
       else if (ind.key === "vwap" && sessionBars.length >= 3) {
@@ -339,7 +341,8 @@ function CandlestickChartInner({
           lineWidth: 1,
           crosshairMarkerVisible: false,
           priceLineVisible: false,
-          lastValueVisible: false,
+          lastValueVisible: true,
+          title: maLabel,
         });
         lineSeries.setData(lineData as any);
         lineSeriesRefs.current.push(lineSeries);
