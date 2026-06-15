@@ -135,6 +135,13 @@ sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahea
 sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
+// TODAY's daily open — the dual-role decider. A level is SUPPORT only if the DAY
+// opened above it; resistance if the day opened below it (2026-06-15). The bounce
+// must use the DAILY open, not the intraday bar's open — otherwise a break up
+// through an MA from below, then an intraday retest, fires a false "bounce" (the
+// NVDA EMA-21 case: daily open 208.88 below the 211.16 level, yet it fired).
+day_open = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+
 // Daily ATR (for state-machine re-arm buffer + intraday wick stop buffer)
 atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
 atr_d     = nz(atr_d_raw, close * 0.005)
@@ -311,13 +318,13 @@ recently_above_ma(float ma) =>
 // resistance, not a bounce. A break up through an MA from below is a level
 // reclaim with the MA as a TARGET, never an MA-bounce long.
 strict_long(float ma) =>
-    not na(ma) and open > ma and low <= ma and close > ma
+    not na(ma) and day_open > ma and low <= ma and close > ma
 
 // Mirror: price OPENED BELOW the MA (it's resistance above), rallied up to it,
 // closed back below = a rejection short. Not fired when price falls DOWN into
 // the MA from above (that's support being tested, not resistance).
 strict_short(float ma) =>
-    not na(ma) and open < ma and high >= ma and close < ma
+    not na(ma) and day_open < ma and high >= ma and close < ma
 
 band_long(float ma) =>
     not na(ma) and recently_above_ma(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
