@@ -1812,14 +1812,28 @@ f_swing() =>
     _os    = _inz and not _inz[1]
     [_rsi70, _xc, _os, _e20]
 [sw_rsi70, sw_cross, sw_os, sw_e20] = request.security(syminfo.tickerid, "D", f_swing(), lookahead = barmerge.lookahead_off)
-sw_eod = (hour(time_close, "America/New_York") == 16) and (minute(time_close, "America/New_York") == 0)
-if fire_swing and sw_eod and sw_rsi70
-    swp1 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_70","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI 70 — daily close above 70; can begin a parabolic run","fired_at":"' + str.tostring(timenow) + '"}'
+// Swing alerts fire INTRADAY the moment a valid daily setup forms — NO EOD gate
+// (removed 2026-06-15 per founder: a valid setup should alert immediately, not
+// wait for the 16:00 close). Once-per-day guard so each rule fires once per
+// session, not on every intraday bar while the daily condition stays true.
+sw_newday = ta.change(time("D")) != 0
+var bool sw_rsi70_done = false
+var bool sw_cross_done = false
+var bool sw_os_done = false
+if sw_newday
+    sw_rsi70_done := false
+    sw_cross_done := false
+    sw_os_done := false
+if fire_swing and sw_rsi70 and not sw_rsi70_done
+    sw_rsi70_done := true
+    swp1 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_70","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI 70 — daily RSI crossed above 70; can begin a parabolic run","fired_at":"' + str.tostring(timenow) + '"}'
     alert(swp1, alert.freq_once_per_bar_close)
-if fire_swing and sw_eod and sw_cross
+if fire_swing and sw_cross and not sw_cross_done
+    sw_cross_done := true
     swp2 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(sw_e20, format.mintick) + '","note":"5/20 EMA bullish cross (Steve Burns). STOP = 5/20 cross-under at the close (~20 EMA). Target = RSI 70","fired_at":"' + str.tostring(timenow) + '"}'
     alert(swp2, alert.freq_once_per_bar_close)
-if fire_swing and sw_eod and sw_os
+if fire_swing and sw_os and not sw_os_done
+    sw_os_done := true
     swp3 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30). T1 RSI 50, T2 RSI 70. STOP = daily close back under RSI 30","fired_at":"' + str.tostring(timenow) + '"}'
     alert(swp3, alert.freq_once_per_bar_close)
 
