@@ -23,6 +23,7 @@ interface UserInfo {
   telegram_linked: boolean;
   watchlist_count: number;
   alert_count: number;
+  is_test?: boolean;
 }
 
 interface PlatformStats {
@@ -202,13 +203,15 @@ export default function AdminPage() {
   const [search, setSearch] = useState("");
   const [expandedUser, setExpandedUser] = useState<number | null>(null);
   const [wlSymbols, setWlSymbols] = useState<Record<number, string[]>>({});
+  const [showTest, setShowTest] = useState(false);
+  const [testHidden, setTestHidden] = useState(0);
 
   function fetchData() {
     setLoading(true);
     setError("");
     Promise.all([
       api.get<PlatformStats>("/admin/stats"),
-      api.get<{ total: number; users: UserInfo[] }>("/admin/users"),
+      api.get<{ total: number; users: UserInfo[]; test_hidden?: number }>(`/admin/users${showTest ? "?include_test=true" : ""}`),
       api.get<AttributionStats>("/admin/attribution?days=30"),
       api.get<TrafficStats>("/admin/traffic").catch(() => null),
       api.get<AlertHealth>("/admin/alert-health").catch(() => null),
@@ -217,6 +220,7 @@ export default function AdminPage() {
       .then(([s, u, a, t, h, w]) => {
         setStats(s);
         setUsers(u.users);
+        setTestHidden(u.test_hidden ?? 0);
         setAttribution(a);
         setTraffic(t);
         setHealth(h);
@@ -233,7 +237,7 @@ export default function AdminPage() {
       });
   }
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [showTest]);
 
   const filtered = users.filter(
     (u) =>
@@ -397,17 +401,26 @@ export default function AdminPage() {
 
       {/* ── Users ── */}
       <Panel
-        title={`Users (${users.length})`}
+        title={`Users (${users.length}${!showTest && testHidden ? ` · ${testHidden} test hidden` : ""})`}
         icon={<Crown size={15} className="text-warning-text" />}
         action={
-          <div className="relative">
-            <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-faint" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search email / name"
-              className="text-xs pl-7 pr-2 py-1.5 rounded-lg bg-surface-0 border border-border-subtle text-text-primary w-48 focus:outline-none focus:border-accent/40"
-            />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTest((v) => !v)}
+              title="Show / hide automated smoke + QA test accounts"
+              className={`text-[11px] px-2 py-1.5 rounded-lg border transition-colors ${showTest ? "bg-warning/15 text-warning-text border-warning/40" : "bg-surface-1 text-text-faint border-border-subtle hover:bg-surface-2"}`}
+            >
+              {showTest ? "Hide test accounts" : "Show test accounts"}
+            </button>
+            <div className="relative">
+              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-faint" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search email / name"
+                className="text-xs pl-7 pr-2 py-1.5 rounded-lg bg-surface-0 border border-border-subtle text-text-primary w-48 focus:outline-none focus:border-accent/40"
+              />
+            </div>
           </div>
         }
       >
@@ -423,6 +436,7 @@ export default function AdminPage() {
                   <div className="text-sm text-text-primary truncate">{u.display_name || u.email}</div>
                   <div className="text-[11px] text-text-faint truncate">{u.email}</div>
                 </div>
+                {u.is_test && <span className="text-[9px] px-1 py-0.5 rounded bg-warning/15 text-warning-text shrink-0">TEST</span>}
                 {u.telegram_linked && <Send size={12} className="text-accent" />}
                 <TierBadge tier={u.tier} trialDays={u.trial_days_left} trialExpired={u.trial_expired} />
                 <TierSelector userId={u.id} currentTier={u.tier} onChanged={fetchData} />
