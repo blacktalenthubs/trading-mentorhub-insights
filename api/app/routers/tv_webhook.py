@@ -1730,8 +1730,9 @@ async def _users_watching(db, symbol: str):
     symbols (synced via /master-symbols) so the Pine fires for any of them; this
     maps each fired symbol back to the users who actually watch it. NO admin
     exemption — everyone (you included) gets only their own watchlist symbols;
-    add a name to your watchlist to receive it. Matching is NORMALIZED
-    (uppercase, strip non-alphanumerics) so ETH-USD == ETHUSD.
+    add a name to your watchlist to receive it. Users with NO linked Telegram are
+    ignored for now (no reachable channel). Matching is NORMALIZED (uppercase,
+    strip non-alphanumerics) so ETH-USD == ETHUSD.
 
     FLAG-GATED for safe rollout: default off = NO behaviour change (broadcast).
     Flip PER_USER_WATCHLIST_ALERTS=true on Railway to enable; flip off to revert
@@ -1753,7 +1754,10 @@ async def _users_watching(db, symbol: str):
         return result.scalars().all()
 
     # Per-user mode: each user gets ONLY symbols on their own watchlist — no
-    # admin broadcast exemption (per founder: pure per-user routing).
+    # admin broadcast exemption (pure per-user routing). Users with NO linked
+    # Telegram are ignored for now (per founder) — no point routing to an
+    # unreachable account, and it sidesteps the empty-watchlist case (unlinked
+    # users simply drop out). Revisit once mobile push is the primary channel.
     from app.models.watchlist import WatchlistItem
 
     def _norm(s: str) -> str:
@@ -1769,6 +1773,7 @@ async def _users_watching(db, symbol: str):
         select(User)
         .options(selectinload(User.subscription))
         .where(User.id.in_(matching))
+        .where(User.telegram_chat_id.isnot(None), User.telegram_chat_id != "")
     )
     result = await db.execute(stmt)
     return result.scalars().all()
