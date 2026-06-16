@@ -117,9 +117,9 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto leading-relaxed">
-          Setups graded A / B / C by volume + VWAP slope. Real outcomes computed from
-          actual post-fire price action — not synthetic win rates. A Friday AI retro of
-          what worked. Built for traders with day jobs.
+          Get an alert the moment a quality setup forms — with the exact price to buy,
+          where to get out if you're wrong, and your target. No staring at charts, no
+          guessing. Just your plan, ready to act on.
         </p>
 
         {/* CTA */}
@@ -146,9 +146,9 @@ function Hero({ track: _track }: { track: TrackRecord | null }) {
         {/* What the toolkit covers */}
         <div className="mt-16 flex flex-wrap justify-center gap-6 sm:gap-10">
           {[
-            { label: "Setup grade per alert", value: "A / B / C", color: "text-accent" },
-            { label: "Daily EOD reports", value: "Public", color: "text-bullish-text" },
-            { label: "Real outcomes (no synthetic)", value: "MFE / MAE", color: "text-text-primary" },
+            { label: "the moment a setup fires", value: "Real-time", color: "text-bullish-text" },
+            { label: "every alert ships a stop", value: "Risk-first", color: "text-accent" },
+            { label: "buy support, never chase", value: "1 rule", color: "text-text-primary" },
           ].map((m) => (
             <div key={m.label} className="flex flex-col items-center">
               <span className={`font-mono text-2xl sm:text-3xl font-bold ${m.color}`}>{m.value}</span>
