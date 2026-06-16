@@ -1257,6 +1257,16 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 sig, alert_type_full, session_date,
                 suppressed_reason="spy_below_pdl",
             )
+        # DIAGNOSTIC (#259): the gate was reached for a non-exempt day-trade BUY but
+        # did NOT block. If the banner shows WEAK yet this logs _below_pdl=False/None,
+        # the gate's regime read disagrees with /spy-regime (cache/data), not the
+        # gate logic. Reveals the exact cause on the next weak-tape long.
+        logger.warning(
+            "TV webhook: SPY gate REACHED, BUY %s for %s NOT blocked — _below_pdl=%r "
+            "spy_trend_gate_on=%s exempt=%s",
+            alert_type_full, sig.symbol, _below_pdl, spy_trend_gate_on,
+            (sig.symbol or "").upper() in spy_trend_exempt,
+        )
 
     # ──────────────────────────────────────────────────────────────────
     # Retired gates (history) — the only live gate is the SPY-trend gate above.
