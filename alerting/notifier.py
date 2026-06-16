@@ -534,10 +534,17 @@ def _send_telegram_to(
     *reply_markup* — optional InlineKeyboardMarkup dict for interactive buttons.
     *parse_mode* — "HTML" or "Markdown". Auto-detected if body contains HTML tags.
     """
-    allow = _allowed_chat_ids()
-    if allow and str(chat_id) not in allow:
-        logger.info("Telegram blocked — chat_id %s not in SCAN_USER_EMAIL allowlist", chat_id)
-        return False
+    # SCAN_USER_EMAIL allowlist is a DEV safety — restrict ALL Telegram to the scan
+    # user during testing. OFF by default in production (#256): per-user routing
+    # (_users_watching) already targets the right users, and this allowlist was
+    # silently blocking the rollout — only the scan user (vbolofinde) got any
+    # Telegram (alerts AND candle pings). Opt in with TELEGRAM_SCAN_USER_ONLY=true
+    # for local/dev testing.
+    if os.environ.get("TELEGRAM_SCAN_USER_ONLY", "false").strip().lower() in ("1", "true", "yes", "on"):
+        allow = _allowed_chat_ids()
+        if allow and str(chat_id) not in allow:
+            logger.info("Telegram blocked — chat_id %s not in SCAN_USER_EMAIL allowlist", chat_id)
+            return False
 
     if not TELEGRAM_BOT_TOKEN or not chat_id:
         logger.warning(
