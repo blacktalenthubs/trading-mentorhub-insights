@@ -4,7 +4,7 @@
 import { Link } from "react-router-dom";
 
 const UPDATED = "June 16, 2026";
-const CONTACT = "support@busytradersdesk.com";
+const CONTACT = "vbolofinde@gmail.com";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
