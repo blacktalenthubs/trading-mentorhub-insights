@@ -1,50 +1,35 @@
 //@version=5
 // ═══════════════════════════════════════════════════════════════════════
-// Multi-Period S/R — key multi-WEEK or multi-MONTH resistance / support
+// Multi-Period S/R — key DAILY / WEEKLY / MONTHLY resistance + support
 // ───────────────────────────────────────────────────────────────────────
-// Finds prices where MULTIPLE completed periods share a HIGH (resistance) or
-// a LOW (support) within a tolerance — institutional memory. Set tf = "W" for
-// multi-week, "M" for multi-month. Works on ANY chart timeframe (it pulls the
-// HTF bars via request.security), so you can see weekly/monthly walls while
-// trading the 4h. Draws one line per cluster (>= min_touch periods), labelled
-// with the touch count ("3W R" = 3 weeks rejected here, "3M S" = 3 months held).
+// Finds prices where MULTIPLE completed periods share a HIGH (resistance) or a
+// LOW (support) within a tolerance — institutional memory. Toggle Daily, Weekly,
+// Monthly independently (any or all). All three are always collected, so flipping
+// one on shows its levels instantly. Works on ANY chart timeframe (pulls each HTF
+// via request.security), so you see daily/weekly/monthly walls while trading the 4h.
+// Lines get bolder by timeframe (D thin → M thick); labels read "3W R" / "2M S".
 //
-// ALERTS (default-OFF type → land in Muted for validation): when price wicks
-// INTO a cluster and rejects/holds — SHORT a resistance, LONG a support. Same
-// shape as the lost-support reject: wick tags the level, close decides.
+// ALERTS (default-OFF types → land in Muted for validation): when price wicks INTO
+// a cluster and rejects/holds — SHORT a resistance, LONG a support. Mirrors the
+// lost-support reject: wick tags the level, close decides. Note carries the tf +
+// touch count, so a 4-week wall reads heavier than a 2-week one.
 // ═══════════════════════════════════════════════════════════════════════
 indicator("Multi-Period S/R", "MultiPd S/R", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ── Inputs ───────────────────────────────────────────────────────────
-tf        = input.string("W", "Cluster timeframe", options = ["W", "M"], group = "Cluster", tooltip = "W = multi-week, M = multi-month. Add the indicator twice for both.")
+show_daily   = input.bool(false, "Daily clusters",   group = "Timeframes")
+show_weekly  = input.bool(true,  "Weekly clusters",  group = "Timeframes")
+show_monthly = input.bool(false, "Monthly clusters", group = "Timeframes")
 tol_pct   = input.float(0.6,  "Cluster tolerance (%)", minval = 0.0, step = 0.1, group = "Cluster") / 100.0
-lookback  = input.int(52,     "Periods to scan", minval = 4, maxval = 260, group = "Cluster", tooltip = "Weeks or months back. Lower it for monthly (e.g. 24).")
+lookback  = input.int(52,     "Periods to scan (per timeframe)", minval = 4, maxval = 260, group = "Cluster")
 min_touch = input.int(2,      "Min touches (periods at the level)", minval = 2, group = "Cluster")
-show_res  = input.bool(true,  "Resistance — clustered HIGHS", group = "Show")
-show_sup  = input.bool(true,  "Support — clustered LOWS", group = "Show")
+show_res  = input.bool(true,  "Show resistance (clustered HIGHS)", group = "Show")
+show_sup  = input.bool(true,  "Show support (clustered LOWS)", group = "Show")
 res_col   = input.color(color.red,   "Resistance", group = "Show")
 sup_col   = input.color(color.green, "Support", group = "Show")
 alerts_on = input.bool(true,  "Fire S/R interaction alerts", group = "Alerts")
 
-// ── Collect COMPLETED HTF highs + lows ───────────────────────────────
-// high[1]/low[1] in the HTF context = the prior (completed) period, so the
-// in-progress period never enters the cluster. Pushed once per period roll.
-hi   = request.security(syminfo.tickerid, tf, high[1], lookahead = barmerge.lookahead_off)
-lo   = request.security(syminfo.tickerid, tf, low[1],  lookahead = barmerge.lookahead_off)
-newp = ta.change(time(tf)) != 0
-
-var array<float> hs = array.new_float()
-var array<float> ls = array.new_float()
-if newp and not na(hi) and not na(lo)
-    array.push(hs, hi)
-    array.push(ls, lo)
-    if array.size(hs) > lookback
-        array.shift(hs)
-        array.shift(ls)
-
-// ── Cluster helpers ──────────────────────────────────────────────────
-// Group SORTED values into clusters within tolerance; return the average price
-// of each cluster that has >= min_touch members. Used by both draw + alerts.
+// ── Cluster helpers (pure) ───────────────────────────────────────────
 cluster_levels(array<float> src) =>
     out = array.new_float()
     if array.size(src) >= min_touch
@@ -75,31 +60,75 @@ touches_near(array<float> src, float price) =>
             c += 1
     c
 
-res_lv = cluster_levels(hs)
-sup_lv = cluster_levels(ls)
+mk_payload(string rule, string dir, float stop, string note) =>
+    '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
 
-// ── Alerts: wick INTO a cluster + reject/hold ────────────────────────
-// Resistance: poke up into it (high >= R) from below (high[1] < R), close back
-// below (close < R) → SHORT. Support: poke down into it (low <= S) from above
-// (low[1] > S), close back above (close > S) → LONG. high[1]/low[1] guard makes
-// it fire once per approach, not every bar. freq=once_per_bar_close.
-atrv = ta.atr(14)
-buf  = na(atrv) ? 0.0 : atrv * 0.25
-if alerts_on
-    for R in res_lv
-        if high >= R and close < R and high[1] < R
-            cntr = touches_near(hs, R)
-            plr = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"htf_sr_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(R + buf, format.mintick) + '","note":"' + tf + ' resistance (' + str.tostring(cntr) + 'x) rejected","fired_at":"' + str.tostring(timenow) + '"}'
-            alert(plr, alert.freq_once_per_bar_close)
-    for S in sup_lv
-        if low <= S and close > S and low[1] > S
-            cnts = touches_near(ls, S)
-            pls = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"htf_sr_bounce","direction":"LONG","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(S - buf, format.mintick) + '","note":"' + tf + ' support (' + str.tostring(cnts) + 'x) held","fired_at":"' + str.tostring(timenow) + '"}'
-            alert(pls, alert.freq_once_per_bar_close)
+// ── Collect COMPLETED highs + lows for ALL three timeframes ──────────
+// Always collected (regardless of the toggle) so flipping a timeframe ON shows
+// its accumulated levels instantly. high[1]/low[1] = the prior (completed) period.
+// request.security at GLOBAL scope (not in a function) so it's Pine-v5 safe.
+var hs_d = array.new_float()
+var ls_d = array.new_float()
+var hs_w = array.new_float()
+var ls_w = array.new_float()
+var hs_m = array.new_float()
+var ls_m = array.new_float()
 
-// ── Draw on the last bar (wipe + redraw each real-time bar) ──────────
+hi_d = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_off)
+lo_d = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_off)
+hi_w = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_off)
+lo_w = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_off)
+hi_m = request.security(syminfo.tickerid, "M", high[1], lookahead = barmerge.lookahead_off)
+lo_m = request.security(syminfo.tickerid, "M", low[1],  lookahead = barmerge.lookahead_off)
+
+if ta.change(time("D")) != 0 and not na(hi_d) and not na(lo_d)
+    array.push(hs_d, hi_d)
+    array.push(ls_d, lo_d)
+    if array.size(hs_d) > lookback
+        array.shift(hs_d)
+        array.shift(ls_d)
+if ta.change(time("W")) != 0 and not na(hi_w) and not na(lo_w)
+    array.push(hs_w, hi_w)
+    array.push(ls_w, lo_w)
+    if array.size(hs_w) > lookback
+        array.shift(hs_w)
+        array.shift(ls_w)
+if ta.change(time("M")) != 0 and not na(hi_m) and not na(lo_m)
+    array.push(hs_m, hi_m)
+    array.push(ls_m, lo_m)
+    if array.size(hs_m) > lookback
+        array.shift(hs_m)
+        array.shift(ls_m)
+
+// ── Per-timeframe: cluster → alert (every bar) + draw (on last bar) ──
 var array<line>  d_lines  = array.new_line()
 var array<label> d_labels = array.new_label()
+atrv = ta.atr(14)
+buf  = na(atrv) ? 0.0 : atrv * 0.25
+
+process_tf(array<float> hs, array<float> ls, string tag, int w, bool en) =>
+    if en
+        res_lv = cluster_levels(hs)
+        sup_lv = cluster_levels(ls)
+        if alerts_on
+            for R in res_lv
+                if high >= R and close < R and high[1] < R
+                    alert(mk_payload("htf_sr_reject", "SHORT", R + buf, tag + " resistance (" + str.tostring(touches_near(hs, R)) + "x) rejected"), alert.freq_once_per_bar_close)
+            for S in sup_lv
+                if low <= S and close > S and low[1] > S
+                    alert(mk_payload("htf_sr_bounce", "LONG", S - buf, tag + " support (" + str.tostring(touches_near(ls, S)) + "x) held"), alert.freq_once_per_bar_close)
+        if barstate.islast
+            x1 = bar_index > 150 ? bar_index - 150 : 0
+            if show_res
+                for R in res_lv
+                    array.push(d_lines, line.new(x1, R, bar_index, R, color = res_col, width = w, extend = extend.right))
+                    array.push(d_labels, label.new(bar_index, R, str.tostring(touches_near(hs, R)) + tag + " R", style = label.style_label_left, textcolor = res_col, color = color.new(res_col, 85), size = size.small))
+            if show_sup
+                for S in sup_lv
+                    array.push(d_lines, line.new(x1, S, bar_index, S, color = sup_col, width = w, extend = extend.right))
+                    array.push(d_labels, label.new(bar_index, S, str.tostring(touches_near(ls, S)) + tag + " S", style = label.style_label_left, textcolor = sup_col, color = color.new(sup_col, 85), size = size.small))
+
+// Wipe the prior render once, then process each timeframe (bolder by tf).
 if barstate.islast
     for ln in d_lines
         line.delete(ln)
@@ -107,16 +136,6 @@ if barstate.islast
     for lb in d_labels
         label.delete(lb)
     array.clear(d_labels)
-    x1 = bar_index > 150 ? bar_index - 150 : 0
-    if show_res
-        for R in res_lv
-            ln = line.new(x1, R, bar_index, R, color = res_col, width = 2, extend = extend.right)
-            array.push(d_lines, ln)
-            lb = label.new(bar_index, R, str.tostring(touches_near(hs, R)) + tf + " R", style = label.style_label_left, textcolor = res_col, color = color.new(res_col, 85), size = size.small)
-            array.push(d_labels, lb)
-    if show_sup
-        for S in sup_lv
-            ln = line.new(x1, S, bar_index, S, color = sup_col, width = 2, extend = extend.right)
-            array.push(d_lines, ln)
-            lb = label.new(bar_index, S, str.tostring(touches_near(ls, S)) + tf + " S", style = label.style_label_left, textcolor = sup_col, color = color.new(sup_col, 85), size = size.small)
-            array.push(d_labels, lb)
+process_tf(hs_d, ls_d, "D", 1, show_daily)
+process_tf(hs_w, ls_w, "W", 2, show_weekly)
+process_tf(hs_m, ls_m, "M", 3, show_monthly)
