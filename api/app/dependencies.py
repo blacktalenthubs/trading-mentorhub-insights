@@ -110,6 +110,17 @@ require_pro = require_tier("pro")
 require_premium = require_tier("premium")
 
 
+def is_ai_user(user) -> bool:
+    """Single source of truth for "may this user trigger AI/LLM (Anthropic) spend?"
+
+    Founder only (vbolofinde@gmail.com). AI = real LLM cost, hardcoded to one
+    account (not env/tier) so it can't be flipped on by mistake. Used by BOTH the
+    request gate (require_ai_access) AND any implicit AI trigger (e.g. the watchlist
+    auto-brief) so no path can spend on AI for a non-admin.
+    """
+    return (getattr(user, "email", "") or "").strip().lower() == "vbolofinde@gmail.com"
+
+
 async def require_ai_access(user: User = Depends(get_current_user)) -> User:
     """Hard gate on AI-triggered endpoints — admin-only.
 
@@ -122,8 +133,7 @@ async def require_ai_access(user: User = Depends(get_current_user)) -> User:
     same general admin perks (watchlist caps, debug endpoints) but NOT AI
     cost. AI = LLM spend, scoped to the founder.
     """
-    user_email = (user.email or "").strip().lower()
-    if user_email == "vbolofinde@gmail.com":
+    if is_ai_user(user):
         return user
 
     raise HTTPException(

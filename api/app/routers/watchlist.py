@@ -16,7 +16,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import ADMIN_EMAILS, get_current_user, get_user_tier, is_admin_user
+from app.dependencies import ADMIN_EMAILS, get_current_user, get_user_tier, is_admin_user, is_ai_user
 from app.tier import get_limits
 from app.models.user import User
 from app.models.watchlist import WatchlistGroup, WatchlistItem
@@ -431,7 +431,10 @@ async def add_symbol(
     db.add(item)
     await db.flush()
     # Newly-added symbol → generate its AI brief once (background, best-effort).
-    background.add_task(_auto_generate_brief, symbol)
+    # AI = LLM spend, founder-only — a non-admin's add must NOT trigger Anthropic
+    # (matches require_ai_access; briefs are per-symbol/shared so admin adds cover it).
+    if is_ai_user(user):
+        background.add_task(_auto_generate_brief, symbol)
     return item
 
 
