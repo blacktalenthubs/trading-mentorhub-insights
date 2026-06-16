@@ -1,0 +1,84 @@
+//@version=5
+// ═══════════════════════════════════════════════════════════════════════
+// Multi-Week S/R — key multi-week resistance / support
+// ───────────────────────────────────────────────────────────────────────
+// Finds prices where MULTIPLE completed weeks share a HIGH (resistance) or a
+// LOW (support) within a tolerance — institutional memory, the MSFT case:
+// several weekly highs rejecting near the same level, several weekly lows
+// holding the same area. Draws one line per cluster (>= min_touch weeks),
+// labelled with the touch count ("3w R" = 3 weeks rejected here).
+//
+// Visual only for now. Swap "W" -> "M" everywhere to extend to monthly.
+// ═══════════════════════════════════════════════════════════════════════
+indicator("Multi-Week S/R", "MultiWk S/R", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ── Inputs ───────────────────────────────────────────────────────────
+tol_pct   = input.float(0.6, "Cluster tolerance (%)", minval = 0.0, step = 0.1, group = "Cluster") / 100.0
+lookback  = input.int(52,    "Weeks to scan", minval = 4, maxval = 260, group = "Cluster")
+min_touch = input.int(2,     "Min touches (weeks at the level)", minval = 2, group = "Cluster")
+show_res  = input.bool(true, "Resistance — clustered weekly HIGHS", group = "Show")
+show_sup  = input.bool(true, "Support — clustered weekly LOWS", group = "Show")
+res_col   = input.color(color.red,   "Resistance", group = "Show")
+sup_col   = input.color(color.green, "Support", group = "Show")
+
+// ── Collect COMPLETED weekly highs + lows ────────────────────────────
+// high[1]/low[1] in the weekly context = the prior (completed) week, so the
+// in-progress week never enters the cluster. Pushed once per week rollover.
+wk_high  = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_off)
+wk_low   = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_off)
+new_week = ta.change(time("W")) != 0
+
+var array<float> hs = array.new_float()
+var array<float> ls = array.new_float()
+
+if new_week and not na(wk_high) and not na(wk_low)
+    array.push(hs, wk_high)
+    array.push(ls, wk_low)
+    if array.size(hs) > lookback
+        array.shift(hs)
+        array.shift(ls)
+
+// ── Render store (wipe + redraw the latest picture each real-time bar) ─
+var array<line>  d_lines  = array.new_line()
+var array<label> d_labels = array.new_label()
+
+// Group SORTED values into clusters within tolerance; one line per cluster
+// with >= min_touch members, drawn at the cluster average. Pushes to the
+// global render store (arrays are by-reference in Pine v5).
+draw_clusters(array<float> src, color col, string tag) =>
+    if array.size(src) >= min_touch
+        s = array.copy(src)
+        array.sort(s, order.ascending)
+        i = 0
+        while i < array.size(s)
+            base = array.get(s, i)
+            j = i
+            cnt = 0
+            sumv = 0.0
+            while j < array.size(s)
+                v = array.get(s, j)
+                if (v - base) / base > tol_pct
+                    break
+                cnt += 1
+                sumv += v
+                j += 1
+            if cnt >= min_touch
+                avg = sumv / cnt
+                x1 = bar_index > 150 ? bar_index - 150 : 0
+                ln = line.new(x1, avg, bar_index, avg, color = col, width = 2, extend = extend.right)
+                array.push(d_lines, ln)
+                lb = label.new(bar_index, avg, str.tostring(cnt) + "w " + tag, style = label.style_label_left, textcolor = col, color = color.new(col, 85), size = size.small)
+                array.push(d_labels, lb)
+            i := j
+
+if barstate.islast
+    for ln in d_lines
+        line.delete(ln)
+    array.clear(d_lines)
+    for lb in d_labels
+        label.delete(lb)
+    array.clear(d_labels)
+    if show_res
+        draw_clusters(hs, res_col, "R")
+    if show_sup
+        draw_clusters(ls, sup_col, "S")
