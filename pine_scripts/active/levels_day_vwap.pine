@@ -1877,11 +1877,13 @@ if rc4_alerts and rc4_newbar and rc4_short
 // ═══════════════════════════════════════════════════════════════════════
 // Gap alerts (spec 61, 2026-06-07) — fire from THIS indicator (one of your 2
 // bound TV alerts). DETECTION ONLY — the visual gap boxes live in the "Gaps"
-// indicator. Tracks unfilled gaps; alerts when price ENTERS or FILLS one. The
-// backend gates delivery by Settings → Info-alert symbols (so it only delivers
-// for the symbols you list, even though this runs on the whole watchlist).
+// indicator. Tracks unfilled gaps and fires DIRECTIONAL S/R entries on them:
+// gap_support BUY (dip to a gap you opened above), gap_fill BUY (close into a
+// gap below from underneath → run to the far edge), gap_reject SHORT (tag an
+// overhead gap and fail). Role decided by day_open. Enable per type in Settings
+// → Alert Types (default OFF). Replaces the old gap_zone info-notice.
 // ═══════════════════════════════════════════════════════════════════════
-gp_alerts   = input.bool(true, "Gap alerts (entering / filled · info)", group = "Gap alerts")
+gp_alerts   = input.bool(true, "Gap S/R entries (support / fill / reject)", group = "Gap alerts")
 gp_min_pct  = input.float(0.15, "Gap — min size %", minval = 0.0, step = 0.05, group = "Gap alerts")
 gp_lookback = input.int(300, "Gap — drop gaps older than N bars", minval = 20, group = "Gap alerts")
 
@@ -1911,13 +1913,23 @@ if array.size(gpTop) > 0
         gp_isup = array.get(gpUp, gp_i)
         gp_filled = gp_isup ? (low <= gp_bot) : (high >= gp_top)
         gp_stale = (bar_index - array.get(gpBar, gp_i)) > gp_lookback
-        gp_entered = gp_isup ? ((low <= gp_top) and (low[1] > gp_top)) : ((high >= gp_bot) and (high[1] < gp_bot))
-        if gp_alerts and (gp_entered or gp_filled)
-            gp_kind = gp_isup ? "support" : "resistance"
-            gp_evt = gp_filled ? "filled" : "entering"
-            gp_note = gp_evt + " gap " + gp_kind + " " + str.tostring(gp_bot, format.mintick) + "-" + str.tostring(gp_top, format.mintick)
-            gp_pl = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"gap_zone","direction":"NOTICE","interval":"' + timeframe.period + '","entry":"' + str.tostring(gp_isup ? gp_top : gp_bot, format.mintick) + '","note":"' + gp_note + '","fired_at":"' + str.tostring(timenow) + '"}'
-            alert(gp_pl, alert.freq_once_per_bar_close)
+        // Directional gap S/R entries (2026-06-15). day_open decides the role:
+        // gap-UP opened-above = support (bounce BUY); gap-DOWN = resistance — reject
+        // SHORT at the near edge, or BUY the FILL on a close INTO the void (the one
+        // level you can buy into — no supply inside the gap). [1] = fire once on the
+        // transition (first touch / first close-in), not every bar in the zone.
+        gp_sup_buy  = gp_isup     and day_open > gp_top and low <= gp_top and low[1] > gp_top and close > gp_top and close > open
+        gp_fill_buy = not gp_isup and close[1] <= gp_bot and close > gp_bot and close <= gp_top and close > open
+        gp_rej_sht  = not gp_isup and day_open < gp_bot and high >= gp_bot and high[1] < gp_bot and close < gp_bot and close < open
+        if gp_alerts and gp_sup_buy
+            gp_sp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"gap_support","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(gp_bot, format.mintick) + '","note":"Gap-support bounce — opened above the gap, dipped to its top edge and held","fired_at":"' + str.tostring(timenow) + '"}'
+            alert(gp_sp, alert.freq_once_per_bar_close)
+        if gp_alerts and gp_fill_buy
+            gp_fp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"gap_fill","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(gp_bot, format.mintick) + '","target_1":"' + str.tostring(gp_top, format.mintick) + '","note":"Gap fill — closed into the void from below; runs to the far edge (no supply inside)","fired_at":"' + str.tostring(timenow) + '"}'
+            alert(gp_fp, alert.freq_once_per_bar_close)
+        if gp_alerts and gp_rej_sht
+            gp_rp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"gap_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(gp_top, format.mintick) + '","note":"Gap-resistance reject — opened below the gap, tagged the near edge and closed back under","fired_at":"' + str.tostring(timenow) + '"}'
+            alert(gp_rp, alert.freq_once_per_bar_close)
         if gp_stale or gp_filled
             array.remove(gpTop, gp_i)
             array.remove(gpBot, gp_i)

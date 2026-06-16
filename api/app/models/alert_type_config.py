@@ -101,6 +101,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # in OBSOLETE_ALERT_TYPES. Gap-up (open ABOVE PDH) KEPT — separate, valid.
     ("gap_up_continuation_long","Gap-and-go — opened above PDH, ran (stop = open low)", "Gap-and-go", False),
 
+    # Gap S/R — unfilled gaps as support/resistance (2026-06-15). day_open decides
+    # the role. Replaces the old gap_zone info-notice. Default OFF — land in Muted.
+    ("gap_support", "Gap support bounce — dip to a gap you opened above, held", "Gap S/R", False),
+    ("gap_fill", "Gap fill — closed into a gap below; runs to the far edge", "Gap S/R", False),
+    ("gap_reject", "Gap resistance reject — tagged an overhead gap and failed", "Gap S/R", False),
+
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
     ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
 
@@ -204,6 +210,9 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pdh_break":         "Stock broke above yesterday's high with above-average volume and rising VWAP — confirmed continuation.",
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
+    "gap_support": "Price opened ABOVE an unfilled gap, pulled back to its top edge and held — the untraded void is acting as support. BUY the bounce; stop below the gap's bottom edge.",
+    "gap_fill": "Price closed UP into an unfilled gap from below — a gap has no supply inside, so it tends to fill fast to the far edge. BUY the fill; target = the top edge, stop back below the gap.",
+    "gap_reject": "Price opened BELOW an overhead gap, rallied to its near edge and closed back under — the gap resistance held. SHORT the rejection; stop above the gap's top edge.",
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
     "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
     "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
