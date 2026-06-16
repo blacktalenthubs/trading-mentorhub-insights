@@ -11,6 +11,18 @@ interface IndicatorConfig {
   color: string;
 }
 
+// Compact display name for the on-chart legend (key → "EMA 8" / "SMA 20" /
+// "VWAP"). Lets users see which overlays are active WITHOUT cluttering the
+// price axis with a value chip per line.
+function indicatorLabel(key: string): string {
+  const e = key.match(/^ema(\d+)$/);
+  if (e) return `EMA ${e[1]}`;
+  const s = key.match(/^sma(\d+)$/);
+  if (s) return `SMA ${s[1]}`;
+  if (key === "vwap") return "VWAP";
+  return key.toUpperCase();
+}
+
 interface Props {
   data: OHLCBar[];
   levels?: ChartLevel[];
@@ -64,6 +76,9 @@ function CandlestickChartInner({
   type Legend = { o: number; h: number; l: number; c: number; v: number; chg: number };
   const [legend, setLegend] = useState<Legend | null>(null);
   const latestLegendRef = useRef<Legend | null>(null);
+  // Active-indicator legend (top-left). Only the overlays that actually
+  // drew this render — e.g. VWAP is dropped on multi-day/daily charts.
+  const [indLegend, setIndLegend] = useState<{ key: string; color: string; label: string }[]>([]);
   // Latest draw-mode + handler held in refs so the click subscription reads
   // current values without re-subscribing on every prop change.
   const drawModeRef = useRef(drawMode);
@@ -309,6 +324,7 @@ function CandlestickChartInner({
       volume: bar.volume,
     }));
 
+    const drawnIndicators: { key: string; color: string; label: string }[] = [];
     for (const ind of indicators) {
       let lineData: { time: string | number; value: number }[] = [];
 
@@ -336,8 +352,10 @@ function CandlestickChartInner({
         });
         lineSeries.setData(lineData as any);
         lineSeriesRefs.current.push(lineSeries);
+        drawnIndicators.push({ key: ind.key, color: ind.color, label: indicatorLabel(ind.key) });
       }
     }
+    setIndLegend(drawnIndicators);
 
     // Remove previous price lines
     for (const pl of priceLinesRef.current) {
@@ -509,14 +527,31 @@ function CandlestickChartInner({
           )}
         </div>
       )}
-      {/* OHLC legend — top-left, follows the crosshair (latest bar by default). */}
-      {legend && (
-        <div className="absolute top-2 left-2 z-10 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono pointer-events-none select-none">
-          {([["O", legend.o], ["H", legend.h], ["L", legend.l], ["C", legend.c]] as const).map(([k, v]) => (
-            <span key={k} className="text-text-faint">{k}<span className={`ml-0.5 ${legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{v.toFixed(2)}</span></span>
-          ))}
-          <span className={legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}>{legend.chg >= 0 ? "+" : ""}{legend.chg.toFixed(2)}%</span>
-          {legend.v > 0 && <span className="text-text-faint">Vol <span className="text-text-secondary">{legend.v >= 1e9 ? (legend.v/1e9).toFixed(2)+"B" : legend.v >= 1e6 ? (legend.v/1e6).toFixed(1)+"M" : legend.v >= 1e3 ? (legend.v/1e3).toFixed(0)+"K" : legend.v}</span></span>}
+      {/* Top-left overlay: OHLC legend (follows crosshair) + active-indicator
+          legend. Replaces per-line value chips on the price axis — users see
+          which EMAs/SMAs/VWAP are on by the color-coded names here, keeping
+          the axis clean. */}
+      {(legend || indLegend.length > 0) && (
+        <div className="absolute top-2 left-2 z-10 flex flex-col gap-0.5 pointer-events-none select-none">
+          {legend && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono">
+              {([["O", legend.o], ["H", legend.h], ["L", legend.l], ["C", legend.c]] as const).map(([k, v]) => (
+                <span key={k} className="text-text-faint">{k}<span className={`ml-0.5 ${legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{v.toFixed(2)}</span></span>
+              ))}
+              <span className={legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}>{legend.chg >= 0 ? "+" : ""}{legend.chg.toFixed(2)}%</span>
+              {legend.v > 0 && <span className="text-text-faint">Vol <span className="text-text-secondary">{legend.v >= 1e9 ? (legend.v/1e9).toFixed(2)+"B" : legend.v >= 1e6 ? (legend.v/1e6).toFixed(1)+"M" : legend.v >= 1e3 ? (legend.v/1e3).toFixed(0)+"K" : legend.v}</span></span>}
+            </div>
+          )}
+          {indLegend.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-mono font-semibold">
+              {indLegend.map((i) => (
+                <span key={i.key} className="inline-flex items-center gap-1" style={{ color: i.color }}>
+                  <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: i.color }} />
+                  {i.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {drawMode && (
