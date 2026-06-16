@@ -50,6 +50,8 @@ export function formatSetup(alertType?: string): string {
     gap_fill: "Gap fill → far edge",
     gap_reject: "Gap rejection",
     lost_support_reject: "Lost support → resistance",
+    htf_sr_reject: "Multi-period resistance",
+    htf_sr_bounce: "Multi-period support",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 }
