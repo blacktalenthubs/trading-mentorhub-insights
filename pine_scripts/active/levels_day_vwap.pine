@@ -1936,3 +1936,37 @@ if array.size(gpTop) > 0
             array.remove(gpBar, gp_i)
             array.remove(gpUp, gp_i)
         gp_i := gp_i - 1
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Lost-support rejection (2026-06-16) — a LOW level (PDL/PWL/PML) you've LOST
+// (price now below it) acts as RESISTANCE: a wick UP into it that closes back
+// BELOW on a red bar -> SHORT. The low levels only had break/held/reclaim; this
+// gives them the same dual-role the EMAs + high levels already have (mirror of
+// highest_res_just_rejected, the ma_ema strict_short shape). high[1] < L means
+// the level was approached from BELOW (price had lost it). Honest: a lost support
+// is resistance until reclaimed. Wick tags (high >= L), close decides (close < L).
+// Once per level per day; catalog type default-OFF so it lands in Muted first.
+// ═══════════════════════════════════════════════════════════════════════
+lsr_alerts = input.bool(true, "Lost-support rejection (PDL/PWL/PML as resistance)", group = "Levels")
+lsr_rej(float L) => not na(L) and high >= L and close < L and close < open and high[1] < L
+lsr_newday = ta.change(time("D")) != 0
+var bool lsr_pdl_done = false
+var bool lsr_pwl_done = false
+var bool lsr_pml_done = false
+if lsr_newday
+    lsr_pdl_done := false
+    lsr_pwl_done := false
+    lsr_pml_done := false
+if lsr_alerts and lsr_rej(pdl) and not lsr_pdl_done
+    lsr_pdl_done := true
+    lsr_dp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"lost_support_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(pdl + atr_buffer, format.mintick) + '","note":"PDL lost - now resistance: wicked up into it and closed back below","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(lsr_dp, alert.freq_once_per_bar_close)
+if lsr_alerts and lsr_rej(pwl) and not lsr_pwl_done
+    lsr_pwl_done := true
+    lsr_wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"lost_support_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(pwl + atr_buffer, format.mintick) + '","note":"PWL lost - now resistance: wicked up into it and closed back below","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(lsr_wp, alert.freq_once_per_bar_close)
+if lsr_alerts and lsr_rej(pml) and not lsr_pml_done
+    lsr_pml_done := true
+    lsr_mp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"lost_support_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(pml + atr_buffer, format.mintick) + '","note":"PML lost - now resistance: wicked up into it and closed back below","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(lsr_mp, alert.freq_once_per_bar_close)
