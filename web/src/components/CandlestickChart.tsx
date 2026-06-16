@@ -11,18 +11,6 @@ interface IndicatorConfig {
   color: string;
 }
 
-// Compact display name for the on-chart legend (key → "EMA 8" / "SMA 20" /
-// "VWAP"). Lets users see which overlays are active WITHOUT cluttering the
-// price axis with a value chip per line.
-function indicatorLabel(key: string): string {
-  const e = key.match(/^ema(\d+)$/);
-  if (e) return `EMA ${e[1]}`;
-  const s = key.match(/^sma(\d+)$/);
-  if (s) return `SMA ${s[1]}`;
-  if (key === "vwap") return "VWAP";
-  return key.toUpperCase();
-}
-
 interface Props {
   data: OHLCBar[];
   levels?: ChartLevel[];
@@ -76,8 +64,8 @@ function CandlestickChartInner({
   type Legend = { o: number; h: number; l: number; c: number; v: number; chg: number };
   const [legend, setLegend] = useState<Legend | null>(null);
   const latestLegendRef = useRef<Legend | null>(null);
-  // Active-indicator legend (top-left). Only the overlays that actually
-  // drew this render — e.g. VWAP is dropped on multi-day/daily charts.
+  // Active-indicator legend (top-left). Only overlays that actually drew show
+  // here — e.g. VWAP is dropped on multi-day/daily charts.
   const [indLegend, setIndLegend] = useState<{ key: string; color: string; label: string }[]>([]);
   // Latest draw-mode + handler held in refs so the click subscription reads
   // current values without re-subscribing on every prop change.
@@ -276,6 +264,7 @@ function CandlestickChartInner({
     {
       const markers: any[] = [];
       const numericTimes = deduped.map((b) => b.time);
+      const seen = new Set<string>();
       for (const a of alertMarkers) {
         let t: string | number | null = null;
         if (isIntraday) {
@@ -287,12 +276,18 @@ function CandlestickChartInner({
         }
         if (t == null) continue;
         const isBuy = (a.direction || "").toUpperCase() === "BUY";
+        // One subtle arrow per bar per direction — no grade letters. Clusters of
+        // intraday alerts on the same bar used to stack into a "↑C ↑C" column;
+        // the grade still shows on each Signals-feed card.
+        const key = `${t}|${isBuy ? "B" : "S"}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         markers.push({
           time: t,
           position: isBuy ? "belowBar" : "aboveBar",
-          color: isBuy ? "#22c55e" : "#ef4444",
+          color: isBuy ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)",
           shape: isBuy ? "arrowUp" : "arrowDown",
-          text: a.grade || (isBuy ? "BUY" : "SELL"),
+          text: "",
         });
       }
       markers.sort((x, y) => (typeof x.time === "number" && typeof y.time === "number" ? x.time - y.time : String(x.time).localeCompare(String(y.time))));
@@ -330,6 +325,10 @@ function CandlestickChartInner({
 
       const smaMatch = ind.key.match(/^sma(\d+)$/);
       const emaMatch = ind.key.match(/^ema(\d+)$/);
+      // Which-line-is-which-MA label. Lives in the compact top-left legend
+      // (below) instead of as a per-line value chip on the price axis — those
+      // chips collided with each other and the gridlines.
+      const maLabel = emaMatch ? `EMA ${emaMatch[1]}` : smaMatch ? `SMA ${smaMatch[1]}` : ind.key === "vwap" ? "VWAP" : ind.key.toUpperCase();
       if (smaMatch) lineData = computeSMA(closes, parseInt(smaMatch[1]));
       else if (emaMatch) lineData = computeEMA(closes, parseInt(emaMatch[1]));
       else if (ind.key === "vwap" && sessionBars.length >= 3) {
@@ -352,7 +351,7 @@ function CandlestickChartInner({
         });
         lineSeries.setData(lineData as any);
         lineSeriesRefs.current.push(lineSeries);
-        drawnIndicators.push({ key: ind.key, color: ind.color, label: indicatorLabel(ind.key) });
+        drawnIndicators.push({ key: ind.key, color: ind.color, label: maLabel });
       }
     }
     setIndLegend(drawnIndicators);
@@ -527,10 +526,10 @@ function CandlestickChartInner({
           )}
         </div>
       )}
-      {/* Top-left overlay: OHLC legend (follows crosshair) + active-indicator
-          legend. Replaces per-line value chips on the price axis — users see
-          which EMAs/SMAs/VWAP are on by the color-coded names here, keeping
-          the axis clean. */}
+      {/* Top-left overlay: OHLC readout (follows crosshair) + active-indicator
+          legend. The legend replaces the per-line MA value chips that used to
+          stamp the price axis — same "which line is which MA" info, color-coded
+          here, but the axis stays clean. */}
       {(legend || indLegend.length > 0) && (
         <div className="absolute top-2 left-2 z-10 flex flex-col gap-0.5 pointer-events-none select-none">
           {legend && (
