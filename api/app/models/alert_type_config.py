@@ -111,6 +111,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # becomes resistance; the dual-role the EMAs/high-levels already have. Default OFF.
     ("lost_support_reject", "Lost support → resistance — PDL/PWL/PML lost, rejected on the way back up (SHORT)", "Levels", False),
 
+    # Multi-period S/R (#262) — clustered multi-week / multi-month highs (resistance)
+    # + lows (support); price wicks into a cluster and rejects/holds. Default OFF.
+    ("htf_sr_reject", "Multi-period resistance reject — wicked into a weekly/monthly wall, closed back below (SHORT)", "Multi-period S/R", False),
+    ("htf_sr_bounce", "Multi-period support bounce — wicked into a weekly/monthly floor, closed back above (LONG)", "Multi-period S/R", False),
+
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
     ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
 
@@ -218,6 +223,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "gap_fill": "Price closed UP into an unfilled gap from below — a gap has no supply inside, so it tends to fill fast to the far edge. BUY the fill; target = the top edge, stop back below the gap.",
     "gap_reject": "Price opened BELOW an overhead gap, rallied to its near edge and closed back under — the gap resistance held. SHORT the rejection; stop above the gap's top edge.",
     "lost_support_reject": "A prior support (PDL/PWL/PML) that price has LOST — closed below and is now trading under it — flips to resistance. Price wicks back up INTO the level and closes below it on a red bar = rejection. SHORT; stop above the level. The same dual-role the EMAs already use, applied to levels.",
+    "htf_sr_reject": "A price where MULTIPLE weeks (or months) topped out — clustered higher-timeframe highs = institutional resistance. Price wicked up into the cluster and closed back below = rejection. SHORT; stop above the level. The note says how many periods touched it (more = stronger).",
+    "htf_sr_bounce": "A price where MULTIPLE weeks (or months) bottomed — clustered higher-timeframe lows = institutional support. Price wicked down into the cluster and closed back above = hold. LONG; stop below the level. The note says how many periods touched it (more = stronger).",
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
     "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
     "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
