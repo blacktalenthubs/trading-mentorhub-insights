@@ -1170,7 +1170,15 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
 
-    if not _is_allowed_alert_type(alert_type_full, enabled_types):
+    # SPY/QQQ gap-and-go ALWAYS delivers, even if a user has muted gap-and-go —
+    # an index doesn't gap up without a strong macro reason, so it's the regime /
+    # tape signal that drives every single-stock gap behind it. Exempt from the
+    # type-disabled mute (2026-06-15).
+    _idx_gap_exempt = (
+        alert_type_full == "tv_gap_up_continuation_long"
+        and (sig.symbol or "").upper() in ("SPY", "QQQ")
+    )
+    if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt:
         # Known type, just toggled OFF → record it (deduped) for EOD review:
         # no Telegram, hidden from the live feed, and NOT run through the
         # twin/level dedup so the routed pipeline's state stays clean.
