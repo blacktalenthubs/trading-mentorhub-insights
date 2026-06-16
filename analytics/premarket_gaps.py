@@ -85,7 +85,9 @@ def refresh_premarket_gaps(session_factory) -> dict:
     from sqlalchemy import select
     from app.models.premarket_gap import PremarketGapSnapshot
     from app.models.watchlist import WatchlistItem
-    from analytics.intraday_data import fetch_premarket_bars, fetch_prior_day, compute_premarket_brief
+    from analytics.intraday_data import (
+        fetch_premarket_bars, fetch_prior_day, compute_premarket_brief, _fetch_prior_levels_alpaca,
+    )
     from analytics.screener import MEGA_CAP_UNIVERSE, STATIC_UNIVERSE, SMALL_CAP_UNIVERSE
 
     summary = {"scanned": 0, "gappers": 0, "enriched": 0, "fetch_failures": 0, "snapshot_id": None}
@@ -108,7 +110,9 @@ def refresh_premarket_gaps(session_factory) -> dict:
                 pm_bars = fetch_premarket_bars(sym)
                 if pm_bars is None or pm_bars.empty:
                     continue
-                prior = fetch_prior_day(sym)
+                # Alpaca levels first (cloud-safe); yfinance fetch_prior_day is a
+                # local-dev fallback (IP-blocked on cloud → blank board).
+                prior = _fetch_prior_levels_alpaca(sym) or fetch_prior_day(sym)
                 if not prior:
                     continue
                 brief = compute_premarket_brief(sym, pm_bars, prior)
