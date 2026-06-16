@@ -112,14 +112,27 @@ export default function EODReportPage() {
   const [symFilter, setSymFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("time");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [view, setView] = useState<"delivered" | "muted" | "notrouted">("delivered");
 
   const activeDate = selectedDate || dates?.[0] || "";
   const { data: rawAlerts, isLoading } = useAlertsForDate(activeDate);
-  // EOD report = DELIVERED signals only. The shared hook now returns ALL alerts
-  // (the live feed needs the suppressed rows), so filter to delivered HERE — muted
-  // (type_not_enabled) + unrouted (gated/confluence-collapsed) are excluded so the
-  // counts reflect what actually fired, not what was held back.
-  const alerts = (rawAlerts || []).filter((a) => !a.suppressed_reason);
+  // Three review buckets — what fired vs what was held back. Delivered (actually
+  // fired), Muted (type toggled off), Not-routed (gated). The shared hook returns
+  // ALL alerts; the active `view` selects which bucket drives the table + stats.
+  const buckets = useMemo(() => {
+    const all = rawAlerts || [];
+    return {
+      delivered: all.filter((a) => !a.suppressed_reason),
+      muted: all.filter((a) => a.suppressed_reason === "type_not_enabled"),
+      notrouted: all.filter(
+        (a) =>
+          !!a.suppressed_reason &&
+          a.suppressed_reason !== "type_not_enabled" &&
+          !a.suppressed_reason.startsWith("confluence_collapsed"),
+      ),
+    };
+  }, [rawAlerts]);
+  const alerts = buckets[view];
 
   function setSort(key: SortKey) {
     if (sortKey === key) {
@@ -342,6 +355,26 @@ export default function EODReportPage() {
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
+        {/* Review bucket — delivered vs what was held back */}
+        <div className="flex gap-1 rounded-lg border border-border-subtle bg-surface-2 p-1">
+          {([
+            { key: "delivered", label: "Delivered", count: buckets.delivered.length, active: "bg-accent/20 text-accent" },
+            { key: "muted", label: "Muted", count: buckets.muted.length, active: "bg-text-muted/20 text-text-secondary" },
+            { key: "notrouted", label: "Not-routed", count: buckets.notrouted.length, active: "bg-amber-500/20 text-amber-300" },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setView(t.key)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                view === t.key ? `${t.active} shadow-inner` : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              {t.label}
+              <span className="ml-1.5 opacity-75">{t.count}</span>
+            </button>
+          ))}
+        </div>
+
         <select
           value={activeDate}
           onChange={(e) => setSelectedDate(e.target.value)}
