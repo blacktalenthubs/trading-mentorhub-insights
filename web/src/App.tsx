@@ -13,6 +13,7 @@ import UpdatePrompt from "./components/UpdatePrompt";
 import RouteTitle from "./components/RouteTitle";
 import LandingPage from "./pages/LandingPage";
 import PricingPage from "./pages/PricingPage";
+import PrivacyPage from "./pages/PrivacyPage";
 import ReplayPage from "./pages/ReplayPage";
 import LearnPage from "./pages/LearnPage";
 import LearnDetailPage from "./pages/LearnDetailPage";
@@ -98,6 +99,7 @@ export default function App() {
               {/* Public routes */}
               <Route path="/" element={<LandingPage />} />
               <Route path="/pricing" element={<PricingPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/learn" element={<LearnPage />} />
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />
