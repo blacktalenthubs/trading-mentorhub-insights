@@ -52,6 +52,21 @@ def _auto_generate_brief(symbol: str) -> None:
 router = APIRouter()
 
 
+@router.get("/master-symbols")
+async def get_master_symbols(
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Union of EVERY user's watchlist symbols — the master list to sync into the
+    TradingView watchlist so the Pine scans every symbol any user watches (#248).
+    Per-user alert routing (_users_watching, PER_USER_WATCHLIST_ALERTS) then maps
+    each fired symbol back to the users who watch it. Consumed by the local
+    tv_sync bridge."""
+    rows = (await db.execute(select(WatchlistItem.symbol).distinct())).scalars().all()
+    symbols = sorted({s.strip().upper() for s in rows if s and s.strip()})
+    return {"count": len(symbols), "symbols": symbols}
+
+
 # ---------------------------------------------------------------------------
 # Default groups + tickers — used by POST /groups/seed-defaults.
 # Curated list focused on strong earnings growth + AI/data-center tailwinds.
