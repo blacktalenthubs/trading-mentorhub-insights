@@ -458,7 +458,10 @@ async def forgot_password(
         from app.models.password_reset import PasswordResetToken
 
         token = uuid.uuid4().hex
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        # Naive UTC — the column is `timestamp WITHOUT time zone`, and asyncpg
+        # REJECTS inserting a tz-aware datetime into it. Writing tz-aware here is
+        # what 500'd /forgot-password (reset-password already de-tz's on read).
+        expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
         reset_token = PasswordResetToken(
             token=token,
             user_id=user.id,
