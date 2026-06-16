@@ -107,6 +107,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("gap_fill", "Gap fill — closed into a gap below; runs to the far edge", "Gap S/R", False),
     ("gap_reject", "Gap resistance reject — tagged an overhead gap and failed", "Gap S/R", False),
 
+    # Lost-support rejection (2026-06-16) — a low level (PDL/PWL/PML) lost intraday
+    # becomes resistance; the dual-role the EMAs/high-levels already have. Default OFF.
+    ("lost_support_reject", "Lost support → resistance — PDL/PWL/PML lost, rejected on the way back up (SHORT)", "Levels", False),
+
     # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
     ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
 
@@ -213,6 +217,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "gap_support": "Price opened ABOVE an unfilled gap, pulled back to its top edge and held — the untraded void is acting as support. BUY the bounce; stop below the gap's bottom edge.",
     "gap_fill": "Price closed UP into an unfilled gap from below — a gap has no supply inside, so it tends to fill fast to the far edge. BUY the fill; target = the top edge, stop back below the gap.",
     "gap_reject": "Price opened BELOW an overhead gap, rallied to its near edge and closed back under — the gap resistance held. SHORT the rejection; stop above the gap's top edge.",
+    "lost_support_reject": "A prior support (PDL/PWL/PML) that price has LOST — closed below and is now trading under it — flips to resistance. Price wicks back up INTO the level and closes below it on a red bar = rejection. SHORT; stop above the level. The same dual-role the EMAs already use, applied to levels.",
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
     "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
     "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
