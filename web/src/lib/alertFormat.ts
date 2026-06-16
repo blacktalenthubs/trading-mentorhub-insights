@@ -46,6 +46,9 @@ export function formatSetup(alertType?: string): string {
     rsi_70: "RSI 70 — momentum",
     ema_5_20_cross: "5/20 EMA cross",
     rsi_oversold: "RSI oversold buy zone (30-35)",
+    gap_support: "Gap support bounce",
+    gap_fill: "Gap fill → far edge",
+    gap_reject: "Gap rejection",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 }
