@@ -777,19 +777,42 @@ def _spy_prior_levels(bars, last_date) -> tuple:
         return cached.get("pdh"), cached.get("pdl"), "cache"
 
     pdh = pdl = None
-    src = "alpaca"
-    pbars = bars[bars.index.date == prior_date]
-    rth = pbars.between_time("09:30", "16:00")
-    use = rth if len(rth) else pbars
-    if len(use):
-        pdh = float(use["High"].max())
-        pdl = float(use["Low"].min())
+    src = "alpaca_daily"
+    # PRIMARY (#260): the COMPLETED DAILY bar for prior_date. A daily bar's high/low
+    # IS the RTH session high/low — no extended-hours prints. The old path read 5m
+    # bars and leaked a pre/after-hours low (749.74, BELOW the real 751.76 RTH low),
+    # so SPY read as above its PDL and the weak-tape gate never bit. At the close we
+    # already know the day's PDH/PDL — just take the daily bar. Alpaca daily is
+    # cloud-safe (yfinance is blocked on Railway).
+    try:
+        from analytics.intraday_data import _fetch_alpaca_bars as _fab_daily
+        daily = _fab_daily("SPY", interval="1d", hours_back=24 * 30)
+        if daily is not None and not daily.empty:
+            drow = daily[daily.index.date == prior_date]
+            if len(drow):
+                pdh = float(drow["High"].iloc[-1])
+                pdl = float(drow["Low"].iloc[-1])
+    except Exception:
+        pdh = pdl = None
+    # FALLBACK: RTH-filtered 5m bars if the daily bar was missing for that date.
+    if pdl is None:
+        src = "alpaca_5m"
+        pbars = bars[bars.index.date == prior_date]
+        rth = pbars.between_time("09:30", "16:00")
+        use = rth if len(rth) else pbars
+        if len(use):
+            pdh = float(use["High"].max())
+            pdl = float(use["Low"].min())
     if pdl is None:  # Alpaca lacked the session (dev/local) → yfinance
         src = "yfinance"
         from analytics.intraday_data import fetch_prior_day
         prior = fetch_prior_day("SPY") or {}
         pdh = float(prior["high"]) if prior.get("high") is not None else None
         pdl = float(prior["low"]) if prior.get("low") is not None else None
+    try:
+        logger.info("SPY prior-levels: date=%s src=%s -> pdh=%s pdl=%s", prior_date, src, pdh, pdl)
+    except Exception:
+        pass
     if pdl is not None:
         cache_set(key, {"pdh": pdh, "pdl": pdl}, 8 * 3600)
     return pdh, pdl, src
