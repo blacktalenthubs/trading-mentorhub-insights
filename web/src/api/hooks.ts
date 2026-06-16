@@ -1469,12 +1469,11 @@ export function useAlertsForDate(date: string) {
     queryKey: ["alerts-date", date],
     queryFn: () => api.get<Alert[]>(`/alerts/history?days=90`),
     enabled: !!date,
-    // EOD report = DELIVERED signals only (the live Signals feed). Exclude muted
-    // (type_not_enabled) + unrouted (gated/confluence-collapsed) so the counts
-    // reflect what actually fired, not what was held back. /alerts/history is
-    // shared with the live feed (which needs all), so we filter here, not there.
-    select: (data) =>
-      data.filter((a) => a.session_date === date && !a.suppressed_reason),
+    // Return ALL alerts for the date — the live Signals feed (TradingPageV2) shares
+    // this hook and needs the suppressed rows for its Muted / Not-routed tabs. The
+    // delivered-only filter for the EOD report belongs in EODReportPage, NOT here
+    // (#227 wrongly filtered here and emptied the live feed's Muted/Not-routed tabs).
+    select: (data) => data.filter((a) => a.session_date === date),
   });
 }
 

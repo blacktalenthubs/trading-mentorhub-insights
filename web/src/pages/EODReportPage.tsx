@@ -114,7 +114,12 @@ export default function EODReportPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const activeDate = selectedDate || dates?.[0] || "";
-  const { data: alerts, isLoading } = useAlertsForDate(activeDate);
+  const { data: rawAlerts, isLoading } = useAlertsForDate(activeDate);
+  // EOD report = DELIVERED signals only. The shared hook now returns ALL alerts
+  // (the live feed needs the suppressed rows), so filter to delivered HERE — muted
+  // (type_not_enabled) + unrouted (gated/confluence-collapsed) are excluded so the
+  // counts reflect what actually fired, not what was held back.
+  const alerts = (rawAlerts || []).filter((a) => !a.suppressed_reason);
 
   function setSort(key: SortKey) {
     if (sortKey === key) {
