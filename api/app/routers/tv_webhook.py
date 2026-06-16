@@ -371,6 +371,9 @@ def _is_crypto_symbol(symbol: Optional[str]) -> bool:
 # Fallback when the config read fails — keep the rc_4h SHORT tight (opt-in),
 # never open it up to the whole watchlist on a DB hiccup.
 RC4H_SHORT_DEFAULT: frozenset[str] = frozenset({"SPY", "DRAM"})
+# Gap-and-go always-deliver names — their gap-up fires even when gap-and-go is
+# muted (managed live from Settings; an index doesn't gap up without a reason).
+GAP_ALWAYS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1162,6 +1165,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["rc_4h_short_symbols"])
             if "rc_4h_short_symbols" in _rc else RC4H_SHORT_DEFAULT
         )
+        # Gap-and-go always-deliver allowlist — fires even when gap-and-go is muted;
+        # missing key ⇒ the SPY,QQQ default.
+        gap_always_symbols = (
+            _parse_exempt_syms(_rc["gap_always_symbols"])
+            if "gap_always_symbols" in _rc else GAP_ALWAYS_DEFAULT
+        )
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
@@ -1169,14 +1178,15 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_exempt = SPY_TREND_EXEMPT_DEFAULT
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
+        gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
 
-    # SPY/QQQ gap-and-go ALWAYS delivers, even if a user has muted gap-and-go —
-    # an index doesn't gap up without a strong macro reason, so it's the regime /
-    # tape signal that drives every single-stock gap behind it. Exempt from the
-    # type-disabled mute (2026-06-15).
+    # Gap-and-go for the always-deliver names (Settings → gap_always_symbols,
+    # default SPY/QQQ) fires even if a user muted gap-and-go — an index doesn't gap
+    # up without a strong macro reason, so it's the regime/tape signal that drives
+    # every single-stock gap behind it. Exempt from the type-disabled mute.
     _idx_gap_exempt = (
         alert_type_full == "tv_gap_up_continuation_long"
-        and (sig.symbol or "").upper() in ("SPY", "QQQ")
+        and (sig.symbol or "").upper() in gap_always_symbols
     )
     if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt:
         # Known type, just toggled OFF → record it (deduped) for EOD review:

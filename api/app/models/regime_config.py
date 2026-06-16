@@ -38,6 +38,10 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # Non-empty = allowlist; BLANK = NONE (block all — a SHORT is opt-in, the
     # opposite of the multitouch default). Default SPY,DRAM — add more live in Settings.
     "rc_4h_short_symbols": "SPY,DRAM",
+    # Gap-and-go always-deliver allowlist (2026-06-15). These names' gap-up
+    # continuation fires even when a user has muted gap-and-go — an index doesn't
+    # gap without a strong macro reason. Default SPY,QQQ; managed live in Settings.
+    "gap_always_symbols": "SPY,QQQ",
 }
 
 

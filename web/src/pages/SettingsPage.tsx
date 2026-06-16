@@ -778,24 +778,28 @@ function SpyTrendGateSection() {
   );
 }
 
-function Rc4hShortSection() {
+function AlertSymbolListsSection() {
   const { data, isLoading } = useRegimeConfig();
   const update = useUpdateRegimeConfig();
   const toList = (s?: string) =>
     s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
 
   return (
-    <Section title="4h RC short — symbols" icon={<Zap className="h-4 w-4 text-accent" />}>
+    <Section title="Alert symbol lists" icon={<Zap className="h-4 w-4 text-accent" />}>
       <p className="text-xs text-text-muted mb-3">
-        The 4h failed-break rejection SHORT is opt-in per symbol — it delivers
-        ONLY for the symbols below. Empty = none (a short is opt-in). Takes
-        effect on the next alert, no redeploy. (Enable the type itself under
-        Alert Types.)
+        Per-symbol allowlists, managed live — they take effect on the next alert,
+        no redeploy. (Enable/disable the types themselves under Alert Types.)
       </p>
       {isLoading ? (
         <div className="text-xs text-text-faint">Loading…</div>
       ) : (
         <div className="space-y-5">
+          <ExemptListEditor
+            label="Gap-and-go — always deliver"
+            hint="These names' gap-up continuation ALWAYS fires, even when gap-and-go is muted — an index doesn't gap without a reason. e.g. SPY, QQQ."
+            list={toList(data?.gap_always_symbols)}
+            onSave={(l) => update.mutate({ gap_always_symbols: l.join(",") })}
+          />
           <ExemptListEditor
             label="4h RC SHORT — symbols"
             hint="The 4h failed-break rejection short fires only for these. e.g. SPY, DRAM — add more anytime. Empty = none (the short is opt-in)."
@@ -838,7 +842,7 @@ export default function SettingsPage() {
         <AlertTypesSection />
 
         {/* Multi-touch (MultiTB) notice — per-symbol allowlist */}
-        <Rc4hShortSection />
+        <AlertSymbolListsSection />
 
         {/* SPY-trend long gate — block longs when SPY below its 8 & 21 EMA */}
         <SpyTrendGateSection />

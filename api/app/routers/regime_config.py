@@ -26,6 +26,7 @@ class RegimeConfigUpdate(BaseModel):
     spy_trend_gate_enabled: Optional[str] = None  # "true"/"false" — SPY-below-8&21 long gate
     spy_trend_exempt: Optional[str] = None  # symbols still allowed to fire longs when SPY rolled over
     rc_4h_short_symbols: Optional[str] = None  # symbols allowed to deliver the rc_4h SHORT (blank = none)
+    gap_always_symbols: Optional[str] = None  # symbols whose gap-and-go always delivers even when muted (default SPY,QQQ)
 
 
 def _norm(s: str) -> str:
@@ -64,6 +65,7 @@ async def set_regime_config(
         "spy_trend_gate_enabled": body.spy_trend_gate_enabled,
         "spy_trend_exempt": body.spy_trend_exempt,
         "rc_4h_short_symbols": body.rc_4h_short_symbols,
+        "gap_always_symbols": body.gap_always_symbols,
     }
     _BOOL_KEYS = {"spy_trend_gate_enabled"}
     for key, raw in updates.items():
