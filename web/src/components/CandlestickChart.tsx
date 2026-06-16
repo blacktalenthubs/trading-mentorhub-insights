@@ -64,6 +64,9 @@ function CandlestickChartInner({
   type Legend = { o: number; h: number; l: number; c: number; v: number; chg: number };
   const [legend, setLegend] = useState<Legend | null>(null);
   const latestLegendRef = useRef<Legend | null>(null);
+  // Active-indicator legend (top-left). Only overlays that actually drew show
+  // here — e.g. VWAP is dropped on multi-day/daily charts.
+  const [indLegend, setIndLegend] = useState<{ key: string; color: string; label: string }[]>([]);
   // Latest draw-mode + handler held in refs so the click subscription reads
   // current values without re-subscribing on every prop change.
   const drawModeRef = useRef(drawMode);
@@ -316,12 +319,15 @@ function CandlestickChartInner({
       volume: bar.volume,
     }));
 
+    const drawnIndicators: { key: string; color: string; label: string }[] = [];
     for (const ind of indicators) {
       let lineData: { time: string | number; value: number }[] = [];
 
       const smaMatch = ind.key.match(/^sma(\d+)$/);
       const emaMatch = ind.key.match(/^ema(\d+)$/);
-      // Right-edge label so you can tell which line is which MA (in the line's color).
+      // Which-line-is-which-MA label. Lives in the compact top-left legend
+      // (below) instead of as a per-line value chip on the price axis — those
+      // chips collided with each other and the gridlines.
       const maLabel = emaMatch ? `EMA ${emaMatch[1]}` : smaMatch ? `SMA ${smaMatch[1]}` : ind.key === "vwap" ? "VWAP" : ind.key.toUpperCase();
       if (smaMatch) lineData = computeSMA(closes, parseInt(smaMatch[1]));
       else if (emaMatch) lineData = computeEMA(closes, parseInt(emaMatch[1]));
@@ -341,13 +347,14 @@ function CandlestickChartInner({
           lineWidth: 1,
           crosshairMarkerVisible: false,
           priceLineVisible: false,
-          lastValueVisible: true,
-          title: maLabel,
+          lastValueVisible: false,
         });
         lineSeries.setData(lineData as any);
         lineSeriesRefs.current.push(lineSeries);
+        drawnIndicators.push({ key: ind.key, color: ind.color, label: maLabel });
       }
     }
+    setIndLegend(drawnIndicators);
 
     // Remove previous price lines
     for (const pl of priceLinesRef.current) {
@@ -519,14 +526,31 @@ function CandlestickChartInner({
           )}
         </div>
       )}
-      {/* OHLC legend — top-left, follows the crosshair (latest bar by default). */}
-      {legend && (
-        <div className="absolute top-2 left-2 z-10 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono pointer-events-none select-none">
-          {([["O", legend.o], ["H", legend.h], ["L", legend.l], ["C", legend.c]] as const).map(([k, v]) => (
-            <span key={k} className="text-text-faint">{k}<span className={`ml-0.5 ${legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{v.toFixed(2)}</span></span>
-          ))}
-          <span className={legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}>{legend.chg >= 0 ? "+" : ""}{legend.chg.toFixed(2)}%</span>
-          {legend.v > 0 && <span className="text-text-faint">Vol <span className="text-text-secondary">{legend.v >= 1e9 ? (legend.v/1e9).toFixed(2)+"B" : legend.v >= 1e6 ? (legend.v/1e6).toFixed(1)+"M" : legend.v >= 1e3 ? (legend.v/1e3).toFixed(0)+"K" : legend.v}</span></span>}
+      {/* Top-left overlay: OHLC readout (follows crosshair) + active-indicator
+          legend. The legend replaces the per-line MA value chips that used to
+          stamp the price axis — same "which line is which MA" info, color-coded
+          here, but the axis stays clean. */}
+      {(legend || indLegend.length > 0) && (
+        <div className="absolute top-2 left-2 z-10 flex flex-col gap-0.5 pointer-events-none select-none">
+          {legend && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono">
+              {([["O", legend.o], ["H", legend.h], ["L", legend.l], ["C", legend.c]] as const).map(([k, v]) => (
+                <span key={k} className="text-text-faint">{k}<span className={`ml-0.5 ${legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{v.toFixed(2)}</span></span>
+              ))}
+              <span className={legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}>{legend.chg >= 0 ? "+" : ""}{legend.chg.toFixed(2)}%</span>
+              {legend.v > 0 && <span className="text-text-faint">Vol <span className="text-text-secondary">{legend.v >= 1e9 ? (legend.v/1e9).toFixed(2)+"B" : legend.v >= 1e6 ? (legend.v/1e6).toFixed(1)+"M" : legend.v >= 1e3 ? (legend.v/1e3).toFixed(0)+"K" : legend.v}</span></span>}
+            </div>
+          )}
+          {indLegend.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-mono font-semibold">
+              {indLegend.map((i) => (
+                <span key={i.key} className="inline-flex items-center gap-1" style={{ color: i.color }}>
+                  <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: i.color }} />
+                  {i.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {drawMode && (
