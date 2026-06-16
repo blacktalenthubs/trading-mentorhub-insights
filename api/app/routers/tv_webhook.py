@@ -1725,14 +1725,15 @@ async def _users_watching(db, symbol: str):
     2026-06-01 public-launch broadcast (everyone gets every alert; the admin's
     curated TV watchlist constrains the universe at source).
 
-    MASTER-WATCHLIST MODE (PER_USER_WATCHLIST_ALERTS on) = each user gets ONLY
-    the symbols on THEIR watchlist. The TV master list is the UNION of all users'
-    symbols (synced via /master-symbols) so the Pine fires for any of them; this
-    maps each fired symbol back to the users who actually watch it. NO admin
-    exemption — everyone (you included) gets only their own watchlist symbols;
-    add a name to your watchlist to receive it. Users with NO linked Telegram are
-    ignored for now (no reachable channel). Matching is NORMALIZED (uppercase,
-    strip non-alphanumerics) so ETH-USD == ETHUSD.
+    MASTER-WATCHLIST MODE (PER_USER_WATCHLIST_ALERTS on) — rolled out to ALL
+    users: each user WITH a watchlist gets ONLY their watchlist symbols; users
+    with an EMPTY watchlist fall back to the full broadcast (no dark feeds while
+    onboarding — they see alerts until they curate a list). NO Telegram
+    requirement — the in-app feed is the channel; Telegram/push are bonuses for
+    those who linked them. NO admin exemption. The TV master list is the UNION of
+    all users' symbols (synced via /master-symbols) so the Pine fires for any of
+    them; this maps each fired symbol back to its watchers. Matching is NORMALIZED
+    (uppercase, strip non-alphanumerics) so ETH-USD == ETHUSD.
 
     FLAG-GATED for safe rollout: default off = NO behaviour change (broadcast).
     Flip PER_USER_WATCHLIST_ALERTS=true on Railway to enable; flip off to revert
@@ -1741,6 +1742,7 @@ async def _users_watching(db, symbol: str):
     """
     import os
     import re
+    from sqlalchemy import or_
     from sqlalchemy.orm import selectinload
     from app.models.user import User
 
@@ -1753,11 +1755,10 @@ async def _users_watching(db, symbol: str):
         result = await db.execute(select(User).options(selectinload(User.subscription)))
         return result.scalars().all()
 
-    # Per-user mode: each user gets ONLY symbols on their own watchlist — no
-    # admin broadcast exemption (pure per-user routing). Users with NO linked
-    # Telegram are ignored for now (per founder) — no point routing to an
-    # unreachable account, and it sidesteps the empty-watchlist case (unlinked
-    # users simply drop out). Revisit once mobile push is the primary channel.
+    # Per-user mode, rolled out to ALL users: deliver to users who watch this
+    # symbol, PLUS users with an EMPTY watchlist (broadcast fallback — no dark
+    # feeds while onboarding). No Telegram requirement (the in-app feed is the
+    # channel), no admin exemption.
     from app.models.watchlist import WatchlistItem
 
     def _norm(s: str) -> str:
@@ -1765,15 +1766,13 @@ async def _users_watching(db, symbol: str):
 
     target = _norm(symbol)
     rows = (await db.execute(select(WatchlistItem.user_id, WatchlistItem.symbol))).all()
-    matching = {uid for uid, sym in rows if _norm(sym) == target}
-    if not matching:
-        return []
+    users_with_wl = {uid for uid, _sym in rows}                    # curated any list
+    matching = {uid for uid, sym in rows if _norm(sym) == target}  # watch THIS symbol
 
     stmt = (
         select(User)
         .options(selectinload(User.subscription))
-        .where(User.id.in_(matching))
-        .where(User.telegram_chat_id.isnot(None), User.telegram_chat_id != "")
+        .where(or_(User.id.in_(matching), User.id.notin_(users_with_wl)))
     )
     result = await db.execute(stmt)
     return result.scalars().all()
