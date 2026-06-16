@@ -1346,13 +1346,123 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
 
 
 @cache_data(ttl=120, show_spinner=False)
-def fetch_premarket_bars(symbol: str, interval: str = "5m") -> pd.DataFrame:
-    """Fetch today's pre-market bars (4:00-9:29 AM ET).
+def _fetch_alpaca_premarket_bars(symbol: str) -> pd.DataFrame:
+    """Today's pre-market 5m bars (04:00-09:29 ET) from Alpaca — [O,H,L,C,Volume],
+    naive ET index. Cloud-safe (unlike yfinance's prepost feed, which Yahoo
+    IP-blocks on cloud hosts like Railway). Empty on failure / missing creds.
+    Mirrors _fetch_alpaca_bars_for_date but on the pre-bell window."""
+    import os
+    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
+        return pd.DataFrame()
+    _key = os.environ.get("ALPACA_API_KEY", "")
+    _secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not _key or not _secret:
+        return pd.DataFrame()
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from datetime import datetime, time as _time
 
-    Uses yfinance with prepost=True to get extended-hours data.
-    Returns DataFrame with OHLC columns (Volume excluded — always 0 in PM).
-    Returns empty DataFrame on failure.
+        client = StockHistoricalDataClient(_key, _secret)
+        today_et = datetime.now(ET).date()
+        start_utc = ET.localize(datetime.combine(today_et, _time(4, 0))).astimezone(pytz.UTC)
+        end_utc = ET.localize(datetime.combine(today_et, _time(9, 30))).astimezone(pytz.UTC)
+        req = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=TimeFrame(5, TimeFrameUnit.Minute),
+            start=start_utc,
+            end=end_utc,
+        )
+        df = client.get_stock_bars(req).df
+        if df.empty:
+            return pd.DataFrame()
+        df = df.reset_index(level="symbol", drop=True)
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(ET).tz_localize(None)
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        return df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    except Exception as e:
+        logger.info("Alpaca premarket fetch failed for %s: %s", symbol, str(e)[:80])
+        return pd.DataFrame()
+
+
+def _fetch_prior_levels_alpaca(symbol: str) -> dict | None:
+    """Prior completed day's OHLC + prior-week H/L from Alpaca daily bars
+    (cloud-safe). Only the levels the gap board needs — close/high/low + PWH/PWL;
+    MA keys are intentionally absent (compute_premarket_brief reads them via
+    .get(), so None is fine). Avoids the heavy yfinance fetch_prior_day, which is
+    IP-blocked on cloud and left the gap board blank. Returns None on failure."""
+    import os
+    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
+        return None
+    _key = os.environ.get("ALPACA_API_KEY", "")
+    _secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not _key or not _secret:
+        return None
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from datetime import datetime, timedelta
+
+        client = StockHistoricalDataClient(_key, _secret)
+        start_utc = datetime.now(pytz.UTC) - timedelta(days=30)
+        req = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=TimeFrame(1, TimeFrameUnit.Day),
+            start=start_utc,
+        )
+        df = client.get_stock_bars(req).df
+        if df.empty or len(df) < 2:
+            return None
+        df = df.reset_index(level="symbol", drop=True)
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(ET).tz_localize(None)
+        df = df.rename(columns={"high": "High", "low": "Low", "close": "Close"})
+        today = pd.Timestamp.now(tz=ET).normalize().tz_localize(None)
+        completed = df[df.index.normalize() < today]
+        if completed.empty:
+            completed = df
+        last = completed.iloc[-1]
+        pwh = pwl = None
+        try:
+            wk = df[["High", "Low"]].resample("W-FRI").agg({"High": "max", "Low": "min"}).dropna()
+            if len(wk) >= 2:
+                pw = wk.iloc[-2] if wk.index[-1].normalize() >= today else wk.iloc[-1]
+                pwh, pwl = float(pw["High"]), float(pw["Low"])
+        except Exception:
+            pass
+        return {
+            "close": float(last["Close"]),
+            "high": float(last["High"]),
+            "low": float(last["Low"]),
+            "prior_week_high": pwh,
+            "prior_week_low": pwl,
+        }
+    except Exception as e:
+        logger.info("Alpaca prior-levels fetch failed for %s: %s", symbol, str(e)[:80])
+        return None
+
+
+def fetch_premarket_bars(symbol: str, interval: str = "5m") -> pd.DataFrame:
+    """Fetch today's pre-market bars (4:00-9:29 AM ET) as [O,H,L,C,Volume].
+
+    Prefers Alpaca (cloud-safe). yfinance's prepost feed is IP-blocked on cloud
+    hosts like Railway — it silently returned empty, which is why the gap board
+    was permanently blank in prod. The old code also dropped Volume entirely,
+    so the $-volume liquidity filter could never pass. Both are fixed here;
+    yfinance stays only as a local-dev fallback. Empty DataFrame on failure.
     """
+    # Alpaca first — reliable in prod.
+    df = _fetch_alpaca_premarket_bars(symbol)
+    if df is not None and not df.empty:
+        return df
+
+    # yfinance fallback (works locally; blocked on cloud).
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="5d", interval=interval, prepost=True)
@@ -1379,7 +1489,9 @@ def fetch_premarket_bars(symbol: str, interval: str = "5m") -> pd.DataFrame:
         # Strip timezone for consistency with rest of codebase
         pm_bars = pm_bars.copy()
         pm_bars.index = pm_bars.index.tz_localize(None)
-        return pm_bars[["Open", "High", "Low", "Close"]].copy()
+        out = pm_bars[["Open", "High", "Low", "Close"]].copy()
+        out["Volume"] = pm_bars["Volume"] if "Volume" in pm_bars.columns else 0.0
+        return out
     except Exception:
         return pd.DataFrame()
 
