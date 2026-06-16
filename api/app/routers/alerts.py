@@ -33,26 +33,16 @@ def _today() -> str:
 
 
 async def _history_user_id(user: User, db: AsyncSession) -> int:
-    """Return the user_id to scope read-only history queries to.
+    """Scope read-only history to the caller's OWN user_id — always.
 
-    2026-06-01 public-access launch: when a user has zero rows in the
-    `alerts` table (brand-new accounts that only just started receiving
-    fan-out), fall back to the first admin's user_id. Lets them see the
-    historical patterns + past session reports immediately — the alerts
-    are read-only by definition (their own user_action / exit_price stays
-    NULL because they didn't act on them). Once they have at least one
-    row of their own, they switch to their own history.
+    Per-user routing (PER_USER_WATCHLIST_ALERTS, #253): every user's reports show
+    only their own alerts. The old broadcast-era admin fallback (showing a brand-new
+    user the admin's history) is REMOVED — it leaked one user's data into another's
+    EOD report. A user with no alerts now correctly sees an empty report; empty-
+    watchlist users get the broadcast, so they're rarely empty anyway.
     """
-    exists = await db.execute(
-        select(Alert.id).where(Alert.user_id == user.id).limit(1)
-    )
-    if exists.scalar_one_or_none() is not None:
-        return user.id
-    from app.dependencies import ADMIN_EMAILS
-    admin_id = (await db.execute(
-        select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
-    )).scalar_one_or_none()
-    return admin_id if admin_id is not None else user.id
+    _ = db  # kept for signature compatibility
+    return user.id
 
 
 def _grade_filter_clause(user: User):
