@@ -17,20 +17,15 @@ router = APIRouter()
 
 
 async def _scope_uid(user: User, db: AsyncSession) -> int:
-    """2026-06-01 public-access launch — read-only Performance reports fall
-    back to the first admin's user_id when the caller has zero alert rows.
-    Brand-new users see the founder's track record until they accumulate
-    their own data. Mirrors _history_user_id in alerts.py.
+    """Scope Performance reports to the caller's OWN user_id — always.
+
+    Per-user routing (#253): the old admin fallback (showing a brand-new user the
+    founder's track record when they have zero alerts) is REMOVED — it leaked one
+    user's performance into another's dashboard. No alerts → an honest empty
+    report. Mirrors the same fix in alerts.py _history_user_id.
     """
-    exists = await db.execute(
-        select(Alert.id).where(Alert.user_id == user.id).limit(1)
-    )
-    if exists.scalar_one_or_none() is not None:
-        return user.id
-    admin_id = (await db.execute(
-        select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
-    )).scalar_one_or_none()
-    return admin_id if admin_id is not None else user.id
+    _ = db  # kept for signature compatibility
+    return user.id
 
 
 @router.get("/by-strategy")
