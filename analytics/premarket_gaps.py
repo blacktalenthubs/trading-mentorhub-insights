@@ -99,6 +99,20 @@ def refresh_premarket_gaps(session_factory) -> dict:
         watchlist = {r[0].upper() for r in wl_rows if r[0]}
 
         universe = set(MEGA_CAP_UNIVERSE) | set(STATIC_UNIVERSE) | momentum_symbols
+        # Broaden the board beyond the curated lists with Alpaca's LIVE movers +
+        # most-actives — the day's biggest gappers market-wide (which is exactly
+        # what a gap board should surface). Defensive: each returns [] if the
+        # endpoint is unavailable, so we degrade to the curated universe.
+        try:
+            from app.services.screener_service import _fetch_most_actives, _fetch_market_movers
+        except ImportError:  # path differs depending on how the worker is launched
+            from api.app.services.screener_service import _fetch_most_actives, _fetch_market_movers
+        try:
+            universe |= {s.upper() for s in (_fetch_market_movers(top=50) or [])}
+            universe |= {s.upper() for s in (_fetch_most_actives(top=100) or [])}
+        except Exception:
+            pass  # screener helpers failed → curated universe only
+
         symbols = sorted(watchlist | universe)
         summary["scanned"] = len(symbols)
 
