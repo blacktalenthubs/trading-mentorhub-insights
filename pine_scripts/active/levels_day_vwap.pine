@@ -233,16 +233,14 @@ nearby_levels_csv_58 = array.join(nearby_parts_58, ",")
 // Issue #4 (2026-06-13) — OPEN-ABOVE only (mirror of the MA bounce). A "held"
 // fires only when price is ESTABLISHED ABOVE the level (the bar OPENED above it
 // = support), dipped to it, held. A rally UP into the level from below is
-// resistance (a target), not a held. 2026-06-17: the day_open "must open above the
-// level" gate is REMOVED FOR GOOD — too restrictive. It killed valid retests where
-// price broke above the level intraday then held it as support (HOOD broke its PDH,
-// NBIS retested its PDH and bounced — both opened below, both blocked). A held is now
-// just: wick to the level, close back at/above it. day_open var kept for the gap S/R
-// block (default OFF) which is separate.
+// resistance (a target), not a held. 2026-06-15: use the DAILY open (day_open),
+// NOT the chart bar's open — on an intraday chart the bar-open lets a break-up-
+// through-then-retest fire a false "held" (same root cause as the MA strict_long
+// NVDA bug). The DAY must open above the level for it to be support.
 day_open = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
-s58_pdh_held = not na(pdh) and low <= pdh and close >= pdh
-s58_pwh_held = not na(pwh) and low <= pwh and close >= pwh
-s58_pmh_held = not na(pmh) and low <= pmh and close >= pmh
+s58_pdh_held = not na(pdh) and day_open > pdh and low <= pdh and close >= pdh
+s58_pwh_held = not na(pwh) and day_open > pwh and low <= pwh and close >= pwh
+s58_pmh_held = not na(pmh) and day_open > pmh and low <= pmh and close >= pmh
 
 // Spec 58 (2026-05-23) — symmetric low-held-from-above detection.
 // Wick tested the prior low and closed back above without closing below
@@ -251,9 +249,9 @@ s58_pmh_held = not na(pmh) and low <= pmh and close >= pmh
 // first), but the wick-and-hold is a real event the trader wants to take.
 // Strict touch: low <= level. No tolerance noise. If the level fails on
 // a future bar, the existing _reclaim/_break alerts cover the next event.
-s58_pdl_held = not na(pdl) and low <= pdl and close >= pdl
-s58_pwl_held = not na(pwl) and low <= pwl and close >= pwl
-s58_pml_held = not na(pml) and low <= pml and close >= pml
+s58_pdl_held = not na(pdl) and day_open > pdl and low <= pdl and close >= pdl
+s58_pwl_held = not na(pwl) and day_open > pwl and low <= pwl and close >= pwl
+s58_pml_held = not na(pml) and day_open > pml and low <= pml and close >= pml
 
 // Proximity bounce — fires when price comes NEAR the prior low without
 // actually touching it, then closes green. HOOD 2026-06-02 example: PDL
@@ -1184,11 +1182,7 @@ v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok an
 // long fired at the top). The trusted PDH entry is staged_pdh_held (price gets
 // above PDH and retests it as support). Gap-and-go (open ABOVE PDH) is a
 // separate alert and is unaffected. `if false` keeps the blocks for revert.
-// 2026-06-17: staged_pdh_break RE-ENABLED as the exception to the no-chase rule —
-// the day-open held gate stays (it cuts the break-up noise), but a genuine high-
-// volume PDH breakout is worth having. v2_break_confluence keeps it honest:
-// volume_ratio >= 2.0 + VWAP slope >= 0.05% + close > VWAP. (pwh/pmh stay off.)
-if v2_break_pdh and v2_break_confluence
+if false and v2_break_pdh and v2_break_confluence
     e_b = close
     s_b = low - atr_buffer
     t1_b = not na(pwh) and pwh > e_b ? pwh : (not na(pmh) and pmh > e_b ? pmh : e_b * 1.015)
