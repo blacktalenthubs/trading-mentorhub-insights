@@ -251,6 +251,24 @@ def _fetch_most_actives(top: int = 100) -> list[str]:
         return []
 
 
+def _fetch_market_movers(top: int = 50) -> list[str]:
+    """Top market GAINERS + LOSERS by % (Alpaca screener) — the day's biggest
+    gappers market-wide. Lazy + defensive: returns [] if the endpoint/API differs
+    so callers degrade to their curated universe. Feeds the premarket gap board."""
+    try:
+        import os
+        from alpaca.data.historical.screener import ScreenerClient
+        from alpaca.data.requests import MarketMoversRequest
+        client = ScreenerClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"])
+        res = client.get_market_movers(MarketMoversRequest(top=top))
+        gainers = [m.symbol for m in getattr(res, "gainers", [])]
+        losers = [m.symbol for m in getattr(res, "losers", [])]
+        return gainers + losers
+    except Exception:
+        logger.warning("screener: market-movers unavailable", exc_info=True)
+        return []
+
+
 def _most_active_symbols(universe_symbols: set[str]) -> list[str]:
     """Most-actives ∩ universe (in-play prune). Empty → caller falls back."""
     return [s for s in _fetch_most_actives(100) if s in universe_symbols]

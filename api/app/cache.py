@@ -32,8 +32,14 @@ def _get_redis():
     try:
         import redis
 
+        # Railway sometimes provides the URL without a scheme (host:port or
+        # user:pass@host:port); redis-py requires redis://. Normalize so a
+        # scheme-less value still connects. #266.
+        url = (settings.REDIS_URL or "").strip()
+        if url and not url.startswith(("redis://", "rediss://", "unix://")):
+            url = "redis://" + url
         _redis_client = redis.Redis.from_url(
-            settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2
+            url, decode_responses=True, socket_connect_timeout=3
         )
         _redis_client.ping()
         logger.info("Redis cache connected")
