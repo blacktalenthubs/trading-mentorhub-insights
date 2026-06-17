@@ -32,6 +32,11 @@ slowapi>=0.1.9
 squareup>=40.0.0
 aiosqlite>=0.19.0
 tzdata>=2024.1
+# Shared cache (Redis) — without this, app/cache.py's `import redis` fails and
+# every process falls back to its OWN in-memory cache, so the SPY-PDL gate and
+# the regime banner read different values. Declared in api/pyproject.toml but the
+# worker builds from requirements.txt, so it MUST be listed here too (#265).
+redis>=5.0.0
 # iOS APNs push (Capacitor mobile app) — gated by APNS_* env vars,
 # graceful no-op if vars unset. See api/app/services/apns.py.
 aioapns>=3.0.0
