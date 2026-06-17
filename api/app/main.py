@@ -254,21 +254,19 @@ async def lifespan(app: FastAPI):
             except Exception as _e:
                 logger.warning("Migration step skipped: %s — %s", col_def[:80], _e)
 
-        # Backfill alerts.grade for historical rows. Pure compute from
-        # existing volume_ratio + vwap_slope_pct so the new column is
-        # populated correctly on first deploy and queries can rely on it.
-        # Idempotent — re-running gives identical results.
+        # Backfill alerts.grade — VOLUME-ONLY (2026-06-17), matching
+        # analytics/alert_grade.compute_grade. The old vwap-slope gate scored
+        # support entries backwards, so it's dropped. Idempotent; re-runs every
+        # deploy so historical rows re-grade to the volume tiers too.
         try:
             await conn.execute(text("""
                 UPDATE alerts SET grade = CASE
-                    WHEN COALESCE(volume_ratio, 0) >= 2.0
-                         AND COALESCE(vwap_slope_pct, 0) >= 0.05 THEN 'A'
-                    WHEN COALESCE(volume_ratio, 0) >= 2.0
-                         OR  COALESCE(vwap_slope_pct, 0) >= 0.05 THEN 'B'
+                    WHEN COALESCE(volume_ratio, 0) >= 2.0 THEN 'A'
+                    WHEN COALESCE(volume_ratio, 0) >= 1.5 THEN 'B'
                     ELSE 'C'
                 END
             """))
-            logger.info("Migration: alerts.grade backfilled from vol+slope")
+            logger.info("Migration: alerts.grade backfilled (volume-only)")
         except Exception as e:
             logger.warning("Migration grade backfill skipped: %s", e)
 
