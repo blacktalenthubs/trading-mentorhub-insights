@@ -11,7 +11,15 @@ import pytest
 
 
 class TestDefaultGroups:
-    """The curated 7-category list shipped with seed-defaults."""
+    """The focused 3-tier watchlist shipped with seed-defaults / reset-defaults.
+
+    Restructured 2026-06-17 from the old 12-sector layout: act on Tier 1 daily,
+    drop to Tier 2/3 only when a name is clearly in play (~19 names total).
+    """
+
+    TIER1 = "Tier 1 · Daily Drivers"
+    TIER2 = "Tier 2 · High Volatility"
+    TIER3 = "Tier 3 · Sector Movers"
 
     @pytest.fixture
     def default_groups(self):
@@ -20,26 +28,20 @@ class TestDefaultGroups:
 
     def test_default_categories_exact_names(self, default_groups):
         names = [g["name"] for g in default_groups]
-        assert names == [
-            "Mega Tech",
-            "Chips",
-            "Memory",
-            "Optics",
-            "Cloud",
-            "BTC",
-            "Power",
-            "Macro",
-        ]
+        assert names == [self.TIER1, self.TIER2, self.TIER3]
 
-    def test_macro_group_has_indexes_and_sector_etfs(self, default_groups):
-        macro = next(g for g in default_groups if g["name"] == "Macro")
-        # Broad indexes
-        assert "SPY" in macro["symbols"]
-        assert "QQQ" in macro["symbols"]
-        assert "IWM" in macro["symbols"]
-        # Sector SPDRs
-        assert "XLK" in macro["symbols"]
-        assert "XLE" in macro["symbols"]
+    def test_tier1_has_index_context_plus_core_drivers(self, default_groups):
+        t1 = next(g for g in default_groups if g["name"] == self.TIER1)["symbols"]
+        # Index context to anchor the tape...
+        assert "SPY" in t1 and "QQQ" in t1
+        # ...plus the core single-name drivers traded daily.
+        for sym in ("NVDA", "AMD", "TSLA", "PLTR", "MU"):
+            assert sym in t1, f"{sym} expected in Tier 1"
+
+    def test_tier_symbol_membership(self, default_groups):
+        by_name = {g["name"]: g["symbols"] for g in default_groups}
+        assert by_name[self.TIER2] == ["SMCI", "AAOI", "RKLB", "IONQ", "HOOD"]
+        assert by_name[self.TIER3] == ["AVGO", "MSFT", "MSTR", "META", "CEG", "VST", "SNDK"]
 
     def test_each_group_has_color_and_symbols(self, default_groups):
         for group in default_groups:
@@ -51,32 +53,21 @@ class TestDefaultGroups:
                 f"Group {group['name']} has too few symbols — at least 2 expected"
             )
 
-    def test_total_symbol_count_within_premium_cap(self, default_groups):
-        """Premium tier cap is 50; default seed (35 symbols) fits cleanly."""
+    def test_total_symbol_count_is_focused(self, default_groups):
+        """A deliberately narrow list (~19) so daily focus stays tight."""
         total = sum(len(g["symbols"]) for g in default_groups)
-        assert total >= 30, "Default seed should be a meaningful watchlist"
-        assert total <= 50, "Default seed must fit within premium tier cap"
+        assert total == 19, "Expected the focused 3-tier list to total 19 names"
 
     def test_no_duplicate_symbols_across_groups(self, default_groups):
-        """A symbol appears in at most one default group (no NVDA in both Tech and Chips)."""
+        """A symbol appears in at most one tier."""
         seen: set[str] = set()
         for group in default_groups:
             for sym in group["symbols"]:
                 assert sym not in seen, f"{sym} appears in multiple default groups"
                 seen.add(sym)
 
-    def test_btc_group_has_two_picks(self, default_groups):
-        """User explicitly asked for top 2 BTC stocks."""
-        btc = next(g for g in default_groups if g["name"] == "BTC")
-        assert len(btc["symbols"]) == 2
-        assert "MSTR" in btc["symbols"]
-        assert "COIN" in btc["symbols"]
-
-    def test_mega_tech_excludes_aapl_per_growth_thesis(self, default_groups):
-        """User wanted strong earnings growth — AAPL excluded by design."""
-        mega = next(g for g in default_groups if g["name"] == "Mega Tech")
-        assert "AAPL" not in mega["symbols"]
-        assert "NVDA" in mega["symbols"]
+    def test_exactly_three_tiers(self, default_groups):
+        assert len(default_groups) == 3
 
 
 class TestSchemas:

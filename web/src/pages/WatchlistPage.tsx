@@ -12,6 +12,7 @@ import {
   useRemoveSymbol,
   useWatchlistGroups,
   useSeedDefaultGroups,
+  useResetDefaultGroups,
   useDeleteGroup,
   useCreateGroup,
   useMoveItem,
@@ -24,7 +25,7 @@ import { useFeatureGate } from "../hooks/useFeatureGate";
 import Card from "../components/ui/Card";
 import EarningsTab from "../components/EarningsTab";
 import DetailsTab from "../components/DetailsTab";
-import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX, CalendarDays, LineChart } from "lucide-react";
+import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX, CalendarDays, LineChart, RotateCcw } from "lucide-react";
 
 type WatchlistTab = "symbols" | "earnings" | "details";
 
@@ -36,6 +37,7 @@ export default function WatchlistPage() {
   const addSymbol = useAddSymbol();
   const removeSymbol = useRemoveSymbol();
   const seedDefaults = useSeedDefaultGroups();
+  const resetDefaults = useResetDefaultGroups();
   const copySectors = useCopySectorsWatchlist();
   const { data: sectorsItems } = useSectorsWatchlist();
   const deleteGroup = useDeleteGroup();
@@ -158,6 +160,32 @@ export default function WatchlistPage() {
                 <Sparkles className="h-3.5 w-3.5" />
               )}
               Seed Default Groups
+            </button>
+          )}
+          {/* Reset to tiers — wipes the current watchlist and rebuilds the
+              focused 3-tier default. Destructive, so confirm first. Shown only
+              when there's an existing structure to restructure. */}
+          {hasGroups && (
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Replace your entire watchlist with the 3 focus tiers (~19 names: Tier 1 Daily Drivers, Tier 2 High Volatility, Tier 3 Sector Movers)?\n\nThis removes your current groups and symbols.",
+                  )
+                ) {
+                  resetDefaults.mutate();
+                }
+              }}
+              disabled={resetDefaults.isPending}
+              className="flex items-center gap-2 rounded-lg bg-surface-3 px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-4 disabled:opacity-40 active:scale-95"
+              title="Wipe your watchlist and rebuild the focused 3-tier default"
+            >
+              {resetDefaults.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+              Reset to tiers
             </button>
           )}
         </div>
@@ -427,7 +455,7 @@ export default function WatchlistPage() {
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <Star className="h-10 w-10 text-text-faint" />
           <p className="text-text-muted">Your watchlist is empty</p>
-          <p className="text-sm text-text-faint">Add ticker symbols above, or click Seed Default Groups for a curated start.</p>
+          <p className="text-sm text-text-faint">Add ticker symbols above, or seed the focused 3-tier default for a curated start.</p>
           <button
             onClick={() => seedDefaults.mutate()}
             disabled={seedDefaults.isPending}
@@ -438,7 +466,7 @@ export default function WatchlistPage() {
             ) : (
               <Sparkles className="h-4 w-4" />
             )}
-            Seed 7 default groups + 27 tickers
+            Seed 3 tiers + 19 tickers
           </button>
         </div>
       )}
