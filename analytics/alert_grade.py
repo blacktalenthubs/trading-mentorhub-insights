@@ -23,23 +23,28 @@ from __future__ import annotations
 from typing import Optional
 
 
-VOL_GATE = 2.0      # volume_ratio >= this
-SLOPE_GATE = 0.05   # vwap_slope_pct >= this (in percent)
+# VOLUME-ONLY grade (2026-06-17). Volume = buy pressure at the bar — the honest
+# read of conviction. The old VWAP-slope gate was BACKWARDS for this book: slope is
+# steep+up at a high (a chase) and flat-to-down at the pullback you actually buy, so
+# it scored chases 'A' and clean support bounces 'C'. Proven in the data — MRVL
+# bounced on 5.13x volume and was capped at B purely because slope was -2.2. Drop
+# slope; grade on volume tiers.
+VOL_A = 2.0      # volume_ratio >= this → strong demand at the level
+VOL_B = 1.5      # volume_ratio >= this → above-average demand
 
 
 def compute_grade(
     volume_ratio: Optional[float],
-    vwap_slope_pct: Optional[float],
+    vwap_slope_pct: Optional[float] = None,  # kept for call-site compat; ignored
 ) -> str:
-    """Returns 'A', 'B', or 'C'. Never None — even an alert with no
-    quality data lands a 'C' (it's the bottom of the scale, not absent).
+    """Returns 'A', 'B', or 'C' from volume_ratio alone. Never None — an alert
+    with no volume data lands a 'C' (bottom of the scale, not absent).
+      A = vol >= 2.0   B = vol >= 1.5   C = below / no data
     """
-    vol_pass = volume_ratio is not None and volume_ratio >= VOL_GATE
-    slope_pass = vwap_slope_pct is not None and vwap_slope_pct >= SLOPE_GATE
-    passes = int(vol_pass) + int(slope_pass)
-    if passes == 2:
+    vr = volume_ratio if volume_ratio is not None else 0.0
+    if vr >= VOL_A:
         return "A"
-    if passes == 1:
+    if vr >= VOL_B:
         return "B"
     return "C"
 
