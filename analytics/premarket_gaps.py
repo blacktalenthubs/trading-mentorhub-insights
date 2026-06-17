@@ -90,7 +90,8 @@ def refresh_premarket_gaps(session_factory) -> dict:
     )
     from analytics.screener import MEGA_CAP_UNIVERSE, STATIC_UNIVERSE, SMALL_CAP_UNIVERSE
 
-    summary = {"scanned": 0, "gappers": 0, "enriched": 0, "fetch_failures": 0, "snapshot_id": None}
+    summary = {"scanned": 0, "gappers": 0, "enriched": 0, "fetch_failures": 0,
+               "empty_pm": 0, "no_prior": 0, "no_gap": 0, "snapshot_id": None}
 
     momentum_symbols = {s.upper() for s in SMALL_CAP_UNIVERSE}
 
@@ -123,11 +124,13 @@ def refresh_premarket_gaps(session_factory) -> dict:
             try:
                 pm_bars = fetch_premarket_bars(sym)
                 if pm_bars is None or pm_bars.empty:
+                    summary["empty_pm"] += 1  # #271 diag: empty fetch is a silent skip
                     continue
                 # Alpaca levels first (cloud-safe); yfinance fetch_prior_day is a
                 # local-dev fallback (IP-blocked on cloud → blank board).
                 prior = _fetch_prior_levels_alpaca(sym) or fetch_prior_day(sym)
                 if not prior:
+                    summary["no_prior"] += 1
                     continue
                 brief = compute_premarket_brief(sym, pm_bars, prior)
                 if not brief:
@@ -143,6 +146,7 @@ def refresh_premarket_gaps(session_factory) -> dict:
             pm_dvol = pm_dollar_volume(closes, vols)
 
             if not passes_gap_filters(brief.get("gap_pct"), pm_dvol, brief.get("pm_last")):
+                summary["no_gap"] += 1  # had data but gap%/$-vol below the floor
                 continue
 
             entries.append({
