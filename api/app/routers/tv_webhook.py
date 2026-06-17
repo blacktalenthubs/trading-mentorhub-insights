@@ -1218,6 +1218,16 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return {"dispatched": False, "reason": "unknown_type"}
 
     # ──────────────────────────────────────────────────────────────────
+    # SHORTS suppressed from the live feed (2026-06-17, #273) — long-only book.
+    # A SHORT records as Not-routed (still reviewable) but never hits the feed or
+    # Telegram, so flipping the grade filter to "All" lets every LONG through
+    # without flooding the feed with shorts. Remove this block to re-enable shorts.
+    # ──────────────────────────────────────────────────────────────────
+    if (sig.direction or "").upper() in ("SHORT", "SELL"):
+        logger.info("TV webhook: SHORT suppressed (long-only book) — %s %s", alert_type_full, sig.symbol)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_suppressed")
+
+    # ──────────────────────────────────────────────────────────────────
     # 4h RC rejection SHORT — per-symbol allowlist (2026-06-12)
     # ──────────────────────────────────────────────────────────────────
     # The rc_4h SHORT (failed break of the prior 4h high) is opt-in per symbol
