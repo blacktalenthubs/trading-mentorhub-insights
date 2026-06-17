@@ -377,6 +377,8 @@ GAP_ALWAYS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 # Multi-period S/R (htf_sr_*) symbol allowlist — clumpy on busy names, so it
 # delivers ONLY for these (start with indexes, expand live in Settings).
 HTF_SR_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
+# #278 — symbols whose SHORT alerts (any type) flow; everything else Not-routed.
+SHORT_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1166,10 +1168,17 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # VOLUME GRADE is the conviction filter now. Gate code + predicates kept for
         # cheap revival; flip spy_trend_gate_enabled='true' in Settings to re-arm.
         spy_trend_gate_on = (_rc.get("spy_trend_gate_enabled", "false") or "false").strip().lower() not in ("false", "0", "no", "off")
-        # 4h RC short allowlist — opt-in; missing key ⇒ the SPY,DRAM default.
+        # 4h RC short allowlist — superseded by short_symbols (#278); kept read for
+        # back-compat / no-op.
         rc_4h_short_symbols = (
             _parse_exempt_syms(_rc["rc_4h_short_symbols"])
             if "rc_4h_short_symbols" in _rc else RC4H_SHORT_DEFAULT
+        )
+        # Short-alert allowlist (#278) — shorts of ANY type flow ONLY for these
+        # symbols; everything else Not-routed. Opt-in; missing key ⇒ SPY,QQQ.
+        short_symbols = (
+            _parse_exempt_syms(_rc["short_symbols"])
+            if "short_symbols" in _rc else SHORT_SYMS_DEFAULT
         )
         # Gap-and-go always-deliver allowlist — fires even when gap-and-go is muted;
         # missing key ⇒ the SPY,QQQ default.
@@ -1189,6 +1198,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_exempt = SPY_TREND_EXEMPT_DEFAULT
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
+        short_symbols = SHORT_SYMS_DEFAULT        # read failed → shorts only SPY,QQQ
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
         htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
 
@@ -1218,35 +1228,15 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return {"dispatched": False, "reason": "unknown_type"}
 
     # ──────────────────────────────────────────────────────────────────
-    # SHORTS suppressed from the live feed (2026-06-17, #273) — long-only book.
-    # A SHORT records as Not-routed (still reviewable) but never hits the feed or
-    # Telegram, so flipping the grade filter to "All" lets every LONG through
-    # without flooding the feed with shorts. Remove this block to re-enable shorts.
+    # SHORT alerts — per-symbol allowlist (2026-06-17, #278). A SHORT of ANY type
+    # (index PDL break, rc_4h rejection, MA rejection, htf_sr reject, …) flows ONLY
+    # for symbols in short_symbols (Settings → Short alerts; default SPY,QQQ).
+    # Everything else records as Not-routed so you can still see candidates to add.
+    # Replaces the #273 blanket short-block + the old rc_4h-only allowlist — one list.
     # ──────────────────────────────────────────────────────────────────
-    if (sig.direction or "").upper() in ("SHORT", "SELL"):
-        logger.info("TV webhook: SHORT suppressed (long-only book) — %s %s", alert_type_full, sig.symbol)
-        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_suppressed")
-
-    # ──────────────────────────────────────────────────────────────────
-    # 4h RC rejection SHORT — per-symbol allowlist (2026-06-12)
-    # ──────────────────────────────────────────────────────────────────
-    # The rc_4h SHORT (failed break of the prior 4h high) is opt-in per symbol
-    # so it never shorts the whole watchlist. Delivers ONLY for the allowlist
-    # (Settings → 4h RC short; default SPY,DRAM — extend live). Everything else
-    # records as not-routed so you can still see candidates to add.
-    if (
-        alert_type_full == "tv_rc_4h"
-        and (sig.direction or "").upper() in ("SHORT", "SELL")
-        and rc4_short_symbol_blocks(sig.symbol, rc_4h_short_symbols)
-    ):
-        logger.info(
-            "TV webhook: rc_4h SHORT not in symbol allowlist — suppressed for %s",
-            sig.symbol,
-        )
-        return await _persist_unrouted(
-            sig, alert_type_full, session_date,
-            suppressed_reason="rc4_short_symbol_filter",
-        )
+    if (sig.direction or "").upper() in ("SHORT", "SELL") and (sig.symbol or "").upper() not in short_symbols:
+        logger.info("TV webhook: SHORT %s not in short_symbols allowlist — Not-routed (%s)", sig.symbol, alert_type_full)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_symbol_filter")
 
     # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
     # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
