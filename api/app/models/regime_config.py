@@ -39,6 +39,11 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # Non-empty = allowlist; BLANK = NONE (block all — a SHORT is opt-in, the
     # opposite of the multitouch default). Default SPY,DRAM — add more live in Settings.
     "rc_4h_short_symbols": "SPY,DRAM",
+    # Short-alert allowlist (#278, 2026-06-17). SHORT alerts of ANY type (index PDL
+    # break, rc_4h rejection, MA rejection, htf_sr reject) flow ONLY for these symbols;
+    # everything else is Not-routed. Supersedes rc_4h_short_symbols. BLANK = no shorts.
+    # Default SPY,QQQ — add the names you want shorts on, live in Settings.
+    "short_symbols": "SPY,QQQ",
     # Gap-and-go always-deliver allowlist (2026-06-15). These names' gap-up
     # continuation fires even when a user has muted gap-and-go — an index doesn't
     # gap without a strong macro reason. Default SPY,QQQ; managed live in Settings.

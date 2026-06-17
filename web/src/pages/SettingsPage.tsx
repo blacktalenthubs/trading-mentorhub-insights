@@ -838,10 +838,10 @@ function AlertSymbolListsSection() {
             onSave={(l) => update.mutate({ gap_always_symbols: l.join(",") })}
           />
           <ExemptListEditor
-            label="4h RC SHORT — symbols"
-            hint="The 4h failed-break rejection short fires only for these. e.g. SPY, DRAM — add more anytime. Empty = none (the short is opt-in)."
-            list={toList(data?.rc_4h_short_symbols)}
-            onSave={(l) => update.mutate({ rc_4h_short_symbols: l.join(",") })}
+            label="SHORT alerts — symbols"
+            hint="SHORT alerts of ANY type (index PDL break, 4h RC rejection, MA rejection, S/R reject) fire ONLY for these symbols — everything else is Not-routed. e.g. SPY, QQQ. Empty = no shorts."
+            list={toList(data?.short_symbols)}
+            onSave={(l) => update.mutate({ short_symbols: l.join(",") })}
           />
           <ExemptListEditor
             label="Multi-period S/R — symbols"
