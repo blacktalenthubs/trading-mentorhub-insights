@@ -171,14 +171,26 @@ function NotificationChannels() {
   const { data: notifPrefs } = useNotificationPrefs();
   const updateNotifs = useUpdateNotificationPrefs();
   const [telegramOn, setTelegramOn] = useState(true);
+  const [minGrade, setMinGrade] = useState<"A" | "B" | "C">("C");
   const [synced, setSynced] = useState(false);
 
   if (notifPrefs && !synced) {
     setTelegramOn(notifPrefs.telegram_enabled);
+    setMinGrade((notifPrefs.min_alert_grade as "A" | "B" | "C") ?? "C");
     setSynced(true);
   }
 
-  const dirty = synced && notifPrefs && telegramOn !== notifPrefs.telegram_enabled;
+  const dirty =
+    synced &&
+    notifPrefs &&
+    (telegramOn !== notifPrefs.telegram_enabled ||
+      minGrade !== ((notifPrefs.min_alert_grade as string) ?? "C"));
+
+  const GRADES: ReadonlyArray<["A" | "B" | "C", string]> = [
+    ["C", "All"],
+    ["B", "A + B"],
+    ["A", "A only"],
+  ];
 
   return (
     <Section title="Notifications" icon={<Bell className="h-4 w-4 text-text-muted" />}>
@@ -196,6 +208,30 @@ function NotificationChannels() {
             <p className="text-[10px] text-text-faint">Master switch — turn all Telegram alerts on or off.</p>
           </div>
         </label>
+
+        <div className="pt-1.5 border-t border-border-subtle">
+          <span className="text-sm text-text-primary">Minimum alert grade</span>
+          <p className="text-[10px] text-text-faint mb-2">
+            Grade = volume (buy pressure) on the entry bar. Below your pick goes to Not-routed instead of the feed.
+          </p>
+          <div className="flex gap-1.5">
+            {GRADES.map(([g, label]) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setMinGrade(g)}
+                className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                  minGrade === g
+                    ? "bg-accent text-white border-accent"
+                    : "bg-transparent text-text-muted border-border-subtle hover:text-text-primary"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <p className="text-[10px] text-text-faint italic">
           Email &amp; push notifications coming soon.
         </p>
@@ -205,6 +241,7 @@ function NotificationChannels() {
             onClick={() => updateNotifs.mutate({
               ...(notifPrefs as NotificationPrefs),
               telegram_enabled: telegramOn,
+              min_alert_grade: minGrade,
             })}
             disabled={updateNotifs.isPending}
             className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
