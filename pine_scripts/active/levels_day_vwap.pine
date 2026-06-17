@@ -1182,7 +1182,11 @@ v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok an
 // long fired at the top). The trusted PDH entry is staged_pdh_held (price gets
 // above PDH and retests it as support). Gap-and-go (open ABOVE PDH) is a
 // separate alert and is unaffected. `if false` keeps the blocks for revert.
-if false and v2_break_pdh and v2_break_confluence
+// 2026-06-17: staged_pdh_break RE-ENABLED as the exception to the no-chase rule —
+// the day-open held gate stays (it cuts the break-up noise), but a genuine high-
+// volume PDH breakout is worth having. v2_break_confluence keeps it honest:
+// volume_ratio >= 2.0 + VWAP slope >= 0.05% + close > VWAP. (pwh/pmh stay off.)
+if v2_break_pdh and v2_break_confluence
     e_b = close
     s_b = low - atr_buffer
     t1_b = not na(pwh) and pwh > e_b ? pwh : (not na(pmh) and pmh > e_b ? pmh : e_b * 1.015)
