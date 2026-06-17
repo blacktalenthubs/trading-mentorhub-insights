@@ -760,16 +760,26 @@ def _spy_prior_levels(bars, last_date) -> tuple:
     dates = sorted({ts.date() for ts in bars.index})
     if not dates:
         return None, None, "none"
-    # The most recent session whose RTH (16:00 ET) has fully closed. Bars are
-    # naive-ET, so compare against naive-ET wall-clock now.
-    now_et = _dt.now(ET).replace(tzinfo=None)
+    # cur_date = the CURRENT open session (passed by the regime). prior_date = the
+    # trading session BEFORE it — the PDL rolls at the OPEN (9:30), not the prior
+    # close (#267), so a weak close holds through after-hours + premarket until the
+    # new session opens. Use the DAILY bars (full history) to find the session-
+    # before; the 5m window may not reach back that far (e.g. premarket, cur=yday).
+    cur_date = last_date
+    daily = None
+    try:
+        from analytics.intraday_data import _fetch_alpaca_bars as _fab_daily
+        daily = _fab_daily("SPY", interval="1d", hours_back=24 * 40)
+    except Exception:
+        daily = None
     prior_date = None
-    for d in reversed(dates):
-        if now_et >= _dt(d.year, d.month, d.day, 16, 0):
-            prior_date = d
-            break
-    if prior_date is None:  # nothing closed yet (rare) → session before latest
-        prior_date = dates[-2] if len(dates) >= 2 else dates[-1]
+    if daily is not None and not daily.empty:
+        _before = sorted({ts.date() for ts in daily.index if ts.date() < cur_date})
+        if _before:
+            prior_date = _before[-1]
+    if prior_date is None:  # daily unavailable → fall back to the intraday dates
+        _before = [d for d in dates if d < cur_date]
+        prior_date = _before[-1] if _before else (dates[-2] if len(dates) >= 2 else dates[-1])
 
     key = f"spy_levels:SPY:{prior_date.isoformat()}"
     cached = cache_get(key)
@@ -785,8 +795,6 @@ def _spy_prior_levels(bars, last_date) -> tuple:
     # already know the day's PDH/PDL — just take the daily bar. Alpaca daily is
     # cloud-safe (yfinance is blocked on Railway).
     try:
-        from analytics.intraday_data import _fetch_alpaca_bars as _fab_daily
-        daily = _fab_daily("SPY", interval="1d", hours_back=24 * 30)
         if daily is not None and not daily.empty:
             drow = daily[daily.index.date == prior_date]
             if len(drow):
@@ -1015,21 +1023,28 @@ def _spy_regime_fresh() -> dict:
     if bars is None or len(bars) == 0:
         return {"status": "unavailable", "reason": "no SPY bars"}
 
-    last_date = bars.index[-1].date()
-    today_bars = bars[bars.index.date == last_date]
-    # RTH-only (09:30–16:00 ET) so today's high/low/open/VWAP are measured over
-    # the SAME session as the RTH prior levels in _spy_prior_levels. Alpaca 5m
-    # bars include pre/after-hours; a thin premarket print poking outside
-    # yesterday's range would flip inside_day off and mis-read an inside day as
-    # NEUTRAL. Pre-open (no RTH bar yet) → keep premarket so the banner isn't
-    # blank. Equities only — _btc_regime_fresh is 24/7 and stays full-session.
-    _rth = today_bars.between_time("09:30", "16:00")
-    if len(_rth):
-        today_bars = _rth
+    # #267 — reflect the TRUE session state, RTH-only. The "current session" is the
+    # most recent one whose RTH 9:30 OPEN has passed. Outside RTH it stays the just-
+    # closed session, so its CLOSE (never a 4am print) drives the regime and a weak
+    # close HOLDS through after-hours + premarket. The PDL is the session BEFORE it,
+    # and only rolls at the next OPEN (see _spy_prior_levels). So: SPY closes below
+    # its PDL Tuesday -> stays WEAK premarket Wed -> rolls to Tue's low at Wed's open.
+    from datetime import datetime as _dt
+    from analytics.intraday_data import ET as _ET
+    now_et = _dt.now(_ET).replace(tzinfo=None)
+    rth_all = bars.between_time("09:30", "16:00")
+    if len(rth_all) == 0:
+        return {"status": "unavailable", "reason": "no RTH bars"}
+    rth_dates = sorted({ts.date() for ts in rth_all.index})
+    cur_date = next(
+        (d for d in reversed(rth_dates) if now_et >= _dt(d.year, d.month, d.day, 9, 30)),
+        rth_dates[-1],
+    )
+    today_bars = rth_all[rth_all.index.date == cur_date]
     if len(today_bars) == 0:
-        return {"status": "unavailable", "reason": "no today bars"}
+        return {"status": "unavailable", "reason": "no current-session bars"}
 
-    pdh, pdl, src = _spy_prior_levels(bars, last_date)
+    pdh, pdl, src = _spy_prior_levels(bars, cur_date)
     return _regime_dict(today_bars, pdh, pdl, src, "SPY", rsi=_daily_rsi("SPY", False))
 
 
