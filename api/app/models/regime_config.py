@@ -42,6 +42,11 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # continuation fires even when a user has muted gap-and-go — an index doesn't
     # gap without a strong macro reason. Default SPY,QQQ; managed live in Settings.
     "gap_always_symbols": "SPY,QQQ",
+    # Multi-period S/R alert allowlist (2026-06-17). The clustered weekly/monthly/
+    # daily S/R reject+bounce (htf_sr_*) is clumpy on busy names, so it delivers
+    # ONLY for these — start with indexes (where it reads cleanest), expand live in
+    # Settings as it validates. BLANK = none. Default SPY,QQQ.
+    "htf_sr_symbols": "SPY,QQQ",
 }
 
 

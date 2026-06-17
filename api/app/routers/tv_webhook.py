@@ -374,6 +374,9 @@ RC4H_SHORT_DEFAULT: frozenset[str] = frozenset({"SPY", "DRAM"})
 # Gap-and-go always-deliver names — their gap-up fires even when gap-and-go is
 # muted (managed live from Settings; an index doesn't gap up without a reason).
 GAP_ALWAYS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
+# Multi-period S/R (htf_sr_*) symbol allowlist — clumpy on busy names, so it
+# delivers ONLY for these (start with indexes, expand live in Settings).
+HTF_SR_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1171,6 +1174,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["gap_always_symbols"])
             if "gap_always_symbols" in _rc else GAP_ALWAYS_DEFAULT
         )
+        # Multi-period S/R allowlist — opt-in per symbol; missing key ⇒ SPY,QQQ.
+        htf_sr_symbols = (
+            _parse_exempt_syms(_rc["htf_sr_symbols"])
+            if "htf_sr_symbols" in _rc else HTF_SR_DEFAULT
+        )
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
@@ -1179,6 +1187,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
+        htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
 
     # Gap-and-go for the always-deliver names (Settings → gap_always_symbols,
     # default SPY/QQQ) fires even if a user muted gap-and-go — an index doesn't gap
@@ -1224,6 +1233,23 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return await _persist_unrouted(
             sig, alert_type_full, session_date,
             suppressed_reason="rc4_short_symbol_filter",
+        )
+
+    # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
+    # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
+    # (Settings → Multi-period S/R; default SPY,QQQ — indexes read cleanest).
+    # Everything else records as not-routed so you can still review candidates.
+    if (
+        alert_type_full in ("tv_htf_sr_reject", "tv_htf_sr_bounce")
+        and (sig.symbol or "").upper() not in htf_sr_symbols
+    ):
+        logger.info(
+            "TV webhook: multi-period S/R not in symbol allowlist — suppressed for %s",
+            sig.symbol,
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason="htf_sr_symbol_filter",
         )
 
     # ──────────────────────────────────────────────────────────────────

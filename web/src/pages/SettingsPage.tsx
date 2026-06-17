@@ -806,6 +806,12 @@ function AlertSymbolListsSection() {
             list={toList(data?.rc_4h_short_symbols)}
             onSave={(l) => update.mutate({ rc_4h_short_symbols: l.join(",") })}
           />
+          <ExemptListEditor
+            label="Multi-period S/R — symbols"
+            hint="The clustered weekly/monthly/daily S/R reject + bounce fires only for these. It reads cleanest on indexes; start small and expand as it validates. e.g. SPY, QQQ. Empty = none."
+            list={toList(data?.htf_sr_symbols)}
+            onSave={(l) => update.mutate({ htf_sr_symbols: l.join(",") })}
+          />
         </div>
       )}
     </Section>
