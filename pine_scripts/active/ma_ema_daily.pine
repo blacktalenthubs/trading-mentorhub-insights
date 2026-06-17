@@ -317,15 +317,14 @@ recently_above_ma(float ma) =>
 // (price below the MA, rallies UP through it) is DROPPED — that's buying
 // resistance, not a bounce. A break up through an MA from below is a level
 // reclaim with the MA as a TARGET, never an MA-bounce long.
-// 2026-06-17: day_open dual-role gate REMOVED — too aggressive, it silenced clean
-// entries when price opened on the "wrong" side of the MA (e.g. opened below, then
-// reclaimed). A bounce is now just: wick to the MA, close back above.
 strict_long(float ma) =>
-    not na(ma) and low <= ma and close > ma
+    not na(ma) and day_open > ma and low <= ma and close > ma
 
-// Mirror rejection short: wick up to the MA, close back below.
+// Mirror: price OPENED BELOW the MA (it's resistance above), rallied up to it,
+// closed back below = a rejection short. Not fired when price falls DOWN into
+// the MA from above (that's support being tested, not resistance).
 strict_short(float ma) =>
-    not na(ma) and high >= ma and close < ma
+    not na(ma) and day_open < ma and high >= ma and close < ma
 
 band_long(float ma) =>
     not na(ma) and recently_above_ma(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
