@@ -1162,7 +1162,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         known_types: Optional[set[str]] = {at for at, _ in _cfg_rows}
         _rc = {k: v for k, v in _rc_rows}
         spy_trend_exempt = _parse_exempt_syms(_rc.get("spy_trend_exempt")) or SPY_TREND_EXEMPT_DEFAULT
-        spy_trend_gate_on = (_rc.get("spy_trend_gate_enabled", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
+        # SPY-PDL gate OFF by default (2026-06-17) — alerts flow ungated; the
+        # VOLUME GRADE is the conviction filter now. Gate code + predicates kept for
+        # cheap revival; flip spy_trend_gate_enabled='true' in Settings to re-arm.
+        spy_trend_gate_on = (_rc.get("spy_trend_gate_enabled", "false") or "false").strip().lower() not in ("false", "0", "no", "off")
         # 4h RC short allowlist — opt-in; missing key ⇒ the SPY,DRAM default.
         rc_4h_short_symbols = (
             _parse_exempt_syms(_rc["rc_4h_short_symbols"])

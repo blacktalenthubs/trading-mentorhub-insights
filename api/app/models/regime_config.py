@@ -28,10 +28,11 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # (2026-06-09 cleanup) alert_symbols / alerts_all_symbols / alert_watchlist
     # were removed — alert delivery is now controlled by Alert Types + the single
     # SPY-trend gate below. Stale rows in old DBs are harmless (nothing reads them).
-    # SPY-trend long gate. When ON and SPY is below BOTH its daily
-    # 8-EMA and 21-EMA (broad tape rolled over), equity BUY alerts are suppressed
-    # EXCEPT for spy_trend_exempt. Non-trending market = most longs are traps.
-    "spy_trend_gate_enabled": "true",
+    # SPY-PDL long gate. When ON and SPY is below its PDL, equity BUY alerts are
+    # suppressed EXCEPT for spy_trend_exempt. OFF by default (2026-06-17): alerts
+    # flow ungated and the VOLUME GRADE is the conviction filter; flip to 'true'
+    # here or in Settings to re-arm once the regime read is trustworthy.
+    "spy_trend_gate_enabled": "false",
     "spy_trend_exempt": "SPY,QQQ,DRAM,NVDA",
     # 4h RC rejection-SHORT symbol allowlist (2026-06-12). The rc_4h SHORT (failed
     # break of the prior 4h high) is opt-in per symbol — it delivers ONLY for these.
