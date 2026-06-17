@@ -38,8 +38,13 @@ def _get_redis():
         _redis_client.ping()
         logger.info("Redis cache connected")
         return _redis_client
-    except Exception:
-        logger.warning("Redis unavailable — falling back to in-memory cache")
+    except Exception as e:
+        # Log WHY (import error vs connection refused vs auth) — a bare "unavailable"
+        # hid a missing `redis` package for too long. #265.
+        logger.warning(
+            "Redis unavailable (%s: %s) — falling back to in-memory cache",
+            type(e).__name__, str(e)[:200],
+        )
         _redis_client = None
         return None
 
