@@ -505,14 +505,14 @@ function AlertTypesSection() {
       {total > 0 && (
         <div className="flex items-center gap-2 mb-4">
           <button
-            onClick={() => toggleAll.mutate(false)}
+            onClick={() => toggleAll.mutate({ enabled: false })}
             disabled={busy || enabledCount === 0}
             className="rounded-md border border-border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
           >
             Uncheck all
           </button>
           <button
-            onClick={() => toggleAll.mutate(true)}
+            onClick={() => toggleAll.mutate({ enabled: true })}
             disabled={busy || enabledCount === total}
             className="rounded-md border border-border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
           >
@@ -532,13 +532,23 @@ function AlertTypesSection() {
                 <span className="text-[11px] font-bold uppercase tracking-wide text-text-secondary">
                   {category}
                 </span>
-                <span
-                  className={`text-[10px] font-semibold ${
-                    onCount > 0 ? "text-accent" : "text-text-faint"
-                  }`}
-                >
-                  {onCount}/{items.length} on
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-[10px] font-semibold ${
+                      onCount > 0 ? "text-accent" : "text-text-faint"
+                    }`}
+                  >
+                    {onCount}/{items.length} on
+                  </span>
+                  <button
+                    onClick={() => toggleAll.mutate({ enabled: onCount < items.length, category })}
+                    disabled={busy}
+                    title={`Turn this whole group ${onCount === items.length ? "off" : "on"} in one click`}
+                    className="rounded border border-border-subtle px-2 py-0.5 text-[10px] font-semibold text-text-muted transition-colors hover:bg-surface-2 hover:text-text-primary disabled:opacity-50"
+                  >
+                    {onCount === items.length ? "Disable all" : "Enable all"}
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {items.map((t) => (
