@@ -35,7 +35,6 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
   const slopeSign = (r.vwap_slope_pct ?? 0) >= 0 ? "+" : "";
   const tip =
     `${label}: $${r.price?.toFixed(2)} · VWAP ${slopeSign}${(r.vwap_slope_pct ?? 0).toFixed(2)}% · ${r.bias_label}` +
-    (r.pdl ? ` · PDL $${r.pdl.toFixed(2)}` : "") +
     (r.rsi != null ? ` · RSI ${r.rsi}` : "");
 
   return (
@@ -46,14 +45,12 @@ function RegimeChip({ r, label }: { r?: SpyRegimeSnapshot; label: string }) {
       <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />
       <span className={`font-semibold ${c.text}`}>{label}</span>
       <span className={c.text}>{biasText}</span>
-      {r.pdl != null && (
+      {r.below_pdl && (
         <span
-          className={r.below_pdl ? "font-semibold text-bearish-text" : "text-text-faint"}
-          title="Prior-day low — the level the gate compares price against (rolls once a day)"
+          className="font-semibold text-bearish-text"
+          title="SPY is below its prior-day low — weak tape, buys off"
         >
-          {r.below_pdl
-            ? `· ⛔ < PDL $${r.pdl.toFixed(2)} · buys off`
-            : `· PDL $${r.pdl.toFixed(2)}`}
+          {`· ⛔ < PDL · buys off`}
         </span>
       )}
       {rsiZoned && (
