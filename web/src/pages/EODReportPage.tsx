@@ -112,22 +112,20 @@ export default function EODReportPage() {
   const [symFilter, setSymFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("time");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [view, setView] = useState<"delivered" | "muted" | "notrouted">("delivered");
+  const [view, setView] = useState<"delivered" | "notrouted">("delivered");
 
   const activeDate = selectedDate || dates?.[0] || "";
   const { data: rawAlerts, isLoading } = useAlertsForDate(activeDate);
-  // Three review buckets — what fired vs what was held back. Delivered (actually
-  // fired), Muted (type toggled off), Not-routed (gated). The shared hook returns
-  // ALL alerts; the active `view` selects which bucket drives the table + stats.
+  // Two review buckets (merged muted into not-routed 2026-06-17): Delivered (fired)
+  // vs Not-routed (everything held back — gate catches AND muted/disabled types).
+  // Each row keeps its own reason. confluence_collapsed (same-moment dup) stays out.
   const buckets = useMemo(() => {
     const all = rawAlerts || [];
     return {
       delivered: all.filter((a) => !a.suppressed_reason),
-      muted: all.filter((a) => a.suppressed_reason === "type_not_enabled"),
       notrouted: all.filter(
         (a) =>
           !!a.suppressed_reason &&
-          a.suppressed_reason !== "type_not_enabled" &&
           !a.suppressed_reason.startsWith("confluence_collapsed"),
       ),
     };
@@ -359,7 +357,6 @@ export default function EODReportPage() {
         <div className="flex gap-1 rounded-lg border border-border-subtle bg-surface-2 p-1">
           {([
             { key: "delivered", label: "Delivered", count: buckets.delivered.length, active: "bg-accent/20 text-accent" },
-            { key: "muted", label: "Muted", count: buckets.muted.length, active: "bg-text-muted/20 text-text-secondary" },
             { key: "notrouted", label: "Not-routed", count: buckets.notrouted.length, active: "bg-amber-500/20 text-amber-300" },
           ] as const).map((t) => (
             <button
