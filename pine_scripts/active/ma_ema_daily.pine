@@ -53,7 +53,16 @@ indicator("ma-ema-daily", overlay = true, max_labels_count = 500, max_lines_coun
 // Re-enabled 2026-05-19 after "also allow mas/ema alerts" directive.
 // Backend allow-list in tv_webhook.py also accepts these via prefix match.
 fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to webhook")
-show_lines       = input.bool   (true,         "Show daily MA lines")
+show_lines       = input.bool   (true,         "Show daily MA lines (master)")
+// Per-MA show toggles — turn any single line off without touching the others.
+show_ema8        = input.bool   (true, "  · EMA 8",   group = "MA lines")
+show_ema21       = input.bool   (true, "  · EMA 21",  group = "MA lines")
+show_ema50       = input.bool   (true, "  · EMA 50",  group = "MA lines")
+show_ema100      = input.bool   (true, "  · EMA 100", group = "MA lines")
+show_ema200      = input.bool   (true, "  · EMA 200", group = "MA lines")
+show_sma50       = input.bool   (true, "  · SMA 50",  group = "MA lines")
+show_sma100      = input.bool   (true, "  · SMA 100", group = "MA lines")
+show_sma200      = input.bool   (true, "  · SMA 200", group = "MA lines")
 show_markers     = input.bool   (true,         "Show BOUNCE/REJECT markers")
 mode             = input.string ("intraday",   "Setup mode", options = ["intraday", "swing"])
 tolerance_atr    = input.float  (0.3,          "MA tolerance band (× chart ATR14, swing mode)", minval = 0.05, maxval = 2.0, step = 0.05)
@@ -242,8 +251,8 @@ flat_is_support(float ma) => not na(ma) and close > ma
 var line[]  flat_lines  = array.new_line(0)
 var label[] flat_labels = array.new_label(0)
 
-flat_draw(float ma, string nm, bool dotted) =>
-    if not na(ma)
+flat_draw(float ma, string nm, bool dotted, bool show) =>
+    if show and not na(ma)
         sup = flat_is_support(ma)
         col = sup ? flat_sup_col : flat_res_col
         ln  = line.new(bar_index - flat_len, ma, bar_index + 6, ma, color = col, width = dotted ? 1 : 2, style = dotted ? line.style_dotted : line.style_solid)
@@ -260,14 +269,14 @@ if show_lines and barstate.islast
         for i = 0 to array.size(flat_labels) - 1
             label.delete(array.get(flat_labels, i))
         array.clear(flat_labels)
-    flat_draw(ema8,   "EMA 8",   false)
-    flat_draw(ema21,  "EMA 21",  false)
-    flat_draw(ema50,  "EMA 50",  false)
-    flat_draw(ema100, "EMA 100", false)
-    flat_draw(ema200, "EMA 200", false)
-    flat_draw(sma50,  "SMA 50",  true)
-    flat_draw(sma100, "SMA 100", true)
-    flat_draw(sma200, "SMA 200", true)
+    flat_draw(ema8,   "EMA 8",   false, show_ema8)
+    flat_draw(ema21,  "EMA 21",  false, show_ema21)
+    flat_draw(ema50,  "EMA 50",  false, show_ema50)
+    flat_draw(ema100, "EMA 100", false, show_ema100)
+    flat_draw(ema200, "EMA 200", false, show_ema200)
+    flat_draw(sma50,  "SMA 50",  true,  show_sma50)
+    flat_draw(sma100, "SMA 100", true,  show_sma100)
+    flat_draw(sma200, "SMA 200", true,  show_sma200)
 
 // Detection helpers — strict (intraday) and band (swing) ---------------------
 //
