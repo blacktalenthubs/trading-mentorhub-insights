@@ -25,6 +25,7 @@ class AlertConfigUpdate(BaseModel):
 
 class AlertConfigBulkUpdate(BaseModel):
     enabled: bool
+    category: str | None = None  # if set, toggle ONLY this category's types (#281)
 
 
 @router.get("")
@@ -56,14 +57,17 @@ async def set_all_alert_config(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Bulk enable/disable EVERY alert type in one call — backs the
-    'All off' / 'All on' buttons in Settings > Alert Types, so the user can
-    clear the board then pick only the few they care about. Takes effect on
-    the next fired alert."""
-    rows = (await db.execute(select(AlertTypeConfig))).scalars().all()
+    """Bulk enable/disable alert types in one call — backs the 'All off' / 'All on'
+    buttons AND the per-category Enable/Disable (#281: pass category to flip just one
+    group, e.g. the MA/EMA bounce alerts when the tape gets choppy). No category =
+    every type. Takes effect on the next fired alert."""
+    q = select(AlertTypeConfig)
+    if body.category:
+        q = q.where(AlertTypeConfig.category == body.category)
+    rows = (await db.execute(q)).scalars().all()
     for r in rows:
         r.enabled = body.enabled
-    return {"updated": len(rows), "enabled": body.enabled}
+    return {"updated": len(rows), "enabled": body.enabled, "category": body.category}
 
 
 @router.put("/{alert_type}")

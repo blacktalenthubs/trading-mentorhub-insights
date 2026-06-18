@@ -2036,8 +2036,8 @@ export function useToggleAlertConfig() {
 export function useToggleAllAlertConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (enabled: boolean) =>
-      api.put<{ updated: number; enabled: boolean }>("/alert-config", { enabled }),
+    mutationFn: (vars: { enabled: boolean; category?: string }) =>
+      api.put<{ updated: number; enabled: boolean }>("/alert-config", vars),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-config"] }),
     onError: (err: { message?: string; detail?: { message?: string } }) => {
       toast.error(err.detail?.message || err.message || "Failed to update alert types");
