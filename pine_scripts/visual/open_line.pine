@@ -107,9 +107,9 @@ build_index_open_payload(rule) =>
       + '","target_1":"' + str.tostring(close + atr14_ol, format.mintick)
       + '","target_2":"' + str.tostring(close + atr14_ol * 2, format.mintick)
       + '","rule":"' + rule
-      + '","direction":"BUY"'
+      + '","direction":"BUY'
       + '","today_open":"' + str.tostring(today_open, format.mintick)
-      + '","above_open":"true"'
+      + '","above_open":"true'
       + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if fire_index_open_alert and is_index and enter_strength
