@@ -1851,7 +1851,7 @@ if fire_swing and sw_os and not sw_os_done
 // Pulled from the 4h via request.security so it's right on any chart TF; fires
 // once per 4h candle when it occurs (~<=1/day per name).
 // ═══════════════════════════════════════════════════════════════════════
-rc4_alerts = input.bool(true, "4h RC alerts (long = watchlist · short = SPY/QQQ)", group = "4h RC alerts")
+rc4_alerts = input.bool(true, "4h RC alerts — long + short (delivery gated per-symbol by rc_symbols in Settings)", group = "4h RC alerts")
 
 [rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
 rc4_long   = (rc4_low < rc4_plow) and (rc4_close > rc4_plow)

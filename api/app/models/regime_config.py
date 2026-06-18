@@ -48,11 +48,11 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # for these clean trending names — on a chop chart the MA tangle is pure noise.
     # Everything else Not-routed. BLANK = no MA alerts. Default SPY,QQQ,DRAM,MU,AAPL.
     "ma_alert_symbols": "SPY,QQQ,DRAM,MU,AAPL",
-    # 4h RC allowlist (#286, 2026-06-17). rc_4h alerts — BOTH the long reclaim and the
-    # short rejection — fire ONLY for these symbols (RC shorts are wanted, so rc_4h is
-    # exempt from the general short gate). BLANK = no RC alerts. Default = the active
-    # day-trade names; manage live in Settings.
-    "rc_symbols": "SPY,QQQ,DRAM,MU,AAPL,NVDA,IREN,NBIS",
+    # 4h RC allowlist (#286, widened #288 to the full watchlist 2026-06-17). rc_4h
+    # alerts — BOTH the long reclaim AND the short rejection — fire for these symbols
+    # (RC shorts are wanted, so rc_4h is exempt from the general short gate). BLANK = no
+    # RC alerts. Default = the day-trade watchlist; trim live in Settings if noisy.
+    "rc_symbols": "SPY,QQQ,AAPL,DRAM,MU,NVDA,IREN,NBIS,HOOD,WDC,MRVL,TSM,GOOGL,META,MSFT,TSLA,SNDK,CRWV,RKLB,ASTS,AIP,AAOI,SPCX,BTCUSD,ETHUSD",
     # Gap-and-go always-deliver allowlist (2026-06-15). These names' gap-up
     # continuation fires even when a user has muted gap-and-go — an index doesn't
     # gap without a strong macro reason. Default SPY,QQQ; managed live in Settings.
