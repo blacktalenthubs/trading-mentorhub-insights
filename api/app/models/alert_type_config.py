@@ -66,6 +66,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdh_held", "PDH held as support (Buy 2)", "Daily PDH/PDL", False),
     ("staged_pwh_held", "PWH held as support (Buy 2)", "Weekly", False),
     ("staged_pmh_held", "PMH held as support (Buy 2)", "Monthly", False),
+    # PDH breakout on volume (#291) — close above PDH + volume_ratio>=2 + rising VWAP.
+    ("staged_pdh_break", "PDH break on volume", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
@@ -267,10 +269,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # Open-line entries — retired spec 58 FR-007 (open line stays visual)
     "open_reclaimed", "open_held", "open_wick_reclaim", "open_lost",
 
-    # Breakout-into-resistance LONG — DROPPED AGAIN 2026-06-04 (spec 61).
-    # Buying a PDH break after a rally from below is buying resistance. The
-    # trusted PDH entry is staged_pdh_held. Gap-up continuation stays.
-    "staged_pdh_break", "staged_pwh_break",
+    # staged_pdh_break RE-ENABLED 2026-06-18 (#291) — back in _BASE_CATALOG, default OFF
+    # (high-volume PDH breakout the user asked for again). staged_pwh_break stays dropped.
+    "staged_pwh_break",
 
     # Proximity bounce — DROPPED 2026-06-04 (spec 61). Entry = close landed
     # far from the level after the bounce ran (TSLA PDL 416 → alert at 423).

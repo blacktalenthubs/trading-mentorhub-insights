@@ -1182,7 +1182,9 @@ v2_break_confluence = fire_break_v2 and v2_break_vol_ok and v2_break_slope_ok an
 // long fired at the top). The trusted PDH entry is staged_pdh_held (price gets
 // above PDH and retests it as support). Gap-and-go (open ABOVE PDH) is a
 // separate alert and is unaffected. `if false` keeps the blocks for revert.
-if false and v2_break_pdh and v2_break_confluence
+// 2026-06-18: staged_pdh_break RE-ENABLED (#291) — user wants the high-volume PDH
+// breakout (close above PDH + volume_ratio>=2 + rising VWAP). #277 had reverted it.
+if v2_break_pdh and v2_break_confluence
     e_b = close
     s_b = low - atr_buffer
     t1_b = not na(pwh) and pwh > e_b ? pwh : (not na(pmh) and pmh > e_b ? pmh : e_b * 1.015)
