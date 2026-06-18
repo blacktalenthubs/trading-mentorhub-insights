@@ -1843,38 +1843,10 @@ if fire_swing and sw_os and not sw_os_done
     swp3 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30). T1 RSI 50, T2 RSI 70. STOP = daily close back under RSI 30","fired_at":"' + str.tostring(timenow) + '"}'
     alert(swp3, alert.freq_once_per_bar_close)
 
-// ═══════════════════════════════════════════════════════════════════════
-// 4h RC alerts (spec 61, 2026-06-07) — undercut & reclaim on the 4h, fired
-// through THIS indicator's alert. RC LONG (reclaim of the prior 4h low) and RC
-// SHORT (rejection at the prior 4h high) both fire for the WHOLE watchlist as
-// BUY / SHORT. Delivery is gated server-side: the SHORT delivers only for the
-// rc_4h_short_symbols allowlist (Settings → 4h RC short; default SPY,DRAM).
-// Stop = the wick (the undercut low / the reject high). Visuals live in "RC4h".
-// Pulled from the 4h via request.security so it's right on any chart TF; fires
-// once per 4h candle when it occurs (~<=1/day per name).
-// ═══════════════════════════════════════════════════════════════════════
-rc4_alerts = input.bool(true, "4h RC alerts — long + short (delivery gated per-symbol by rc_symbols in Settings)", group = "4h RC alerts")
-
-[rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
-rc4_long   = (rc4_low < rc4_plow) and (rc4_close > rc4_plow)
-rc4_short  = (rc4_high > rc4_phigh) and (rc4_close < rc4_phigh)
-// Fire ONLY when a 4h bar has just CLOSED (a new 4h bar opened) — NOT intra-bar.
-// Without this, the forming 4h candle re-triggers on every 5m bar at the wrong
-// (current) price, flooding the feed. At this boundary request.security returns
-// the just-CLOSED 4h bar, so we stamp rc4_close (its close), not the live price.
-rc4_newbar = ta.change(time("240")) != 0
-
-if rc4_alerts and rc4_newbar and rc4_long
-    rcln = "RC · RECLAIM FROM LOW — 4h undercut & reclaim of the prior 4h low · stop = 4h low " + str.tostring(rc4_low, format.mintick)
-    rclp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"BUY","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_low, format.mintick) + '","note":"' + rcln + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(rclp, alert.freq_once_per_bar_close)
-if rc4_alerts and rc4_newbar and rc4_short
-    rcsn = "RC · REJECTION AT HIGH — 4h failed break of the prior 4h high · stop = 4h high " + str.tostring(rc4_high, format.mintick)
-    rcsp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"SHORT","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(rc4_high, format.mintick) + '","note":"' + rcsn + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(rcsp, alert.freq_once_per_bar_close)
-// RC-H (reclaim-from-high / breakout-retest) ALERT removed 2026-06-08 — too noisy
-// (in a steady uptrend price sits above the prior high, so it fires almost every
-// 4h bar). It stays as a VISUAL marker in the RC4h indicator; just no alert.
+// 4h RC alerts MOVED to the standalone "RC4h" indicator (#292, 2026-06-18). The
+// request.security("240") version here diverged from the RC4h markers — it caught
+// shorts but missed the longs you could see. RC now fires from RC4h on the chart's
+// own bars (long, short, AND RC-H): what-you-see-is-what-fires. rule stays "rc_4h".
 
 // ═══════════════════════════════════════════════════════════════════════
 // Gap alerts (spec 61, 2026-06-07) — fire from THIS indicator (one of your 2

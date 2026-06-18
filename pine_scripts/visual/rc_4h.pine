@@ -5,11 +5,13 @@
 // The intraday reversal tell: this candle WICKS BELOW the prior candle's low
 // (runs the stops) but CLOSES BACK ABOVE it — the undercut wick is rejected, so
 // the low is likely in. Load on the 4h (works on any TF, "prior candle" = the
-// chart's prior bar). Pure visual — no alerts, just markers to eyeball whether
-// it catches reversals on SPY/QQQ/AAPL/GOOGL over a week.
+// chart's prior bar). FIRES ALERTS (#292) — the marker you SEE is the alert that
+// fires, on the same bar, on whatever TF you load it. No request.security, no
+// drift. Bind ONE TV alert with "Any alert() function call" on your 4h chart.
 //
-// DEFAULT = LOW-side only (▲ RC). The two HIGH-side signals (▼ rejection, RC-H)
-// are OFF by default — this pine focuses on reclaimed LOWS. Flip them on if wanted.
+// All three fire by default — ▲ RC long (reclaim low), ▼ rejection short, and
+// ▲ RC-H (breakout-retest reclaim of the prior high — the play you trade most).
+// Toggle any off below. All route server-side as rule rc_4h (rc_4h type toggle).
 //
 //   ▲ RC   = low < prior low AND close > prior low — reclaim of the prior LOW
 //            (undercut & reclaim = reversal / bottoming, lime).
@@ -28,8 +30,8 @@ indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max
 
 min_wick_pct = input.float(0.0, "Min wick % of candle range (0 = all)", minval = 0.0, maxval = 90.0, step = 0.5, group = "Detection")
 show_long    = input.bool(true,  "▲ RC long — reclaim of prior LOW (undercut & reclaim — reversal, lime)", group = "Detection")
-show_short   = input.bool(false, "▼ rejection short — failed break of prior HIGH (high-side, OFF by default)", group = "Detection")
-show_hrec    = input.bool(false, "▲ RC-H — reclaim of prior HIGH (high-side, OFF by default)", group = "Detection")
+show_short   = input.bool(true,  "▼ rejection short — failed break of prior HIGH (fires SHORT)", group = "Detection")
+show_hrec    = input.bool(true,  "▲ RC-H — reclaim of prior HIGH / breakout-retest (fires BUY)", group = "Detection")
 vol_len      = input.int(20,  "Volume average length", minval = 1, group = "Detection")
 vol_min      = input.float(0.0, "Min volume vs average (0 = off · 1.5 = need 50% above avg = a real sweep)", minval = 0.0, step = 0.1, group = "Detection")
 show_lvl     = input.bool(true, "Draw the level lines (turn OFF = keep only the RC markers/labels)", group = "Display")
@@ -70,3 +72,18 @@ if show_lvl and rc_short
     line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = lvl_col_short, width = lvl_width, style = lvl_style)
 if show_lvl and rc_hrec
     line.new(bar_index, high[1], bar_index + lvl_bars, high[1], xloc = xloc.bar_index, color = lvl_col_hrec, width = lvl_width, style = lvl_style)
+
+// ─────────────────────────────────────────────────────────────────────────
+// ALERTS (#292) — fire on the SAME bar the marker prints. rule "rc_4h" so the
+// backend routes it through the rc_4h type toggle (no per-symbol allowlist).
+// freq_once_per_bar_close = one alert when the bar closes with the signal.
+// interval = the chart's TF (load on 4h → "240"). Bind ONE "Any alert()" alert.
+// ─────────────────────────────────────────────────────────────────────────
+rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if rc_long
+    alert(rc_payload("BUY", low, "RC · reclaim of the prior low (undercut & reclaim) · stop = " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
+if rc_short
+    alert(rc_payload("SHORT", high, "RC · rejection at the prior high (failed break) · stop = " + str.tostring(high, format.mintick)), alert.freq_once_per_bar_close)
+if rc_hrec
+    alert(rc_payload("BUY", low, "RC-H · breakout-retest reclaim of the prior high · stop = " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
