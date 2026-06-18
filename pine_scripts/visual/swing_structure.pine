@@ -26,6 +26,7 @@ show_lh    = input.bool(true, "▼ LH — lower highs (falling highs = top, bear
 show_coil  = input.bool(true, "◆ COIL — lower highs AND higher lows (squeeze)", group = "Detection")
 once_only  = input.bool(true, "Mark only the bar the structure CONFIRMS (off = every qualifying bar)", group = "Detection")
 draw_lines = input.bool(true, "Draw the swing slope lines (connect the N highs / lows)", group = "Display")
+line_width = input.int(2, "Slope line thickness", minval = 1, maxval = 8, group = "Display")
 col_hl     = input.color(color.new(color.lime, 0),   "HL color",   group = "Display")
 col_lh     = input.color(color.new(color.red, 0),    "LH color",   group = "Display")
 col_coil   = input.color(color.new(color.yellow, 0), "COIL color", group = "Display")
@@ -58,6 +59,6 @@ plotshape(mark_coil, title = "COIL", style = shape.diamond,      location = loca
 // Slope lines — connect the window's earliest high → current high (the lower-highs
 // line) and earliest low → current low (the higher-lows line) so the slope is visible.
 if draw_lines and (mark_lh or mark_coil)
-    line.new(bar_index - (len - 1), high[len - 1], bar_index, high, xloc = xloc.bar_index, color = col_lh, width = 1, style = line.style_dashed)
+    line.new(bar_index - (len - 1), high[len - 1], bar_index, high, xloc = xloc.bar_index, color = col_lh, width = line_width, style = line.style_dashed)
 if draw_lines and (mark_hl or mark_coil)
-    line.new(bar_index - (len - 1), low[len - 1], bar_index, low, xloc = xloc.bar_index, color = col_hl, width = 1, style = line.style_dashed)
+    line.new(bar_index - (len - 1), low[len - 1], bar_index, low, xloc = xloc.bar_index, color = col_hl, width = line_width, style = line.style_dashed)
