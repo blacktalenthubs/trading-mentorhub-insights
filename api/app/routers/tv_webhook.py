@@ -381,6 +381,9 @@ HTF_SR_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 SHORT_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 # #282 — MA/EMA bounce alerts fire ONLY for these (clean trending names); else Not-routed.
 MA_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ", "DRAM", "MU", "AAPL"})
+# #286 — 4h RC alerts (BOTH long reclaim + short rejection) fire ONLY for these; the RC
+# short is wanted, so rc_4h is EXEMPT from the general short gate. Else Not-routed.
+RC_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ", "DRAM", "MU", "AAPL", "NVDA", "IREN", "NBIS"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1188,6 +1191,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["ma_alert_symbols"])
             if "ma_alert_symbols" in _rc else MA_SYMS_DEFAULT
         )
+        # 4h RC allowlist (#286) — rc_4h alerts (long + short) fire ONLY for these.
+        rc_symbols = (
+            _parse_exempt_syms(_rc["rc_symbols"])
+            if "rc_symbols" in _rc else RC_SYMS_DEFAULT
+        )
         # Gap-and-go always-deliver allowlist — fires even when gap-and-go is muted;
         # missing key ⇒ the SPY,QQQ default.
         gap_always_symbols = (
@@ -1208,6 +1216,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
         short_symbols = SHORT_SYMS_DEFAULT        # read failed → shorts only SPY,QQQ
         ma_alert_symbols = MA_SYMS_DEFAULT        # read failed → MA only the clean names
+        rc_symbols = RC_SYMS_DEFAULT              # read failed → RC only the default set
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
         htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
 
@@ -1237,13 +1246,23 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return {"dispatched": False, "reason": "unknown_type"}
 
     # ──────────────────────────────────────────────────────────────────
+    # 4h RC allowlist (#286) — rc_4h alerts (BOTH long reclaim + short rejection) fire
+    # ONLY for symbols in rc_symbols (Settings → 4h RC alerts). The RC short is wanted,
+    # so rc_4h is gated HERE per-symbol for both directions and EXEMPT from the general
+    # short gate below. Everything else → Not-routed.
+    # ──────────────────────────────────────────────────────────────────
+    if alert_type_full == "tv_rc_4h" and (sig.symbol or "").upper() not in rc_symbols:
+        logger.info("TV webhook: rc_4h %s %s not in rc_symbols allowlist — Not-routed", sig.symbol, sig.direction)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="rc_symbol_filter")
+
+    # ──────────────────────────────────────────────────────────────────
     # SHORT alerts — per-symbol allowlist (2026-06-17, #278). A SHORT of ANY type
     # (index PDL break, rc_4h rejection, MA rejection, htf_sr reject, …) flows ONLY
     # for symbols in short_symbols (Settings → Short alerts; default SPY,QQQ).
     # Everything else records as Not-routed so you can still see candidates to add.
     # Replaces the #273 blanket short-block + the old rc_4h-only allowlist — one list.
     # ──────────────────────────────────────────────────────────────────
-    if (sig.direction or "").upper() in ("SHORT", "SELL") and (sig.symbol or "").upper() not in short_symbols:
+    if (sig.direction or "").upper() in ("SHORT", "SELL") and alert_type_full != "tv_rc_4h" and (sig.symbol or "").upper() not in short_symbols:
         logger.info("TV webhook: SHORT %s not in short_symbols allowlist — Not-routed (%s)", sig.symbol, alert_type_full)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_symbol_filter")
 
