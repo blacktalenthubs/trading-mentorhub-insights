@@ -1245,15 +1245,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         )
         return {"dispatched": False, "reason": "unknown_type"}
 
-    # ──────────────────────────────────────────────────────────────────
-    # 4h RC allowlist (#286) — rc_4h alerts (BOTH long reclaim + short rejection) fire
-    # ONLY for symbols in rc_symbols (Settings → 4h RC alerts). The RC short is wanted,
-    # so rc_4h is gated HERE per-symbol for both directions and EXEMPT from the general
-    # short gate below. Everything else → Not-routed.
-    # ──────────────────────────────────────────────────────────────────
-    if alert_type_full == "tv_rc_4h" and (sig.symbol or "").upper() not in rc_symbols:
-        logger.info("TV webhook: rc_4h %s %s not in rc_symbols allowlist — Not-routed", sig.symbol, sig.direction)
-        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="rc_symbol_filter")
+    # 4h RC: per-symbol allowlist REMOVED (#289) — the Pine "4h RC alerts" checkbox +
+    # the rc_4h type toggle ARE the enable. If it fired and the type is on, route it for
+    # the whole watchlist; no second per-symbol gate to silently exclude names (ETH).
+    # rc_4h stays exempt from the general short gate below so the RC short flows.
 
     # ──────────────────────────────────────────────────────────────────
     # SHORT alerts — per-symbol allowlist (2026-06-17, #278). A SHORT of ANY type
