@@ -1,0 +1,63 @@
+// @version=5
+//
+// Swing Structure — Lower Highs & Higher Lows (last N candles). VISUAL / TEST.
+//
+// Reads the short-term swing structure to catch a turn BEFORE it's obvious:
+//
+//   ▲ HL   (higher lows)  = the last N lows each sit ABOVE the prior one — demand
+//          stepping up, a base building = BULLISH, a long setup forming.
+//   ▼ LH   (lower highs)  = the last N highs each sit BELOW the prior one — supply
+//          stepping down, a top forming = BEARISH, stand aside (or a short tell).
+//   ◆ COIL (both at once) = lower highs AND higher lows together = a contraction /
+//          squeeze; the range is tightening into a breakout — watch the resolution.
+//
+// Load it on the timeframe you want to read:
+//   • DAILY  → multi-day swing structure (the original idea)
+//   • 4H     → the intraday-swing version
+// "last N candles" = the last N bars on whatever chart TF you load it on. Try both;
+// daily is cleaner/slower, 4h gives earlier (noisier) reads. Pure visual — no alerts
+// yet (markers only, like RC4h); if it earns its keep we wire alerts the right way.
+//
+indicator("Swing Structure — HL / LH", "Swing HL·LH", overlay = true, max_labels_count = 200, max_lines_count = 200)
+
+len        = input.int(4, "Candles to inspect (last N)", minval = 3, maxval = 12, group = "Detection")
+show_hl    = input.bool(true, "▲ HL — higher lows (rising lows = base, bullish)", group = "Detection")
+show_lh    = input.bool(true, "▼ LH — lower highs (falling highs = top, bearish)", group = "Detection")
+show_coil  = input.bool(true, "◆ COIL — lower highs AND higher lows (squeeze)", group = "Detection")
+once_only  = input.bool(true, "Mark only the bar the structure CONFIRMS (off = every qualifying bar)", group = "Detection")
+draw_lines = input.bool(true, "Draw the swing slope lines (connect the N highs / lows)", group = "Display")
+col_hl     = input.color(color.new(color.lime, 0),   "HL color",   group = "Display")
+col_lh     = input.color(color.new(color.red, 0),    "LH color",   group = "Display")
+col_coil   = input.color(color.new(color.yellow, 0), "COIL color", group = "Display")
+
+// Walk the last N bars: every high below the one before = lower highs; every low
+// above the one before = higher lows. high/low are never na on a normal chart, so a
+// plain loop is safe even though Pine `and` doesn't short-circuit.
+lower_highs = true
+higher_lows = true
+for i = 0 to len - 2
+    lower_highs := lower_highs and (high[i] < high[i + 1])
+    higher_lows := higher_lows and (low[i]  > low[i + 1])
+
+is_coil = lower_highs and higher_lows
+// "pure" = exclude the coil so the three markers never stack on one bar.
+hl_pure = higher_lows and not lower_highs
+lh_pure = lower_highs and not higher_lows
+
+// Fire on the confirming bar only (once_only) or on every qualifying bar.
+fresh(cond) => once_only ? (cond and not cond[1]) : cond
+
+mark_hl   = show_hl   and fresh(hl_pure)
+mark_lh   = show_lh   and fresh(lh_pure)
+mark_coil = show_coil and fresh(is_coil)
+
+plotshape(mark_hl,   title = "HL",   style = shape.triangleup,   location = location.belowbar, color = col_hl,   size = size.small, text = "HL")
+plotshape(mark_lh,   title = "LH",   style = shape.triangledown, location = location.abovebar, color = col_lh,   size = size.small, text = "LH")
+plotshape(mark_coil, title = "COIL", style = shape.diamond,      location = location.belowbar, color = col_coil, size = size.small, text = "COIL")
+
+// Slope lines — connect the window's earliest high → current high (the lower-highs
+// line) and earliest low → current low (the higher-lows line) so the slope is visible.
+if draw_lines and (mark_lh or mark_coil)
+    line.new(bar_index - (len - 1), high[len - 1], bar_index, high, xloc = xloc.bar_index, color = col_lh, width = 1, style = line.style_dashed)
+if draw_lines and (mark_hl or mark_coil)
+    line.new(bar_index - (len - 1), low[len - 1], bar_index, low, xloc = xloc.bar_index, color = col_hl, width = 1, style = line.style_dashed)
