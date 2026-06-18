@@ -23,15 +23,11 @@ import {
   type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
-import {
-  signalNotificationsEnabled,
-  setSignalNotificationsEnabled,
-} from "../hooks/useSignalNotifications";
 import type { NotificationPrefs } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Zap, ShieldAlert,
+  Sun, Moon, Zap,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -171,26 +167,14 @@ function NotificationChannels() {
   const { data: notifPrefs } = useNotificationPrefs();
   const updateNotifs = useUpdateNotificationPrefs();
   const [telegramOn, setTelegramOn] = useState(true);
-  const [minGrade, setMinGrade] = useState<"A" | "B" | "C">("C");
   const [synced, setSynced] = useState(false);
 
   if (notifPrefs && !synced) {
     setTelegramOn(notifPrefs.telegram_enabled);
-    setMinGrade((notifPrefs.min_alert_grade as "A" | "B" | "C") ?? "C");
     setSynced(true);
   }
 
-  const dirty =
-    synced &&
-    notifPrefs &&
-    (telegramOn !== notifPrefs.telegram_enabled ||
-      minGrade !== ((notifPrefs.min_alert_grade as string) ?? "C"));
-
-  const GRADES: ReadonlyArray<["A" | "B" | "C", string]> = [
-    ["C", "All"],
-    ["B", "A + B"],
-    ["A", "A only"],
-  ];
+  const dirty = synced && notifPrefs && telegramOn !== notifPrefs.telegram_enabled;
 
   return (
     <Section title="Notifications" icon={<Bell className="h-4 w-4 text-text-muted" />}>
@@ -209,39 +193,11 @@ function NotificationChannels() {
           </div>
         </label>
 
-        <div className="pt-1.5 border-t border-border-subtle">
-          <span className="text-sm text-text-primary">Minimum alert grade</span>
-          <p className="text-[10px] text-text-faint mb-2">
-            Grade = volume (buy pressure) on the entry bar. Below your pick goes to Not-routed instead of the feed.
-          </p>
-          <div className="flex gap-1.5">
-            {GRADES.map(([g, label]) => (
-              <button
-                key={g}
-                type="button"
-                onClick={() => setMinGrade(g)}
-                className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                  minGrade === g
-                    ? "bg-accent text-white border-accent"
-                    : "bg-transparent text-text-muted border-border-subtle hover:text-text-primary"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <p className="text-[10px] text-text-faint italic">
-          Email &amp; push notifications coming soon.
-        </p>
-
         {dirty && (
           <button
             onClick={() => updateNotifs.mutate({
               ...(notifPrefs as NotificationPrefs),
               telegram_enabled: telegramOn,
-              min_alert_grade: minGrade,
             })}
             disabled={updateNotifs.isPending}
             className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
@@ -604,121 +560,6 @@ function AlertTypesSection() {
   );
 }
 
-/* ── Signal Notifications (browser alerts) ────────────────────────── */
-
-function SignalNotifications() {
-  const [enabled, setEnabled] = useState(() => signalNotificationsEnabled());
-  const [perm, setPerm] = useState<string>(
-    typeof Notification !== "undefined" ? Notification.permission : "unsupported",
-  );
-
-  async function requestPerm(): Promise<boolean> {
-    if (typeof Notification === "undefined") {
-      toast.error("This browser doesn't support notifications.");
-      return false;
-    }
-    let p = Notification.permission;
-    if (p === "default") p = await Notification.requestPermission();
-    setPerm(p);
-    return p === "granted";
-  }
-
-  async function handleToggle() {
-    if (!enabled && !(await requestPerm())) {
-      toast.error("Allow notifications for this site, then try again.");
-      return;
-    }
-    const next = !enabled;
-    setEnabled(next);
-    setSignalNotificationsEnabled(next);
-    toast.success(next ? "Signal notifications on" : "Signal notifications off");
-  }
-
-  async function sendTest() {
-    if (!(await requestPerm())) {
-      toast.error("Permission not granted — allow notifications in your browser.");
-      return;
-    }
-    toast.info("Test — BusyTradersDesk signal notification");
-    try {
-      const n = new Notification("BusyTradersDesk · test signal", {
-        body: "If you see this, signal notifications are working.",
-        icon: "/logo-profile.svg",
-      });
-      n.onclick = () => {
-        window.focus();
-        n.close();
-      };
-    } catch {
-      toast.error(
-        "Couldn't show the popup — check macOS System Settings → Notifications for your browser.",
-      );
-    }
-  }
-
-  const permLabel = perm === "granted" ? "granted"
-    : perm === "denied" ? "blocked"
-    : perm === "unsupported" ? "unsupported"
-    : "not asked yet";
-
-  return (
-    <Section title="Signal Notifications" icon={<Bell className="h-4 w-4 text-accent" />}>
-      <div className="flex items-start justify-between gap-4 mb-3">
-        <p className="text-xs text-text-muted">
-          Pop a desktop notification, with a sound, when a new routed signal
-          lands — works while this app is open in any browser tab (even a
-          background tab). Telegram still covers you when the browser is closed.
-        </p>
-        <button
-          onClick={handleToggle}
-          role="switch"
-          aria-checked={enabled}
-          className={`shrink-0 relative w-11 h-6 rounded-full transition-colors ${
-            enabled ? "bg-accent" : "bg-surface-3"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
-              enabled ? "left-[22px]" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 border border-border-subtle px-3 py-2">
-        <span className="text-[11px] text-text-muted">
-          Browser permission:{" "}
-          <span
-            className={`font-semibold ${
-              perm === "granted"
-                ? "text-bullish-text"
-                : perm === "denied"
-                ? "text-bearish-text"
-                : "text-text-secondary"
-            }`}
-          >
-            {permLabel}
-          </span>
-        </span>
-        <button
-          onClick={sendTest}
-          className="text-[11px] px-3 py-1 rounded-md bg-accent/15 text-accent hover:bg-accent/25 transition-colors font-medium"
-        >
-          Send test
-        </button>
-      </div>
-
-      {perm === "denied" && (
-        <p className="text-[10px] text-bearish-text/80 mt-2">
-          Notifications are blocked. Re-allow them for this site in your
-          browser's site settings, and make sure your browser is allowed in
-          macOS System Settings → Notifications.
-        </p>
-      )}
-    </Section>
-  );
-}
-
 /* ── Market gate — exempt symbols ─────────────────────────────────── */
 
 function ExemptListEditor({ label, hint, list, onSave }: {
@@ -768,60 +609,6 @@ function ExemptListEditor({ label, hint, list, onSave }: {
         </button>
       </div>
     </div>
-  );
-}
-
-function SpyTrendGateSection() {
-  const { data, isLoading } = useRegimeConfig();
-  const update = useUpdateRegimeConfig();
-  const toList = (s?: string) =>
-    s ? s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) : [];
-  const gateOn = (data?.spy_trend_gate_enabled ?? "true").toLowerCase() !== "false";
-
-  return (
-    <Section title="SPY trend gate — longs" icon={<ShieldAlert className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-muted mb-3">
-        When SPY is below BOTH its daily 8 &amp; 21 EMA (broad tape rolled over),
-        block long alerts on everything except the exceptions below — non-trending
-        days, most longs are traps. Takes effect on the next alert, no redeploy.
-      </p>
-      {isLoading ? (
-        <div className="text-xs text-text-faint">Loading…</div>
-      ) : (
-        <>
-          <button
-            onClick={() => update.mutate({ spy_trend_gate_enabled: gateOn ? "false" : "true" })}
-            disabled={update.isPending}
-            role="switch"
-            aria-checked={gateOn}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left w-full mb-3 transition-colors disabled:opacity-60 ${
-              gateOn
-                ? "border-accent/50 bg-accent/10"
-                : "border-border-subtle bg-surface-1 hover:bg-surface-2"
-            }`}
-          >
-            <span
-              className={`shrink-0 h-4 w-4 rounded flex items-center justify-center ${
-                gateOn ? "bg-accent" : "bg-surface-3 border border-border-subtle"
-              }`}
-            >
-              {gateOn && <Check className="h-3 w-3 text-white" />}
-            </span>
-            <span className="text-[11px] leading-snug text-text-primary font-medium">
-              {gateOn
-                ? "ON — block longs when SPY is below its 8 & 21 EMA"
-                : "OFF — longs always flow"}
-            </span>
-          </button>
-          <ExemptListEditor
-            label="Exceptions — names that still fire longs when SPY has rolled over"
-            hint="e.g. SPY, QQQ, DRAM, NVDA — index + relative-strength names you'd still trade."
-            list={toList(data?.spy_trend_exempt)}
-            onSave={(l) => update.mutate({ spy_trend_exempt: l.join(",") })}
-          />
-        </>
-      )}
-    </Section>
   );
 }
 
@@ -886,7 +673,6 @@ export default function SettingsPage() {
           <div className="space-y-5">
             <TelegramSetup />
             <NotificationChannels />
-            <SignalNotifications />
             <ThemeToggle />
           </div>
 
@@ -902,9 +688,6 @@ export default function SettingsPage() {
 
         {/* Multi-touch (MultiTB) notice — per-symbol allowlist */}
         <AlertSymbolListsSection />
-
-        {/* SPY-trend long gate — block longs when SPY below its 8 & 21 EMA */}
-        <SpyTrendGateSection />
 
         {/* Referral program */}
         <ReferralSection />
