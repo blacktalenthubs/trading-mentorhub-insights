@@ -1602,13 +1602,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
 
             _vol_ratio = getattr(sig, "_tv_volume_ratio", None)
             _slope_pct = getattr(sig, "_tv_vwap_slope_pct", None)
-            from analytics.alert_grade import compute_grade as _grade, grade_passes as _grade_passes
+            from analytics.alert_grade import compute_grade as _grade
             _alert_grade = _grade(_vol_ratio, _slope_pct)
-            # Per-user grade gate (2026-06-17) — an alert below THIS user's
-            # min_alert_grade is Not-routed for them (lands in their bucket, kept out
-            # of feed + Telegram). Grade is volume-only now. Default 'C' = all through,
-            # so this is a no-op until a user opts into A or B in Settings.
-            _grade_ok = _grade_passes(_alert_grade, getattr(user, "min_alert_grade", None))
+            # Grade gate DISABLED (#284) — the selector was removed (#283) and grade
+            # is moot (volume != quality). A stored min_alert_grade was silently
+            # dropping alerts (rc_4h etc.) the user could no longer see or change.
+            # Never suppress on grade; the badge stays for context only.
+            _grade_ok = True  # was: _grade_passes(_alert_grade, user.min_alert_grade)
             # Spec 61 (2026-06-05) — the SPY-OPEN grade-down was REMOVED. Price
             # shops around the open line all day, so it was an unreliable signal.
             # PDL is now the ONLY SPY-regime gate (the hard block above); nothing
