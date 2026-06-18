@@ -365,7 +365,7 @@ function SignalFeedTab({
 
   // Which panel is showing: the live delivered feed, or the not-routed
   // (suppressed-for-review) panel. Suppressed alerts never appear in "live".
-  const [view, setView] = useState<"live" | "unrouted" | "muted">("live");
+  const [view, setView] = useState<"live" | "unrouted">("live");
 
   // Type hide-list — view-only. Set of alert_type strings to exclude from
   // the feed. Lets the user temporarily mute noisy types (e.g. historical
@@ -420,22 +420,15 @@ function SignalFeedTab({
   const feedAlerts = (alerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && !a.suppressed_reason,
   );
-  // NOT ROUTED — recorded but not sent to Telegram/feed (SPY<PDL, chop,
-  // uptrend gate, off-hours…). A separate review panel for evaluation.
-  // type_not_enabled (type toggled off) and confluence_collapsed (same-moment
-  // dup) are noise rather than gate catches, so they're left out.
+  // NOT ROUTED — everything recorded but NOT delivered, in ONE review panel
+  // (merged muted + not-routed 2026-06-17): gate catches (SPY<PDL, chop, short
+  // allowlist, grade…) AND muted types (type_not_enabled). Each card still shows
+  // its own reason. confluence_collapsed (same-moment dup) stays out as noise.
   const notRoutedAlerts = (alerts ?? []).filter(
     (a) =>
       isFeedSignal(a.alert_type) &&
       !!a.suppressed_reason &&
-      a.suppressed_reason !== "type_not_enabled" &&
       !a.suppressed_reason.startsWith("confluence_collapsed"),
-  );
-  // MUTED — types you've toggled OFF (suppressed_reason === "type_not_enabled").
-  // A shadow feed: they still fire + log, they just don't deliver. Surfaced here
-  // so you can watch a disabled type's record before deciding to turn it back on.
-  const mutedAlerts = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && a.suppressed_reason === "type_not_enabled",
   );
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
@@ -504,14 +497,7 @@ function SignalFeedTab({
   ).slice().sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
-  const mutedVisible = (q
-    ? mutedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
-    : mutedAlerts
-  ).slice().sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
-  const listAlerts =
-    view === "unrouted" ? notRoutedVisible : view === "muted" ? mutedVisible : visible;
+  const listAlerts = view === "unrouted" ? notRoutedVisible : visible;
 
   // Grade chip — visual style per letter.
   const CHIP_STYLES: Record<GradeFilter, { active: string; inactive: string }> = {
@@ -559,17 +545,10 @@ function SignalFeedTab({
           </button>
           <button
             onClick={() => setView("unrouted")}
-            title="Recorded but not sent to Telegram/feed — SPY<PDL, chop, uptrend gate…"
+            title="Everything recorded but not delivered — gate catches (SPY<PDL, chop, short allowlist, grade…) AND muted types. Each card shows its reason."
             className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${view === "unrouted" ? "bg-bearish text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
           >
             Not routed <span className="opacity-70 font-normal">{notRoutedAlerts.length}</span>
-          </button>
-          <button
-            onClick={() => setView("muted")}
-            title="Alert types you've switched OFF — fired + logged but not delivered. Watch them here to judge whether to turn them back on."
-            className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${view === "muted" ? "bg-text-muted text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
-          >
-            Muted <span className="opacity-70 font-normal">{mutedAlerts.length}</span>
           </button>
         </div>
         <div className="ml-auto relative">
@@ -749,8 +728,6 @@ function SignalFeedTab({
           <p className="text-xs text-text-faint">
             {view === "unrouted"
               ? (q ? `No not-routed ${q} alerts` : "Nothing held back this session")
-              : view === "muted"
-              ? (q ? `No muted ${q} alerts` : "No muted-type alerts this session")
               : (q ? `No ${q} signals in this session` : "No signals in this session")}
           </p>
         </div>
