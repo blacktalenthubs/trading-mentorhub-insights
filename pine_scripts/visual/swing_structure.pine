@@ -56,18 +56,19 @@ plotshape(mark_hl,   title = "HL",   style = shape.triangleup,   location = loca
 plotshape(mark_lh,   title = "LH",   style = shape.triangledown, location = location.abovebar, color = col_lh,   size = size.small, text = "LH")
 plotshape(mark_coil, title = "COIL", style = shape.diamond,      location = location.belowbar, color = col_coil, size = size.small, text = "COIL")
 
-// Slope lines — connect the window's earliest → current high/low AND PROJECT RIGHT,
-// so the higher-lows line rides forward as rising support (and lower-highs as falling
-// resistance) under/over the candles that follow. Keep only the latest of each so the
-// projections don't fan out into clutter.
-extend_lines = input.bool(true, "Project the slope lines forward (rising support / falling resistance)", group = "Display")
+// Slope lines — connect the window's earliest → current high/low and project a FIXED
+// number of bars forward (not infinite), so the higher-lows line rides ahead as rising
+// support / the lower-highs line as falling resistance without shooting off the chart.
+// Keep only the latest of each so projections don't fan out into clutter.
+proj_bars = input.int(8, "Project the slope lines this many bars forward (0 = just the segment)", minval = 0, maxval = 60, group = "Display")
 var line hl_line = na
 var line lh_line = na
-_ext = extend_lines ? extend.right : extend.none
 
 if draw_lines and (mark_lh or mark_coil)
     line.delete(lh_line)
-    lh_line := line.new(bar_index - (len - 1), high[len - 1], bar_index, high, xloc = xloc.bar_index, color = col_lh, width = line_width, style = line.style_dashed, extend = _ext)
+    lh_slope = (high - high[len - 1]) / (len - 1)
+    lh_line := line.new(bar_index - (len - 1), high[len - 1], bar_index + proj_bars, high + lh_slope * proj_bars, xloc = xloc.bar_index, color = col_lh, width = line_width, style = line.style_dashed)
 if draw_lines and (mark_hl or mark_coil)
     line.delete(hl_line)
-    hl_line := line.new(bar_index - (len - 1), low[len - 1], bar_index, low, xloc = xloc.bar_index, color = col_hl, width = line_width, style = line.style_dashed, extend = _ext)
+    hl_slope = (low - low[len - 1]) / (len - 1)
+    hl_line := line.new(bar_index - (len - 1), low[len - 1], bar_index + proj_bars, low + hl_slope * proj_bars, xloc = xloc.bar_index, color = col_hl, width = line_width, style = line.style_dashed)
