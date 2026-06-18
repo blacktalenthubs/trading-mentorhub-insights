@@ -44,6 +44,10 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # everything else is Not-routed. Supersedes rc_4h_short_symbols. BLANK = no shorts.
     # Default SPY,QQQ — add the names you want shorts on, live in Settings.
     "short_symbols": "SPY,QQQ",
+    # MA/EMA bounce allowlist (#282, 2026-06-17). MA bounce/rejection alerts fire ONLY
+    # for these clean trending names — on a chop chart the MA tangle is pure noise.
+    # Everything else Not-routed. BLANK = no MA alerts. Default SPY,QQQ,DRAM,MU,AAPL.
+    "ma_alert_symbols": "SPY,QQQ,DRAM,MU,AAPL",
     # Gap-and-go always-deliver allowlist (2026-06-15). These names' gap-up
     # continuation fires even when a user has muted gap-and-go — an index doesn't
     # gap without a strong macro reason. Default SPY,QQQ; managed live in Settings.

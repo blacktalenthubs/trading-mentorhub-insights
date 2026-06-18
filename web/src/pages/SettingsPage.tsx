@@ -854,6 +854,12 @@ function AlertSymbolListsSection() {
             onSave={(l) => update.mutate({ short_symbols: l.join(",") })}
           />
           <ExemptListEditor
+            label="EMA/MA alerts — symbols"
+            hint="MA/EMA bounce alerts (8/21/50 EMA, 50/200 SMA) fire ONLY for these clean trending names — on a chop chart the MAs are pure noise. Everything else Not-routed. e.g. SPY, QQQ, DRAM, MU, AAPL. Empty = no MA alerts. (Pick which MAs in Alert Types.)"
+            list={toList(data?.ma_alert_symbols)}
+            onSave={(l) => update.mutate({ ma_alert_symbols: l.join(",") })}
+          />
+          <ExemptListEditor
             label="Multi-period S/R — symbols"
             hint="The clustered weekly/monthly/daily S/R reject + bounce fires only for these. It reads cleanest on indexes; start small and expand as it validates. e.g. SPY, QQQ. Empty = none."
             list={toList(data?.htf_sr_symbols)}

@@ -390,14 +390,16 @@ prox_s200_s = fire_proximity_alerts and proximity_short(sma200, proximity_pct) a
 
 
 // Aggregate fires + tags -----------------------------------------------------
-any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
-any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
+// #282 (2026-06-17) — MA set narrowed to 8/21/50/200 EMA + 50/200 SMA. ema100 +
+// sma100 dropped (kept the per-MA fires above, just excluded from the aggregate/tag).
+any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e200   or fire_s50   or fire_s200
+any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e200 or s_fire_s50 or s_fire_s200
 
 any_prox_long  = prox_e8_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
 any_prox_short = prox_e8_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
 
-long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
-short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s200   ? "200S " : "")
+short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s200 ? "200S " : "")
 
 prox_long_tag  = (prox_e8_l   ? "8E "  : "") + (prox_e21_l  ? "21E " : "") + (prox_e50_l  ? "50E " : "") + (prox_e100_l ? "100E " : "") + (prox_e200_l ? "200E " : "") + (prox_s50_l  ? "50S " : "") + (prox_s100_l ? "100S " : "") + (prox_s200_l ? "200S " : "")
 prox_short_tag = (prox_e8_s   ? "8E "  : "") + (prox_e21_s  ? "21E " : "") + (prox_e50_s  ? "50E " : "") + (prox_e100_s ? "100E " : "") + (prox_e200_s ? "200E " : "") + (prox_s50_s  ? "50S " : "") + (prox_s100_s ? "100S " : "") + (prox_s200_s ? "200S " : "")

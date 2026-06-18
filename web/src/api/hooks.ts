@@ -1995,6 +1995,7 @@ export interface RegimeExemptConfig {
   spy_trend_exempt: string;  // symbols still allowed to fire longs when SPY has rolled over
   rc_4h_short_symbols: string;  // superseded by short_symbols (#278); kept for back-compat
   short_symbols: string;  // symbols whose SHORT alerts (any type) flow; blank = none (#278)
+  ma_alert_symbols: string;  // symbols whose MA/EMA bounce alerts fire; blank = none (#282)
   gap_always_symbols: string;  // symbols whose gap-and-go always delivers even when gap-and-go is muted (default SPY,QQQ)
   htf_sr_symbols: string;  // symbols allowed to deliver the multi-period S/R reject/bounce (default SPY,QQQ)
 }

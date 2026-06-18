@@ -40,13 +40,16 @@ MA_SPLIT_FAMILIES = (
     ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
     ("ma_rejection_short_v3", "MA rejection short", "MA / EMA · Rejection Short"),
 )
+# #282 (2026-06-17) — narrowed to 8/21/50/200 EMA + 50/200 SMA. Dropped 100 EMA,
+# 100 SMA, and the combined SMA toggle (split into explicit 50/200). All default OFF;
+# fire only for symbols on the ma_alert_symbols allowlist (Settings).
 _MA_TOGGLES = (
     ("ema8",   "EMA 8"),
     ("ema21",  "EMA 21"),
     ("ema50",  "EMA 50"),
-    ("ema100", "EMA 100"),
     ("ema200", "EMA 200"),
-    ("sma",    "SMA 50/100/200"),
+    ("sma50",  "SMA 50"),
+    ("sma200", "SMA 200"),
 )
 
 
@@ -295,6 +298,11 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "ma_proximity_short_v3_ema8", "ma_proximity_short_v3_ema21",
     "ma_proximity_short_v3_ema50", "ma_proximity_short_v3_ema100",
     "ma_proximity_short_v3_ema200", "ma_proximity_short_v3_sma",
+
+    # MA set narrowed to 8/21/50/200 EMA + 50/200 SMA (#282, 2026-06-17). The
+    # 100 EMA + the combined SMA toggle are retired (SMA split into sma50/sma200).
+    "ma_bounce_long_v3_ema100", "ma_bounce_long_v3_sma",
+    "ma_rejection_short_v3_ema100", "ma_rejection_short_v3_sma",
 
     # HTF NOTICEs / superseded held — spec 58
     "htf_support_held",  # superseded by granular staged_p[dwm]h_held

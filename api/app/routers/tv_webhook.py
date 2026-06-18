@@ -379,6 +379,8 @@ GAP_ALWAYS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 HTF_SR_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 # #278 — symbols whose SHORT alerts (any type) flow; everything else Not-routed.
 SHORT_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
+# #282 — MA/EMA bounce alerts fire ONLY for these (clean trending names); else Not-routed.
+MA_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ", "DRAM", "MU", "AAPL"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1180,6 +1182,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["short_symbols"])
             if "short_symbols" in _rc else SHORT_SYMS_DEFAULT
         )
+        # MA/EMA bounce allowlist (#282) — MA alerts fire ONLY for these clean names;
+        # everything else Not-routed. Missing key ⇒ SPY,QQQ,DRAM,MU,AAPL.
+        ma_alert_symbols = (
+            _parse_exempt_syms(_rc["ma_alert_symbols"])
+            if "ma_alert_symbols" in _rc else MA_SYMS_DEFAULT
+        )
         # Gap-and-go always-deliver allowlist — fires even when gap-and-go is muted;
         # missing key ⇒ the SPY,QQQ default.
         gap_always_symbols = (
@@ -1199,6 +1207,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
         short_symbols = SHORT_SYMS_DEFAULT        # read failed → shorts only SPY,QQQ
+        ma_alert_symbols = MA_SYMS_DEFAULT        # read failed → MA only the clean names
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
         htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
 
@@ -1237,6 +1246,18 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     if (sig.direction or "").upper() in ("SHORT", "SELL") and (sig.symbol or "").upper() not in short_symbols:
         logger.info("TV webhook: SHORT %s not in short_symbols allowlist — Not-routed (%s)", sig.symbol, alert_type_full)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_symbol_filter")
+
+    # ──────────────────────────────────────────────────────────────────
+    # MA/EMA bounce allowlist (#282) — MAs only behave on clean trending names, so
+    # ma_bounce / ma_rejection alerts fire ONLY for ma_alert_symbols (Settings →
+    # EMA/MA alerts). On every other stock the MA tangle is just noise → Not-routed.
+    # ──────────────────────────────────────────────────────────────────
+    if (
+        (alert_type_full.startswith("tv_ma_bounce_long_v3") or alert_type_full.startswith("tv_ma_rejection_short_v3"))
+        and (sig.symbol or "").upper() not in ma_alert_symbols
+    ):
+        logger.info("TV webhook: MA alert %s %s not in ma_alert_symbols — Not-routed", alert_type_full, sig.symbol)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="ma_symbol_filter")
 
     # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
     # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
@@ -1970,7 +1991,7 @@ def _ma_config_keys(base: str) -> Optional[list[str]]:
             keys: list[str] = []
             for tok in (t for t in suffix.split("_") if t):
                 if tok.startswith("sma"):
-                    keys.append(fam + "_sma")
+                    keys.append(fam + "_" + tok)  # #282: per-SMA toggle (sma50/sma200), not shared _sma
                 elif tok.startswith("ema"):
                     keys.append(fam + "_" + tok)
             return keys or [fam]
