@@ -647,12 +647,6 @@ function AlertSymbolListsSection() {
             onSave={(l) => update.mutate({ ma_alert_symbols: l.join(",") })}
           />
           <ExemptListEditor
-            label="4h RC alerts — symbols"
-            hint="4h Reclaim alerts — BOTH the long reclaim (undercut + reclaim the prior 4h low) and the short rejection (failed break of the prior 4h high) — fire ONLY for these symbols. Both route to Signals. e.g. SPY, QQQ, DRAM, MU, AAPL, NVDA, IREN, NBIS. Empty = no RC alerts."
-            list={toList(data?.rc_symbols)}
-            onSave={(l) => update.mutate({ rc_symbols: l.join(",") })}
-          />
-          <ExemptListEditor
             label="Multi-period S/R — symbols"
             hint="The clustered weekly/monthly/daily S/R reject + bounce fires only for these. It reads cleanest on indexes; start small and expand as it validates. e.g. SPY, QQQ. Empty = none."
             list={toList(data?.htf_sr_symbols)}
