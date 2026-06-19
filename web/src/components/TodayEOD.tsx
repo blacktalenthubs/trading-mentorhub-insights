@@ -4,8 +4,9 @@
  *  synthetic P&L, no flawed target/stop-symbol heuristic.
  */
 import { useState } from "react";
-import { useOpenTrades, useClosedTrades, useCloseTrade } from "../api/hooks";
+import { useOpenTrades, useClosedTrades, useCloseTrade, useDeleteTrade } from "../api/hooks";
 import type { RealTrade } from "../api/hooks";
+import { X } from "lucide-react";
 
 const px = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -31,6 +32,7 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
 
 function OpenRow({ t }: { t: RealTrade }) {
   const close = useCloseTrade();
+  const dismiss = useDeleteTrade();
   const [exit, setExit] = useState("");
   const long = isLong(t);
   const submit = () => {
@@ -50,6 +52,8 @@ function OpenRow({ t }: { t: RealTrade }) {
           className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 transition-colors">
           {close.isPending ? "…" : "Close"}
         </button>
+        <button onClick={() => dismiss.mutate(t.id)} disabled={dismiss.isPending} title="I didn't take this — remove"
+          className="p-1 text-text-faint hover:text-bearish-text disabled:opacity-50 transition-colors"><X size={14} /></button>
       </div>
     </div>
   );
