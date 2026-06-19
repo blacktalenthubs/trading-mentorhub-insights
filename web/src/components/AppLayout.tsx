@@ -12,6 +12,7 @@ import { useSignalNotifications } from "../hooks/useSignalNotifications";
 import ThemeToggleButton from "./ThemeToggleButton";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
+  Home,
   Crosshair,
   ArrowLeftRight,
   Settings,
@@ -46,6 +47,7 @@ interface NavItem {
 // AI Auto-Pilot (stale label, actually pointed at public EOD). Routes
 // for those still resolve via redirects in App.tsx so deep links work.
 const NAV_ITEMS: NavItem[] = [
+  { to: "/today",       label: "Today",       icon: Home },
   { to: "/trading",     label: "Trading",     icon: Crosshair },
   { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
   { to: "/conviction",  label: "Conviction",  icon: Gem },
@@ -56,6 +58,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const MOBILE_TABS: NavItem[] = [
+  { to: "/today",       label: "Today",  icon: Home },
   { to: "/trading",     label: "Trade",  icon: Crosshair },
   { to: "/trade-ideas", label: "Ideas",  icon: Target },
   { to: "/conviction",  label: "Picks",  icon: Gem },
