@@ -16,6 +16,7 @@ import PricingPage from "./pages/PricingPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import ReplayPage from "./pages/ReplayPage";
 import LearnPage from "./pages/LearnPage";
+import PrototypeTodayPage from "./pages/PrototypeTodayPage";  // design prototype (#64 J) — view at /prototype
 import LearnDetailPage from "./pages/LearnDetailPage";
 import PatternDetailPage from "./pages/PatternDetailPage";
 import LoginPage from "./pages/LoginPage";
@@ -101,6 +102,7 @@ export default function App() {
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/learn" element={<LearnPage />} />
+              <Route path="/prototype" element={<PrototypeTodayPage />} />
               <Route path="/learn/:categoryId" element={<LearnDetailPage />} />
               <Route path="/learn/patterns/:patternId" element={<PatternDetailPage />} />
               <Route path="/replay/:alertId" element={<ReplayPage />} />
