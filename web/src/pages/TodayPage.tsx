@@ -58,9 +58,9 @@ export default function TodayPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-surface-0">
-      <div className="mx-auto max-w-2xl px-4 py-5 pb-16">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 pb-16">
         {/* market read + posture */}
-        <header className="pb-3">
+        <header className="pb-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h1 className="font-display text-lg font-semibold text-text-primary">{greeting()}</h1>
             <div className="flex items-center gap-2">
@@ -76,56 +76,58 @@ export default function TodayPage() {
           </div>
         </header>
 
-        {/* worth watching today */}
-        {watch.length > 0 && (
-          <section className="pt-2">
-            <SectionLabel>Worth watching today</SectionLabel>
-            <div className="space-y-1.5">
-              {watch.map((w) => (
-                <button key={w.symbol} onClick={() => goChart(w.symbol)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5 text-left hover:bg-surface-2 active:opacity-80">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      {w.score >= 60 ? <TrendingUp size={13} className="text-bullish-text" /> : <Flame size={13} className="text-bearish-text rotate-180" />}
-                      <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
-                    </div>
-                    <p className="truncate text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
-                  </div>
-                  <span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${w.score >= 60 ? "bg-bullish-subtle text-bullish-text" : "bg-surface-3 text-text-faint"}`}>{Math.round(w.score)}</span>
-                  <ChevronRight size={14} className="text-text-faint" />
-                </button>
-              ))}
-            </div>
+        <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
+          {/* main column — live signals */}
+          <section className="lg:col-span-2">
+            <SectionLabel action="Trading" onAction={() => nav("/trading")}>Live signals</SectionLabel>
+            {liveSignals.length > 0 ? (
+              <div className="space-y-2.5">
+                {liveSignals.map((a) => <AlertCard key={a.id} a={a} onChart={goChart} />)}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
+                No live signals yet today. The market read above tells you the regime.
+              </div>
+            )}
           </section>
-        )}
 
-        {/* live signals */}
-        <section className="pt-5">
-          <SectionLabel action="Trading" onAction={() => nav("/trading")}>Live signals</SectionLabel>
-          {liveSignals.length > 0 ? (
-            <div className="space-y-2.5">
-              {liveSignals.map((a) => <AlertCard key={a.id} a={a} onChart={goChart} />)}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
-              No live signals yet today. The market read above tells you the regime.
-            </div>
-          )}
-        </section>
-
-        {/* your day */}
-        <section className="pt-5">
-          <SectionLabel>Your day</SectionLabel>
-          <div className="rounded-xl border border-border-subtle bg-surface-1 p-3.5">
-            <div className="flex items-center justify-between text-[12px]">
-              <span className="text-text-secondary">
-                {took.length > 0 ? `${took.length} position${took.length > 1 ? "s" : ""} marked Took` : "No positions marked yet"}
-              </span>
-              <button onClick={() => nav("/performance")} className="text-[11px] text-accent hover:text-accent-hover">EOD review →</button>
-            </div>
-            <p className="mt-1.5 text-[11.5px] text-text-faint">At close, review which signals you took — that's how we learn which patterns pay.</p>
+          {/* side column — worth watching + your day */}
+          <div className="space-y-6">
+            {watch.length > 0 && (
+              <section>
+                <SectionLabel>Worth watching today</SectionLabel>
+                <div className="space-y-1.5">
+                  {watch.map((w) => (
+                    <button key={w.symbol} onClick={() => goChart(w.symbol)}
+                      className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5 text-left hover:bg-surface-2 active:opacity-80">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          {w.score >= 60 ? <TrendingUp size={13} className="text-bullish-text" /> : <Flame size={13} className="text-bearish-text rotate-180" />}
+                          <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
+                        </div>
+                        <p className="truncate text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
+                      </div>
+                      <span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${w.score >= 60 ? "bg-bullish-subtle text-bullish-text" : "bg-surface-3 text-text-faint"}`}>{Math.round(w.score)}</span>
+                      <ChevronRight size={14} className="text-text-faint" />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            <section>
+              <SectionLabel>Your day</SectionLabel>
+              <div className="rounded-xl border border-border-subtle bg-surface-1 p-3.5">
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-text-secondary">
+                    {took.length > 0 ? `${took.length} position${took.length > 1 ? "s" : ""} marked Took` : "No positions marked yet"}
+                  </span>
+                  <button onClick={() => nav("/performance")} className="text-[11px] text-accent hover:text-accent-hover">EOD review →</button>
+                </div>
+                <p className="mt-1.5 text-[11.5px] text-text-faint">At close, review which signals you took — that's how we learn which patterns pay.</p>
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
       </div>
     </div>
   );
