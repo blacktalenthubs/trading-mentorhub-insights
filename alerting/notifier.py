@@ -141,6 +141,25 @@ def format_lifecycle_message(
     return f"{head}\nFrom: {rule_label} entry ${entry:.2f}\n{tail}"
 
 
+def _target_line(signal) -> str | None:
+    """The ONE target rendered by kind (Sub-spec A — T2 removed).
+
+    - a price (level target)         → "Target $123.45"
+    - an RSI target (Case B / swing) → "Target RSI 70"
+    - end-of-day exit                → "Target EOD exit"
+    Returns None when there's no target.
+    """
+    if getattr(signal, "target_1", None) is not None:
+        return f"Target ${signal.target_1:.2f}"
+    _tk = getattr(signal, "_target_kind", None)
+    _tv = getattr(signal, "_target_value", None)
+    if _tk == "rsi" and _tv is not None:
+        return f"Target RSI {int(_tv)}"
+    if _tk == "eod":
+        return "Target EOD exit"
+    return None
+
+
 def _format_tv_body(signal: AlertSignal) -> str | None:
     """TV-native Telegram message. Driven by Pine script output.
 
@@ -166,15 +185,21 @@ def _format_tv_body(signal: AlertSignal) -> str | None:
     rule_label = f"{rule} ({ma_tag_pretty})" if ma_tag_pretty else rule
     parts = [f"<b>{dir_label} {sym} ${signal.price:.2f}</b> — <i>{_html.escape(rule_label)}</i>"]
 
+    # Day/swing tag (Sub-spec L) — DAY · swing-eligible when extended (RSI > 70).
+    _tt = getattr(signal, "_trade_type", None)
+    if _tt == "swing":
+        parts.append("📅 SWINGABLE")
+    elif _tt == "day":
+        parts.append("⚡ DAY · swing-eligible" if getattr(signal, "_swing_eligible", False) else "⚡ DAY")
+
     levels = []
     if signal.entry is not None:
         levels.append(f"Entry ${signal.entry:.2f}")
     if signal.stop is not None:
         levels.append(f"Stop ${signal.stop:.2f}")
-    if signal.target_1 is not None:
-        levels.append(f"T1 ${signal.target_1:.2f}")
-    if signal.target_2 is not None:
-        levels.append(f"T2 ${signal.target_2:.2f}")
+    _t = _target_line(signal)
+    if _t:
+        levels.append(_t)
     if levels:
         parts.append(" · ".join(levels))
 
@@ -274,10 +299,9 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             _levels.append(f"Entry ${signal.entry:.2f}")
         if signal.stop is not None:
             _levels.append(f"Stop ${signal.stop:.2f}")
-        if signal.target_1 is not None:
-            _levels.append(f"T1 ${signal.target_1:.2f}")
-        if signal.target_2 is not None:
-            _levels.append(f"T2 ${signal.target_2:.2f}")
+        _t = _target_line(signal)
+        if _t:
+            _levels.append(_t)
         if _levels:
             parts.append(" \u00b7 ".join(_levels))
         if signal.message:
@@ -323,10 +347,9 @@ def _format_sms_body(signal: AlertSignal) -> str | None:
             _levels.append(f"Entry ${signal.entry:.2f}")
         if signal.stop is not None:
             _levels.append(f"Stop ${signal.stop:.2f} (daily close)")
-        if signal.target_1 is not None:
-            _levels.append(f"T1 ${signal.target_1:.2f}")
-        if signal.target_2 is not None:
-            _levels.append(f"T2 ${signal.target_2:.2f}")
+        _t = _target_line(signal)
+        if _t:
+            _levels.append(_t)
         if _levels:
             parts.append(" · ".join(_levels))
 

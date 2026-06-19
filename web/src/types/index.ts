@@ -29,6 +29,9 @@ export interface SignalResult {
   stop: number | null;
   target_1: number | null;
   target_2: number | null;
+  target_kind?: string | null;   // level | rsi | eod (Sub-spec A)
+  trade_type?: string | null;    // day | swing (Sub-spec L)
+  swing_eligible?: boolean | null;
   rr_ratio: number | null;
   support_status: string;
   pattern: string;

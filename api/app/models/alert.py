@@ -79,6 +79,12 @@ class Alert(Base):
     stage: Mapped[Optional[str]] = mapped_column(String)
     vwap_slope_pct: Mapped[Optional[float]] = mapped_column(Float)
     inside_day: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
+    # Sub-spec A/L (2026-06-19) — single-target kind + day/swing classification.
+    # target_kind: how to read the one target — "level" (target_1 is a price),
+    # "rsi" (momentum target, value in rsi at fire time), "eod" (exit end-of-day).
+    target_kind: Mapped[Optional[str]] = mapped_column(String(10))
+    trade_type: Mapped[Optional[str]] = mapped_column(String(10))   # "day" | "swing"
+    swing_eligible: Mapped[int] = mapped_column(Integer, server_default="0", default=0)
     # Setup grade — A/B/C computed at write time from vol_ratio + vwap_slope_pct.
     # See analytics/alert_grade.py. Defaults to 'C' so legacy rows don't break filters.
     grade: Mapped[Optional[str]] = mapped_column(String(1), server_default="C")

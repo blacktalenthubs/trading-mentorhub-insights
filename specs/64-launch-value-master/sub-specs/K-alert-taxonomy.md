@@ -48,6 +48,7 @@ Then:
 ## Out of scope
 - Changing *which* alerts fire (that's Sub-spec A's trusted-core decisions) — K only makes the taxonomy consistent + educated.
 - The lesson *content* (Sub-spec C / D own the pedagogy); K guarantees the 1:1 link exists.
+- The **dynamic, at-fire-time** day/swing tag (read from RSI + EMA-location per fired alert) and the swing target/stop mechanics — **Sub-spec L** owns that. K provides only the **static per-type baseline** `classification` field that L refines.
 
 ## Notes
 This is the connective tissue under A (the setups), C/D (the education), and I (the analysis). Without it, every surface drifts. Build the registry once; Strategy Analysis stops lying about retired setups, and every live pattern becomes learnable in one tap. Ties to [[feedback_what_value_data_chain]], [[project_launch_value_master_spec]], [[project_rc_pine_cornerstone]].

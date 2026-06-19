@@ -635,6 +635,12 @@ function AlertSymbolListsSection() {
             onSave={(l) => update.mutate({ gap_always_symbols: l.join(",") })}
           />
           <ExemptListEditor
+            label="Opening-range-low held — always deliver"
+            hint="Opening-range-low held (ORL) is noisy on most names so it's usually muted, but ALWAYS fires for these — the first dip-buy reads cleanest on indexes. e.g. SPY, QQQ. Empty = none."
+            list={toList(data?.orl_always_symbols)}
+            onSave={(l) => update.mutate({ orl_always_symbols: l.join(",") })}
+          />
+          <ExemptListEditor
             label="SHORT alerts — symbols"
             hint="SHORT alerts of ANY type (index PDL break, 4h RC rejection, MA rejection, S/R reject) fire ONLY for these symbols — everything else is Not-routed. e.g. SPY, QQQ. Empty = no shorts."
             list={toList(data?.short_symbols)}

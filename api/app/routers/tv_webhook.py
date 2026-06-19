@@ -374,6 +374,10 @@ RC4H_SHORT_DEFAULT: frozenset[str] = frozenset({"SPY", "DRAM"})
 # Gap-and-go always-deliver names — their gap-up fires even when gap-and-go is
 # muted (managed live from Settings; an index doesn't gap up without a reason).
 GAP_ALWAYS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
+# ORL always-deliver names — opening-range-low held (staged_orl_held) is noisy on
+# busy names, so it's usually muted globally; these symbols still fire (managed
+# live from Settings — same pattern as gap_always_symbols).
+ORL_ALWAYS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
 # Multi-period S/R (htf_sr_*) symbol allowlist — clumpy on busy names, so it
 # delivers ONLY for these (start with indexes, expand live in Settings).
 HTF_SR_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
@@ -805,6 +809,13 @@ class TVWebhookPayload(BaseModel):
     # degrade conviction since directional setups have lower hit rate.
     inside_day: Optional[str] = None
     today_open: Optional[str] = None
+    # 2026-06-19 (Sub-spec L / A) — daily RSI at fire time (day/swing classification
+    # input + Case-B momentum-target reference) and the machine-readable RSI target on
+    # swing entries (target_rsi=70, target_tf=D|W). Accepted now; the classifier +
+    # single-target picker consume them in Phases 2/4. Default-ignored until then.
+    rsi: Optional[str] = None
+    target_rsi: Optional[str] = None
+    target_tf: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1092,19 +1103,64 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         sig.direction = downgrade
         direction = downgrade  # keep local var in sync for downstream branches
 
-    # 3. Phase 4a structural targets if Pine Script didn't supply them.
-    # Staged Pine always supplies entry/stop/T1/T2, so this only fills gaps
-    # for older Pine scripts or non-staged rules.
-    if direction in ("BUY", "LONG") and sig.entry and not (sig.target_1 and sig.target_2):
-        stop = sig.stop if sig.stop else round(sig.entry * 0.995, 2)
-        sig.stop = stop
-        t1, t2 = _targets_for_long(sig.entry, stop, prior_day)
-        sig.target_1, sig.target_2 = t1, t2
-    elif direction == "SHORT" and sig.entry and not (sig.target_1 and sig.target_2):
-        stop = sig.stop if sig.stop else round(sig.entry * 1.005, 2)
-        sig.stop = stop
-        t1, t2 = _targets_for_short(sig.entry, stop, prior_day)
-        sig.target_1, sig.target_2 = t1, t2
+    # 3. Unified single target (Sub-spec A, 2026-06-19). ONE target, no T2.
+    # Resolution order:
+    #   • swing entry with an explicit RSI target (target_rsi) → RSI target (no price)
+    #   • alert that sends the chart stack (nearby_levels) → the picker: nearest
+    #     clustered level/wall above (Case A) → else RSI 70/80 or EOD (Case B)
+    #   • neither (4h RC, old Pines) → legacy structural fallback
+    # target_2 is always cleared — T2 is removed.
+    from analytics.target_picker import pick_target
+
+    _cands = [
+        (lvl.get("label"), lvl.get("value"))
+        for lvl in getattr(sig, "_tv_nearby_levels", []) or []
+        if lvl.get("value") is not None
+    ]
+    _rsi = getattr(sig, "_tv_rsi", None)
+    _target_rsi = getattr(sig, "_tv_target_rsi", None)
+
+    def _apply_pick(picked):
+        if not picked:
+            return
+        if picked["kind"] == "level":
+            sig.target_1 = picked["value"]
+        else:                       # rsi / eod — no price target
+            sig.target_1 = None
+        sig._target_kind = picked["kind"]            # type: ignore[attr-defined]
+        sig._target_value = picked["value"]          # type: ignore[attr-defined]
+        sig._target_wall = picked.get("wall_size", 0)  # type: ignore[attr-defined]
+
+    if direction in ("BUY", "LONG") and sig.entry:
+        if not sig.stop:
+            sig.stop = round(sig.entry * 0.995, 2)
+        if _target_rsi is not None:                  # swing / weekly_rc RSI target
+            sig.target_1 = None
+            sig._target_kind = "rsi"                 # type: ignore[attr-defined]
+            sig._target_value = _target_rsi          # type: ignore[attr-defined]
+        elif _cands:
+            _apply_pick(pick_target(sig.entry, _cands, "BUY", _rsi))
+        elif not sig.target_1:                       # 4h RC / old Pine fallback
+            t1, _t2 = _targets_for_long(sig.entry, sig.stop, prior_day)
+            sig.target_1 = t1
+            sig._target_kind = "level"               # type: ignore[attr-defined]
+        sig.target_2 = None
+    elif direction == "SHORT" and sig.entry:
+        if not sig.stop:
+            sig.stop = round(sig.entry * 1.005, 2)
+        if _cands:
+            _apply_pick(pick_target(sig.entry, _cands, "SHORT", _rsi))
+        elif not sig.target_1:
+            t1, _t2 = _targets_for_short(sig.entry, sig.stop, prior_day)
+            sig.target_1 = t1
+            sig._target_kind = "level"               # type: ignore[attr-defined]
+        sig.target_2 = None
+
+    # 3b. Day/swing classification (Sub-spec L) — from the alert type + daily RSI.
+    from analytics.trade_classifier import classify_trade
+    _trade_type, _swing_eligible = classify_trade(alert_type_full, getattr(sig, "_tv_rsi", None))
+    sig._trade_type = _trade_type          # type: ignore[attr-defined]
+    sig._swing_eligible = _swing_eligible  # type: ignore[attr-defined]
 
     # 4. Stamp confluence score (Phase 2) — kept for non-TV consumers, but
     # the Telegram formatter ignores it on TV alerts (see _format_tv_body).
@@ -1202,6 +1258,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["gap_always_symbols"])
             if "gap_always_symbols" in _rc else GAP_ALWAYS_DEFAULT
         )
+        # ORL always-deliver allowlist — staged_orl_held fires even when muted;
+        # missing key ⇒ the SPY,QQQ default.
+        orl_always_symbols = (
+            _parse_exempt_syms(_rc["orl_always_symbols"])
+            if "orl_always_symbols" in _rc else ORL_ALWAYS_DEFAULT
+        )
         # Multi-period S/R allowlist — opt-in per symbol; missing key ⇒ SPY,QQQ.
         htf_sr_symbols = (
             _parse_exempt_syms(_rc["htf_sr_symbols"])
@@ -1218,6 +1280,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         ma_alert_symbols = MA_SYMS_DEFAULT        # read failed → MA only the clean names
         rc_symbols = RC_SYMS_DEFAULT              # read failed → RC only the default set
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
+        orl_always_symbols = ORL_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
         htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
 
     # Gap-and-go for the always-deliver names (Settings → gap_always_symbols,
@@ -1228,7 +1291,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         alert_type_full == "tv_gap_up_continuation_long"
         and (sig.symbol or "").upper() in gap_always_symbols
     )
-    if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt:
+    # ORL held fires for its always-deliver names even when the type is muted
+    # (it's noisy globally, kept on for clean names like SPY/QQQ). Same shape as
+    # the gap-and-go exemption above.
+    _orl_exempt = (
+        alert_type_full == "tv_staged_orl_held"
+        and (sig.symbol or "").upper() in orl_always_symbols
+    )
+    if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt and not _orl_exempt:
         # Known type, just toggled OFF → record it (deduped) for EOD review:
         # no Telegram, hidden from the live feed, and NOT run through the
         # twin/level dedup so the routed pipeline's state stays clean.
@@ -1638,6 +1708,9 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 stop=sig.stop,
                 target_1=sig.target_1,
                 target_2=sig.target_2,
+                target_kind=getattr(sig, "_target_kind", None),
+                trade_type=getattr(sig, "_trade_type", None),
+                swing_eligible=1 if getattr(sig, "_swing_eligible", False) else 0,
                 confidence=sig.confidence,
                 message=sig.message,
                 score=int(sig.score) if sig.score else 0,
@@ -1778,6 +1851,9 @@ async def _persist_unrouted(
                 stop=sig.stop,
                 target_1=sig.target_1,
                 target_2=sig.target_2,
+                target_kind=getattr(sig, "_target_kind", None),
+                trade_type=getattr(sig, "_trade_type", None),
+                swing_eligible=1 if getattr(sig, "_swing_eligible", False) else 0,
                 confidence=sig.confidence,
                 message=sig.message,
                 session_date=session_date,

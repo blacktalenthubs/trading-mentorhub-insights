@@ -44,9 +44,17 @@ pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.look
 pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
 pmh = request.security(syminfo.tickerid, "M", high[1], lookahead = barmerge.lookahead_on)
 pml = request.security(syminfo.tickerid, "M", low[1],  lookahead = barmerge.lookahead_on)
-// CURRENT month low — lowest point of the in-progress monthly candle (no [1] = THIS month's
-// running low). lookahead_off so it never leaks future lows on history.
-cml = request.security(syminfo.tickerid, "M", low,     lookahead = barmerge.lookahead_off)
+// CURRENT month low — lowest point of the in-progress monthly candle (no [1] = THIS
+// month's running low). Two things make it read the SAME on every chart timeframe:
+//   1. lookahead_on — without it a monthly chart falls back to the last CLOSED month
+//      (May) since June hasn't closed, so CML reads May's low there but June's low on
+//      lower TFs. lookahead_on reports the developing June low everywhere. (Harmless
+//      "leak" on history — CML is only ever drawn on barstate.islast.)
+//   2. regular-session ticker — pins the request to RTH so an intraday chart with
+//      extended hours on can't fold a pre/post-market print into the monthly low and
+//      read lower than the daily/monthly chart does.
+cml_tid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+cml = request.security(cml_tid, "M", low, lookahead = barmerge.lookahead_on)
 
 is_support(float lvl) => not na(lvl) and close > lvl
 reclaim(float lvl)    => not na(lvl) and not na(close[1]) and close > lvl and close[1] <= lvl

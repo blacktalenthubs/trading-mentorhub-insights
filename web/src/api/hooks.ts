@@ -2034,6 +2034,7 @@ export interface RegimeExemptConfig {
   ma_alert_symbols: string;  // symbols whose MA/EMA bounce alerts fire; blank = none (#282)
   rc_symbols: string;  // symbols whose 4h RC alerts (long + short) fire; blank = none (#286)
   gap_always_symbols: string;  // symbols whose gap-and-go always delivers even when gap-and-go is muted (default SPY,QQQ)
+  orl_always_symbols: string;  // symbols whose ORL held always delivers even when staged_orl_held is muted (default SPY,QQQ)
   htf_sr_symbols: string;  // symbols allowed to deliver the multi-period S/R reject/bounce (default SPY,QQQ)
 }
 

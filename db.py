@@ -1155,6 +1155,10 @@ def _migrate_add_ai_conviction():
     with get_db() as conn:
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN ai_conviction INTEGER")
         _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN ai_reasoning TEXT")
+        # Sub-spec A/L (2026-06-19) — single-target kind + day/swing classification.
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN target_kind TEXT")
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN trade_type TEXT")
+        _safe_add_column(conn, "ALTER TABLE alerts ADD COLUMN swing_eligible INTEGER DEFAULT 0")
 
 
 def _migrate_seed_subscriptions():
