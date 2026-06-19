@@ -59,13 +59,39 @@ function OpenRow({ t }: { t: RealTrade }) {
   );
 }
 
+function dayLabel(d: string): string {
+  if (d === todayStr()) return "Today";
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  if (d === y.toISOString().slice(0, 10)) return "Yesterday";
+  const dt = new Date(d + "T00:00:00");
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function ClosedRow({ t }: { t: RealTrade }) {
+  const r = rOf(t);
+  const win = (r ?? t.pnl ?? 0) >= 0;
+  const long = isLong(t);
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5">
+      <span className="font-display text-[13px] font-semibold text-text-primary">{t.symbol}</span>
+      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
+      <span className="font-mono text-[11px] text-text-muted tabular-nums">{px(t.entry_price)} → {t.exit_price != null ? px(t.exit_price) : "—"}</span>
+      <span className={`ml-auto font-mono text-[12px] font-semibold tabular-nums ${win ? "text-bullish-text" : "text-bearish-text"}`}>
+        {r != null ? `${win ? "Win" : "Loss"} ${r >= 0 ? "+" : ""}${r.toFixed(1)}R` : (win ? "Win" : "Loss")}
+      </span>
+    </div>
+  );
+}
+
 export default function TodayEOD() {
   const { data: open } = useOpenTrades();
   const { data: closed } = useClosedTrades();
   const openTrades = open ?? [];
-  const closedToday = (closed ?? []).filter((t) => t.session_date === todayStr());
+  const closedTrades = closed ?? [];
+  const closedToday = closedTrades.filter((t) => t.session_date === todayStr());
   const won = closedToday.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
   const lost = closedToday.length - won;
+  const days = [...new Set(closedTrades.map((t) => t.session_date))].sort((a, b) => b.localeCompare(a));
 
   return (
     <div className="space-y-6">
@@ -90,22 +116,23 @@ export default function TodayEOD() {
         )}
       </section>
 
-      {closedToday.length > 0 && (
+      {days.length > 0 && (
         <section>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint mb-2">Closed today</h3>
-          <div className="space-y-1.5">
-            {closedToday.map((t) => {
-              const r = rOf(t);
-              const win = (r ?? t.pnl ?? 0) >= 0;
-              const long = isLong(t);
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint mb-2">Closed — by day</h3>
+          <div className="space-y-4">
+            {days.map((d) => {
+              const dayTrades = closedTrades.filter((t) => t.session_date === d);
+              const dayWon = dayTrades.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
+              const dayR = dayTrades.reduce((s, t) => s + (rOf(t) ?? 0), 0);
               return (
-                <div key={t.id} className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5">
-                  <span className="font-display text-[13px] font-semibold text-text-primary">{t.symbol}</span>
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
-                  <span className="font-mono text-[11px] text-text-muted tabular-nums">{px(t.entry_price)} → {t.exit_price != null ? px(t.exit_price) : "—"}</span>
-                  <span className={`ml-auto font-mono text-[12px] font-semibold tabular-nums ${win ? "text-bullish-text" : "text-bearish-text"}`}>
-                    {r != null ? `${win ? "Win" : "Loss"} ${r >= 0 ? "+" : ""}${r.toFixed(1)}R` : (win ? "Win" : "Loss")}
-                  </span>
+                <div key={d}>
+                  <div className="flex items-center justify-between mb-1.5 px-1">
+                    <span className="text-[12px] font-semibold text-text-secondary">{dayLabel(d)}</span>
+                    <span className="text-[11px] text-text-faint tabular-nums">
+                      {dayWon}/{dayTrades.length} won · <span className={dayR >= 0 ? "text-bullish-text" : "text-bearish-text"}>{dayR >= 0 ? "+" : ""}{dayR.toFixed(1)}R</span>
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">{dayTrades.map((t) => <ClosedRow key={t.id} t={t} />)}</div>
                 </div>
               );
             })}

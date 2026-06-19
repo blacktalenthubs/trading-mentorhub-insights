@@ -9,7 +9,7 @@ import { useState } from "react";
 import type { Alert } from "../types";
 import { formatSetup } from "../lib/alertFormat";
 import { useReportTrade } from "../api/hooks";
-import { Info, LineChart, BookOpen, Check, ChevronRight } from "lucide-react";
+import { Info, LineChart, BookOpen, Check, ChevronRight, X } from "lucide-react";
 
 const px = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -32,7 +32,7 @@ const GRADE_STYLE: Record<string, string> = {
   C: "bg-surface-3 text-text-muted border-border-default",
 };
 
-export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: Alert; onChart?: (symbol: string) => void; defaultExpanded?: boolean }) {
+export default function AlertCard({ a, onChart, onHide, defaultExpanded = false }: { a: Alert; onChart?: (symbol: string) => void; onHide?: (id: number) => void; defaultExpanded?: boolean }) {
   const dir = (a.direction || "").toUpperCase();
   const long = dir === "BUY" || dir === "LONG";
   const grade = (a.grade || "C").toUpperCase();
@@ -76,18 +76,23 @@ export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: 
 
   return (
     <div className="rounded-xl border border-border-subtle bg-surface-1 shadow-card">
-      {/* header — always visible, toggles expand */}
-      <button onClick={() => setExpanded((e) => !e)} className="flex w-full items-center gap-2 px-3.5 py-3 text-left hover:bg-surface-2/40 transition-colors rounded-xl">
-        <ChevronRight size={14} className={`shrink-0 text-text-faint transition-transform ${expanded ? "rotate-90" : ""}`} />
-        <span className="font-display font-semibold text-text-primary">{a.symbol}</span>
-        <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
-        <span className={`text-[11px] font-bold w-5 h-5 grid place-items-center rounded border ${GRADE_STYLE[grade] ?? GRADE_STYLE.C}`}>{grade}</span>
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          <span className="hidden sm:inline text-[11px] text-text-faint max-w-[130px] truncate">{formatSetup(a.alert_type)}</span>
-          <span className="text-[11px] text-text-faint tabular-nums">{timeAgo(a.created_at)}</span>
-          {(!expanded || took) && statusBadge}
-        </div>
-      </button>
+      {/* header — always visible, toggles expand; × hides the signal */}
+      <div className="flex w-full items-center px-3.5 py-3 rounded-xl hover:bg-surface-2/40 transition-colors">
+        <button onClick={() => setExpanded((e) => !e)} className="flex flex-1 items-center gap-2 text-left min-w-0">
+          <ChevronRight size={14} className={`shrink-0 text-text-faint transition-transform ${expanded ? "rotate-90" : ""}`} />
+          <span className="font-display font-semibold text-text-primary">{a.symbol}</span>
+          <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
+          <span className={`text-[11px] font-bold w-5 h-5 grid place-items-center rounded border ${GRADE_STYLE[grade] ?? GRADE_STYLE.C}`}>{grade}</span>
+          <div className="ml-auto flex items-center gap-2 shrink-0 pl-2">
+            <span className="hidden sm:inline text-[11px] text-text-faint max-w-[130px] truncate">{formatSetup(a.alert_type)}</span>
+            <span className="text-[11px] text-text-faint tabular-nums">{timeAgo(a.created_at)}</span>
+            {(!expanded || took) && statusBadge}
+          </div>
+        </button>
+        {onHide && !took && (
+          <button onClick={() => onHide(a.id)} title="Hide this signal" className="ml-1 p-1 text-text-faint hover:text-text-secondary shrink-0 transition-colors"><X size={13} /></button>
+        )}
+      </div>
 
       {expanded && (
         <div className="px-3.5 pb-3.5">
