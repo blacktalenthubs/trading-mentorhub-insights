@@ -48,7 +48,15 @@ export default function MyStrategy() {
       : avgR != null && avgR < 0 ? "cut"
       : "ok";
     return { pattern, count: ts.length, won, winPct: ts.length ? Math.round((won / ts.length) * 100) : 0, avgR, totalR, verdict };
-  }).sort((a, b) => (b.avgR ?? -Infinity) - (a.avgR ?? -Infinity));
+  }).sort((a, b) => {
+    // reliable patterns (enough sample) first, so n=1 noise sinks to the bottom
+    const ar = a.count >= MIN_SAMPLE ? 1 : 0, br = b.count >= MIN_SAMPLE ? 1 : 0;
+    if (ar !== br) return br - ar;
+    return (b.avgR ?? -Infinity) - (a.avgR ?? -Infinity);
+  });
+  const edges = rows.filter((r) => r.verdict === "edge");
+  const cuts = rows.filter((r) => r.verdict === "cut");
+  const buildingCount = rows.filter((r) => r.verdict === "building").length;
 
   if (trades.length === 0) {
     return (
@@ -61,8 +69,16 @@ export default function MyStrategy() {
   return (
     <div className="space-y-4">
       <p className="text-[12px] text-text-muted">
-        Which of <span className="text-text-secondary">your</span> setups actually make money — from the trades you took. Trade more of what works; cut what bleeds.
+        Which of <span className="text-text-secondary">your</span> setups actually make money — from the trades you took.
       </p>
+      <div className="rounded-xl border border-accent-muted bg-accent-subtle/40 p-3.5 text-[13px] text-text-secondary leading-relaxed">
+        <span className="font-semibold text-text-primary">What to do — </span>
+        {edges.length > 0
+          ? <>lean into <span className="text-bullish-text font-medium">{edges.map((e) => formatSetup(e.pattern)).join(", ")}</span> (your proven edge so far).</>
+          : <>no proven edge yet — keep logging trades, no setup has {MIN_SAMPLE}+ trades.</>}
+        {cuts.length > 0 && <> Consider cutting <span className="text-bearish-text font-medium">{cuts.map((c) => formatSetup(c.pattern)).join(", ")}</span>.</>}
+        {buildingCount > 0 && <span className="text-text-faint"> {buildingCount} pattern{buildingCount > 1 ? "s" : ""} still building a sample — ignore until they have {MIN_SAMPLE}+ trades.</span>}
+      </div>
       <div className="rounded-xl border border-border-subtle bg-surface-1 overflow-hidden">
         <div className="flex items-center gap-4 px-4 py-2 text-[10px] uppercase tracking-wider text-text-faint border-b border-border-subtle">
           <span className="flex-1">Pattern</span>
