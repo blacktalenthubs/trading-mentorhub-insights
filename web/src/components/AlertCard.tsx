@@ -8,7 +8,7 @@
 import { useState } from "react";
 import type { Alert } from "../types";
 import { formatSetup } from "../lib/alertFormat";
-import { useReportTrade } from "../api/hooks";
+import { useReportTrade, useAckAlert } from "../api/hooks";
 import { useNavigate } from "react-router-dom";
 import { Info, LineChart, BookOpen, Check, ChevronRight, X } from "lucide-react";
 
@@ -33,13 +33,14 @@ const GRADE_STYLE: Record<string, string> = {
   C: "bg-surface-3 text-text-muted border-border-default",
 };
 
-export default function AlertCard({ a, onChart, onHide, defaultExpanded = false }: { a: Alert; onChart?: (symbol: string) => void; onHide?: (id: number) => void; defaultExpanded?: boolean }) {
+export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: Alert; onChart?: (symbol: string) => void; defaultExpanded?: boolean }) {
   const dir = (a.direction || "").toUpperCase();
   const long = dir === "BUY" || dir === "LONG";
   const grade = (a.grade || "C").toUpperCase();
   const why = a.description || a.entry_guidance || formatSetup(a.alert_type);
 
   const report = useReportTrade();
+  const ack = useAckAlert();
   const nav = useNavigate();
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showWhy, setShowWhy] = useState(false);
@@ -47,6 +48,7 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
   const [entryStr, setEntryStr] = useState(a.entry != null ? String(a.entry) : "");
   const [exitStr, setExitStr] = useState("");
   const [local, setLocal] = useState<{ exit_price: number | null; r_multiple: number | null } | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
   const took = a.user_action === "took" || local !== null;
   const exitPx = local ? local.exit_price : a.exit_price ?? null;
@@ -67,6 +69,8 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
       { onSuccess: (res) => { setLocal({ exit_price: res.exit_price, r_multiple: res.r_multiple }); setShowForm(false); } },
     );
   };
+  // Decline — pass on the signal: logs it (user_action=skipped, for the unrouted report) + removes from the feed.
+  const decline = () => { ack.mutate({ id: a.id, action: "skipped" }); setDismissed(true); };
 
   // compact status shown in the collapsed row (and right-aligned)
   const statusBadge = closed
@@ -76,6 +80,8 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
     : potential != null
     ? <span className="font-mono text-[11px] text-text-faint tabular-nums">→ {potential.toFixed(1)}R</span>
     : null;
+
+  if (dismissed) return null;
 
   return (
     <div className="rounded-xl border border-border-subtle bg-surface-1 shadow-card">
@@ -92,8 +98,8 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
             {(!expanded || took) && statusBadge}
           </div>
         </button>
-        {onHide && !took && (
-          <button onClick={() => onHide(a.id)} title="Hide this signal" className="ml-1 p-1 text-text-faint hover:text-text-secondary shrink-0 transition-colors"><X size={13} /></button>
+        {!took && (
+          <button onClick={decline} title="Decline — pass on this signal (logged for review)" className="ml-1 p-1 text-text-faint hover:text-bearish-text shrink-0 transition-colors"><X size={14} /></button>
         )}
       </div>
 
@@ -169,7 +175,10 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
             </div>
           ) : (
             <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
-              <button onClick={() => setShowForm(true)} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors">Took it</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowForm(true)} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors">Took it</button>
+                <button onClick={decline} className="text-[12px] font-medium px-3 py-1.5 rounded-lg text-text-muted hover:text-bearish-text hover:bg-surface-2 transition-colors">Decline</button>
+              </div>
               {potential != null && <span className="font-mono text-[12px] tabular-nums font-semibold text-text-muted">→ {potential.toFixed(1)}R</span>}
             </div>
           )}
