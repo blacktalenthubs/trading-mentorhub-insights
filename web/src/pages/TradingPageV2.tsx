@@ -1240,6 +1240,13 @@ export default function TradingPageV2() {
       .map((a) => ({ created_at: a.created_at, direction: a.direction, grade: a.grade })),
     [activeAlerts, selectedSymbol],
   );
+  // latest alert carrying trade levels for the selected symbol → draw E / S / T on the chart (#64-A9)
+  const symbolTrade = useMemo(
+    () => (activeAlerts ?? [])
+      .filter((a) => a.symbol === selectedSymbol && a.entry != null)
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0],
+    [activeAlerts, selectedSymbol],
+  );
   const activeAlertsError = signalDate ? pastAlertsError : alertsError;
   const feedCount = (activeAlerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && a.suppressed_reason !== "type_not_enabled",
@@ -1999,6 +2006,9 @@ export default function TradingPageV2() {
               hideWicks={hideWicks}
               showVolume={showVolume}
               alertMarkers={symbolAlertMarkers}
+              entry={symbolTrade?.entry ?? undefined}
+              stop={symbolTrade?.stop ?? undefined}
+              target={symbolTrade?.target_1 ?? undefined}
               height={0}
             />
           ) : (
