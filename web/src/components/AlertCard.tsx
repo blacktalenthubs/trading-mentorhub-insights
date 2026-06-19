@@ -1,9 +1,12 @@
 /** AlertCard — the redesigned hero alert card (Sub-spec J), wired to live alert data.
- *  Carries the plain-English WHY (C), the real-level target (A), and the Took capture (I).
- *  Distinct from SignalCard (which renders scanner SignalResults). On-system; mobile-first.
+ *  Carries the plain-English WHY (C), the real-level target (A), and the Took capture (I):
+ *  clicking "Took it" opens an inline form (entry / exit), records it, and computes win/R.
+ *  Distinct from SignalCard (scanner results). On-system; mobile-first.
  */
+import { useState } from "react";
 import type { Alert } from "../types";
 import { formatSetup } from "../lib/alertFormat";
+import { useAckAlert, useSetAlertExit } from "../api/hooks";
 import { Info, LineChart, BookOpen, Check } from "lucide-react";
 
 const px = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -31,12 +34,35 @@ export default function AlertCard({ a, onChart }: { a: Alert; onChart?: (symbol:
   const dir = (a.direction || "").toUpperCase();
   const long = dir === "BUY" || dir === "LONG";
   const grade = (a.grade || "C").toUpperCase();
-  const took = a.user_action === "took";
   const why = a.description || a.entry_guidance || formatSetup(a.alert_type);
-  const rr =
+
+  const ack = useAckAlert();
+  const setAlertExit = useSetAlertExit();
+  const [showForm, setShowForm] = useState(false);
+  const [entryStr, setEntryStr] = useState(a.entry != null ? String(a.entry) : "");
+  const [exitStr, setExitStr] = useState("");
+  const [localR, setLocalR] = useState<number | null>(null);
+
+  const took = a.user_action === "took" || localR !== null;
+  const r = localR ?? a.r_multiple ?? null;
+  const potential =
     a.entry != null && a.target_1 != null && a.stop != null && a.entry !== a.stop
       ? Math.abs((a.target_1 - a.entry) / (a.entry - a.stop))
       : null;
+
+  const submit = () => {
+    const entry = parseFloat(entryStr);
+    const exit = parseFloat(exitStr);
+    if (isNaN(exit)) return;
+    ack.mutate({ id: a.id, action: "took" });
+    setAlertExit.mutate({ alertId: a.id, exitPrice: exit });
+    const stop = a.stop ?? entry;
+    const rr = !isNaN(entry) && entry !== stop
+      ? long ? (exit - entry) / (entry - stop) : (entry - exit) / (stop - entry)
+      : 0;
+    setLocalR(rr);
+    setShowForm(false);
+  };
 
   return (
     <div className="rounded-xl border border-border-subtle bg-surface-1 p-3.5 shadow-card">
@@ -68,13 +94,42 @@ export default function AlertCard({ a, onChart }: { a: Alert; onChart?: (symbol:
         <button className="inline-flex items-center gap-1 hover:text-text-secondary"><BookOpen size={12} /> Learn</button>
       </div>
 
-      {/* action + R */}
-      <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
-        {took
-          ? <span className="inline-flex items-center gap-1 text-[12px] font-medium text-bullish-text"><Check size={14} /> Took it</span>
-          : <button className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors">Took it</button>}
-        {rr != null && <span className="font-mono text-[12px] tabular-nums font-semibold text-text-muted">→ {rr.toFixed(1)}R</span>}
-      </div>
+      {/* action / capture form / result */}
+      {took ? (
+        <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
+          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-bullish-text"><Check size={14} /> Took it</span>
+          {r != null && (
+            <span className={`font-mono text-[12px] font-semibold tabular-nums ${r >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+              {r >= 0 ? "Win" : "Loss"} {r >= 0 ? "+" : ""}{r.toFixed(1)}R
+            </span>
+          )}
+        </div>
+      ) : showForm ? (
+        <div className="mt-3 border-t border-border-subtle pt-3 space-y-2">
+          <div className="text-[10px] uppercase tracking-wider text-text-faint">Log your trade · {formatSetup(a.alert_type)}</div>
+          <div className="flex gap-2">
+            <label className="flex-1 text-[11px] text-text-muted">
+              Entry
+              <input value={entryStr} onChange={(e) => setEntryStr(e.target.value)} inputMode="decimal"
+                className="mt-0.5 w-full rounded-md bg-surface-2 border border-border-default px-2 py-1 font-mono text-[12px] text-text-primary focus:border-accent outline-none" />
+            </label>
+            <label className="flex-1 text-[11px] text-text-muted">
+              Exit
+              <input value={exitStr} onChange={(e) => setExitStr(e.target.value)} inputMode="decimal" autoFocus placeholder="your fill"
+                className="mt-0.5 w-full rounded-md bg-surface-2 border border-border-default px-2 py-1 font-mono text-[12px] text-text-primary focus:border-accent outline-none" />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={submit} className="flex-1 text-[12px] font-semibold py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors">Save trade</button>
+            <button onClick={() => setShowForm(false)} className="px-3 text-[12px] text-text-muted hover:text-text-secondary">Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
+          <button onClick={() => setShowForm(true)} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors">Took it</button>
+          {potential != null && <span className="font-mono text-[12px] tabular-nums font-semibold text-text-muted">→ {potential.toFixed(1)}R</span>}
+        </div>
+      )}
     </div>
   );
 }
