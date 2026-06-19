@@ -1,9 +1,8 @@
-/** MyStrategy — Performance > Strategy Analysis (#64 Sub-spec I).
- *  YOUR per-pattern results from the trades you actually took: win-rate, avg R, total R.
- *  Answers "which of MY setups make money — trade more of what works, cut what bleeds."
- *  Built from your closed RealTrades (real entry/exit). Feeds the AI weekly review next.
+/** MyStrategy — Performance > Strategy Analysis (#64 Sub-spec I/K).
+ *  EVERY live catalog pattern (from Settings) with a Learn link, your results overlaid where
+ *  you've traded it. Doubles as the full pattern reference + your per-setup edge. Traded
+ *  patterns sort to the top by avg R; untraded ones show the setup you can go learn.
  */
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useClosedTrades, useAlertConfig } from "../api/hooks";
 import type { RealTrade } from "../api/hooks";
@@ -20,7 +19,7 @@ function rOf(t: RealTrade): number | null {
   return reward / Math.abs(t.entry_price - t.stop_price);
 }
 
-const MIN_SAMPLE = 5; // below this, per-pattern stats are noise — be honest
+const MIN_SAMPLE = 5;
 const VERDICT: Record<string, { label: string; cls: string }> = {
   edge: { label: "EDGE", cls: "bg-bullish-subtle text-bullish-text" },
   cut: { label: "CUT", cls: "bg-bearish-subtle text-bearish-text" },
@@ -28,108 +27,91 @@ const VERDICT: Record<string, { label: string; cls: string }> = {
   ok: { label: "OK", cls: "bg-surface-3 text-text-muted" },
 };
 
+interface Stat { count: number; won: number; winPct: number; avgR: number | null; totalR: number; verdict: string }
+
 export default function MyStrategy() {
   const nav = useNavigate();
   const { data: closed } = useClosedTrades();
   const { data: config } = useAlertConfig();
-  const [showRetired, setShowRetired] = useState(false);
-  const trades = (closed ?? []).filter((t) => t.alert_type);
 
-  const map = new Map<string, RealTrade[]>();
-  for (const t of trades) {
-    const k = t.alert_type as string;
-    if (!map.has(k)) map.set(k, []);
-    map.get(k)!.push(t);
+  // your closed trades grouped by pattern
+  const byPattern = new Map<string, RealTrade[]>();
+  for (const t of closed ?? []) {
+    if (!t.alert_type) continue;
+    if (!byPattern.has(t.alert_type)) byPattern.set(t.alert_type, []);
+    byPattern.get(t.alert_type)!.push(t);
   }
-  const rows = [...map.entries()].map(([pattern, ts]) => {
+  const statOf = (code: string): Stat | null => {
+    const ts = byPattern.get(code);
+    if (!ts || !ts.length) return null;
     const rs = ts.map(rOf).filter((r): r is number => r != null);
     const won = ts.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
     const totalR = rs.reduce((s, r) => s + r, 0);
     const avgR = rs.length ? totalR / rs.length : null;
-    const verdict =
-      ts.length < MIN_SAMPLE ? "building"
-      : avgR != null && avgR >= 0.5 ? "edge"
-      : avgR != null && avgR < 0 ? "cut"
-      : "ok";
-    return { pattern, count: ts.length, won, winPct: ts.length ? Math.round((won / ts.length) * 100) : 0, avgR, totalR, verdict };
-  }).sort((a, b) => {
-    // reliable patterns (enough sample) first, so n=1 noise sinks to the bottom
-    const ar = a.count >= MIN_SAMPLE ? 1 : 0, br = b.count >= MIN_SAMPLE ? 1 : 0;
-    if (ar !== br) return br - ar;
-    return (b.avgR ?? -Infinity) - (a.avgR ?? -Infinity);
-  });
-  // split live (in the canonical catalog / Settings) vs retired-legacy
-  const activeCodes = new Set((config ?? []).map((c) => c.alert_type));
-  const ready = config != null;
-  const liveRows = ready ? rows.filter((r) => activeCodes.has(r.pattern)) : rows;
-  const retiredRows = ready ? rows.filter((r) => !activeCodes.has(r.pattern)) : [];
-  const edges = liveRows.filter((r) => r.verdict === "edge");
-  const cuts = liveRows.filter((r) => r.verdict === "cut");
-  const buildingCount = liveRows.filter((r) => r.verdict === "building").length;
+    const verdict = ts.length < MIN_SAMPLE ? "building" : avgR != null && avgR >= 0.5 ? "edge" : avgR != null && avgR < 0 ? "cut" : "ok";
+    return { count: ts.length, won, winPct: ts.length ? Math.round((won / ts.length) * 100) : 0, avgR, totalR, verdict };
+  };
 
-  if (trades.length === 0) {
-    return (
-      <div className="rounded-xl border border-border-subtle bg-surface-1 p-8 text-center text-[13px] text-text-faint">
-        No closed trades yet. Log trades in <span className="text-text-secondary">Today's EOD</span> (Took it → enter your exit) and your per-pattern edge builds up here.
-      </div>
-    );
+  // every catalog pattern + your stats overlay
+  const rows = (config ?? [])
+    .map((c) => ({ code: c.alert_type, label: c.label || formatSetup(c.alert_type), stat: statOf(c.alert_type) }))
+    .sort((a, b) => {
+      const at = a.stat ? 1 : 0, bt = b.stat ? 1 : 0;
+      if (at !== bt) return bt - at;                                  // traded first
+      if (a.stat && b.stat) return (b.stat.avgR ?? -Infinity) - (a.stat.avgR ?? -Infinity);
+      return a.label.localeCompare(b.label);                          // untraded: A→Z
+    });
+  const edges = rows.filter((r) => r.stat?.verdict === "edge");
+  const cuts = rows.filter((r) => r.stat?.verdict === "cut");
+
+  if ((config ?? []).length === 0) {
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-8 text-center text-[13px] text-text-faint">Loading the pattern catalog…</div>;
   }
 
   return (
     <div className="space-y-4">
       <p className="text-[12px] text-text-muted">
-        Which of <span className="text-text-secondary">your</span> setups actually make money — from the trades you took. <span className="text-accent">Tap any pattern to learn the setup.</span>
+        Every setup we alert on — your win-rate and R fill in as you log trades. <span className="text-accent">Tap any pattern to learn the setup.</span>
       </p>
+
       <div className="rounded-xl border border-accent-muted bg-accent-subtle/40 p-3.5 text-[13px] text-text-secondary leading-relaxed">
         <span className="font-semibold text-text-primary">What to do — </span>
         {edges.length > 0
-          ? <>lean into <span className="text-bullish-text font-medium">{edges.map((e) => formatSetup(e.pattern)).join(", ")}</span> (your proven edge so far).</>
-          : <>no proven edge yet — keep logging trades, no setup has {MIN_SAMPLE}+ trades.</>}
-        {cuts.length > 0 && <> Consider cutting <span className="text-bearish-text font-medium">{cuts.map((c) => formatSetup(c.pattern)).join(", ")}</span>.</>}
-        {buildingCount > 0 && <span className="text-text-faint"> {buildingCount} pattern{buildingCount > 1 ? "s" : ""} still building a sample — ignore until they have {MIN_SAMPLE}+ trades.</span>}
+          ? <>lean into <span className="text-bullish-text font-medium">{edges.map((e) => e.label).join(", ")}</span> (your proven edge).</>
+          : <>no proven edge yet — log trades, no setup has {MIN_SAMPLE}+ yet.</>}
+        {cuts.length > 0 && <> Consider cutting <span className="text-bearish-text font-medium">{cuts.map((c) => c.label).join(", ")}</span>.</>}
       </div>
+
       <div className="rounded-xl border border-border-subtle bg-surface-1 overflow-hidden">
-        <div className="flex items-center gap-4 px-4 py-2 text-[10px] uppercase tracking-wider text-text-faint border-b border-border-subtle">
-          <span className="flex-1">Pattern</span>
+        <div className="flex items-center gap-3 px-4 py-2 text-[10px] uppercase tracking-wider text-text-faint border-b border-border-subtle">
+          <span className="flex-1">Pattern · tap to learn</span>
           <span className="w-12 text-right">Win</span>
           <span className="w-16 text-right">Avg R</span>
           <span className="w-16 text-right">Total R</span>
         </div>
-        {liveRows.map((r) => (
-          <button key={r.pattern} onClick={() => nav(`/pattern/${encodeURIComponent(r.pattern)}`)} title="Learn this pattern"
+        {rows.map((r) => (
+          <button key={r.code} onClick={() => nav(`/pattern/${encodeURIComponent(r.code)}`)} title="Learn this pattern"
             className="group w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2/40 border-b border-border-subtle last:border-0 transition-colors">
             <span className="flex-1 min-w-0 flex items-center gap-2">
-              <span className="text-[13px] font-semibold text-accent underline decoration-dotted decoration-text-faint/60 underline-offset-2 group-hover:decoration-accent truncate">{formatSetup(r.pattern)}</span>
-              <span className="text-[11px] text-text-faint shrink-0">{r.won}/{r.count}</span>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${VERDICT[r.verdict].cls}`}>{VERDICT[r.verdict].label}</span>
+              <span className="text-[13px] font-semibold text-accent underline decoration-dotted decoration-text-faint/60 underline-offset-2 group-hover:decoration-accent truncate">{r.label}</span>
+              {r.stat && <span className="text-[11px] text-text-faint shrink-0">{r.stat.won}/{r.stat.count}</span>}
+              {r.stat && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${VERDICT[r.stat.verdict].cls}`}>{VERDICT[r.stat.verdict].label}</span>}
             </span>
-            <span className={`w-12 text-right font-mono text-[12px] tabular-nums ${r.winPct >= 50 ? "text-bullish-text" : "text-bearish-text"}`}>{r.winPct}%</span>
-            <span className={`w-16 text-right font-mono text-[12px] tabular-nums ${(r.avgR ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.avgR != null ? `${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(1)}R` : "—"}</span>
-            <span className={`w-16 text-right font-mono text-[12px] font-semibold tabular-nums ${r.totalR >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.totalR >= 0 ? "+" : ""}{r.totalR.toFixed(1)}R</span>
+            {r.stat ? (
+              <>
+                <span className={`w-12 text-right font-mono text-[12px] tabular-nums ${r.stat.winPct >= 50 ? "text-bullish-text" : "text-bearish-text"}`}>{r.stat.winPct}%</span>
+                <span className={`w-16 text-right font-mono text-[12px] tabular-nums ${(r.stat.avgR ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.stat.avgR != null ? `${r.stat.avgR >= 0 ? "+" : ""}${r.stat.avgR.toFixed(1)}R` : "—"}</span>
+                <span className={`w-16 text-right font-mono text-[12px] font-semibold tabular-nums ${r.stat.totalR >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.stat.totalR >= 0 ? "+" : ""}{r.stat.totalR.toFixed(1)}R</span>
+              </>
+            ) : (
+              <span className="text-[11px] text-text-faint italic shrink-0">no trades yet</span>
+            )}
             <ChevronRight size={15} className="shrink-0 text-text-faint group-hover:text-accent transition-colors" />
           </button>
         ))}
       </div>
-      {retiredRows.length > 0 && (
-        <div>
-          <button onClick={() => setShowRetired((s) => !s)} className="flex items-center gap-1.5 text-[11px] text-text-faint hover:text-text-secondary">
-            <ChevronRight size={12} className={`transition-transform ${showRetired ? "rotate-90" : ""}`} />
-            Retired / legacy patterns ({retiredRows.length}) — not in the current alert catalog
-          </button>
-          {showRetired && (
-            <div className="mt-1.5 rounded-xl border border-border-subtle bg-surface-1/40 overflow-hidden opacity-70">
-              {retiredRows.map((r) => (
-                <div key={r.pattern} className="flex items-center gap-3 px-4 py-2 border-b border-border-subtle last:border-0">
-                  <span className="flex-1 text-[12px] text-text-muted truncate">{formatSetup(r.pattern)}</span>
-                  <span className="text-[11px] text-text-faint shrink-0">{r.won}/{r.count}</span>
-                  <span className="w-16 text-right font-mono text-[11px] text-text-faint">{r.avgR != null ? `${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(1)}R` : "—"}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      <p className="text-[11px] text-text-faint"><span className="text-bullish-text">EDGE</span> = working · <span className="text-bearish-text">CUT</span> = losing · <span className="text-text-muted">BUILDING</span> = under {MIN_SAMPLE} trades, not yet reliable. Per-pattern stats only mean something with sample size — keep logging. This feeds the AI weekly review.</p>
+
+      <p className="text-[11px] text-text-faint"><span className="text-bullish-text">EDGE</span> = working · <span className="text-bearish-text">CUT</span> = losing · <span className="text-text-muted">BUILDING</span> = under {MIN_SAMPLE} trades. Traded setups sort first; the rest are the catalog you can learn. Feeds the AI weekly review.</p>
     </div>
   );
 }
