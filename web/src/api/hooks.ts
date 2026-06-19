@@ -1219,6 +1219,15 @@ export function useDeleteTrade() {
   });
 }
 
+/** Dismiss ALL open positions in bulk — clear phantom takes (#64 I). */
+export function useClearOpenTrades() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ cleared: number }>("/real-trades/clear-open"),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["real-trades-open"] }); },
+  });
+}
+
 export function useOpenTrades() {
   return useQuery({
     queryKey: ["real-trades-open"],

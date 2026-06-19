@@ -127,6 +127,23 @@ async def dismiss_trade(
     return {"id": trade_id, "dismissed": True}
 
 
+@router.post("/clear-open")
+async def clear_open_trades(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dismiss ALL open positions in bulk (#64 Sub-spec I) — clears phantom one-click
+    takes the user never really took. Closed trades are untouched."""
+    trades = (await db.execute(
+        select(RealTrade).where(RealTrade.user_id == user.id, RealTrade.status == "open")
+    )).scalars().all()
+    n = 0
+    for tr in trades:
+        await db.delete(tr)
+        n += 1
+    return {"cleared": n}
+
+
 @router.get("/open", response_model=List[RealTradeResponse])
 async def get_open_trades(
     user: User = Depends(get_current_user),

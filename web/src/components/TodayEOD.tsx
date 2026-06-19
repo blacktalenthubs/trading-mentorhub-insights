@@ -4,9 +4,9 @@
  *  synthetic P&L, no flawed target/stop-symbol heuristic.
  */
 import { useState } from "react";
-import { useOpenTrades, useClosedTrades, useCloseTrade, useDeleteTrade } from "../api/hooks";
+import { useOpenTrades, useClosedTrades, useCloseTrade, useDeleteTrade, useClearOpenTrades } from "../api/hooks";
 import type { RealTrade } from "../api/hooks";
-import { X } from "lucide-react";
+import { X, ChevronRight } from "lucide-react";
 
 const px = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -87,7 +87,12 @@ export default function TodayEOD() {
   const { data: open } = useOpenTrades();
   const { data: closed } = useClosedTrades();
   const [selectedDay, setSelectedDay] = useState("");
+  const [openCollapsed, setOpenCollapsed] = useState(false);
+  const clearOpen = useClearOpenTrades();
   const openTrades = open ?? [];
+  const clearAll = () => {
+    if (openTrades.length && window.confirm(`Clear all ${openTrades.length} open position${openTrades.length > 1 ? "s" : ""}? Use this for trades you didn't actually take.`)) clearOpen.mutate();
+  };
   const closedTrades = closed ?? [];
   const closedToday = closedTrades.filter((t) => t.session_date === todayStr());
   const won = closedToday.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
@@ -111,14 +116,22 @@ export default function TodayEOD() {
       </div>
 
       <section>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint mb-2">Open positions — close them out</h3>
-        {openTrades.length > 0 ? (
+        <div className="flex items-center justify-between mb-2">
+          <button onClick={() => setOpenCollapsed((c) => !c)} className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-faint hover:text-text-secondary">
+            <ChevronRight size={12} className={`transition-transform ${openCollapsed ? "" : "rotate-90"}`} />
+            Open positions{openTrades.length > 0 ? ` (${openTrades.length})` : ""}
+          </button>
+          {openTrades.length > 0 && (
+            <button onClick={clearAll} disabled={clearOpen.isPending} className="text-[11px] text-text-faint hover:text-bearish-text disabled:opacity-50 transition-colors">Clear all</button>
+          )}
+        </div>
+        {!openCollapsed && (openTrades.length > 0 ? (
           <div className="space-y-1.5">{openTrades.map((t) => <OpenRow key={t.id} t={t} />)}</div>
         ) : (
           <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
             No open positions. Tap “Took it” on a signal in Today to start tracking one.
           </div>
-        )}
+        ))}
       </section>
 
       {days.length > 0 && (
