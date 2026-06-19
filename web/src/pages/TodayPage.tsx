@@ -3,7 +3,7 @@
  *  Reuses the live hooks; renders the redesigned AlertCard. Its own scroll root
  *  (AppLayout <main> is overflow-hidden — see feedback_page_scroll_container).
  */
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, TrendingUp, ChevronRight, Flame } from "lucide-react";
 import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank } from "../api/hooks";
@@ -46,12 +46,27 @@ export default function TodayPage() {
 
   const goChart = (symbol: string) => nav(`/trading?symbol=${encodeURIComponent(symbol)}`);
 
-  const liveSignals = useMemo(
+  // hidden signals (declutter) — persisted per device
+  const [hidden, setHidden] = useState<Set<number>>(() => {
+    try { return new Set<number>(JSON.parse(localStorage.getItem("today_hidden") || "[]")); } catch { return new Set(); }
+  });
+  const [showHidden, setShowHidden] = useState(false);
+  const hide = (id: number) => setHidden((prev) => {
+    const n = new Set(prev); n.add(id);
+    try { localStorage.setItem("today_hidden", JSON.stringify([...n])); } catch { /* ignore */ }
+    return n;
+  });
+
+  const allFeed = useMemo(
     () => (alerts ?? [])
       .filter((a) => isFeedSignal(a.alert_type) && !a.suppressed_reason)
-      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
-      .slice(0, 12),
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")),
     [alerts],
+  );
+  const hiddenCount = useMemo(() => allFeed.filter((a) => hidden.has(a.id)).length, [allFeed, hidden]);
+  const liveSignals = useMemo(
+    () => allFeed.filter((a) => showHidden || !hidden.has(a.id)).slice(0, 12),
+    [allFeed, hidden, showHidden],
   );
   const took = useMemo(() => (alerts ?? []).filter((a) => a.user_action === "took"), [alerts]);
   const watch = useMemo(() => (rank ?? []).slice(0, 5), [rank]);
@@ -80,9 +95,14 @@ export default function TodayPage() {
           {/* main column — live signals */}
           <section className="lg:col-span-2">
             <SectionLabel action="Trading" onAction={() => nav("/trading")}>Live signals</SectionLabel>
+            {hiddenCount > 0 && (
+              <button onClick={() => setShowHidden((s) => !s)} className="mb-2 text-[11px] text-text-faint hover:text-text-secondary">
+                {showHidden ? "Hide dismissed" : `${hiddenCount} hidden · show`}
+              </button>
+            )}
             {liveSignals.length > 0 ? (
               <div className="space-y-2.5">
-                {liveSignals.map((a, i) => <AlertCard key={a.id} a={a} onChart={goChart} defaultExpanded={i < 2} />)}
+                {liveSignals.map((a, i) => <AlertCard key={a.id} a={a} onChart={goChart} onHide={hide} defaultExpanded={i < 2} />)}
               </div>
             ) : (
               <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
