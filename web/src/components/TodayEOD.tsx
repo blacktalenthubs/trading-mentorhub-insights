@@ -47,7 +47,7 @@ function OpenRow({ t }: { t: RealTrade }) {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5">
       <span className="font-display text-[13px] font-semibold text-text-primary">{t.symbol}</span>
       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
-      {t.alert_type && <button onClick={() => nav("/learn")} title="Learn this pattern" className="text-[10px] text-text-faint hover:text-accent hover:underline shrink-0">{formatSetup(t.alert_type)}</button>}
+      {t.alert_type && <button onClick={() => nav(`/pattern/${encodeURIComponent(t.alert_type as string)}`)} title="Learn this pattern" className="text-[10px] text-text-faint hover:text-accent hover:underline shrink-0">{formatSetup(t.alert_type)}</button>}
       <span className="font-mono text-[11px] text-text-muted tabular-nums">entry {px(t.entry_price)} · stop {t.stop_price != null ? px(t.stop_price) : "—"}</span>
       <div className="ml-auto flex items-center gap-2">
         <input value={exit} onChange={(e) => setExit(e.target.value)} inputMode="decimal" placeholder="exit price"
@@ -80,7 +80,7 @@ function ClosedRow({ t }: { t: RealTrade }) {
     <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5">
       <span className="font-display text-[13px] font-semibold text-text-primary">{t.symbol}</span>
       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
-      {t.alert_type && <button onClick={() => nav("/learn")} title="Learn this pattern" className="text-[10px] text-text-faint hover:text-accent hover:underline shrink-0 hidden sm:inline">{formatSetup(t.alert_type)}</button>}
+      {t.alert_type && <button onClick={() => nav(`/pattern/${encodeURIComponent(t.alert_type as string)}`)} title="Learn this pattern" className="text-[10px] text-text-faint hover:text-accent hover:underline shrink-0 hidden sm:inline">{formatSetup(t.alert_type)}</button>}
       <span className="font-mono text-[11px] text-text-muted tabular-nums">{px(t.entry_price)} → {t.exit_price != null ? px(t.exit_price) : "—"}</span>
       <span className={`ml-auto font-mono text-[12px] font-semibold tabular-nums ${win ? "text-bullish-text" : "text-bearish-text"}`}>
         {r != null ? `${win ? "Win" : "Loss"} ${r >= 0 ? "+" : ""}${r.toFixed(1)}R` : (win ? "Win" : "Loss")}

@@ -115,7 +115,7 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
           <div className="mt-2.5 flex items-center gap-3 text-[11px] text-text-muted">
             <button onClick={() => setShowWhy((s) => !s)} className={`inline-flex items-center gap-1 hover:text-text-secondary ${showWhy ? "text-text-secondary" : ""}`}><Info size={12} /> Why grade {grade}</button>
             <button onClick={() => onChart?.(a.symbol)} className="inline-flex items-center gap-1 hover:text-text-secondary"><LineChart size={12} /> Chart</button>
-            <button onClick={() => nav("/learn")} className="inline-flex items-center gap-1 hover:text-text-secondary"><BookOpen size={12} /> Learn</button>
+            <button onClick={() => nav(a.alert_type ? `/pattern/${encodeURIComponent(a.alert_type)}` : "/learn")} className="inline-flex items-center gap-1 hover:text-text-secondary"><BookOpen size={12} /> Learn</button>
           </div>
 
           {showWhy && (

@@ -87,7 +87,7 @@ export default function MyStrategy() {
           <span className="w-16 text-right">Total R</span>
         </div>
         {rows.map((r) => (
-          <button key={r.pattern} onClick={() => nav("/learn")} title="Learn this pattern"
+          <button key={r.pattern} onClick={() => nav(`/pattern/${encodeURIComponent(r.pattern)}`)} title="Learn this pattern"
             className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-surface-2/40 border-b border-border-subtle last:border-0 transition-colors">
             <span className="flex-1 min-w-0 flex items-center gap-2">
               <span className="text-[13px] font-semibold text-text-primary truncate">{formatSetup(r.pattern)}</span>
