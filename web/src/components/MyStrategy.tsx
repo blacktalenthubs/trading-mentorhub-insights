@@ -18,6 +18,14 @@ function rOf(t: RealTrade): number | null {
   return reward / Math.abs(t.entry_price - t.stop_price);
 }
 
+const MIN_SAMPLE = 5; // below this, per-pattern stats are noise — be honest
+const VERDICT: Record<string, { label: string; cls: string }> = {
+  edge: { label: "EDGE", cls: "bg-bullish-subtle text-bullish-text" },
+  cut: { label: "CUT", cls: "bg-bearish-subtle text-bearish-text" },
+  building: { label: "BUILDING", cls: "bg-surface-3 text-text-faint" },
+  ok: { label: "OK", cls: "bg-surface-3 text-text-muted" },
+};
+
 export default function MyStrategy() {
   const nav = useNavigate();
   const { data: closed } = useClosedTrades();
@@ -33,14 +41,13 @@ export default function MyStrategy() {
     const rs = ts.map(rOf).filter((r): r is number => r != null);
     const won = ts.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
     const totalR = rs.reduce((s, r) => s + r, 0);
-    return {
-      pattern,
-      count: ts.length,
-      won,
-      winPct: ts.length ? Math.round((won / ts.length) * 100) : 0,
-      avgR: rs.length ? totalR / rs.length : null,
-      totalR,
-    };
+    const avgR = rs.length ? totalR / rs.length : null;
+    const verdict =
+      ts.length < MIN_SAMPLE ? "building"
+      : avgR != null && avgR >= 0.5 ? "edge"
+      : avgR != null && avgR < 0 ? "cut"
+      : "ok";
+    return { pattern, count: ts.length, won, winPct: ts.length ? Math.round((won / ts.length) * 100) : 0, avgR, totalR, verdict };
   }).sort((a, b) => (b.avgR ?? -Infinity) - (a.avgR ?? -Infinity));
 
   if (trades.length === 0) {
@@ -66,9 +73,10 @@ export default function MyStrategy() {
         {rows.map((r) => (
           <button key={r.pattern} onClick={() => nav("/learn")} title="Learn this pattern"
             className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-surface-2/40 border-b border-border-subtle last:border-0 transition-colors">
-            <span className="flex-1 min-w-0">
-              <span className="text-[13px] font-semibold text-text-primary">{formatSetup(r.pattern)}</span>
-              <span className="text-[11px] text-text-faint ml-2">{r.won}/{r.count} won</span>
+            <span className="flex-1 min-w-0 flex items-center gap-2">
+              <span className="text-[13px] font-semibold text-text-primary truncate">{formatSetup(r.pattern)}</span>
+              <span className="text-[11px] text-text-faint shrink-0">{r.won}/{r.count}</span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${VERDICT[r.verdict].cls}`}>{VERDICT[r.verdict].label}</span>
             </span>
             <span className={`w-12 text-right font-mono text-[12px] tabular-nums ${r.winPct >= 50 ? "text-bullish-text" : "text-bearish-text"}`}>{r.winPct}%</span>
             <span className={`w-16 text-right font-mono text-[12px] tabular-nums ${(r.avgR ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.avgR != null ? `${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(1)}R` : "—"}</span>
@@ -76,7 +84,7 @@ export default function MyStrategy() {
           </button>
         ))}
       </div>
-      <p className="text-[11px] text-text-faint">Sorted by your average R. This is what the AI weekly review will read to recommend which patterns to lean into.</p>
+      <p className="text-[11px] text-text-faint"><span className="text-bullish-text">EDGE</span> = working · <span className="text-bearish-text">CUT</span> = losing · <span className="text-text-muted">BUILDING</span> = under {MIN_SAMPLE} trades, not yet reliable. Per-pattern stats only mean something with sample size — keep logging. This feeds the AI weekly review.</p>
     </div>
   );
 }
