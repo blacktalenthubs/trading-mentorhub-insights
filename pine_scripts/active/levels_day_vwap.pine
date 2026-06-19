@@ -1096,15 +1096,16 @@ nearest_below(float e, float l1, float l2) =>
     r == -9.0e15 ? float(na) : r
 
 // Full-stack nearest level/EMA above/below entry (#64-A) — the REAL target. Scans every
-// daily/weekly/monthly level AND the daily MAs, picks the nearest >0.3% away (skips noise
-// <0.3%). na if nothing within reach → callers fall back to round/ATR. Replaces the
-// 2-level nearest_above so targets land on the genuine next wall, not a skipped level.
+// daily/weekly/monthly level AND the daily MAs, picks the nearest one >=~1% away. The ~1%
+// band skips the entry's OWN level/cluster (the support you're firing AT) so the target is
+// the NEXT neighbor wall — e.g. SPCX firing at the PWH (~177) targets the PDL (187), not the
+// PWH itself. na if none in reach → callers fall back to round/ATR.
 nearest_stack_above(float e) =>
     best = 9.0e15
     cands = array.from(pdh, pdl, pwh, pwl, pmh, pml, ema8_d, ema21_d, ema50_d, ema100_d, ema200_d, sma50_d, sma100_d, sma200_d)
     for i = 0 to array.size(cands) - 1
         v = array.get(cands, i)
-        if not na(v) and v > e * 1.003 and v < best
+        if not na(v) and v > e * 1.01 and v < best
             best := v
     best == 9.0e15 ? float(na) : best
 
@@ -1113,7 +1114,7 @@ nearest_stack_below(float e) =>
     cands = array.from(pdh, pdl, pwh, pwl, pmh, pml, ema8_d, ema21_d, ema50_d, ema100_d, ema200_d, sma50_d, sma100_d, sma200_d)
     for i = 0 to array.size(cands) - 1
         v = array.get(cands, i)
-        if not na(v) and v < e * 0.997 and v > best
+        if not na(v) and v < e * 0.99 and v > best
             best := v
     best == -9.0e15 ? float(na) : best
 
