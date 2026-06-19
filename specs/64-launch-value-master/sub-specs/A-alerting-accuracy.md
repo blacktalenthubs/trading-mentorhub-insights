@@ -52,23 +52,27 @@ Today T1/T2 are **arbitrary R-multiples** (4R/6R, 2R/3R). Price doesn't move in 
 - **Candidate targets** = every structural level above the entry: PDH/PDL/PWH/PWL/PMH/PML **+** the daily EMAs/SMAs (8/21/50/100/200 EMA, 50/100/200 SMA) **+** recent 4h/1h swing highs.
 - **Cluster** levels within ~1% of each other into a single **"wall"** (e.g. TSLA PDH 405.94 + EMA50 406.06 + EMA100 405.17 = one strong target). A wall is a stronger, stickier target than a lone level.
 - **Skip** any level closer than ~0.3% to the entry (noise, not a target).
-- **T1 = nearest meaningful overhead level/wall · T2 = the next · T3 = stretch** (the major level — PDH/PWH/SMA200).
+- **One target only** = the **nearest meaningful overhead level/wall** — the first real resistance the trade can reach. **No T1/T2/T3.** One target keeps accuracy unambiguous: *did price reach the level before the stop — yes or no?* That single binary is what makes win-rate measurable.
 - **Stop = below the entry structure**: the RC undercut low, the reclaimed level, or the nearest support below — never a fixed R.
-- **Dual-role aware (ties to the fix above):** when price is *below* a level, that level is overhead **resistance → it is T1.** When it reclaims and holds, the level flips to **support** and the next level up becomes the new T1.
+- **Dual-role aware (ties to the fix above):** when price is *below* a level, that level is overhead **resistance → it is the target.** When it reclaims and holds, the level flips to **support** and the next level up becomes the new target.
 
-**The cascade (the "tricky" part):** targets are not static. As each level clears and flips to support, the next level becomes the key resistance/target — and a **next-leg buy** can fire ("PDL reclaimed & holding → next target EMA200"). The triage agent / lifecycle watcher updates the active target as levels are taken, so the user always sees "next key level," not a stale far number.
+**The cascade (single-target legs):** the level ladder is NOT priced into one alert — it plays out as a **series of discrete single-target trades.** When a target level is taken and holds, a **new alert** fires with the next level as its one target ("PDL reclaimed & holding → target EMA200"). The triage agent / lifecycle watcher drives the legs, so every alert is one clean, measurable bet — and accuracy is the simple hit-rate of "reached the target before the stop."
 
 **Worked examples (for the build):**
-- *TSLA below PDL 393.76, RC reclaim ~390:* T1 = PDL 393.76; on hold → T2 = EMA200 396.85 → T3 = SMA100/SMA50 400–401.
-- *TSLA long off SMA100 ~400:* stop < EMA200 396.85; T1 = EMA8 403.41; T2 = the 405–406 wall; T3 = EMA21 408.44.
-- *SPCX RC 4h @ 175.94:* ladder T1 = weekly high 176.52 → T2 = PDL 187.06 → T3 = PDH 213.73 (not a single skip-to-213.80).
+- *TSLA below PDL 393.76, RC reclaim ~390:* target = PDL 393.76. On hold → new alert, target = EMA200 396.85. Then the SMA100/SMA50 shelf.
+- *TSLA long off SMA100 ~400:* stop < EMA200 396.85; target = EMA8 403.41. If taken → next alert, target = the 405–406 wall.
+- *SPCX RC 4h @ 175.94:* target = weekly high 176.52 (not a skip to 213.80); each reclaim advances the next leg → PDL 187.06 → PDH 213.73.
+
+**Swing targets — separate methodology (to detail in a follow-up):** swing entries don't aim at a price level, they aim at **momentum exhaustion = RSI 70.** Buy oversold (RSI 30–40 reclaim) → target **RSI 70**. Buy a 20/50-EMA pullback hold → target **RSI 70**. This is the institutional "buy weakness / pullback, sell into strength" model — a dynamic momentum target, not a fixed price. Day-trade level-targets ship first; swing RSI-targets come in their own pass.
 
 **Grade interaction:** more clean overhead room to the first wall = better reward; a target wall right above the entry caps the trade and should downgrade it (no room to run).
 
 ## Acceptance criteria
 - **A-1:** 2-week audit shows **zero** long-into-resistance fires.
-- **A-6:** Every alert's T1/T2/T3 are **real chart levels/EMAs** above the entry (clustered, >0.3% away), not R-multiples; the stop is a structural level, not a fixed R.
-- **A-7:** When price is below a level and reclaims it, the alert's first target is that level; after it holds, targets advance to the next level up (the cascade is visible to the user).
+- **A-6:** Every day-trade alert has **exactly one** target = a real chart level/EMA above the entry (clustered, >0.3% away), not an R-multiple; the stop is a structural level, not a fixed R.
+- **A-7:** The ladder plays out as single-target legs — when a target level is taken and holds, a new alert fires with the next level as its one target. Accuracy is measured as the hit-rate of "reached target before stop."
+- **A-8 (swing, later):** swing-entry alerts (oversold reclaim, 20/50-EMA hold) target **RSI 70**, not a price level — specced in a follow-up.
+- **A-9 (visibility):** the single target is drawn on the chart as a **labeled line** ("T · PDH 405.94") alongside entry + stop, so target realism is visible at a glance. *(The chart component already draws E / S / T lines — it just needs the alert's `entry/stop/target` wired into the Trading-page chart, which is currently not passed. Small, frontend-only.)*
 - **A-2:** Every fired alert exposes its grade breakdown (the factors that set the grade).
 - **A-3:** Fresh-account default-on set = exactly the trusted core; nothing else fires until the user opts in.
 - **A-4:** A level that has closed below this session does not fire a long reclaim until it is reclaimed-and-held.
