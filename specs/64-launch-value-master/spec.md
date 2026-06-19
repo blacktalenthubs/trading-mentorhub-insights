@@ -38,6 +38,7 @@ They distrust signal-spam, synthetic win-rates, and tools that assume they have 
 7. **Surface the few, not the firehose.** The next MU / SNDK should appear *early*, ranked, with the "why now."
 8. **AI does the chart-staring.** The user's tokens buy analysis, thesis, and review — metered, transparent, valuable.
 9. **Calm UX for busy people.** Glanceable, decision-first, mobile-first. No clutter, no homework.
+10. **Prove what works — don't assert it.** Self-reported, real outcomes (not synthetic win-rates) decide which patterns we keep, and show each user which of *their* setups actually pay.
 
 ---
 
@@ -99,6 +100,7 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 | F | **AI services & token economy** | Monetizable value | **P2** | Unified generate(); token metering + telemetry + quota meter; the AI value menu; encrypted BYOK. |
 | G | **Landing & positioning alignment** | Conversion | **P3** | Claims match delivery; add discovery + education hero; keep the transparency spine. |
 | H | **Triage Agent → AI Concierge** | The connective AI layer | **P1** | Make the existing triage agent's reasoning visible + conversational; it powers B, C, and F from one asset. |
+| I | **EOD self-reporting → pattern validation** | Ground truth + discipline | **P1** | Users self-report took/entry/exit per alert → real per-pattern win-rates → keep only what works + build discipline. |
 
 (Full scope, current-state, target-state, and acceptance criteria for each live in `sub-specs/`.)
 
@@ -158,3 +160,4 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 - `sub-specs/F-ai-services-token-economy.md`
 - `sub-specs/G-landing-positioning.md`
 - `sub-specs/H-triage-agent-concierge.md` *(keystone — powers B, C, F)*
+- `sub-specs/I-eod-self-reporting.md` *(ground truth — proves which patterns work)*
