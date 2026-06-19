@@ -26,6 +26,7 @@ show_pwh  = input.bool (true,  "Show PWH")
 show_pwl  = input.bool (true,  "Show PWL")
 show_pmh  = input.bool (true,  "Show PMH")
 show_pml  = input.bool (true,  "Show PML")
+show_cml  = input.bool (true,  "Show CML (current month low — this month's low so far)")
 show_rc   = input.bool (true,  "Show RC (reclaim) tags")
 show_long = input.bool (true,  "▲ Long markers (reclaim / hold)")
 show_short= input.bool (true,  "▼ Short markers (rejection)")
@@ -34,6 +35,7 @@ line_len  = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 
 col_sup   = input.color(#26A69A, "Support color (price above)")
 col_res   = input.color(#EF5350, "Resistance color (price below)")
 col_rc    = input.color(#2962FF, "RC tag color")
+col_cml   = input.color(#FFA726, "CML color (current month low)")
 
 // ── prior-day / prior-week high & low (flat intraday) ────────────────────────
 pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
@@ -42,6 +44,9 @@ pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.look
 pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
 pmh = request.security(syminfo.tickerid, "M", high[1], lookahead = barmerge.lookahead_on)
 pml = request.security(syminfo.tickerid, "M", low[1],  lookahead = barmerge.lookahead_on)
+// CURRENT month low — lowest point of the in-progress monthly candle (no [1] = THIS month's
+// running low). lookahead_off so it never leaks future lows on history.
+cml = request.security(syminfo.tickerid, "M", low,     lookahead = barmerge.lookahead_off)
 
 is_support(float lvl) => not na(lvl) and close > lvl
 reclaim(float lvl)    => not na(lvl) and not na(close[1]) and close > lvl and close[1] <= lvl
@@ -54,10 +59,10 @@ var label[] g_labels = array.new_label(0)
 // so a PDL sitting near the MA cluster (or coinciding with PWL) doesn't hide
 // behind another label — each prior-level label sits at its own x, clear of the
 // ma-ema-daily labels (which end ~6 bars out).
-draw_level(float lvl, string nm, int sty, int loff) =>
+draw_level(float lvl, string nm, int sty, int loff, color col_override = na) =>
     if not na(lvl)
         sup = is_support(lvl)
-        col = sup ? col_sup : col_res
+        col = not na(col_override) ? col_override : (sup ? col_sup : col_res)
         lstyle = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
         ln  = line.new(bar_index - line_len, lvl, bar_index + loff, lvl, color = col, width = 2, style = lstyle)
         lb  = label.new(bar_index + loff, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
@@ -85,6 +90,8 @@ if barstate.islast
         draw_level(pmh, "PMH", 2, 18)
     if show_pml
         draw_level(pml, "PML", 2, 22)
+    if show_cml
+        draw_level(cml, "CML", 2, 26, col_cml)
 
 // ── RC (reclaim) tags — close back ABOVE a level from below, per confirmed bar ─
 rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
