@@ -102,6 +102,7 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 | H | **Triage Agent → AI Concierge** | The connective AI layer | **P1** | Make the existing triage agent's reasoning visible + conversational; it powers B, C, and F from one asset. |
 | I | **EOD self-reporting → pattern validation** | Ground truth + discipline | **P1** | Users self-report took/entry/exit per alert → real per-pattern win-rates → keep only what works + build discipline. |
 | J | **UI redesign & design system** | Calm, polished UX | **P1** | The new layout for *every* page + one component language + a clickable AIDesigner prototype — before any rebuild. (Supersedes E's layout work.) |
+| K | **Alert taxonomy & consistency** | One registry across Pines / Learn / Strategy | **P1** | Canonical registry of *live* alert types; retire legacy; 1:1 Learn lessons; Strategy Analysis stops showing dead setups. |
 
 (Full scope, current-state, target-state, and acceptance criteria for each live in `sub-specs/`.)
 
@@ -163,3 +164,4 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 - `sub-specs/H-triage-agent-concierge.md` *(keystone — powers B, C, F)*
 - `sub-specs/I-eod-self-reporting.md` *(ground truth — proves which patterns work)*
 - `sub-specs/J-ui-redesign.md` *(the new layout for every page + design system + prototype plan — do before rebuild)*
+- `sub-specs/K-alert-taxonomy.md` *(canonical live alert-type registry → consistent across Pines, Learn, Strategy; retire legacy)*
