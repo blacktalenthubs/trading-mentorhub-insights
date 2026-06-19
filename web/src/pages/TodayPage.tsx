@@ -50,7 +50,7 @@ export default function TodayPage() {
     () => (alerts ?? [])
       .filter((a) => isFeedSignal(a.alert_type) && !a.suppressed_reason)
       .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
-      .slice(0, 6),
+      .slice(0, 12),
     [alerts],
   );
   const took = useMemo(() => (alerts ?? []).filter((a) => a.user_action === "took"), [alerts]);
@@ -82,7 +82,7 @@ export default function TodayPage() {
             <SectionLabel action="Trading" onAction={() => nav("/trading")}>Live signals</SectionLabel>
             {liveSignals.length > 0 ? (
               <div className="space-y-2.5">
-                {liveSignals.map((a) => <AlertCard key={a.id} a={a} onChart={goChart} />)}
+                {liveSignals.map((a, i) => <AlertCard key={a.id} a={a} onChart={goChart} defaultExpanded={i < 2} />)}
               </div>
             ) : (
               <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
