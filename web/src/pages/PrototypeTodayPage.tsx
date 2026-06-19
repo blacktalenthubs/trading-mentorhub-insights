@@ -75,18 +75,18 @@ function SignalCard({ s }: { s: Signal }) {
   );
 }
 
-function SectionLabel({ children, action }: { children: ReactNode; action?: string }) {
+function SectionLabel({ children, action, onAction }: { children: ReactNode; action?: string; onAction?: () => void }) {
   return (
     <div className="flex items-center justify-between px-1 mb-2">
       <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{children}</span>
-      {action && <button className="inline-flex items-center gap-0.5 text-[11px] text-accent hover:text-accent-hover">{action}<ChevronRight size={12}/></button>}
+      {action && <button onClick={onAction} className="inline-flex items-center gap-0.5 text-[11px] text-accent hover:text-accent-hover active:opacity-70">{action}<ChevronRight size={12}/></button>}
     </div>
   );
 }
 
-function WatchRow({ w, full }: { w: typeof WATCH[number]; full?: boolean }) {
+function WatchRow({ w, full, onClick }: { w: typeof WATCH[number]; full?: boolean; onClick?: () => void }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5">
+    <div onClick={onClick} className={`flex items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5 ${onClick ? "cursor-pointer hover:bg-surface-2 active:opacity-80" : ""}`}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {w.dir > 0 ? <TrendingUp size={13} className="text-bullish-text" /> : <Flame size={13} className="text-bearish-text rotate-180" />}
@@ -103,7 +103,7 @@ function WatchRow({ w, full }: { w: typeof WATCH[number]; full?: boolean }) {
 
 /* ─────────────────────────── SCREENS ─────────────────────────── */
 
-function TodayScreen() {
+function TodayScreen({ go }: { go: (t: string) => void }) {
   return (
     <>
       <header className="px-4 pt-5 pb-3">
@@ -119,11 +119,11 @@ function TodayScreen() {
         </div>
       </header>
       <section className="px-4 pt-2">
-        <SectionLabel action="Discover">Worth watching today</SectionLabel>
-        <div className="space-y-1.5">{WATCH.slice(0, 4).map((w) => <WatchRow key={w.symbol} w={w} />)}</div>
+        <SectionLabel action="Discover" onAction={() => go("Discover")}>Worth watching today</SectionLabel>
+        <div className="space-y-1.5">{WATCH.slice(0, 4).map((w) => <WatchRow key={w.symbol} w={w} onClick={() => go("Discover")} />)}</div>
       </section>
       <section className="px-4 pt-5">
-        <SectionLabel action="All signals">Live signals</SectionLabel>
+        <SectionLabel action="All signals" onAction={() => go("Trading")}>Live signals</SectionLabel>
         <div className="space-y-2.5">{SIGNALS.map((s) => <SignalCard key={s.symbol} s={s} />)}</div>
       </section>
       <section className="px-4 pt-5">
@@ -131,7 +131,7 @@ function TodayScreen() {
         <div className="rounded-xl border border-border-subtle bg-surface-1 p-3.5">
           <div className="flex items-center justify-between text-[12px]">
             <span className="text-text-secondary">1 position open · <span className="font-mono text-bullish-text">MU +0.4R</span></span>
-            <button className="text-[11px] text-accent hover:text-accent-hover">EOD review →</button>
+            <button onClick={() => go("Performance")} className="text-[11px] text-accent hover:text-accent-hover active:opacity-70">EOD review →</button>
           </div>
           <p className="mt-1.5 text-[11.5px] text-text-faint">At close we'll ask which signals you took — that's how we learn which patterns pay.</p>
         </div>
@@ -230,7 +230,7 @@ export default function PrototypeTodayPage() {
   return (
     <div className="min-h-screen bg-surface-0 text-text-primary font-body">
       <div className="mx-auto max-w-md min-h-screen border-x border-border-subtle bg-surface-0 pb-20">
-        {tab === "Today" && <TodayScreen />}
+        {tab === "Today" && <TodayScreen go={setTab} />}
         {tab === "Discover" && <DiscoverScreen />}
         {tab === "Trading" && <TradingScreen />}
         {tab === "Performance" && <Placeholder name="Performance" />}
