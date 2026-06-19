@@ -12,10 +12,15 @@ export default function UpdatePrompt() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
-      // Check for a new build periodically while the app stays open, so users
-      // get prompted soon after a deploy rather than only on a fresh load.
+      // Check for a new build OFTEN — every 60s and whenever the tab regains focus —
+      // so the update prompt appears within ~a minute of a deploy. Was 60min, which is
+      // why fresh deploys appeared to "not ship" until a manual hard-refresh.
       if (registration) {
-        setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
+        const check = () => registration.update().catch(() => {});
+        setInterval(check, 60 * 1000);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") check();
+        });
       }
     },
   });
