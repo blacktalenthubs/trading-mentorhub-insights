@@ -101,6 +101,7 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 | G | **Landing & positioning alignment** | Conversion | **P3** | Claims match delivery; add discovery + education hero; keep the transparency spine. |
 | H | **Triage Agent → AI Concierge** | The connective AI layer | **P1** | Make the existing triage agent's reasoning visible + conversational; it powers B, C, and F from one asset. |
 | I | **EOD self-reporting → pattern validation** | Ground truth + discipline | **P1** | Users self-report took/entry/exit per alert → real per-pattern win-rates → keep only what works + build discipline. |
+| J | **UI redesign & design system** | Calm, polished UX | **P1** | The new layout for *every* page + one component language + a clickable AIDesigner prototype — before any rebuild. (Supersedes E's layout work.) |
 
 (Full scope, current-state, target-state, and acceptance criteria for each live in `sub-specs/`.)
 
@@ -161,3 +162,4 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 - `sub-specs/G-landing-positioning.md`
 - `sub-specs/H-triage-agent-concierge.md` *(keystone — powers B, C, F)*
 - `sub-specs/I-eod-self-reporting.md` *(ground truth — proves which patterns work)*
+- `sub-specs/J-ui-redesign.md` *(the new layout for every page + design system + prototype plan — do before rebuild)*
