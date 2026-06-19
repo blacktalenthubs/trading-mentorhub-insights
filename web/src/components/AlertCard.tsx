@@ -9,6 +9,7 @@ import { useState } from "react";
 import type { Alert } from "../types";
 import { formatSetup } from "../lib/alertFormat";
 import { useReportTrade } from "../api/hooks";
+import { useNavigate } from "react-router-dom";
 import { Info, LineChart, BookOpen, Check, ChevronRight, X } from "lucide-react";
 
 const px = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -39,7 +40,9 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
   const why = a.description || a.entry_guidance || formatSetup(a.alert_type);
 
   const report = useReportTrade();
+  const nav = useNavigate();
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [showWhy, setShowWhy] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [entryStr, setEntryStr] = useState(a.entry != null ? String(a.entry) : "");
   const [exitStr, setExitStr] = useState("");
@@ -110,10 +113,23 @@ export default function AlertCard({ a, onChart, onHide, defaultExpanded = false 
 
           {/* progressive disclosure */}
           <div className="mt-2.5 flex items-center gap-3 text-[11px] text-text-muted">
-            <button className="inline-flex items-center gap-1 hover:text-text-secondary"><Info size={12} /> Why grade {grade}</button>
+            <button onClick={() => setShowWhy((s) => !s)} className={`inline-flex items-center gap-1 hover:text-text-secondary ${showWhy ? "text-text-secondary" : ""}`}><Info size={12} /> Why grade {grade}</button>
             <button onClick={() => onChart?.(a.symbol)} className="inline-flex items-center gap-1 hover:text-text-secondary"><LineChart size={12} /> Chart</button>
-            <button className="inline-flex items-center gap-1 hover:text-text-secondary"><BookOpen size={12} /> Learn</button>
+            <button onClick={() => nav("/learn")} className="inline-flex items-center gap-1 hover:text-text-secondary"><BookOpen size={12} /> Learn</button>
           </div>
+
+          {showWhy && (
+            <div className="mt-2 rounded-lg border border-border-subtle bg-surface-2/40 p-2.5 text-[11.5px] text-text-secondary space-y-1">
+              <div className="font-medium text-text-primary">What makes this a {grade}</div>
+              {a.confluence_label && <div>• Confluence: {a.confluence_label}</div>}
+              {a.volume_ratio != null && <div>• Volume: {a.volume_ratio.toFixed(1)}× average{a.volume_ratio >= 1.5 ? " — strong participation" : ""}</div>}
+              {a.vwap_slope_pct != null && <div>• Trend: VWAP {a.vwap_slope_pct >= 0 ? "rising" : "falling"} ({a.vwap_slope_pct >= 0 ? "+" : ""}{a.vwap_slope_pct.toFixed(2)}%)</div>}
+              {a.confluence_score != null && a.confluence_score > 0 && <div>• Confluence score: {a.confluence_score}</div>}
+              {!a.confluence_label && a.volume_ratio == null && a.vwap_slope_pct == null && (
+                <div className="text-text-faint">Grade reflects setup quality at fire — detailed factors weren't recorded for this alert.</div>
+              )}
+            </div>
+          )}
 
           {/* capture form / result / action */}
           {showForm ? (
