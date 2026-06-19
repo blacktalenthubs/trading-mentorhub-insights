@@ -91,7 +91,7 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 
 | # | Sub-spec | Pillar | Priority | One-line outcome |
 |---|----------|--------|----------|------------------|
-| A | **Alerting accuracy hardening** | Trust | **P1** | Keep only the proven entries; fix dual-role; grade by volume/slope/own-trend; retire noise. |
+| A | **Alerting accuracy hardening** | Trust | **P1** | Keep only the proven entries; fix dual-role; **level/EMA-anchored targets (not R-multiples)**; grade by volume/slope/own-trend; retire noise. |
 | B | **Discovery engine — find the next mover early** | Find the names | **P1** | A ranked "worth your attention today" board that catches momentum at the base, with "why now." |
 | C | **Education-in-the-flow — every alert teaches** | Teach | **P1** | Reasoning at delivery + grade breakdown + learn-bridge + autopsy + "why not." |
 | D | **Pattern playbook (canonical)** | Backbone | **P2** | The definitive kept-only-the-best pattern set for day / swing / trend, mapped to alerts + lessons. |

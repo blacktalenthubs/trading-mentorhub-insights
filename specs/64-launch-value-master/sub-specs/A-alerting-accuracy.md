@@ -44,8 +44,31 @@ Make every alert one a busy professional can act on without second-guessing. Kee
 - **Pullback continuation** → keep only if it clears all gates and maps to a level; otherwise cut.
 - **Multi-period S/R** → indexes only (already), or cut on equities.
 
+## Realistic targets — anchored to the level + EMA stack (added per feedback 2026-06-19)
+
+Today T1/T2 are **arbitrary R-multiples** (4R/6R, 2R/3R). Price doesn't move in R — it moves **level to level.** Targets must be the **actual neighbor levels and EMAs above the entry**, all of which the chart already plots.
+
+**The target engine:**
+- **Candidate targets** = every structural level above the entry: PDH/PDL/PWH/PWL/PMH/PML **+** the daily EMAs/SMAs (8/21/50/100/200 EMA, 50/100/200 SMA) **+** recent 4h/1h swing highs.
+- **Cluster** levels within ~1% of each other into a single **"wall"** (e.g. TSLA PDH 405.94 + EMA50 406.06 + EMA100 405.17 = one strong target). A wall is a stronger, stickier target than a lone level.
+- **Skip** any level closer than ~0.3% to the entry (noise, not a target).
+- **T1 = nearest meaningful overhead level/wall · T2 = the next · T3 = stretch** (the major level — PDH/PWH/SMA200).
+- **Stop = below the entry structure**: the RC undercut low, the reclaimed level, or the nearest support below — never a fixed R.
+- **Dual-role aware (ties to the fix above):** when price is *below* a level, that level is overhead **resistance → it is T1.** When it reclaims and holds, the level flips to **support** and the next level up becomes the new T1.
+
+**The cascade (the "tricky" part):** targets are not static. As each level clears and flips to support, the next level becomes the key resistance/target — and a **next-leg buy** can fire ("PDL reclaimed & holding → next target EMA200"). The triage agent / lifecycle watcher updates the active target as levels are taken, so the user always sees "next key level," not a stale far number.
+
+**Worked examples (for the build):**
+- *TSLA below PDL 393.76, RC reclaim ~390:* T1 = PDL 393.76; on hold → T2 = EMA200 396.85 → T3 = SMA100/SMA50 400–401.
+- *TSLA long off SMA100 ~400:* stop < EMA200 396.85; T1 = EMA8 403.41; T2 = the 405–406 wall; T3 = EMA21 408.44.
+- *SPCX RC 4h @ 175.94:* ladder T1 = weekly high 176.52 → T2 = PDL 187.06 → T3 = PDH 213.73 (not a single skip-to-213.80).
+
+**Grade interaction:** more clean overhead room to the first wall = better reward; a target wall right above the entry caps the trade and should downgrade it (no room to run).
+
 ## Acceptance criteria
 - **A-1:** 2-week audit shows **zero** long-into-resistance fires.
+- **A-6:** Every alert's T1/T2/T3 are **real chart levels/EMAs** above the entry (clustered, >0.3% away), not R-multiples; the stop is a structural level, not a fixed R.
+- **A-7:** When price is below a level and reclaims it, the alert's first target is that level; after it holds, targets advance to the next level up (the cascade is visible to the user).
 - **A-2:** Every fired alert exposes its grade breakdown (the factors that set the grade).
 - **A-3:** Fresh-account default-on set = exactly the trusted core; nothing else fires until the user opts in.
 - **A-4:** A level that has closed below this session does not fire a long reclaim until it is reclaimed-and-held.
