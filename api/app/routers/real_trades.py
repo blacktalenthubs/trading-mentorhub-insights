@@ -110,6 +110,23 @@ async def close_trade(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/{trade_id}")
+async def dismiss_trade(
+    trade_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dismiss a trade you didn't actually take (#64 Sub-spec I) — removes it from
+    open positions. For clearing one-click 'takes' that were never real trades."""
+    tr = (await db.execute(
+        select(RealTrade).where(RealTrade.id == trade_id, RealTrade.user_id == user.id)
+    )).scalar_one_or_none()
+    if not tr:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    await db.delete(tr)
+    return {"id": trade_id, "dismissed": True}
+
+
 @router.get("/open", response_model=List[RealTradeResponse])
 async def get_open_trades(
     user: User = Depends(get_current_user),

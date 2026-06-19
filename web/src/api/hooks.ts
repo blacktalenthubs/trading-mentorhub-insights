@@ -1210,6 +1210,15 @@ export interface RealTrade {
   closed_at: string | null;
 }
 
+/** Dismiss a trade you didn't actually take — removes it from open positions (#64 I). */
+export function useDeleteTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/real-trades/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["real-trades-open"] }); },
+  });
+}
+
 export function useOpenTrades() {
   return useQuery({
     queryKey: ["real-trades-open"],
