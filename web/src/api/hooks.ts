@@ -1205,6 +1205,7 @@ export interface RealTrade {
   pnl: number | null;
   status: string;
   notes: string | null;
+  alert_type: string | null;   // the entry pattern — what setup this trade was
   session_date: string;
   opened_at: string;
   closed_at: string | null;
