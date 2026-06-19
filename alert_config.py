@@ -43,13 +43,13 @@ MARKET_CLOSE_MINUTE = 0
 # Env var name kept as CANDLE_65_NOTIFICATIONS_ENABLED for Railway
 # backward compat — renaming would silently disable any false override.
 CANDLE_65_NOTIFICATIONS_ENABLED = _get_secret(
-    "CANDLE_65_NOTIFICATIONS_ENABLED", "true"
+    "CANDLE_65_NOTIFICATIONS_ENABLED", "false"  # disabled 2026-06-18 (user: stop the candle-close pings)
 ).lower() == "true"
 
 # ETH 4h candle close notifications: 6 candles per UTC day at 00, 04, 08, 12, 16, 20 UTC
 # Fires 24/7 (no market-hours guard, no quiet-hours window)
 ETH_CANDLE_NOTIFICATIONS_ENABLED = _get_secret(
-    "ETH_CANDLE_NOTIFICATIONS_ENABLED", "true"
+    "ETH_CANDLE_NOTIFICATIONS_ENABLED", "false"  # disabled 2026-06-18 (user: stop the candle-close pings)
 ).lower() == "true"
 
 # ---------------------------------------------------------------------------
