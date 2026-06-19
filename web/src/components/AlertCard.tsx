@@ -1,12 +1,13 @@
 /** AlertCard — the redesigned hero alert card (Sub-spec J), wired to live alert data.
  *  Carries the plain-English WHY (C), the real-level target (A), and the Took capture (I):
- *  clicking "Took it" opens an inline form (entry / exit), records it, and computes win/R.
+ *  "Took it" → inline form for YOUR actual entry + exit → POST /report → win/loss + R.
+ *  Exit optional: leave blank to log an OPEN position, add the exit later at EOD.
  *  Distinct from SignalCard (scanner results). On-system; mobile-first.
  */
 import { useState } from "react";
 import type { Alert } from "../types";
 import { formatSetup } from "../lib/alertFormat";
-import { useAckAlert, useSetAlertExit } from "../api/hooks";
+import { useReportTrade } from "../api/hooks";
 import { Info, LineChart, BookOpen, Check } from "lucide-react";
 
 const px = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -36,15 +37,19 @@ export default function AlertCard({ a, onChart }: { a: Alert; onChart?: (symbol:
   const grade = (a.grade || "C").toUpperCase();
   const why = a.description || a.entry_guidance || formatSetup(a.alert_type);
 
-  const ack = useAckAlert();
-  const setAlertExit = useSetAlertExit();
+  const report = useReportTrade();
   const [showForm, setShowForm] = useState(false);
   const [entryStr, setEntryStr] = useState(a.entry != null ? String(a.entry) : "");
   const [exitStr, setExitStr] = useState("");
-  const [localR, setLocalR] = useState<number | null>(null);
+  const [local, setLocal] = useState<{ exit_price: number | null; r_multiple: number | null } | null>(null);
 
-  const took = a.user_action === "took" || localR !== null;
-  const r = localR ?? a.r_multiple ?? null;
+  // state from the local report (immediate) or the persisted alert (after reload)
+  const took = a.user_action === "took" || local !== null;
+  const exitPx = local ? local.exit_price : a.exit_price ?? null;
+  const r = local ? local.r_multiple : a.r_multiple ?? null;
+  const closed = took && exitPx != null;
+  const open = took && exitPx == null;
+
   const potential =
     a.entry != null && a.target_1 != null && a.stop != null && a.entry !== a.stop
       ? Math.abs((a.target_1 - a.entry) / (a.entry - a.stop))
@@ -52,16 +57,12 @@ export default function AlertCard({ a, onChart }: { a: Alert; onChart?: (symbol:
 
   const submit = () => {
     const entry = parseFloat(entryStr);
-    const exit = parseFloat(exitStr);
-    if (isNaN(exit)) return;
-    ack.mutate({ id: a.id, action: "took" });
-    setAlertExit.mutate({ alertId: a.id, exitPrice: exit });
-    const stop = a.stop ?? entry;
-    const rr = !isNaN(entry) && entry !== stop
-      ? long ? (exit - entry) / (entry - stop) : (entry - exit) / (stop - entry)
-      : 0;
-    setLocalR(rr);
-    setShowForm(false);
+    const exit = exitStr.trim() === "" ? null : parseFloat(exitStr);
+    if (isNaN(entry) || (exit !== null && isNaN(exit))) return;
+    report.mutate(
+      { alertId: a.id, entry, exit },
+      { onSuccess: (res) => { setLocal({ exit_price: res.exit_price, r_multiple: res.r_multiple }); setShowForm(false); } },
+    );
   };
 
   return (
@@ -78,7 +79,7 @@ export default function AlertCard({ a, onChart }: { a: Alert; onChart?: (symbol:
       {/* the WHY */}
       {why && <p className="mt-2 text-[13px] leading-snug text-text-secondary line-clamp-2">{why}</p>}
 
-      {/* entry · target · stop */}
+      {/* entry · target · stop (the plan) */}
       {(a.entry != null || a.target_1 != null || a.stop != null) && (
         <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[12px] tabular-nums">
           {a.entry != null && <span className="text-text-muted">Entry <span className="text-text-primary">{px(a.entry)}</span></span>}
@@ -94,35 +95,41 @@ export default function AlertCard({ a, onChart }: { a: Alert; onChart?: (symbol:
         <button className="inline-flex items-center gap-1 hover:text-text-secondary"><BookOpen size={12} /> Learn</button>
       </div>
 
-      {/* action / capture form / result */}
-      {took ? (
-        <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
-          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-bullish-text"><Check size={14} /> Took it</span>
-          {r != null && (
-            <span className={`font-mono text-[12px] font-semibold tabular-nums ${r >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-              {r >= 0 ? "Win" : "Loss"} {r >= 0 ? "+" : ""}{r.toFixed(1)}R
-            </span>
-          )}
-        </div>
-      ) : showForm ? (
+      {/* capture form / result / action */}
+      {showForm ? (
         <div className="mt-3 border-t border-border-subtle pt-3 space-y-2">
           <div className="text-[10px] uppercase tracking-wider text-text-faint">Log your trade · {formatSetup(a.alert_type)}</div>
           <div className="flex gap-2">
             <label className="flex-1 text-[11px] text-text-muted">
-              Entry
+              Your entry
               <input value={entryStr} onChange={(e) => setEntryStr(e.target.value)} inputMode="decimal"
                 className="mt-0.5 w-full rounded-md bg-surface-2 border border-border-default px-2 py-1 font-mono text-[12px] text-text-primary focus:border-accent outline-none" />
             </label>
             <label className="flex-1 text-[11px] text-text-muted">
-              Exit
-              <input value={exitStr} onChange={(e) => setExitStr(e.target.value)} inputMode="decimal" autoFocus placeholder="your fill"
+              Your exit <span className="text-text-faint normal-case">(blank = still open)</span>
+              <input value={exitStr} onChange={(e) => setExitStr(e.target.value)} inputMode="decimal" autoFocus placeholder="leave blank if open"
                 className="mt-0.5 w-full rounded-md bg-surface-2 border border-border-default px-2 py-1 font-mono text-[12px] text-text-primary focus:border-accent outline-none" />
             </label>
           </div>
           <div className="flex gap-2">
-            <button onClick={submit} className="flex-1 text-[12px] font-semibold py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover transition-colors">Save trade</button>
+            <button onClick={submit} disabled={report.isPending}
+              className="flex-1 text-[12px] font-semibold py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 transition-colors">
+              {report.isPending ? "Saving…" : "Save trade"}
+            </button>
             <button onClick={() => setShowForm(false)} className="px-3 text-[12px] text-text-muted hover:text-text-secondary">Cancel</button>
           </div>
+        </div>
+      ) : closed ? (
+        <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
+          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-bullish-text"><Check size={14} /> Took it</span>
+          {r != null
+            ? <span className={`font-mono text-[12px] font-semibold tabular-nums ${r >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r >= 0 ? "Win" : "Loss"} {r >= 0 ? "+" : ""}{r.toFixed(1)}R</span>
+            : <span className="font-mono text-[12px] text-text-muted tabular-nums">Closed @ {exitPx != null ? px(exitPx) : "—"}</span>}
+        </div>
+      ) : open ? (
+        <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
+          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-warning-text"><Check size={14} /> Took it · Open</span>
+          <button onClick={() => { setExitStr(""); setShowForm(true); }} className="text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-surface-3 text-text-primary hover:bg-surface-4 transition-colors">Add exit</button>
         </div>
       ) : (
         <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-2.5">
