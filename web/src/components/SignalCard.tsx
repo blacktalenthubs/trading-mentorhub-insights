@@ -88,6 +88,11 @@ export default function SignalCard({ signal: s }: Props) {
           <Badge variant={ACTION_VARIANT[s.action_label] || "neutral"}>
             {s.action_label}
           </Badge>
+          {s.trade_type === "swing" ? (
+            <Badge variant="neutral">SWINGABLE</Badge>
+          ) : s.trade_type === "day" ? (
+            <Badge variant="neutral">{s.swing_eligible ? "DAY · swing-elig" : "DAY"}</Badge>
+          ) : null}
           <span className={`font-mono text-sm font-bold ${GRADE_COLORS[s.grade] || "text-text-faint"}`}>
             {s.grade} ({s.score})
           </span>
@@ -114,7 +119,7 @@ export default function SignalCard({ signal: s }: Props) {
         <div className="border-t border-border-subtle px-4 py-4 space-y-4">
           {/* Trade Plan — compact row above chart */}
           {s.entry != null && (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
               <div className="rounded-md bg-surface-3 p-2 text-center">
                 <p className="text-[10px] text-text-faint">Entry</p>
                 <p className="font-mono text-sm font-semibold text-bullish-text">${fmt(s.entry)}</p>
@@ -124,12 +129,10 @@ export default function SignalCard({ signal: s }: Props) {
                 <p className="font-mono text-sm font-semibold text-bearish-text">${fmt(s.stop)}</p>
               </div>
               <div className="rounded-md bg-surface-3 p-2 text-center">
-                <p className="text-[10px] text-text-faint">T1</p>
-                <p className="font-mono text-sm font-semibold text-info-text">${fmt(s.target_1)}</p>
-              </div>
-              <div className="rounded-md bg-surface-3 p-2 text-center">
-                <p className="text-[10px] text-text-faint">T2</p>
-                <p className="font-mono text-sm font-semibold text-info-text">${fmt(s.target_2)}</p>
+                <p className="text-[10px] text-text-faint">Target</p>
+                <p className="font-mono text-sm font-semibold text-info-text">
+                  {s.target_kind === "rsi" ? "RSI 70+" : s.target_kind === "eod" ? "EOD" : `$${fmt(s.target_1)}`}
+                </p>
               </div>
               <div className="rounded-md bg-surface-3 p-2 text-center">
                 <p className="text-[10px] text-text-faint">R:R</p>

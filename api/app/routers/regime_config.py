@@ -30,6 +30,7 @@ class RegimeConfigUpdate(BaseModel):
     ma_alert_symbols: Optional[str] = None  # symbols whose MA/EMA bounce alerts fire; blank = none (#282)
     rc_symbols: Optional[str] = None  # symbols whose 4h RC alerts (long + short) fire; blank = none (#286)
     gap_always_symbols: Optional[str] = None  # symbols whose gap-and-go always delivers even when muted (default SPY,QQQ)
+    orl_always_symbols: Optional[str] = None  # symbols whose ORL held always delivers even when muted (default SPY,QQQ)
     htf_sr_symbols: Optional[str] = None  # symbols whose multi-period S/R alerts deliver (was unsaveable before)
 
 
@@ -73,6 +74,7 @@ async def set_regime_config(
         "ma_alert_symbols": body.ma_alert_symbols,
         "rc_symbols": body.rc_symbols,
         "gap_always_symbols": body.gap_always_symbols,
+        "orl_always_symbols": body.orl_always_symbols,
         "htf_sr_symbols": body.htf_sr_symbols,
     }
     _BOOL_KEYS = {"spy_trend_gate_enabled"}

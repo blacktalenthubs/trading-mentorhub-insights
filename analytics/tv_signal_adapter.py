@@ -371,6 +371,12 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     else:
         sig._tv_nearby_levels = []  # type: ignore[attr-defined]
     sig._tv_mtd_avwap = _to_float_optional(payload.get("mtd_avwap"))  # type: ignore[attr-defined]
+    # Sub-spec A/L (2026-06-19) — daily RSI at fire time (day/swing classification +
+    # Case-B momentum target), and the explicit RSI target on swing entries
+    # (target_rsi=70, target_tf=D|W). The unified target step in tv_webhook reads these.
+    sig._tv_rsi = _to_float_optional(payload.get("rsi"))  # type: ignore[attr-defined]
+    sig._tv_target_rsi = _to_float_optional(payload.get("target_rsi"))  # type: ignore[attr-defined]
+    sig._tv_target_tf = (payload.get("target_tf") or "").strip() or None  # type: ignore[attr-defined]
     # Spec 58 (2026-05-24) — basing/chop regime filter inputs. Pine sends
     # both fields already; we just attach them so tv_webhook's is_basing_chop()
     # gate can read them.

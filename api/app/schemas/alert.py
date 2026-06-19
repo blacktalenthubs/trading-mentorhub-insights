@@ -31,6 +31,10 @@ class AlertResponse(BaseModel):
     stop: Optional[float] = None
     target_1: Optional[float] = None
     target_2: Optional[float] = None
+    # Sub-spec A/L — single-target kind + day/swing tag.
+    target_kind: Optional[str] = None        # level | rsi | eod
+    trade_type: Optional[str] = None         # day | swing
+    swing_eligible: Optional[bool] = None
     confidence: Optional[str] = None
     score: int = 0
     confluence_score: int = 0
@@ -72,6 +76,9 @@ class AlertResponse(BaseModel):
             stop=alert.stop,
             target_1=alert.target_1,
             target_2=alert.target_2,
+            target_kind=getattr(alert, "target_kind", None),
+            trade_type=getattr(alert, "trade_type", None),
+            swing_eligible=bool(getattr(alert, "swing_eligible", 0)) if getattr(alert, "swing_eligible", None) is not None else None,
             confidence=alert.confidence,
             score=alert.score or 0,
             confluence_score=getattr(alert, "confluence_score", 0) or 0,
