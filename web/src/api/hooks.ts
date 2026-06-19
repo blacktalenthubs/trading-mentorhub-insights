@@ -1378,6 +1378,23 @@ export interface BacktestResult {
   avg_rr: number;
 }
 
+/** Self-report a taken trade with the user's ACTUAL entry + exit (#64 Sub-spec I).
+ *  exit=null → position open. Returns the computed outcome (win/loss + r_multiple). */
+export function useReportTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ alertId, entry, exit }: { alertId: number; entry: number; exit: number | null }) =>
+      api.post<{ id: number; user_action: string; entry: number; exit_price: number | null; r_multiple: number | null; outcome: string | null; status: string }>(
+        `/alerts/${alertId}/report`,
+        { entry, exit },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["alerts-today"] });
+      qc.invalidateQueries({ queryKey: ["alert-type-performance"] });
+    },
+  });
+}
+
 export function useRunBacktest() {
   return useMutation({
     mutationFn: (body: { symbols: string[]; start_date: string; end_date: string }) =>

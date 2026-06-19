@@ -308,6 +308,99 @@ async def set_alert_exit_price(
     return {"id": alert_id, "exit_price": new_exit, "r_multiple": r_mult}
 
 
+@router.post("/{alert_id}/report")
+async def report_trade(
+    alert_id: int,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-report a taken trade with the USER's actual entry + exit (Sub-spec I).
+
+    Body: {"entry": 63000.0, "exit": 64500.0 | null}.
+    Captures the user's REAL fills (not the alert's planned entry) for report analysis.
+    Computes win/loss + r_multiple correctly for longs AND shorts. exit=null → position
+    OPEN (come back at EOD to add the exit). Persists on the alert (so the feed reflects
+    it) + upserts the user's RealTrade record. Returns the outcome.
+    """
+    from app.models.paper_trade import RealTrade
+
+    def _num(v: object) -> Optional[float]:
+        if v is None or v == "":
+            return None
+        try:
+            f = float(v)  # type: ignore[arg-type]
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    entry = _num(body.get("entry"))
+    exit_px = _num(body.get("exit"))
+    if entry is None:
+        raise HTTPException(status_code=400, detail="entry is required")
+
+    result = await db.execute(
+        select(Alert).where(Alert.id == alert_id, Alert.user_id == user.id)
+    )
+    alert = result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    is_long = (alert.direction or "").upper() in ("BUY", "LONG")
+    stop = alert.stop
+
+    # Outcome math — from the USER's entry/exit, correct for long AND short.
+    reward: Optional[float] = None
+    r_mult: Optional[float] = None
+    if exit_px is not None:
+        reward = (exit_px - entry) if is_long else (entry - exit_px)
+        if stop is not None and abs(entry - stop) > 0:
+            r_mult = round(reward / abs(entry - stop), 2)
+    outcome = None if exit_px is None else ("win" if (reward or 0) > 0 else "loss")
+    status = "open" if exit_px is None else "closed"
+
+    # Reflect on the alert so the live feed shows the result without a join.
+    alert.user_action = "took"
+    alert.exit_price = exit_px
+    alert.r_multiple = r_mult
+
+    # Upsert the report record (full row for analysis: real entry + exit + pattern).
+    tr = (await db.execute(
+        select(RealTrade).where(RealTrade.alert_id == alert_id, RealTrade.user_id == user.id)
+    )).scalar_one_or_none()
+    if tr is None:
+        tr = RealTrade(
+            user_id=user.id,
+            symbol=alert.symbol,
+            direction=alert.direction or ("BUY" if is_long else "SHORT"),
+            shares=1,
+            entry_price=entry,
+            stop_price=stop,
+            target_price=alert.target_1,
+            target_2_price=alert.target_2,
+            status=status,
+            alert_type=alert.alert_type,
+            alert_id=alert.id,
+            session_date=alert.session_date,
+        )
+        db.add(tr)
+    else:
+        tr.entry_price = entry
+        tr.status = status
+    tr.exit_price = exit_px
+    tr.pnl = round(reward, 2) if reward is not None else None
+
+    return {
+        "id": alert_id,
+        "user_action": "took",
+        "entry": entry,
+        "exit_price": exit_px,
+        "r_multiple": r_mult,
+        "outcome": outcome,
+        "status": status,
+    }
+
+
 @router.post("/{alert_id}/outcome")
 async def set_alert_outcome(
     alert_id: int,
