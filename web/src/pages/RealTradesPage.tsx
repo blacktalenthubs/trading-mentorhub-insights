@@ -13,7 +13,7 @@ import {
   useAlertSessionDates, useAlertsForDate,
   useAlertTypePerformance, useSetAlertExit,
 } from "../api/hooks";
-import EODReportPage from "./EODReportPage";
+import TodayEOD from "../components/TodayEOD";
 import TradeReviewPage from "./TradeReviewPage";
 import WeeklyReport from "../components/WeeklyReport";
 import StrategyAnalysis from "../components/StrategyAnalysis";
@@ -387,18 +387,14 @@ function AlertTypePerformanceSection() {
 /* ── Main Trades Page ─────────────────────────────────────────────── */
 
 const PERF_TABS: { id: PerfTab; label: string }[] = [
-  { id: "by-pattern", label: "By Pattern" },
-  { id: "weekly",     label: "Weekly" },
-  { id: "strategy",   label: "Strategy Analysis" },
   { id: "today-eod",  label: "Today's EOD" },
-  { id: "by-symbol",  label: "By Symbol" },
-  { id: "sessions",   label: "Sessions" },
+  { id: "strategy",   label: "Strategy Analysis" },
 ];
 
 export default function RealTradesPage() {
   const [activeTab, setActiveTab] = useState<PerfTab>(() => {
-    if (typeof window === "undefined") return "by-pattern";
-    return (localStorage.getItem("perf_active_tab") as PerfTab) || "by-pattern";
+    if (typeof window === "undefined") return "today-eod";
+    return localStorage.getItem("perf_active_tab") === "strategy" ? "strategy" : "today-eod";
   });
   function pickTab(t: PerfTab) {
     setActiveTab(t);
@@ -436,7 +432,7 @@ export default function RealTradesPage() {
         {activeTab === "by-pattern" && <DayTradesContent />}
         {activeTab === "weekly"     && <WeeklyReport />}
         {activeTab === "strategy"   && <StrategyAnalysis />}
-        {activeTab === "today-eod"  && <div className="-mx-5 -mb-5"><EODReportPage /></div>}
+        {activeTab === "today-eod"  && <TodayEOD />}
         {activeTab === "by-symbol"  && <div className="-mx-5 -mb-5"><TradeReviewPage /></div>}
         {activeTab === "sessions"   && <SessionBrowser />}
       </div>
