@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { useClosedTrades } from "../api/hooks";
 import type { RealTrade } from "../api/hooks";
 import { formatSetup } from "../lib/alertFormat";
+import { ChevronRight } from "lucide-react";
 
 function isLong(t: RealTrade) {
   const d = (t.direction || "").toUpperCase();
@@ -69,7 +70,7 @@ export default function MyStrategy() {
   return (
     <div className="space-y-4">
       <p className="text-[12px] text-text-muted">
-        Which of <span className="text-text-secondary">your</span> setups actually make money — from the trades you took.
+        Which of <span className="text-text-secondary">your</span> setups actually make money — from the trades you took. <span className="text-accent">Tap any pattern to learn the setup.</span>
       </p>
       <div className="rounded-xl border border-accent-muted bg-accent-subtle/40 p-3.5 text-[13px] text-text-secondary leading-relaxed">
         <span className="font-semibold text-text-primary">What to do — </span>
@@ -88,15 +89,16 @@ export default function MyStrategy() {
         </div>
         {rows.map((r) => (
           <button key={r.pattern} onClick={() => nav(`/pattern/${encodeURIComponent(r.pattern)}`)} title="Learn this pattern"
-            className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-surface-2/40 border-b border-border-subtle last:border-0 transition-colors">
+            className="group w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2/40 border-b border-border-subtle last:border-0 transition-colors">
             <span className="flex-1 min-w-0 flex items-center gap-2">
-              <span className="text-[13px] font-semibold text-text-primary truncate">{formatSetup(r.pattern)}</span>
+              <span className="text-[13px] font-semibold text-accent underline decoration-dotted decoration-text-faint/60 underline-offset-2 group-hover:decoration-accent truncate">{formatSetup(r.pattern)}</span>
               <span className="text-[11px] text-text-faint shrink-0">{r.won}/{r.count}</span>
               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${VERDICT[r.verdict].cls}`}>{VERDICT[r.verdict].label}</span>
             </span>
             <span className={`w-12 text-right font-mono text-[12px] tabular-nums ${r.winPct >= 50 ? "text-bullish-text" : "text-bearish-text"}`}>{r.winPct}%</span>
             <span className={`w-16 text-right font-mono text-[12px] tabular-nums ${(r.avgR ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.avgR != null ? `${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(1)}R` : "—"}</span>
             <span className={`w-16 text-right font-mono text-[12px] font-semibold tabular-nums ${r.totalR >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.totalR >= 0 ? "+" : ""}{r.totalR.toFixed(1)}R</span>
+            <ChevronRight size={15} className="shrink-0 text-text-faint group-hover:text-accent transition-colors" />
           </button>
         ))}
       </div>
