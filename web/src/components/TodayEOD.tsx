@@ -86,12 +86,17 @@ function ClosedRow({ t }: { t: RealTrade }) {
 export default function TodayEOD() {
   const { data: open } = useOpenTrades();
   const { data: closed } = useClosedTrades();
+  const [selectedDay, setSelectedDay] = useState("");
   const openTrades = open ?? [];
   const closedTrades = closed ?? [];
   const closedToday = closedTrades.filter((t) => t.session_date === todayStr());
   const won = closedToday.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
   const lost = closedToday.length - won;
   const days = [...new Set(closedTrades.map((t) => t.session_date))].sort((a, b) => b.localeCompare(a));
+  const day = selectedDay && days.includes(selectedDay) ? selectedDay : (days[0] ?? "");
+  const dayTrades = closedTrades.filter((t) => t.session_date === day);
+  const dayWon = dayTrades.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
+  const dayR = dayTrades.reduce((s, t) => s + (rOf(t) ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -118,25 +123,23 @@ export default function TodayEOD() {
 
       {days.length > 0 && (
         <section>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint mb-2">Closed — by day</h3>
-          <div className="space-y-4">
-            {days.map((d) => {
-              const dayTrades = closedTrades.filter((t) => t.session_date === d);
-              const dayWon = dayTrades.filter((t) => (rOf(t) ?? t.pnl ?? 0) > 0).length;
-              const dayR = dayTrades.reduce((s, t) => s + (rOf(t) ?? 0), 0);
-              return (
-                <div key={d}>
-                  <div className="flex items-center justify-between mb-1.5 px-1">
-                    <span className="text-[12px] font-semibold text-text-secondary">{dayLabel(d)}</span>
-                    <span className="text-[11px] text-text-faint tabular-nums">
-                      {dayWon}/{dayTrades.length} won · <span className={dayR >= 0 ? "text-bullish-text" : "text-bearish-text"}>{dayR >= 0 ? "+" : ""}{dayR.toFixed(1)}R</span>
-                    </span>
-                  </div>
-                  <div className="space-y-1.5">{dayTrades.map((t) => <ClosedRow key={t.id} t={t} />)}</div>
-                </div>
-              );
-            })}
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">Closed trades</h3>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-text-faint tabular-nums">
+                {dayWon}/{dayTrades.length} won · <span className={dayR >= 0 ? "text-bullish-text" : "text-bearish-text"}>{dayR >= 0 ? "+" : ""}{dayR.toFixed(1)}R</span>
+              </span>
+              <select value={day} onChange={(e) => setSelectedDay(e.target.value)}
+                className="bg-surface-2 border border-border-default rounded-md px-2.5 py-1 text-[12px] text-text-primary focus:border-accent outline-none cursor-pointer">
+                {days.map((d) => <option key={d} value={d}>{dayLabel(d)}</option>)}
+              </select>
+            </div>
           </div>
+          {dayTrades.length > 0 ? (
+            <div className="space-y-1.5">{dayTrades.map((t) => <ClosedRow key={t.id} t={t} />)}</div>
+          ) : (
+            <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">No closed trades on {dayLabel(day)}.</div>
+          )}
         </section>
       )}
     </div>
