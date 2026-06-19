@@ -16,7 +16,7 @@ import {
 import TodayEOD from "../components/TodayEOD";
 import TradeReviewPage from "./TradeReviewPage";
 import WeeklyReport from "../components/WeeklyReport";
-import StrategyAnalysis from "../components/StrategyAnalysis";
+import MyStrategy from "../components/MyStrategy";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
 import type { Alert } from "../types";
@@ -431,7 +431,7 @@ export default function RealTradesPage() {
             launch). Previous tier gate restored under TierGate require="pro". */}
         {activeTab === "by-pattern" && <DayTradesContent />}
         {activeTab === "weekly"     && <WeeklyReport />}
-        {activeTab === "strategy"   && <StrategyAnalysis />}
+        {activeTab === "strategy"   && <MyStrategy />}
         {activeTab === "today-eod"  && <TodayEOD />}
         {activeTab === "by-symbol"  && <div className="-mx-5 -mb-5"><TradeReviewPage /></div>}
         {activeTab === "sessions"   && <SessionBrowser />}
