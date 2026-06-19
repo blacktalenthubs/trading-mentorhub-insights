@@ -3,7 +3,6 @@
  *  Answers "which of MY setups make money — trade more of what works, cut what bleeds."
  *  Built from your closed RealTrades (real entry/exit). Feeds the AI weekly review next.
  */
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useClosedTrades, useAlertConfig } from "../api/hooks";
 import type { RealTrade } from "../api/hooks";
@@ -32,7 +31,6 @@ export default function MyStrategy() {
   const nav = useNavigate();
   const { data: closed } = useClosedTrades();
   const { data: config } = useAlertConfig();
-  const [showRetired, setShowRetired] = useState(false);
   const trades = (closed ?? []).filter((t) => t.alert_type);
 
   const map = new Map<string, RealTrade[]>();
@@ -62,7 +60,6 @@ export default function MyStrategy() {
   const activeCodes = new Set((config ?? []).map((c) => c.alert_type));
   const ready = config != null;
   const liveRows = ready ? rows.filter((r) => activeCodes.has(r.pattern)) : rows;
-  const retiredRows = ready ? rows.filter((r) => !activeCodes.has(r.pattern)) : [];
   const edges = liveRows.filter((r) => r.verdict === "edge");
   const cuts = liveRows.filter((r) => r.verdict === "cut");
   const buildingCount = liveRows.filter((r) => r.verdict === "building").length;
@@ -110,25 +107,6 @@ export default function MyStrategy() {
           </button>
         ))}
       </div>
-      {retiredRows.length > 0 && (
-        <div>
-          <button onClick={() => setShowRetired((s) => !s)} className="flex items-center gap-1.5 text-[11px] text-text-faint hover:text-text-secondary">
-            <ChevronRight size={12} className={`transition-transform ${showRetired ? "rotate-90" : ""}`} />
-            Retired / legacy patterns ({retiredRows.length}) — not in the current alert catalog
-          </button>
-          {showRetired && (
-            <div className="mt-1.5 rounded-xl border border-border-subtle bg-surface-1/40 overflow-hidden opacity-70">
-              {retiredRows.map((r) => (
-                <div key={r.pattern} className="flex items-center gap-3 px-4 py-2 border-b border-border-subtle last:border-0">
-                  <span className="flex-1 text-[12px] text-text-muted truncate">{formatSetup(r.pattern)}</span>
-                  <span className="text-[11px] text-text-faint shrink-0">{r.won}/{r.count}</span>
-                  <span className="w-16 text-right font-mono text-[11px] text-text-faint">{r.avgR != null ? `${r.avgR >= 0 ? "+" : ""}${r.avgR.toFixed(1)}R` : "—"}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
       <p className="text-[11px] text-text-faint"><span className="text-bullish-text">EDGE</span> = working · <span className="text-bearish-text">CUT</span> = losing · <span className="text-text-muted">BUILDING</span> = under {MIN_SAMPLE} trades, not yet reliable. Per-pattern stats only mean something with sample size — keep logging. This feeds the AI weekly review.</p>
     </div>
   );
