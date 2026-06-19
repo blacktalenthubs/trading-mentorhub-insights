@@ -1095,15 +1095,37 @@ nearest_below(float e, float l1, float l2) =>
     r  = math.max(a1, a2)
     r == -9.0e15 ? float(na) : r
 
+// Full-stack nearest level/EMA above/below entry (#64-A) — the REAL target. Scans every
+// daily/weekly/monthly level AND the daily MAs, picks the nearest >0.3% away (skips noise
+// <0.3%). na if nothing within reach → callers fall back to round/ATR. Replaces the
+// 2-level nearest_above so targets land on the genuine next wall, not a skipped level.
+nearest_stack_above(float e) =>
+    best = 9.0e15
+    cands = array.from(pdh, pdl, pwh, pwl, pmh, pml, ema8_d, ema21_d, ema50_d, ema100_d, ema200_d, sma50_d, sma100_d, sma200_d)
+    for i = 0 to array.size(cands) - 1
+        v = array.get(cands, i)
+        if not na(v) and v > e * 1.003 and v < best
+            best := v
+    best == 9.0e15 ? float(na) : best
+
+nearest_stack_below(float e) =>
+    best = -9.0e15
+    cands = array.from(pdh, pdl, pwh, pwl, pmh, pml, ema8_d, ema21_d, ema50_d, ema100_d, ema200_d, sma50_d, sma100_d, sma200_d)
+    for i = 0 to array.size(cands) - 1
+        v = array.get(cands, i)
+        if not na(v) and v < e * 0.997 and v > best
+            best := v
+    best == -9.0e15 ? float(na) : best
+
 t1_long_hier(float e, float l1, float l2, float atr_daily) =>
-    s = nearest_above(e, l1, l2)
+    s = nearest_stack_above(e)
     not na(s) ? s :
       next_round_above(e) > e * 1.005 ? next_round_above(e) :
       e + atr_daily * 0.5 > e * 1.005 ? e + atr_daily * 0.5 :
       e * 1.0075
 
 t1_short_hier(float e, float l1, float l2, float atr_daily) =>
-    s = nearest_below(e, l1, l2)
+    s = nearest_stack_below(e)
     not na(s) ? s :
       next_round_below(e) < e * 0.995 ? next_round_below(e) :
       e - atr_daily * 0.5 < e * 0.995 ? e - atr_daily * 0.5 :
@@ -1291,7 +1313,7 @@ if v2_gap_up_cont
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
-    t1_struct = nearest_above(e, pdh, pwh)
+    t1_struct = nearest_stack_above(e)
     t1 = not na(t1_struct) ? t1_struct : t1_long_hier(e, pdh, pmh, atr_d)
     t2 = not na(pwh) and pwh > t1 ? pwh : (not na(pmh) and pmh > t1 ? pmh : t2_extend_long(e, t1))
     tf  = level_tf(reclaimed_support, pdl, pwl, pml)
