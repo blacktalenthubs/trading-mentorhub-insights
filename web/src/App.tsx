@@ -35,6 +35,7 @@ import WatchlistPage from "./pages/WatchlistPage";
 import PremarketPage from "./pages/PremarketPage";
 import FocusListPage from "./pages/FocusListPage";
 import TodayPage from "./pages/TodayPage";
+import PatternLearnPage from "./pages/PatternLearnPage";
 import ConvictionPage from "./pages/ConvictionPage";
 
 const queryClient = new QueryClient({
@@ -128,6 +129,7 @@ export default function App() {
               >
                 {/* 6-menu structure (2026-05-28) */}
                 <Route path="today"       element={<ErrorBoundary><TodayPage /></ErrorBoundary>} />
+                <Route path="pattern/:code" element={<ErrorBoundary><PatternLearnPage /></ErrorBoundary>} />
                 <Route path="trading"     element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
                 <Route path="trade-ideas" element={<ErrorBoundary><FocusListPage /></ErrorBoundary>} />
                 <Route path="conviction"  element={<ErrorBoundary><ConvictionPage /></ErrorBoundary>} />
