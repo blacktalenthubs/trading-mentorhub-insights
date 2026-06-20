@@ -18,13 +18,13 @@
 //   • Accum      — up-week vs down-week volume over 10w (>1 = being bought)
 //   • Wk RSI     — momentum; RSI 70 is the TARGET (sell strength), not an entry
 //
-// ENTRY — "10w RECLAIM" (undercut & reclaim, like 4h RC): in a Stage-2 uptrend
-// (close>30w, 30w rising, 10w>30w) price LOSES the rising 10wMA, then RECLAIMS it
-// (closes back above). The reclaim = buyers defended the MA = the entry. Fires on
-// the reclaim — NOT the weekly close — so bind the alert on a daily/4h chart and you
-// enter at the MA, not chased to Friday.
-//   STOP   = just below the undercut WICK LOW (the low buyers defended). A close
-//            below it = the 10w didn't hold = trend over → out. Tight by design.
+// ENTRY — "10w HOLD" (mirrors ma-ema-daily strict_long — established SUPPORT, not
+// resistance): in a Stage-2 uptrend (close>30w, 30w rising, 10w>30w) the DAY opens
+// ABOVE the rising 10wMA, price dips TO it (low ≤ 10w) and closes back ABOVE it. That
+// "lost intraday, held" is the buy. It does NOT fire on a deep recovery rallying UP
+// through the 10w from below (buying resistance). Fires on the hold — NOT the weekly
+// close — so bind on a daily/4h chart and enter at the MA.
+//   STOP   = just below the bar's WICK LOW. A close below it = the 10w failed → out.
 //   target = weekly RSI 70 (the swing/position target). 30wMA below = runner trail.
 //
 // The 10w/30w are drawn as FLAT horizontal levels (anchored to the weekly value),
@@ -130,32 +130,24 @@ if show_table and barstate.islast
     table.cell(t, 0, 5, "Wk RSI",     text_color = color.white, text_size = size.small)
     table.cell(t, 1, 5, na(wrsi) ? "—" : str.tostring(wrsi, "#.#"), text_color = (not na(wrsi) and wrsi >= 70) ? col_dn : color.white, text_size = size.small)
 
-// ── ENTRY — the 10w RECLAIM (undercut & reclaim). Price can LOSE the rising 10wMA,
-// but once it RECLAIMS it (trades below, closes back above), THAT is the solid entry —
-// buyers defended the MA. Bind the alert on a daily/4h chart so it fires when the
-// reclaim happens, not at the weekly close. Same undercut-&-reclaim logic as 4h RC.
-//   STOP = just below the undercut WICK LOW (the low buyers defended). A close below
-//          it = the 10w didn't hold = trend over → out. Tight by design.
-// wpos_ucl tracks the wick low of the CURRENT dip below the 10w only. It accumulates
-// while price trades below the 10w, and resets the moment price closes back above it
-// (episode over). Without that reset it held an ANCIENT low from a months-old dip and
-// (a) drew a nonsensical stop, (b) let any close>10w read as a stale "reclaim".
-var float wpos_ucl = na
-if not na(wf) and low <= wf       // tagged or undercut the 10w (covers a HOLD or a deeper reclaim)
-    wpos_ucl := na(wpos_ucl) ? low : math.min(wpos_ucl, low)
-reclaimed = wuptrend and not na(wf) and close > wf and not na(wpos_ucl)
+// ── ENTRY — 10w HOLD (mirrors ma-ema-daily's strict_long). The 10w must be
+// ESTABLISHED SUPPORT, not resistance: the DAY opened ABOVE it (day_open > 10w), price
+// then dipped TO it (low <= 10w) and closed back ABOVE (close > 10w) = lost intraday,
+// held. This is the ONLY clean weekly MA buy. It does NOT fire on a deep recovery that
+// rallies UP through the 10w from below — that's buying resistance (the CRWV/AMZN bad
+// entries: they fired near the 10w while price was below it, then dropped to the 30w).
+// Once price re-establishes above the 10w and pulls back to it, THEN it fires.
+//   STOP = just below the bar's wick low (a close below it = the 10w didn't hold → out).
+wk_day_open = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+hold10w = wuptrend and not na(wf) and wk_day_open > wf and low <= wf and close > wf
 var bool wk_armed = true
 if not na(wf) and close > wf * (1.0 + rearm_pct / 100.0)
     wk_armed := true
-new_setup = fire_pullback and reclaimed and wk_armed
-wick_low  = wpos_ucl             // captured BEFORE the reset below
+new_setup = fire_pullback and hold10w and wk_armed
 if new_setup
     wk_armed := false
-// Reset once price is back above the 10w — fired or not — so the next dip starts fresh.
-if not na(wf) and close > wf
-    wpos_ucl := na
 
-stop_level = (na(wick_low) ? low : wick_low) * (1.0 - stop_buf_pct / 100.0)
+stop_level = low * (1.0 - stop_buf_pct / 100.0)
 plotshape(new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
 
 if show_stop and new_setup
@@ -164,5 +156,5 @@ if show_stop and new_setup
     label.new(bar_index, close, "Entry " + str.tostring(close, format.mintick), yloc = yloc.price, style = label.style_label_down, color = col_up, textcolor = color.white, size = size.small)
 
 if new_setup and barstate.isconfirmed
-    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly 10w RECLAIM in a Stage-2 uptrend — price lost the rising 10wMA and reclaimed it (closed back above). Enter on the reclaim (do not wait for the weekly close). STOP = just below the undercut wick low; a close below it = the MA failed → trend over → out. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly 10w HOLD in a Stage-2 uptrend — the day opened ABOVE the rising 10wMA (established support), price dipped to it and closed back above. Enter on the hold (not the weekly close). STOP = just below the bar wick low; a close below it = the 10w failed → out. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wp, alert.freq_once_per_bar_close)
