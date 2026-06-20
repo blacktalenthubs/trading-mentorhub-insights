@@ -105,12 +105,13 @@ if show_ma_lines and barstate.islast
     label.delete(lb_10w)
     label.delete(lb_30w)
     if not na(wf)
-        ln_10w := line.new(bar_index - ma_line_len, wf, bar_index + 10, wf, color = color.new(color.blue, 0), width = 2)
-        lb_10w := label.new(bar_index + 10, wf, "10w  " + str.tostring(wf, format.mintick), style = label.style_label_left, color = color.new(color.blue, 0), textcolor = color.white, size = size.small)
+        c10 = close > wf ? col_up : col_dn          // support (price above) / resistance (price below)
+        ln_10w := line.new(bar_index - ma_line_len, wf, bar_index + 10, wf, color = c10, width = 2)
+        lb_10w := label.new(bar_index + 10, wf, "10w " + (close > wf ? "SUP " : "RES ") + str.tostring(wf, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
     if not na(ws)
-        c30 = wslope > 0 ? col_up : col_dn
+        c30 = close > ws ? col_up : col_dn
         ln_30w := line.new(bar_index - ma_line_len, ws, bar_index + 10, ws, color = c30, width = 2)
-        lb_30w := label.new(bar_index + 10, ws, "30w  " + str.tostring(ws, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
+        lb_30w := label.new(bar_index + 10, ws, "30w " + (close > ws ? "SUP " : "RES ") + str.tostring(ws, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
 
 // ── dashboard table (drawn on the last bar) ──────────────────────────────────
 f_yn(bool ok) => ok ? "✓" : "✗"
