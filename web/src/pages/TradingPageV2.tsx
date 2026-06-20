@@ -935,7 +935,15 @@ export default function TradingPageV2() {
   }
 
   /* ── Panel state ── */
-  const [watchlistCollapsed, setWatchlistCollapsed] = useState(false);
+  // Chart-hero default: watchlist starts as a slim rail so the chart leads; the user's
+  // expand/collapse choice persists (#64-E de-densify).
+  const [watchlistCollapsed, setWatchlistCollapsed] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("watchlist_collapsed") !== "0";
+  });
+  useEffect(() => {
+    try { localStorage.setItem("watchlist_collapsed", watchlistCollapsed ? "1" : "0"); } catch { /* ignore */ }
+  }, [watchlistCollapsed]);
   const [watchSort, setWatchSort] = useState<"symbol" | "change_desc" | "change_asc" | "price_desc">(
     () => (localStorage.getItem("watchlist_sort") as any) || "symbol"
   );
