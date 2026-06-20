@@ -399,6 +399,16 @@ export function useUpcomingEarnings() {
   });
 }
 
+/** Manually force a Finnhub earnings re-pull (#64-E) — the Refresh button.
+ *  Re-pulls the calendar server-side, then invalidates so the tab reloads fresh. */
+export function useRefreshEarnings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/earnings/refresh", {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["earnings-upcoming"] }); },
+  });
+}
+
 // --- Fundamentals / Details tab ---
 
 export interface AIBrief {

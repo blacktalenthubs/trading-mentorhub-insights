@@ -15,7 +15,7 @@
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useUpcomingEarnings, type UpcomingEarningsItem } from "../api/hooks";
+import { useUpcomingEarnings, useRefreshEarnings, type UpcomingEarningsItem } from "../api/hooks";
 import Card from "./ui/Card";
 import { Skeleton, SkeletonRow } from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
@@ -193,7 +193,8 @@ function MobileCard({ it, onClick }: { it: UpcomingEarningsItem; onClick: () => 
 /* ── Main tab ────────────────────────────────────────────────────── */
 
 export default function EarningsTab() {
-  const { data, isLoading, error, refetch, isFetching } = useUpcomingEarnings();
+  const { data, isLoading, error } = useUpcomingEarnings();
+  const refresh = useRefreshEarnings();
   const navigate = useNavigate();
   const [sortKey, setSortKey] = useState<SortKey>("days");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -288,13 +289,13 @@ export default function EarningsTab() {
             Refreshed {fmtRelativeAge(refreshedIso)}{stale && " · may be stale"}
           </span>
           <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            title="Refresh earnings data"
+            onClick={() => refresh.mutate()}
+            disabled={refresh.isPending}
+            title="Re-pull the earnings calendar from the source"
             className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-2 py-1 text-text-muted hover:text-text-secondary hover:bg-surface-2 disabled:opacity-50 transition-colors"
           >
-            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-            {isFetching ? "Refreshing…" : "Refresh"}
+            <RefreshCw className={`h-3 w-3 ${refresh.isPending ? "animate-spin" : ""}`} />
+            {refresh.isPending ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
