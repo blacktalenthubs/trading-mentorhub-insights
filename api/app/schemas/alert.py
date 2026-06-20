@@ -41,6 +41,7 @@ class AlertResponse(BaseModel):
     confluence_label: Optional[str] = None
     entry_guidance: Optional[str] = None
     message: Optional[str] = None
+    narrative: Optional[str] = None          # the AI agent's read — sent to Telegram, now surfaced in the app's Today > Briefing
     created_at: str
     session_date: str
     user_action: Optional[str] = None
@@ -85,6 +86,7 @@ class AlertResponse(BaseModel):
             confluence_label=getattr(alert, "confluence_label", None),
             entry_guidance=getattr(alert, "entry_guidance", None),
             message=alert.message,
+            narrative=getattr(alert, "narrative", None),
             # ISO 8601 with explicit Z = UTC marker. Without it, the frontend's
             # `new Date(string)` parses as LOCAL time → display in CT looks ~5hr
             # off (alert fired at 10:45 CT shows as 15:45 CT). User-reported

@@ -73,6 +73,7 @@ export interface Alert {
   confluence_label: string | null;
   entry_guidance: string | null;
   message: string;
+  narrative?: string | null;         // the AI agent's read — surfaced in Today > Briefing
   created_at: string;
   session_date: string;
   user_action?: string | null;
