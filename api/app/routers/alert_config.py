@@ -14,9 +14,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.alert_type_config import AlertTypeConfig, describe_alert_type
+from app.models.alert_type_pref import UserAlertTypePref
 from app.models.user import User
 
 router = APIRouter()
+
+
+async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bool) -> None:
+    """Upsert one user's on/off choice for one alert type (per-user, not global)."""
+    row = (await db.execute(
+        select(UserAlertTypePref).where(
+            UserAlertTypePref.user_id == user_id,
+            UserAlertTypePref.alert_type == alert_type,
+        )
+    )).scalar_one_or_none()
+    if row is not None:
+        row.enabled = enabled
+    else:
+        db.add(UserAlertTypePref(user_id=user_id, alert_type=alert_type, enabled=enabled))
 
 
 # Group the catalog's fine-grained categories into the 3 trade-style buckets
@@ -58,19 +73,27 @@ async def list_alert_config(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Every alert type with its current on/off state, ordered by category."""
+    """Every alert type with THIS user's on/off state (per-user, default OFF).
+
+    The catalog (labels/categories) comes from alert_type_config; the enabled flag
+    is the user's own choice from user_alert_type_prefs. No row = OFF.
+    """
     rows = (await db.execute(
         select(AlertTypeConfig).order_by(
             AlertTypeConfig.category, AlertTypeConfig.alert_type
         )
     )).scalars().all()
+    prefs = (await db.execute(
+        select(UserAlertTypePref).where(UserAlertTypePref.user_id == user.id)
+    )).scalars().all()
+    enabled_by_type = {p.alert_type: bool(p.enabled) for p in prefs}
     return [
         {
             "alert_type": r.alert_type,
             "label": r.label,
             "category": r.category,
             "trade_group": CATEGORY_TO_GROUP.get(r.category, "Other"),
-            "enabled": r.enabled,
+            "enabled": enabled_by_type.get(r.alert_type, False),
             "description": describe_alert_type(r.alert_type),
         }
         for r in rows
@@ -87,16 +110,16 @@ async def set_all_alert_config(
     buttons AND the per-category Enable/Disable (#281: pass category to flip just one
     group, e.g. the MA/EMA bounce alerts when the tape gets choppy). No category =
     every type. Takes effect on the next fired alert."""
-    q = select(AlertTypeConfig)
+    q = select(AlertTypeConfig.alert_type)
     if body.category:
         q = q.where(AlertTypeConfig.category == body.category)
     elif body.trade_group:
         cats = [c for c, g in CATEGORY_TO_GROUP.items() if g == body.trade_group]
         q = q.where(AlertTypeConfig.category.in_(cats))
-    rows = (await db.execute(q)).scalars().all()
-    for r in rows:
-        r.enabled = body.enabled
-    return {"updated": len(rows), "enabled": body.enabled, "category": body.category, "trade_group": body.trade_group}
+    types = (await db.execute(q)).scalars().all()
+    for at in types:
+        await _set_pref(db, user.id, at, body.enabled)
+    return {"updated": len(types), "enabled": body.enabled, "category": body.category, "trade_group": body.trade_group}
 
 
 @router.put("/{alert_type}")
@@ -106,11 +129,11 @@ async def set_alert_config(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Enable or disable one alert type. Takes effect on the next fired alert."""
-    row = (await db.execute(
-        select(AlertTypeConfig).where(AlertTypeConfig.alert_type == alert_type)
+    """Enable or disable one alert type FOR THIS USER. Next fired alert respects it."""
+    exists = (await db.execute(
+        select(AlertTypeConfig.alert_type).where(AlertTypeConfig.alert_type == alert_type)
     )).scalar_one_or_none()
-    if row is None:
+    if exists is None:
         raise HTTPException(404, detail="Unknown alert type")
-    row.enabled = body.enabled
-    return {"alert_type": row.alert_type, "enabled": row.enabled}
+    await _set_pref(db, user.id, alert_type, body.enabled)
+    return {"alert_type": alert_type, "enabled": body.enabled}

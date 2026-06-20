@@ -48,6 +48,7 @@ interface NavItem {
 // AI Auto-Pilot (stale label, actually pointed at public EOD). Routes
 // for those still resolve via redirects in App.tsx so deep links work.
 const NAV_ITEMS: NavItem[] = [
+  { to: "/start-here",  label: "Start here",  icon: Sparkles },
   { to: "/today",       label: "Today",       icon: Home },
   { to: "/trading",     label: "Trading",     icon: Crosshair },
   { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
