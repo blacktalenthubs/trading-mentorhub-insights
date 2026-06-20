@@ -293,6 +293,13 @@ function AIScansTab() {
           </div>
         )}
 
+        {!loading && viewing && (viewing.recommendations?.length ?? 0) > 0 && (
+          <div className="rounded-xl border border-accent-muted bg-accent-subtle/40 p-3.5 text-[13px] text-text-secondary leading-relaxed">
+            <span className="font-semibold text-text-primary">Today's best setups — </span>
+            {viewing.recommendations!.length} ranked idea{viewing.recommendations!.length > 1 ? "s" : ""}; lead with <span className="text-accent font-medium">{viewing.recommendations!.slice(0, 5).map((r) => r.symbol).join(", ")}</span>.
+          </div>
+        )}
+
         {!loading && viewing && (
           <RecommendationsTable recs={viewing.recommendations ?? []} onSelect={openChart} />
         )}
