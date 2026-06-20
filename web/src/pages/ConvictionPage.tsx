@@ -132,6 +132,12 @@ function WeeklyStageView() {
     return ["watch", "own", "add"].filter((b) => present.has(b as WeeklyStageEntry["bucket"]));
   }, [allRows]);
 
+  // decision-first summary — lead with the answer (where to look), like Today/Declined/Strategy
+  const watchRows = allRows.filter((r) => r.bucket === "watch");
+  const ownCount = allRows.filter((r) => r.bucket === "own").length;
+  const addCount = allRows.filter((r) => r.bucket === "add").length;
+  const watchNames = watchRows.slice(0, 6).map((r) => r.symbol);
+
   const distCls = (d: number) => (d >= 0 ? "text-bullish-text" : "text-bearish-text");
 
   const columns: Column<WeeklyStageEntry>[] = [
@@ -195,6 +201,17 @@ function WeeklyStageView() {
           )}
         </div>
       </div>
+
+      {allRows.length > 0 && (
+        <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3.5 text-[13px] text-text-secondary leading-relaxed">
+          <span className="font-semibold text-text-primary">Where to look — </span>
+          {watchRows.length > 0
+            ? <><span className="text-amber-400 font-medium">{watchRows.length} basing &amp; turning up</span> (early watch: {watchNames.join(", ")}{watchRows.length > watchNames.length ? "…" : ""})</>
+            : <>nothing in the early-watch bucket right now</>}
+          {ownCount > 0 && <> · <span className="text-bullish-text font-medium">{ownCount} confirmed Stage 2</span></>}
+          {addCount > 0 && <> · <span className="text-accent font-medium">{addCount} at the rising MA</span></>}.
+        </div>
+      )}
 
       {buckets.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
