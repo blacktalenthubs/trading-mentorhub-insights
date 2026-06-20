@@ -437,10 +437,14 @@ function AlertTypesSection() {
   const toggle = useToggleAlertConfig();
   const toggleAll = useToggleAllAlertConfig();
 
+  // Group by the trade-style bucket (Day / Swing / Long-term) so users enable a
+  // whole style in one shot, not 45 toggles (2026-06-20).
+  const GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Other"];
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
-    (grouped[t.category] ??= []).push(t);
+    (grouped[t.trade_group ?? "Other"] ??= []).push(t);
   }
+  const orderedGroups = GROUP_ORDER.filter((g) => (grouped[g]?.length ?? 0) > 0);
   const enabledCount = (types ?? []).filter((t) => t.enabled).length;
   const total = types?.length ?? 0;
   const busy = toggle.isPending || toggleAll.isPending;
@@ -480,7 +484,8 @@ function AlertTypesSection() {
       {isLoading && <p className="text-xs text-text-faint">Loading…</p>}
 
       <div className="space-y-5">
-        {Object.entries(grouped).map(([category, items]) => {
+        {orderedGroups.map((category) => {
+          const items = grouped[category];
           const onCount = items.filter((i) => i.enabled).length;
           return (
             <div key={category}>
@@ -497,7 +502,7 @@ function AlertTypesSection() {
                     {onCount}/{items.length} on
                   </span>
                   <button
-                    onClick={() => toggleAll.mutate({ enabled: onCount < items.length, category })}
+                    onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: category })}
                     disabled={busy}
                     title={`Turn this whole group ${onCount === items.length ? "off" : "on"} in one click`}
                     className="rounded border border-border-subtle px-2 py-0.5 text-[10px] font-semibold text-text-muted transition-colors hover:bg-surface-2 hover:text-text-primary disabled:opacity-50"
