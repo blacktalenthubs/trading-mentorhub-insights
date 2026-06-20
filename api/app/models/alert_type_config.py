@@ -152,7 +152,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
     # unclear/not-actionable and are SUPPRESSED (weekly_stage → OBSOLETE).
     ("weekly_rc", "Weekly RC — prior-week low reclaim (green week, swing)", "Weekly trend", False),
-    ("weekly_ma_pullback", "Weekly MA pullback — dip to the rising 10wMA in a Stage-2 uptrend, green weekly close (position, target = weekly RSI 70)", "Weekly trend", False),
+    # weekly_ma_pullback SPLIT 2026-06-20 into held / reclaim / wick-reclaim so the
+    # user can toggle each weekly-MA setup independently (10w/30w tagged in the note).
+    ("weekly_ma_held", "Weekly MA held — pullback to the rising 10w/30w MA, held as support (Stage-2 position, target = weekly RSI 70)", "Weekly trend", False),
+    ("weekly_ma_reclaim", "Weekly MA reclaim — closed back above the 10w/30w MA after being below it (Stage-2 position, target = weekly RSI 70)", "Weekly trend", False),
+    ("weekly_ma_wick_reclaim", "Weekly MA wick-reclaim — undercut the 10w/30w MA then closed back above (shakeout, Stage-2 position, target = weekly RSI 70)", "Weekly trend", False),
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
     # Pulled from the Pine + alert + catalog (now in OBSOLETE_ALERT_TYPES).
 
@@ -340,6 +344,8 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
 
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
     "weekly_rc2",
+    # weekly_ma_pullback SPLIT 2026-06-20 → weekly_ma_held / _reclaim / _wick_reclaim
+    "weekly_ma_pullback",
 
     # 2026-06-01 — Swing scanner alerts REMOVED from Settings per founder
     # request. Swing scanner not currently working reliably; types pulled

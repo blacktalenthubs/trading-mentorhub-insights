@@ -91,39 +91,56 @@ wp_f_weekly() =>
     [_f, _s, _slope, _uptrend]
 [wp_wf, wp_ws, wp_wslope, wp_wuptrend] = request.security(syminfo.tickerid, "W", wp_f_weekly(), lookahead = barmerge.lookahead_on)
 
-// Qualifying touch (on THIS chart's bar): closes above the weekly MA having
-// dipped to it (low<=MA), been below last bar (close[1]<=MA), or opened at it.
-wp_ma_entry(float ma) =>
-    not na(ma) and close > ma and (low <= ma or (not na(close[1]) and close[1] <= ma) or math.abs(open - ma) / ma <= wp_tol_pct / 100.0)
+// Classify a touch of a given weekly MA into held / reclaim / wick-reclaim —
+// MUTUALLY EXCLUSIVE. wick-reclaim (a real undercut below the MA) takes priority;
+// held = was ABOVE the MA and dipped to it; reclaim = was BELOW and closed above.
+wp_wick_tol = input.float(0.5, "WkPos: Wick-reclaim min undercut below the MA (%)", minval = 0.0, step = 0.1, group = "Weekly Position")
+wp_classify(float ma) =>
+    _ok   = not na(ma) and close > ma
+    _wick = _ok and low < ma * (1.0 - wp_wick_tol / 100.0)
+    _held = _ok and not _wick and not na(close[1]) and close[1] > ma and low <= ma
+    _recl = _ok and not _wick and not na(close[1]) and close[1] <= ma
+    [_held, _recl, _wick]
+[wp_h10, wp_r10, wp_w10] = wp_classify(wp_wf)
+[wp_h30, wp_r30, wp_w30] = wp_classify(wp_ws)
 
-// 10w entry — within Stage 2.
-wp_e10 = wp_wuptrend and wp_ma_entry(wp_wf)
+// 10w gated by the Stage-2 uptrend, 30w by a rising 30w. Re-armed per MA so a
+// single pullback can't cluster fires while price hugs the level.
 var bool wp_armed10 = true
 if not na(wp_wf) and close > wp_wf * (1.0 + wp_rearm_pct / 100.0)
     wp_armed10 := true
-wp_fire10 = wp_fire and wp_e10 and wp_armed10
-if wp_fire10
+wp_go10 = wp_fire and wp_armed10 and wp_wuptrend and (wp_h10 or wp_r10 or wp_w10)
+if wp_go10
     wp_armed10 := false
 
-// 30w entry — gate on the WEEKLY 30w slope rising (chart-TF-agnostic).
-wp_e30 = not na(wp_ws) and wp_wslope > 0 and wp_ma_entry(wp_ws)
 var bool wp_armed30 = true
 if not na(wp_ws) and close > wp_ws * (1.0 + wp_rearm_pct / 100.0)
     wp_armed30 := true
-wp_fire30 = wp_fire and wp_e30 and wp_armed30
-if wp_fire30
+wp_go30 = wp_fire and wp_armed30 and wp_wslope > 0 and (wp_h30 or wp_r30 or wp_w30)
+if wp_go30
     wp_armed30 := false
 
-wp_fired = wp_fire10 or wp_fire30
-wp_stop  = low * (1.0 - wp_stopbuf / 100.0)
+wp_stop = low * (1.0 - wp_stopbuf / 100.0)
 
-plotshape(wp_show and wp_fire10, title = "WkPos 10w", style = shape.triangleup, location = location.belowbar, color = color.new(#26A69A, 0), size = size.small, text = "10w")
-plotshape(wp_show and wp_fire30, title = "WkPos 30w", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "30w")
+plotshape(wp_show and wp_go10, title = "WkPos 10w", style = shape.triangleup, location = location.belowbar, color = color.new(#26A69A, 0), size = size.small, text = "10w")
+plotshape(wp_show and wp_go30, title = "WkPos 30w", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "30w")
 
-if wp_fired and barstate.isconfirmed
-    _wpma = wp_fire10 ? "10w" : "30w"
-    wp_msg = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wp_stop, format.mintick) + '","note":"Weekly ' + _wpma + ' held/reclaim in a Stage-2 uptrend — price tested the rising ' + _wpma + 'MA and closed back above it. STOP = just below the test-bar wick low. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wp_msg, alert.freq_once_per_bar_close)
+// One alert per (MA, pattern) — each routes server-side on its own type.
+wp_msg(string rule, string ma, string desc) =>
+    '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wp_stop, format.mintick) + '","note":"Weekly ' + ma + ' MA — ' + desc + '. Stage-2 uptrend. STOP = below the test-bar wick low. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+
+if wp_go10 and wp_h10 and barstate.isconfirmed
+    alert(wp_msg("weekly_ma_held", "10w", "pullback held the rising MA as support"), alert.freq_once_per_bar_close)
+if wp_go30 and wp_h30 and barstate.isconfirmed
+    alert(wp_msg("weekly_ma_held", "30w", "pullback held the rising MA as support"), alert.freq_once_per_bar_close)
+if wp_go10 and wp_r10 and barstate.isconfirmed
+    alert(wp_msg("weekly_ma_reclaim", "10w", "reclaimed the MA from below"), alert.freq_once_per_bar_close)
+if wp_go30 and wp_r30 and barstate.isconfirmed
+    alert(wp_msg("weekly_ma_reclaim", "30w", "reclaimed the MA from below"), alert.freq_once_per_bar_close)
+if wp_go10 and wp_w10 and barstate.isconfirmed
+    alert(wp_msg("weekly_ma_wick_reclaim", "10w", "undercut the MA and reclaimed (shakeout)"), alert.freq_once_per_bar_close)
+if wp_go30 and wp_w30 and barstate.isconfirmed
+    alert(wp_msg("weekly_ma_wick_reclaim", "30w", "undercut the MA and reclaimed (shakeout)"), alert.freq_once_per_bar_close)
 
 // WkPos flat weekly MA lines — the 10w/30w drawn as ONE horizontal level each
 // (like PDL), role-colored by side: green when price is above (SUP), red when
