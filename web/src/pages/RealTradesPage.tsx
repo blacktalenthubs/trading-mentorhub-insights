@@ -17,6 +17,7 @@ import TodayEOD from "../components/TodayEOD";
 import TradeReviewPage from "./TradeReviewPage";
 import WeeklyReport from "../components/WeeklyReport";
 import MyStrategy from "../components/MyStrategy";
+import DeclinedTrades from "../components/DeclinedTrades";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
 import type { Alert } from "../types";
@@ -24,7 +25,7 @@ import {
   BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileText, Check,
 } from "lucide-react";
 
-type PerfTab = "by-pattern" | "weekly" | "strategy" | "today-eod" | "by-symbol" | "sessions";
+type PerfTab = "by-pattern" | "weekly" | "strategy" | "today-eod" | "by-symbol" | "sessions" | "declined";
 
 /* ── helpers ──────────────────────────────────────────────────────── */
 
@@ -389,6 +390,7 @@ function AlertTypePerformanceSection() {
 const PERF_TABS: { id: PerfTab; label: string }[] = [
   { id: "today-eod",  label: "Today's EOD" },
   { id: "strategy",   label: "Strategy Analysis" },
+  { id: "declined",   label: "Declined" },
 ];
 
 export default function RealTradesPage() {
@@ -433,6 +435,7 @@ export default function RealTradesPage() {
         {activeTab === "weekly"     && <WeeklyReport />}
         {activeTab === "strategy"   && <MyStrategy />}
         {activeTab === "today-eod"  && <TodayEOD />}
+        {activeTab === "declined"   && <DeclinedTrades />}
         {activeTab === "by-symbol"  && <div className="-mx-5 -mb-5"><TradeReviewPage /></div>}
         {activeTab === "sessions"   && <SessionBrowser />}
       </div>
