@@ -335,10 +335,10 @@ function SignalFeedTab({
 }) {
   const [search, setSearch] = useState("");
   // Sort options — persisted to localStorage so refresh doesn't reset.
-  type FeedSort = "time" | "grade" | "vol" | "slope" | "symbol";
+  type FeedSort = "time" | "grade" | "vol" | "slope" | "symbol" | "rr";
   const SORT_LABELS: Record<FeedSort, string> = {
     time: "Newest", grade: "Grade A→C", vol: "Volume ×",
-    slope: "Slope %", symbol: "Symbol",
+    slope: "Slope %", symbol: "Symbol", rr: "R:R (reward:risk)",
   };
   const [sortBy, setSortBy] = useState<FeedSort>(() => {
     if (typeof window === "undefined") return "time";
@@ -451,7 +451,7 @@ function SignalFeedTab({
   const typeOptions = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
   const q = search.trim().toUpperCase();
   let filtered = q
-    ? feedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
+    ? feedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q) || formatSetup(a.alert_type).toUpperCase().includes(q) || (a.alert_type || "").toUpperCase().includes(q))
     : feedAlerts;
   if (hiddenTypes.size > 0) {
     filtered = filtered.filter((a) => !hiddenTypes.has(a.alert_type || "unknown"));
@@ -485,6 +485,12 @@ function SignalFeedTab({
     if (sortBy === "symbol") {
       return (a.symbol || "").localeCompare(b.symbol || "");
     }
+    if (sortBy === "rr") {
+      const rrOf = (x: typeof a) => (x.entry != null && x.target_1 != null && x.stop != null && x.entry !== x.stop) ? Math.abs((x.target_1 - x.entry) / (x.entry - x.stop)) : -1;
+      const ra = rrOf(a), rb = rrOf(b);
+      if (ra !== rb) return rb - ra;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
     // default: time desc (newest first)
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
@@ -492,7 +498,7 @@ function SignalFeedTab({
   // Not-routed panel list — search-filtered, newest first. No grade/type
   // filters: this is a review surface for what the gates caught, not the feed.
   const notRoutedVisible = (q
-    ? notRoutedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q))
+    ? notRoutedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q) || formatSetup(a.alert_type).toUpperCase().includes(q) || (a.alert_type || "").toUpperCase().includes(q))
     : notRoutedAlerts
   ).slice().sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -565,7 +571,7 @@ function SignalFeedTab({
             <>
               <button className="fixed inset-0 z-30 cursor-default" onClick={() => setSortOpen(false)} aria-label="Close sort menu" />
               <div className="absolute right-0 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[140px]">
-                {(["time", "grade", "vol", "slope", "symbol"] as const).map((opt) => (
+                {(["time", "grade", "vol", "slope", "symbol", "rr"] as const).map((opt) => (
                   <button
                     key={opt}
                     onClick={() => changeSort(opt)}
@@ -587,7 +593,7 @@ function SignalFeedTab({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search symbol…"
+            placeholder="Search symbol or pattern…"
             className="w-full bg-surface-1 border border-border-subtle rounded pl-7 pr-6 py-1 text-[11px] text-text-secondary placeholder:text-text-faint focus:outline-none focus:border-accent/40"
           />
           {search && (
@@ -761,27 +767,11 @@ function SignalFeedTab({
             className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer${nrLabel ? " opacity-55" : ""}`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
-            {/* Line 1 — symbol · direction · grade · (AI) · (NOT SENT) · time */}
-            <div className="flex items-center justify-between gap-1.5 mb-0.5">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-[13px] font-bold text-text-primary">{a.symbol}</span>
-                <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirCls}`}>
-                  {dirText}
-                </span>
-                {a.grade && (() => {
-                  const g = a.grade;
-                  const gCls = g === "A" ? "bg-bullish text-white border-bullish"
-                    : g === "B" ? "bg-warning/80 text-white border-warning"
-                    : "bg-surface-4 text-text-faint border-border-subtle";
-                  const gTitle = g === "A" ? "Grade A — high conviction (vol ≥ 2× AND slope ≥ +0.05%)"
-                    : g === "B" ? "Grade B — partial gate (one of vol/slope passes)"
-                    : "Grade C — no quality gate passed";
-                  return (
-                    <span title={gTitle} className={`text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}>
-                      {g}
-                    </span>
-                  );
-                })()}
+            {/* identity — symbol (anchor) · direction · (AI) ··· (NOT SENT) · time */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-bold text-text-primary">{a.symbol}</span>
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${dirCls}`}>{dirText}</span>
                 {isAIScan && (
                   <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">AI</span>
                 )}
@@ -799,43 +789,46 @@ function SignalFeedTab({
               </div>
             </div>
 
-            {/* Line 2 — setup name + vol/slope tucked right (secondary) */}
-            <div className="flex items-center justify-between gap-2 mb-1">
+            {/* the why + quality — setup · grade · R:R (the decision, right-aligned & bold) */}
+            <div className="mt-1.5 flex items-center justify-between gap-2">
               <span
-                className="text-[11px] font-medium text-text-secondary truncate cursor-help"
+                className="text-[12px] text-text-secondary truncate cursor-help"
                 title={a.description || formatSetup(a.alert_type)}
               >
                 {formatSetup(a.alert_type)}
               </span>
-              {(a.volume_ratio != null || a.vwap_slope_pct != null) && (
-                <span className="shrink-0 flex items-center gap-2 text-[9px] font-mono">
-                  {a.volume_ratio != null && (
-                    <span className={a.volume_ratio >= 2 ? "text-bullish-text" : a.volume_ratio >= 1.5 ? "text-warning-text" : "text-text-faint"}>
-                      {a.volume_ratio.toFixed(2)}×
-                    </span>
-                  )}
-                  {a.vwap_slope_pct != null && (
-                    <span className={a.vwap_slope_pct >= 0.05 ? "text-bullish-text" : a.vwap_slope_pct >= -0.3 ? "text-text-faint" : "text-bearish-text"}>
-                      {a.vwap_slope_pct > 0 ? "+" : ""}{a.vwap_slope_pct.toFixed(2)}%
-                    </span>
-                  )}
-                </span>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {a.grade && (() => {
+                  const g = a.grade;
+                  const gCls = g === "A" ? "bg-bullish text-white border-bullish"
+                    : g === "B" ? "bg-warning/80 text-white border-warning"
+                    : "bg-surface-4 text-text-faint border-border-subtle";
+                  const slope = a.vwap_slope_pct != null ? ` · slope ${a.vwap_slope_pct > 0 ? "+" : ""}${a.vwap_slope_pct.toFixed(2)}%` : "";
+                  const vol = a.volume_ratio != null ? ` · vol ${a.volume_ratio.toFixed(2)}×` : "";
+                  const gTitle = (g === "A" ? "Grade A — high conviction (vol ≥ 2× AND slope ≥ +0.05%)"
+                    : g === "B" ? "Grade B — partial gate (one of vol/slope passes)"
+                    : "Grade C — no quality gate passed") + vol + slope;
+                  return (
+                    <span title={gTitle} className={`text-[10px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}>{g}</span>
+                  );
+                })()}
+                {rr != null && (
+                  <span className={`text-[12px] font-bold font-mono ${rr >= 2 ? "text-bullish-text" : "text-text-muted"}`}>{rr.toFixed(1)}R</span>
+                )}
+              </div>
             </div>
 
-            {/* Line 3 — compact levels: entry → target · stop */}
+            {/* the plan — muted, lighter than the decision above */}
             {a.entry != null ? (
-              <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                <span className="font-bold text-accent">{fmtPrice(a.entry)}</span>
-                <span className="text-text-faint">→</span>
-                <span className="text-bullish-text">{fmtPrice(a.target_1)}</span>
-                <span className="text-text-faint">· stop</span>
-                <span className="text-bearish-text">{fmtPrice(a.stop)}</span>
-                {rr != null && <span className={`ml-auto font-semibold ${rr >= 2 ? "text-bullish-text" : "text-text-muted"}`}>→ {rr.toFixed(1)}R</span>}
+              <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-text-faint">
+                <span className="font-semibold text-accent">{fmtPrice(a.entry)}</span>
+                <span>→</span>
+                <span className="text-bullish-text/80">{fmtPrice(a.target_1)}</span>
+                <span>· stop {fmtPrice(a.stop)}</span>
               </div>
             ) : (
               a.message && (
-                <p className="text-[10px] text-text-muted leading-relaxed line-clamp-2">{a.message}</p>
+                <p className="mt-1.5 text-[10px] text-text-muted leading-relaxed line-clamp-2">{a.message}</p>
               )
             )}
           </div>

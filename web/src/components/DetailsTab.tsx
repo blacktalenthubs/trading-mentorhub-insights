@@ -26,7 +26,7 @@ import Card from "./ui/Card";
 import { Skeleton, SkeletonRow } from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
 import {
-  Info, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronRight, Sparkles,
+  Info, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronRight, Sparkles, Search,
 } from "lucide-react";
 
 /** AI brief: regenerating it costs LLM, so only the admin who pays for it can.
@@ -313,6 +313,7 @@ function DetailCard({
 /* ── Main tab ─────────────────────────────────────────────────────── */
 
 export default function DetailsTab() {
+  const [search, setSearch] = useState("");
   const { data, isLoading, error } = useWatchlistFundamentals();
   const refresh = useRefreshFundamentals();
   const aiGen = useGenerateAIBrief();
@@ -364,6 +365,8 @@ export default function DetailsTab() {
   const refreshingSymbol = refresh.isPending ? (refresh.variables as string | undefined) : undefined;
   const genAll = aiGen.isPending && aiGen.variables === undefined;
   const genSymbol = aiGen.isPending ? (aiGen.variables as string | undefined) : undefined;
+  const q = search.trim().toLowerCase();
+  const filtered = q ? items.filter((it) => it.symbol.toLowerCase().includes(q) || (it.company_name || "").toLowerCase().includes(q)) : items;
 
   return (
     <div className="space-y-3">
@@ -391,6 +394,16 @@ export default function DetailsTab() {
         </div>
       </div>
 
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-faint" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search a stock…"
+          className="w-full rounded-lg bg-surface-2 border border-border-subtle pl-9 pr-3 py-2 text-[12px] text-text-primary placeholder:text-text-faint focus:border-accent outline-none"
+        />
+      </div>
+
       {(refreshingAll || genAll) && (
         <p className="text-[10px] text-text-faint">
           {genAll
@@ -399,8 +412,11 @@ export default function DetailsTab() {
         </p>
       )}
 
+      {filtered.length === 0 ? (
+        <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">No stocks match “{search}”.</div>
+      ) : (
       <div className="space-y-3">
-        {items.map(it => (
+        {filtered.map(it => (
           <DetailCard
             key={it.symbol}
             it={it}
@@ -413,6 +429,7 @@ export default function DetailsTab() {
           />
         ))}
       </div>
+      )}
     </div>
   );
 }
