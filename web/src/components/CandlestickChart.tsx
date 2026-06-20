@@ -86,6 +86,9 @@ function CandlestickChartInner({
       layout: {
         background: { type: ColorType.Solid, color: isLight ? "#ffffff" : "#050810" },
         textColor: "#64748b",
+        // Smaller axis/price-line label font so the full-word trade labels
+        // (Entry/Stop/Target) + level codes don't clutter the right axis.
+        fontSize: 11,
       },
       grid: {
         // Clean background — no grid lines (TradingView "no grid" preference).
@@ -383,9 +386,10 @@ function CandlestickChartInner({
     const raw: PLine[] = [];
 
     // Priority: lower number wins on dedup conflict.
-    if (entry)  raw.push({ price: entry,  color: "#3b82f6", title: "E",  priority: 0 });
-    if (stop)   raw.push({ price: stop,   color: "#ef4444", title: "S",  priority: 0 });
-    if (target) raw.push({ price: target, color: "#22c55e", title: "T1", priority: 0 });
+    // Full words (not E/S/T codes) so traders new to the lingo read them at a glance.
+    if (entry)  raw.push({ price: entry,  color: "#3b82f6", title: "Entry",  priority: 0 });
+    if (stop)   raw.push({ price: stop,   color: "#ef4444", title: "Stop",   priority: 0 });
+    if (target) raw.push({ price: target, color: "#22c55e", title: "Target", priority: 0 });
 
     // Level label shortener. Maps verbose labels coming from the parent
     // to compact codes; unknown labels keep their original text.
