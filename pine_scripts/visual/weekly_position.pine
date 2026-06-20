@@ -18,17 +18,21 @@
 //   • Accum      — up-week vs down-week volume over 10w (>1 = being bought)
 //   • Wk RSI     — momentum; RSI 70 is the TARGET (sell strength), not an entry
 //
-// ENTRY — "MA-pullback hold": in an uptrend (close>30w, 30w rising, 10w>30w) the
-// week dips to the rising 10wMA and closes back GREEN above it. Buy the pullback.
-//   STOP  = just below the pullback week's LOW (drawn on the chart). Logic: the dip
-//           to the 10w held; a weekly CLOSE below that low = the hold failed → out.
-//           It sits above the rising 30wMA, which is the runner's trailing stop.
-//   target = weekly RSI 70 (the swing/position target)
+// ENTRY — "10w RECLAIM" (undercut & reclaim, like 4h RC): in a Stage-2 uptrend
+// (close>30w, 30w rising, 10w>30w) price LOSES the rising 10wMA, then RECLAIMS it
+// (closes back above). The reclaim = buyers defended the MA = the entry. Fires on
+// the reclaim — NOT the weekly close — so bind the alert on a daily/4h chart and you
+// enter at the MA, not chased to Friday.
+//   STOP   = just below the undercut WICK LOW (the low buyers defended). A close
+//            below it = the 10w didn't hold = trend over → out. Tight by design.
+//   target = weekly RSI 70 (the swing/position target). 30wMA below = runner trail.
 //
-// CHOP FILTERS (so it doesn't cluster in a sideways range):
+// The 10w/30w are drawn as FLAT horizontal levels (anchored to the weekly value),
+// so on a 4h/daily chart they read like PDL, not a curving MA.
+//
+// CHOP FILTERS (so it doesn't fire in a sideways range):
 //   • 30wMA must be rising faster than a flat band (slope_floor_pct), not just >0.
-//   • Re-arm: after a fire it stands down until a week closes rearm_pct ABOVE the
-//     10wMA — in chop price hugs the MA and never extends, so it stays silent.
+//   • Re-arm: after a fire it stands down until price closes rearm_pct ABOVE the 10w.
 // rule "weekly_ma_pullback" — default-OFF in the backend catalog; opt in to test.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("Weekly Position", "WkPos", overlay = true, max_labels_count = 200, max_lines_count = 100)
@@ -63,22 +67,13 @@ f_weekly() =>
     _upv   = math.sum(volume * (close > open ? 1.0 : 0.0), accum_lb)
     _dnv   = math.sum(volume * (close < open ? 1.0 : 0.0), accum_lb)
     _accum = _dnv > 0 ? _upv / _dnv : _upv
-    // Uptrend (chop-filtered): above a 30wMA rising FASTER than the flat band
-    // (slope_floor_pct) — a barely-rising 30w in a sideways range is chop, not trend.
+    // Stage 2 — above a 30wMA rising FASTER than the flat band (chop filter) + 10w>30w.
+    // The ENTRY trigger is NOT computed here (it's a chart-level 10w touch — see below),
+    // so we don't wait for the weekly close.
     _uptrend = (close > _s) and (_slope > slope_floor_pct) and (_f > _s)
-    _dip     = _uptrend and (low <= _f * (1.0 + pull_tol_pct / 100.0)) and (close > _f) and (close > open)
-    // Re-arm — fire ONCE per pullback. After a fire, stand down until a week closes
-    // >= rearm_pct ABOVE the 10wMA (price pushed off the MA). In chop, price hugs the
-    // 10w and never extends, so it stays disarmed → no weekly cluster of fires.
-    var bool _armed = true
-    if close > _f * (1.0 + rearm_pct / 100.0)
-        _armed := true
-    _fire = _dip and _armed
-    if _fire
-        _armed := false
-    [_f, _s, _l, _hi, _rsi, _slope, _accum, _uptrend, _fire, low]
+    [_f, _s, _l, _hi, _rsi, _slope, _accum, _uptrend]
 
-[wf, ws, wl, whi, wrsi, wslope, waccum, wuptrend, whold, wklow] = request.security(syminfo.tickerid, "W", f_weekly(), lookahead = barmerge.lookahead_on)
+[wf, ws, wl, whi, wrsi, wslope, waccum, wuptrend] = request.security(syminfo.tickerid, "W", f_weekly(), lookahead = barmerge.lookahead_on)
 
 // ── relative strength vs the benchmark (ratio + 4-week slope) ────────────────
 sym_w  = request.security(syminfo.tickerid, "W", close,    lookahead = barmerge.lookahead_on)
@@ -94,9 +89,28 @@ ma_stacked = not na(wf) and not na(ws) and not na(wl) and wf > ws and ws > wl
 pct_off_hi = not na(whi) and whi != 0 ? (whi - close) / whi * 100.0 : na
 accum_ok   = not na(waccum) and waccum > 1.0
 
-// ── plots — the two trend MAs (color by health) ──────────────────────────────
-plot(wf, title = "10wMA", color = color.new(color.blue, 0),  linewidth = 1)
-plot(ws, title = "30wMA", color = wslope > 0 ? col_up : col_dn, linewidth = 2)
+// ── FLAT weekly MA lines — the 10w/30w drawn as ONE horizontal level each (like
+// PDL), at the CURRENT weekly value, anchored via request.security("W"). So on a
+// 4h/daily chart they read as flat weekly levels, not a curving MA. Same pattern as
+// the flat S/R lines in ma-ema-daily. Redrawn on the last bar only.
+show_ma_lines = input.bool(true, "Show flat weekly MA lines (10w/30w)", group = "Display")
+ma_line_len   = input.int (60,   "Flat MA line length (bars back)", minval = 10, maxval = 500, group = "Display")
+var line  ln_10w = na
+var line  ln_30w = na
+var label lb_10w = na
+var label lb_30w = na
+if show_ma_lines and barstate.islast
+    line.delete(ln_10w)
+    line.delete(ln_30w)
+    label.delete(lb_10w)
+    label.delete(lb_30w)
+    if not na(wf)
+        ln_10w := line.new(bar_index - ma_line_len, wf, bar_index + 10, wf, color = color.new(color.blue, 0), width = 2)
+        lb_10w := label.new(bar_index + 10, wf, "10w  " + str.tostring(wf, format.mintick), style = label.style_label_left, color = color.new(color.blue, 0), textcolor = color.white, size = size.small)
+    if not na(ws)
+        c30 = wslope > 0 ? col_up : col_dn
+        ln_30w := line.new(bar_index - ma_line_len, ws, bar_index + 10, ws, color = c30, width = 2)
+        lb_30w := label.new(bar_index + 10, ws, "30w  " + str.tostring(ws, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
 
 // ── dashboard table (drawn on the last bar) ──────────────────────────────────
 f_yn(bool ok) => ok ? "✓" : "✗"
@@ -115,23 +129,33 @@ if show_table and barstate.islast
     table.cell(t, 0, 5, "Wk RSI",     text_color = color.white, text_size = size.small)
     table.cell(t, 1, 5, na(wrsi) ? "—" : str.tostring(wrsi, "#.#"), text_color = (not na(wrsi) and wrsi >= 70) ? col_dn : color.white, text_size = size.small)
 
-// ── entry marker + STOP + alert — fires once at the weekly close on a fresh setup ─
-new_setup = whold and not whold[1]
-// STOP — just below the 10wMA (the level the entry is defending), NOT the week's
-// low. Logic: the setup IS "the dip to the rising 10w held", so the invalidation is
-// a weekly CLOSE below the 10w. The 10w sits far above a wide recovery-week's wick
-// low, so this keeps the risk tight + consistent (the week-low stop blew out to ~14%
-// on big-range weeks). A weekly close below the 30wMA is the deeper trend exit.
-stop_level = wf * (1.0 - stop_buf_pct / 100.0)
-plotshape(fire_pullback and new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
+// ── ENTRY — the 10w RECLAIM (undercut & reclaim). Price can LOSE the rising 10wMA,
+// but once it RECLAIMS it (trades below, closes back above), THAT is the solid entry —
+// buyers defended the MA. Bind the alert on a daily/4h chart so it fires when the
+// reclaim happens, not at the weekly close. Same undercut-&-reclaim logic as 4h RC.
+//   STOP = just below the undercut WICK LOW (the low buyers defended). A close below
+//          it = the 10w didn't hold = trend over → out. Tight by design.
+var float wpos_ucl = na          // undercut wick low — lowest low while trading below the 10w
+if not na(wf) and low < wf
+    wpos_ucl := na(wpos_ucl) ? low : math.min(wpos_ucl, low)
+reclaimed = wuptrend and not na(wf) and close > wf and not na(wpos_ucl)
+var bool wk_armed = true
+if not na(wf) and close > wf * (1.0 + rearm_pct / 100.0)
+    wk_armed := true
+new_setup = fire_pullback and reclaimed and wk_armed
+wick_low  = wpos_ucl
+if new_setup
+    wk_armed := false
+    wpos_ucl := na               // reset for the next undercut cycle
 
-// Draw the stop where it logically sits — a red line at stop_level under the entry,
-// + an "E" tick at the entry close, so the risk is visible at a glance.
-if show_stop and fire_pullback and new_setup
+stop_level = (na(wick_low) ? low : wick_low) * (1.0 - stop_buf_pct / 100.0)
+plotshape(new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
+
+if show_stop and new_setup
     line.new(bar_index, stop_level, bar_index + 8, stop_level, color = col_dn, width = 2, style = line.style_dashed)
     label.new(bar_index, stop_level, "Stop " + str.tostring(stop_level, format.mintick), yloc = yloc.price, style = label.style_label_up, color = col_dn, textcolor = color.white, size = size.small)
     label.new(bar_index, close, "Entry " + str.tostring(close, format.mintick), yloc = yloc.price, style = label.style_label_down, color = col_up, textcolor = color.white, size = size.small)
 
-if fire_pullback and barstate.isconfirmed and new_setup
-    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly MA-pullback hold — dip to the rising 10wMA, green weekly close above it (Stage 2). Stop = just below the 10wMA (a weekly close below it = out); 30wMA is the runner trail. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+if new_setup and barstate.isconfirmed
+    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly 10w RECLAIM in a Stage-2 uptrend — price lost the rising 10wMA and reclaimed it (closed back above). Enter on the reclaim (do not wait for the weekly close). STOP = just below the undercut wick low; a close below it = the MA failed → trend over → out. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wp, alert.freq_once_per_bar_close)
