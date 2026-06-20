@@ -1,0 +1,103 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Weekly Position (WkPos) — the position-trader's weekly dashboard + ONE entry.
+// ─────────────────────────────────────────────────────────────────────────────
+// Complements WkStage (Weinstein 30wMA stage) and weekly_rc (prior-week-low
+// reclaim). This adds the metrics those don't surface and fires the highest-value
+// weekly entry: the pullback to a rising MA in an established uptrend.
+//
+// All weekly values are read via request.security("W", …) so the dashboard + the
+// entry are IDENTICAL on any chart timeframe (put it on the weekly to view; the
+// entry confirms once per week at the weekly close).
+//
+// DASHBOARD (top-right table):
+//   • Stage      — price above a RISING 30wMA + 10w>30w = Stage 2 (the buy zone)
+//   • MA stack   — 10 > 30 > 40 weekly, all in order = an orderly trend
+//   • % off 52wH — leaders live near their highs; smaller = stronger
+//   • RS vs SPY  — relative-strength ratio rising = outperforming the market (#1 edge)
+//   • Accum      — up-week vs down-week volume over 10w (>1 = being bought)
+//   • Wk RSI     — momentum; RSI 70 is the TARGET (sell strength), not an entry
+//
+// ENTRY — "MA-pullback hold": in an uptrend (close>30w, 30w rising, 10w>30w) the
+// week dips to the rising 10wMA and closes back GREEN above it. Buy the pullback.
+//   stop  = the pullback week's low (trend invalidates on a weekly close < 30wMA)
+//   target = weekly RSI 70 (the swing/position target)
+// rule "weekly_ma_pullback" — default-OFF in the backend catalog; opt in to test.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Weekly Position", "WkPos", overlay = true, max_labels_count = 50)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+ma_fast_len   = input.int  (10,   "Fast weekly MA", minval = 2, group = "Trend")
+ma_slow_len   = input.int  (30,   "Slow weekly MA (Weinstein)", minval = 5, group = "Trend")
+ma_long_len   = input.int  (40,   "Long weekly MA", minval = 5, group = "Trend")
+slope_lb      = input.int  (4,    "MA slope lookback (weeks)", minval = 1, group = "Trend")
+hi_lookback   = input.int  (52,   "52-week high lookback", minval = 10, group = "Metrics")
+bench_sym     = input.symbol("SPY","RS benchmark (SPY/QQQ)", group = "Metrics")
+rsi_len       = input.int  (14,   "Weekly RSI length", minval = 2, group = "Metrics")
+accum_lb      = input.int  (10,   "Accumulation lookback (weeks)", minval = 4, group = "Metrics")
+fire_pullback = input.bool (true, "Fire MA-pullback-hold entry alert", group = "Entry")
+pull_tol_pct  = input.float(2.0,  "Pullback touch tolerance (% of the 10wMA)", minval = 0.0, step = 0.5, group = "Entry")
+show_table    = input.bool (true, "Show metrics table", group = "Display")
+col_up        = input.color(#26A69A, "Rising / healthy", group = "Display")
+col_dn        = input.color(#EF5350, "Falling / caution", group = "Display")
+
+// ── weekly series (anchored to "W" — identical on any chart TF) ──────────────
+f_weekly() =>
+    _f     = ta.sma(close, ma_fast_len)
+    _s     = ta.sma(close, ma_slow_len)
+    _l     = ta.sma(close, ma_long_len)
+    _hi    = ta.highest(high, hi_lookback)
+    _rsi   = ta.rsi(close, rsi_len)
+    _slope = _s - _s[slope_lb]
+    _upv   = math.sum(volume * (close > open ? 1.0 : 0.0), accum_lb)
+    _dnv   = math.sum(volume * (close < open ? 1.0 : 0.0), accum_lb)
+    _accum = _dnv > 0 ? _upv / _dnv : _upv
+    // pullback-hold: uptrend, dipped to the rising 10wMA, closed back green above it.
+    _uptrend = (close > _s) and (_slope > 0) and (_f > _s)
+    _hold    = _uptrend and (low <= _f * (1.0 + pull_tol_pct / 100.0)) and (close > _f) and (close > open)
+    [_f, _s, _l, _hi, _rsi, _slope, _accum, _uptrend, _hold, low]
+
+[wf, ws, wl, whi, wrsi, wslope, waccum, wuptrend, whold, wklow] = request.security(syminfo.tickerid, "W", f_weekly(), lookahead = barmerge.lookahead_on)
+
+// ── relative strength vs the benchmark (ratio + 4-week slope) ────────────────
+sym_w  = request.security(syminfo.tickerid, "W", close,    lookahead = barmerge.lookahead_on)
+sym_w4 = request.security(syminfo.tickerid, "W", close[slope_lb], lookahead = barmerge.lookahead_on)
+bch_w  = request.security(bench_sym,        "W", close,    lookahead = barmerge.lookahead_on)
+bch_w4 = request.security(bench_sym,        "W", close[slope_lb], lookahead = barmerge.lookahead_on)
+rs_now  = not na(bch_w)  and bch_w  != 0 ? sym_w  / bch_w  : na
+rs_prev = not na(bch_w4) and bch_w4 != 0 ? sym_w4 / bch_w4 : na
+rs_rising = not na(rs_now) and not na(rs_prev) and rs_now > rs_prev
+
+// ── derived display metrics ──────────────────────────────────────────────────
+ma_stacked = not na(wf) and not na(ws) and not na(wl) and wf > ws and ws > wl
+pct_off_hi = not na(whi) and whi != 0 ? (whi - close) / whi * 100.0 : na
+accum_ok   = not na(waccum) and waccum > 1.0
+
+// ── plots — the two trend MAs (color by health) ──────────────────────────────
+plot(wf, title = "10wMA", color = color.new(color.blue, 0),  linewidth = 1)
+plot(ws, title = "30wMA", color = wslope > 0 ? col_up : col_dn, linewidth = 2)
+
+// ── dashboard table (drawn on the last bar) ──────────────────────────────────
+f_yn(bool ok) => ok ? "✓" : "✗"
+var table t = table.new(position.top_right, 2, 6, border_width = 1)
+if show_table and barstate.islast
+    table.cell(t, 0, 0, "Stage 2",    text_color = color.white, text_size = size.small, bgcolor = wuptrend ? col_up : col_dn)
+    table.cell(t, 1, 0, wuptrend ? "YES — buy zone" : "no", text_color = color.white, text_size = size.small, bgcolor = wuptrend ? col_up : col_dn)
+    table.cell(t, 0, 1, "10>30>40",   text_color = color.white, text_size = size.small)
+    table.cell(t, 1, 1, f_yn(ma_stacked), text_color = ma_stacked ? col_up : col_dn, text_size = size.small)
+    table.cell(t, 0, 2, "% off 52wH", text_color = color.white, text_size = size.small)
+    table.cell(t, 1, 2, na(pct_off_hi) ? "—" : str.tostring(pct_off_hi, "#.#") + "%", text_color = (not na(pct_off_hi) and pct_off_hi < 10) ? col_up : color.white, text_size = size.small)
+    table.cell(t, 0, 3, "RS vs " + bench_sym, text_color = color.white, text_size = size.small)
+    table.cell(t, 1, 3, rs_rising ? "▲ outperf" : "▼ lagging", text_color = rs_rising ? col_up : col_dn, text_size = size.small)
+    table.cell(t, 0, 4, "Accum",      text_color = color.white, text_size = size.small)
+    table.cell(t, 1, 4, na(waccum) ? "—" : str.tostring(waccum, "#.##") + "×", text_color = accum_ok ? col_up : color.white, text_size = size.small)
+    table.cell(t, 0, 5, "Wk RSI",     text_color = color.white, text_size = size.small)
+    table.cell(t, 1, 5, na(wrsi) ? "—" : str.tostring(wrsi, "#.#"), text_color = (not na(wrsi) and wrsi >= 70) ? col_dn : color.white, text_size = size.small)
+
+// ── entry marker + alert — fires once at the weekly close on a fresh setup ────
+new_setup = whold and not whold[1]
+plotshape(fire_pullback and new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
+
+if fire_pullback and barstate.isconfirmed and new_setup
+    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wklow, format.mintick) + '","note":"Weekly MA-pullback hold — dip to the rising 10wMA, green weekly close above it (Stage 2). Stop = pullback-week low / weekly close < 30wMA. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(wp, alert.freq_once_per_bar_close)

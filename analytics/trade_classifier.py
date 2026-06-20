@@ -23,8 +23,9 @@ from typing import Optional
 # Types whose baseline is swing regardless of EMA.
 SWING_TYPES = frozenset({
     "tv_rsi_70", "tv_ema_5_20_cross", "tv_rsi_oversold", "tv_weekly_rc",
+    "tv_weekly_ma_pullback",
     # also accept the un-prefixed rule codes
-    "rsi_70", "ema_5_20_cross", "rsi_oversold", "weekly_rc",
+    "rsi_70", "ema_5_20_cross", "rsi_oversold", "weekly_rc", "weekly_ma_pullback",
 })
 
 # Slow-MA tokens — a bounce off any of these is a multi-day swing. The fast 8-EMA
