@@ -19,7 +19,7 @@ import { useUpcomingEarnings, type UpcomingEarningsItem } from "../api/hooks";
 import Card from "./ui/Card";
 import { Skeleton, SkeletonRow } from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
-import { CalendarDays, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
+import { CalendarDays, AlertCircle, ArrowUp, ArrowDown, RefreshCw } from "lucide-react";
 
 type SortKey = "days" | "symbol" | "eps" | "surprise";
 type SortDir = "asc" | "desc";
@@ -193,7 +193,7 @@ function MobileCard({ it, onClick }: { it: UpcomingEarningsItem; onClick: () => 
 /* ── Main tab ────────────────────────────────────────────────────── */
 
 export default function EarningsTab() {
-  const { data, isLoading, error } = useUpcomingEarnings();
+  const { data, isLoading, error, refetch, isFetching } = useUpcomingEarnings();
   const navigate = useNavigate();
   const [sortKey, setSortKey] = useState<SortKey>("days");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -283,9 +283,20 @@ export default function EarningsTab() {
     <div className="space-y-3">
       <div className="flex items-center justify-between text-xs text-text-faint">
         <span>{withDate.length} upcoming · {noDate.length} no data</span>
-        <span className={stale ? "text-warning-text" : ""}>
-          Refreshed {fmtRelativeAge(refreshedIso)}{stale && " · may be stale"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={stale ? "text-warning-text" : ""}>
+            Refreshed {fmtRelativeAge(refreshedIso)}{stale && " · may be stale"}
+          </span>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Refresh earnings data"
+            className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-2 py-1 text-text-muted hover:text-text-secondary hover:bg-surface-2 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+            {isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Desktop grid table */}
