@@ -972,7 +972,18 @@ export default function TradingPageV2() {
     const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
     return () => clearTimeout(t);
   }, [mobileSignalsCollapsed]);
-  const [showRightPanel, setShowRightPanel] = useState(true);
+  // Chart-hero default: signals panel open on wide screens, on-demand below 1280px so the
+  // chart isn't crammed; the user's choice persists. New fires still surface via the pop-up
+  // over the chart when the panel is closed (#64-E de-densify).
+  const [showRightPanel, setShowRightPanel] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const saved = localStorage.getItem("trading_right_panel");
+    if (saved != null) return saved === "1";
+    return window.innerWidth >= 1280;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("trading_right_panel", showRightPanel ? "1" : "0"); } catch { /* ignore */ }
+  }, [showRightPanel]);
 
   // ── New-signal pop-up ──
   // Surface a freshly-fired A/B signal as a tappable card over the chart so the
