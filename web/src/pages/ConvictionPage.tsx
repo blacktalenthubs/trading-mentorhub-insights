@@ -107,7 +107,7 @@ function BucketBadge({ bucket }: { bucket: string }) {
 
 const BUCKET_RANK: Record<string, number> = { watch: 3, own: 2, add: 1 };
 
-function WeeklyStageView() {
+export function WeeklyStageView() {
   const navigate = useNavigate();
   const { data, isLoading, isError } = useWeeklyStage();
   const refresh = useRefreshWeeklyStage();
