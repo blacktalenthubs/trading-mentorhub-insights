@@ -7,6 +7,10 @@ One ranked board of the **proven growth leaders** — the names that currently f
 
 This is the **conviction** half of discovery. It is **NOT** Sub-spec B (B catches the *next* mover *early*, at the base, sub-$5B). M ranks the **already-proven leaders** and times the buy. They're two ends of the same funnel: B finds them young, M holds the winners and buys their pullbacks.
 
+**M REPLACES the old WkStage weekly-stage scanner** (decision 2026-06-20). WkStage spanned two roles, both now superseded: its **alerts** are already retired/obsolete; its **chart indicator** role → **WkPos** (the better weekly chart tool — Stage 2 + RS + 52wH + accumulation + actionable held/reclaim/breakout entries); its **scanner** role (rank Stage-2 names) → **M** (the same ranking, richer — adds the fundamental + leadership layer + the BUY-READY gate). So WkStage is retired entirely.
+
+**M and WkPos are a PAIR, not duplicates** — different layers: **M = the board** ("which long-term names lead", a ranked list under Trade Ideas); **WkPos = the chart** ("when/where to enter THIS name", the weekly overlay + entry alert). M's technical score *reuses WkPos's metrics*; WkPos then times the entry on a name M surfaced. Board → chart → entry.
+
 ## The framework (from the founder's "Mathematical Growth Stock Framework")
 A name is a **Growth Leader** when it scores across three layers:
 
