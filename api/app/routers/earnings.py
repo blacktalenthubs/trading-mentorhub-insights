@@ -7,6 +7,8 @@ tab.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import date
 from typing import List, Optional
 
@@ -15,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.earnings import Earnings, EarningsHistory
@@ -23,6 +26,45 @@ from app.models.watchlist import WatchlistItem
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _sync_session_factory():
+    """Standalone sync engine + session factory from DATABASE_URL — independent
+    of app.state, so the on-demand refresh works regardless of lifespan startup
+    order. Mirrors the fundamentals refresh pattern."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    url = get_settings().DATABASE_URL
+    if url.startswith("sqlite"):
+        url = url.replace("+aiosqlite", "")
+    else:
+        for suffix in ("+asyncpg", "+psycopg2", "+psycopg"):
+            url = url.replace(suffix, "")
+    engine = create_engine(url, pool_pre_ping=True)
+    return engine, sessionmaker(bind=engine)
+
+
+def _refresh_in_thread() -> dict:
+    from analytics.earnings_refresh import refresh_earnings
+    engine, factory = _sync_session_factory()
+    try:
+        return refresh_earnings(factory)
+    finally:
+        engine.dispose()
+
+
+@router.post("/refresh")
+async def refresh_earnings_now(current_user: User = Depends(get_current_user)) -> dict:
+    """Force a Finnhub earnings re-pull for the watchlist on demand (#64-E). The
+    nightly 04:00 ET cron does this automatically; this lets the user trigger it
+    from the Refresh button instead of waiting — or when the cron is down. Runs
+    the blocking pull in a thread; returns the refresh summary."""
+    try:
+        return await asyncio.to_thread(_refresh_in_thread)
+    except Exception:
+        logger.exception("Manual earnings refresh failed")
+        return {"ok": False, "error": "refresh_failed"}
 
 
 class UpcomingEarningsItem(BaseModel):
