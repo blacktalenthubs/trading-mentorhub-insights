@@ -261,27 +261,37 @@ const PAGE_TABS = [
   { key: "weekly", label: "Weekly Stage" },
 ] as const;
 
-export default function ConvictionPage() {
+/** The full Conviction content — the Conviction screener + Weekly Stage with their toggle.
+ *  Exported so it can live as a tab inside Trade Ideas (no page wrapper). */
+export function ConvictionTabView() {
   const [view, setView] = useState<"conviction" | "weekly">("conviction");
   return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1.5">
+        {PAGE_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setView(t.key)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+              view === t.key
+                ? "bg-accent/15 text-accent border-accent/40"
+                : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-secondary"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {view === "conviction" ? <ConvictionView /> : <WeeklyStageView />}
+    </div>
+  );
+}
+
+export default function ConvictionPage() {
+  return (
     <div className="h-full overflow-y-auto bg-surface-0">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5 space-y-4">
-        <div className="flex items-center gap-1.5">
-          {PAGE_TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setView(t.key)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
-                view === t.key
-                  ? "bg-accent/15 text-accent border-accent/40"
-                  : "bg-surface-2 text-text-muted border-border-subtle hover:text-text-secondary"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        {view === "conviction" ? <ConvictionView /> : <WeeklyStageView />}
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5">
+        <ConvictionTabView />
       </div>
     </div>
   );

@@ -33,9 +33,9 @@ import GradeBadge, { GRADE_RANK } from "../components/GradeBadge";
 import { Skeleton, SkeletonRow } from "../components/ui/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
 import { type FocusRecommendation } from "../api/hooks";
-import { WeeklyStageView } from "./ConvictionPage";
+import { ConvictionTabView } from "./ConvictionPage";
 
-type IdeasTab = "social" | "ai" | "stage";
+type IdeasTab = "social" | "ai" | "conviction";
 
 function historyLabel(item: FocusListHistoryItem): string {
   const iso = item.generated_at;
@@ -64,7 +64,7 @@ function historyLabel(item: FocusListHistoryItem): string {
 const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Target }[] = [
   { id: "social", label: "Social",   icon: Flame },
   { id: "ai",     label: "AI Scans", icon: Sparkles },
-  { id: "stage",  label: "Stage",    icon: Gem },
+  { id: "conviction", label: "Conviction", icon: Gem },
 ];
 
 export default function FocusListPage() {
@@ -115,7 +115,7 @@ export default function FocusListPage() {
 
         {tab === "social" && <SocialBuzzTab />}
         {tab === "ai" && <AIScansTab />}
-        {tab === "stage" && <WeeklyStageView />}
+        {tab === "conviction" && <ConvictionTabView />}
       </div>
     </div>
   );
