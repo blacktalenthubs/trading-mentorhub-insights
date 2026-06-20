@@ -23,7 +23,6 @@ import {
   Star,
   Activity,
   Target,
-  Gem,
   MoreHorizontal,
   X,
   type LucideIcon,
@@ -52,7 +51,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/today",       label: "Today",       icon: Home },
   { to: "/trading",     label: "Trading",     icon: Crosshair },
   { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
-  { to: "/conviction",  label: "Conviction",  icon: Gem },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
   { to: "/premarket",   label: "Premarket",   icon: Activity },
   { to: "/performance", label: "Performance", icon: ArrowLeftRight },
@@ -63,11 +61,10 @@ const NAV_ITEMS: NavItem[] = [
 const MOBILE_PRIMARY: NavItem[] = [
   { to: "/today",       label: "Today", icon: Home },
   { to: "/trading",     label: "Trade", icon: Crosshair },
-  { to: "/conviction",  label: "Picks", icon: Gem },
+  { to: "/trade-ideas", label: "Ideas", icon: Target },
   { to: "/performance", label: "Perf",  icon: ArrowLeftRight },
 ];
 const MORE_ITEMS: NavItem[] = [
-  { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
   { to: "/premarket",   label: "Premarket",   icon: Activity },
   { to: "/settings",    label: "Settings",    icon: Settings },
