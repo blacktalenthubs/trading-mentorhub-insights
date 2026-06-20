@@ -21,7 +21,7 @@
 // Indicator name suffixed " v2" so TV treats it as a separate script slot —
 // you can run both v1 and v2 side-by-side and compare.
 //
-indicator("levels-day-vwap", overlay = true)
+indicator("levels-day-v3", overlay = true)
 
 show_lines        = input.bool(true,  "Show PDH/PDL lines")
 show_level_labels = input.bool(true,  "Show PDH/PDL value labels at right edge")
@@ -444,10 +444,15 @@ lowest_res_just_broken() =>
 
 // Highest support just reclaimed: highest level below prior close that's
 // now above current close.
+// DUAL-ROLE GUARD (spec #64-A, A-1/A-4): a level is SUPPORT only if the day
+// OPENED above it. day_open <= level means price is rallying UP into the level
+// from below — that's resistance, not a reclaim → no long (the SPCX PDL case).
+// day_open is the daily-bar open (line 240), valid for equity RTH AND 24/7
+// crypto, so this is safe on both. Mirrors the s58_*_held guard above.
 highest_sup_just_reclaimed() =>
-    p_pdl = not na(pdl) and close > pdl and close[1] <= pdl ? pdl : -9.0e15
-    p_pwl = not na(pwl) and close > pwl and close[1] <= pwl ? pwl : -9.0e15
-    p_pml = not na(pml) and close > pml and close[1] <= pml ? pml : -9.0e15
+    p_pdl = not na(pdl) and day_open > pdl and close > pdl and close[1] <= pdl ? pdl : -9.0e15
+    p_pwl = not na(pwl) and day_open > pwl and close > pwl and close[1] <= pwl ? pwl : -9.0e15
+    p_pml = not na(pml) and day_open > pml and close > pml and close[1] <= pml ? pml : -9.0e15
     m = math.max(p_pdl, math.max(p_pwl, p_pml))
     m == -9.0e15 ? float(na) : m
 
