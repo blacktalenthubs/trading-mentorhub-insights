@@ -1,0 +1,149 @@
+// @version=5
+//
+// 4h Reclaim (RC) — ANCHORED TO THE 4h. Markers + alerts, one per 4h bar.
+//
+// The reclaim is always computed on the 4h candle via request.security("240"),
+// so it is IDENTICAL no matter what timeframe you load this on. Put the chart /
+// alert on 5m for a timely trigger if you want — it still only fires when an
+// actual 4h candle reclaims. It will NOT fire on 5m/15m reclaims. One alert per
+// 4h bar, at the 4h close (no intra-bar flood).
+//
+//   ▲ RC   = 4h low < prior 4h low AND 4h close > prior 4h low — undercut &
+//            reclaim of the prior 4h LOW (reversal / bottoming, lime). → BUY
+//   ▼ ↓    = 4h high > prior 4h high AND 4h close < prior 4h high — failed break
+//            of the prior 4h HIGH (rejection / top, red). → SHORT
+//   ▲ RC-H = 4h low < prior 4h high AND 4h close > prior 4h high — dip below the
+//            prior HIGH then close back above it: broken high held as support =
+//            breakout-retest CONTINUATION (teal). → BUY  (the play you trade most)
+//
+// All three default ON. rule "rc_4h" — routes server-side on the rc_4h type
+// toggle. Bind ONE TV alert with "Any alert() function call".
+//
+indicator("4h Reclaim (RC)-v3", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
+
+show_long  = input.bool(true, "▲ RC long — reclaim of prior 4h LOW (fires BUY)", group = "Detection")
+show_short = input.bool(true, "▼ rejection short — failed break of prior 4h HIGH (fires SHORT)", group = "Detection")
+show_hrec  = input.bool(true, "▲ RC-H — reclaim of prior 4h HIGH / breakout-retest (fires BUY)", group = "Detection")
+show_lvl   = input.bool(false, "Draw the reclaimed/rejected level line (OFF — the dashed RC lines clutter the chart)", group = "Display")
+lvl_bars   = input.int(24, "Extend the level this many bars", minval = 1, group = "Display")
+col_long   = input.color(color.new(color.lime, 30), "Level — RC (reclaim low)", group = "Display")
+col_short  = input.color(color.new(color.red, 30),  "Level — rejection (prior high)", group = "Display")
+col_hrec   = input.color(color.new(color.teal, 30), "Level — RC-H (reclaim high)", group = "Display")
+
+// Always the 4h bar — request.security so the signal is identical on any chart TF.
+[rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
+// Evaluate ONCE per 4h bar (true every bar on a 4h chart; once per 4h on lower TFs).
+rc4_newbar = ta.change(time("240")) != 0
+
+rc4_long  = show_long  and rc4_newbar and (rc4_low  < rc4_plow)  and (rc4_close > rc4_plow)
+rc4_short = show_short and rc4_newbar and (rc4_high > rc4_phigh) and (rc4_close < rc4_phigh)
+rc4_hrec  = show_hrec  and rc4_newbar and (rc4_low  < rc4_phigh) and (rc4_close > rc4_phigh)
+
+plotshape(rc4_long,  title = "RC long",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
+plotshape(rc4_short, title = "RC short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.small, text = "↓")
+plotshape(rc4_hrec,  title = "RC-H",     style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "RC-H")
+
+if show_lvl and rc4_long
+    line.new(bar_index, rc4_plow, bar_index + lvl_bars, rc4_plow, xloc = xloc.bar_index, color = col_long, width = 1, style = line.style_dashed)
+if show_lvl and rc4_short
+    line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_short, width = 1, style = line.style_dashed)
+if show_lvl and rc4_hrec
+    line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_hrec, width = 1, style = line.style_dashed)
+
+// ─────────────────────────────────────────────────────────────────────────
+// ALERTS — once per 4h bar (rc4_newbar gates), rule "rc_4h", well-formed JSON.
+// interval hard-coded "240": it's a 4h signal even if the alert sits on a 5m chart.
+// ─────────────────────────────────────────────────────────────────────────
+rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if rc4_long
+    alert(rc_payload("BUY", rc4_low, "RC · reclaim of the prior 4h low (undercut & reclaim) · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
+if rc4_short
+    alert(rc_payload("SHORT", rc4_high, "RC · rejection at the prior 4h high (failed break) · stop = " + str.tostring(rc4_high, format.mintick)), alert.freq_once_per_bar_close)
+if rc4_hrec
+    alert(rc_payload("BUY", rc4_low, "RC-H · breakout-retest reclaim of the prior 4h high · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
+
+// ═════════════════════════════════════════════════════════════════════════
+// WEEKLY POSITION (WkPos) — folded in from weekly_position.pine so it runs
+// within the 3-pine link limit. Weinstein Stage-2 pullback entry: price tests
+// the rising 10w / 30w WEEKLY MA (read via request.security "W", so it works on
+// this 4h chart) and closes back above it. Fires rule "weekly_ma_pullback", BUY,
+// one alert per qualifying touch (re-armed per MA so it can't cluster). Caught by
+// the SAME "Any alert() function call" alert already bound to this indicator.
+// ═════════════════════════════════════════════════════════════════════════
+wp_fast_len  = input.int  (10,   "WkPos: Fast weekly MA", minval = 2, group = "Weekly Position")
+wp_slow_len  = input.int  (30,   "WkPos: Slow weekly MA (Weinstein)", minval = 5, group = "Weekly Position")
+wp_slope_lb  = input.int  (4,    "WkPos: 30wMA slope lookback (weeks)", minval = 1, group = "Weekly Position")
+wp_fire      = input.bool (true, "WkPos: Fire the weekly MA-pullback entry alert", group = "Weekly Position")
+wp_tol_pct   = input.float(2.0,  "WkPos: Open-at-the-MA tolerance (%)", minval = 0.0, step = 0.5, group = "Weekly Position")
+wp_floor_pct = input.float(0.5,  "WkPos: Chop filter — 30wMA min rising slope (%)", minval = 0.0, step = 0.1, group = "Weekly Position")
+wp_rearm_pct = input.float(3.0,  "WkPos: Re-arm — close this % above the 10wMA before next entry", minval = 0.5, step = 0.5, group = "Weekly Position")
+wp_stopbuf   = input.float(1.0,  "WkPos: Stop buffer below the pullback low (%)", minval = 0.0, step = 0.5, group = "Weekly Position")
+wp_show      = input.bool (true, "WkPos: Show 10w/30w entry markers", group = "Weekly Position")
+
+// Weekly MAs + slope + Stage-2 uptrend, all computed on WEEKLY bars (slope is
+// weekly-correct here, unlike a chart-bar [lb] offset would be on a 4h chart).
+wp_f_weekly() =>
+    _f     = ta.sma(close, wp_fast_len)
+    _s     = ta.sma(close, wp_slow_len)
+    _slope = _s[wp_slope_lb] != 0 ? (_s - _s[wp_slope_lb]) / _s[wp_slope_lb] * 100.0 : 0.0
+    _uptrend = (close > _s) and (_slope > wp_floor_pct) and (_f > _s)
+    [_f, _s, _slope, _uptrend]
+[wp_wf, wp_ws, wp_wslope, wp_wuptrend] = request.security(syminfo.tickerid, "W", wp_f_weekly(), lookahead = barmerge.lookahead_on)
+
+// Qualifying touch (on THIS chart's bar): closes above the weekly MA having
+// dipped to it (low<=MA), been below last bar (close[1]<=MA), or opened at it.
+wp_ma_entry(float ma) =>
+    not na(ma) and close > ma and (low <= ma or (not na(close[1]) and close[1] <= ma) or math.abs(open - ma) / ma <= wp_tol_pct / 100.0)
+
+// 10w entry — within Stage 2.
+wp_e10 = wp_wuptrend and wp_ma_entry(wp_wf)
+var bool wp_armed10 = true
+if not na(wp_wf) and close > wp_wf * (1.0 + wp_rearm_pct / 100.0)
+    wp_armed10 := true
+wp_fire10 = wp_fire and wp_e10 and wp_armed10
+if wp_fire10
+    wp_armed10 := false
+
+// 30w entry — gate on the WEEKLY 30w slope rising (chart-TF-agnostic).
+wp_e30 = not na(wp_ws) and wp_wslope > 0 and wp_ma_entry(wp_ws)
+var bool wp_armed30 = true
+if not na(wp_ws) and close > wp_ws * (1.0 + wp_rearm_pct / 100.0)
+    wp_armed30 := true
+wp_fire30 = wp_fire and wp_e30 and wp_armed30
+if wp_fire30
+    wp_armed30 := false
+
+wp_fired = wp_fire10 or wp_fire30
+wp_stop  = low * (1.0 - wp_stopbuf / 100.0)
+
+plotshape(wp_show and wp_fire10, title = "WkPos 10w", style = shape.triangleup, location = location.belowbar, color = color.new(#26A69A, 0), size = size.small, text = "10w")
+plotshape(wp_show and wp_fire30, title = "WkPos 30w", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "30w")
+
+if wp_fired and barstate.isconfirmed
+    _wpma = wp_fire10 ? "10w" : "30w"
+    wp_msg = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wp_stop, format.mintick) + '","note":"Weekly ' + _wpma + ' held/reclaim in a Stage-2 uptrend — price tested the rising ' + _wpma + 'MA and closed back above it. STOP = just below the test-bar wick low. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+    alert(wp_msg, alert.freq_once_per_bar_close)
+
+// WkPos flat weekly MA lines — the 10w/30w drawn as ONE horizontal level each
+// (like PDL), role-colored by side: green when price is above (SUP), red when
+// below (RES). Reuses wp_wf/wp_ws from the merge; redrawn on the last bar only.
+wp_lines    = input.bool(true, "WkPos: Show flat weekly 10w/30w MA lines", group = "Weekly Position")
+wp_line_len = input.int (60,   "WkPos: Flat MA line length (bars back)", minval = 10, maxval = 500, group = "Weekly Position")
+var line  wp_ln10 = na
+var line  wp_ln30 = na
+var label wp_lb10 = na
+var label wp_lb30 = na
+if wp_lines and barstate.islast
+    line.delete(wp_ln10)
+    line.delete(wp_ln30)
+    label.delete(wp_lb10)
+    label.delete(wp_lb30)
+    if not na(wp_wf)
+        wp_c10 = close > wp_wf ? color.new(#26A69A, 0) : color.new(#EF5350, 0)
+        wp_ln10 := line.new(bar_index - wp_line_len, wp_wf, bar_index + 10, wp_wf, color = wp_c10, width = 2)
+        wp_lb10 := label.new(bar_index + 10, wp_wf, "10w " + (close > wp_wf ? "SUP " : "RES ") + str.tostring(wp_wf, format.mintick), style = label.style_label_left, color = wp_c10, textcolor = color.white, size = size.small)
+    if not na(wp_ws)
+        wp_c30 = close > wp_ws ? color.new(#26A69A, 0) : color.new(#EF5350, 0)
+        wp_ln30 := line.new(bar_index - wp_line_len, wp_ws, bar_index + 10, wp_ws, color = wp_c30, width = 2)
+        wp_lb30 := label.new(bar_index + 10, wp_ws, "30w " + (close > wp_ws ? "SUP " : "RES ") + str.tostring(wp_ws, format.mintick), style = label.style_label_left, color = wp_c30, textcolor = color.white, size = size.small)
