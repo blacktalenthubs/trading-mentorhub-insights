@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
 import {
@@ -27,7 +28,7 @@ import type { NotificationPrefs } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Zap,
+  Sun, Moon, Zap, Sparkles,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -461,6 +462,18 @@ function AlertTypesSection() {
           </span>
         )}
       </p>
+
+      {/* New-user on-ramp — skip the wall of toggles, set up by trade style */}
+      <Link
+        to="/start-here"
+        className="mb-4 flex items-center gap-2.5 rounded-xl border border-accent/30 bg-accent/[0.07] px-3.5 py-2.5 transition-colors hover:bg-accent/10"
+      >
+        <Sparkles className="h-4 w-4 shrink-0 text-accent" />
+        <span className="flex-1 text-[12.5px] text-text-secondary">
+          <span className="font-semibold text-text-primary">New here?</span> Set up by trade style — Day, Swing or Long-term — in one tap.
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-text-faint" />
+      </Link>
 
       {total > 0 && (
         <div className="flex items-center gap-2 mb-4">

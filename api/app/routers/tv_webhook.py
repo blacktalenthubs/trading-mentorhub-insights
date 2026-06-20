@@ -1556,8 +1556,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # everyone's. No pref row = OFF (opt-in via Settings / Start here).
         users = await _filter_users_by_type_pref(db, users, alert_type_full)
         if not users:
-            logger.info("TV webhook: no users enabled %s for %s", alert_type_full, sig.symbol)
-            return {"dispatched": False, "reason": "no_subscribers"}
+            # No user has enabled this type yet — RECORD it as unrouted (visible in
+            # the Not-routed feed) rather than silently dropping it. A backend gap
+            # must never make an alert vanish; it should always land somewhere we
+            # can see it (2026-06-20, per user feedback).
+            logger.info("TV webhook: no users enabled %s for %s — recording unrouted", alert_type_full, sig.symbol)
+            return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="no_user_enabled")
 
         # ⭐ CONVICTION — flag the alert when the symbol is on the latest conviction
         # scan's Strong-Buy list (analyst-backed). The Pine setup is the trigger;
