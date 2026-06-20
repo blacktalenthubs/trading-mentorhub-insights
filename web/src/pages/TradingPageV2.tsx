@@ -751,6 +751,9 @@ function SignalFeedTab({
         // Fired but not routed to Telegram (e.g. SPY < PDL) — show greyed +
         // badged so it's reviewable without reading as a live, delivered call.
         const nrLabel = notRoutedLabel(a.suppressed_reason);
+        const rr = a.entry != null && a.target_1 != null && a.stop != null && a.entry !== a.stop
+          ? Math.abs((a.target_1 - a.entry) / (a.entry - a.stop))
+          : null;
 
         return (
           <div
@@ -761,7 +764,7 @@ function SignalFeedTab({
             {/* Line 1 — symbol · direction · grade · (AI) · (NOT SENT) · time */}
             <div className="flex items-center justify-between gap-1.5 mb-0.5">
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-xs font-bold text-text-primary">{a.symbol}</span>
+                <span className="text-[13px] font-bold text-text-primary">{a.symbol}</span>
                 <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirCls}`}>
                   {dirText}
                 </span>
@@ -782,16 +785,18 @@ function SignalFeedTab({
                 {isAIScan && (
                   <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">AI</span>
                 )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
                 {nrLabel && (
                   <span
                     title={`Not sent to Telegram — ${a.suppressed_reason}. Recorded for review.`}
                     className="text-[8px] font-bold px-1 py-0.5 rounded bg-bearish/15 text-bearish-text border border-bearish/30 cursor-help"
                   >
-                    NOT SENT · {nrLabel}
+                    NOT SENT
                   </span>
                 )}
+                <span className="text-[10px] font-mono text-text-faint">{time}</span>
               </div>
-              <span className="text-[10px] font-mono text-text-faint shrink-0">{time}</span>
             </div>
 
             {/* Line 2 — setup name + vol/slope tucked right (secondary) */}
@@ -826,6 +831,7 @@ function SignalFeedTab({
                 <span className="text-bullish-text">{fmtPrice(a.target_1)}</span>
                 <span className="text-text-faint">· stop</span>
                 <span className="text-bearish-text">{fmtPrice(a.stop)}</span>
+                {rr != null && <span className={`ml-auto font-semibold ${rr >= 2 ? "text-bullish-text" : "text-text-muted"}`}>→ {rr.toFixed(1)}R</span>}
               </div>
             ) : (
               a.message && (
