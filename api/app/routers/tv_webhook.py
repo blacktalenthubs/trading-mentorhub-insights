@@ -368,22 +368,17 @@ def _is_crypto_symbol(symbol: Optional[str]) -> bool:
     return (symbol or "").upper().endswith("-USD")
 
 
-# Fallback when the config read fails — keep the rc_4h SHORT tight (opt-in),
-# never open it up to the whole watchlist on a DB hiccup.
-RC4H_SHORT_DEFAULT: frozenset[str] = frozenset({"SPY", "DRAM"})
-# Gap-and-go always-deliver names — their gap-up fires even when gap-and-go is
-# muted (managed live from Settings; an index doesn't gap up without a reason).
-GAP_ALWAYS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
-# Multi-period S/R (htf_sr_*) symbol allowlist — clumpy on busy names, so it
-# delivers ONLY for these (start with indexes, expand live in Settings).
-HTF_SR_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
-# #278 — symbols whose SHORT alerts (any type) flow; everything else Not-routed.
-SHORT_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ"})
-# #282 — MA/EMA bounce alerts fire ONLY for these (clean trending names); else Not-routed.
-MA_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ", "DRAM", "MU", "AAPL"})
-# #286 — 4h RC alerts (BOTH long reclaim + short rejection) fire ONLY for these; the RC
-# short is wanted, so rc_4h is EXEMPT from the general short gate. Else Not-routed.
-RC_SYMS_DEFAULT: frozenset[str] = frozenset({"SPY", "QQQ", "DRAM", "MU", "AAPL", "NVDA", "IREN", "NBIS"})
+# Stock symbol allowlists — EMPTY BY DEFAULT (2026-06-20 beginner-safe cleanup):
+# the shipped product carries NO hardcoded stock exceptions, so a new user gets
+# nothing on stocks until they enable a type AND add symbols in Settings. Crypto
+# is exempt from these gates (fires via its own path), so crypto is unaffected.
+# Empty also = the safe fallback on a DB read failure (silence, never a flood).
+RC4H_SHORT_DEFAULT: frozenset[str] = frozenset()
+GAP_ALWAYS_DEFAULT: frozenset[str] = frozenset()
+HTF_SR_DEFAULT: frozenset[str] = frozenset()
+SHORT_SYMS_DEFAULT: frozenset[str] = frozenset()
+MA_SYMS_DEFAULT: frozenset[str] = frozenset()
+RC_SYMS_DEFAULT: frozenset[str] = frozenset()
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
