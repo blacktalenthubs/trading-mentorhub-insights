@@ -8,6 +8,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Target, Ban, LogIn, type LucideIcon } from "lucide-react";
 import { type ReactNode } from "react";
 import { patternFor, type PatternInfo } from "../lib/alertRegistry";
+import { useAlertConfig } from "../api/hooks";
 
 type Shape = "held" | "reclaim" | "break" | "rejection" | "flat";
 function shapeOf(code: string): Shape {
@@ -77,6 +78,39 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** Sibling browser — other live setups in the same group, so a lesson isn't a dead-end.
+ *  Catalog (live codes) × registry (label/group); dedupes by label, caps at 8. */
+function RelatedSetups({ current }: { current: PatternInfo }) {
+  const nav = useNavigate();
+  const { data: config } = useAlertConfig();
+  const seen = new Set<string>([current.label]);
+  const related: PatternInfo[] = [];
+  for (const c of config ?? []) {
+    const info = patternFor(c.alert_type);
+    if (!info || info.group !== current.group || info.code === current.code || seen.has(info.label)) continue;
+    seen.add(info.label);
+    related.push(info);
+    if (related.length >= 8) break;
+  }
+  if (related.length === 0) return null;
+  return (
+    <div className="pt-3 border-t border-border-subtle">
+      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint mb-2">More {current.group} setups</h2>
+      <div className="flex flex-wrap gap-2">
+        {related.map((r) => (
+          <button
+            key={r.code}
+            onClick={() => nav(`/pattern/${encodeURIComponent(r.code)}`)}
+            className="text-[12px] text-accent bg-accent-subtle/40 hover:bg-accent-subtle rounded-lg px-3 py-1.5 transition-colors"
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function PatternLearnPage() {
   const { code } = useParams<{ code: string }>();
   const nav = useNavigate();
@@ -122,7 +156,9 @@ export default function PatternLearnPage() {
               )}
             </div>
 
-            <p className="text-[11px] text-text-faint pt-3 border-t border-border-subtle">
+            <RelatedSetups current={p} />
+
+            <p className="text-[11px] text-text-faint pt-2">
               Annotated live-chart examples coming. This is the setup logic the alert fires on — not financial advice.
             </p>
           </>
