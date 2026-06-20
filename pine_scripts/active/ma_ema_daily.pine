@@ -144,10 +144,6 @@ sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahea
 sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// Spec L (2026-06-19) — daily RSI(14) for day/swing classification + Case-B
-// momentum target. lookahead_off = live developing-day RSI at fire time.
-rsi_d = request.security(syminfo.tickerid, "D", ta.rsi(close, 14), lookahead = barmerge.lookahead_off)
-
 // TODAY's daily open — the dual-role decider. A level is SUPPORT only if the DAY
 // opened above it; resistance if the day opened below it (2026-06-15). The bounce
 // must use the DAILY open, not the intraday bar's open — otherwise a break up
@@ -552,7 +548,6 @@ build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v,
       + '","uptrend_pass":"' + (uptrend_pass ? "true" : "false")
       + '","overhead_mas":"' + overhead_mas_str
       + '","nearby_levels":"' + nearby_levels_csv
-      + '","rsi":"' + str.tostring(rsi_d, "#.##")
       + '","mtd_avwap":"' + (na(mtd_avwap) ? "" : str.tostring(mtd_avwap, "#.##"))
       + '","vwap":"' + (na(session_vwap) ? "" : str.tostring(session_vwap, "#.##"))
       + '","vwap_slope_pct":"' + (na(vwap_slope_pct) ? "" : str.tostring(vwap_slope_pct, "#.##"))

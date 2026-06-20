@@ -50,48 +50,11 @@ if show_lvl and rc4_short
 if show_lvl and rc4_hrec
     line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_hrec, width = 1, style = line.style_dashed)
 
-// ── candidate stack + daily RSI for the backend unified target picker (Sub-spec A/L) ──
-// rc_4h sends the full level/EMA stack as `nearby_levels` so the backend picks ONE
-// target (nearest clustered wall) instead of the legacy fallback; daily RSI feeds the
-// day/swing classification (rc_4h = day) + the Case-B momentum target.
-[rc_pdh, rc_pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[rc_pwh, rc_pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[rc_pmh, rc_pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-rc_e8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
-rc_e21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
-rc_e50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
-rc_e100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
-rc_e200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
-rc_s50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
-rc_s100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
-rc_s200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
-rc_rsi  = request.security(syminfo.tickerid, "D", ta.rsi(close, 14), lookahead = barmerge.lookahead_off)
-
-rc_add(arr, string k, float v, string lbl) =>
-    if not na(v)
-        array.push(arr, k + "|" + str.tostring(v, "#.##") + "|" + lbl)
-rc_nb = array.new<string>()
-rc_add(rc_nb, "pdh", rc_pdh, "PDH")
-rc_add(rc_nb, "pdl", rc_pdl, "PDL")
-rc_add(rc_nb, "pwh", rc_pwh, "PWH")
-rc_add(rc_nb, "pwl", rc_pwl, "PWL")
-rc_add(rc_nb, "pmh", rc_pmh, "PMH")
-rc_add(rc_nb, "pml", rc_pml, "PML")
-rc_add(rc_nb, "ema8", rc_e8, "EMA 8")
-rc_add(rc_nb, "ema21", rc_e21, "EMA 21")
-rc_add(rc_nb, "ema50", rc_e50, "EMA 50")
-rc_add(rc_nb, "ema100", rc_e100, "EMA 100")
-rc_add(rc_nb, "ema200", rc_e200, "EMA 200")
-rc_add(rc_nb, "sma50", rc_s50, "SMA 50")
-rc_add(rc_nb, "sma100", rc_s100, "SMA 100")
-rc_add(rc_nb, "sma200", rc_s200, "SMA 200")
-rc_nearby = array.join(rc_nb, ",")
-
 // ─────────────────────────────────────────────────────────────────────────
 // ALERTS — once per 4h bar (rc4_newbar gates), rule "rc_4h", well-formed JSON.
 // interval hard-coded "240": it's a 4h signal even if the alert sits on a 5m chart.
 // ─────────────────────────────────────────────────────────────────────────
-rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + rc_nearby + '","rsi":"' + str.tostring(rc_rsi, "#.##") + '","fired_at":"' + str.tostring(timenow) + '"}'
+rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if rc4_long
     alert(rc_payload("BUY", rc4_low, "RC · reclaim of the prior 4h low (undercut & reclaim) · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)

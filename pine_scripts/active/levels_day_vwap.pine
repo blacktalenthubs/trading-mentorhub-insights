@@ -138,11 +138,6 @@ sma50_d  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookah
 sma100_d = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200_d = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// Spec L (2026-06-19) — daily RSI(14) carried in every payload as the day/swing
-// classification input + the Case-B momentum-target reference (RSI 70/80). lookahead_off
-// so it's the live developing-day RSI at fire time (matches the swing book's f_swing).
-rsi_d = request.security(syminfo.tickerid, "D", ta.rsi(close, 14), lookahead = barmerge.lookahead_off)
-
 uptrend_pass_58 = close > nz(ema8_d, 1e9) and close > nz(ema21_d, 1e9) and close > nz(ema50_d, 1e9) and close > nz(sma50_d, 1e9) and close > nz(ema100_d, 1e9) and close > nz(sma100_d, 1e9) and close > nz(ema200_d, 1e9) and close > nz(sma200_d, 1e9)
 
 // Spec 61 — market-regime gate. The OPEN gate was REMOVED 2026-06-05: price
@@ -449,14 +444,10 @@ lowest_res_just_broken() =>
 
 // Highest support just reclaimed: highest level below prior close that's
 // now above current close.
-// DUAL-ROLE GUARD (#64 Sub-spec A, 2026-06-19): require day_open > level — a level is
-// SUPPORT only if the day OPENED above it. A rally up INTO a level from below (day opened
-// below it) is RESISTANCE, not a reclaim → no long. Mirrors s58_pdl_held. Fixes longs
-// firing into resistance (the SPCX PDL case). Purely additive: only suppresses bad fires.
 highest_sup_just_reclaimed() =>
-    p_pdl = not na(pdl) and day_open > pdl and close > pdl and close[1] <= pdl ? pdl : -9.0e15
-    p_pwl = not na(pwl) and day_open > pwl and close > pwl and close[1] <= pwl ? pwl : -9.0e15
-    p_pml = not na(pml) and day_open > pml and close > pml and close[1] <= pml ? pml : -9.0e15
+    p_pdl = not na(pdl) and close > pdl and close[1] <= pdl ? pdl : -9.0e15
+    p_pwl = not na(pwl) and close > pwl and close[1] <= pwl ? pwl : -9.0e15
+    p_pml = not na(pml) and close > pml and close[1] <= pml ? pml : -9.0e15
     m = math.max(p_pdl, math.max(p_pwl, p_pml))
     m == -9.0e15 ? float(na) : m
 
@@ -656,18 +647,9 @@ fire_orl_held   = input.bool(true, "Fire opening-range-low held entry (15m OR lo
 or_test_tol_pct = input.float(0.15, "OR-low test tolerance (% above the OR low)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Opening range")
 var float orl_61     = na      // opening-range low (first 15 min)
 var bool  or_done_61 = false
-// ORL fire cadence (2026-06-19) — the defense works best on the FIRST dip back to
-// the opening-range low; after that, price oscillating around the level re-fired all
-// day (it was the #1 alert by volume). Stocks: once per day. Crypto (24/7): re-arm
-// every 4h bar so a fresh qualifying defense can fire intraday (~once per 4h).
-// The OR low itself stays a DAILY value (first 15 min) — only the fire guard re-arms.
-orl_rearm_61 = syminfo.type == "crypto" ? (ta.change(time("240")) != 0) : session_open_now
-var bool  orl_fired_61 = false
 if session_open_now
     orl_61     := low
     or_done_61 := false
-if orl_rearm_61
-    orl_fired_61 := false
 else if not na(first_bar_time) and (time - first_bar_time) < 15 * 60 * 1000
     orl_61 := math.min(nz(orl_61, low), low)
 else if not na(first_bar_time)
@@ -968,7 +950,6 @@ build_payload_v2(rule, direction,
       + '","overhead_mas":"' + overhead_mas_str_58
       + '","nearby_levels":"' + nearby_levels_csv_58
       + '","mtd_avwap":"' + (na(mtd_avwap_58) ? "" : str.tostring(mtd_avwap_58, "#.##"))
-      + '","rsi":"' + str.tostring(rsi_d, "#.##")
       + '","spy_above_pdl":"' + (spy_above_pdl_61 ? "true" : "false") + '"}'
 
 atr14      = nz(ta.atr(14)[1], close * 0.005)
@@ -1110,38 +1091,15 @@ nearest_below(float e, float l1, float l2) =>
     r  = math.max(a1, a2)
     r == -9.0e15 ? float(na) : r
 
-// Full-stack nearest level/EMA above/below entry (#64-A) — the REAL target. Scans every
-// daily/weekly/monthly level AND the daily MAs, picks the nearest one >=~1% away. The ~1%
-// band skips the entry's OWN level/cluster (the support you're firing AT) so the target is
-// the NEXT neighbor wall — e.g. SPCX firing at the PWH (~177) targets the PDL (187), not the
-// PWH itself. na if none in reach → callers fall back to round/ATR.
-nearest_stack_above(float e) =>
-    best = 9.0e15
-    cands = array.from(pdh, pdl, pwh, pwl, pmh, pml, ema8_d, ema21_d, ema50_d, ema100_d, ema200_d, sma50_d, sma100_d, sma200_d)
-    for i = 0 to array.size(cands) - 1
-        v = array.get(cands, i)
-        if not na(v) and v > e * 1.01 and v < best
-            best := v
-    best == 9.0e15 ? float(na) : best
-
-nearest_stack_below(float e) =>
-    best = -9.0e15
-    cands = array.from(pdh, pdl, pwh, pwl, pmh, pml, ema8_d, ema21_d, ema50_d, ema100_d, ema200_d, sma50_d, sma100_d, sma200_d)
-    for i = 0 to array.size(cands) - 1
-        v = array.get(cands, i)
-        if not na(v) and v < e * 0.99 and v > best
-            best := v
-    best == -9.0e15 ? float(na) : best
-
 t1_long_hier(float e, float l1, float l2, float atr_daily) =>
-    s = nearest_stack_above(e)
+    s = nearest_above(e, l1, l2)
     not na(s) ? s :
       next_round_above(e) > e * 1.005 ? next_round_above(e) :
       e + atr_daily * 0.5 > e * 1.005 ? e + atr_daily * 0.5 :
       e * 1.0075
 
 t1_short_hier(float e, float l1, float l2, float atr_daily) =>
-    s = nearest_stack_below(e)
+    s = nearest_below(e, l1, l2)
     not na(s) ? s :
       next_round_below(e) < e * 0.995 ? next_round_below(e) :
       e - atr_daily * 0.5 < e * 0.995 ? e - atr_daily * 0.5 :
@@ -1329,7 +1287,7 @@ if v2_gap_up_cont
 if pdl_reclaim
     e   = close
     s   = low - atr_buffer
-    t1_struct = nearest_stack_above(e)
+    t1_struct = nearest_above(e, pdh, pwh)
     t1 = not na(t1_struct) ? t1_struct : t1_long_hier(e, pdh, pmh, atr_d)
     t2 = not na(pwh) and pwh > t1 ? pwh : (not na(pmh) and pmh > t1 ? pmh : t2_extend_long(e, t1))
     tf  = level_tf(reclaimed_support, pdl, pwl, pml)
@@ -1428,8 +1386,7 @@ if false and s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
 // works whether PDH is above (target) or already cleared (extension). v2
 // body gate kills doji/distribution holds. NOT SPY-gated — defending the
 // low is a relative-strength setup. Catalog default-OFF; opt in to test.
-if fire_orl_held and s58_orl_held and v2_body_ok and not orl_fired_61
-    orl_fired_61 := true
+if fire_orl_held and s58_orl_held and v2_body_ok
     e_orl  = close
     s_orl  = orl_61 - atr_buffer
     // On a weak (below-open) day the OPEN line is the realistic first target
@@ -1837,11 +1794,11 @@ f_wkstage() =>
 // stay in the tuple but no longer fire.
 if wk_alerts and wk_rcb and not wk_rcb[1]
     wrbn = "Weekly RC · undercut & reclaim of the prior-week low (below 30wMA = bottoming, green week) · stop " + str.tostring(wk_low, format.mintick)
-    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrbp, alert.freq_once_per_bar_close)
 if wk_alerts and wk_rca and not wk_rca[1]
     wran = "Weekly RC · in-uptrend dip-reclaim of the prior-week low (above 30wMA, green week) · stop " + str.tostring(wk_low, format.mintick)
-    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrap, alert.freq_once_per_bar_close)
 
 // ── Swing book (2026-06-13) — daily RSI/EMA momentum, folded in so it fires from
@@ -1879,11 +1836,11 @@ if fire_swing and sw_rsi70 and not sw_rsi70_done
     alert(swp1, alert.freq_once_per_bar_close)
 if fire_swing and sw_cross and not sw_cross_done
     sw_cross_done := true
-    swp2 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(sw_e20, format.mintick) + '","note":"5/20 EMA bullish cross (Steve Burns). STOP = 5/20 cross-under at the close (~20 EMA). Target = RSI 70","target_rsi":"70","target_tf":"D","fired_at":"' + str.tostring(timenow) + '"}'
+    swp2 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ema_5_20_cross","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(sw_e20, format.mintick) + '","note":"5/20 EMA bullish cross (Steve Burns). STOP = 5/20 cross-under at the close (~20 EMA). Target = RSI 70","fired_at":"' + str.tostring(timenow) + '"}'
     alert(swp2, alert.freq_once_per_bar_close)
 if fire_swing and sw_os and not sw_os_done
     sw_os_done := true
-    swp3 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30). T1 RSI 50, T2 RSI 70. STOP = daily close back under RSI 30","target_rsi":"70","target_tf":"D","fired_at":"' + str.tostring(timenow) + '"}'
+    swp3 = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"rsi_oversold","direction":"BUY","interval":"D","entry":"' + str.tostring(close, format.mintick) + '","note":"RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30). T1 RSI 50, T2 RSI 70. STOP = daily close back under RSI 30","fired_at":"' + str.tostring(timenow) + '"}'
     alert(swp3, alert.freq_once_per_bar_close)
 
 // 4h RC alerts MOVED to the standalone "RC4h" indicator (#292, 2026-06-18). The
