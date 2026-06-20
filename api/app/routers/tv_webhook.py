@@ -1551,8 +1551,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     async with async_session_factory() as db:
         # Fetch users whose watchlist contains this symbol.
         users = await _users_watching(db, sig.symbol)
+        # Per-user gate (2026-06-20): deliver only to users who enabled THIS alert
+        # type. Fixes the multi-tenancy bug where one account's toggles changed
+        # everyone's. No pref row = OFF (opt-in via Settings / Start here).
+        users = await _filter_users_by_type_pref(db, users, alert_type_full)
         if not users:
-            logger.info("TV webhook: no users watching %s", sig.symbol)
+            logger.info("TV webhook: no users enabled %s for %s", alert_type_full, sig.symbol)
             return {"dispatched": False, "reason": "no_subscribers"}
 
         # ⭐ CONVICTION — flag the alert when the symbol is on the latest conviction
@@ -1792,6 +1796,31 @@ async def _persist_unrouted(
         recorded, alert_type_full, suppressed_reason, sig.symbol,
     )
     return {"dispatched": False, "reason": suppressed_reason, "recorded": recorded}
+
+
+async def _filter_users_by_type_pref(db, users, alert_type_full: str):
+    """Keep only the users who enabled THIS alert type (per-user, default OFF).
+
+    Per-user multi-tenancy fix (2026-06-20): the alert-type on/off is stored per
+    user in user_alert_type_prefs, so one account's toggles never affect another.
+    Reuses _is_allowed_alert_type so MA-family confluence matching is identical to
+    the catalog gate. A user with no pref row for the type = OFF.
+    """
+    if not users:
+        return users
+    from app.models.alert_type_pref import UserAlertTypePref
+
+    ids = [u.id for u in users]
+    rows = (await db.execute(
+        select(UserAlertTypePref.user_id, UserAlertTypePref.alert_type).where(
+            UserAlertTypePref.user_id.in_(ids),
+            UserAlertTypePref.enabled.is_(True),
+        )
+    )).all()
+    by_user: dict[int, set[str]] = {}
+    for uid, at in rows:
+        by_user.setdefault(uid, set()).add(at)
+    return [u for u in users if _is_allowed_alert_type(alert_type_full, by_user.get(u.id, set()))]
 
 
 async def _users_watching(db, symbol: str):
