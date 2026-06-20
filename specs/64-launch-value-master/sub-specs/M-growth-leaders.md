@@ -44,6 +44,20 @@ A name is a **Growth Leader** when it scores across three layers:
 
 **Gaps to source later:** ROIC / capital efficiency, durable-moat classification, true institutional ownership (proxy with accumulation + RS until then).
 
+## Placement + data pipeline (reuse the conviction rails)
+**Placement:** a **"Long Term"** section under the **Trade Ideas** tab — the long-horizon sibling of the day/swing ideas.
+
+**Pipeline — mirror the existing conviction screener exactly (no new infra):**
+- **Scoring:** a `growth_screener.py` of pure score/rank functions, like `conviction_screener.py` (`evaluate_conviction` / `rank_conviction`). Unit-tested in isolation.
+- **Orchestrate:** `screener_service._gather_growth()` mirroring `_gather_conviction()` — loop the universe, score, rank.
+- **Store:** `_save_snapshot(kind="growth")` → the same `screener_snapshot` table (+ history selector), exactly like `kind="conviction"`.
+- **Serve:** `/screener/growth` (+ `/growth/history`) mirroring `/screener/conviction`; a `GrowthLeadersPage.tsx` like `ConvictionPage.tsx`.
+
+**Data sourcing — DON'T repeat conviction's yfinance dependency in prod.** The conviction scan pulls fundamentals/analyst via **yfinance** (`.info` + `.history`), which is **cloud-blocked on Railway** ([[project_yfinance_cloud_blocked]]) — so it only works where yfinance runs (local/scheduled) and analyst data degrades in prod. Growth Leaders should instead:
+- **Fundamental layer** ← the **`symbol_fundamentals` table** (already populated: eps_growth_pct + the revenue-growth/margins JSON) + `earnings` (momentum) — no yfinance at scan time.
+- **Technical layer** ← **Alpaca daily** (Stage 2 / RS vs SPY / % off 52wH / accumulation — the WkPos metrics), via the existing `intraday_data.py` Alpaca helpers.
+- Run the scan on a schedule (like conviction); the UI reads the latest snapshot.
+
 ## The surfaces
 1. **Growth Leaders board** — ranked ≤15 names by a composite Leader score, each row a one-glance ✓/✗ on the 8 criteria (mirrors the founder's tweet format) + a **"BUY-READY"** badge when the pre-buy gate passes.
 2. **Per-name scorecard** — the full breakdown (rev growth, earnings, margin, ROIC, runway, moat, institutional, RS), so the user *learns why* (ties to Sub-spec C education-in-flow).
@@ -61,6 +75,7 @@ A name is a **Growth Leader** when it scores across three layers:
 - **M-3:** A name flips to **BUY-READY** only when the pre-buy gate passes (Stage 2 + RS + breakout vol >40% + entry ≤3% + positive EV).
 - **M-4:** A BUY-READY Leader that also fires a WkPos entry is surfaced as the highest-conviction signal (the board × the entry).
 - **M-5:** Criteria we can't yet measure (ROIC, moat, institutional) are shown as "—/pending", not faked.
+- **M-6:** Lives as a **"Long Term" section under Trade Ideas**, served from a `kind="growth"` `screener_snapshot` (same rails as conviction). The scan sources fundamentals from `symbol_fundamentals` + `earnings` and technicals from **Alpaca daily** — **no yfinance at scan time** (Railway-safe), unlike the current conviction scan.
 
 ## Out of scope
 - Early/emerging discovery (sub-$5B, base-volume-surge) — Sub-spec **B**.
