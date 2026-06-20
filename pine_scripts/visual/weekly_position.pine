@@ -18,13 +18,13 @@
 //   • Accum      — up-week vs down-week volume over 10w (>1 = being bought)
 //   • Wk RSI     — momentum; RSI 70 is the TARGET (sell strength), not an entry
 //
-// ENTRY — "10w HOLD" (mirrors ma-ema-daily strict_long — established SUPPORT, not
-// resistance): in a Stage-2 uptrend (close>30w, 30w rising, 10w>30w) the DAY opens
-// ABOVE the rising 10wMA, price dips TO it (low ≤ 10w) and closes back ABOVE it. That
-// "lost intraday, held" is the buy. It does NOT fire on a deep recovery rallying UP
-// through the 10w from below (buying resistance). Fires on the hold — NOT the weekly
-// close — so bind on a daily/4h chart and enter at the MA.
-//   STOP   = just below the bar's WICK LOW. A close below it = the 10w failed → out.
+// ENTRY — HELD / RECLAIM / BREAKOUT on the 10w AND the 30w (the same trio the staged
+// PDH/PDL levels use). One condition: price CLOSES above the MA having interacted with
+// it — dipped to it (low≤MA = HELD), been below last bar (close[1]≤MA = RECLAIM/BREAKOUT),
+// or OPENED right at it (open within tol). 10w gated by Stage 2 (close>30w, 30w rising,
+// 10w>30w); 30w gated by a rising 30w. Fires on EVERY qualifying touch (past + present),
+// NOT the weekly close — bind on a daily/4h chart and enter at the MA. Re-armed per MA.
+//   STOP   = just below the test bar's WICK LOW. A close below it = the MA failed → out.
 //   target = weekly RSI 70 (the swing/position target). 30wMA below = runner trail.
 //
 // The 10w/30w are drawn as FLAT horizontal levels (anchored to the weekly value),
