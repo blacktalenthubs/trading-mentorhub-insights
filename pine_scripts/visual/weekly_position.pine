@@ -47,7 +47,7 @@ bench_sym     = input.symbol("SPY","RS benchmark (SPY/QQQ)", group = "Metrics")
 rsi_len       = input.int  (14,   "Weekly RSI length", minval = 2, group = "Metrics")
 accum_lb      = input.int  (10,   "Accumulation lookback (weeks)", minval = 4, group = "Metrics")
 fire_pullback   = input.bool (true, "Fire MA-pullback-hold entry alert", group = "Entry")
-pull_tol_pct    = input.float(2.0,  "Pullback touch tolerance (% of the 10wMA)", minval = 0.0, step = 0.5, group = "Entry")
+pull_tol_pct    = input.float(2.0,  "Open-at-the-MA tolerance (% — counts a bar that opens right at the MA)", minval = 0.0, step = 0.5, group = "Entry")
 slope_floor_pct = input.float(0.5,  "Chop filter — 30wMA min rising slope (% over the lookback)", minval = 0.0, step = 0.1, group = "Entry")
 rearm_pct       = input.float(3.0,  "Re-arm — a week must close this % above the 10wMA before the next entry", minval = 0.5, step = 0.5, group = "Entry")
 stop_buf_pct    = input.float(1.0,  "Stop buffer below the pullback low (%)", minval = 0.0, step = 0.5, group = "Entry")
@@ -130,31 +130,51 @@ if show_table and barstate.islast
     table.cell(t, 0, 5, "Wk RSI",     text_color = color.white, text_size = size.small)
     table.cell(t, 1, 5, na(wrsi) ? "—" : str.tostring(wrsi, "#.#"), text_color = (not na(wrsi) and wrsi >= 70) ? col_dn : color.white, text_size = size.small)
 
-// ── ENTRY — 10w HOLD (mirrors ma-ema-daily's strict_long). The 10w must be
-// ESTABLISHED SUPPORT, not resistance: the DAY opened ABOVE it (day_open > 10w), price
-// then dipped TO it (low <= 10w) and closed back ABOVE (close > 10w) = lost intraday,
-// held. This is the ONLY clean weekly MA buy. It does NOT fire on a deep recovery that
-// rallies UP through the 10w from below — that's buying resistance (the CRWV/AMZN bad
-// entries: they fired near the 10w while price was below it, then dropped to the 30w).
-// Once price re-establishes above the 10w and pulls back to it, THEN it fires.
-//   STOP = just below the bar's wick low (a close below it = the 10w didn't hold → out).
-wk_day_open = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
-hold10w = wuptrend and not na(wf) and wk_day_open > wf and low <= wf and close > wf
-var bool wk_armed = true
+// ── ENTRIES — held / reclaim / breakout on the 10w AND the 30w (the same trio the
+// staged PDH/PDL levels use). One condition covers all three: price CLOSES above the
+// MA having either tagged it this bar (low<=MA → HELD/wick-hold) or been below last bar
+// (close[1]<=MA → RECLAIM or BREAKOUT). Fires on every qualifying touch — past and
+// present — re-armed per MA so it can't cluster while price hugs the level.
+//   STOP = just below the test bar's WICK LOW. A close below it = the MA failed → out.
+// Qualifying touch: closes above the MA AND interacted with it —
+//   • low <= MA          → dipped to it (HELD / wick-hold)
+//   • close[1] <= MA     → was below last bar (RECLAIM / BREAKOUT)
+//   • open within tol of MA → OPENED right at it (gap/open-at-the-level)
+ma_entry(float ma) =>
+    not na(ma) and close > ma and (low <= ma or (not na(close[1]) and close[1] <= ma) or math.abs(open - ma) / ma <= pull_tol_pct / 100.0)
+
+// 10w entry — within Stage 2 (price>30w, 30w rising, 10w>30w).
+e10 = wuptrend and ma_entry(wf)
+var bool armed10 = true
 if not na(wf) and close > wf * (1.0 + rearm_pct / 100.0)
-    wk_armed := true
-new_setup = fire_pullback and hold10w and wk_armed
-if new_setup
-    wk_armed := false
+    armed10 := true
+fire10 = fire_pullback and e10 and armed10
+if fire10
+    armed10 := false
 
+// 30w entry — the deeper support; gate on a RISING 30w (macro uptrend intact).
+e30 = not na(ws) and not na(ws[slope_lb]) and ws > ws[slope_lb] and ma_entry(ws)
+var bool armed30 = true
+if not na(ws) and close > ws * (1.0 + rearm_pct / 100.0)
+    armed30 := true
+fire30 = fire_pullback and e30 and armed30
+if fire30
+    armed30 := false
+
+fired_any  = fire10 or fire30
 stop_level = low * (1.0 - stop_buf_pct / 100.0)
-plotshape(new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
 
-if show_stop and new_setup
+// Markers — green ▲ below the bar on EVERY qualifying touch (10w + 30w).
+plotshape(fire10, title = "10w entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.small, text = "10w")
+plotshape(fire30, title = "30w entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "30w")
+
+// Tags — Entry ABOVE the bar (not buried in the candle), Stop at the stop level.
+if show_stop and fired_any
     line.new(bar_index, stop_level, bar_index + 8, stop_level, color = col_dn, width = 2, style = line.style_dashed)
+    label.new(bar_index, high, "Entry " + str.tostring(close, format.mintick), yloc = yloc.abovebar, style = label.style_label_down, color = col_up, textcolor = color.white, size = size.small)
     label.new(bar_index, stop_level, "Stop " + str.tostring(stop_level, format.mintick), yloc = yloc.price, style = label.style_label_up, color = col_dn, textcolor = color.white, size = size.small)
-    label.new(bar_index, close, "Entry " + str.tostring(close, format.mintick), yloc = yloc.price, style = label.style_label_down, color = col_up, textcolor = color.white, size = size.small)
 
-if new_setup and barstate.isconfirmed
-    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly 10w HOLD in a Stage-2 uptrend — the day opened ABOVE the rising 10wMA (established support), price dipped to it and closed back above. Enter on the hold (not the weekly close). STOP = just below the bar wick low; a close below it = the 10w failed → out. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+if fired_any and barstate.isconfirmed
+    _ma = fire10 ? "10w" : "30w"
+    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly ' + _ma + ' held/reclaim/breakout in a Stage-2 uptrend — price tested the rising ' + _ma + 'MA and closed back above it. STOP = just below the test-bar wick low (a close below = the MA failed). Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wp, alert.freq_once_per_bar_close)
