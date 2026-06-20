@@ -20,11 +20,18 @@
 //
 // ENTRY — "MA-pullback hold": in an uptrend (close>30w, 30w rising, 10w>30w) the
 // week dips to the rising 10wMA and closes back GREEN above it. Buy the pullback.
-//   stop  = the pullback week's low (trend invalidates on a weekly close < 30wMA)
+//   STOP  = just below the pullback week's LOW (drawn on the chart). Logic: the dip
+//           to the 10w held; a weekly CLOSE below that low = the hold failed → out.
+//           It sits above the rising 30wMA, which is the runner's trailing stop.
 //   target = weekly RSI 70 (the swing/position target)
+//
+// CHOP FILTERS (so it doesn't cluster in a sideways range):
+//   • 30wMA must be rising faster than a flat band (slope_floor_pct), not just >0.
+//   • Re-arm: after a fire it stands down until a week closes rearm_pct ABOVE the
+//     10wMA — in chop price hugs the MA and never extends, so it stays silent.
 // rule "weekly_ma_pullback" — default-OFF in the backend catalog; opt in to test.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Weekly Position", "WkPos", overlay = true, max_labels_count = 50)
+indicator("Weekly Position", "WkPos", overlay = true, max_labels_count = 200, max_lines_count = 100)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 ma_fast_len   = input.int  (10,   "Fast weekly MA", minval = 2, group = "Trend")
@@ -35,8 +42,12 @@ hi_lookback   = input.int  (52,   "52-week high lookback", minval = 10, group = 
 bench_sym     = input.symbol("SPY","RS benchmark (SPY/QQQ)", group = "Metrics")
 rsi_len       = input.int  (14,   "Weekly RSI length", minval = 2, group = "Metrics")
 accum_lb      = input.int  (10,   "Accumulation lookback (weeks)", minval = 4, group = "Metrics")
-fire_pullback = input.bool (true, "Fire MA-pullback-hold entry alert", group = "Entry")
-pull_tol_pct  = input.float(2.0,  "Pullback touch tolerance (% of the 10wMA)", minval = 0.0, step = 0.5, group = "Entry")
+fire_pullback   = input.bool (true, "Fire MA-pullback-hold entry alert", group = "Entry")
+pull_tol_pct    = input.float(2.0,  "Pullback touch tolerance (% of the 10wMA)", minval = 0.0, step = 0.5, group = "Entry")
+slope_floor_pct = input.float(0.5,  "Chop filter — 30wMA min rising slope (% over the lookback)", minval = 0.0, step = 0.1, group = "Entry")
+rearm_pct       = input.float(3.0,  "Re-arm — a week must close this % above the 10wMA before the next entry", minval = 0.5, step = 0.5, group = "Entry")
+stop_buf_pct    = input.float(1.0,  "Stop buffer below the pullback low (%)", minval = 0.0, step = 0.5, group = "Entry")
+show_stop       = input.bool (true, "Draw the stop line + label on each entry", group = "Display")
 show_table    = input.bool (true, "Show metrics table", group = "Display")
 col_up        = input.color(#26A69A, "Rising / healthy", group = "Display")
 col_dn        = input.color(#EF5350, "Falling / caution", group = "Display")
@@ -48,14 +59,24 @@ f_weekly() =>
     _l     = ta.sma(close, ma_long_len)
     _hi    = ta.highest(high, hi_lookback)
     _rsi   = ta.rsi(close, rsi_len)
-    _slope = _s - _s[slope_lb]
+    _slope = _s[slope_lb] != 0 ? (_s - _s[slope_lb]) / _s[slope_lb] * 100.0 : 0.0
     _upv   = math.sum(volume * (close > open ? 1.0 : 0.0), accum_lb)
     _dnv   = math.sum(volume * (close < open ? 1.0 : 0.0), accum_lb)
     _accum = _dnv > 0 ? _upv / _dnv : _upv
-    // pullback-hold: uptrend, dipped to the rising 10wMA, closed back green above it.
-    _uptrend = (close > _s) and (_slope > 0) and (_f > _s)
-    _hold    = _uptrend and (low <= _f * (1.0 + pull_tol_pct / 100.0)) and (close > _f) and (close > open)
-    [_f, _s, _l, _hi, _rsi, _slope, _accum, _uptrend, _hold, low]
+    // Uptrend (chop-filtered): above a 30wMA rising FASTER than the flat band
+    // (slope_floor_pct) — a barely-rising 30w in a sideways range is chop, not trend.
+    _uptrend = (close > _s) and (_slope > slope_floor_pct) and (_f > _s)
+    _dip     = _uptrend and (low <= _f * (1.0 + pull_tol_pct / 100.0)) and (close > _f) and (close > open)
+    // Re-arm — fire ONCE per pullback. After a fire, stand down until a week closes
+    // >= rearm_pct ABOVE the 10wMA (price pushed off the MA). In chop, price hugs the
+    // 10w and never extends, so it stays disarmed → no weekly cluster of fires.
+    var bool _armed = true
+    if close > _f * (1.0 + rearm_pct / 100.0)
+        _armed := true
+    _fire = _dip and _armed
+    if _fire
+        _armed := false
+    [_f, _s, _l, _hi, _rsi, _slope, _accum, _uptrend, _fire, low]
 
 [wf, ws, wl, whi, wrsi, wslope, waccum, wuptrend, whold, wklow] = request.security(syminfo.tickerid, "W", f_weekly(), lookahead = barmerge.lookahead_on)
 
@@ -94,10 +115,23 @@ if show_table and barstate.islast
     table.cell(t, 0, 5, "Wk RSI",     text_color = color.white, text_size = size.small)
     table.cell(t, 1, 5, na(wrsi) ? "—" : str.tostring(wrsi, "#.#"), text_color = (not na(wrsi) and wrsi >= 70) ? col_dn : color.white, text_size = size.small)
 
-// ── entry marker + alert — fires once at the weekly close on a fresh setup ────
+// ── entry marker + STOP + alert — fires once at the weekly close on a fresh setup ─
 new_setup = whold and not whold[1]
+// STOP — just below the LOW of the pullback week (the swing low that defended the
+// rising 10wMA). Logic: the setup is "the dip to the 10w held"; if a later week
+// CLOSES below that low, the hold failed → out. It's the nearest structural low,
+// and it sits ABOVE the rising 30wMA (the deeper trend-invalidation), so the trade
+// risks the pullback, not the whole trend. The 30wMA below is the runner's trail.
+stop_level = wklow * (1.0 - stop_buf_pct / 100.0)
 plotshape(fire_pullback and new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
 
+// Draw the stop where it logically sits — a red line at stop_level under the entry,
+// + an "E" tick at the entry close, so the risk is visible at a glance.
+if show_stop and fire_pullback and new_setup
+    line.new(bar_index, stop_level, bar_index + 8, stop_level, color = col_dn, width = 2, style = line.style_dashed)
+    label.new(bar_index, stop_level, "Stop " + str.tostring(stop_level, format.mintick), yloc = yloc.price, style = label.style_label_up, color = col_dn, textcolor = color.white, size = size.small)
+    label.new(bar_index, close, "Entry " + str.tostring(close, format.mintick), yloc = yloc.price, style = label.style_label_down, color = col_up, textcolor = color.white, size = size.small)
+
 if fire_pullback and barstate.isconfirmed and new_setup
-    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wklow, format.mintick) + '","note":"Weekly MA-pullback hold — dip to the rising 10wMA, green weekly close above it (Stage 2). Stop = pullback-week low / weekly close < 30wMA. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly MA-pullback hold — dip to the rising 10wMA, green weekly close above it (Stage 2). Stop = just below the pullback-week low (weekly close below = out); 30wMA is the runner trail. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wp, alert.freq_once_per_bar_close)
