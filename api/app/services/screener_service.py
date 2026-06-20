@@ -17,6 +17,7 @@ from sqlalchemy import delete, desc, select
 
 from analytics import screener as scr
 from analytics import conviction_screener as conv
+from analytics import growth_screener as growth
 from app.config import get_settings
 from app.database import async_session_factory
 from app.models.screener import ScreenerAlertLog, ScreenerSnapshot, ScreenerUniverse, ScreenerUserSettings
@@ -663,6 +664,75 @@ async def _autosync_conviction_watchlist() -> None:
 
 async def get_latest_conviction() -> ScreenerSnapshot | None:
     return await get_latest_snapshot("conviction")
+
+
+# ---------------------------------------------------------------------------
+# Growth Leaders (#64-M) — the "Long Term" board under Trade Ideas. Ranks the
+# curated growth-leader universe on the Mathematical Growth-Stock Framework.
+# Fundamentals come from the symbol_fundamentals TABLE (NOT yfinance → Railway-safe);
+# technicals from daily bars. Mirrors the conviction scan; kind="growth" snapshot.
+# ---------------------------------------------------------------------------
+async def _load_growth_fundamentals(symbols: tuple[str, ...]) -> dict[str, dict]:
+    """Pull the fundamental layer for the universe from symbol_fundamentals (+ its
+    metrics_json blob: revenue_growth_pct, gross_margin_pct). No yfinance."""
+    import json as _json
+    from app.models.fundamentals import SymbolFundamentals
+    out: dict[str, dict] = {}
+    async with async_session_factory() as s:
+        rows = (await s.execute(
+            select(SymbolFundamentals).where(SymbolFundamentals.symbol.in_([x.upper() for x in symbols]))
+        )).scalars().all()
+    for r in rows:
+        metrics = {}
+        if getattr(r, "metrics_json", None):
+            try:
+                metrics = _json.loads(r.metrics_json) or {}
+            except Exception:
+                metrics = {}
+        out[r.symbol.upper()] = {
+            "rev_growth_pct": metrics.get("revenue_growth_pct"),
+            "rev_accelerating": metrics.get("revenue_accelerating"),  # may be absent → pending
+            "eps_growth_pct": getattr(r, "eps_growth_pct", None),
+            "gross_margin_pct": metrics.get("gross_margin_pct"),
+            "consensus": getattr(r, "consensus", None),
+            "sector": getattr(r, "sector", None),
+        }
+    return out
+
+
+def _gather_growth(fund_map: dict[str, dict]) -> list[growth.GrowthCandidate]:
+    """Score the growth-leader universe: daily bars (technical) + the pre-loaded
+    fundamentals map. Runs in a thread (the daily fetch is blocking)."""
+    spy = _fetch_daily_consolidated("SPY", "1y")
+    spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-(growth.RS_WINDOW + 1)])) - 1) * 100
+               if spy is not None and len(spy) > growth.RS_WINDOW else 0.0)
+    cands: list[growth.GrowthCandidate] = []
+    for sym in growth.GROWTH_UNIVERSE:
+        try:
+            daily = _fetch_daily_consolidated(sym, "1y")
+            fund = fund_map.get(sym.upper(), {})
+            c = growth.evaluate_growth(sym, fund.get("sector"), daily, spy_ret, fund)
+            if c is not None:
+                cands.append(c)
+        except Exception:
+            logger.debug("growth: skipped %s", sym, exc_info=True)
+    return growth.rank_growth(cands, get_settings().SCREENER_TOP_N)
+
+
+async def refresh_growth() -> None:
+    """Run the Growth Leaders scan and persist a snapshot (kind='growth')."""
+    try:
+        fund_map = await _load_growth_fundamentals(growth.GROWTH_UNIVERSE)
+        cands = await asyncio.to_thread(_gather_growth, fund_map)
+        await _save_snapshot(cands, kind="growth", market_open=False, top_n=get_settings().SCREENER_TOP_N)
+        logger.info("growth: snapshot refreshed (%d names)", len(cands))
+    except Exception:
+        logger.exception("growth: refresh failed — marking last snapshot stale")
+        await _mark_latest_stale("growth")
+
+
+async def get_latest_growth() -> ScreenerSnapshot | None:
+    return await get_latest_snapshot("growth")
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,17 @@ from typing import Optional
 
 import pandas as pd
 
+# Curated growth-leader universe — the proven leaders + large/mid-cap growth names
+# (NO mid-cap ceiling, unlike conviction — here we WANT the established leaders).
+# Founder's framework names first, then the broader growth set. Edit to tune.
+GROWTH_UNIVERSE: tuple[str, ...] = (
+    "NVDA", "PLTR", "CRWD", "MELI", "VRT", "LLY", "CRDO", "APP", "NET", "NU",
+    "AVGO", "AMD", "TSM", "MU", "ANET", "NOW", "SNOW", "DDOG", "MDB", "PANW",
+    "ZS", "CRWV", "NBIS", "HOOD", "TSLA", "META", "GOOGL", "AMZN", "MSFT", "ARM",
+    "SHOP", "UBER", "AXON", "CELH", "TTD", "DASH", "ABNB", "SOFI", "IREN", "RKLB",
+    "ONTO", "SMCI", "CRDO", "ALAB", "VST", "CEG", "RDDT", "DKNG", "TOST", "AFRM",
+)
+
 MIN_BARS_G = 160        # need ~150 (30wMA proxy) + headroom to score the trend
 RS_WINDOW = 63          # ~3 months of sessions for the relative-strength read
 HI_WINDOW = 252         # 52-week high lookback

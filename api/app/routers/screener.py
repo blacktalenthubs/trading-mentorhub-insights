@@ -160,6 +160,35 @@ async def refresh_conviction(background: BackgroundTasks, user: User = Depends(r
     return {"status": "conviction scan started"}
 
 
+# --- Growth Leaders (#64-M): the "Long Term" board under Trade Ideas ---
+
+@router.get("/growth")
+async def get_growth(
+    run_id: Optional[int] = Query(None),
+    user: User = Depends(get_current_user),  # readable by any user
+):
+    """Growth Leaders board (the Mathematical Growth-Stock Framework — fundamental +
+    technical leadership). run_id selects a saved run; omit for the latest."""
+    snap = await svc.get_snapshot(run_id) if run_id is not None else await svc.get_latest_growth()
+    if snap is None:
+        return {"id": None, "captured_at": None, "stale": False, "entries": []}
+    return {"id": snap.id, "captured_at": snap.captured_at, "stale": bool(snap.stale), "entries": snap.entries or []}
+
+
+@router.get("/growth/history")
+async def growth_history(user: User = Depends(get_current_user)):
+    """Recent saved Growth Leaders runs (for the history selector)."""
+    return {"runs": await svc.list_snapshots("growth")}
+
+
+@router.post("/growth/refresh", status_code=202)
+async def refresh_growth(background: BackgroundTasks, user: User = Depends(require_pro)):
+    """On-demand Growth Leaders rescan. Reads symbol_fundamentals + daily bars over
+    the curated growth universe (no yfinance) — Pro-gated."""
+    background.add_task(svc.refresh_growth)
+    return {"status": "growth scan started"}
+
+
 @router.post("/conviction/sync-watchlist")
 async def sync_conviction_to_watchlist(
     user: User = Depends(require_pro),
