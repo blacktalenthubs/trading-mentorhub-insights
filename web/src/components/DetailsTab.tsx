@@ -64,11 +64,11 @@ function fmtMarketCap(v: number | null): string {
   return `$${v.toFixed(0)}`;
 }
 
-function consensusColor(c: string | null): string {
-  if (c === "Buy") return "text-bullish-text";
-  if (c === "Sell") return "text-bearish-text";
-  if (c === "Hold") return "text-warning-text";
-  return "text-text-faint";
+function consensusBadge(c: string | null): string {
+  if (c === "Buy") return "bg-bullish-subtle text-bullish-text";
+  if (c === "Sell") return "bg-bearish-subtle text-bearish-text";
+  if (c === "Hold") return "bg-warning-subtle text-warning-text";
+  return "bg-surface-3 text-text-faint";
 }
 
 function growthColor(g: number | null): string {
@@ -183,6 +183,7 @@ function DetailCard({
   generating: boolean;
 }) {
   const [showFull, setShowFull] = useState(false);
+  const [showBrief, setShowBrief] = useState(false);
   const fetched = it.fetched_at != null;
   const desc = it.description ?? "";
   const long = desc.length > 220;
@@ -192,11 +193,11 @@ function DetailCard({
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <button onClick={onOpen} className="text-left">
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold text-text-primary">{it.symbol}</span>
+          <div className="flex items-center gap-2">
+            <span className="font-display text-base font-semibold text-text-primary">{it.symbol}</span>
             {it.consensus && (
-              <span className={`text-[11px] font-semibold ${consensusColor(it.consensus)}`}>
-                {it.consensus}
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${consensusBadge(it.consensus)}`}>
+                {it.consensus.toUpperCase()}
               </span>
             )}
           </div>
@@ -241,33 +242,42 @@ function DetailCard({
             </div>
           )}
 
-          {/* EPS strength + valuation */}
-          <div className="grid grid-cols-4 gap-2">
-            <Stat label="EPS (ttm)" value={it.trailing_eps != null ? `$${it.trailing_eps.toFixed(2)}` : "—"} />
-            <Stat label="EPS (fwd)" value={it.forward_eps != null ? `$${it.forward_eps.toFixed(2)}` : "—"} />
-            <Stat
-              label="EPS growth"
-              value={it.eps_growth_pct != null ? `${it.eps_growth_pct > 0 ? "+" : ""}${it.eps_growth_pct.toFixed(1)}%` : "—"}
-              color={growthColor(it.eps_growth_pct)}
-            />
-            <Stat label="P/E" value={it.pe_ratio != null ? it.pe_ratio.toFixed(1) : "—"} />
+          {/* Key numbers — grouped + 2-col on mobile for readability */}
+          <div className="rounded-lg border border-border-subtle/40 bg-surface-2/30 p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 sm:grid-cols-4">
+              <Stat label="EPS (ttm)" value={it.trailing_eps != null ? `$${it.trailing_eps.toFixed(2)}` : "—"} />
+              <Stat label="EPS (fwd)" value={it.forward_eps != null ? `$${it.forward_eps.toFixed(2)}` : "—"} />
+              <Stat
+                label="EPS growth"
+                value={it.eps_growth_pct != null ? `${it.eps_growth_pct > 0 ? "+" : ""}${it.eps_growth_pct.toFixed(1)}%` : "—"}
+                color={growthColor(it.eps_growth_pct)}
+              />
+              <Stat label="P/E" value={it.pe_ratio != null ? it.pe_ratio.toFixed(1) : "—"} />
+            </div>
+            <MetricsRow it={it} />
           </div>
 
-          {/* Extra decision metrics */}
-          <MetricsRow it={it} />
-
           {/* Analyst ratings */}
-          <RatingBar it={it} />
+          <div className="space-y-1">
+            <div className="text-[10px] uppercase tracking-wider text-text-faint">Analyst ratings</div>
+            <RatingBar it={it} />
+          </div>
 
-          {/* AI investment brief */}
-          <div className="space-y-2 border-t border-border-subtle/40 pt-2">
+          {/* AI investment brief — collapsed by default so the card stays scannable */}
+          <div className="border-t border-border-subtle/40 pt-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-accent">
+              <button
+                onClick={() => setShowBrief((v) => !v)}
+                disabled={!it.ai_brief}
+                className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-accent disabled:opacity-60"
+              >
+                {it.ai_brief && (showBrief ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />)}
                 <Sparkles className="h-3 w-3" /> AI brief
                 {it.ai_generated_at && (
                   <span className="text-text-faint normal-case tracking-normal">· {fmtRelativeAge(it.ai_generated_at)}</span>
                 )}
-              </div>
+                {it.ai_brief && !showBrief && <span className="text-text-faint normal-case tracking-normal">· tap to read</span>}
+              </button>
               {isAdmin && (
                 <button
                   onClick={onGenerate}
@@ -280,9 +290,9 @@ function DetailCard({
               )}
             </div>
             {it.ai_brief ? (
-              <BriefView brief={it.ai_brief} />
+              showBrief && <div className="mt-2"><BriefView brief={it.ai_brief} /></div>
             ) : (
-              <p className="text-[11px] italic text-text-faint">
+              <p className="mt-1 text-[11px] italic text-text-faint">
                 {isAdmin
                   ? "No AI brief yet — tap Generate to write one (Sonnet)."
                   : "AI brief not generated yet — it'll appear here once it's run."}
