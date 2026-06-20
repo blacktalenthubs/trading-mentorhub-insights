@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { NavLink, Outlet, Link } from "react-router-dom";
+import { NavLink, Outlet, Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
 import { usePushNotifications } from "../hooks/usePushNotifications";
@@ -24,6 +24,8 @@ import {
   Activity,
   Target,
   Gem,
+  MoreHorizontal,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -57,15 +59,18 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/settings",    label: "Settings",    icon: Settings },
 ];
 
-const MOBILE_TABS: NavItem[] = [
-  { to: "/today",       label: "Today",  icon: Home },
-  { to: "/trading",     label: "Trade",  icon: Crosshair },
-  { to: "/trade-ideas", label: "Ideas",  icon: Target },
-  { to: "/conviction",  label: "Picks",  icon: Gem },
-  { to: "/watchlist",   label: "List",   icon: Star },
-  { to: "/premarket",   label: "AM",     icon: Activity },
-  { to: "/performance", label: "Perf",   icon: ArrowLeftRight },
-  { to: "/settings",    label: "More",   icon: Settings },
+// Mobile: 4 primary tabs + a More sheet for the rest. 8 cramped tabs → a calm 5-slot bar (#64-E).
+const MOBILE_PRIMARY: NavItem[] = [
+  { to: "/today",       label: "Today", icon: Home },
+  { to: "/trading",     label: "Trade", icon: Crosshair },
+  { to: "/conviction",  label: "Picks", icon: Gem },
+  { to: "/performance", label: "Perf",  icon: ArrowLeftRight },
+];
+const MORE_ITEMS: NavItem[] = [
+  { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
+  { to: "/watchlist",   label: "Watchlist",   icon: Star },
+  { to: "/premarket",   label: "Premarket",   icon: Activity },
+  { to: "/settings",    label: "Settings",    icon: Settings },
 ];
 
 const LS_KEY = "sidebar_collapsed";
@@ -91,6 +96,9 @@ export default function AppLayout() {
   useSignalNotifications();
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const location = useLocation();
+  const moreActive = MORE_ITEMS.some((i) => location.pathname.startsWith(i.to));
 
   const persistCollapse = useCallback((val: boolean) => {
     setCollapsed(val);
@@ -317,13 +325,12 @@ export default function AppLayout() {
 
         {/* Mobile bottom tab bar — z-50 so it's never covered by chart overlays or drawer backdrops */}
         <nav role="navigation" aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-50 flex border-t border-border-subtle bg-surface-0 pb-[env(safe-area-inset-bottom)] md:hidden">
-          {MOBILE_TABS.map((tab) => {
+          {MOBILE_PRIMARY.map((tab) => {
             const Icon = tab.icon;
             return (
               <NavLink
                 key={tab.to}
                 to={tab.to}
-                end={tab.to === "/"}
                 className={({ isActive }) =>
                   `flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium tracking-wide transition-colors ${
                     isActive ? "text-accent" : "text-text-muted"
@@ -335,8 +342,56 @@ export default function AppLayout() {
               </NavLink>
             );
           })}
-          <ThemeToggleButton variant="tab" />
+          <button
+            onClick={() => setMoreOpen(true)}
+            aria-label="More"
+            className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium tracking-wide transition-colors ${
+              moreActive ? "text-accent" : "text-text-muted"
+            }`}
+          >
+            <MoreHorizontal className="h-5 w-5" />
+            More
+          </button>
         </nav>
+
+        {/* Mobile "More" sheet — secondary destinations + theme + sign-out */}
+        {moreOpen && (
+          <div className="md:hidden">
+            <div className="fixed inset-0 z-50 bg-black/60" onClick={() => setMoreOpen(false)} aria-hidden="true" />
+            <div className="fixed inset-x-0 bottom-0 z-50 bg-surface-1 border-t border-border-subtle rounded-t-2xl pb-[env(safe-area-inset-bottom)] shadow-elevated">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+                <span className="text-[13px] font-semibold text-text-primary">More</span>
+                <button onClick={() => setMoreOpen(false)} aria-label="Close" className="p-1 text-text-faint hover:text-text-secondary"><X className="h-[18px] w-[18px]" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 p-3">
+                {MORE_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      onClick={() => setMoreOpen(false)}
+                      className={({ isActive }) =>
+                        `flex items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
+                          isActive ? "bg-surface-3 text-accent" : "text-text-secondary hover:bg-surface-2"
+                        }`
+                      }
+                    >
+                      <Icon className="h-5 w-5 shrink-0" />
+                      <span className="text-[13px] font-medium">{item.label}</span>
+                    </NavLink>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border-subtle">
+                <ThemeToggleButton variant="icon" />
+                <button onClick={logout} className="flex items-center gap-2 text-[13px] text-text-muted hover:text-bearish-text transition-colors">
+                  <LogOut className="h-4 w-4" /> Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
