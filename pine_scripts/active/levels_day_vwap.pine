@@ -656,15 +656,16 @@ fire_orl_held   = input.bool(true, "Fire opening-range-low held entry (15m OR lo
 or_test_tol_pct = input.float(0.15, "OR-low test tolerance (% above the OR low)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Opening range")
 var float orl_61     = na      // opening-range low (first 15 min)
 var bool  or_done_61 = false
-// Once-per-session guard (2026-06-19) — the ORL defense works best on the FIRST
+// Per-session fire cap (2026-06-19) — the ORL defense works best on the FIRST
 // dip back to the opening-range low; after that, price oscillating around the
-// level re-fired the alert all day (it was the #1 alert by volume). Fire only the
-// first valid defense per session, then stand down until tomorrow.
-var bool  orl_held_fired_61 = false
+// level re-fired the alert all day (it was the #1 alert by volume). Cap per
+// session: 1 for stocks, 2 for crypto (24/7 — one defense/day is too few).
+orl_fire_cap_61 = syminfo.type == "crypto" ? 2 : 1
+var int   orl_fire_count_61 = 0
 if session_open_now
     orl_61     := low
     or_done_61 := false
-    orl_held_fired_61 := false
+    orl_fire_count_61 := 0
 else if not na(first_bar_time) and (time - first_bar_time) < 15 * 60 * 1000
     orl_61 := math.min(nz(orl_61, low), low)
 else if not na(first_bar_time)
@@ -1425,8 +1426,8 @@ if false and s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
 // works whether PDH is above (target) or already cleared (extension). v2
 // body gate kills doji/distribution holds. NOT SPY-gated — defending the
 // low is a relative-strength setup. Catalog default-OFF; opt in to test.
-if fire_orl_held and s58_orl_held and v2_body_ok and not orl_held_fired_61
-    orl_held_fired_61 := true
+if fire_orl_held and s58_orl_held and v2_body_ok and orl_fire_count_61 < orl_fire_cap_61
+    orl_fire_count_61 += 1
     e_orl  = close
     s_orl  = orl_61 - atr_buffer
     // On a weak (below-open) day the OPEN line is the realistic first target
