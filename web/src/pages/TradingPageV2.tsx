@@ -1816,33 +1816,22 @@ export default function TradingPageV2() {
 
             <span className="w-px h-4 bg-border-subtle/70 mx-0.5 shrink-0" />
 
-            {/* Draw S/R level — click to arm, then click the chart to drop a line */}
-            <button
-              onClick={() => setDrawMode((v) => !v)}
-              disabled={!selectedSymbol}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors border disabled:opacity-40 ${
-                drawMode
-                  ? "bg-accent text-white border-accent"
-                  : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary"
-              }`}
-              title={`Draw a ${newLineType === "line" ? "level" : LINE_TYPES[newLineType].label} line — then click the chart`}
-            >
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: drawMode ? "#ffffff" : LINE_TYPES[newLineType].color }} />
-              <span className="hidden lg:inline">{drawMode ? "Drawing…" : "Draw"}</span>
-            </button>
-
-            {/* Saved S/R lines manager */}
+            {/* Levels — one popover: draw + line-type + saved S/R manager (#64-E de-densify) */}
             <div className="relative" ref={levelsPanelRef}>
               <button
                 onClick={() => setShowLevelsPanel((v) => !v)}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors border ${
-                  showLevelsPanel
+                disabled={!selectedSymbol}
+                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors border disabled:opacity-40 ${
+                  drawMode
+                    ? "bg-accent text-white border-accent"
+                    : showLevelsPanel
                     ? "bg-accent/15 text-accent border-accent/30"
                     : "bg-surface-2/50 text-text-muted border-border-subtle hover:text-text-secondary"
                 }`}
-                title="Your saved S/R lines for this symbol"
+                title="Draw & manage your S/R lines for this symbol"
               >
-                <span className="hidden lg:inline">Lines</span>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: drawMode ? "#ffffff" : LINE_TYPES[newLineType].color }} />
+                <span className="hidden lg:inline">{drawMode ? "Drawing…" : "Levels"}</span>
                 {(userLevels?.length ?? 0) > 0 && (
                   <span className="font-mono text-[9px] bg-surface-4/60 px-1 rounded">{userLevels!.length}</span>
                 )}
@@ -1866,9 +1855,8 @@ export default function TradingPageV2() {
                       </button>
                     )}
                   </div>
-                  {/* New-line type — applied to the next line you draw */}
+                  {/* Pick a type, then Draw — arms + closes so you can click the chart */}
                   <div className="flex items-center gap-1 px-1 pb-1.5 mb-1 border-b border-border-subtle">
-                    <span className="text-[10px] text-text-faint mr-0.5">New:</span>
                     {(["support", "resistance", "line"] as LineType[]).map((t) => (
                       <button
                         key={t}
@@ -1882,10 +1870,17 @@ export default function TradingPageV2() {
                         {t === "line" ? "Line" : LINE_TYPES[t].label}
                       </button>
                     ))}
+                    <button
+                      onClick={() => { setDrawMode(true); setShowLevelsPanel(false); }}
+                      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-accent text-white hover:bg-accent-hover"
+                      title="Arm draw, then click the chart at a level"
+                    >
+                      + Draw
+                    </button>
                   </div>
                   {(userLevels ?? []).length === 0 ? (
                     <p className="text-[11px] text-text-faint px-1 py-2 leading-relaxed">
-                      Tap <span className="text-accent font-medium">Draw</span>, then click the chart at a level.
+                      Pick a type, tap <span className="text-accent font-medium">+ Draw</span>, then click the chart at a level.
                     </p>
                   ) : (
                     [...(userLevels ?? [])].sort((a, b) => b.price - a.price).map((lvl) => (
