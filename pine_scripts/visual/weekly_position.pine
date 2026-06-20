@@ -136,18 +136,24 @@ if show_table and barstate.islast
 // reclaim happens, not at the weekly close. Same undercut-&-reclaim logic as 4h RC.
 //   STOP = just below the undercut WICK LOW (the low buyers defended). A close below
 //          it = the 10w didn't hold = trend over → out. Tight by design.
-var float wpos_ucl = na          // undercut wick low — lowest low while trading below the 10w
-if not na(wf) and low < wf
+// wpos_ucl tracks the wick low of the CURRENT dip below the 10w only. It accumulates
+// while price trades below the 10w, and resets the moment price closes back above it
+// (episode over). Without that reset it held an ANCIENT low from a months-old dip and
+// (a) drew a nonsensical stop, (b) let any close>10w read as a stale "reclaim".
+var float wpos_ucl = na
+if not na(wf) and low <= wf       // tagged or undercut the 10w (covers a HOLD or a deeper reclaim)
     wpos_ucl := na(wpos_ucl) ? low : math.min(wpos_ucl, low)
 reclaimed = wuptrend and not na(wf) and close > wf and not na(wpos_ucl)
 var bool wk_armed = true
 if not na(wf) and close > wf * (1.0 + rearm_pct / 100.0)
     wk_armed := true
 new_setup = fire_pullback and reclaimed and wk_armed
-wick_low  = wpos_ucl
+wick_low  = wpos_ucl             // captured BEFORE the reset below
 if new_setup
     wk_armed := false
-    wpos_ucl := na               // reset for the next undercut cycle
+// Reset once price is back above the 10w — fired or not — so the next dip starts fresh.
+if not na(wf) and close > wf
+    wpos_ucl := na
 
 stop_level = (na(wick_low) ? low : wick_low) * (1.0 - stop_buf_pct / 100.0)
 plotshape(new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
