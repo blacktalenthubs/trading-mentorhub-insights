@@ -1103,47 +1103,52 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         sig.direction = downgrade
         direction = downgrade  # keep local var in sync for downstream branches
 
-    # 3. Unified single target (Sub-spec A, 2026-06-19). ONE target, no T2.
-    # Resolution order:
-    #   • swing entry with an explicit RSI target (target_rsi) → RSI target (no price)
-    #   • alert that sends the chart stack (nearby_levels) → the picker: nearest
-    #     clustered level/wall above (Case A) → else RSI 70/80 or EOD (Case B)
-    #   • neither (4h RC, old Pines) → legacy structural fallback
+    # 3. Day/swing classification + unified single target (Sub-spec A/L, 2026-06-19).
+    # Classify FIRST, then route the ONE target by type:
+    #   • SWING → RSI target (explicit target_rsi if the Pine sent one, else RSI 70;
+    #     e.g. ma_ema_daily slow-MA bounces are swing but send no target_rsi).
+    #   • DAY   → picker over the chart stack (nearby_levels): nearest clustered wall
+    #     (Case A) → else RSI 70/80 or EOD (Case B) → else legacy structural fallback.
     # target_2 is always cleared — T2 is removed.
     from analytics.target_picker import pick_target
+    from analytics.trade_classifier import classify_trade
+
+    _rsi = getattr(sig, "_tv_rsi", None)
+    _trade_type, _swing_eligible = classify_trade(alert_type_full, _rsi)
+    sig._trade_type = _trade_type            # type: ignore[attr-defined]
+    sig._swing_eligible = _swing_eligible    # type: ignore[attr-defined]
 
     _cands = [
         (lvl.get("label"), lvl.get("value"))
         for lvl in getattr(sig, "_tv_nearby_levels", []) or []
         if lvl.get("value") is not None
     ]
-    _rsi = getattr(sig, "_tv_rsi", None)
     _target_rsi = getattr(sig, "_tv_target_rsi", None)
 
     def _apply_pick(picked):
         if not picked:
             return
-        if picked["kind"] == "level":
-            sig.target_1 = picked["value"]
-        else:                       # rsi / eod — no price target
-            sig.target_1 = None
-        sig._target_kind = picked["kind"]            # type: ignore[attr-defined]
-        sig._target_value = picked["value"]          # type: ignore[attr-defined]
+        sig.target_1 = picked["value"] if picked["kind"] == "level" else None
+        sig._target_kind = picked["kind"]              # type: ignore[attr-defined]
+        sig._target_value = picked["value"]            # type: ignore[attr-defined]
         sig._target_wall = picked.get("wall_size", 0)  # type: ignore[attr-defined]
+
+    def _set_rsi_target(value):
+        sig.target_1 = None
+        sig._target_kind = "rsi"                        # type: ignore[attr-defined]
+        sig._target_value = value                       # type: ignore[attr-defined]
 
     if direction in ("BUY", "LONG") and sig.entry:
         if not sig.stop:
             sig.stop = round(sig.entry * 0.995, 2)
-        if _target_rsi is not None:                  # swing / weekly_rc RSI target
-            sig.target_1 = None
-            sig._target_kind = "rsi"                 # type: ignore[attr-defined]
-            sig._target_value = _target_rsi          # type: ignore[attr-defined]
+        if _trade_type == "swing":
+            _set_rsi_target(_target_rsi if _target_rsi is not None else 70.0)
         elif _cands:
             _apply_pick(pick_target(sig.entry, _cands, "BUY", _rsi))
-        elif not sig.target_1:                       # 4h RC / old Pine fallback
+        elif not sig.target_1:                          # 4h RC / old Pine fallback
             t1, _t2 = _targets_for_long(sig.entry, sig.stop, prior_day)
             sig.target_1 = t1
-            sig._target_kind = "level"               # type: ignore[attr-defined]
+            sig._target_kind = "level"                  # type: ignore[attr-defined]
         sig.target_2 = None
     elif direction == "SHORT" and sig.entry:
         if not sig.stop:
@@ -1153,14 +1158,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         elif not sig.target_1:
             t1, _t2 = _targets_for_short(sig.entry, sig.stop, prior_day)
             sig.target_1 = t1
-            sig._target_kind = "level"               # type: ignore[attr-defined]
+            sig._target_kind = "level"                  # type: ignore[attr-defined]
         sig.target_2 = None
-
-    # 3b. Day/swing classification (Sub-spec L) — from the alert type + daily RSI.
-    from analytics.trade_classifier import classify_trade
-    _trade_type, _swing_eligible = classify_trade(alert_type_full, getattr(sig, "_tv_rsi", None))
-    sig._trade_type = _trade_type          # type: ignore[attr-defined]
-    sig._swing_eligible = _swing_eligible  # type: ignore[attr-defined]
 
     # 4. Stamp confluence score (Phase 2) — kept for non-TV consumers, but
     # the Telegram formatter ignores it on TV alerts (see _format_tv_body).
