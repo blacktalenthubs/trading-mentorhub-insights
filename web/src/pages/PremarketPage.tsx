@@ -161,6 +161,22 @@ export default function PremarketPage() {
             </button>
           </div>
 
+          {data && data.length > 0 && (() => {
+            const ranked = [...data].filter((g) => g.avg_gap_pct != null).sort((a, b) => b.avg_gap_pct! - a.avg_gap_pct!);
+            const leaders = ranked.filter((g) => (g.avg_gap_pct ?? 0) > 0.3).slice(0, 3);
+            const laggards = ranked.filter((g) => (g.avg_gap_pct ?? 0) < -0.3).slice(-3).reverse();
+            if (!leaders.length && !laggards.length) return null;
+            return (
+              <div className="rounded-xl border border-accent-muted bg-accent-subtle/40 p-3.5 text-[13px] text-text-secondary leading-relaxed">
+                <span className="font-semibold text-text-primary">Pre-bell read — </span>
+                {leaders.length > 0 && <>strongest: <span className="text-bullish-text font-medium">{leaders.map((g) => `${g.name} ${fmtPct(g.avg_gap_pct)}`).join(", ")}</span></>}
+                {leaders.length > 0 && laggards.length > 0 ? " · " : ""}
+                {laggards.length > 0 && <>weakest: <span className="text-bearish-text font-medium">{laggards.map((g) => `${g.name} ${fmtPct(g.avg_gap_pct)}`).join(", ")}</span></>}
+                .
+              </div>
+            );
+          })()}
+
           {isLoading && (
             <div className="flex items-center gap-2 py-8">
               <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
