@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
-import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun, WeeklyStageSnapshot } from "../pages/InPlay.types";
+import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun, WeeklyStageSnapshot, GrowthSnapshot, GrowthRun } from "../pages/InPlay.types";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -112,6 +112,41 @@ export function useRefreshConviction() {
       );
     },
     onError: () => toast.error("Couldn't start the conviction scan"),
+  });
+}
+
+// --- Growth Leaders (#64-M): the "Long Term" board ---
+
+export function useGrowth(runId?: number | null) {
+  return useQuery({
+    queryKey: ["growth", runId ?? "latest"],
+    queryFn: () =>
+      api.get<GrowthSnapshot>(`/screener/growth${runId ? `?run_id=${runId}` : ""}`),
+    refetchInterval: runId ? false : 5 * 60_000,
+  });
+}
+
+export function useGrowthHistory() {
+  return useQuery({
+    queryKey: ["growth-history"],
+    queryFn: () => api.get<{ runs: GrowthRun[] }>("/screener/growth/history"),
+  });
+}
+
+export function useRefreshGrowth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/screener/growth/refresh", {}),
+    onSuccess: () => {
+      toast.info("Growth Leaders scan started — results refresh as it completes (~90s)");
+      [20000, 45000, 75000, 110000].forEach((delay) =>
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["growth", "latest"] });
+          qc.invalidateQueries({ queryKey: ["growth-history"] });
+        }, delay),
+      );
+    },
+    onError: () => toast.error("Couldn't start the Growth Leaders scan"),
   });
 }
 

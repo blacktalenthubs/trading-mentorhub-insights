@@ -136,6 +136,39 @@ export interface WeeklyStageSnapshot {
   entries: WeeklyStageEntry[];
 }
 
+/* ── Growth Leaders (#64-M) — the "Long Term" board ── */
+export interface GrowthEntry {
+  rank: number;
+  symbol: string;
+  sector: string | null;
+  last_price: number;
+  stage2: boolean;
+  rs_vs_spy: number;
+  pct_off_52wh: number | null;
+  accumulation: number | null;
+  rev_growth_pct: number | null;
+  rev_accelerating: boolean | null;
+  eps_growth_pct: number | null;
+  gross_margin_pct: number | null;
+  consensus: string | null;
+  scorecard: Record<string, string>;   // criterion -> "pass" | "fail" | "pending"
+  score: number;
+  grade: string;
+}
+
+export interface GrowthSnapshot {
+  id?: number | null;
+  captured_at: string | null;
+  stale: boolean;
+  entries: GrowthEntry[];
+}
+
+export interface GrowthRun {
+  id: number;
+  captured_at: string;
+  count: number;
+}
+
 export type InPlayPreset = "any" | "momentum_long" | "pullback" | "breakout" | "short";
 
 export const IN_PLAY_PRESETS: { id: InPlayPreset; label: string }[] = [
