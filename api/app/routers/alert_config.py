@@ -19,13 +19,38 @@ from app.models.user import User
 router = APIRouter()
 
 
+# Group the catalog's fine-grained categories into the 3 trade-style buckets
+# users actually think in (2026-06-20). Powers the Settings grouping + the
+# one-shot "enable all Day / Swing / Long-term" so beginners pick a style, not
+# 45 toggles. Any category not listed falls under "Other".
+CATEGORY_TO_GROUP: dict[str, str] = {
+    "Daily PDH/PDL": "Day Trade",
+    "Weekly": "Day Trade",            # prior-week H/L levels, traded intraday
+    "Monthly": "Day Trade",           # prior-month H/L levels
+    "Gap S/R": "Day Trade",
+    "Gap-and-go": "Day Trade",
+    "Multi-period S/R": "Day Trade",
+    "Index shorts": "Day Trade",
+    "Multi-touch levels": "Day Trade",
+    "Market context": "Day Trade",
+    "4h reversal": "Day Trade",       # rc_4h / RC-H — the cornerstone
+    "Levels": "Day Trade",
+    "Swing": "Swing Trade",
+    "MA / EMA · Bounce Long": "Swing Trade",
+    "MA / EMA · Rejection Short": "Swing Trade",
+    "Weekly trend": "Long Term",      # weekly 10w/30w MA + weekly RC
+}
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Other"]
+
+
 class AlertConfigUpdate(BaseModel):
     enabled: bool
 
 
 class AlertConfigBulkUpdate(BaseModel):
     enabled: bool
-    category: str | None = None  # if set, toggle ONLY this category's types (#281)
+    category: str | None = None       # toggle ONLY this fine-grained category (#281)
+    trade_group: str | None = None    # toggle a whole Day/Swing/Long-term bucket (one-shot)
 
 
 @router.get("")
@@ -44,6 +69,7 @@ async def list_alert_config(
             "alert_type": r.alert_type,
             "label": r.label,
             "category": r.category,
+            "trade_group": CATEGORY_TO_GROUP.get(r.category, "Other"),
             "enabled": r.enabled,
             "description": describe_alert_type(r.alert_type),
         }
@@ -64,10 +90,13 @@ async def set_all_alert_config(
     q = select(AlertTypeConfig)
     if body.category:
         q = q.where(AlertTypeConfig.category == body.category)
+    elif body.trade_group:
+        cats = [c for c, g in CATEGORY_TO_GROUP.items() if g == body.trade_group]
+        q = q.where(AlertTypeConfig.category.in_(cats))
     rows = (await db.execute(q)).scalars().all()
     for r in rows:
         r.enabled = body.enabled
-    return {"updated": len(rows), "enabled": body.enabled, "category": body.category}
+    return {"updated": len(rows), "enabled": body.enabled, "category": body.category, "trade_group": body.trade_group}
 
 
 @router.put("/{alert_type}")

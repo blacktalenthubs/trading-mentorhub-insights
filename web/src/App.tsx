@@ -27,6 +27,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import TradingPageV2 from "./pages/TradingPageV2";
 import RealTradesPage from "./pages/RealTradesPage";
 import SettingsPage from "./pages/SettingsPage";
+import StartHerePage from "./pages/StartHerePage";
 import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import PublicEODReportPage from "./pages/PublicEODReportPage";
@@ -128,6 +129,7 @@ export default function App() {
               >
                 {/* 6-menu structure (2026-05-28) */}
                 <Route path="today"       element={<ErrorBoundary><TodayPage /></ErrorBoundary>} />
+                <Route path="start-here"  element={<ErrorBoundary><StartHerePage /></ErrorBoundary>} />
                 <Route path="pattern/:code" element={<ErrorBoundary><PatternLearnPage /></ErrorBoundary>} />
                 <Route path="trading"     element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
                 <Route path="trade-ideas" element={<ErrorBoundary><FocusListPage /></ErrorBoundary>} />
