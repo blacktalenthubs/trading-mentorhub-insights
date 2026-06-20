@@ -117,12 +117,12 @@ if show_table and barstate.islast
 
 // ── entry marker + STOP + alert — fires once at the weekly close on a fresh setup ─
 new_setup = whold and not whold[1]
-// STOP — just below the LOW of the pullback week (the swing low that defended the
-// rising 10wMA). Logic: the setup is "the dip to the 10w held"; if a later week
-// CLOSES below that low, the hold failed → out. It's the nearest structural low,
-// and it sits ABOVE the rising 30wMA (the deeper trend-invalidation), so the trade
-// risks the pullback, not the whole trend. The 30wMA below is the runner's trail.
-stop_level = wklow * (1.0 - stop_buf_pct / 100.0)
+// STOP — just below the 10wMA (the level the entry is defending), NOT the week's
+// low. Logic: the setup IS "the dip to the rising 10w held", so the invalidation is
+// a weekly CLOSE below the 10w. The 10w sits far above a wide recovery-week's wick
+// low, so this keeps the risk tight + consistent (the week-low stop blew out to ~14%
+// on big-range weeks). A weekly close below the 30wMA is the deeper trend exit.
+stop_level = wf * (1.0 - stop_buf_pct / 100.0)
 plotshape(fire_pullback and new_setup, title = "WkPos entry", style = shape.triangleup, location = location.belowbar, color = col_up, size = size.normal, text = "WkPos")
 
 // Draw the stop where it logically sits — a red line at stop_level under the entry,
@@ -133,5 +133,5 @@ if show_stop and fire_pullback and new_setup
     label.new(bar_index, close, "Entry " + str.tostring(close, format.mintick), yloc = yloc.price, style = label.style_label_down, color = col_up, textcolor = color.white, size = size.small)
 
 if fire_pullback and barstate.isconfirmed and new_setup
-    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly MA-pullback hold — dip to the rising 10wMA, green weekly close above it (Stage 2). Stop = just below the pullback-week low (weekly close below = out); 30wMA is the runner trail. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
+    wp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_pullback","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stop_level, format.mintick) + '","note":"Weekly MA-pullback hold — dip to the rising 10wMA, green weekly close above it (Stage 2). Stop = just below the 10wMA (a weekly close below it = out); 30wMA is the runner trail. Target = weekly RSI 70.","target_rsi":"70","target_tf":"W","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wp, alert.freq_once_per_bar_close)
