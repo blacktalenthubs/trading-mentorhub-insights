@@ -300,6 +300,13 @@ def payload_to_alert_signal(payload: dict[str, Any]) -> AlertSignal:
     sig._tv_cvd_delta = _to_float_optional(payload.get("cvd_delta"))  # type: ignore[attr-defined]
     _cvd_div_raw = (payload.get("cvd_diverging") or "").strip().lower()
     sig._tv_cvd_diverging = _cvd_div_raw == "true"  # type: ignore[attr-defined]
+    # 2026-06-21 — RSI from the Pine (chart-accurate; backend can't reliably
+    # recompute weekly/crypto RSI). Powers the backend exit_plan: swing exits at
+    # daily RSI 70, long-hold trims at weekly RSI 70, gap-and-go exits at RSI 75.
+    sig._tv_rsi = _to_float_optional(payload.get("rsi"))  # type: ignore[attr-defined]
+    sig._tv_weekly_rsi = _to_float_optional(payload.get("weekly_rsi"))  # type: ignore[attr-defined]
+    # Gap-and-go stop = the morning / opening-range low.
+    sig._tv_morning_low = _to_float_optional(payload.get("morning_low") or payload.get("or_low"))  # type: ignore[attr-defined]
     # 2026-05-06 confluence: 1 = single-level event, 2 = two stacked, 3 = full
     # confluence (PDH+PWH+PMH all at same price). Higher = stronger signal.
     _confluence_raw = payload.get("confluence_count")
