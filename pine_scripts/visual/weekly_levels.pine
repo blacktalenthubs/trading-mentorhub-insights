@@ -1,0 +1,51 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Weekly Levels — VISUAL ONLY (chart-only; bind NO alert to this Pine).
+// ─────────────────────────────────────────────────────────────────────────────
+// The flat weekly 10w / 30w MA lines + the weekly-RC reclaim marker, on their own
+// Pine so they don't clutter prior_levels_flat and don't eat an alert-pine slot
+// (TradingView links only 2 Pines per alert). The weekly ALERTS — weekly_ma_held
+// (10w/30w reclaim) + weekly_rc (prior-week-low reclaim) — live in
+// levels_day_vwap.pine. This Pine is purely the chart read.
+//
+//   • 10w / 30w  — drawn FLAT (one horizontal line each at the current weekly
+//                  value), colored support (price above) / resistance (price below).
+//   • wRC        — ▲ below the bar when the week undercuts + reclaims the prior
+//                  week's low on a green week (the liquidity-grab reclaim).
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Weekly Levels", "WkLvls", overlay = true, max_lines_count = 4, max_labels_count = 100)
+
+show_10w = input.bool (true,  "10w MA line")
+show_30w = input.bool (true,  "30w MA line")
+show_rc  = input.bool (true,  "Weekly RC marker (prior-week-low reclaim)")
+line_len = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
+col_sup  = input.color(#26A69A, "Support (price above the line)")
+col_res  = input.color(#EF5350, "Resistance (price below the line)")
+col_rc   = input.color(#2962FF, "Weekly RC marker")
+
+w10 = request.security(syminfo.tickerid, "W", ta.sma(close, 10), lookahead = barmerge.lookahead_on)
+w30 = request.security(syminfo.tickerid, "W", ta.sma(close, 30), lookahead = barmerge.lookahead_on)
+// Weekly-RC: undercut + reclaim of the prior-week low on a GREEN week.
+wrc = request.security(syminfo.tickerid, "W", (low < low[1]) and (close > low[1]) and (close > open), lookahead = barmerge.lookahead_off)
+
+var line  ln10 = na
+var line  ln30 = na
+var label lb10 = na
+var label lb30 = na
+if barstate.islast
+    line.delete(ln10)
+    line.delete(ln30)
+    label.delete(lb10)
+    label.delete(lb30)
+    if show_10w and not na(w10)
+        c10 = close > w10 ? col_sup : col_res
+        ln10 := line.new(bar_index - line_len, w10, bar_index + 10, w10, color = c10, width = 2)
+        lb10 := label.new(bar_index + 10, w10, "10w  " + str.tostring(w10, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
+    if show_30w and not na(w30)
+        c30 = close > w30 ? col_sup : col_res
+        ln30 := line.new(bar_index - line_len, w30, bar_index + 10, w30, color = c30, width = 2)
+        lb30 := label.new(bar_index + 10, w30, "30w  " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
+
+// Weekly RC marker — flips true when the weekly reclaim fires (green week reclaiming
+// the prior-week low). Visual only; the alert version is weekly_rc in levels_day.
+plotshape(show_rc and wrc and not wrc[1], title = "Weekly RC", location = location.belowbar, color = col_rc, style = shape.triangleup, size = size.small, text = "wRC")
