@@ -86,9 +86,9 @@ function RankRow({ w, onChart, leader, losing }: { w: import("../types").Watchli
 
 /* ── DayRead: the always-on "your day in 30 seconds", synthesized from the page data
    (regime + signals + coiling + leaders) — no AI call, instant, useful even with 0 signals. ── */
-function Stat({ n, label, tone, target }: { n: number; label: string; tone?: "bull" | "warn" | "bear"; target?: string }) {
+function Stat({ n, label, tone, target, onJump }: { n: number; label: string; tone?: "bull" | "warn" | "bear"; target?: string; onJump?: (t: string) => void }) {
   const c = tone === "bull" ? "text-bullish-text" : tone === "warn" ? "text-warning-text" : tone === "bear" ? "text-bearish-text" : "text-text-secondary";
-  const go = () => { if (target) document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "center" }); };
+  const go = () => { if (target && onJump) onJump(target); };
   return (
     <button type="button" onClick={go} disabled={!target || n === 0}
       className="rounded-lg bg-surface-2 px-2 py-2 text-center transition-colors enabled:hover:bg-surface-3 enabled:active:opacity-80 disabled:cursor-default">
@@ -98,13 +98,14 @@ function Stat({ n, label, tone, target }: { n: number; label: string; tone?: "bu
   );
 }
 
-function DayRead({ spy, btc, signals, coiling, leaders, losing }: {
+function DayRead({ spy, btc, signals, coiling, leaders, losing, onJump }: {
   spy?: SpyRegimeSnapshot;
   btc?: SpyRegimeSnapshot;
   signals: number;
   coiling: import("../types").WatchlistRankItem[];
   leaders: import("../types").WatchlistRankItem[];
   losing: import("../types").WatchlistRankItem[];
+  onJump: (t: string) => void;
 }) {
   const healthy = !!spy && !spy.below_pdl;
   return (
@@ -122,9 +123,9 @@ function DayRead({ spy, btc, signals, coiling, leaders, losing }: {
       </p>
       <div className="grid grid-cols-4 gap-2">
         <Stat n={signals} label="Fired" />
-        <Stat n={coiling.length} label="Coiling" tone="bull" target="rail-coiling" />
-        <Stat n={leaders.length} label="Leaders" tone="warn" target="rail-leaders" />
-        <Stat n={losing.length} label="Breaking" tone="bear" target="rail-losing" />
+        <Stat n={coiling.length} label="Coiling" tone="bull" target="rail-coiling" onJump={onJump} />
+        <Stat n={leaders.length} label="Leaders" tone="warn" target="rail-leaders" onJump={onJump} />
+        <Stat n={losing.length} label="Breaking" tone="bear" target="rail-losing" onJump={onJump} />
       </div>
     </div>
   );
@@ -208,6 +209,11 @@ export default function TodayPage() {
   const { data: rank } = useWatchlistRank();
 
   const goChart = (symbol: string) => nav(`/trading?symbol=${encodeURIComponent(symbol)}`);
+  // Day-read stat tile → switch to the Signals tab (where the rail lives) + scroll to its section.
+  const jumpToRail = (target: string) => {
+    pickTab("signals");
+    setTimeout(() => document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+  };
 
   // Live feed = un-acted signals only. Once Took or Declined, an alert leaves the queue.
   const liveSignals = useMemo(
@@ -289,7 +295,7 @@ export default function TodayPage() {
                   {groupedSignals.map((g, i) => <SymbolGroup key={g.symbol} symbol={g.symbol} list={g.list} onChart={goChart} defaultOpen={i === 0} />)}
                 </div>
               ) : (
-                <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} />
+                <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
               )}
             </section>
 
@@ -341,7 +347,7 @@ export default function TodayPage() {
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
               <span className="text-[11px] text-text-faint">· your day, then the AI read on each alert</span>
             </div>
-            <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} />
+            <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
             {briefing.length > 0 ? (
               <div className="space-y-2">
                 {briefing.map((a) => <BriefingItem key={a.id} a={a} onChart={goChart} />)}
