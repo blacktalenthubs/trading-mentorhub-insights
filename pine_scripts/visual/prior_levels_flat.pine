@@ -27,6 +27,8 @@ show_pwl  = input.bool (true,  "Show PWL")
 show_pmh  = input.bool (true,  "Show PMH")
 show_pml  = input.bool (true,  "Show PML")
 show_cml  = input.bool (true,  "Show CML (current month low — this month's low so far)")
+show_wk10 = input.bool (true,  "Show weekly 10w MA (flat)")
+show_wk30 = input.bool (true,  "Show weekly 30w MA (flat)")
 show_rc   = input.bool (true,  "Show RC (reclaim) tags")
 show_long = input.bool (true,  "▲ Long markers (reclaim / hold)")
 show_short= input.bool (true,  "▼ Short markers (rejection)")
@@ -55,6 +57,10 @@ pml = request.security(syminfo.tickerid, "M", low[1],  lookahead = barmerge.look
 //      read lower than the daily/monthly chart does.
 cml_tid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 cml = request.security(cml_tid, "M", low, lookahead = barmerge.lookahead_on)
+// Weekly 10w / 30w MA — drawn FLAT like the prior levels (the WkPos entry zones).
+// VISUAL ONLY here; the weekly_ma_held alert lives in levels_day_vwap.pine.
+wk10 = request.security(syminfo.tickerid, "W", ta.sma(close, 10), lookahead = barmerge.lookahead_on)
+wk30 = request.security(syminfo.tickerid, "W", ta.sma(close, 30), lookahead = barmerge.lookahead_on)
 
 is_support(float lvl) => not na(lvl) and close > lvl
 reclaim(float lvl)    => not na(lvl) and not na(close[1]) and close > lvl and close[1] <= lvl
@@ -100,6 +106,10 @@ if barstate.islast
         draw_level(pml, "PML", 2, 22)
     if show_cml
         draw_level(cml, "CML", 2, 26, col_cml)
+    if show_wk10
+        draw_level(wk10, "10w", 0, 30)
+    if show_wk30
+        draw_level(wk30, "30w", 0, 34)
 
 // ── RC (reclaim) tags — close back ABOVE a level from below, per confirmed bar ─
 rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
