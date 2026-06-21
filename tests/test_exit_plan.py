@@ -36,12 +36,12 @@ def test_swing_rsi70_trail_pdl():
     p = build_exit_plan("tv_rsi_oversold", "BUY", entry=50.0, stop=48.0, rsi=33)
     assert p["style"] == "swing"
     assert p["target"] == "RSI 70"
-    assert "RSI 70" in p["exit"] and "PDL" in p["exit"]
+    assert "RSI 70" in p["exit"] and "reclaim low" in p["exit"]
     assert "now 33" in p["exit"]
 
 
 def test_long_hold_rsi70_or_5w_ema():
     p = build_exit_plan("tv_weekly_ma_held", "BUY", entry=200.0, stop=185.0, weekly_rsi=55)
     assert p["style"] == "long"
-    assert "RSI 70" in p["exit"] and "5-week EMA" in p["exit"]
+    assert "RSI 70" in p["exit"] and "reclaim low" in p["exit"]
     assert "now 55" in p["exit"]
