@@ -39,8 +39,8 @@ rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker
 // Stop = just BEYOND the reclaimed/rejected LEVEL (rc4_plow / rc4_phigh), not the deep
 // undercut wick. Thesis: "that prior 4h level held" — so losing the level = setup failed.
 if rc4_long
-    alert(rc_payload("BUY", rc4_plow * (1 - rc_buf_pct / 100.0), "RC · reclaim of the prior 4h low · stop just below the reclaimed low"), alert.freq_once_per_bar_close)
+    alert(rc_payload("BUY", rc4_plow * (1 - rc_buf_pct / 100.0), "4H RC · reclaim of the prior 4h low · stop just below the reclaimed low"), alert.freq_once_per_bar_close)
 if rc4_short
-    alert(rc_payload("SHORT", rc4_phigh * (1 + rc_buf_pct / 100.0), "RC · rejection at the prior 4h high · stop just above the level"), alert.freq_once_per_bar_close)
+    alert(rc_payload("SHORT", rc4_phigh * (1 + rc_buf_pct / 100.0), "4H RC · rejection at the prior 4h high · stop just above the level"), alert.freq_once_per_bar_close)
 if rc4_hrec
-    alert(rc_payload("BUY", rc4_phigh * (1 - rc_buf_pct / 100.0), "RC-H · breakout-retest reclaim of the prior 4h high · stop just below the reclaimed high"), alert.freq_once_per_bar_close)
+    alert(rc_payload("BUY", rc4_phigh * (1 - rc_buf_pct / 100.0), "4H RC-H · breakout-retest reclaim of the prior 4h high · stop just below the reclaimed high"), alert.freq_once_per_bar_close)
