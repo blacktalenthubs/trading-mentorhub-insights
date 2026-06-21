@@ -1246,23 +1246,23 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # rc_4h stays exempt from the general short gate below so the RC short flows.
 
     # ──────────────────────────────────────────────────────────────────
-    # SHORT alerts — per-symbol allowlist (2026-06-17, #278). A SHORT of ANY type
-    # (index PDL break, rc_4h rejection, MA rejection, htf_sr reject, …) flows ONLY
-    # for symbols in short_symbols (Settings → Short alerts; default SPY,QQQ).
-    # Everything else records as Not-routed so you can still see candidates to add.
-    # Replaces the #273 blanket short-block + the old rc_4h-only allowlist — one list.
+    # SHORT alerts — OPTIONAL per-symbol allowlist. 2026-06-21: "whatever a user
+    # enabled should send — users decide what's noise (via the type toggle)." So
+    # short_symbols is now an OPTIONAL admin restrictor: EMPTY (the default) routes
+    # every enabled SHORT; set it ONLY to clamp shorts to specific names.
     # ──────────────────────────────────────────────────────────────────
-    if (sig.direction or "").upper() in ("SHORT", "SELL") and alert_type_full != "tv_rc_4h" and (sig.symbol or "").upper() not in short_symbols:
+    if short_symbols and (sig.direction or "").upper() in ("SHORT", "SELL") and alert_type_full != "tv_rc_4h" and (sig.symbol or "").upper() not in short_symbols:
         logger.info("TV webhook: SHORT %s not in short_symbols allowlist — Not-routed (%s)", sig.symbol, alert_type_full)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_symbol_filter")
 
     # ──────────────────────────────────────────────────────────────────
-    # MA/EMA bounce allowlist (#282) — MAs only behave on clean trending names, so
-    # ma_bounce / ma_rejection alerts fire ONLY for ma_alert_symbols (Settings →
-    # EMA/MA alerts). On every other stock the MA tangle is just noise → Not-routed.
+    # MA/EMA bounce allowlist — OPTIONAL (2026-06-21). ma_alert_symbols EMPTY
+    # (default) routes every enabled MA alert; set it only to clamp MA/EMA alerts
+    # to specific clean trending names. The user enables the type = they want it.
     # ──────────────────────────────────────────────────────────────────
     if (
-        (alert_type_full.startswith("tv_ma_bounce_long_v3") or alert_type_full.startswith("tv_ma_rejection_short_v3"))
+        ma_alert_symbols
+        and (alert_type_full.startswith("tv_ma_bounce_long_v3") or alert_type_full.startswith("tv_ma_rejection_short_v3"))
         and (sig.symbol or "").upper() not in ma_alert_symbols
     ):
         logger.info("TV webhook: MA alert %s %s not in ma_alert_symbols — Not-routed", alert_type_full, sig.symbol)
@@ -1273,7 +1273,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # (Settings → Multi-period S/R; default SPY,QQQ — indexes read cleanest).
     # Everything else records as not-routed so you can still review candidates.
     if (
-        alert_type_full in ("tv_htf_sr_reject", "tv_htf_sr_bounce")
+        htf_sr_symbols
+        and alert_type_full in ("tv_htf_sr_reject", "tv_htf_sr_bounce")
         and (sig.symbol or "").upper() not in htf_sr_symbols
     ):
         logger.info(
