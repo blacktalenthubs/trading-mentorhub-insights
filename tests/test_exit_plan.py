@@ -28,21 +28,21 @@ def test_gap_and_go_rsi75_morning_low():
                         rsi=62, morning_low=97.5)
     assert p["style"] == "gap"
     assert p["target"] == "RSI 75+"
-    assert p["stop"] == 97.5  # morning low overrides the raw stop
-    assert "RSI 75+" in p["exit"] and "morning low" in p["exit"]
+    assert p["stop"] == 97.5  # morning low overrides the raw stop (lives in the Stop field)
+    assert p["exit"] == "Exit at RSI 75+ (now 62)"  # clean — no stop text in the guidance
 
 
 def test_swing_rsi70_trail_pdl():
     p = build_exit_plan("tv_rsi_oversold", "BUY", entry=50.0, stop=48.0, rsi=33)
     assert p["style"] == "swing"
     assert p["target"] == "RSI 70 (daily)"
-    assert "daily RSI 70" in p["exit"] and "reclaim low" in p["exit"]
-    assert "now 33" in p["exit"]
+    assert p["exit"] == "Trim at daily RSI 70+ (now 33)"  # clean guidance, stop in its own field
+    assert p["stop"] == 48.0
 
 
 def test_long_hold_same_as_swing():
     # Long hold is managed identically to swing: trim at DAILY RSI 70, stop = reclaim low.
     p = build_exit_plan("tv_weekly_ma_held", "BUY", entry=200.0, stop=185.0, rsi=55)
     assert p["style"] == "long"
-    assert "daily RSI 70" in p["exit"] and "reclaim low" in p["exit"]
-    assert "now 55" in p["exit"]
+    assert p["exit"] == "Trim at daily RSI 70+ (now 55)"  # identical to swing
+    assert p["stop"] == 185.0
