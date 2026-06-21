@@ -654,8 +654,11 @@ ma_quality_pass = (not ma_quality_enable) or (ma_q_vol_ok and ma_q_slope_ok)
 trend_gate  = input.bool(true, "Only fire MA bounces in a real uptrend (EMA 50>100>200 + price>50) — kills chop, keeps pullbacks", group = "Trend filter")
 ema_stacked = (not na(ema50)) and (not na(ema100)) and (not na(ema200)) and ema50 > ema100 and ema100 > ema200 and close > ema50
 trend_ok    = (not trend_gate) or ema_stacked
+// The 200 EMA/SMA is the institutional dip-buy zone — a bounce THERE always fires,
+// even with the stack broken: a broken trend gets bought back at the 200.
+is_200_bounce = fire_e200 or fire_s200
 
-if fire_alerts and any_long and ma_quality_pass and trend_ok
+if fire_alerts and any_long and ma_quality_pass and (trend_ok or is_200_bounce)
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
