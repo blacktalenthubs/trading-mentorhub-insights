@@ -1640,6 +1640,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 next_resistance=sig.target_1,
                 morning_low=getattr(sig, "_tv_morning_low", None),
             )
+            # Feed the Telegram trade-type tag — notify_user reads sig._trade_type.
+            setattr(sig, "_trade_type", _exit["style"])
             alert = Alert(
                 user_id=user.id,
                 symbol=sig.symbol,
