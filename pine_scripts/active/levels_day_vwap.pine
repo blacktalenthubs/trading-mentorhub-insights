@@ -1777,10 +1777,10 @@ f_wkstage() =>
         _inp := false
     _inzone = (not na(_m)) and (low <= _m * (1.0 + wk_ma_buf / 100.0)) and (close > _m)
     _add = _rising and _above and _inzone and (low[1] > _m[1] * (1.0 + wk_ma_buf / 100.0))
-    // close > open (GREEN week) required — a reclaim that closes the week DOWN
-    // (red) is a weak/false reclaim (OKLO + GOOGL 2026-06-08 both swept the level
-    // but closed red). A real reclaim finishes the week up.
-    _rcbase = (low < low[1]) and (close > low[1]) and (close > open) and (not na(_m))
+    // Strong reclaim = closed UP or in the TOP HALF of the bar's range. Earlier this required a
+    // GREEN week (close > open), but that rejected strong RED reclaims that held the level (NBIS
+    // 06-08 @217 closed 74% up but red). Top-half still rejects genuine weak sweeps (close near low).
+    _rcbase = (low < low[1]) and (close > low[1]) and ((close > open) or (close - low >= (high - low) * 0.5)) and (not na(_m))
     _rcb = _rcbase and (close < _m)
     _rca = _rcbase and (close >= _m)
     [_m, _b, _x, _trail, _add, _rcb, _rca, low]
