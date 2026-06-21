@@ -1,55 +1,52 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// Weekly Levels — VISUAL ONLY (chart-only; bind NO alert to this Pine).
+// Weekly Levels — VISUAL ONLY (chart-only; bind NO alert). Pure read, no entry/stop.
 // ─────────────────────────────────────────────────────────────────────────────
-// 10w + 30w weekly MAs + the weekly setups, ANCHORED to the weekly via
-// request.security (same pattern as WkStage) — so they read the SAME on any chart
-// TF: the MA stays the WEEKLY MA, plotted as a real line, and the markers sit ON
-// it. Read it on the weekly for decisions; zoom to a lower TF to time entries.
-// The ALERTS (weekly_ma_held + weekly_rc) fire from levels_day_vwap.pine.
-//
-//   • 10w / 30w   — the weekly MAs, PLOTTED (curve on the weekly), role-colored
-//                   green when price is above (support) / red when below (resistance).
-//   • 10w↑ / 30w↑ — weekly close back above the MA (the weekly_ma_held reclaim).
-//   • wRC ◆       — undercut + reclaim of the prior-week low on a GREEN week (weekly_rc).
+// FLAT 10w + 30w weekly MA levels (one horizontal S/R line each at the current
+// weekly value, like the prior-levels lines) + three reclaim SIGNS:
+//   • 10w↑  — price reclaims the 10w MA   ┐ the weekly_ma_held setup
+//   • 30w↑  — price reclaims the 30w MA   ┘
+//   • wRC ◆ — undercut + reclaim of the prior-week low, green week (weekly_rc)
+// Signs are limited to RECENT bars so old ones (when the MA sat far from today's
+// flat level) don't float off the line. The ALERTS fire from levels_day_vwap.pine.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Weekly Levels", "WkLvls", overlay = true, max_labels_count = 20, max_lines_count = 4)
+indicator("Weekly Levels", "WkLvls", overlay = true, max_lines_count = 4, max_labels_count = 100)
 
-show_10w  = input.bool(true, "10w MA")
-show_30w  = input.bool(true, "30w MA")
-show_marc = input.bool(true, "10w/30w MA reclaim markers (weekly close back above the MA)")
-show_rc   = input.bool(true, "Weekly RC marker (prior-week-low reclaim)")
-col_sup   = input.color(#26A69A, "Support (price above the MA)")
-col_res   = input.color(#EF5350, "Resistance (price below the MA)")
+show_10w  = input.bool(true, "Flat 10w MA line")
+show_30w  = input.bool(true, "Flat 30w MA line")
+show_marc = input.bool(true, "10w / 30w reclaim signs")
+show_rc   = input.bool(true, "Weekly RC sign (prior-week-low reclaim)")
+recent    = input.int (26,   "Signs: recent bars only (0 = all)", minval = 0)
+line_len  = input.int (60,   "Line length (bars back)", minval = 10, maxval = 500)
+col_sup   = input.color(#26A69A, "Support (price above the line)")
+col_res   = input.color(#EF5350, "Resistance (price below the line)")
 
-// ── Everything computed on the WEEKLY, returned as one tuple (Pine v5 HTF pattern,
-// markers fire once via "and not [1]"; single-line calls). Mirrors WkStage's f_wk. ──
-f_wk() =>
-    _m10  = ta.sma(close, 10)
-    _m30  = ta.sma(close, 30)
-    _rc10 = (not na(_m10)) and (close > _m10) and (close[1] <= _m10[1])
-    _rc30 = (not na(_m30)) and (close > _m30) and (close[1] <= _m30[1])
-    _wrc  = (low < low[1]) and (close > low[1]) and (close > open)
-    [_m10, _m30, _rc10, _rc30, _wrc]
-[w10, w30, rc10, rc30, wrc] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_off)
+w10 = request.security(syminfo.tickerid, "W", ta.sma(close, 10), lookahead = barmerge.lookahead_on)
+w30 = request.security(syminfo.tickerid, "W", ta.sma(close, 30), lookahead = barmerge.lookahead_on)
+// Weekly RC = undercut + reclaim of the prior-week low on a GREEN week (confirmed weekly).
+wrc = request.security(syminfo.tickerid, "W", (low < low[1]) and (close > low[1]) and (close > open), lookahead = barmerge.lookahead_off)
 
-plot(show_10w ? w10 : na, "10w MA", color = close > w10 ? col_sup : col_res, linewidth = 2)
-plot(show_30w ? w30 : na, "30w MA", color = close > w30 ? col_sup : col_res, linewidth = 3)
-
-// Right-edge value labels, redrawn on the last bar so they sit at the MA's tip.
-var label l10 = na
-var label l30 = na
+// ── Flat lines + value labels, redrawn on the last bar. ──
+var line  ln10 = na
+var line  ln30 = na
+var label lb10 = na
+var label lb30 = na
 if barstate.islast
-    label.delete(l10)
-    label.delete(l30)
+    line.delete(ln10)
+    line.delete(ln30)
+    label.delete(lb10)
+    label.delete(lb30)
     if show_10w and not na(w10)
         c10 = close > w10 ? col_sup : col_res
-        l10 := label.new(bar_index, w10, "10w " + str.tostring(w10, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
+        ln10 := line.new(bar_index - line_len, w10, bar_index + 10, w10, color = c10, width = 2)
+        lb10 := label.new(bar_index + 10, w10, "10w " + str.tostring(w10, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
     if show_30w and not na(w30)
         c30 = close > w30 ? col_sup : col_res
-        l30 := label.new(bar_index, w30, "30w " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
+        ln30 := line.new(bar_index - line_len, w30, bar_index + 10, w30, color = c30, width = 2)
+        lb30 := label.new(bar_index + 10, w30, "30w " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
 
-// Markers — the weekly value repeats across LTF bars, so fire once with "and not [1]".
-plotshape(show_marc and rc10 and not rc10[1], title = "10w reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "10w↑")
-plotshape(show_marc and rc30 and not rc30[1], title = "30w reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "30w↑")
-plotshape(show_rc and wrc and not wrc[1], title = "Weekly RC", style = shape.diamond, location = location.belowbar, color = color.new(#2962FF, 0), size = size.tiny, text = "wRC")
+// ── Reclaim signs (recent bars only so they sit near the flat line). ──
+in_win = recent == 0 or (last_bar_index - bar_index) <= recent
+plotshape(show_marc and in_win and ta.crossover(close, w10), title = "10w reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "10w↑")
+plotshape(show_marc and in_win and ta.crossover(close, w30), title = "30w reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "30w↑")
+plotshape(show_rc and in_win and wrc and not wrc[1], title = "Weekly RC", style = shape.diamond, location = location.belowbar, color = color.new(#2962FF, 0), size = size.tiny, text = "wRC")
