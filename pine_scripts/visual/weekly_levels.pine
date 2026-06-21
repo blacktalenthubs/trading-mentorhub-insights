@@ -28,8 +28,8 @@ col_res   = input.color(#EF5350, "Resistance (price below the line)")
 f_wk() =>
     _m10  = ta.sma(close, 10)
     _m30  = ta.sma(close, 30)
-    _rc10 = ta.crossover(close, _m10) or (close > _m10 and low <= _m10 and close[1] > _m10[1] and low[1] > _m10[1])
-    _rc30 = ta.crossover(close, _m30) or (close > _m30 and low <= _m30 and close[1] > _m30[1] and low[1] > _m30[1])
+    _rc10 = (close > _m10) and (low <= _m10)   // straddled the 10w + closed above = reclaim or hold
+    _rc30 = (close > _m30) and (low <= _m30)   // straddled the 30w + closed above = reclaim or hold
     _wrc  = (low < low[1]) and (close > low[1]) and ((close > open) or (close - low >= (high - low) * 0.5))
     [_m10, _m30, _rc10, _rc30, _wrc]
 [w10, w30, sig10, sig30, wrc] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_on)
