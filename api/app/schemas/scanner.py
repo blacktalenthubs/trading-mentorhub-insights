@@ -43,10 +43,9 @@ class SignalResultResponse(BaseModel):
 
 
 class WatchlistRankFactors(BaseModel):
-    volume: int = 0
-    level_proximity: int = 0
-    rsi: int = 0
-    trend: int = 0
+    trend: int = 0        # 0-40 — slow-stack uptrend (the gate)
+    pullback: int = 0     # 0-40 — proximity to a support below price (dip-buy zone)
+    rsi_room: int = 0     # 0-20 — RSI cooled into the buy zone (not overbought)
 
 
 class WatchlistRankItem(BaseModel):
