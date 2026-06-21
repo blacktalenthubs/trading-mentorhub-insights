@@ -65,23 +65,16 @@ def build_exit_plan(
                      if next_resistance else "Day · target: next resistance above"),
         }
 
-    if style == "Swing":
-        return {
-            "style": "swing",
-            "label": "Swing trade",
-            "target": "RSI 70",
-            "stop": stop,  # HARD stop = the reclaim/setup low
-            "exit": f"Swing · target RSI 70{_now(rsi)} · STOP = the reclaim low — lose it, you're out",
-        }
-
-    # Long hold — bought a weekly MA reclaim. HARD STOP at the reclaim candle's low, NOT a
-    # weekly close-below (that's hope-and-hold: NVDA dragged 209->203, MSFT lost both MAs
-    # and kept falling). The level you reclaimed IS the thesis — lose its low and you're
-    # out, don't wait a week to find a 10% drop. `stop` = the entry/reclaim bar low.
+    # Swing AND Long hold are managed IDENTICALLY (user, 2026-06-21): begin trimming at
+    # DAILY RSI 70+ (most names pause there before the next leg — discretionary how much /
+    # how long you hold after), and the HARD stop is the reclaim/setup low (below entry).
+    # No weekly-close wait, no 5w-EMA trail — same plan whether you call it swing or long.
+    is_long = style == "Long hold"
     return {
-        "style": "long",
-        "label": "Long hold",
-        "target": "RSI 70 / 5w EMA",
+        "style": "long" if is_long else "swing",
+        "label": "Long hold" if is_long else "Swing trade",
+        "target": "RSI 70 (daily)",
         "stop": stop,
-        "exit": f"Long hold · trim RSI 70+{_now(weekly_rsi)} · STOP = the reclaim low — lose it, you're out (don't wait for the weekly close)",
+        "exit": (f"{'Long hold' if is_long else 'Swing'} · trim at daily RSI 70+{_now(rsi)} · "
+                 f"stop = the reclaim low (below entry) — lose it, you're out"),
     }
