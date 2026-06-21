@@ -1,29 +1,23 @@
 // @version=5
 //
-// 4h Reclaim (RC) + Weekly 10w/30w MA — ANCHORED. Markers + alerts.
+// 4h Reclaim (RC) — ANCHORED. Markers + alerts, one per 4h bar.
 //
-// PART 1 — 4h Reclaim (RC): the reclaim is computed on the 4h candle via
-// request.security("240"), so it is IDENTICAL on any chart TF and fires at most
-// ONCE per 4h bar (no flood, even on a 5m alert).
+// The reclaim is computed on the 4h candle via request.security("240"), so it is
+// IDENTICAL on any chart TF and fires at most ONCE per 4h bar (no flood, even on a
+// 5m alert).
 //   ▲ RC   = 4h low < prior 4h low  AND 4h close > prior 4h low  — undercut & reclaim (BUY)
 //   ▼ ↓    = 4h high > prior 4h high AND 4h close < prior 4h high — failed break (SHORT)
 //   ▲ RC-H = 4h low < prior 4h high AND 4h close > prior 4h high — breakout-retest (BUY)
 //   rule "rc_4h" → Day-trade. Backend sets the exit (next resistance).
 //
-// PART 2 — Weekly 10w/30w MA (folded in from weekly_position.pine, 3-pine link
-// limit). Position entry: price holds/reclaims the RISING weekly 10w or 30w MA in
-// a Stage-2 uptrend.  rule "weekly_ma_held" → Long-hold. Sends weekly_rsi so the
-// backend can set the Long-hold exit (trim at weekly RSI 70 / weekly close-below).
+// ⚠️ STANDALONE — DO NOT fold the weekly 10w/30w alert in here. Adding a
+// request.security("W") to this anchored 4h script SILENTLY KILLS RC emission
+// (validated 2026-06-21: RC went dark after every weekly merge; last RC 00:55,
+// nothing after). The weekly_ma_held alert lives in levels_day_vwap.pine instead.
+// Keep this Pine to ONE timeframe. Bind ONE TV alert with "Any alert() function call".
 //
-// LEAN BY DESIGN: this Pine only TRIGGERS + sends the RSI. Targets, classification
-// and the exit plan all live in the backend (analytics/exit_plan.py) — never in
-// Pine again. Bind ONE TV alert with "Any alert() function call".
-//
-indicator("4h RC + Weekly MA", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
+indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
 
-// ═════════════════════════════════════════════════════════════════════════
-// PART 1 — 4h RECLAIM (unchanged anchored logic)
-// ═════════════════════════════════════════════════════════════════════════
 show_long  = input.bool(true, "▲ RC long — reclaim of prior 4h LOW (BUY)", group = "4h RC")
 show_short = input.bool(true, "▼ rejection short — failed break of prior 4h HIGH (SHORT)", group = "4h RC")
 show_hrec  = input.bool(true, "▲ RC-H — reclaim of prior 4h HIGH / breakout-retest (BUY)", group = "4h RC")
@@ -43,83 +37,10 @@ plotshape(rc4_hrec,  title = "RC-H",     style = shape.triangleup,   location = 
 rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 // Stop = just BEYOND the reclaimed/rejected LEVEL (rc4_plow / rc4_phigh), not the deep
-// undercut wick (rc4_low/rc4_high). Thesis: "that prior 4h level held" — so losing the
-// level = the setup failed. Tighter risk, far better R:R than stopping at the flush low.
+// undercut wick. Thesis: "that prior 4h level held" — so losing the level = setup failed.
 if rc4_long
     alert(rc_payload("BUY", rc4_plow * (1 - rc_buf_pct / 100.0), "RC · reclaim of the prior 4h low · stop just below the reclaimed low"), alert.freq_once_per_bar_close)
 if rc4_short
     alert(rc_payload("SHORT", rc4_phigh * (1 + rc_buf_pct / 100.0), "RC · rejection at the prior 4h high · stop just above the level"), alert.freq_once_per_bar_close)
 if rc4_hrec
     alert(rc_payload("BUY", rc4_phigh * (1 - rc_buf_pct / 100.0), "RC-H · breakout-retest reclaim of the prior 4h high · stop just below the reclaimed high"), alert.freq_once_per_bar_close)
-
-// ═════════════════════════════════════════════════════════════════════════
-// PART 2 — WEEKLY 10w / 30w MA (held / reclaim entry, Stage-2 uptrend)
-// All weekly values via request.security("W") → identical on any chart TF.
-// ═════════════════════════════════════════════════════════════════════════
-wk_fast      = input.int  (10,   "Weekly fast MA (10w)", minval = 2, group = "Weekly MA")
-wk_slow      = input.int  (30,   "Weekly slow MA (30w · Weinstein)", minval = 5, group = "Weekly MA")
-wk_fire      = input.bool (true, "Fire the weekly 10w/30w held/reclaim entry", group = "Weekly MA")
-wk_slope_lb  = input.int  (4,    "30wMA slope lookback (weeks)", minval = 1, group = "Weekly MA")
-wk_tol_pct   = input.float(2.0,  "Open-at-the-MA tolerance (%)", minval = 0.0, step = 0.5, group = "Weekly MA")
-wk_floor_pct = input.float(0.5,  "Chop filter — 30wMA min rising slope (%)", minval = 0.0, step = 0.1, group = "Weekly MA")
-wk_rearm_pct = input.float(3.0,  "Re-arm — close this % above the 10wMA before next entry", minval = 0.5, step = 0.5, group = "Weekly MA")
-wk_show_ln   = input.bool (true, "Draw flat weekly 10w/30w MA lines", group = "Weekly MA")
-
-wk_f() =>
-    _f     = ta.sma(close, wk_fast)
-    _s     = ta.sma(close, wk_slow)
-    _rsi   = ta.rsi(close, 14)
-    _slope = _s[wk_slope_lb] != 0 ? (_s - _s[wk_slope_lb]) / _s[wk_slope_lb] * 100.0 : 0.0
-    _up    = (close > _s) and (_slope > wk_floor_pct) and (_f > _s)
-    [_f, _s, _rsi, _slope, _up]
-[wk_wf, wk_ws, wk_wrsi, wk_wslope, wk_wup] = request.security(syminfo.tickerid, "W", wk_f(), lookahead = barmerge.lookahead_on)
-
-// Qualifying touch on THIS chart's bar: closes above the weekly MA having tagged it.
-wk_entry(float ma) => not na(ma) and close > ma and (low <= ma or (not na(close[1]) and close[1] <= ma) or math.abs(open - ma) / ma <= wk_tol_pct / 100.0)
-
-wk_e10 = wk_wup and wk_entry(wk_wf)
-var bool wk_armed10 = true
-if not na(wk_wf) and close > wk_wf * (1.0 + wk_rearm_pct / 100.0)
-    wk_armed10 := true
-wk_fire10 = wk_fire and wk_e10 and wk_armed10
-if wk_fire10
-    wk_armed10 := false
-
-wk_e30 = not na(wk_ws) and not na(wk_ws[wk_slope_lb]) and wk_ws > wk_ws[wk_slope_lb] and wk_entry(wk_ws)
-var bool wk_armed30 = true
-if not na(wk_ws) and close > wk_ws * (1.0 + wk_rearm_pct / 100.0)
-    wk_armed30 := true
-wk_fire30 = wk_fire and wk_e30 and wk_armed30
-if wk_fire30
-    wk_armed30 := false
-
-wk_fired = wk_fire10 or wk_fire30
-wk_stop  = low * 0.99
-
-plotshape(wk_fire10, title = "10w entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "10w")
-plotshape(wk_fire30, title = "30w entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.blue, 0), size = size.small, text = "30w")
-
-// Flat weekly MA lines — 10w/30w at the current weekly value, redrawn on the last
-// bar (teal = price above / support, red = price below / resistance).
-var line wk_ln10 = na
-var line wk_ln30 = na
-var label wk_lb10 = na
-var label wk_lb30 = na
-if wk_show_ln and barstate.islast
-    line.delete(wk_ln10)
-    line.delete(wk_ln30)
-    label.delete(wk_lb10)
-    label.delete(wk_lb30)
-    if not na(wk_wf)
-        wk_ln10 := line.new(bar_index - 60, wk_wf, bar_index + 10, wk_wf, color = close > wk_wf ? color.teal : color.red, width = 2)
-        wk_lb10 := label.new(bar_index + 10, wk_wf, "10w " + str.tostring(wk_wf, format.mintick), style = label.style_label_left, color = close > wk_wf ? color.teal : color.red, textcolor = color.white, size = size.small)
-    if not na(wk_ws)
-        wk_ln30 := line.new(bar_index - 60, wk_ws, bar_index + 10, wk_ws, color = close > wk_ws ? color.teal : color.red, width = 2)
-        wk_lb30 := label.new(bar_index + 10, wk_ws, "30w " + str.tostring(wk_ws, format.mintick), style = label.style_label_left, color = close > wk_ws ? color.teal : color.red, textcolor = color.white, size = size.small)
-
-// Weekly entry alert — rule "weekly_ma_held", BUY. Sends weekly_rsi for the
-// backend Long-hold exit (trim at weekly RSI 70 / exit on a weekly close below).
-if wk_fired and barstate.isconfirmed
-    wk_ma = wk_fire10 ? "10w" : "30w"
-    wk_payload = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_held","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_stop, format.mintick) + '","weekly_rsi":"' + str.tostring(wk_wrsi, "#.#") + '","note":"Weekly ' + wk_ma + ' MA held/reclaim (Stage 2) — exit on a weekly close below the MA; trim at weekly RSI 70","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wk_payload, alert.freq_once_per_bar_close)
