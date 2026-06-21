@@ -11,7 +11,7 @@ import {
   Crosshair, Brain, Send, BarChart3, Play,
   Check, Zap, Clock,
   ArrowRight, BookOpen,
-  Scan, Target, ChevronRight,
+  Scan, Target, ChevronRight, Menu, X,
 } from "lucide-react";
 
 /* ── Live track record hook ───────────────────────────────────────── */
@@ -52,20 +52,21 @@ function Badge({ children, variant = "default" }: { children: React.ReactNode; v
 /* ── Nav ──────────────────────────────────────────────────────────── */
 
 function LandingNav() {
+  const [open, setOpen] = useState(false);
   return (
     <nav
       className="fixed top-0 left-0 right-0 z-50 bg-surface-0/80 backdrop-blur-lg border-b border-border-subtle/50"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+        <Link to="/" className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-purple flex items-center justify-center">
             <Crosshair className="h-4 w-4 text-white" />
           </div>
           <span className="font-bold text-lg text-text-primary">
             <span className="text-accent">Busy</span>TradersDesk
           </span>
-        </div>
+        </Link>
 
         <div className="hidden md:flex items-center gap-8 text-sm text-text-muted">
           <a href="#pillars" className="hover:text-text-primary transition-colors">Toolkit</a>
@@ -74,18 +75,31 @@ function LandingNav() {
           <Link to="/track-record" className="hover:text-text-primary transition-colors">Track Record</Link>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Link to="/login" className="text-sm font-medium text-text-primary hover:text-accent transition-colors px-3 py-2 rounded-lg border border-border-subtle hover:border-accent">
             Sign in
           </Link>
           <Link
             to="/register"
-            className="bg-accent hover:bg-accent-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="hidden sm:inline-flex bg-accent hover:bg-accent-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Get Started
           </Link>
+          <button onClick={() => setOpen((o) => !o)} className="md:hidden p-2 -mr-2 text-text-secondary" aria-label="Menu">
+            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </div>
+
+      {open && (
+        <div className="md:hidden border-t border-border-subtle/50 bg-surface-0/95 backdrop-blur-lg px-6 py-2">
+          <a href="#pillars" onClick={() => setOpen(false)} className="block py-2.5 text-sm text-text-secondary hover:text-text-primary">Toolkit</a>
+          <a href="#pricing" onClick={() => setOpen(false)} className="block py-2.5 text-sm text-text-secondary hover:text-text-primary">Pricing</a>
+          <Link to="/learn" onClick={() => setOpen(false)} className="block py-2.5 text-sm text-text-secondary hover:text-text-primary">Pattern Library</Link>
+          <Link to="/track-record" onClick={() => setOpen(false)} className="block py-2.5 text-sm text-text-secondary hover:text-text-primary">Track Record</Link>
+          <Link to="/register" onClick={() => setOpen(false)} className="block py-2.5 text-sm font-semibold text-accent">Get Started →</Link>
+        </div>
+      )}
     </nav>
   );
 }

@@ -3,7 +3,7 @@
  *  with consistent spacing, typography, and inline trust microcopy.
  */
 
-import { Crosshair } from "lucide-react";
+import { Crosshair, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 
 interface Props {
@@ -16,7 +16,12 @@ interface Props {
 
 export default function AuthShell({ title, subtitle, children, footer }: Props) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-surface-0 px-4 py-10">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-surface-0 px-4 py-10">
+      {/* Explicit back affordance — the logo also links home, but users (esp. on mobile)
+          don't realize it; this gives a clear way out of the auth flow. */}
+      <Link to="/" className="absolute top-4 left-4 inline-flex items-center gap-1 text-[13px] text-text-muted hover:text-text-primary active:opacity-70">
+        <ArrowLeft size={16} /> Back
+      </Link>
       {/* Brand */}
       <Link to="/" className="flex items-center gap-2.5 mb-6 group">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-purple flex items-center justify-center shadow-glow-accent transition-transform group-hover:scale-105">
