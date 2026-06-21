@@ -27,11 +27,6 @@ indicator("4h RC + Weekly MA", "RC4h", overlay = true, max_labels_count = 200, m
 show_long  = input.bool(true, "▲ RC long — reclaim of prior 4h LOW (BUY)", group = "4h RC")
 show_short = input.bool(true, "▼ rejection short — failed break of prior 4h HIGH (SHORT)", group = "4h RC")
 show_hrec  = input.bool(true, "▲ RC-H — reclaim of prior 4h HIGH / breakout-retest (BUY)", group = "4h RC")
-show_lvl   = input.bool(true, "Draw the reclaimed/rejected level line", group = "4h RC")
-lvl_bars   = input.int(24, "Extend the level this many bars", minval = 1, group = "4h RC")
-col_long   = input.color(color.new(color.lime, 30), "Level — RC (reclaim low)", group = "4h RC")
-col_short  = input.color(color.new(color.red, 30),  "Level — rejection (prior high)", group = "4h RC")
-col_hrec   = input.color(color.new(color.teal, 30), "Level — RC-H (reclaim high)", group = "4h RC")
 
 [rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
 rc4_newbar = ta.change(time("240")) != 0
@@ -43,13 +38,6 @@ rc4_hrec  = show_hrec  and rc4_newbar and (rc4_low  < rc4_phigh) and (rc4_close 
 plotshape(rc4_long,  title = "RC long",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
 plotshape(rc4_short, title = "RC short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.small, text = "↓")
 plotshape(rc4_hrec,  title = "RC-H",     style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "RC-H")
-
-if show_lvl and rc4_long
-    line.new(bar_index, rc4_plow, bar_index + lvl_bars, rc4_plow, xloc = xloc.bar_index, color = col_long, width = 1, style = line.style_dashed)
-if show_lvl and rc4_short
-    line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_short, width = 1, style = line.style_dashed)
-if show_lvl and rc4_hrec
-    line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_hrec, width = 1, style = line.style_dashed)
 
 rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
 
