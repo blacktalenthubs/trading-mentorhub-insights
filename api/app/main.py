@@ -595,9 +595,19 @@ async def lifespan(app: FastAPI):
                 def _real_outcomes_eod():
                     try:
                         from analytics.alert_outcomes import compute_outcomes_for_session
-                        from datetime import date as _date
-                        summary = compute_outcomes_for_session(sync_session_factory, _date.today())
-                        logger.info("Real outcomes EOD: %s", summary)
+                        from datetime import date as _date, timedelta as _td
+                        # Backfill the last ~10 trading days (idempotent — only fills NULLs) so a
+                        # gap (deploy, Alpaca-key outage) self-heals instead of permanently missing
+                        # days. The fetch falls back to yfinance, so it works without Alpaca.
+                        today = _date.today()
+                        total = 0
+                        for _back in range(0, 14):
+                            d = today - _td(days=_back)
+                            if d.weekday() >= 5:  # skip weekends
+                                continue
+                            s = compute_outcomes_for_session(sync_session_factory, d)
+                            total += s.get("alerts_updated", 0)
+                        logger.info("Real outcomes EOD: backfilled %d alerts across last 14d", total)
                     except Exception:
                         logger.exception("Real outcomes EOD failed")
 

@@ -104,60 +104,59 @@ def _normalize_index_to_et(hist: pd.DataFrame) -> pd.DataFrame:
     return hist
 
 
-def _fetch_alpaca_bars_for_date(symbol: str, session_date) -> pd.DataFrame:
-    """Fetch 5m bars covering one specific past session (09:30-16:00 ET).
-
-    Used by the outcome backfill job — given a fired alert's date, pull
-    that day's full session in one call so we can walk forward from the
-    fire bar without hitting the API once per alert.
-
-    Returns DataFrame with [Open, High, Low, Close, Volume], naive ET index.
-    Empty on failure / missing credentials.
-    """
-    import os
-    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
-        return pd.DataFrame()
-    _key = os.environ.get("ALPACA_API_KEY", "")
-    _secret = os.environ.get("ALPACA_SECRET_KEY", "")
-    if not _key or not _secret:
-        return pd.DataFrame()
-
+def _yf_session_bars(symbol: str, session_date) -> pd.DataFrame:
+    """yfinance 5m bars for one session — fallback when Alpaca is unavailable /
+    unauthorized (yfinance offers 5m intraday for ~the last 60 days). Naive ET index."""
     try:
-        from alpaca.data.historical import StockHistoricalDataClient
-        from alpaca.data.requests import StockBarsRequest
-        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-        from datetime import datetime, time as _time
-
-        client = StockHistoricalDataClient(_key, _secret)
-        # Bracket the regular session in ET, then convert to UTC for Alpaca.
-        start_et = datetime.combine(session_date, _time(9, 30))
-        end_et   = datetime.combine(session_date, _time(16, 0))
-        start_utc = ET.localize(start_et).astimezone(pytz.UTC)
-        end_utc   = ET.localize(end_et).astimezone(pytz.UTC)
-
-        req = StockBarsRequest(
-            symbol_or_symbols=symbol,
-            timeframe=TimeFrame(5, TimeFrameUnit.Minute),
-            start=start_utc,
-            end=end_utc,
-        )
-        bars = client.get_stock_bars(req)
-        df = bars.df
-        if df.empty:
+        import yfinance as yf
+        from datetime import timedelta
+        df = yf.Ticker(symbol).history(start=session_date, end=session_date + timedelta(days=1), interval="5m")
+        if df is None or df.empty:
             return pd.DataFrame()
-
-        df = df.reset_index(level="symbol", drop=True)
+        if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
+            df.columns = df.columns.get_level_values(0)
         if df.index.tz is not None:
             df.index = df.index.tz_convert(ET).tz_localize(None)
-        df = df.rename(columns={
-            "open": "Open", "high": "High", "low": "Low",
-            "close": "Close", "volume": "Volume",
-        })
-        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-        return df
-    except Exception as e:
-        logger.info("Alpaca session fetch failed for %s on %s: %s", symbol, session_date, str(e)[:80])
+        return df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    except Exception:
         return pd.DataFrame()
+
+
+def _fetch_alpaca_bars_for_date(symbol: str, session_date) -> pd.DataFrame:
+    """5m bars covering one specific past session (09:30-16:00 ET), for the
+    outcome backfill. Alpaca first; yfinance fallback so outcomes still compute
+    when Alpaca is down / 401s. [Open, High, Low, Close, Volume], naive ET index.
+    """
+    import os
+    if os.environ.get("ALPACA_DISABLED", "").lower() not in ("1", "true", "yes"):
+        _key = os.environ.get("ALPACA_API_KEY", "")
+        _secret = os.environ.get("ALPACA_SECRET_KEY", "")
+        if _key and _secret:
+            try:
+                from alpaca.data.historical import StockHistoricalDataClient
+                from alpaca.data.requests import StockBarsRequest
+                from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+                from datetime import datetime, time as _time
+
+                client = StockHistoricalDataClient(_key, _secret)
+                start_et = datetime.combine(session_date, _time(9, 30))
+                end_et   = datetime.combine(session_date, _time(16, 0))
+                req = StockBarsRequest(
+                    symbol_or_symbols=symbol,
+                    timeframe=TimeFrame(5, TimeFrameUnit.Minute),
+                    start=ET.localize(start_et).astimezone(pytz.UTC),
+                    end=ET.localize(end_et).astimezone(pytz.UTC),
+                )
+                df = client.get_stock_bars(req).df
+                if not df.empty:
+                    df = df.reset_index(level="symbol", drop=True)
+                    if df.index.tz is not None:
+                        df.index = df.index.tz_convert(ET).tz_localize(None)
+                    df = df.rename(columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"})
+                    return df[["Open", "High", "Low", "Close", "Volume"]].copy()
+            except Exception as e:
+                logger.info("Alpaca session fetch failed for %s on %s: %s — yfinance fallback", symbol, session_date, str(e)[:80])
+    return _yf_session_bars(symbol, session_date)
 
 
 def _fetch_alpaca_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -> pd.DataFrame:

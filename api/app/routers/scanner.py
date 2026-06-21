@@ -74,8 +74,36 @@ async def active_entries(
 # ── Watchlist ranking ────────────────────────────────────────────────
 
 
+def _daily_bars(symbol: str):
+    """~1y of daily bars [Open, High, Low, Close, Volume], naive ET index.
+    Alpaca FIRST (reliable server-side — yfinance silently empties on Railway);
+    yfinance fallback for local dev / an Alpaca gap. ~1y so the 50/100/200 EMA
+    stack actually computes (3mo only ever yielded the 50)."""
+    from analytics.intraday_data import _fetch_alpaca_bars, _fetch_alpaca_crypto_bars
+    is_crypto = symbol.upper().endswith("-USD")
+    hours = 24 * 400
+    try:
+        df = (_fetch_alpaca_crypto_bars(symbol, interval="1d", hours_back=hours)
+              if is_crypto else
+              _fetch_alpaca_bars(symbol, interval="1d", hours_back=hours))
+        if df is not None and len(df) >= 60:
+            return df
+    except Exception:
+        pass
+    try:
+        import yfinance as yf
+        df = yf.Ticker(symbol).history(period="1y", interval="1d")
+        if df is not None and not df.empty:
+            if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
+                df.columns = df.columns.get_level_values(0)
+            return df
+    except Exception:
+        pass
+    return None
+
+
 def _compute_watchlist_ranks(symbols: List[str]) -> List[dict]:
-    """Compute tradeability scores for symbols using yfinance daily data.
+    """Compute tradeability scores for symbols using daily bars (Alpaca→yfinance).
 
     Each symbol gets a score 0-100 from four factors (25 pts each):
     - Volume: today's volume vs 20-day average
@@ -83,20 +111,13 @@ def _compute_watchlist_ranks(symbols: List[str]) -> List[dict]:
     - RSI: extremes (near 30/70) are more tradeable
     - Trend clarity: EMA alignment (5>20>50 or inverse)
     """
-    import yfinance as yf
-
     results: List[dict] = []
 
     for symbol in symbols:
         try:
-            ticker = yf.Ticker(symbol)
-            df = ticker.history(period="3mo", interval="1d")
-            if df is None or df.empty or len(df) < 20:
+            df = _daily_bars(symbol)
+            if df is None or len(df) < 20:
                 continue
-
-            # Flatten MultiIndex columns (yfinance quirk)
-            if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
-                df.columns = df.columns.get_level_values(0)
 
             close = df["Close"]
             volume = df["Volume"]
