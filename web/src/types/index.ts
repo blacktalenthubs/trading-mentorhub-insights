@@ -72,6 +72,7 @@ export interface Alert {
   confluence_score: number;
   confluence_label: string | null;
   entry_guidance: string | null;
+  trade_type?: string | null;        // day | swing | long | gap → the style badge
   message: string;
   narrative?: string | null;         // the AI agent's read — surfaced in Today > Briefing
   created_at: string;

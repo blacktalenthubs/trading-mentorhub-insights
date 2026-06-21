@@ -185,12 +185,11 @@ def _format_tv_body(signal: AlertSignal) -> str | None:
     rule_label = f"{rule} ({ma_tag_pretty})" if ma_tag_pretty else rule
     parts = [f"<b>{dir_label} {sym} ${signal.price:.2f}</b> — <i>{_html.escape(rule_label)}</i>"]
 
-    # Day/swing tag (Sub-spec L) — DAY · swing-eligible when extended (RSI > 70).
+    # Trade-style badge (day/swing/long/gap) — the first thing a busy trader reads.
     _tt = getattr(signal, "_trade_type", None)
-    if _tt == "swing":
-        parts.append("📅 SWINGABLE")
-    elif _tt == "day":
-        parts.append("⚡ DAY · swing-eligible" if getattr(signal, "_swing_eligible", False) else "⚡ DAY")
+    _TT_TAG = {"day": "⚡ DAY", "swing": "📈 SWING", "long": "💎 LONG-TERM", "gap": "🚀 GAP"}
+    if _tt in _TT_TAG:
+        parts.append(_TT_TAG[_tt])
 
     levels = []
     if signal.entry is not None:

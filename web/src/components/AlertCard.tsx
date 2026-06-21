@@ -33,6 +33,15 @@ const GRADE_STYLE: Record<string, string> = {
   C: "bg-surface-3 text-text-muted border-border-default",
 };
 
+// Trade-style badge — the first thing a busy trader reads: HOW to manage it.
+// day = in/out today (price target) · swing/long = hold, trim at daily RSI 70 · gap = momentum.
+const TRADE_TYPE: Record<string, { label: string; cls: string }> = {
+  day:   { label: "DAY",   cls: "bg-accent/15 text-accent border-accent/40" },
+  swing: { label: "SWING", cls: "bg-bullish-subtle text-bullish-text border-bullish-muted" },
+  long:  { label: "HOLD",  cls: "bg-violet-500/15 text-violet-300 border-violet-500/40" },
+  gap:   { label: "GAP",   cls: "bg-warning-subtle text-warning-text border-warning-muted" },
+};
+
 export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: Alert; onChart?: (symbol: string) => void; defaultExpanded?: boolean }) {
   const dir = (a.direction || "").toUpperCase();
   const long = dir === "BUY" || dir === "LONG";
@@ -90,6 +99,9 @@ export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: 
         <button onClick={() => setExpanded((e) => !e)} className="flex flex-1 items-center gap-2 text-left min-w-0">
           <ChevronRight size={14} className={`shrink-0 text-text-faint transition-transform ${expanded ? "rotate-90" : ""}`} />
           <span className="font-display font-semibold text-text-primary">{a.symbol}</span>
+          {a.trade_type && TRADE_TYPE[a.trade_type] && (
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${TRADE_TYPE[a.trade_type].cls}`}>{TRADE_TYPE[a.trade_type].label}</span>
+          )}
           <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
           <span className={`text-[11px] font-bold w-5 h-5 grid place-items-center rounded border ${GRADE_STYLE[grade] ?? GRADE_STYLE.C}`}>{grade}</span>
           <div className="ml-auto flex items-center gap-2 shrink-0 pl-2">
