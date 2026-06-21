@@ -645,7 +645,17 @@ ma_q_vol_ok   = (not na(volume_ratio)) and volume_ratio >= ma_quality_vol_min
 ma_q_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= ma_quality_slope_min
 ma_quality_pass = (not ma_quality_enable) or (ma_q_vol_ok and ma_q_slope_ok)
 
-if fire_alerts and any_long and ma_quality_pass
+// Trend-quality gate (2026-06-21, data-calibrated). A clean MA bounce needs a
+// STACKED uptrend (EMA 8>21>50), NOT a positive slope — measured on real data:
+// SPY's clean bounces fire on a pullback (10d EMA-8 slope NEGATIVE) while the stack
+// holds; ETH/BTC chop keeps the stack BROKEN even when slope briefly turns +. So we
+// gate on the EMA ORDER, not the slope. This replaces the per-symbol mega/index
+// allowlist — slope-of-order generalizes to any name in a real trend.
+trend_gate  = input.bool(true, "Only fire MA bounces in a stacked uptrend (EMA 8>21>50) — kills flat/chop", group = "Trend filter")
+ema_stacked = (not na(ema8)) and (not na(ema21)) and (not na(ema50)) and ema8 > ema21 and ema21 > ema50
+trend_ok    = (not trend_gate) or ema_stacked
+
+if fire_alerts and any_long and ma_quality_pass and trend_ok
     e = close
     s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
     rsk = e - s
