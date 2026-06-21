@@ -63,6 +63,7 @@ function RankRow({ w, onChart, leader, losing }: { w: import("../types").Watchli
           <div className="flex items-center gap-1.5">
             <TrendingUp size={13} className={iconCls} />
             <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
+            <span className="font-mono text-[10.5px] text-text-faint">${w.price}</span>
           </div>
           <p className="line-clamp-2 text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
         </div>
@@ -85,6 +86,16 @@ function RankRow({ w, onChart, leader, losing }: { w: import("../types").Watchli
 
 /* ── DayRead: the always-on "your day in 30 seconds", synthesized from the page data
    (regime + signals + coiling + leaders) — no AI call, instant, useful even with 0 signals. ── */
+function Stat({ n, label, tone }: { n: number; label: string; tone?: "bull" | "warn" | "bear" }) {
+  const c = tone === "bull" ? "text-bullish-text" : tone === "warn" ? "text-warning-text" : tone === "bear" ? "text-bearish-text" : "text-text-secondary";
+  return (
+    <div className="rounded-lg bg-surface-2 px-2 py-2 text-center">
+      <div className={`font-mono text-[17px] font-bold leading-none ${n > 0 ? c : "text-text-faint"}`}>{n}</div>
+      <div className="mt-1 text-[9.5px] uppercase tracking-wide text-text-faint">{label}</div>
+    </div>
+  );
+}
+
 function DayRead({ spy, btc, signals, coiling, leaders, losing }: {
   spy?: SpyRegimeSnapshot;
   btc?: SpyRegimeSnapshot;
@@ -94,27 +105,24 @@ function DayRead({ spy, btc, signals, coiling, leaders, losing }: {
   losing: import("../types").WatchlistRankItem[];
 }) {
   const healthy = !!spy && !spy.below_pdl;
-  const names = (arr: import("../types").WatchlistRankItem[]) => arr.slice(0, 4).map((r) => r.symbol).join(", ");
-  const line2 = [
-    signals > 0 ? `${signals} signal${signals > 1 ? "s" : ""} fired.` : "No signals fired yet.",
-    coiling.length ? `${coiling.length} coiling for a long — ${names(coiling)}.` : "",
-    leaders.length ? `${leaders.length} leaders running hot — ${names(leaders)} (wait for the pullback).` : "",
-    losing.length ? `${losing.length} breaking down — ${names(losing)} (trim / exit watch).` : "",
-  ].filter(Boolean).join(" ");
   return (
     <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 mb-3">
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-2.5">
         <Bot size={15} className="text-accent" />
         <span className="font-display text-[13px] font-semibold text-text-primary">Your day in 30 seconds</span>
+        <span className={`ml-auto text-[10.5px] font-semibold px-2 py-0.5 rounded-full ${healthy ? "bg-bullish-subtle text-bullish-text" : "bg-warning-subtle text-warning-text"}`}>
+          {healthy ? "HEALTHY" : "DEFENSIVE"}
+        </span>
       </div>
-      <div className="space-y-1.5 text-[12.5px] leading-relaxed text-text-secondary">
-        <p>
-          <span className={healthy ? "text-bullish-text font-medium" : "text-warning-text font-medium"}>{healthy ? "Healthy tape" : "Defensive tape"}</span>
-          {" — SPY "}{spy?.below_pdl ? "below" : "above"}{" its line"}{btc ? `, BTC ${btc.below_pdl ? "weak" : "healthy"}` : ""}{". "}
-          {healthy ? "Long setups in play." : "Tighten up — favor proven names."}
-        </p>
-        <p>{line2}</p>
-        <p className="text-text-muted">Long-biased · stops on every position.</p>
+      <p className="text-[12.5px] leading-relaxed text-text-secondary mb-3">
+        SPY {spy?.below_pdl ? "lost" : "holding"} its prior-day low{btc ? `, BTC ${btc.below_pdl ? "weak" : "healthy"}` : ""}.{" "}
+        {healthy ? "Long setups in play — long-biased, stops on every position." : "Tighten up — favor cash / proven names, stops on every position."}
+      </p>
+      <div className="grid grid-cols-4 gap-2">
+        <Stat n={signals} label="Fired" />
+        <Stat n={coiling.length} label="Coiling" tone="bull" />
+        <Stat n={leaders.length} label="Leaders" tone="warn" />
+        <Stat n={losing.length} label="Breaking" tone="bear" />
       </div>
     </div>
   );
