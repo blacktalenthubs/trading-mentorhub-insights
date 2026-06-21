@@ -153,14 +153,21 @@ def _compute_watchlist_ranks(symbols: List[str]) -> List[dict]:
             total = trend_score + pullback_score + rsi_score
             nearest_level_str = f"{nearest_label} at ${nearest_price_val:.2f}"
 
-            # ── Description (buy-zone framing) ──
-            signal = _build_next_entry_text(nearest_label, min_dist_pct, rsi_val, stacked)
+            # ── Bucket: coiling (pulled back to a support, RSI has room) = the BUY zone,
+            # vs leader (running above the EMAs / RSI hot) = strong uptrend but extended —
+            # watch for the pullback or trim, don't chase. Same gate, opposite end. ──
+            is_coiling = min_dist_pct <= 2.5 and rsi_val <= 62
+            bucket = "coiling" if is_coiling else "leader"
+            signal = (_build_next_entry_text(nearest_label, min_dist_pct, rsi_val, stacked)
+                      if is_coiling else
+                      _build_leader_text(nearest_label, min_dist_pct, rsi_val, stacked))
 
             results.append({
                 "symbol": symbol,
                 "score": total,
                 "rank": 0,  # filled after sort
                 "price": round(price, 2),
+                "bucket": bucket,
                 "factors": {
                     "trend": trend_score,
                     "pullback": pullback_score,
@@ -200,6 +207,19 @@ def _build_next_entry_text(nearest_label: str, dist_pct: float, rsi: float, stac
         parts.append(f"RSI {rsi:.0f} extended")
 
     parts.append("stacked uptrend" if stacked else "uptrend forming")
+    return " · ".join(parts)
+
+
+def _build_leader_text(nearest_label: str, dist_pct: float, rsi: float, stacked: bool) -> str:
+    """1-line 'leader' read — strong uptrend but extended; watch for a pullback / trim."""
+    parts: List[str] = []
+    if rsi >= 70:
+        parts.append(f"RSI {rsi:.0f} — extended, trim zone")
+    elif rsi > 62:
+        parts.append(f"RSI {rsi:.0f} — running hot")
+    else:
+        parts.append(f"{dist_pct:.0f}% above the {nearest_label} — extended")
+    parts.append("strong uptrend · wait for the pullback" if stacked else "uptrend")
     return " · ".join(parts)
 
 

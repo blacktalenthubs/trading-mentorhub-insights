@@ -51,6 +51,36 @@ function SectionLabel({ children, action, onAction }: { children: ReactNode; act
   );
 }
 
+/* ── One Next-Entries / Leaders row + a hover context popover (price, level, RSI, read). ── */
+function RankRow({ w, onChart, leader }: { w: import("../types").WatchlistRankItem; onChart: (s: string) => void; leader?: boolean }) {
+  return (
+    <div className="group relative">
+      <button onClick={() => onChart(w.symbol)}
+        className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5 text-left hover:bg-surface-2 active:opacity-80">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <TrendingUp size={13} className={leader ? "text-warning-text" : w.score >= 60 ? "text-bullish-text" : "text-text-muted"} />
+            <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
+          </div>
+          <p className="truncate text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
+        </div>
+        <span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${leader ? "bg-warning-subtle text-warning-text" : w.score >= 60 ? "bg-bullish-subtle text-bullish-text" : "bg-surface-3 text-text-faint"}`}>
+          {leader ? `RSI ${Math.round(w.rsi ?? 0)}` : Math.round(w.score)}
+        </span>
+        <ChevronRight size={14} className="text-text-faint" />
+      </button>
+      <div className="pointer-events-none absolute inset-x-0 top-full z-20 mt-1 hidden rounded-lg border border-border-subtle bg-surface-3 p-2.5 text-[11px] shadow-lg group-hover:block">
+        <div className="flex items-baseline justify-between font-semibold text-text-primary">
+          <span>{w.symbol}</span><span className="font-mono text-text-secondary">${w.price}</span>
+        </div>
+        <div className="mt-1 text-text-secondary">{w.nearest_level}</div>
+        <div className="mt-0.5 text-text-muted">RSI {w.rsi ?? "—"} · trend {w.factors?.trend ?? 0}/40</div>
+        <div className="mt-1 text-text-muted">{w.signal}</div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Briefing: one alert's agent read, collapsible. Header = identity; body = narrative. ── */
 function BriefingItem({ a, onChart }: { a: Alert; onChart: (s: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -122,7 +152,8 @@ export default function TodayPage() {
     [alerts],
   );
   const took = useMemo(() => (alerts ?? []).filter((a) => a.user_action === "took"), [alerts]);
-  const watch = useMemo(() => (rank ?? []).slice(0, 5), [rank]);
+  const coiling = useMemo(() => (rank ?? []).filter((r) => r.bucket !== "leader").slice(0, 5), [rank]);
+  const leaders = useMemo(() => (rank ?? []).filter((r) => r.bucket === "leader").sort((a, b) => (b.rsi ?? 0) - (a.rsi ?? 0)).slice(0, 5), [rank]);
 
   const dayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
@@ -183,24 +214,19 @@ export default function TodayPage() {
 
             {/* side column — worth watching + your day */}
             <div className="space-y-6">
-              {watch.length > 0 && (
+              {coiling.length > 0 && (
                 <section>
                   <SectionLabel>Next entries · coiling for a long</SectionLabel>
                   <div className="space-y-1.5">
-                    {watch.map((w) => (
-                      <button key={w.symbol} onClick={() => goChart(w.symbol)}
-                        className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5 text-left hover:bg-surface-2 active:opacity-80">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <TrendingUp size={13} className={w.score >= 60 ? "text-bullish-text" : "text-text-muted"} />
-                            <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
-                          </div>
-                          <p className="truncate text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
-                        </div>
-                        <span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${w.score >= 60 ? "bg-bullish-subtle text-bullish-text" : "bg-surface-3 text-text-faint"}`}>{Math.round(w.score)}</span>
-                        <ChevronRight size={14} className="text-text-faint" />
-                      </button>
-                    ))}
+                    {coiling.map((w) => <RankRow key={w.symbol} w={w} onChart={goChart} />)}
+                  </div>
+                </section>
+              )}
+              {leaders.length > 0 && (
+                <section>
+                  <SectionLabel>Leaders · strong but extended</SectionLabel>
+                  <div className="space-y-1.5">
+                    {leaders.map((w) => <RankRow key={w.symbol} w={w} onChart={goChart} leader />)}
                   </div>
                 </section>
               )}

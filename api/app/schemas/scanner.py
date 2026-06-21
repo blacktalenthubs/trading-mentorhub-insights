@@ -53,6 +53,7 @@ class WatchlistRankItem(BaseModel):
     score: int
     rank: int
     price: float
+    bucket: str = "coiling"   # "coiling" (buy zone) | "leader" (strong but extended)
     factors: WatchlistRankFactors
     nearest_level: str = ""
     rsi: Optional[float] = None
