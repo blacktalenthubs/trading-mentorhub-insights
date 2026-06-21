@@ -52,7 +52,7 @@ def build_exit_plan(
             "label": "Gap-and-go",
             "target": "RSI 75+",
             "stop": morning_low if morning_low is not None else stop,
-            "exit": f"Gap-and-go · exit RSI 75+{_now(rsi)} · stop = morning low",
+            "exit": f"Exit at RSI 75+{_now(rsi)}",
         }
 
     if style == "Day":
@@ -61,8 +61,8 @@ def build_exit_plan(
             "label": "Day trade",
             "target": next_resistance,
             "stop": stop,
-            "exit": (f"Day · target: next resistance ${next_resistance:.4g}"
-                     if next_resistance else "Day · target: next resistance above"),
+            "exit": (f"Target: next resistance ${next_resistance:.4g}"
+                     if next_resistance else "Target: next resistance above"),
         }
 
     # Swing AND Long hold are managed IDENTICALLY (user, 2026-06-21): begin trimming at
@@ -75,6 +75,5 @@ def build_exit_plan(
         "label": "Long hold" if is_long else "Swing trade",
         "target": "RSI 70 (daily)",
         "stop": stop,
-        "exit": (f"{'Long hold' if is_long else 'Swing'} · trim at daily RSI 70+{_now(rsi)} · "
-                 f"stop = the reclaim low (below entry) — lose it, you're out"),
+        "exit": f"Trim at daily RSI 70+{_now(rsi)}",
     }
