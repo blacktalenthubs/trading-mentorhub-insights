@@ -16,7 +16,7 @@ show_10w  = input.bool(true, "Flat 10w MA line")
 show_30w  = input.bool(true, "Flat 30w MA line")
 show_marc = input.bool(true, "10w / 30w reclaim signs")
 show_rc   = input.bool(true, "Weekly RC sign (prior-week-low reclaim)")
-recent    = input.int (8,    "Signs: recent bars only — keeps signs near the flat line (0 = all)", minval = 0)
+recent    = input.int (8,    "MA-reclaim signs (10w↑/30w↑) recent bars only — they drift as the MA moves (0 = all). wRC is always shown in full.", minval = 0)
 line_len  = input.int (60,   "Line length (bars back)", minval = 10, maxval = 500)
 col_sup   = input.color(#26A69A, "Support (price above the line)")
 col_res   = input.color(#EF5350, "Resistance (price below the line)")
@@ -45,8 +45,9 @@ if barstate.islast
         ln30 := line.new(bar_index - line_len, w30, bar_index + 10, w30, color = c30, width = 2)
         lb30 := label.new(bar_index + 10, w30, "30w " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
 
-// ── Reclaim signs (recent bars only so they sit near the flat line). ──
+// ── MA-reclaim signs: recent bars only (they drift off the flat line as the MA moves). ──
 in_win = recent == 0 or (last_bar_index - bar_index) <= recent
 plotshape(show_marc and in_win and ta.crossover(close, w10), title = "10w reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "10w↑")
 plotshape(show_marc and in_win and ta.crossover(close, w30), title = "30w reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "30w↑")
-plotshape(show_rc and in_win and wrc and not wrc[1], title = "Weekly RC", style = shape.diamond, location = location.belowbar, color = color.new(#2962FF, 0), size = size.tiny, text = "wRC")
+// ── wRC: a PRICE event (prior-week-low reclaim) — it doesn't drift, so show ALL of them. ──
+plotshape(show_rc and wrc and not wrc[1], title = "Weekly RC", style = shape.diamond, location = location.belowbar, color = color.new(#2962FF, 0), size = size.tiny, text = "wRC")
