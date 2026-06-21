@@ -70,15 +70,17 @@ def build_exit_plan(
             "style": "swing",
             "label": "Swing trade",
             "target": "RSI 70",
-            "stop": stop,
-            "exit": f"Swing · exit RSI 70{_now(rsi)} · or trail stop up to each daily PDL",
+            "stop": stop,  # catastrophic backstop; normal exit is the daily close-below
+            "exit": f"Swing · exit RSI 70{_now(rsi)} · trail to each daily PDL, exit on a daily CLOSE below",
         }
 
-    # Long hold
+    # Long hold — weekly trend. The real exit is a WEEKLY CLOSE below the MA, not an
+    # intra-week stop (price wicks below the 10w/30w MA without breaking trend); `stop`
+    # is only the catastrophic backstop below the entry's wick low.
     return {
         "style": "long",
         "label": "Long hold",
         "target": "RSI 70 / 5w EMA",
         "stop": stop,
-        "exit": f"Long hold · trim RSI 70+{_now(weekly_rsi)} · or trail the 5-week EMA",
+        "exit": f"Long hold · trim RSI 70+{_now(weekly_rsi)} · exit on a WEEKLY CLOSE below the 10w/30w MA (or trail the 5-week EMA)",
     }
