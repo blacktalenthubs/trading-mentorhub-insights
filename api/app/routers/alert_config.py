@@ -42,20 +42,21 @@ CATEGORY_TO_GROUP: dict[str, str] = {
     "Daily PDH/PDL": "Day Trade",
     "Weekly": "Day Trade",            # prior-week H/L levels, traded intraday
     "Monthly": "Day Trade",           # prior-month H/L levels
-    "Gap S/R": "Day Trade",
-    "Gap-and-go": "Day Trade",
-    "Multi-period S/R": "Day Trade",
+    "Gap S/R": "Notice",              # gap fill/reject/support — context, not a setup
+    "Gap-and-go": "Day Trade",        # tradable (RSI 75 / morning-low stop)
+    "Multi-period S/R": "Notice",     # HTF S/R bounce/reject — context
     "Index shorts": "Day Trade",
-    "Multi-touch levels": "Day Trade",
-    "Market context": "Day Trade",
+    "Multi-touch levels": "Notice",   # multi-touch cross — context
+    "Market context": "Notice",       # index_open_strength removed
     "4h reversal": "Day Trade",       # rc_4h / RC-H — the cornerstone
-    "Levels": "Day Trade",
+    "Levels": "Notice",               # lost_support_reject — context
     "Swing": "Swing Trade",
     "MA / EMA · Bounce Long": "Swing Trade",
-    "MA / EMA · Rejection Short": "Swing Trade",
+    "MA / EMA · Rejection Short": "Notice",   # shorts → context; we prefer the long side
     "Weekly trend": "Long Term",      # weekly 10w/30w MA + weekly RC
 }
-TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Other"]
+# Notice = info-only context, NOT tradable setups. Default OFF; users opt in per item.
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Notice", "Other"]
 
 
 class AlertConfigUpdate(BaseModel):

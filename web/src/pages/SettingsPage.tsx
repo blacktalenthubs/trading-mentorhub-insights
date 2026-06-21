@@ -439,7 +439,7 @@ function AlertTypesSection() {
 
   // Group by the trade-style bucket (Day / Swing / Long-term) so users enable a
   // whole style in one shot, not 45 toggles (2026-06-20).
-  const GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Other"];
+  const GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Notice", "Other"];
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
     (grouped[t.trade_group ?? "Other"] ??= []).push(t);
