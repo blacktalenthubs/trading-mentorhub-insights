@@ -18,6 +18,7 @@ indicator("Weekly Levels", "WkLvls", overlay = true, max_lines_count = 4, max_la
 show_10w = input.bool (true,  "10w MA line")
 show_30w = input.bool (true,  "30w MA line")
 show_rc  = input.bool (true,  "Weekly RC marker (prior-week-low reclaim)")
+show_marc = input.bool(true,  "10w/30w MA reclaim markers (price closes back above the line)")
 line_len = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
 col_sup  = input.color(#26A69A, "Support (price above the line)")
 col_res  = input.color(#EF5350, "Resistance (price below the line)")
@@ -49,3 +50,8 @@ if barstate.islast
 // Weekly RC marker — flips true when the weekly reclaim fires (green week reclaiming
 // the prior-week low). Visual only; the alert version is weekly_rc in levels_day.
 plotshape(show_rc and wrc and not wrc[1], title = "Weekly RC", location = location.belowbar, color = col_rc, style = shape.triangleup, size = size.small, text = "wRC")
+
+// 10w / 30w MA reclaim — price closes back above the weekly MA line (the weekly_ma_held
+// setup, e.g. SPY reclaiming the 10w at 736). DISTINCT from the prior-week-low wRC above.
+plotshape(show_marc and ta.crossover(close, w10), title = "10w reclaim", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup, size = size.tiny, text = "10w↑")
+plotshape(show_marc and ta.crossover(close, w30), title = "30w reclaim", location = location.belowbar, color = color.new(color.teal, 0), style = shape.triangleup, size = size.tiny, text = "30w↑")
