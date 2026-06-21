@@ -62,7 +62,7 @@ function RankRow({ w, onChart, leader }: { w: import("../types").WatchlistRankIt
             <TrendingUp size={13} className={leader ? "text-warning-text" : w.score >= 60 ? "text-bullish-text" : "text-text-muted"} />
             <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
           </div>
-          <p className="truncate text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
+          <p className="line-clamp-2 text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
         </div>
         <span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${leader ? "bg-warning-subtle text-warning-text" : w.score >= 60 ? "bg-bullish-subtle text-bullish-text" : "bg-surface-3 text-text-faint"}`}>
           {leader ? `RSI ${Math.round(w.rsi ?? 0)}` : Math.round(w.score)}
@@ -76,6 +76,41 @@ function RankRow({ w, onChart, leader }: { w: import("../types").WatchlistRankIt
         <div className="mt-1 text-text-secondary">{w.nearest_level}</div>
         <div className="mt-0.5 text-text-muted">RSI {w.rsi ?? "—"} · trend {w.factors?.trend ?? 0}/40</div>
         <div className="mt-1 text-text-muted">{w.signal}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ── DayRead: the always-on "your day in 30 seconds", synthesized from the page data
+   (regime + signals + coiling + leaders) — no AI call, instant, useful even with 0 signals. ── */
+function DayRead({ spy, btc, signals, coiling, leaders }: {
+  spy?: SpyRegimeSnapshot;
+  btc?: SpyRegimeSnapshot;
+  signals: number;
+  coiling: import("../types").WatchlistRankItem[];
+  leaders: import("../types").WatchlistRankItem[];
+}) {
+  const healthy = !!spy && !spy.below_pdl;
+  const names = (arr: import("../types").WatchlistRankItem[]) => arr.slice(0, 4).map((r) => r.symbol).join(", ");
+  const line2 = [
+    signals > 0 ? `${signals} signal${signals > 1 ? "s" : ""} fired.` : "No signals fired yet.",
+    coiling.length ? `${coiling.length} coiling for a long — ${names(coiling)}.` : "",
+    leaders.length ? `${leaders.length} leaders running hot — ${names(leaders)} (wait for the pullback).` : "",
+  ].filter(Boolean).join(" ");
+  return (
+    <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 mb-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Bot size={15} className="text-accent" />
+        <span className="font-display text-[13px] font-semibold text-text-primary">Your day in 30 seconds</span>
+      </div>
+      <div className="space-y-1.5 text-[12.5px] leading-relaxed text-text-secondary">
+        <p>
+          <span className={healthy ? "text-bullish-text font-medium" : "text-warning-text font-medium"}>{healthy ? "Healthy tape" : "Defensive tape"}</span>
+          {" — SPY "}{spy?.below_pdl ? "below" : "above"}{" its line"}{btc ? `, BTC ${btc.below_pdl ? "weak" : "healthy"}` : ""}{". "}
+          {healthy ? "Long setups in play." : "Tighten up — favor proven names."}
+        </p>
+        <p>{line2}</p>
+        <p className="text-text-muted">Long-biased · stops on every position.</p>
       </div>
     </div>
   );
@@ -239,9 +274,7 @@ export default function TodayPage() {
                   {groupedSignals.map((g, i) => <SymbolGroup key={g.symbol} symbol={g.symbol} list={g.list} onChart={goChart} defaultOpen={i === 0} />)}
                 </div>
               ) : (
-                <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
-                  No live signals yet today. The market read above tells you the regime.
-                </div>
+                <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} />
               )}
             </section>
 
@@ -283,8 +316,9 @@ export default function TodayPage() {
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 px-1 mb-2">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
-              <span className="text-[11px] text-text-faint">· the AI read on each alert (also sent to Telegram)</span>
+              <span className="text-[11px] text-text-faint">· your day, then the AI read on each alert</span>
             </div>
+            <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} />
             {briefing.length > 0 ? (
               <div className="space-y-2">
                 {briefing.map((a) => <BriefingItem key={a.id} a={a} onChart={goChart} />)}
