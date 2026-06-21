@@ -102,86 +102,59 @@ def _compute_watchlist_ranks(symbols: List[str]) -> List[dict]:
             volume = df["Volume"]
             price = float(close.iloc[-1])
 
-            # ── Volume factor (0-25) ──
-            vol_avg_20 = float(volume.iloc[-20:].mean()) if len(volume) >= 20 else float(volume.mean())
-            vol_today = float(volume.iloc[-1])
-            if vol_avg_20 > 0:
-                vol_ratio = vol_today / vol_avg_20
-                volume_score = min(25, int(vol_ratio * 12.5))  # 2x avg = 25
-            else:
-                volume_score = 0
-
-            # ── MAs ──
-            ema5 = float(close.ewm(span=5).mean().iloc[-1])
-            ema20 = float(close.ewm(span=20).mean().iloc[-1])
-            ema50 = float(close.ewm(span=50).mean().iloc[-1]) if len(close) >= 50 else None
-            sma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
-            prior_high = float(df["High"].iloc[-2]) if len(df) >= 2 else None
+            # ── MAs: slow stack (50>100>200 = trend gate) + fast EMAs (pullback supports) ──
+            ema8   = float(close.ewm(span=8).mean().iloc[-1])
+            ema21  = float(close.ewm(span=21).mean().iloc[-1])
+            ema50  = float(close.ewm(span=50).mean().iloc[-1])  if len(close) >= 50  else None
+            ema100 = float(close.ewm(span=100).mean().iloc[-1]) if len(close) >= 100 else None
+            ema200 = float(close.ewm(span=200).mean().iloc[-1]) if len(close) >= 200 else None
             prior_low = float(df["Low"].iloc[-2]) if len(df) >= 2 else None
 
-            # ── Level proximity (0-25) ──
-            levels: List[Tuple[str, float]] = [
-                ("20EMA", ema20),
-            ]
-            if ema50 is not None:
-                levels.append(("50EMA", ema50))
-            if sma200 is not None:
-                levels.append(("200SMA", sma200))
-            if prior_high is not None:
-                levels.append(("Prior High", prior_high))
-            if prior_low is not None:
-                levels.append(("Prior Low", prior_low))
-
-            nearest_label = ""
-            nearest_price_val = 0.0
-            min_dist_pct = 999.0
-            for label, level_price in levels:
-                dist_pct = abs(price - level_price) / price * 100
-                if dist_pct < min_dist_pct:
-                    min_dist_pct = dist_pct
-                    nearest_label = label
-                    nearest_price_val = level_price
-
-            # Closer = higher score. 0% distance = 25, 5%+ = 0
-            level_score = max(0, min(25, int(25 * (1 - min_dist_pct / 5))))
-            nearest_level_str = f"{nearest_label} at ${nearest_price_val:.2f}"
-
-            # ── RSI factor (0-25) ──
+            # ── RSI (Wilder) ──
             delta = close.diff()
-            gain = delta.clip(lower=0)
-            loss = (-delta.clip(upper=0))
-            avg_gain = gain.ewm(com=13, min_periods=14).mean()
-            avg_loss = loss.ewm(com=13, min_periods=14).mean()
+            avg_gain = delta.clip(lower=0).ewm(com=13, min_periods=14).mean()
+            avg_loss = (-delta.clip(upper=0)).ewm(com=13, min_periods=14).mean()
             rs = avg_gain / avg_loss
             rsi_series = 100 - (100 / (1 + rs))
             rsi_val = float(rsi_series.iloc[-1]) if len(rsi_series) >= 14 else 50.0
 
-            # Extremes (near 30 or 70) are tradeable; middle (45-55) is not
-            dist_from_center = abs(rsi_val - 50)
-            # 0 at center (dist=0), 25 at extremes (dist=20+)
-            rsi_score = min(25, int(dist_from_center * 1.25))
+            # NEXT-ENTRIES gate: a long candidate must be in an uptrend — price above the
+            # 50 EMA. Below it = no trend → SKIP, no matter how oversold (this is what kills
+            # the old behaviour of surfacing extended/overbought or falling-knife names).
+            if ema50 is None or price < ema50:
+                continue
 
-            # ── Trend clarity (0-25) ──
-            if ema50 is not None:
-                bullish_aligned = ema5 > ema20 > ema50
-                bearish_aligned = ema5 < ema20 < ema50
-                if bullish_aligned or bearish_aligned:
-                    trend_score = 25
-                elif (ema5 > ema20 and ema20 < ema50) or (ema5 < ema20 and ema20 > ema50):
-                    trend_score = 8  # mixed
-                else:
-                    trend_score = 15  # partially aligned
+            # ── Pullback to support (0-40): nearest RISING MA / prior low BELOW price.
+            # Sitting ON a support = the dip-buy zone; extended above it = not yet. ──
+            supports = [(lbl, v) for lbl, v in
+                        [("8 EMA", ema8), ("21 EMA", ema21), ("50 EMA", ema50), ("prior low", prior_low)]
+                        if v is not None and v <= price]
+            if supports:
+                nearest_label, nearest_price_val = min(supports, key=lambda x: price - x[1])
+                min_dist_pct = (price - nearest_price_val) / price * 100.0
+                pullback_score = max(0, min(40, int(40 * (1 - min_dist_pct / 4.0))))  # 0%→40, 4%+→0
             else:
-                # Only have ema5 and ema20
-                trend_score = 20 if ema5 > ema20 or ema5 < ema20 else 5
+                nearest_label, nearest_price_val, min_dist_pct, pullback_score = "8 EMA", ema8, 999.0, 0
 
-            total = volume_score + level_score + rsi_score + trend_score
+            # ── RSI room (0-20): cooled into the buy zone (40-55) = best; overbought = none. ──
+            if 40 <= rsi_val <= 55:
+                rsi_score = 20
+            elif rsi_val < 40:
+                rsi_score = 14          # deeper pullback — still a dip
+            elif rsi_val <= 62:
+                rsi_score = 10
+            else:
+                rsi_score = 0           # >62 extended — wait for the pullback
 
-            # ── Signal description ──
-            signal = _build_signal_text(
-                price, nearest_label, nearest_price_val, min_dist_pct,
-                rsi_val, ema5, ema20, ema50,
-            )
+            # ── Trend quality (0-40): the slow stack — same engine as the alert gate. ──
+            stacked = (ema100 is not None and ema200 is not None and ema50 > ema100 > ema200)
+            trend_score = 40 if stacked else 20
+
+            total = trend_score + pullback_score + rsi_score
+            nearest_level_str = f"{nearest_label} at ${nearest_price_val:.2f}"
+
+            # ── Description (buy-zone framing) ──
+            signal = _build_next_entry_text(nearest_label, min_dist_pct, rsi_val, stacked)
 
             results.append({
                 "symbol": symbol,
@@ -189,10 +162,9 @@ def _compute_watchlist_ranks(symbols: List[str]) -> List[dict]:
                 "rank": 0,  # filled after sort
                 "price": round(price, 2),
                 "factors": {
-                    "volume": volume_score,
-                    "level_proximity": level_score,
-                    "rsi": rsi_score,
                     "trend": trend_score,
+                    "pullback": pullback_score,
+                    "rsi_room": rsi_score,
                 },
                 "nearest_level": nearest_level_str,
                 "rsi": round(rsi_val, 1),
@@ -210,48 +182,25 @@ def _compute_watchlist_ranks(symbols: List[str]) -> List[dict]:
     return results
 
 
-def _build_signal_text(
-    price: float,
-    nearest_label: str,
-    nearest_price: float,
-    dist_pct: float,
-    rsi: float,
-    ema5: float,
-    ema20: float,
-    ema50: float | None,
-) -> str:
-    """Generate a 1-line signal description."""
+def _build_next_entry_text(nearest_label: str, dist_pct: float, rsi: float, stacked: bool) -> str:
+    """1-line 'next entry' read — where a long is coiling, in buy-zone framing."""
     parts: List[str] = []
+    if dist_pct < 0.8:
+        parts.append(f"At the {nearest_label} — buy zone")
+    elif dist_pct < 2.5:
+        parts.append(f"Pulling back to the {nearest_label}")
+    else:
+        parts.append("Riding above support")
 
-    # Level proximity
-    if dist_pct < 1.0:
-        direction = "support" if price > nearest_price else "resistance"
-        parts.append(f"Approaching {nearest_label} {direction}")
-    elif dist_pct < 2.0:
-        parts.append(f"Near {nearest_label}")
+    if rsi <= 40:
+        parts.append(f"RSI {rsi:.0f} reset")
+    elif rsi <= 55:
+        parts.append(f"RSI {rsi:.0f}, room")
+    elif rsi > 62:
+        parts.append(f"RSI {rsi:.0f} extended")
 
-    # RSI
-    if rsi <= 32:
-        parts.append("oversold")
-    elif rsi >= 68:
-        parts.append("overbought")
-
-    # Trend
-    if ema50 is not None:
-        if ema5 > ema20 > ema50:
-            parts.append("strong uptrend")
-        elif ema5 < ema20 < ema50:
-            parts.append("strong downtrend")
-
-    if not parts:
-        if rsi < 45:
-            parts.append("leaning bearish")
-        elif rsi > 55:
-            parts.append("leaning bullish")
-        else:
-            parts.append("consolidating")
-
-    return " — ".join(parts).capitalize()
+    parts.append("stacked uptrend" if stacked else "uptrend forming")
+    return " · ".join(parts)
 
 
 @router.get("/watchlist-rank", response_model=List[WatchlistRankItem])

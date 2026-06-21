@@ -9,7 +9,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShieldCheck, TrendingUp, ChevronRight, ChevronDown, Flame, Bot } from "lucide-react";
+import { ShieldCheck, TrendingUp, ChevronRight, ChevronDown, Bot } from "lucide-react";
 import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import type { Alert } from "../types";
@@ -185,14 +185,14 @@ export default function TodayPage() {
             <div className="space-y-6">
               {watch.length > 0 && (
                 <section>
-                  <SectionLabel>Worth watching today</SectionLabel>
+                  <SectionLabel>Next entries · coiling for a long</SectionLabel>
                   <div className="space-y-1.5">
                     {watch.map((w) => (
                       <button key={w.symbol} onClick={() => goChart(w.symbol)}
                         className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5 text-left hover:bg-surface-2 active:opacity-80">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            {w.score >= 60 ? <TrendingUp size={13} className="text-bullish-text" /> : <Flame size={13} className="text-bearish-text rotate-180" />}
+                            <TrendingUp size={13} className={w.score >= 60 ? "text-bullish-text" : "text-text-muted"} />
                             <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
                           </div>
                           <p className="truncate text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
