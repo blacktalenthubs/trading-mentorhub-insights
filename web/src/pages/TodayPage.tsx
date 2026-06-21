@@ -118,6 +118,30 @@ function BriefingItem({ a, onChart }: { a: Alert; onChart: (s: string) => void }
   );
 }
 
+/* ── Signals grouped by symbol: collapsed = one summary row; expand = all its cards. ── */
+function SymbolGroup({ symbol, list, onChart, defaultOpen }: { symbol: string; list: Alert[]; onChart: (s: string) => void; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  const latest = list[0];
+  const best = list.reduce((b, a) => ((a.grade || "Z") < (b.grade || "Z") ? a : b), latest);
+  return (
+    <div className="rounded-xl border border-border-subtle bg-surface-1 overflow-hidden">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2.5 p-3 text-left transition-colors hover:bg-surface-2/50">
+        <ChevronDown size={15} className={`shrink-0 text-text-faint transition-transform ${open ? "" : "-rotate-90"}`} />
+        <span className="font-display text-[13px] font-bold text-text-primary">{symbol}</span>
+        {list.length > 1 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent/15 text-accent">{list.length}</span>}
+        <span className="min-w-0 flex-1 truncate text-[12px] capitalize text-text-muted">{setupName(latest)}</span>
+        {best.grade && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-surface-3 text-text-secondary">{best.grade}</span>}
+        <span className="text-[11px] text-text-faint tabular-nums">{hhmm(latest.created_at)}</span>
+      </button>
+      {open && (
+        <div className="border-t border-border-subtle p-2 space-y-2">
+          {list.map((a, i) => <AlertCard key={a.id} a={a} onChart={onChart} defaultExpanded={i === 0} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TodayPage() {
   const nav = useNavigate();
   const [tab, setTab] = useState<"signals" | "briefing">(() => {
@@ -140,10 +164,19 @@ export default function TodayPage() {
   const liveSignals = useMemo(
     () => (alerts ?? [])
       .filter((a) => isFeedSignal(a.alert_type) && !a.suppressed_reason && !a.user_action)
-      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
-      .slice(0, 12),
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")),
     [alerts],
   );
+  // Group the feed by symbol so a busy tape collapses to one row per name (expand to see all).
+  const groupedSignals = useMemo(() => {
+    const m = new Map<string, Alert[]>();
+    for (const a of liveSignals) {
+      const arr = m.get(a.symbol);
+      if (arr) arr.push(a);
+      else m.set(a.symbol, [a]);
+    }
+    return Array.from(m.entries()).map(([symbol, list]) => ({ symbol, list })).slice(0, 15);
+  }, [liveSignals]);
   // Briefing = every alert that carries an agent read, newest first.
   const briefing = useMemo(
     () => (alerts ?? [])
@@ -201,9 +234,9 @@ export default function TodayPage() {
             {/* main column — live signals */}
             <section className="lg:col-span-2">
               <SectionLabel action="Trading" onAction={() => nav("/trading")}>Live signals</SectionLabel>
-              {liveSignals.length > 0 ? (
+              {groupedSignals.length > 0 ? (
                 <div className="space-y-2.5">
-                  {liveSignals.map((a, i) => <AlertCard key={a.id} a={a} onChart={goChart} defaultExpanded={i < 2} />)}
+                  {groupedSignals.map((g, i) => <SymbolGroup key={g.symbol} symbol={g.symbol} list={g.list} onChart={goChart} defaultOpen={i === 0} />)}
                 </div>
               ) : (
                 <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
