@@ -99,13 +99,19 @@ plotshape(wk_fire30, title = "30w entry", style = shape.triangleup, location = l
 // bar (teal = price above / support, red = price below / resistance).
 var line wk_ln10 = na
 var line wk_ln30 = na
+var label wk_lb10 = na
+var label wk_lb30 = na
 if wk_show_ln and barstate.islast
     line.delete(wk_ln10)
     line.delete(wk_ln30)
+    label.delete(wk_lb10)
+    label.delete(wk_lb30)
     if not na(wk_wf)
         wk_ln10 := line.new(bar_index - 60, wk_wf, bar_index + 10, wk_wf, color = close > wk_wf ? color.teal : color.red, width = 2)
+        wk_lb10 := label.new(bar_index + 10, wk_wf, "10w " + str.tostring(wk_wf, format.mintick), style = label.style_label_left, color = close > wk_wf ? color.teal : color.red, textcolor = color.white, size = size.small)
     if not na(wk_ws)
         wk_ln30 := line.new(bar_index - 60, wk_ws, bar_index + 10, wk_ws, color = close > wk_ws ? color.teal : color.red, width = 2)
+        wk_lb30 := label.new(bar_index + 10, wk_ws, "30w " + str.tostring(wk_ws, format.mintick), style = label.style_label_left, color = close > wk_ws ? color.teal : color.red, textcolor = color.white, size = size.small)
 
 // Weekly entry alert — rule "weekly_ma_held", BUY. Sends weekly_rsi for the
 // backend Long-hold exit (trim at weekly RSI 70 / exit on a weekly close below).
