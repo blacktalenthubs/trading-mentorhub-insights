@@ -251,6 +251,7 @@ export interface WatchlistRankItem {
   score: number;
   rank: number;
   price: number;
+  bucket: string;   // "coiling" (buy zone) | "leader" (strong but extended)
   factors: WatchlistRankFactors;
   nearest_level: string;
   rsi: number | null;
