@@ -86,13 +86,15 @@ function RankRow({ w, onChart, leader, losing }: { w: import("../types").Watchli
 
 /* ── DayRead: the always-on "your day in 30 seconds", synthesized from the page data
    (regime + signals + coiling + leaders) — no AI call, instant, useful even with 0 signals. ── */
-function Stat({ n, label, tone }: { n: number; label: string; tone?: "bull" | "warn" | "bear" }) {
+function Stat({ n, label, tone, target }: { n: number; label: string; tone?: "bull" | "warn" | "bear"; target?: string }) {
   const c = tone === "bull" ? "text-bullish-text" : tone === "warn" ? "text-warning-text" : tone === "bear" ? "text-bearish-text" : "text-text-secondary";
+  const go = () => { if (target) document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "center" }); };
   return (
-    <div className="rounded-lg bg-surface-2 px-2 py-2 text-center">
+    <button type="button" onClick={go} disabled={!target || n === 0}
+      className="rounded-lg bg-surface-2 px-2 py-2 text-center transition-colors enabled:hover:bg-surface-3 enabled:active:opacity-80 disabled:cursor-default">
       <div className={`font-mono text-[17px] font-bold leading-none ${n > 0 ? c : "text-text-faint"}`}>{n}</div>
       <div className="mt-1 text-[9.5px] uppercase tracking-wide text-text-faint">{label}</div>
-    </div>
+    </button>
   );
 }
 
@@ -120,9 +122,9 @@ function DayRead({ spy, btc, signals, coiling, leaders, losing }: {
       </p>
       <div className="grid grid-cols-4 gap-2">
         <Stat n={signals} label="Fired" />
-        <Stat n={coiling.length} label="Coiling" tone="bull" />
-        <Stat n={leaders.length} label="Leaders" tone="warn" />
-        <Stat n={losing.length} label="Breaking" tone="bear" />
+        <Stat n={coiling.length} label="Coiling" tone="bull" target="rail-coiling" />
+        <Stat n={leaders.length} label="Leaders" tone="warn" target="rail-leaders" />
+        <Stat n={losing.length} label="Breaking" tone="bear" target="rail-losing" />
       </div>
     </div>
   );
@@ -294,7 +296,7 @@ export default function TodayPage() {
             {/* side column — worth watching + your day */}
             <div className="space-y-6">
               {coiling.length > 0 && (
-                <section>
+                <section id="rail-coiling">
                   <SectionLabel>Next entries · coiling for a long</SectionLabel>
                   <div className="space-y-1.5">
                     {coiling.map((w) => <RankRow key={w.symbol} w={w} onChart={goChart} />)}
@@ -302,7 +304,7 @@ export default function TodayPage() {
                 </section>
               )}
               {leaders.length > 0 && (
-                <section>
+                <section id="rail-leaders">
                   <SectionLabel>Leaders · strong but extended</SectionLabel>
                   <div className="space-y-1.5">
                     {leaders.map((w) => <RankRow key={w.symbol} w={w} onChart={goChart} leader />)}
@@ -310,7 +312,7 @@ export default function TodayPage() {
                 </section>
               )}
               {losing.length > 0 && (
-                <section>
+                <section id="rail-losing">
                   <SectionLabel>Losing trend · trim / exit watch</SectionLabel>
                   <div className="space-y-1.5">
                     {losing.map((w) => <RankRow key={w.symbol} w={w} onChart={goChart} losing />)}
