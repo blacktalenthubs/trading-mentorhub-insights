@@ -1628,6 +1628,18 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             # PDL is now the ONLY SPY-regime gate (the hard block above); nothing
             # keys on the open anymore. Grades come purely from vol + slope.
 
+            # Per-style exit plan (2026-06-21) — backend-owned (analytics/exit_plan.py),
+            # replaces the fragile Pine target/classification logic. Day = next
+            # resistance; gap = RSI 75 / morning-low stop; swing = RSI 70 / trail PDL;
+            # long = RSI 70 / 5w-EMA trail. Uses the RSI the Pine now sends.
+            from analytics.exit_plan import build_exit_plan
+            _exit = build_exit_plan(
+                alert_type_full, sig.direction or "", sig.entry, sig.stop,
+                rsi=getattr(sig, "_tv_rsi", None),
+                weekly_rsi=getattr(sig, "_tv_weekly_rsi", None),
+                next_resistance=sig.target_1,
+                morning_low=getattr(sig, "_tv_morning_low", None),
+            )
             alert = Alert(
                 user_id=user.id,
                 symbol=sig.symbol,
@@ -1635,9 +1647,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 direction=sig.direction or "NOTICE",
                 price=float(sig.price),
                 entry=sig.entry,
-                stop=sig.stop,
+                stop=_exit["stop"],
                 target_1=sig.target_1,
                 target_2=sig.target_2,
+                entry_guidance=_exit["exit"],
+                trade_type=_exit["style"],
                 confidence=sig.confidence,
                 message=sig.message,
                 score=int(sig.score) if sig.score else 0,
