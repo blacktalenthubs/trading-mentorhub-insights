@@ -52,20 +52,22 @@ function SectionLabel({ children, action, onAction }: { children: ReactNode; act
 }
 
 /* ── One Next-Entries / Leaders row + a hover context popover (price, level, RSI, read). ── */
-function RankRow({ w, onChart, leader }: { w: import("../types").WatchlistRankItem; onChart: (s: string) => void; leader?: boolean }) {
+function RankRow({ w, onChart, leader, losing }: { w: import("../types").WatchlistRankItem; onChart: (s: string) => void; leader?: boolean; losing?: boolean }) {
+  const iconCls = losing ? "text-bearish-text rotate-180" : leader ? "text-warning-text" : w.score >= 60 ? "text-bullish-text" : "text-text-muted";
+  const badgeCls = losing ? "bg-bearish-subtle text-bearish-text" : leader ? "bg-warning-subtle text-warning-text" : w.score >= 60 ? "bg-bullish-subtle text-bullish-text" : "bg-surface-3 text-text-faint";
   return (
     <div className="group relative">
       <button onClick={() => onChart(w.symbol)}
         className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2.5 text-left hover:bg-surface-2 active:opacity-80">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <TrendingUp size={13} className={leader ? "text-warning-text" : w.score >= 60 ? "text-bullish-text" : "text-text-muted"} />
+            <TrendingUp size={13} className={iconCls} />
             <span className="font-display text-[13px] font-semibold text-text-primary">{w.symbol}</span>
           </div>
           <p className="line-clamp-2 text-[11.5px] text-text-muted mt-0.5">{w.signal || w.nearest_level || "—"}</p>
         </div>
-        <span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${leader ? "bg-warning-subtle text-warning-text" : w.score >= 60 ? "bg-bullish-subtle text-bullish-text" : "bg-surface-3 text-text-faint"}`}>
-          {leader ? `RSI ${Math.round(w.rsi ?? 0)}` : Math.round(w.score)}
+        <span className={`font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded tabular-nums ${badgeCls}`}>
+          {leader || losing ? `RSI ${Math.round(w.rsi ?? 0)}` : Math.round(w.score)}
         </span>
         <ChevronRight size={14} className="text-text-faint" />
       </button>
@@ -83,12 +85,13 @@ function RankRow({ w, onChart, leader }: { w: import("../types").WatchlistRankIt
 
 /* ── DayRead: the always-on "your day in 30 seconds", synthesized from the page data
    (regime + signals + coiling + leaders) — no AI call, instant, useful even with 0 signals. ── */
-function DayRead({ spy, btc, signals, coiling, leaders }: {
+function DayRead({ spy, btc, signals, coiling, leaders, losing }: {
   spy?: SpyRegimeSnapshot;
   btc?: SpyRegimeSnapshot;
   signals: number;
   coiling: import("../types").WatchlistRankItem[];
   leaders: import("../types").WatchlistRankItem[];
+  losing: import("../types").WatchlistRankItem[];
 }) {
   const healthy = !!spy && !spy.below_pdl;
   const names = (arr: import("../types").WatchlistRankItem[]) => arr.slice(0, 4).map((r) => r.symbol).join(", ");
@@ -96,6 +99,7 @@ function DayRead({ spy, btc, signals, coiling, leaders }: {
     signals > 0 ? `${signals} signal${signals > 1 ? "s" : ""} fired.` : "No signals fired yet.",
     coiling.length ? `${coiling.length} coiling for a long — ${names(coiling)}.` : "",
     leaders.length ? `${leaders.length} leaders running hot — ${names(leaders)} (wait for the pullback).` : "",
+    losing.length ? `${losing.length} breaking down — ${names(losing)} (trim / exit watch).` : "",
   ].filter(Boolean).join(" ");
   return (
     <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 mb-3">
@@ -220,8 +224,9 @@ export default function TodayPage() {
     [alerts],
   );
   const took = useMemo(() => (alerts ?? []).filter((a) => a.user_action === "took"), [alerts]);
-  const coiling = useMemo(() => (rank ?? []).filter((r) => r.bucket !== "leader").slice(0, 5), [rank]);
+  const coiling = useMemo(() => (rank ?? []).filter((r) => r.bucket === "coiling").slice(0, 5), [rank]);
   const leaders = useMemo(() => (rank ?? []).filter((r) => r.bucket === "leader").sort((a, b) => (b.rsi ?? 0) - (a.rsi ?? 0)).slice(0, 5), [rank]);
+  const losing = useMemo(() => (rank ?? []).filter((r) => r.bucket === "losing").sort((a, b) => (a.rsi ?? 99) - (b.rsi ?? 99)).slice(0, 5), [rank]);
 
   const dayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
@@ -274,7 +279,7 @@ export default function TodayPage() {
                   {groupedSignals.map((g, i) => <SymbolGroup key={g.symbol} symbol={g.symbol} list={g.list} onChart={goChart} defaultOpen={i === 0} />)}
                 </div>
               ) : (
-                <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} />
+                <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} />
               )}
             </section>
 
@@ -293,6 +298,14 @@ export default function TodayPage() {
                   <SectionLabel>Leaders · strong but extended</SectionLabel>
                   <div className="space-y-1.5">
                     {leaders.map((w) => <RankRow key={w.symbol} w={w} onChart={goChart} leader />)}
+                  </div>
+                </section>
+              )}
+              {losing.length > 0 && (
+                <section>
+                  <SectionLabel>Losing trend · trim / exit watch</SectionLabel>
+                  <div className="space-y-1.5">
+                    {losing.map((w) => <RankRow key={w.symbol} w={w} onChart={goChart} losing />)}
                   </div>
                 </section>
               )}
@@ -318,7 +331,7 @@ export default function TodayPage() {
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
               <span className="text-[11px] text-text-faint">· your day, then the AI read on each alert</span>
             </div>
-            <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} />
+            <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} />
             {briefing.length > 0 ? (
               <div className="space-y-2">
                 {briefing.map((a) => <BriefingItem key={a.id} a={a} onChart={goChart} />)}
