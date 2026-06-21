@@ -23,8 +23,9 @@ col_res   = input.color(#EF5350, "Resistance (price below the line)")
 
 w10 = request.security(syminfo.tickerid, "W", ta.sma(close, 10), lookahead = barmerge.lookahead_on)
 w30 = request.security(syminfo.tickerid, "W", ta.sma(close, 30), lookahead = barmerge.lookahead_on)
-// Weekly RC = undercut + reclaim of the prior-week low on a GREEN week (confirmed weekly).
-wrc = request.security(syminfo.tickerid, "W", (low < low[1]) and (close > low[1]) and (close > open), lookahead = barmerge.lookahead_off)
+// Weekly RC = undercut + reclaim of the prior-week low, closing UP or in the TOP HALF of the
+// bar's range (a strong reclaim — catches red weeks that still held it, e.g. NBIS 06-08 @217).
+wrc = request.security(syminfo.tickerid, "W", (low < low[1]) and (close > low[1]) and ((close > open) or (close - low >= (high - low) * 0.5)), lookahead = barmerge.lookahead_off)
 
 // ── Flat lines + value labels, redrawn on the last bar. ──
 var line  ln10 = na
