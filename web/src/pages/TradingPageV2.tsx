@@ -905,14 +905,6 @@ export default function TradingPageV2() {
   function toggleVolume() {
     setShowVolume((v) => { localStorage.setItem("chart_volume", String(!v)); return !v; });
   }
-  // E/S/T trade-plan lines (#64-A9). User-hideable; defaults on. The lines reflect
-  // the selected symbol's latest trade and REPLACE (never stack) as new alerts come.
-  const [showTradeLines, setShowTradeLines] = useState(
-    () => localStorage.getItem("chart_trade_lines") !== "false"
-  );
-  function toggleTradeLines() {
-    setShowTradeLines((v) => { localStorage.setItem("chart_trade_lines", String(!v)); return !v; });
-  }
   const [maOff, setMaOff] = useState(() => localStorage.getItem("chart_ma_off") === "true");
   function toggleMaOff() {
     setMaOff((v) => { localStorage.setItem("chart_ma_off", String(!v)); return !v; });
@@ -1264,13 +1256,6 @@ export default function TradingPageV2() {
     () => (activeAlerts ?? [])
       .filter((a) => a.symbol === selectedSymbol && ["BUY", "SHORT", "SELL"].includes((a.direction || "").toUpperCase()))
       .map((a) => ({ created_at: a.created_at, direction: a.direction, grade: a.grade })),
-    [activeAlerts, selectedSymbol],
-  );
-  // latest alert carrying trade levels for the selected symbol → draw E / S / T on the chart (#64-A9)
-  const symbolTrade = useMemo(
-    () => (activeAlerts ?? [])
-      .filter((a) => a.symbol === selectedSymbol && a.entry != null)
-      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0],
     [activeAlerts, selectedSymbol],
   );
   const activeAlertsError = signalDate ? pastAlertsError : alertsError;
@@ -1784,17 +1769,6 @@ export default function TradingPageV2() {
                       </span>
                       <span className="text-[11px] text-text-secondary">Volume</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer px-1.5 py-0.5 rounded hover:bg-surface-3/50 transition-colors">
-                      <input type="checkbox" checked={showTradeLines} onChange={toggleTradeLines} className="sr-only" />
-                      <span className={`w-3 h-3 rounded border-2 flex items-center justify-center transition-colors ${showTradeLines ? "bg-accent border-transparent" : "border-border-default"}`}>
-                        {showTradeLines && (
-                          <svg className="w-2 h-2 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M2 6l3 3 5-5" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="text-[11px] text-text-secondary">Trade lines (E/S/T)</span>
-                    </label>
                   </div>
                 </div>
               )}
@@ -2038,9 +2012,6 @@ export default function TradingPageV2() {
               hideWicks={hideWicks}
               showVolume={showVolume}
               alertMarkers={symbolAlertMarkers}
-              entry={showTradeLines ? (symbolTrade?.entry ?? undefined) : undefined}
-              stop={showTradeLines ? (symbolTrade?.stop ?? undefined) : undefined}
-              target={showTradeLines ? (symbolTrade?.target_1 ?? undefined) : undefined}
               height={0}
             />
           ) : (
