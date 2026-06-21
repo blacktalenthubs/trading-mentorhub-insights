@@ -118,10 +118,22 @@ def _compute_watchlist_ranks(symbols: List[str]) -> List[dict]:
             rsi_series = 100 - (100 / (1 + rs))
             rsi_val = float(rsi_series.iloc[-1]) if len(rsi_series) >= 14 else 50.0
 
-            # NEXT-ENTRIES gate: a long candidate must be in an uptrend — price above the
-            # 50 EMA. Below it = no trend → SKIP, no matter how oversold (this is what kills
-            # the old behaviour of surfacing extended/overbought or falling-knife names).
-            if ema50 is None or price < ema50:
+            if ema50 is None:
+                continue
+            # LOSING TREND (risk band): below the 50 EMA = the trend broke. Capture the RECENT
+            # breakdowns (within ~12% below the 50) as bucket "losing" — the exit-watch side —
+            # and skip the deep long-dead names. Everything past here is an uptrend long.
+            if price < ema50:
+                if price >= ema50 * 0.88:
+                    db = (ema50 - price) / ema50 * 100.0
+                    results.append({
+                        "symbol": symbol, "score": 0, "rank": 0, "price": round(price, 2),
+                        "bucket": "losing",
+                        "factors": {"trend": 0, "pullback": 0, "rsi_room": 0},
+                        "nearest_level": f"50 EMA at ${ema50:.2f}",
+                        "rsi": round(rsi_val, 1),
+                        "signal": _build_losing_text(db, rsi_val, ema200 is not None and price < ema200),
+                    })
                 continue
 
             # ── Pullback to support (0-40): nearest RISING MA / prior low BELOW price.
@@ -220,6 +232,16 @@ def _build_leader_text(nearest_label: str, dist_pct: float, rsi: float, stacked:
     else:
         parts.append(f"{dist_pct:.0f}% above the {nearest_label} — extended")
     parts.append("strong uptrend · wait for the pullback" if stacked else "uptrend")
+    return " · ".join(parts)
+
+
+def _build_losing_text(dist_below: float, rsi: float, below_200: bool) -> str:
+    """1-line 'losing trend' read — broke the 50 EMA; the exit / trim watch (risk band)."""
+    parts: List[str] = [f"Lost the 50 EMA · {dist_below:.0f}% below"]
+    if below_200:
+        parts.append("under the 200 too")
+    if rsi < 40:
+        parts.append(f"RSI {rsi:.0f} weak")
     return " · ".join(parts)
 
 
