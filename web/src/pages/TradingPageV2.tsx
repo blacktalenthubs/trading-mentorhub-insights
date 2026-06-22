@@ -223,7 +223,9 @@ function CompactWatchlistRow({
   rankItem?: WatchlistRankItem;
   collapsed: boolean;
 }) {
-  const [hovered, setHovered] = useState(false);
+  // Row actions reveal on hover (desktop) but are ALWAYS visible on touch
+  // (pointer-coarse) — otherwise there's no way to focus/remove on mobile.
+  const reveal = "opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto";
   const displayPrice = livePrice?.price ?? signal.close;
   const changePct = livePrice?.change_pct ?? 0;
   const changeColor = changePct >= 0 ? "text-bullish-text" : "text-bearish-text";
@@ -248,23 +250,21 @@ function CompactWatchlistRow({
   return (
     <button
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       className={`group relative flex w-full items-center px-2.5 py-2 text-left transition-all duration-100 ${
         selected
           ? "bg-accent/[0.06] border-l-2 border-accent"
           : "border-l-2 border-transparent hover:bg-surface-2/60"
       }`}
     >
-      {/* Focus star — always visible if focused, else on hover. Tap-target
-          sized at 18×18 so it doesn't fight the row click. */}
-      {onToggleFocus && signal.source === "watchlist" && (focused || hovered) && (
+      {/* Focus star — always visible if focused; otherwise reveal on hover
+          (desktop) and ALWAYS on touch. p-1.5 = comfortable mobile tap target. */}
+      {onToggleFocus && signal.source === "watchlist" && (
         <button
           onClick={(e) => { e.stopPropagation(); onToggleFocus(); }}
-          className={`shrink-0 mr-1 p-0.5 transition-colors ${
+          className={`shrink-0 mr-0.5 p-1.5 transition-colors ${
             focused
               ? "text-amber-400 hover:text-amber-300"
-              : "text-text-faint hover:text-amber-400"
+              : `text-text-faint hover:text-amber-400 ${reveal}`
           }`}
           title={focused ? "Remove from today's focus" : "Add to today's focus"}
         >
@@ -280,14 +280,12 @@ function CompactWatchlistRow({
           </span>
           {/* Source badge — conviction / long-term idea, at-entry vs approaching. */}
           <IdeaBadge source={signal.source} actionLabel={signal.action_label} />
-          {/* Score badge on hover */}
-          {hovered && (
-            <span
-              className={`text-[8px] font-bold px-1 py-px rounded border leading-tight ${scoreBadgeClass(score)}`}
-            >
-              {score}
-            </span>
-          )}
+          {/* Score badge — reveal on hover (desktop), always on touch */}
+          <span
+            className={`text-[8px] font-bold px-1 py-px rounded border leading-tight opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100 transition-opacity ${scoreBadgeClass(score)}`}
+          >
+            {score}
+          </span>
         </div>
         <div className="flex items-center gap-1.5 mt-0.5">
           <span className="font-mono text-[11px] text-text-secondary leading-none tabular-nums">
@@ -299,13 +297,14 @@ function CompactWatchlistRow({
           </span>
         </div>
       </div>
-      {hovered && onRemove && signal.source === "watchlist" && (
+      {onRemove && signal.source === "watchlist" && (
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="shrink-0 text-text-faint hover:text-bearish-text transition-colors p-0.5"
+          className={`shrink-0 p-1.5 text-text-faint hover:text-bearish-text active:text-bearish-text transition-colors ${reveal}`}
           title="Remove from watchlist"
+          aria-label={`Remove ${signal.symbol} from watchlist`}
         >
-          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
