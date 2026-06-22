@@ -1243,11 +1243,17 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 alert_type_full, sig.symbol,
             )
             return await _persist_unrouted(sig, alert_type_full, session_date)
+        # Unknown type (stale chart, typo, OR a pine emitting a rule mid-migration —
+        # e.g. an un-recreated "rc_4h" alert after the rc_4h_long/short/hrec split).
+        # RECORD it unrouted instead of dropping, so a pine/catalog mismatch can never
+        # silently lose alerts — matches the Settings promise ("disabled types still
+        # fire and record silently"). _persist_unrouted dedups per session, so junk
+        # can't flood the panel. (2026-06-22 — was a silent drop, bit the rc_4h split.)
         logger.info(
-            "TV webhook: unknown type %s dropped for %s",
+            "TV webhook: unknown type %s — recording unrouted for review (%s)",
             alert_type_full, sig.symbol,
         )
-        return {"dispatched": False, "reason": "unknown_type"}
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="unknown_type")
 
     # 4h RC: per-symbol allowlist REMOVED (#289) — the Pine "4h RC alerts" checkbox +
     # the rc_4h type toggle ARE the enable. If it fired and the type is on, route it for
