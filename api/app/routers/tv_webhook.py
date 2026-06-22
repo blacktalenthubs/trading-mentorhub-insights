@@ -694,7 +694,8 @@ _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
 
 def _is_collapse_exempt(alert_type_full: str) -> bool:
     base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
-    return base in _COLLAPSE_EXEMPT_BASE
+    # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — all stay collapse-exempt.
+    return base in _COLLAPSE_EXEMPT_BASE or base.startswith("rc_4h")
 
 
 def _check_same_bar_collapse(
@@ -1259,7 +1260,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # short_symbols is now an OPTIONAL admin restrictor: EMPTY (the default) routes
     # every enabled SHORT; set it ONLY to clamp shorts to specific names.
     # ──────────────────────────────────────────────────────────────────
-    if short_symbols and (sig.direction or "").upper() in ("SHORT", "SELL") and alert_type_full != "tv_rc_4h" and (sig.symbol or "").upper() not in short_symbols:
+    if short_symbols and (sig.direction or "").upper() in ("SHORT", "SELL") and not alert_type_full.startswith("tv_rc_4h") and (sig.symbol or "").upper() not in short_symbols:
         logger.info("TV webhook: SHORT %s not in short_symbols allowlist — Not-routed (%s)", sig.symbol, alert_type_full)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_symbol_filter")
 
@@ -2165,7 +2166,7 @@ async def _route_alert(sig) -> tuple[bool, Optional[str]]:
     # 4h RC rejection SHORT — symbol-gated by its own Settings allowlist
     # (rc_4h_short_symbols, default SPY,DRAM), applied downstream, NOT by the
     # structural index whitelist. Let it pass here so the allowlist decides.
-    if rule_full == "tv_rc_4h":
+    if rule_full.startswith("tv_rc_4h"):
         return True, None
 
     # Structural shorts (PDL break / PDH rejection …) stay INDEX-only for now.

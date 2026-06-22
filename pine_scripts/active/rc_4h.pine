@@ -51,14 +51,16 @@ if show_lvl and rc4_hrec
     line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_hrec, width = 1, style = line.style_dashed)
 
 // ─────────────────────────────────────────────────────────────────────────
-// ALERTS — once per 4h bar (rc4_newbar gates), rule "rc_4h", well-formed JSON.
+// ALERTS — once per 4h bar (rc4_newbar gates), well-formed JSON. Each signal
+// emits its OWN rule so the app's Settings can toggle them independently:
+//   rc_4h_long (reclaim low) · rc_4h_short (reject high) · rc_4h_hrec (breakout-retest).
 // interval hard-coded "240": it's a 4h signal even if the alert sits on a 5m chart.
 // ─────────────────────────────────────────────────────────────────────────
-rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
+rc_payload(string rule, string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if rc4_long
-    alert(rc_payload("BUY", rc4_low, "RC · reclaim of the prior 4h low (undercut & reclaim) · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_payload("rc_4h_long", "BUY", rc4_low, "RC · reclaim of the prior 4h low (undercut & reclaim) · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_short
-    alert(rc_payload("SHORT", rc4_high, "RC · rejection at the prior 4h high (failed break) · stop = " + str.tostring(rc4_high, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_payload("rc_4h_short", "SHORT", rc4_high, "RC · rejection at the prior 4h high (failed break) · stop = " + str.tostring(rc4_high, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_hrec
-    alert(rc_payload("BUY", rc4_low, "RC-H · breakout-retest reclaim of the prior 4h high · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_payload("rc_4h_hrec", "BUY", rc4_low, "RC-H · breakout-retest reclaim of the prior 4h high · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
