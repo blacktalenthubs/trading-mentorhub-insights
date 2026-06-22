@@ -159,10 +159,11 @@ function Stat({ n, label, tone, target, onJump }: { n: number; label: string; to
   );
 }
 
-function DayRead({ spy, btc, signals, coiling, leaders, losing, onJump }: {
+function DayRead({ spy, btc, signals, ideas, coiling, leaders, losing, onJump }: {
   spy?: SpyRegimeSnapshot;
   btc?: SpyRegimeSnapshot;
   signals: number;
+  ideas: number;
   coiling: import("../types").WatchlistRankItem[];
   leaders: import("../types").WatchlistRankItem[];
   losing: import("../types").WatchlistRankItem[];
@@ -182,8 +183,9 @@ function DayRead({ spy, btc, signals, coiling, leaders, losing, onJump }: {
         SPY {spy?.below_pdl ? "lost" : "holding"} its prior-day low{btc ? `, BTC ${btc.below_pdl ? "weak" : "healthy"}` : ""}.{" "}
         {healthy ? "Long setups in play — long-biased, stops on every position." : "Tighten up — favor cash / proven names, stops on every position."}
       </p>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-2">
         <Stat n={signals} label="Fired" />
+        <Stat n={ideas} label="Ideas" tone="bull" target="rail-ideas" onJump={onJump} />
         <Stat n={coiling.length} label="Coiling" tone="bull" target="rail-coiling" onJump={onJump} />
         <Stat n={leaders.length} label="Leaders" tone="warn" target="rail-leaders" onJump={onJump} />
         <Stat n={losing.length} label="Breaking" tone="bear" target="rail-losing" onJump={onJump} />
@@ -313,6 +315,7 @@ export default function TodayPage() {
       .slice(0, 6),
     [scanSignals],
   );
+  const ideasAtEntry = useMemo(() => ideas.filter((s) => s.action_label === "Potential Entry").length, [ideas]);
 
   const dayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
@@ -365,7 +368,7 @@ export default function TodayPage() {
                   {groupedSignals.map((g, i) => <SymbolGroup key={g.symbol} symbol={g.symbol} list={g.list} onChart={goChart} defaultOpen={i === 0} />)}
                 </div>
               ) : (
-                <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
+                <DayRead spy={spy} btc={btc} signals={liveSignals.length} ideas={ideas.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
               )}
             </section>
 
@@ -373,7 +376,7 @@ export default function TodayPage() {
             <div className="space-y-6">
               {ideas.length > 0 && (
                 <section id="rail-ideas">
-                  <SectionLabel>Trade ideas · at entry</SectionLabel>
+                  <SectionLabel>Trade ideas · {ideasAtEntry > 0 ? `${ideasAtEntry} at entry` : "approaching entry"}</SectionLabel>
                   <div className="space-y-1.5">
                     {ideas.map((s) => <IdeaRow key={s.symbol} s={s} onChart={goChart} />)}
                   </div>
@@ -425,7 +428,7 @@ export default function TodayPage() {
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
               <span className="text-[11px] text-text-faint">· your day, then the AI read on each alert</span>
             </div>
-            <DayRead spy={spy} btc={btc} signals={liveSignals.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
+            <DayRead spy={spy} btc={btc} signals={liveSignals.length} ideas={ideas.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
             {briefing.length > 0 ? (
               <div className="space-y-2">
                 {briefing.map((a) => <BriefingItem key={a.id} a={a} onChart={goChart} />)}
