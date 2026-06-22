@@ -247,11 +247,25 @@ s58_pmh_held = not na(pmh) and day_open > pmh and low <= pmh and close >= pmh
 // it. ETH on 2026-05-23 wicked PML 2016.5, bounced hard, never closed
 // below — the existing pml_reclaim doesn't fire (needs a close-below
 // first), but the wick-and-hold is a real event the trader wants to take.
-// Strict touch: low <= level. No tolerance noise. If the level fails on
-// a future bar, the existing _reclaim/_break alerts cover the next event.
-s58_pdl_held = not na(pdl) and day_open > pdl and low <= pdl and close >= pdl
-s58_pwl_held = not na(pwl) and day_open > pwl and low <= pwl and close >= pwl
-s58_pml_held = not na(pml) and day_open > pml and low <= pml and close >= pml
+// Two fixes (2026-06-22) so crypto PDL bounces stop slipping through:
+//   1. CRYPTO-SAFE "came from above". `day_open > level` is a fine support proxy
+//      for GAPPED RTH equities (they open above the PDL), but WRONG for gapless
+//      24/7 crypto: the daily open ≈ prior close, so while basing ON the level it
+//      randomly lands below and dead-gates the whole day. Replace it with an
+//      asset-agnostic test — price was above the level at the open OR closed above
+//      it within the recent window (hi_close_lb). A sustained breakdown (price
+//      below for N+ bars) still fails, so the dual-role protection is preserved.
+//   2. NEAR-MISS TOUCH. `low <= level` was a strict touch — BTC wicked to 63,250 vs
+//      PDL 63,198 and missed by 0.08%, so the bounce never fired. Allow a tight
+//      FIXED 0.15% near-miss band (fixed %, NOT ATR — the old ATR proximity was
+//      ~1.5% on crypto and misfired far from the level). Entry stays tight (e_*_h).
+held_touch_pct = input.float(0.15, "Held: near-miss touch tolerance % (0 = strict)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Quality v2") / 100.0
+sup_lookback   = input.int  (78,   "Support: 'was above' lookback bars (crypto-safe day_open replacement)", minval = 10, maxval = 300, group = "Quality v2")
+hi_close_lb    = ta.highest(close, sup_lookback)[1]   // highest close over the prior N bars (excl current)
+f_was_above(float lvl) => not na(lvl) and (day_open > lvl or hi_close_lb > lvl)
+s58_pdl_held = not na(pdl) and f_was_above(pdl) and low <= pdl * (1 + held_touch_pct) and close >= pdl
+s58_pwl_held = not na(pwl) and f_was_above(pwl) and low <= pwl * (1 + held_touch_pct) and close >= pwl
+s58_pml_held = not na(pml) and f_was_above(pml) and low <= pml * (1 + held_touch_pct) and close >= pml
 
 // Proximity bounce — fires when price comes NEAR the prior low without
 // actually touching it, then closes green. HOOD 2026-06-02 example: PDL
@@ -1341,14 +1355,14 @@ if s58_pwh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
 // Stop = wick low − ATR buffer. Targets stack to nearest overhead PDH/PWH/PMH.
 // Same gate as held-highs: bypass chop gate in downtrends (reversal play).
 if s58_pdl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_pdl_h  = pdl
+    e_pdl_h  = low <= pdl ? pdl : low   // exact touch → buy the level; near-miss → buy the bounce low (fillable)
     s_pdl_h  = low - atr_buffer
     t1_pdl_h = not na(pdh) and pdh > e_pdl_h ? pdh : (not na(pwh) and pwh > e_pdl_h ? pwh : e_pdl_h * 1.015)
     t2_pdl_h = not na(pwh) and pwh > t1_pdl_h ? pwh : (not na(pmh) and pmh > t1_pdl_h ? pmh : t2_extend_long(e_pdl_h, t1_pdl_h))
     alert(build_payload_v2("staged_pdl_held", "BUY", e_pdl_h, s_pdl_h, t1_pdl_h, t2_pdl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_pwl_h  = pwl
+    e_pwl_h  = low <= pwl ? pwl : low   // exact touch → buy the level; near-miss → buy the bounce low (fillable)
     s_pwl_h  = low - atr_buffer
     t1_pwl_h = not na(pdh) and pdh > e_pwl_h ? pdh : (not na(pwh) and pwh > e_pwl_h ? pwh : e_pwl_h * 1.02)
     t2_pwl_h = not na(pwh) and pwh > t1_pwl_h ? pwh : (not na(pmh) and pmh > t1_pwl_h ? pmh : t2_extend_long(e_pwl_h, t1_pwl_h))
