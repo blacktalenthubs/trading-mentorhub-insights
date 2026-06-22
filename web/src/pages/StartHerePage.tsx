@@ -78,7 +78,7 @@ export default function StartHerePage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-surface-0">
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-3xl px-4 sm:px-6 py-8 pb-16">
         <header className="mb-6">
           <h1 className="font-display text-xl font-semibold text-text-primary">Start here</h1>

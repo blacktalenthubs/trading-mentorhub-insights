@@ -223,7 +223,7 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="h-full overflow-y-auto overflow-x-hidden p-5">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-xl font-bold text-text-primary mb-4">Billing & Subscription</h1>
 

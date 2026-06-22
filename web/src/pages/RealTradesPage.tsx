@@ -28,7 +28,7 @@ export default function RealTradesPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="h-full overflow-y-auto overflow-x-hidden p-5">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-6">
         <div className="flex items-center gap-6 flex-wrap">
           <h1 className="text-xl font-bold text-text-primary">Performance</h1>

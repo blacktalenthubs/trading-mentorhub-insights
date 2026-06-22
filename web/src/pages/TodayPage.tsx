@@ -320,7 +320,7 @@ export default function TodayPage() {
   const dayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   return (
-    <div className="h-full overflow-y-auto bg-surface-0">
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 pb-16">
         {/* market read + posture */}
         <header className="pb-4">
