@@ -271,6 +271,9 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
+    "rc_4h",
+
     # Bare prefixes (pre per-MA split)
     "ma_bounce_long_v3",
     "ma_proximity_long_v3",
