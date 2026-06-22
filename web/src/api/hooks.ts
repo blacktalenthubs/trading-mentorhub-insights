@@ -948,7 +948,8 @@ export function useScanner() {
     queryKey: ["scanner"],
     queryFn: () => api.get<SignalResult[]>("/scanner/scan"),
     staleTime: 60_000, // 60s — prices come from live feed now
-    refetchInterval: 60_000, // refresh grades/scores every 60s
+    refetchInterval: 60_000, // refresh every 60s → "approaching" flips to "at entry" live
+    placeholderData: (prev) => prev, // keep rows visible during refetch (no flicker on the status flip)
   });
 }
 
