@@ -22,7 +22,7 @@ from app.schemas.scanner import (
     SignalResultResponse,
     WatchlistRankItem,
 )
-from app.services.scanner import meets_entry, run_scan
+from app.services.scanner import idea_qualifies, run_scan
 from app.services.screener_service import get_latest_snapshot
 
 router = APIRouter()
@@ -89,10 +89,11 @@ async def scan(
     and long-term (swing) ideas.
 
     Watchlist names always appear (unchanged behaviour). Idea-sourced names are
-    run through the exact same signal engine and only kept when they clear the same
-    entry gate as watchlist names (`meets_entry`), so they show up in Today only
-    when actually at entry. Each result is tagged with `source` for UI badging.
-    Computed live on every call, so it auto-tracks the latest snapshots + prices.
+    run through the exact same signal engine and kept when they're at OR approaching
+    entry (`idea_qualifies`), so conviction/long-term ideas surface in Today as they
+    set up. Each result is tagged with `source` for UI badging (the UI distinguishes
+    at-entry vs approaching). Computed live on every call, so it auto-tracks the
+    latest snapshots + prices.
     """
     symbols = await _get_user_symbols(user, db)
     watchlist_set = {s.strip().upper() for s in symbols}
@@ -106,14 +107,15 @@ async def scan(
     loop = asyncio.get_event_loop()
     results = await loop.run_in_executor(None, partial(run_scan, all_symbols))
 
-    # Tag origin + drop idea-sourced names that aren't at entry today. Watchlist
-    # names are always kept (unchanged behaviour).
+    # Tag origin + drop idea-sourced names that aren't at-or-approaching entry
+    # today (the UI badges at-entry vs approaching). Watchlist names are always
+    # kept (unchanged behaviour).
     tagged: List[dict] = []
     for r in results:
         sym = str(r.get("symbol") or "").strip().upper()
         source = idea_source.get(sym, "watchlist")
         r["source"] = source
-        if source != "watchlist" and not meets_entry(r):
+        if source != "watchlist" and not idea_qualifies(r):
             continue
         tagged.append(r)
     return tagged

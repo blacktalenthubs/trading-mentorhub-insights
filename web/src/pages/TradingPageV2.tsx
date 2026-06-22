@@ -178,6 +178,28 @@ function scoreBadgeClass(score: number): string {
   return "bg-surface-3 text-text-faint border-border-subtle";
 }
 
+/* ── Idea badge ──────────────────────────────────────────────────────
+ * Flags setups the scanner folded in from your conviction / long-term ideas
+ * (these aren't on your watchlist). Conviction = accent, long-term = green.
+ * SOLID when at entry ("Potential Entry"), OUTLINE when only approaching, so
+ * you can tell which are actionable now vs setting up. */
+function IdeaBadge({ source, actionLabel, className = "" }: { source?: string; actionLabel?: string; className?: string }) {
+  if (!source || source === "watchlist") return null;
+  const atEntry = actionLabel === "Potential Entry";
+  const isConv = source === "conviction";
+  const tone = isConv
+    ? (atEntry ? "bg-accent/15 text-accent border-transparent" : "text-accent border-accent/40")
+    : (atEntry ? "bg-bullish/15 text-bullish-text border-transparent" : "text-bullish-text border-bullish/40");
+  return (
+    <span
+      className={`shrink-0 inline-flex items-center text-[7.5px] font-bold uppercase tracking-wide px-1 py-px rounded border leading-none ${tone} ${className}`}
+      title={`${isConv ? "Conviction" : "Long-term (swing)"} idea — ${atEntry ? "at entry today" : "approaching entry"}`}
+    >
+      {isConv ? "Conv" : "LT"}
+    </span>
+  );
+}
+
 /* ── Compact Watchlist Row ──────────────────────────────────────────── */
 
 function CompactWatchlistRow({
@@ -256,25 +278,8 @@ function CompactWatchlistRow({
           <span className="text-[12px] font-bold text-text-primary leading-tight truncate">
             {signal.symbol}
           </span>
-          {/* Source badge — flags rows that came from your conviction / long-term
-              ideas (only present when they meet entry today), so they're visually
-              distinct from your own watchlist symbols. */}
-          {signal.source && signal.source !== "watchlist" && (
-            <span
-              className={`shrink-0 text-[7.5px] font-bold uppercase tracking-wide px-1 py-px rounded leading-none ${
-                signal.source === "conviction"
-                  ? "bg-accent/15 text-accent"
-                  : "bg-bullish/15 text-bullish-text"
-              }`}
-              title={
-                signal.source === "conviction"
-                  ? "From your Conviction ideas — meets entry today"
-                  : "From your long-term (swing) ideas — meets entry today"
-              }
-            >
-              {signal.source === "conviction" ? "Conv" : "LT"}
-            </span>
-          )}
+          {/* Source badge — conviction / long-term idea, at-entry vs approaching. */}
+          <IdeaBadge source={signal.source} actionLabel={signal.action_label} />
           {/* Score badge on hover */}
           {hovered && (
             <span
@@ -2011,19 +2016,24 @@ export default function TradingPageV2() {
           ))}
         </div>
 
-        {/* Mobile: horizontal symbol pills */}
+        {/* Mobile: horizontal symbol pills — badge conviction / long-term ideas
+            the scanner folded in, so they're distinguishable here too (the
+            watchlist drawer with full controls is off-canvas on mobile). */}
         <div className="flex gap-1.5 overflow-x-auto px-3 py-1.5 md:hidden shrink-0 no-scrollbar">
           {signals?.map((s) => (
             <button
               key={s.symbol}
               onClick={() => selectSymbol(s.symbol)}
-              className={`shrink-0 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+              className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                 selectedSymbol === s.symbol
                   ? "bg-accent text-white"
                   : "bg-surface-3 text-text-muted"
               }`}
             >
               {s.symbol}
+              {selectedSymbol !== s.symbol && (
+                <IdeaBadge source={s.source} actionLabel={s.action_label} />
+              )}
             </button>
           ))}
         </div>

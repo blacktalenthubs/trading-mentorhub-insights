@@ -1043,7 +1043,7 @@ async def lifespan(app: FastAPI):
             from app.services.screener_service import (
                 refresh_swing_job, refresh_swing_small_job,
                 refresh_swing_close_job, refresh_swing_small_close_job,
-                refresh_weekly_stage_job, bootstrap_job,
+                refresh_weekly_stage_job, refresh_conviction_job, bootstrap_job,
             )
             scheduler.add_job(
                 refresh_swing_job, "cron", hour=7, minute=30,
@@ -1072,6 +1072,14 @@ async def lifespan(app: FastAPI):
                 refresh_weekly_stage_job, "cron", day_of_week="mon", hour=8, minute=0,
                 timezone="America/New_York",
                 id="screener_weekly_stage", replace_existing=True,
+            )
+            # Conviction screener — analyst/trend data on daily bars, not market-
+            # gated. Refresh once each morning so the Today tab's conviction source
+            # stays current (bootstrap_job seeds an initial snapshot on deploy).
+            scheduler.add_job(
+                refresh_conviction_job, "cron", hour=7, minute=45,
+                timezone="America/New_York",
+                id="screener_conviction_refresh", replace_existing=True,
             )
             # Scheduler jobs run on worker threads but the async DB engine is bound
             # to this (the app's main) loop — hand it to the service so jobs submit

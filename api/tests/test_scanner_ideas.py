@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.services.scanner import meets_entry
+from app.services.scanner import idea_qualifies, meets_entry
 import app.routers.scanner as scanner
 
 
@@ -24,10 +24,18 @@ class _Snap:
 
 
 def test_meets_entry_gate():
-    # "Potential Entry" == AT SUPPORT + score >= 65 (the Today gate).
+    # "Potential Entry" == AT SUPPORT + score >= 65 (the strict, at-entry gate).
     assert meets_entry({"action_label": "Potential Entry"}) is True
     assert meets_entry({"action_label": "Watch"}) is False
     assert meets_entry({}) is False
+
+
+def test_idea_qualifies_gate():
+    # Looser gate for idea-sourced names: at entry OR approaching, but not broken.
+    assert idea_qualifies({"action_label": "Potential Entry"}) is True
+    assert idea_qualifies({"action_label": "Watch"}) is True
+    assert idea_qualifies({"action_label": "No Setup"}) is False
+    assert idea_qualifies({}) is False
 
 
 def test_gather_idea_symbols_dedup_exclude(monkeypatch):

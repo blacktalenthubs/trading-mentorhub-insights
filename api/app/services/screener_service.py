@@ -809,6 +809,10 @@ def refresh_weekly_stage_job() -> None:
     _run(refresh_weekly_stage())  # Monday ~08:00 ET — weekly bars change weekly
 
 
+def refresh_conviction_job() -> None:
+    _run(refresh_conviction())  # Daily — analyst/trend data, not market-gated
+
+
 async def bootstrap() -> None:
     """One-shot self-populate on deploy: build the universe if it's empty, then run
     an initial swing scan if no swing snapshot exists yet. Idempotent across restarts
@@ -826,6 +830,9 @@ async def bootstrap() -> None:
         if await get_latest_snapshot("weekly_stage") is None:
             logger.info("screener: bootstrap — initial weekly-stage scan")
             await refresh_weekly_stage()
+        if await get_latest_snapshot("conviction") is None:
+            logger.info("screener: bootstrap — initial conviction scan")
+            await refresh_conviction()
         logger.info("screener: bootstrap complete")
     except Exception:
         logger.exception("screener: bootstrap failed")
