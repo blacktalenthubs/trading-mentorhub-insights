@@ -19,8 +19,19 @@ def test_day_uses_next_resistance():
     p = build_exit_plan("tv_rc_4h", "BUY", entry=100.0, stop=98.0, next_resistance=105.0)
     assert p["style"] == "day"
     assert p["label"] == "Day trade"
-    assert p["target"] == 105.0
-    assert "next resistance" in p["exit"]
+    assert p["target"] == 105.0  # the number lives in the Target field
+    assert p["exit"] == "Target: next resistance above"  # describes the level, no price (no double-print)
+
+
+def test_day_short_targets_support_not_resistance():
+    # A short covers into SUPPORT below — the exit text must not say "resistance",
+    # and must not restate the price (that double-printed the target on the card).
+    p = build_exit_plan("tv_staged_pdh_rejection", "SHORT", entry=64380.0, stop=64578.0,
+                        next_resistance=63237.0)
+    assert p["style"] == "day"
+    assert p["target"] == 63237.0
+    assert p["exit"] == "Target: next support below"
+    assert "$" not in p["exit"] and "e+" not in p["exit"]
 
 
 def test_gap_and_go_rsi75_morning_low():

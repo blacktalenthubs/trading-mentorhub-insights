@@ -1560,6 +1560,27 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         if _confluence_str:
             sig.message = (sig.message or "").rstrip() + "\n" + _confluence_str
 
+    # ──────────────────────────────────────────────────────────────────
+    # Day-trade target = nearest NEIGHBOR level (2026-06-21, user request)
+    # ──────────────────────────────────────────────────────────────────
+    # Backend owns the target now — the Pine just triggers (project_exit_plan_backend).
+    # For DAY setups the target is the nearest clustered level/EMA in the trade
+    # direction (feedback_level_anchored_targets), picked from the same nearby_levels
+    # the confluence check uses — NOT the Pine's raw T1. Swing/long/gap keep their
+    # RSI-based targets (untouched). Falls back to the Pine target when there's no
+    # level in that direction (blue sky / gap-and-go), so a target is never nulled.
+    from analytics.exit_plan import trade_style as _trade_style
+    if _trade_style(alert_type_full) == "Day" and _entry_for_confluence and _nearby_levels:
+        from analytics.target_picker import pick_target
+        _cands = [(lvl.get("label"), lvl.get("value")) for lvl in _nearby_levels
+                  if isinstance(lvl, dict) and lvl.get("value") is not None]
+        _picked = pick_target(
+            float(_entry_for_confluence), _cands,
+            direction=sig.direction or "BUY", rsi=getattr(sig, "_tv_rsi", None),
+        )
+        if _picked and _picked.get("kind") == "level" and _picked.get("value"):
+            sig.target_1 = _picked["value"]
+
     pairs: list[tuple[Any, Alert]] = []
 
     async with async_session_factory() as db:
