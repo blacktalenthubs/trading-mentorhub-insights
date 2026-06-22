@@ -22,7 +22,8 @@ from app.schemas.scanner import (
     SignalResultResponse,
     WatchlistRankItem,
 )
-from app.services.scanner import run_scan
+from app.services.scanner import meets_entry, run_scan
+from app.services.screener_service import get_latest_snapshot
 
 router = APIRouter()
 
@@ -40,6 +41,43 @@ async def _get_user_symbols(user: User, db: AsyncSession) -> List[str]:
     return [row[0] for row in result.all()]
 
 
+# Screener snapshot kind -> the `source` tag exposed on scan results. Conviction
+# is listed first so it wins when a symbol appears in both snapshots.
+_IDEA_SOURCES: List[Tuple[str, str]] = [
+    ("conviction", "conviction"),
+    ("swing", "long_term"),
+]
+# Cap the extra scan load. Snapshots are pre-ranked best-first, so the cap keeps
+# the strongest ideas; without it a busy market could add ~60 yfinance fetches
+# to every 3-minute Today scan.
+_MAX_IDEA_SYMBOLS = 20
+
+
+async def _gather_idea_symbols(exclude: set[str]) -> Dict[str, str]:
+    """Symbols from the latest conviction + swing screener snapshots, each mapped
+    to its source tag.
+
+    Read-only: reads the global snapshots, never mutates the watchlist. Excludes
+    anything already on the user's watchlist, dedupes across kinds (conviction
+    wins), and caps the total so the scan stays fast.
+    """
+    source_by_symbol: Dict[str, str] = {}
+    for kind, source in _IDEA_SOURCES:
+        if len(source_by_symbol) >= _MAX_IDEA_SYMBOLS:
+            break
+        snap = await get_latest_snapshot(kind)
+        if snap is None or not snap.entries:
+            continue
+        for entry in snap.entries:
+            if len(source_by_symbol) >= _MAX_IDEA_SYMBOLS:
+                break
+            sym = str(entry.get("symbol") or "").strip().upper()
+            if not sym or sym in exclude or sym in source_by_symbol:
+                continue
+            source_by_symbol[sym] = source
+    return source_by_symbol
+
+
 @router.get("/scan", response_model=List[SignalResultResponse])
 @limiter.limit("20/minute")
 async def scan(
@@ -47,14 +85,38 @@ async def scan(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run daily scanner on user's watchlist."""
+    """Run the daily scanner on the user's watchlist PLUS the strongest conviction
+    and long-term (swing) ideas.
+
+    Watchlist names always appear (unchanged behaviour). Idea-sourced names are
+    run through the exact same signal engine and only kept when they clear the same
+    entry gate as watchlist names (`meets_entry`), so they show up in Today only
+    when actually at entry. Each result is tagged with `source` for UI badging.
+    Computed live on every call, so it auto-tracks the latest snapshots + prices.
+    """
     symbols = await _get_user_symbols(user, db)
-    if not symbols:
+    watchlist_set = {s.strip().upper() for s in symbols}
+    idea_source = await _gather_idea_symbols(exclude=watchlist_set)
+
+    all_symbols = symbols + list(idea_source.keys())
+    if not all_symbols:
         return []
+
     # Run CPU-bound scanner in thread pool
     loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(None, partial(run_scan, symbols))
-    return results
+    results = await loop.run_in_executor(None, partial(run_scan, all_symbols))
+
+    # Tag origin + drop idea-sourced names that aren't at entry today. Watchlist
+    # names are always kept (unchanged behaviour).
+    tagged: List[dict] = []
+    for r in results:
+        sym = str(r.get("symbol") or "").strip().upper()
+        source = idea_source.get(sym, "watchlist")
+        r["source"] = source
+        if source != "watchlist" and not meets_entry(r):
+            continue
+        tagged.append(r)
+    return tagged
 
 
 @router.get("/active-entries", response_model=List[ActiveEntryResponse])

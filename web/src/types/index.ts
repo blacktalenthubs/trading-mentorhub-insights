@@ -25,6 +25,9 @@ export interface SignalResult {
   score: number;
   grade: string;
   action_label: string;
+  /** Origin of the setup: "watchlist" (your list) | "conviction" | "long_term"
+   *  (swing screener). Idea-sourced rows only appear when they meet entry. */
+  source: string;
   entry: number | null;
   stop: number | null;
   target_1: number | null;

@@ -12,6 +12,10 @@ class SignalResultResponse(BaseModel):
     score: int
     grade: str
     action_label: str
+    # Origin of the setup: "watchlist" (the user's own list) | "conviction" |
+    # "long_term" (swing screener). Idea-sourced rows are only included when they
+    # clear the same entry gate as watchlist names (see the scanner router).
+    source: str = "watchlist"
     entry: Optional[float] = None
     stop: Optional[float] = None
     target_1: Optional[float] = None

@@ -19,7 +19,7 @@ if _project_root not in sys.path:
 # valid psycopg2 DSN.  Hide it so the parent db.py falls back to SQLite mode.
 _saved_db_url = os.environ.pop("DATABASE_URL", None)
 
-from analytics.signal_engine import SignalResult, action_label, scan_watchlist  # noqa: E402
+from analytics.signal_engine import ACTION_LABELS, SignalResult, action_label, scan_watchlist  # noqa: E402
 
 # Force parent db.py into SQLite mode regardless of env
 import db as _parent_db  # noqa: E402
@@ -52,6 +52,8 @@ def _safe_round(v, decimals=2):
 def _serialize(r: SignalResult) -> dict:
     return {
         "symbol": r.symbol,
+        # Default origin; the scanner router overrides this for idea-sourced names.
+        "source": "watchlist",
         "score": r.score,
         "grade": getattr(r, "score_label", ""),
         "action_label": action_label(r.support_status, r.score),
@@ -82,6 +84,22 @@ def _serialize(r: SignalResult) -> dict:
         "ref_day_high": _safe_round(getattr(r, "ref_day_high", None)),
         "ref_day_low": _safe_round(getattr(r, "ref_day_low", None)),
     }
+
+
+# The action label meaning "at an actionable entry today" — AT SUPPORT with
+# score >= 65. The single source of truth lives in signal_engine; reference it
+# so the gate can't silently drift out of sync with the Today tab.
+_ENTRY_ACTION_LABEL = ACTION_LABELS["AT SUPPORT"]["label"]  # "Potential Entry"
+
+
+def meets_entry(result: dict) -> bool:
+    """True when a serialized scan result clears Today's entry gate.
+
+    This is the exact bar the Today tab already uses for watchlist names, so
+    idea-sourced symbols (conviction / swing) surface only when genuinely at
+    entry rather than just being "interesting".
+    """
+    return result.get("action_label") == _ENTRY_ACTION_LABEL
 
 
 # ---------------------------------------------------------------------------
