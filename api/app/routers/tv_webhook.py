@@ -1134,18 +1134,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     rule_name = getattr(sig, "_tv_rule", "webhook")
     alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
 
-    # ORL is noisy — cap at 1 per symbol per 4h (a notice, not a fresh setup each 15m bar).
-    if alert_type_full == "tv_staged_orl_held":
-        from datetime import datetime as _dt, timedelta as _td
-        _recent_orl = (await db.execute(
-            select(Alert.id).where(
-                Alert.symbol == sig.symbol,
-                Alert.alert_type == "tv_staged_orl_held",
-                Alert.created_at >= _dt.utcnow() - _td(hours=4),
-            ).limit(1)
-        )).scalar_one_or_none()
-        if _recent_orl is not None:
-            return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orl_4h_cap")
+    # NOTE: the ORL 4h-cap pre-check that lived here (#379, 2026-06-21) referenced
+    # `db` before it was assigned (the session opens further down) → UnboundLocalError
+    # on EVERY tv_staged_orl_held, swallowed by _dispatch_background = a silent ORL
+    # outage. Removed 2026-06-22 to restore the Thursday-06-18 behaviour: ORL now
+    # flows through the normal per-user pipeline below, rate-limited by the identity
+    # dedup + DAILY_FIRE_CAP (2/day). Re-add a 4h cap later INSIDE the loop (where
+    # `db` is in scope) if needed.
 
     # ---------------------------------------------------------------
     # Per-type enablement (2026-05-21) — the alert_type_config table.
