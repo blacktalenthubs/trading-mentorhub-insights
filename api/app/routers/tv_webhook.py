@@ -1135,6 +1135,19 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     rule_name = getattr(sig, "_tv_rule", "webhook")
     alert_type_full = f"tv_{rule_name}{_ma_tag_to_suffix(getattr(sig, '_tv_ma_tag', ''))}"[:100]
 
+    # Legacy rc_4h → split remap (2026-06-22). The rc_4h pine split into
+    # rc_4h_long/short/hrec, but pines still emitting the combined "rc_4h" rule (alert
+    # not recreated yet) would be an unknown type. Map by direction + note so the user's
+    # CURRENT pine routes under the split toggles — no re-paste needed.
+    if alert_type_full == "tv_rc_4h":
+        _dir = (sig.direction or "").upper()
+        if _dir in ("SHORT", "SELL"):
+            alert_type_full = "tv_rc_4h_short"
+        elif "RC-H" in (sig.message or ""):
+            alert_type_full = "tv_rc_4h_hrec"
+        else:
+            alert_type_full = "tv_rc_4h_long"
+
     # NOTE: the ORL 4h-cap pre-check that lived here (#379, 2026-06-21) referenced
     # `db` before it was assigned (the session opens further down) → UnboundLocalError
     # on EVERY tv_staged_orl_held, swallowed by _dispatch_background = a silent ORL
@@ -1593,8 +1606,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # everyone's. No pref row = OFF (opt-in via Settings / Start here).
         users = await _filter_users_by_type_pref(db, users, alert_type_full)
         if not users:
-            logger.info("TV webhook: no users enabled %s for %s", alert_type_full, sig.symbol)
-            return {"dispatched": False, "reason": "no_subscribers"}
+            # No watcher has this type ENABLED. Still RECORD it unrouted (not drop), so a
+            # type the user disabled shows in the Not-routed panel for review — the
+            # Settings promise "disabled types still fire and record silently". Was a
+            # silent drop; bit "I disabled ORL but it doesn't even hit Not-routed" (2026-06-22).
+            logger.info("TV webhook: no users enabled %s for %s — recording unrouted", alert_type_full, sig.symbol)
+            return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="type_not_enabled")
 
         # ⭐ CONVICTION — flag the alert when the symbol is on the latest conviction
         # scan's Strong-Buy list (analyst-backed). The Pine setup is the trigger;
