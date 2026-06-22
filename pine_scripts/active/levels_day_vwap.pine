@@ -247,25 +247,11 @@ s58_pmh_held = not na(pmh) and day_open > pmh and low <= pmh and close >= pmh
 // it. ETH on 2026-05-23 wicked PML 2016.5, bounced hard, never closed
 // below — the existing pml_reclaim doesn't fire (needs a close-below
 // first), but the wick-and-hold is a real event the trader wants to take.
-// Two fixes (2026-06-22) so crypto PDL bounces stop slipping through:
-//   1. CRYPTO-SAFE "came from above". `day_open > level` is a fine support proxy
-//      for GAPPED RTH equities (they open above the PDL), but WRONG for gapless
-//      24/7 crypto: the daily open ≈ prior close, so while basing ON the level it
-//      randomly lands below and dead-gates the whole day. Replace it with an
-//      asset-agnostic test — price was above the level at the open OR closed above
-//      it within the recent window (hi_close_lb). A sustained breakdown (price
-//      below for N+ bars) still fails, so the dual-role protection is preserved.
-//   2. NEAR-MISS TOUCH. `low <= level` was a strict touch — BTC wicked to 63,250 vs
-//      PDL 63,198 and missed by 0.08%, so the bounce never fired. Allow a tight
-//      FIXED 0.15% near-miss band (fixed %, NOT ATR — the old ATR proximity was
-//      ~1.5% on crypto and misfired far from the level). Entry stays tight (e_*_h).
-held_touch_pct = input.float(0.15, "Held: near-miss touch tolerance % (0 = strict)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Quality v2") / 100.0
-sup_lookback   = input.int  (78,   "Support: 'was above' lookback bars (crypto-safe day_open replacement)", minval = 10, maxval = 300, group = "Quality v2")
-hi_close_lb    = ta.highest(close, sup_lookback)[1]   // highest close over the prior N bars (excl current)
-f_was_above(float lvl) => not na(lvl) and (day_open > lvl or hi_close_lb > lvl)
-s58_pdl_held = not na(pdl) and f_was_above(pdl) and low <= pdl * (1 + held_touch_pct) and close >= pdl
-s58_pwl_held = not na(pwl) and f_was_above(pwl) and low <= pwl * (1 + held_touch_pct) and close >= pwl
-s58_pml_held = not na(pml) and f_was_above(pml) and low <= pml * (1 + held_touch_pct) and close >= pml
+// Strict touch: low <= level. No tolerance noise. If the level fails on
+// a future bar, the existing _reclaim/_break alerts cover the next event.
+s58_pdl_held = not na(pdl) and day_open > pdl and low <= pdl and close >= pdl
+s58_pwl_held = not na(pwl) and day_open > pwl and low <= pwl and close >= pwl
+s58_pml_held = not na(pml) and day_open > pml and low <= pml and close >= pml
 
 // Proximity bounce — fires when price comes NEAR the prior low without
 // actually touching it, then closes green. HOOD 2026-06-02 example: PDL
@@ -1355,14 +1341,14 @@ if s58_pwh_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
 // Stop = wick low − ATR buffer. Targets stack to nearest overhead PDH/PWH/PMH.
 // Same gate as held-highs: bypass chop gate in downtrends (reversal play).
 if s58_pdl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_pdl_h  = low <= pdl ? pdl : low   // exact touch → buy the level; near-miss → buy the bounce low (fillable)
+    e_pdl_h  = pdl
     s_pdl_h  = low - atr_buffer
     t1_pdl_h = not na(pdh) and pdh > e_pdl_h ? pdh : (not na(pwh) and pwh > e_pdl_h ? pwh : e_pdl_h * 1.015)
     t2_pdl_h = not na(pwh) and pwh > t1_pdl_h ? pwh : (not na(pmh) and pmh > t1_pdl_h ? pmh : t2_extend_long(e_pdl_h, t1_pdl_h))
     alert(build_payload_v2("staged_pdl_held", "BUY", e_pdl_h, s_pdl_h, t1_pdl_h, t2_pdl_h, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 if s58_pwl_held_v2 and (not uptrend_pass_58 or chop_gate_pass_58)
-    e_pwl_h  = low <= pwl ? pwl : low   // exact touch → buy the level; near-miss → buy the bounce low (fillable)
+    e_pwl_h  = pwl
     s_pwl_h  = low - atr_buffer
     t1_pwl_h = not na(pdh) and pdh > e_pwl_h ? pdh : (not na(pwh) and pwh > e_pwl_h ? pwh : e_pwl_h * 1.02)
     t2_pwl_h = not na(pwh) and pwh > t1_pwl_h ? pwh : (not na(pmh) and pmh > t1_pwl_h ? pmh : t2_extend_long(e_pwl_h, t1_pwl_h))
@@ -1791,10 +1777,10 @@ f_wkstage() =>
         _inp := false
     _inzone = (not na(_m)) and (low <= _m * (1.0 + wk_ma_buf / 100.0)) and (close > _m)
     _add = _rising and _above and _inzone and (low[1] > _m[1] * (1.0 + wk_ma_buf / 100.0))
-    // Strong reclaim = closed UP or in the TOP HALF of the bar's range. Earlier this required a
-    // GREEN week (close > open), but that rejected strong RED reclaims that held the level (NBIS
-    // 06-08 @217 closed 74% up but red). Top-half still rejects genuine weak sweeps (close near low).
-    _rcbase = (low < low[1]) and (close > low[1]) and ((close > open) or (close - low >= (high - low) * 0.5)) and (not na(_m))
+    // close > open (GREEN week) required — a reclaim that closes the week DOWN
+    // (red) is a weak/false reclaim (OKLO + GOOGL 2026-06-08 both swept the level
+    // but closed red). A real reclaim finishes the week up.
+    _rcbase = (low < low[1]) and (close > low[1]) and (close > open) and (not na(_m))
     _rcb = _rcbase and (close < _m)
     _rca = _rcbase and (close >= _m)
     [_m, _b, _x, _trail, _add, _rcb, _rca, low]
@@ -1807,11 +1793,11 @@ f_wkstage() =>
 // clear rule "weekly_rc" (was mislabeled "weekly_stage"). wk_buy/wk_add/wk_exit
 // stay in the tuple but no longer fire.
 if wk_alerts and wk_rcb and not wk_rcb[1]
-    wrbn = "WEEKLY RC · undercut & reclaim of the prior-week low (below 30wMA = bottoming, green week) · stop " + str.tostring(wk_low, format.mintick)
+    wrbn = "Weekly RC · undercut & reclaim of the prior-week low (below 30wMA = bottoming, green week) · stop " + str.tostring(wk_low, format.mintick)
     wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrbp, alert.freq_once_per_bar_close)
 if wk_alerts and wk_rca and not wk_rca[1]
-    wran = "WEEKLY RC · in-uptrend dip-reclaim of the prior-week low (above 30wMA, green week) · stop " + str.tostring(wk_low, format.mintick)
+    wran = "Weekly RC · in-uptrend dip-reclaim of the prior-week low (above 30wMA, green week) · stop " + str.tostring(wk_low, format.mintick)
     wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
     alert(wrap, alert.freq_once_per_bar_close)
 
@@ -1958,51 +1944,3 @@ if lsr_alerts and lsr_rej(pml) and not lsr_pml_done
     lsr_pml_done := true
     lsr_mp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"lost_support_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(pml + atr_buffer, format.mintick) + '","note":"PML lost - now resistance: wicked up into it and closed back below","fired_at":"' + str.tostring(timenow) + '"}'
     alert(lsr_mp, alert.freq_once_per_bar_close)
-
-// ═════════════════════════════════════════════════════════════════════════
-// WEEKLY 10w/30w MA held/reclaim entry — moved here from rc_4h (2026-06-21):
-// folding request.security("W") into the anchored-4h rc_4h silently killed RC
-// emission. levels_day already runs W security + many alert()s, so it absorbs
-// this cleanly. ALERT ONLY — the flat 10w/30w lines are in prior_levels_flat.pine.
-// rule "weekly_ma_held" → Long-hold; sends weekly_rsi for the backend exit plan.
-// ═════════════════════════════════════════════════════════════════════════
-// wkma_ prefix — levels_day already has a WkStage section using wk_* (wk_slope_lb etc).
-wkma_fire     = input.bool (true, "Fire the weekly 10w/30w held/reclaim entry", group = "Weekly MA")
-wkma_slope_lb = input.int  (4,    "30wMA slope lookback (weeks)", minval = 1, group = "Weekly MA")
-wkma_tol_pct  = input.float(2.0,  "Weekly open-at-MA tolerance (%)", minval = 0.0, step = 0.5, group = "Weekly MA")
-wkma_floor    = input.float(0.5,  "Weekly chop filter — 30wMA min rising slope (%)", minval = 0.0, step = 0.1, group = "Weekly MA")
-wkma_rearm    = input.float(3.0,  "Weekly re-arm — close % above 10wMA before next entry", minval = 0.5, step = 0.5, group = "Weekly MA")
-
-wkma_f() =>
-    _f     = ta.sma(close, 10)
-    _s     = ta.sma(close, 30)
-    _rsi   = ta.rsi(close, 14)
-    _slope = _s[wkma_slope_lb] != 0 ? (_s - _s[wkma_slope_lb]) / _s[wkma_slope_lb] * 100.0 : 0.0
-    _up    = (close > _s) and (_slope > wkma_floor) and (_f > _s)
-    [_f, _s, _rsi, _slope, _up]
-[wkma_wf, wkma_ws, wkma_wrsi, wkma_wslope, wkma_wup] = request.security(syminfo.tickerid, "W", wkma_f(), lookahead = barmerge.lookahead_on)
-
-wkma_entry(float ma) => not na(ma) and close > ma and (low <= ma or (not na(close[1]) and close[1] <= ma) or math.abs(open - ma) / ma <= wkma_tol_pct / 100.0)
-
-wkma_e10 = wkma_wup and wkma_entry(wkma_wf)
-var bool wkma_armed10 = true
-if not na(wkma_wf) and close > wkma_wf * (1.0 + wkma_rearm / 100.0)
-    wkma_armed10 := true
-wkma_fire10 = wkma_fire and wkma_e10 and wkma_armed10
-if wkma_fire10
-    wkma_armed10 := false
-
-wkma_e30 = not na(wkma_ws) and not na(wkma_ws[wkma_slope_lb]) and wkma_ws > wkma_ws[wkma_slope_lb] and wkma_entry(wkma_ws)
-var bool wkma_armed30 = true
-if not na(wkma_ws) and close > wkma_ws * (1.0 + wkma_rearm / 100.0)
-    wkma_armed30 := true
-wkma_fire30 = wkma_fire and wkma_e30 and wkma_armed30
-if wkma_fire30
-    wkma_armed30 := false
-
-wkma_fired = wkma_fire10 or wkma_fire30
-wkma_stop  = low * 0.99
-if wkma_fired and barstate.isconfirmed
-    wkma_lbl = wkma_fire10 ? "10w" : "30w"
-    wkma_payload = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_ma_held","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wkma_stop, format.mintick) + '","weekly_rsi":"' + str.tostring(wkma_wrsi, "#.#") + '","note":"Weekly ' + wkma_lbl + ' MA held/reclaim (Stage 2)","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wkma_payload, alert.freq_once_per_bar_close)
