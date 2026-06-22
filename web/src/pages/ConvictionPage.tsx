@@ -289,7 +289,7 @@ export function ConvictionTabView() {
 
 export default function ConvictionPage() {
   return (
-    <div className="h-full overflow-y-auto bg-surface-0">
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5">
         <ConvictionTabView />
       </div>

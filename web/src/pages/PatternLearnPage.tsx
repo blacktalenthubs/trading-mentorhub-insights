@@ -117,7 +117,7 @@ export default function PatternLearnPage() {
   const p = patternFor(code);
 
   return (
-    <div className="h-full overflow-y-auto bg-surface-0">
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6 pb-20">
         <button onClick={() => nav(-1)} className="inline-flex items-center gap-1 text-[12px] text-text-muted hover:text-text-secondary">
           <ArrowLeft size={14} /> Back

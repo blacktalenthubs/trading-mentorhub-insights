@@ -671,7 +671,7 @@ function AlertSymbolListsSection() {
 
 export default function SettingsPage() {
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="h-full overflow-y-auto overflow-x-hidden p-5">
       <div className="max-w-3xl mx-auto space-y-5">
         <h1 className="font-display text-xl font-bold text-text-primary">Settings</h1>
 
