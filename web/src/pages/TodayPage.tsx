@@ -10,9 +10,9 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, TrendingUp, ChevronRight, ChevronDown, Bot } from "lucide-react";
-import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank } from "../api/hooks";
+import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
-import type { Alert } from "../types";
+import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
 import AlertCard from "../components/AlertCard";
 
@@ -48,6 +48,55 @@ function SectionLabel({ children, action, onAction }: { children: ReactNode; act
       <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{children}</span>
       {action && <button onClick={onAction} className="inline-flex items-center gap-0.5 text-[11px] text-accent hover:text-accent-hover active:opacity-70">{action}<ChevronRight size={12} /></button>}
     </div>
+  );
+}
+
+/* ── Trade-idea badge + row — conviction / long-term names the scanner folded into
+   Today because they're at (or approaching) entry. Mirrors the Trading-tab badge:
+   SOLID at entry, OUTLINE when only approaching; conviction = accent, long-term = green. ── */
+function IdeaBadge({ source, actionLabel }: { source?: string; actionLabel?: string }) {
+  if (!source || source === "watchlist") return null;
+  const atEntry = actionLabel === "Potential Entry";
+  const isConv = source === "conviction";
+  const tone = isConv
+    ? (atEntry ? "bg-accent/15 text-accent border-transparent" : "text-accent border-accent/40")
+    : (atEntry ? "bg-bullish/15 text-bullish-text border-transparent" : "text-bullish-text border-bullish/40");
+  return (
+    <span
+      className={`shrink-0 inline-flex items-center text-[9px] font-bold uppercase tracking-wide px-1 py-px rounded border leading-none ${tone}`}
+      title={`${isConv ? "Conviction" : "Long-term (swing)"} idea — ${atEntry ? "at entry today" : "approaching entry"}`}
+    >
+      {isConv ? "Conv" : "LT"}
+    </span>
+  );
+}
+
+function ideaFmt(n: number | null): string {
+  if (n == null) return "—";
+  return n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : n.toFixed(2);
+}
+
+function IdeaRow({ s, onChart }: { s: SignalResult; onChart: (sym: string) => void }) {
+  const atEntry = s.action_label === "Potential Entry";
+  return (
+    <button
+      onClick={() => onChart(s.symbol)}
+      className="w-full text-left rounded-xl border border-border-subtle bg-surface-1 p-3 hover:bg-surface-2/40 transition-colors"
+    >
+      <div className="flex items-center gap-2">
+        <span className="font-display font-semibold text-text-primary">{s.symbol}</span>
+        <IdeaBadge source={s.source} actionLabel={s.action_label} />
+        <span className={`text-[10px] font-medium ${atEntry ? "text-bullish-text" : "text-text-faint"}`}>{atEntry ? "at entry" : "approaching"}</span>
+        <ChevronRight size={14} className="ml-auto shrink-0 text-text-faint" />
+      </div>
+      {(s.entry != null || s.target_1 != null || s.stop != null) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] tabular-nums text-text-muted">
+          {s.entry != null && <span>Entry <span className="text-text-secondary">{ideaFmt(s.entry)}</span></span>}
+          {s.target_1 != null && <span className="text-bullish-text">Target {ideaFmt(s.target_1)}</span>}
+          {s.stop != null && <span>Stop <span className="text-bearish-text">{ideaFmt(s.stop)}</span></span>}
+        </div>
+      )}
+    </button>
   );
 }
 
@@ -207,6 +256,7 @@ export default function TodayPage() {
   const { data: spy } = useSpyLiveRegime();
   const { data: btc } = useBtcLiveRegime();
   const { data: rank } = useWatchlistRank();
+  const { data: scanSignals } = useScanner();
 
   const goChart = (symbol: string) => nav(`/trading?symbol=${encodeURIComponent(symbol)}`);
   // Day-read stat tile → switch to the Signals tab (where the rail lives) + scroll to its section.
@@ -243,6 +293,14 @@ export default function TodayPage() {
   const coiling = useMemo(() => (rank ?? []).filter((r) => r.bucket === "coiling").slice(0, 5), [rank]);
   const leaders = useMemo(() => (rank ?? []).filter((r) => r.bucket === "leader").sort((a, b) => (b.rsi ?? 0) - (a.rsi ?? 0)).slice(0, 5), [rank]);
   const losing = useMemo(() => (rank ?? []).filter((r) => r.bucket === "losing").sort((a, b) => (a.rsi ?? 99) - (b.rsi ?? 99)).slice(0, 5), [rank]);
+  // Conviction / long-term ideas the scanner folded in (source != watchlist), at-entry first.
+  const ideas = useMemo(
+    () => (scanSignals ?? [])
+      .filter((s) => s.source && s.source !== "watchlist")
+      .sort((a, b) => Number(b.action_label === "Potential Entry") - Number(a.action_label === "Potential Entry"))
+      .slice(0, 6),
+    [scanSignals],
+  );
 
   const dayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
@@ -301,6 +359,14 @@ export default function TodayPage() {
 
             {/* side column — worth watching + your day */}
             <div className="space-y-6">
+              {ideas.length > 0 && (
+                <section id="rail-ideas">
+                  <SectionLabel>Trade ideas · at entry</SectionLabel>
+                  <div className="space-y-1.5">
+                    {ideas.map((s) => <IdeaRow key={s.symbol} s={s} onChart={goChart} />)}
+                  </div>
+                </section>
+              )}
               {coiling.length > 0 && (
                 <section id="rail-coiling">
                   <SectionLabel>Next entries · coiling for a long</SectionLabel>
