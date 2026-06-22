@@ -76,12 +76,23 @@ function ideaFmt(n: number | null): string {
   return n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : n.toFixed(2);
 }
 
+/* The entry is the support level the name is pulling back to: AT SUPPORT = buy
+   zone now, PULLBACK WATCH = approaching it. Spells out WHERE the Entry price
+   comes from so a user isn't trusting a bare number. */
+function whyIdea(s: SignalResult): string {
+  const lvl = s.support_label || "support";
+  if (s.action_label === "Potential Entry") return `At ${lvl} — buy zone`;
+  const dist = s.distance_pct != null ? ` · ${Math.abs(s.distance_pct).toFixed(1)}% away` : "";
+  return `Pulling back to ${lvl}${dist}`;
+}
+
 function IdeaRow({ s, onChart }: { s: SignalResult; onChart: (sym: string) => void }) {
   const atEntry = s.action_label === "Potential Entry";
   return (
     <button
       onClick={() => onChart(s.symbol)}
       className="w-full text-left rounded-xl border border-border-subtle bg-surface-1 p-3 hover:bg-surface-2/40 transition-colors"
+      title={`Entry = ${s.support_label || "support"} (${atEntry ? "price is at the level — buy zone" : "price approaching the level"}). Target = next level up; stop just below the level.`}
     >
       <div className="flex items-center gap-2">
         <span className="font-display font-semibold text-text-primary">{s.symbol}</span>
@@ -89,6 +100,7 @@ function IdeaRow({ s, onChart }: { s: SignalResult; onChart: (sym: string) => vo
         <span className={`text-[10px] font-medium ${atEntry ? "text-bullish-text" : "text-text-faint"}`}>{atEntry ? "at entry" : "approaching"}</span>
         <ChevronRight size={14} className="ml-auto shrink-0 text-text-faint" />
       </div>
+      <p className={`mt-1 text-[12px] leading-snug ${atEntry ? "text-text-secondary" : "text-text-muted"}`}>{whyIdea(s)}</p>
       {(s.entry != null || s.target_1 != null || s.stop != null) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] tabular-nums text-text-muted">
           {s.entry != null && <span>Entry <span className="text-text-secondary">{ideaFmt(s.entry)}</span></span>}
