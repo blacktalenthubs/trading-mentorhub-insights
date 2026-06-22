@@ -23,24 +23,12 @@ show_short = input.bool(true, "▼ rejection short — failed break of prior 4h 
 show_hrec  = input.bool(true, "▲ RC-H — reclaim of prior 4h HIGH / breakout-retest (BUY)", group = "4h RC")
 rc_buf_pct = input.float(0.2, "Stop buffer beyond the reclaimed level (%)", minval = 0.0, step = 0.1, group = "4h RC")
 
-// Prior COMPLETED 4h high/low — the levels to break / reclaim. lookahead_on + [1]
-// pulls the PRIOR (already-closed) 4h bar, so the level is available INTRABAR and is
-// identical on a 4h chart and a 5m chart (no repaint — [1] is a closed bar, never peeks).
-rc4_phigh = request.security(syminfo.tickerid, "240", high[1], lookahead = barmerge.lookahead_on)
-rc4_plow  = request.security(syminfo.tickerid, "240", low[1],  lookahead = barmerge.lookahead_on)
-rc4_close = close
+[rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
+rc4_newbar = ta.change(time("240")) != 0
 
-// Fire the MOMENT price crosses the level on the alert timeframe — NOT at the 4h close.
-// The old rc4_newbar gate only evaluated at the 4h boundary, so it missed the break/
-// reclaim as it happened. Same principle as the PDL/level alerts, which fire intrabar
-// on the 5m bar that breaks/holds the level. The level-stable guard skips the 4h-
-// boundary bar so a stepping level can't fake a cross; crossover is one-shot, and the
-// backend dedup window collapses any re-test chop.
-hi_stable = rc4_phigh == rc4_phigh[1]
-lo_stable = rc4_plow  == rc4_plow[1]
-rc4_long  = show_long  and lo_stable and ta.crossover (close, rc4_plow)   // reclaim the prior 4h LOW (reversal long)
-rc4_short = show_short and hi_stable and ta.crossunder(close, rc4_phigh)  // reject the prior 4h HIGH (short)
-rc4_hrec  = show_hrec  and hi_stable and ta.crossover (close, rc4_phigh)  // break the prior 4h HIGH (breakout long)
+rc4_long  = show_long  and rc4_newbar and (rc4_low  < rc4_plow)  and (rc4_close > rc4_plow)
+rc4_short = show_short and rc4_newbar and (rc4_high > rc4_phigh) and (rc4_close < rc4_phigh)
+rc4_hrec  = show_hrec  and rc4_newbar and (rc4_low  < rc4_phigh) and (rc4_close > rc4_phigh)
 
 plotshape(rc4_long,  title = "RC long",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "RC")
 plotshape(rc4_short, title = "RC short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.small, text = "↓")
@@ -51,8 +39,8 @@ rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker
 // Stop = just BEYOND the reclaimed/rejected LEVEL (rc4_plow / rc4_phigh), not the deep
 // undercut wick. Thesis: "that prior 4h level held" — so losing the level = setup failed.
 if rc4_long
-    alert(rc_payload("BUY", rc4_plow * (1 - rc_buf_pct / 100.0), "RC · reclaim of the prior 4h low · stop just below the reclaimed low"), alert.freq_once_per_bar_close)
+    alert(rc_payload("BUY", rc4_plow * (1 - rc_buf_pct / 100.0), "4H RC · reclaim of the prior 4h low · stop just below the reclaimed low"), alert.freq_once_per_bar_close)
 if rc4_short
-    alert(rc_payload("SHORT", rc4_phigh * (1 + rc_buf_pct / 100.0), "RC · rejection at the prior 4h high · stop just above the level"), alert.freq_once_per_bar_close)
+    alert(rc_payload("SHORT", rc4_phigh * (1 + rc_buf_pct / 100.0), "4H RC · rejection at the prior 4h high · stop just above the level"), alert.freq_once_per_bar_close)
 if rc4_hrec
-    alert(rc_payload("BUY", rc4_phigh * (1 - rc_buf_pct / 100.0), "RC-H · breakout-retest reclaim of the prior 4h high · stop just below the reclaimed high"), alert.freq_once_per_bar_close)
+    alert(rc_payload("BUY", rc4_phigh * (1 - rc_buf_pct / 100.0), "4H RC-H · breakout-retest reclaim of the prior 4h high · stop just below the reclaimed high"), alert.freq_once_per_bar_close)
