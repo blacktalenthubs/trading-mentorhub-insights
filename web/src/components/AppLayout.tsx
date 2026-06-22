@@ -9,6 +9,7 @@ import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
 import { usePushNotifications } from "../hooks/usePushNotifications";
 import { useSignalNotifications } from "../hooks/useSignalNotifications";
+import { useEntryPromotionNotifications } from "../hooks/useEntryPromotionNotifications";
 import ThemeToggleButton from "./ThemeToggleButton";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
@@ -92,6 +93,7 @@ export default function AppLayout() {
   const { isTrial, trialDaysLeft, tier } = useFeatureGate();
   usePushNotifications();
   useSignalNotifications();
+  useEntryPromotionNotifications();  // toast when a Trade Idea flips approaching → at entry
 
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [moreOpen, setMoreOpen] = useState(false);
