@@ -56,13 +56,18 @@ def build_exit_plan(
         }
 
     if style == "Day":
+        # The target PRICE already has its own field on the card — restating it here
+        # double-printed the target (and `:.4g` rendered it as ugly sci-notation). So
+        # describe the LEVEL instead, keyed off direction: a long aims at resistance
+        # ABOVE, a short covers into support BELOW (saying "resistance" on a short was
+        # just wrong). No number — the Target field carries it.
+        is_short = direction.upper() in ("SELL", "SHORT")
         return {
             "style": "day",
             "label": "Day trade",
             "target": next_resistance,
             "stop": stop,
-            "exit": (f"Target: next resistance ${next_resistance:.4g}"
-                     if next_resistance else "Target: next resistance above"),
+            "exit": "Target: next support below" if is_short else "Target: next resistance above",
         }
 
     # Swing AND Long hold are managed IDENTICALLY (user, 2026-06-21): begin trimming at
