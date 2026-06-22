@@ -236,7 +236,7 @@ function CompactWatchlistRow({
     >
       {/* Focus star — always visible if focused, else on hover. Tap-target
           sized at 18×18 so it doesn't fight the row click. */}
-      {onToggleFocus && (focused || hovered) && (
+      {onToggleFocus && signal.source === "watchlist" && (focused || hovered) && (
         <button
           onClick={(e) => { e.stopPropagation(); onToggleFocus(); }}
           className={`shrink-0 mr-1 p-0.5 transition-colors ${
@@ -256,6 +256,25 @@ function CompactWatchlistRow({
           <span className="text-[12px] font-bold text-text-primary leading-tight truncate">
             {signal.symbol}
           </span>
+          {/* Source badge — flags rows that came from your conviction / long-term
+              ideas (only present when they meet entry today), so they're visually
+              distinct from your own watchlist symbols. */}
+          {signal.source && signal.source !== "watchlist" && (
+            <span
+              className={`shrink-0 text-[7.5px] font-bold uppercase tracking-wide px-1 py-px rounded leading-none ${
+                signal.source === "conviction"
+                  ? "bg-accent/15 text-accent"
+                  : "bg-bullish/15 text-bullish-text"
+              }`}
+              title={
+                signal.source === "conviction"
+                  ? "From your Conviction ideas — meets entry today"
+                  : "From your long-term (swing) ideas — meets entry today"
+              }
+            >
+              {signal.source === "conviction" ? "Conv" : "LT"}
+            </span>
+          )}
           {/* Score badge on hover */}
           {hovered && (
             <span
@@ -275,7 +294,7 @@ function CompactWatchlistRow({
           </span>
         </div>
       </div>
-      {hovered && onRemove && (
+      {hovered && onRemove && signal.source === "watchlist" && (
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           className="shrink-0 text-text-faint hover:text-bearish-text transition-colors p-0.5"
@@ -1067,6 +1086,19 @@ export default function TradingPageV2() {
     });
   }
 
+  // Idea-source filter — hides conviction / long-term names that the scanner
+  // folded into Today, leaving only your own watchlist symbols. Default shows them.
+  const [hideIdeas, setHideIdeas] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("watchlist_hide_ideas") === "1";
+  });
+  function toggleHideIdeas() {
+    setHideIdeas((v) => {
+      try { localStorage.setItem("watchlist_hide_ideas", v ? "0" : "1"); } catch {}
+      return !v;
+    });
+  }
+
   /* ── Editor's Picks (admin's public watchlist) ── */
   const { data: sectorsItems } = useSectorsWatchlist();
   const copySectors = useCopySectorsWatchlist();
@@ -1234,6 +1266,7 @@ export default function TradingPageV2() {
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
     ?.filter((s) => !focusOnly || focusSymbols.has(s.symbol))
+    ?.filter((s) => !hideIdeas || s.source === "watchlist")
     // User-chosen sort (persisted). %change/price pull from live prices.
     ?.slice()
     .sort((a, b) => {
@@ -1354,6 +1387,21 @@ export default function TradingPageV2() {
               </svg>
               Focus <span className="opacity-70 font-normal">{focusSymbols.size}</span>
             </button>
+            {/* Ideas chip — only shown when the scanner folded conviction /
+                long-term ideas into Today. Toggles their visibility. */}
+            {signals?.some((s) => s.source !== "watchlist") && (
+              <button
+                onClick={toggleHideIdeas}
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
+                  !hideIdeas
+                    ? "bg-bullish/15 text-bullish-text border-bullish/40"
+                    : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
+                }`}
+                title="Conviction + long-term ideas the scanner folded into Today — only when they meet entry. Click to hide."
+              >
+                Ideas <span className="opacity-70 font-normal">{signals?.filter((s) => s.source !== "watchlist").length ?? 0}</span>
+              </button>
+            )}
             {focusSymbols.size > 0 && (
               <button
                 onClick={() => clearFocusMut.mutate()}
