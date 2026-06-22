@@ -102,6 +102,24 @@ def meets_entry(result: dict) -> bool:
     return result.get("action_label") == _ENTRY_ACTION_LABEL
 
 
+# Idea-sourced names surface when at entry OR approaching it (watching for a
+# pullback) — i.e. anything that isn't "No Setup" (broken support). The UI badges
+# at-entry vs approaching from `action_label`, so users can see ideas as they set
+# up, not only at the exact trigger.
+_WATCH_ACTION_LABEL = ACTION_LABELS["PULLBACK WATCH"]["label"]  # "Watch"
+_IDEA_ACTION_LABELS = frozenset({_ENTRY_ACTION_LABEL, _WATCH_ACTION_LABEL})
+
+
+def idea_qualifies(result: dict) -> bool:
+    """Looser gate for idea-sourced names: at entry OR approaching entry.
+
+    Excludes only "No Setup" (broken support). The conviction/swing snapshots are
+    already quality-filtered, so this surfaces strong ideas as they approach their
+    support — the at-entry subset still reads as `meets_entry`.
+    """
+    return result.get("action_label") in _IDEA_ACTION_LABELS
+
+
 # ---------------------------------------------------------------------------
 # Weekly Stage scanner (Stan Weinstein 30-week-MA) — Python port of the Pine
 # indicator pine_scripts/visual/weekly_stage.pine (f_wk). READ-ONLY discovery:
