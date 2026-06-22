@@ -1,29 +1,38 @@
 // @version=5
 //
-// 4h Reclaim (RC) — ANCHORED. Markers + alerts, one per 4h bar.
+// 4h Reclaim (RC) — ANCHORED TO THE 4h. Markers + alerts, one per 4h bar.
 //
-// The reclaim is computed on the 4h candle via request.security("240"), so it is
-// IDENTICAL on any chart TF and fires at most ONCE per 4h bar (no flood, even on a
-// 5m alert).
-//   ▲ RC   = 4h low < prior 4h low  AND 4h close > prior 4h low  — undercut & reclaim (BUY)
-//   ▼ ↓    = 4h high > prior 4h high AND 4h close < prior 4h high — failed break (SHORT)
-//   ▲ RC-H = 4h low < prior 4h high AND 4h close > prior 4h high — breakout-retest (BUY)
-//   rule "rc_4h" → Day-trade. Backend sets the exit (next resistance).
+// The reclaim is always computed on the 4h candle via request.security("240"),
+// so it is IDENTICAL no matter what timeframe you load this on. Put the chart /
+// alert on 5m for a timely trigger if you want — it still only fires when an
+// actual 4h candle reclaims. It will NOT fire on 5m/15m reclaims. One alert per
+// 4h bar, at the 4h close (no intra-bar flood).
 //
-// ⚠️ STANDALONE — DO NOT fold the weekly 10w/30w alert in here. Adding a
-// request.security("W") to this anchored 4h script SILENTLY KILLS RC emission
-// (validated 2026-06-21: RC went dark after every weekly merge; last RC 00:55,
-// nothing after). The weekly_ma_held alert lives in levels_day_vwap.pine instead.
-// Keep this Pine to ONE timeframe. Bind ONE TV alert with "Any alert() function call".
+//   ▲ RC   = 4h low < prior 4h low AND 4h close > prior 4h low — undercut &
+//            reclaim of the prior 4h LOW (reversal / bottoming, lime). → BUY
+//   ▼ ↓    = 4h high > prior 4h high AND 4h close < prior 4h high — failed break
+//            of the prior 4h HIGH (rejection / top, red). → SHORT
+//   ▲ RC-H = 4h low < prior 4h high AND 4h close > prior 4h high — dip below the
+//            prior HIGH then close back above it: broken high held as support =
+//            breakout-retest CONTINUATION (teal). → BUY  (the play you trade most)
+//
+// All three default ON. rule "rc_4h" — routes server-side on the rc_4h type
+// toggle. Bind ONE TV alert with "Any alert() function call".
 //
 indicator("4h Reclaim (RC)", "RC4h", overlay = true, max_labels_count = 200, max_lines_count = 100)
 
-show_long  = input.bool(true, "▲ RC long — reclaim of prior 4h LOW (BUY)", group = "4h RC")
-show_short = input.bool(true, "▼ rejection short — failed break of prior 4h HIGH (SHORT)", group = "4h RC")
-show_hrec  = input.bool(true, "▲ RC-H — reclaim of prior 4h HIGH / breakout-retest (BUY)", group = "4h RC")
-rc_buf_pct = input.float(0.2, "Stop buffer beyond the reclaimed level (%)", minval = 0.0, step = 0.1, group = "4h RC")
+show_long  = input.bool(true, "▲ RC long — reclaim of prior 4h LOW (fires BUY)", group = "Detection")
+show_short = input.bool(true, "▼ rejection short — failed break of prior 4h HIGH (fires SHORT)", group = "Detection")
+show_hrec  = input.bool(true, "▲ RC-H — reclaim of prior 4h HIGH / breakout-retest (fires BUY)", group = "Detection")
+show_lvl   = input.bool(true, "Draw the reclaimed/rejected level line", group = "Display")
+lvl_bars   = input.int(24, "Extend the level this many bars", minval = 1, group = "Display")
+col_long   = input.color(color.new(color.lime, 30), "Level — RC (reclaim low)", group = "Display")
+col_short  = input.color(color.new(color.red, 30),  "Level — rejection (prior high)", group = "Display")
+col_hrec   = input.color(color.new(color.teal, 30), "Level — RC-H (reclaim high)", group = "Display")
 
+// Always the 4h bar — request.security so the signal is identical on any chart TF.
 [rc4_low, rc4_plow, rc4_close, rc4_high, rc4_phigh] = request.security(syminfo.tickerid, "240", [low, low[1], close, high, high[1]], lookahead = barmerge.lookahead_off)
+// Evaluate ONCE per 4h bar (true every bar on a 4h chart; once per 4h on lower TFs).
 rc4_newbar = ta.change(time("240")) != 0
 
 rc4_long  = show_long  and rc4_newbar and (rc4_low  < rc4_plow)  and (rc4_close > rc4_plow)
@@ -34,13 +43,22 @@ plotshape(rc4_long,  title = "RC long",  style = shape.triangleup,   location = 
 plotshape(rc4_short, title = "RC short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.small, text = "↓")
 plotshape(rc4_hrec,  title = "RC-H",     style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "RC-H")
 
+if show_lvl and rc4_long
+    line.new(bar_index, rc4_plow, bar_index + lvl_bars, rc4_plow, xloc = xloc.bar_index, color = col_long, width = 1, style = line.style_dashed)
+if show_lvl and rc4_short
+    line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_short, width = 1, style = line.style_dashed)
+if show_lvl and rc4_hrec
+    line.new(bar_index, rc4_phigh, bar_index + lvl_bars, rc4_phigh, xloc = xloc.bar_index, color = col_hrec, width = 1, style = line.style_dashed)
+
+// ─────────────────────────────────────────────────────────────────────────
+// ALERTS — once per 4h bar (rc4_newbar gates), rule "rc_4h", well-formed JSON.
+// interval hard-coded "240": it's a 4h signal even if the alert sits on a 5m chart.
+// ─────────────────────────────────────────────────────────────────────────
 rc_payload(string dir, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(rc4_close, format.mintick) + '","rule":"rc_4h","direction":"' + dir + '","interval":"240","entry":"' + str.tostring(rc4_close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
 
-// Stop = just BEYOND the reclaimed/rejected LEVEL (rc4_plow / rc4_phigh), not the deep
-// undercut wick. Thesis: "that prior 4h level held" — so losing the level = setup failed.
 if rc4_long
-    alert(rc_payload("BUY", rc4_plow * (1 - rc_buf_pct / 100.0), "4H RC · reclaim of the prior 4h low · stop just below the reclaimed low"), alert.freq_once_per_bar_close)
+    alert(rc_payload("BUY", rc4_low, "RC · reclaim of the prior 4h low (undercut & reclaim) · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_short
-    alert(rc_payload("SHORT", rc4_phigh * (1 + rc_buf_pct / 100.0), "4H RC · rejection at the prior 4h high · stop just above the level"), alert.freq_once_per_bar_close)
+    alert(rc_payload("SHORT", rc4_high, "RC · rejection at the prior 4h high (failed break) · stop = " + str.tostring(rc4_high, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_hrec
-    alert(rc_payload("BUY", rc4_phigh * (1 - rc_buf_pct / 100.0), "4H RC-H · breakout-retest reclaim of the prior 4h high · stop just below the reclaimed high"), alert.freq_once_per_bar_close)
+    alert(rc_payload("BUY", rc4_low, "RC-H · breakout-retest reclaim of the prior 4h high · stop = " + str.tostring(rc4_low, format.mintick)), alert.freq_once_per_bar_close)
