@@ -142,10 +142,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdl_break", "PDL break — index short (volume)", "Index shorts", False),
     ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
 
-    # 4h-low reclaim — RE-ACTIVATED 2026-06-10. The liquidity-grab long: a stock
-    # undercuts its recent 4h low then closes back above it. Low-side, matches
-    # the structural-reclaim model. Default OFF.
-    ("rc_4h", "4h low reclaim (undercut + reclaim long)", "4h reversal", False),
+    # 4h reclaim — split into 3 independent toggles (2026-06-22) so users can turn
+    # each direction off in Settings (the pine emits rc_4h_long / rc_4h_short /
+    # rc_4h_hrec separately). All default OFF.
+    ("rc_4h_long",  "4h RC long — reclaim of the prior 4h LOW (swept-low bounce)", "4h reversal", False),
+    ("rc_4h_hrec",  "4h RC-H — broken prior 4h HIGH held as support (breakout-retest long)", "4h reversal", False),
+    ("rc_4h_short", "4h RC short — failed break of the prior 4h HIGH (rejection)", "4h reversal", False),
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
@@ -244,7 +246,9 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rsi_70": "Daily RSI(14) closed above 70 — momentum/exhaustion gauge at the bullish extreme. A close above 70 often kicks off a parabolic run (e.g. MU → 85 RSI). Fired at the daily close (confirmed, towards EOD), at most once a day. A heads-up to look, not a defended entry; no structural stop of its own.",
     "ema_5_20_cross": "The daily 5 EMA just crossed above the 20 EMA (Steve Burns's 5/20 cross) — a short-term trend flip that frequently starts a sustained up-move. A SWING entry (hold days). Fired at the daily close. STOP = a 5/20 EMA cross-under at the close (≈ the 20 EMA). TARGET = the 70-RSI. (Burns went long AIQ/VGT/QQQ on this exact signal Fri 06-12.)",
     "rsi_oversold": "Daily RSI closed in the 30-35 buy zone — reclaimed 30 from below or dipped/holding in 30-35 from above. NEVER fires below 30 (the falling knife — RSI 29 is not a buy; wait for the turn/hold). A SWING entry (hold days), best on washed-out quality/mega caps that mean-revert. Manage by RSI: T1 = RSI 50, T2 = RSI 70; STOP = a daily close back under RSI 30 (exactly where Steve Burns stopped out of NFLX, -2.75%, Fri 06-12). Fired at the daily close, once per entry (rare).",
-    "rc_4h": "4h reversal/continuation reclaims (whole watchlist): RC LONG (wicked below the prior 4h low then closed back above — swept low / bounce), RC-H (dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long), and RC SHORT (wicked above the prior 4h high then closed back below — failed break, SPY/QQQ only). Stop = the wick / retest low. A heads-up — eyeball the 4h and decide; not every one is an entry.",
+    "rc_4h_long": "4h RC long: price wicked BELOW the prior 4h low then closed back above it — swept-low bounce / reversal long. Stop = the wick low. A heads-up — eyeball the 4h, not every one is an entry.",
+    "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
+    "rc_4h_short": "4h RC short: price wicked ABOVE the prior 4h high then closed back below it — failed break / rejection (index-leaning). Stop = the wick high.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
