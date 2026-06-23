@@ -1787,19 +1787,11 @@ f_wkstage() =>
 
 [wk_ma, wk_buy, wk_exit, wk_trail, wk_add, wk_rcb, wk_rca, wk_low] = request.security(syminfo.tickerid, "W", f_wkstage(), lookahead = barmerge.lookahead_off)
 
-// Issue #3 (2026-06-13) — the generic "weekly_stage" BUY/ADD/EXIT/stage NOTICEs
-// were unclear / not actionable in the day-trade feed, so they're SUPPRESSED
-// (removed). Only the actionable weekly reclaim survives, now under its own
-// clear rule "weekly_rc" (was mislabeled "weekly_stage"). wk_buy/wk_add/wk_exit
-// stay in the tuple but no longer fire.
-if wk_alerts and wk_rcb and not wk_rcb[1]
-    wrbn = "Weekly RC · undercut & reclaim of the prior-week low (below 30wMA = bottoming, green week) · stop " + str.tostring(wk_low, format.mintick)
-    wrbp = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wrbn + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wrbp, alert.freq_once_per_bar_close)
-if wk_alerts and wk_rca and not wk_rca[1]
-    wran = "Weekly RC · in-uptrend dip-reclaim of the prior-week low (above 30wMA, green week) · stop " + str.tostring(wk_low, format.mintick)
-    wrap = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"weekly_rc","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(wk_low, format.mintick) + '","note":"' + wran + '","fired_at":"' + str.tostring(timenow) + '"}'
-    alert(wrap, alert.freq_once_per_bar_close)
+// 2026-06-22 — WEEKLY RC MOVED OUT. All reclaim signals (4h + Weekly + Monthly)
+// now live in ONE pine: pine_scripts/active/rc.pine ("Reclaim (RC) · 4h/Wk/Mo").
+// The weekly_rc alert is fired from there (same level-cross intraday model), so it
+// is REMOVED here to avoid double-firing. The wk_* tuple above is left computed but
+// unused (harmless) — do NOT re-add a weekly alert() in this file.
 
 // ── Swing book (2026-06-13) — daily RSI/EMA momentum, folded in so it fires from
 // this one watchlist-bound Pine (keeps the user at max 2 bound Pines). SAME

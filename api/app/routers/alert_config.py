@@ -54,6 +54,7 @@ CATEGORY_TO_GROUP: dict[str, str] = {
     "MA / EMA · Bounce Long": "Swing Trade",
     "MA / EMA · Rejection Short": "Notice",   # shorts → context; we prefer the long side
     "Weekly trend": "Long Term",      # weekly 10w/30w MA + weekly RC
+    "Monthly trend": "Long Term",     # monthly_rc — prior-month H/L reclaim (rare position)
 }
 # Notice = info-only context, NOT tradable setups. Default OFF; users opt in per item.
 TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Notice", "Other"]

@@ -153,7 +153,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
     # unclear/not-actionable and are SUPPRESSED (weekly_stage → OBSOLETE).
-    ("weekly_rc", "Weekly RC — prior-week low reclaim (green week, swing)", "Weekly trend", False),
+    ("weekly_rc", "Weekly RC — prior-week high/low reclaim (swing)", "Weekly trend", False),
+    # Monthly RC — added 2026-06-22. Same intraday level-cross model as 4h/weekly,
+    # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
+    # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
+    ("monthly_rc", "Monthly RC — prior-month high/low reclaim (position)", "Monthly trend", False),
     # weekly_ma_pullback SPLIT 2026-06-20 into held / reclaim / wick-reclaim so the
     # user can toggle each weekly-MA setup independently (10w/30w tagged in the note).
     ("weekly_ma_held", "Weekly MA held — pullback to the rising 10w/30w MA, held as support (Stage-2 position, target = weekly RSI 70)", "Weekly trend", False),
@@ -249,6 +253,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_4h_long": "4h RC long: price wicked BELOW the prior 4h low then closed back above it — swept-low bounce / reversal long. Stop = the wick low. A heads-up — eyeball the 4h, not every one is an entry.",
     "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
     "rc_4h_short": "4h RC short: price wicked ABOVE the prior 4h high then closed back below it — failed break / rejection (index-leaning). Stop = the wick high.",
+    "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
+    "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
