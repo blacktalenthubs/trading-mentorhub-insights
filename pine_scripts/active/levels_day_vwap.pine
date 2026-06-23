@@ -637,20 +637,21 @@ if session_open_now
 else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
     bar1_low := math.min(nz(bar1_low, low), low)
 
-// Spec 61 — opening-range low (first 15 min of the session). Locked once
-// the OR window closes; for the rest of the day a pullback that wicks to
-// this level and closes back above it green is the "buy the low of day,
-// PDH = first target" entry. Elapsed-time window (not a bar count) so it
-// behaves the same on 1m/5m/10m/15m charts. SPY thesis (2026-06-03): the
-// 15m low usually decides the day — stocks either defend it or roll over.
-fire_orl_held   = input.bool(true, "Fire opening-range-low held entry (15m OR low defended)", group = "Opening range")
+// Spec 61 — opening-range low (first or_window_min of the session, default 60m
+// as of 2026-06-22 — the 15m OR fired too often; a deeper first-hour low gets
+// tagged less and is a more meaningful defended low). Locked once the OR window
+// closes; for the rest of the day a pullback that wicks to this level and closes
+// back above it green is the "buy the low of day, PDH = first target" entry.
+// Elapsed-time window (not a bar count) so it behaves the same on 1m/5m/10m/15m.
+fire_orl_held   = input.bool(true, "Fire opening-range-low held entry (OR low defended)", group = "Opening range")
+or_window_min   = input.int(60, "OR window — minutes (15 = first 15m · 60 = first hour, fewer/higher-quality fires)", minval = 5, maxval = 120, group = "Opening range")
 or_test_tol_pct = input.float(0.15, "OR-low test tolerance (% above the OR low)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Opening range")
-var float orl_61     = na      // opening-range low (first 15 min)
+var float orl_61     = na      // opening-range low (first or_window_min minutes)
 var bool  or_done_61 = false
 if session_open_now
     orl_61     := low
     or_done_61 := false
-else if not na(first_bar_time) and (time - first_bar_time) < 15 * 60 * 1000
+else if not na(first_bar_time) and (time - first_bar_time) < or_window_min * 60 * 1000
     orl_61 := math.min(nz(orl_61, low), low)
 else if not na(first_bar_time)
     or_done_61 := true
@@ -1238,6 +1239,27 @@ if fire_index_shorts and is_short_index and pdh_reject_short and not pdh_reject_
     t1_sh = not na(today_open) and today_open < e_sh ? today_open : e_sh - atr_d
     t2_sh = not na(pdl) and pdl < t1_sh ? pdl : t1_sh - atr_d
     alert(build_payload_v2("staged_pdh_rejection", "SHORT", e_sh, s_sh, t1_sh, t2_sh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// PDH FAILED-BREAK short (2026-06-23, allowlist only) — price ACCEPTED above the
+// prior-day high (closed above it earlier this session), then LOST it (closed back
+// BELOW). Short the LOSS bar; stop = a PDH reclaim. Distinct from pdh_rejection
+// (which never accepted above PDH — it just tagged it from below). The fade SPY
+// did 2026-06-22. Same fire_index_shorts + is_short_index allowlist; once/session.
+var bool pdh_accepted   = false
+var bool pdh_fail_fired = false
+if session_open_now
+    pdh_accepted   := false
+    pdh_fail_fired := false
+if not na(pdh) and close > pdh
+    pdh_accepted := true
+pdh_fail_short = not na(pdh) and pdh_accepted and close < pdh and close[1] >= pdh and close < open
+if fire_index_shorts and is_short_index and pdh_fail_short and not pdh_fail_fired
+    pdh_fail_fired := true
+    e_sh  = close
+    s_sh  = pdh + atr_buffer
+    t1_sh = not na(today_open) and today_open < e_sh ? today_open : e_sh - atr_d
+    t2_sh = not na(pdl) and pdl < t1_sh ? pdl : t1_sh - atr_d
+    alert(build_payload_v2("pdh_fail_short", "SHORT", e_sh, s_sh, t1_sh, t2_sh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // 2026-06-01 — staged_pmh_break DISABLED. Monthly TF too coarse for
 // intraday triggers; PMH stays drawn on chart as visual only.

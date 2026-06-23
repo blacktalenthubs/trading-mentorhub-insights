@@ -31,6 +31,9 @@ g4 = "4h RC — day-trade engine"
 en4_long  = input.bool(true, "4h · RC long — reclaim prior 4h LOW (BUY)", group = g4)
 en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH (BUY)", group = g4)
 en4_short = input.bool(true, "4h · rejection short — reject prior 4h HIGH (SHORT)", group = g4)
+gDay = "Daily RC — day-trade/swing (= PDH/PDL reclaim)"
+enD_long  = input.bool(true, "Daily · RC — reclaim prior-DAY LOW / PDL (BUY)", group = gDay)
+enD_hrec  = input.bool(true, "Daily · RC-H — reclaim prior-DAY HIGH / PDH (BUY)", group = gDay)
 gW = "Weekly RC — swing (rare)"
 enW_long  = input.bool(true, "Weekly · RC — reclaim prior-week LOW (BUY)", group = gW)
 enW_hrec  = input.bool(true, "Weekly · RC-H — reclaim prior-week HIGH (BUY)", group = gW)
@@ -48,11 +51,13 @@ lvl_bars  = input.int(18, "Extend level lines this many bars", minval = 1, group
 // the bug: [1]+off double-lags on lower TFs — the monthly level showed May on the
 // 1M chart but April on the 4h chart.)
 [h4p, l4p] = request.security(syminfo.tickerid, "240", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hDp, lDp] = request.security(syminfo.tickerid, "D",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [hWp, lWp] = request.security(syminfo.tickerid, "W",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [hMp, lMp] = request.security(syminfo.tickerid, "M",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
 // Developing-period low (undercut check + stop) = the CURRENT period's running low,
 // lookahead_off so it never leaks the future. (No [1] — we want this period, not last.)
 l4d = request.security(syminfo.tickerid, "240", low, lookahead = barmerge.lookahead_off)
+lDd = request.security(syminfo.tickerid, "D",   low, lookahead = barmerge.lookahead_off)
 lWd = request.security(syminfo.tickerid, "W",   low, lookahead = barmerge.lookahead_off)
 lMd = request.security(syminfo.tickerid, "M",   low, lookahead = barmerge.lookahead_off)
 
@@ -60,6 +65,8 @@ lMd = request.security(syminfo.tickerid, "M",   low, lookahead = barmerge.lookah
 var bool f4_long = false
 var bool f4_hrec = false
 var bool f4_short = false
+var bool fD_long = false
+var bool fD_hrec = false
 var bool fW_long = false
 var bool fW_hrec = false
 var bool fM_long = false
@@ -68,6 +75,9 @@ if ta.change(time("240")) != 0
     f4_long := false
     f4_hrec := false
     f4_short := false
+if ta.change(time("D")) != 0
+    fD_long := false
+    fD_hrec := false
 if ta.change(time("W")) != 0
     fW_long := false
     fW_hrec := false
@@ -87,12 +97,15 @@ if ta.change(time("M")) != 0
 //   hrec  : period undercut the prior HIGH, now closing back above it → continuation.
 //   short : (4h only) bar pokes above the prior HIGH and closes back below = reject.
 ok4 = not na(h4p) and not na(l4p) and not na(l4d)
+okD = not na(hDp) and not na(lDp) and not na(lDd)
 okW = not na(hWp) and not na(lWp) and not na(lWd)
 okM = not na(hMp) and not na(lMp) and not na(lMd)
 
 rc4_long  = en4_long  and ok4 and (l4d < l4p) and (close > l4p) and not f4_long
 rc4_hrec  = en4_hrec  and ok4 and (l4d < h4p) and (close > h4p) and not f4_hrec
 rc4_short = en4_short and ok4 and (high > h4p) and (close < h4p) and not f4_short
+rcD_long  = enD_long  and okD and (lDd < lDp) and (close > lDp) and not fD_long
+rcD_hrec  = enD_hrec  and okD and (lDd < hDp) and (close > hDp) and not fD_hrec
 rcW_long  = enW_long  and okW and (lWd < lWp) and (close > lWp) and not fW_long
 rcW_hrec  = enW_hrec  and okW and (lWd < hWp) and (close > hWp) and not fW_hrec
 rcM_long  = enM_long  and okM and (lMd < lMp) and (close > lMp) and not fM_long
@@ -104,6 +117,10 @@ if rc4_hrec
     f4_hrec := true
 if rc4_short
     f4_short := true
+if rcD_long
+    fD_long := true
+if rcD_hrec
+    fD_hrec := true
 if rcW_long
     fW_long := true
 if rcW_hrec
@@ -121,6 +138,8 @@ if rcM_hrec
 plotshape(rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
 plotshape(rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hh")
 plotshape(rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny, text = "4h↓")
+plotshape(rcD_long,  title = "D RC",     style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
+plotshape(rcD_hrec,  title = "D RC-H",   style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
 
 // ── Level lines (last bar only) — draw + LABEL the prior-period high/low for
 // every ENABLED TF, so the anchored level (e.g. MU's prior-month high) is visible
@@ -148,6 +167,10 @@ if rc4_hrec
     alert(rc_pay("rc_4h_hrec", "BUY", "240", l4d, "RC-H · breakout-retest reclaim of the prior 4h high · stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_short
     alert(rc_pay("rc_4h_short", "SHORT", "240", h4p, "RC · rejection at the prior 4h high (failed break) · stop " + str.tostring(h4p, format.mintick)), alert.freq_once_per_bar_close)
+if rcD_long
+    alert(rc_pay("rc_daily_long", "BUY", "D", lDd, "Daily RC · reclaim of the prior-day low (PDL undercut & reclaim) · stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+if rcD_hrec
+    alert(rc_pay("rc_daily_hrec", "BUY", "D", lDd, "Daily RC-H · breakout-retest reclaim of the prior-day high (PDH) · stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcW_long
     alert(rc_pay("weekly_rc", "BUY", "W", lWd, "Weekly RC · undercut & reclaim of the prior-week low · stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
 if rcW_hrec
