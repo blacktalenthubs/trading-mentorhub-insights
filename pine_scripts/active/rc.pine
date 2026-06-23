@@ -1,0 +1,158 @@
+// @version=5
+//
+// Reclaim (RC) — ONE pine, three timeframes: 4h · Weekly · Monthly.
+//
+// Every RC signal is the SAME idea — price UNDERCUTS a prior-period level then
+// RECLAIMS it (the level held) — fired INTRADAY on the 5m bar that crosses back,
+// exactly like PDH/PDL. Load + alert on a 5m chart, bind ONE "Any alert() call".
+//
+//   LEVEL  = the prior COMPLETED period's high/low (request.security(TF,high[1]/
+//            low[1], lookahead_ON) — LOCKED: identical on every chart TF, no repaint).
+//   UNDERCUT = the period must have traded BELOW the level first (a real retest).
+//   TRIGGER  = the 5m close crossing back above the level. Once per period.
+//
+//   ▲ RC   = reclaim of the prior-period LOW  (undercut & reclaim = reversal) → BUY
+//   ▲ RC-H = reclaim of the prior-period HIGH (broken high held = continuation) → BUY
+//   ▼ ↓    = (4h only) poke above prior-4h HIGH then close back below = rejection → SHORT
+//
+// Cadence: 4h ≈ the day-trade engine (fires often). Weekly/Monthly are rare by
+// nature (one period is long) — they surface the big swing/position reclaims.
+//
+// Routing: emits the EXACT catalog rule per signal so it routes with NO backend
+// remap — 4h: "rc_4h_long"/"rc_4h_hrec"/"rc_4h_short"; Weekly: "weekly_rc";
+// Monthly: "monthly_rc". (The bare "rc_4h" rule is RETIRED — emitting it drops as
+// unknown_type, which lost 15 of 16 morning RC fires on 2026-06-22.) interval
+// tags the period ("240"/"W"/"M").
+//
+indicator("Reclaim (RC) · 4h/Wk/Mo", "RC", overlay = true, max_labels_count = 300, max_lines_count = 100)
+
+// ── Enables (per TF, per signal) ──────────────────────────────────────────
+g4 = "4h RC — day-trade engine"
+en4_long  = input.bool(true, "4h · RC long — reclaim prior 4h LOW (BUY)", group = g4)
+en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH (BUY)", group = g4)
+en4_short = input.bool(true, "4h · rejection short — reject prior 4h HIGH (SHORT)", group = g4)
+gW = "Weekly RC — swing (rare)"
+enW_long  = input.bool(true, "Weekly · RC — reclaim prior-week LOW (BUY)", group = gW)
+enW_hrec  = input.bool(true, "Weekly · RC-H — reclaim prior-week HIGH (BUY)", group = gW)
+gM = "Monthly RC — position (rare)"
+enM_long  = input.bool(true, "Monthly · RC — reclaim prior-month LOW (BUY)", group = gM)
+enM_hrec  = input.bool(true, "Monthly · RC-H — reclaim prior-month HIGH (BUY)", group = gM)
+gD = "Display"
+show_lvl  = input.bool(true, "Draw the prior-period level lines", group = gD)
+lvl_bars  = input.int(18, "Extend level lines this many bars", minval = 1, group = gD)
+
+// ── Per-TF levels. The LEVEL (prior completed high/low) MUST be LOCKED — identical
+// on every chart TF. The non-repainting pattern for that is high[1]/low[1] WITH
+// lookahead_on: [1] = the prior CLOSED period (no future leak), lookahead_on makes
+// every lower-TF bar read the SAME confirmed value. (Using lookahead_off here was
+// the bug: [1]+off double-lags on lower TFs — the monthly level showed May on the
+// 1M chart but April on the 4h chart.)
+[h4p, l4p] = request.security(syminfo.tickerid, "240", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hWp, lWp] = request.security(syminfo.tickerid, "W",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hMp, lMp] = request.security(syminfo.tickerid, "M",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
+// Developing-period low (undercut check + stop) = the CURRENT period's running low,
+// lookahead_off so it never leaks the future. (No [1] — we want this period, not last.)
+l4d = request.security(syminfo.tickerid, "240", low, lookahead = barmerge.lookahead_off)
+lWd = request.security(syminfo.tickerid, "W",   low, lookahead = barmerge.lookahead_off)
+lMd = request.security(syminfo.tickerid, "M",   low, lookahead = barmerge.lookahead_off)
+
+// ── Once-per-period fire guards ───────────────────────────────────────────
+var bool f4_long = false
+var bool f4_hrec = false
+var bool f4_short = false
+var bool fW_long = false
+var bool fW_hrec = false
+var bool fM_long = false
+var bool fM_hrec = false
+if ta.change(time("240")) != 0
+    f4_long := false
+    f4_hrec := false
+    f4_short := false
+if ta.change(time("W")) != 0
+    fW_long := false
+    fW_hrec := false
+if ta.change(time("M")) != 0
+    fM_long := false
+    fM_hrec := false
+
+// ── Signal logic (same shape for every TF) ────────────────────────────────
+// l*d = the period's RUNNING low (monotonic), so "l*d < level" = the period has
+// already DIPPED BELOW the level at some point this period (the undercut). The
+// FIRST close back above the level then fires (latched once/period). This catches
+// a WICK retest — a bar that dips below the level and closes above it on the SAME
+// bar — which a strict consecutive-bar cross (close[1] <= level) MISSES. That's
+// why MU's monthly RC-H tag never printed: the June retest of the May high was a
+// wick, no 4h bar CLOSED below the level, so the old cross never triggered.
+//   long  : period undercut the prior LOW,  now closing back above it → reversal.
+//   hrec  : period undercut the prior HIGH, now closing back above it → continuation.
+//   short : (4h only) bar pokes above the prior HIGH and closes back below = reject.
+ok4 = not na(h4p) and not na(l4p) and not na(l4d)
+okW = not na(hWp) and not na(lWp) and not na(lWd)
+okM = not na(hMp) and not na(lMp) and not na(lMd)
+
+rc4_long  = en4_long  and ok4 and (l4d < l4p) and (close > l4p) and not f4_long
+rc4_hrec  = en4_hrec  and ok4 and (l4d < h4p) and (close > h4p) and not f4_hrec
+rc4_short = en4_short and ok4 and (high > h4p) and (close < h4p) and not f4_short
+rcW_long  = enW_long  and okW and (lWd < lWp) and (close > lWp) and not fW_long
+rcW_hrec  = enW_hrec  and okW and (lWd < hWp) and (close > hWp) and not fW_hrec
+rcM_long  = enM_long  and okM and (lMd < lMp) and (close > lMp) and not fM_long
+rcM_hrec  = enM_hrec  and okM and (lMd < hMp) and (close > hMp) and not fM_hrec
+
+if rc4_long
+    f4_long := true
+if rc4_hrec
+    f4_hrec := true
+if rc4_short
+    f4_short := true
+if rcW_long
+    fW_long := true
+if rcW_hrec
+    fW_hrec := true
+if rcM_long
+    fM_long := true
+if rcM_hrec
+    fM_hrec := true
+
+// ── Markers — 4h ONLY (the day-trade engine). Tiny triangles; color = side
+// (lime = low reclaim, teal = high reclaim, red = short); text = 4h + side
+// (L = reclaim LOW, H = reclaim HIGH, ↓ = rejection short). Weekly & monthly draw
+// NO marker on purpose — the horizontal level lines (+ W/M HI·LO labels) below mark
+// the level, and the alert fires regardless, so a chart tag would just be clutter.
+plotshape(rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
+plotshape(rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hh")
+plotshape(rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny, text = "4h↓")
+
+// ── Level lines (last bar only) — draw + LABEL the prior-period high/low for
+// every ENABLED TF, so the anchored level (e.g. MU's prior-month high) is visible
+// on whatever chart TF you're on. WEEKLY + MONTHLY only — the 4h prior-high/low
+// redraw every 4h and clutter the chart, and the 4hl/4hh triangles already mark
+// the 4h reclaims. Weekly = medium-dashed, monthly = thick-solid.
+if show_lvl and barstate.islast
+    if okW and (enW_long or enW_hrec)
+        line.new(bar_index - lvl_bars, hWp, bar_index + lvl_bars, hWp, xloc = xloc.bar_index, color = color.new(color.teal, 5), width = 3, style = line.style_dashed)
+        line.new(bar_index - lvl_bars, lWp, bar_index + lvl_bars, lWp, xloc = xloc.bar_index, color = color.new(color.lime, 5), width = 3, style = line.style_dashed)
+        label.new(bar_index + lvl_bars, hWp, "W HI", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.teal, 0), size = size.small)
+        label.new(bar_index + lvl_bars, lWp, "W LO", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.lime, 0), size = size.small)
+    if okM and (enM_long or enM_hrec)
+        line.new(bar_index - lvl_bars, hMp, bar_index + lvl_bars, hMp, xloc = xloc.bar_index, color = color.new(color.teal, 0), width = 4, style = line.style_solid)
+        line.new(bar_index - lvl_bars, lMp, bar_index + lvl_bars, lMp, xloc = xloc.bar_index, color = color.new(color.lime, 0), width = 4, style = line.style_solid)
+        label.new(bar_index + lvl_bars, hMp, "M HI", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.teal, 0), size = size.normal)
+        label.new(bar_index + lvl_bars, lMp, "M LO", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.lime, 0), size = size.normal)
+
+// ── Alerts ────────────────────────────────────────────────────────────────
+rc_pay(string rule, string dir, string iv, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"' + iv + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if rc4_long
+    alert(rc_pay("rc_4h_long", "BUY", "240", l4d, "RC · reclaim of the prior 4h low (undercut & reclaim) · stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
+if rc4_hrec
+    alert(rc_pay("rc_4h_hrec", "BUY", "240", l4d, "RC-H · breakout-retest reclaim of the prior 4h high · stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
+if rc4_short
+    alert(rc_pay("rc_4h_short", "SHORT", "240", h4p, "RC · rejection at the prior 4h high (failed break) · stop " + str.tostring(h4p, format.mintick)), alert.freq_once_per_bar_close)
+if rcW_long
+    alert(rc_pay("weekly_rc", "BUY", "W", lWd, "Weekly RC · undercut & reclaim of the prior-week low · stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
+if rcW_hrec
+    alert(rc_pay("weekly_rc", "BUY", "W", lWd, "Weekly RC-H · breakout-retest reclaim of the prior-week high · stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
+if rcM_long
+    alert(rc_pay("monthly_rc", "BUY", "M", lMd, "Monthly RC · undercut & reclaim of the prior-month low · stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
+if rcM_hrec
+    alert(rc_pay("monthly_rc", "BUY", "M", lMd, "Monthly RC-H · breakout-retest reclaim of the prior-month high · stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
