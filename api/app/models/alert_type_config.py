@@ -38,7 +38,8 @@ class AlertTypeConfig(Base):
 # (rejection=short). The NOTICE (proximity) family stays removed (too noisy).
 MA_SPLIT_FAMILIES = (
     ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
-    ("ma_rejection_short_v3", "MA rejection short", "MA / EMA · Rejection Short"),
+    # ma_rejection_short_v3 CUT 2026-06-23 — long-only book; rc.pine ports only the
+    # bounce. (DB rows deleted; nothing bound emits the rejection.)
 )
 # #282 (2026-06-17) — narrowed to 8/21/50/200 EMA + 50/200 SMA. Dropped 100 EMA,
 # 100 SMA, and the combined SMA toggle (split into explicit 50/200). All default OFF;
@@ -50,8 +51,8 @@ _MA_TOGGLES = (
     ("ema100", "EMA 100"),   # re-added 2026-06-23 — the deep-pullback support (NVDA);
                              # rc.pine MA bounce fires the 100/200 in any regime.
     ("ema200", "EMA 200"),
-    ("sma50",  "SMA 50"),
-    ("sma200", "SMA 200"),
+    # SMA 50/200 CUT 2026-06-23 — the EMA sits ~1pt away and captures the same test;
+    # no need for SMA separately. (rc.pine ports the EMA ladder only.)
 )
 
 
@@ -80,7 +81,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
 
     # Opening-range-low defended (spec 61, 2026-06-03) — buy the held 15m
     # low of day, stop below the OR low, PDH = first target.
-    ("staged_orl_held", "Opening-range low held (15m)", "Daily PDH/PDL", False),
+    ("staged_orl_held", "Opening-range low held (1h)", "Daily PDH/PDL", False),
 
     # Prior-low + prior-high RECLAIM all CUT 2026-06-23 — the RC pine owns reclaims
     # now (rc_daily_long/hrec, weekly_rc, monthly_rc, gated). No duplicate staged
@@ -103,13 +104,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # it doesn't hold"). Only gap_up_continuation_long (gap-and-go) survives. → OBSOLETE.
     # lost_support_reject CUT 2026-06-23 (clearer setup). → OBSOLETE_ALERT_TYPES.
 
-    # Multi-period S/R (#262) — clustered multi-week / multi-month highs (resistance)
-    # + lows (support); price wicks into a cluster and rejects/holds. Default OFF.
-    ("htf_sr_reject", "Multi-period resistance reject — wicked into a weekly/monthly wall, closed back below (SHORT)", "Multi-period S/R", False),
-    ("htf_sr_bounce", "Multi-period support bounce — wicked into a weekly/monthly floor, closed back above (LONG)", "Multi-period S/R", False),
-
-    # Market context (spec 61) — SPY/QQQ open-line strength, set on 1h.
-    ("index_open_strength", "Reclaimed & holding above today's open", "Market context", False),
+    # Multi-period S/R (htf_sr) + Market context (index_open_strength) CUT 2026-06-23 —
+    # orphans, no bound pine emits them. → OBSOLETE_ALERT_TYPES.
 
     # SWING book (2026-06-13) — daily-close momentum/RSI triggers from the Momentum
     # Pine. These are SWING trades (multi-day holds, lower-risk R:R), a separate
@@ -150,11 +146,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
     # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
     ("monthly_rc", "Monthly RC — prior-month high/low reclaim (position)", "Monthly trend", False),
-    # weekly_ma_pullback SPLIT 2026-06-20 into held / reclaim / wick-reclaim so the
-    # user can toggle each weekly-MA setup independently (10w/30w tagged in the note).
-    ("weekly_ma_held", "Weekly MA held — pullback to the rising 10w/30w MA, held as support (Stage-2 position, target = weekly RSI 70)", "Weekly trend", False),
-    ("weekly_ma_reclaim", "Weekly MA reclaim — closed back above the 10w/30w MA after being below it (Stage-2 position, target = weekly RSI 70)", "Weekly trend", False),
-    ("weekly_ma_wick_reclaim", "Weekly MA wick-reclaim — undercut the 10w/30w MA then closed back above (shakeout, Stage-2 position, target = weekly RSI 70)", "Weekly trend", False),
+    # weekly_ma_held/reclaim/wick_reclaim CUT 2026-06-23 — NOT in the agreed set and
+    # NOT wired (no pine emits them). → OBSOLETE. (Re-wire into rc.pine later if wanted.)
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
     # Pulled from the Pine + alert + catalog (now in OBSOLETE_ALERT_TYPES).
 
@@ -212,7 +205,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pdl_proximity": "Stock pulled back near yesterday's low without touching it, then closed green — buyers stepped in before the level was tested.",
     "staged_pwl_proximity": "Stock pulled back near last week's low without touching it, then closed green — weekly support defended without a test.",
     "staged_pdh_proximity": "Stock is holding above yesterday's high and pulled back near it without retesting — prior-day high defended as support from above (relative strength).",
-    "staged_orl_held": "Stock pulled back to its first-15-minute low and held — the low of the day is being defended; prior-day high is the first target.",
+    "staged_orl_held": "Stock pulled back to its first-HOUR low and held — the low of the day is being defended; prior-day high is the first target.",
     "pullback_long": "In an established uptrend, price pulled back and resumed higher (Buy 1) — a continuation entry on the dip, not a breakout chase.",
 
     # Reclaim — lost a prior low then recovered it on a bullish bar.
@@ -274,6 +267,12 @@ def describe_alert_type(alert_type: str) -> str:
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
+
+    # 2026-06-23 SETTINGS CLEANUP — only the agreed RC + MA-bounce + levels_day set
+    # stays. These orphans (no bound pine emits them) are retired so Settings shows
+    # exactly what fires. weekly_ma can be re-wired into rc.pine later if wanted.
+    "htf_sr_bounce", "htf_sr_reject", "multitouch_level", "index_open_strength",
+    "weekly_ma_held", "weekly_ma_reclaim", "weekly_ma_wick_reclaim",
 
     # 2026-06-23 DECLUTTER — RC pine owns the reclaims; "high held"=resistance; gaps
     # mean nothing if they don't hold. Cut from levels_day's catalog; the webhook
