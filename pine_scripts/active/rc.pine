@@ -112,6 +112,47 @@ f_dtrend(int len, int lb) =>
 uptrend = (not na(d_ema)) and (close > d_ema) and d_rising
 near_lvl(float a, float b) => not na(a) and not na(b) and b != 0 and (math.abs(a - b) / b * 100.0 <= conf_tol)
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MA BOUNCE (ported from ma_ema_daily, 2026-06-23) — buy a HELD test of a daily MA.
+// Chart-derived spec (SPY/QQQ/NVDA/META/QCOM/UCTT):
+//   ROLE     — an MA is SUPPORT only when price is ABOVE it (position-relative). We
+//              never long an MA price is below (that's resistance).
+//   TRIGGER  — price was above the MA, dipped to it (the bar's low tags it), and
+//              CLOSED back above on a green bar = the support held.
+//   STOP     — a close below the MA (support lost). Tight on fast MAs, wide on slow.
+//   REGIME   — 8/21/50 fire ONLY in an uptrend (EMA 50>100>200 stacked). The deep
+//              100/200 fire ALWAYS (institutions defend them even in a falling name).
+//   COOLDOWN — re-arm only after price moves clearly ABOVE the MA again, so a "walk"
+//              along the MA fires ONCE per touch, not every bar.
+gMA = "MA bounce (daily MA, ported)"
+en_ma     = input.bool(true,  "Fire MA-bounce longs (held test of a daily MA)", group = gMA)
+ma_regime = input.bool(true,  "8/21/50 require uptrend (50>100>200); 100/200 always", group = gMA)
+ma_tol    = input.float(0.25, "Touch tolerance % (low within this of the MA)", minval = 0.0, step = 0.05, group = gMA)
+ma_rearm  = input.float(1.0,  "Re-arm % (price must move this far above the MA to reset)", minval = 0.1, step = 0.1, group = gMA)
+ema8d   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21d  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50d  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100d = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200d = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+ema_stacked = (not na(ema50d)) and (not na(ema100d)) and (not na(ema200d)) and (ema50d > ema100d) and (ema100d > ema200d)
+ma_uptrend  = (not ma_regime) or ema_stacked
+ma_bounce(float ma, bool eligible) =>
+    var bool armed = false
+    var bool fired = false
+    if (not na(ma)) and (close > ma * (1.0 + ma_rearm / 100.0))
+        armed := true
+        fired := false
+    touch = (not na(ma)) and (low <= ma * (1.0 + ma_tol / 100.0)) and (close > ma) and (close > open)
+    fire = eligible and armed and touch and not fired
+    if fire
+        fired := true
+    fire
+mb_e8   = ma_bounce(ema8d,   en_ma and ma_uptrend)
+mb_e21  = ma_bounce(ema21d,  en_ma and ma_uptrend)
+mb_e50  = ma_bounce(ema50d,  en_ma and ma_uptrend)
+mb_e100 = ma_bounce(ema100d, en_ma)
+mb_e200 = ma_bounce(ema200d, en_ma)
+
 // ── New-period flags (reset the sweep state at each period boundary) ───────
 n4 = ta.change(time("240")) != 0
 nD = ta.change(time("D"))   != 0
@@ -282,3 +323,18 @@ if rcM_long
     alert(rc_pay("monthly_rc", "BUY", "M", lMp, lMd, "Monthly RC · reclaim of the prior-month LOW — entry at the level " + str.tostring(lMp, format.mintick) + ", stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
 if rcM_hrec
     alert(rc_pay("monthly_rc", "BUY", "M", hMp, lMd, "Monthly RC-H · breakout-retest of the prior-month HIGH — entry " + str.tostring(hMp, format.mintick) + ", stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
+
+// MA bounce — rule "ma_bounce_long_v3" + ma_tag (number+E); backend forms
+// ma_bounce_long_v3_<ema>. entry = close (held above the MA), stop = the MA (close
+// below = support lost). interval = the chart TF (intraday test of the daily MA).
+ma_pay(string matag, float ma) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ma_bounce_long_v3","direction":"BUY","ma_tag":"' + matag + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(ma, format.mintick) + '","note":"MA bounce — held the daily ' + matag + ' (stop = close below it)","fired_at":"' + str.tostring(timenow) + '"}'
+if mb_e8
+    alert(ma_pay("8E", ema8d), alert.freq_once_per_bar_close)
+if mb_e21
+    alert(ma_pay("21E", ema21d), alert.freq_once_per_bar_close)
+if mb_e50
+    alert(ma_pay("50E", ema50d), alert.freq_once_per_bar_close)
+if mb_e100
+    alert(ma_pay("100E", ema100d), alert.freq_once_per_bar_close)
+if mb_e200
+    alert(ma_pay("200E", ema200d), alert.freq_once_per_bar_close)

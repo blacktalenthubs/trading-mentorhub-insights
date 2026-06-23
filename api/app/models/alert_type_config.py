@@ -47,6 +47,8 @@ _MA_TOGGLES = (
     ("ema8",   "EMA 8"),
     ("ema21",  "EMA 21"),
     ("ema50",  "EMA 50"),
+    ("ema100", "EMA 100"),   # re-added 2026-06-23 — the deep-pullback support (NVDA);
+                             # rc.pine MA bounce fires the 100/200 in any regime.
     ("ema200", "EMA 200"),
     ("sma50",  "SMA 50"),
     ("sma200", "SMA 200"),
@@ -322,9 +324,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "ma_proximity_short_v3_ema50", "ma_proximity_short_v3_ema100",
     "ma_proximity_short_v3_ema200", "ma_proximity_short_v3_sma",
 
-    # MA set narrowed to 8/21/50/200 EMA + 50/200 SMA (#282, 2026-06-17). The
-    # 100 EMA + the combined SMA toggle are retired (SMA split into sma50/sma200).
-    "ma_bounce_long_v3_ema100", "ma_bounce_long_v3_sma",
+    # ma_bounce_long_v3_ema100 RE-ADDED 2026-06-23 (deep-pullback support, rc.pine).
+    # The combined SMA toggle stays retired (split into sma50/sma200).
+    "ma_bounce_long_v3_sma",
     "ma_rejection_short_v3_ema100", "ma_rejection_short_v3_sma",
 
     # HTF NOTICEs / superseded held — spec 58
