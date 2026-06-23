@@ -29,8 +29,11 @@ indicator("Reclaim (RC) · 4h/Wk/Mo", "RC", overlay = true, max_labels_count = 3
 // ── Enables (per TF, per signal) ──────────────────────────────────────────
 g4 = "4h RC — day-trade engine"
 en4_long  = input.bool(true, "4h · RC long — reclaim prior 4h LOW (BUY)", group = g4)
-en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH (BUY)", group = g4)
 en4_short = input.bool(true, "4h · rejection short — reject prior 4h HIGH (SHORT)", group = g4)
+// 4h RC-H REMOVED 2026-06-23 — backtesting: reclaiming the prior-4h HIGH intraday is
+// buying into overhead resistance (a trap on down days; only works on breakout days).
+// Upside is covered by ORL (intraday) + RC lows. RC-H survives on D/W/M (real breakout-
+// retests at higher TF). rule rc_4h_hrec retired.
 gDay = "Daily RC — day-trade/swing (= PDH/PDL reclaim)"
 enD_long  = input.bool(true, "Daily · RC — reclaim prior-DAY LOW / PDL (BUY)", group = gDay)
 enD_hrec  = input.bool(true, "Daily · RC-H — reclaim prior-DAY HIGH / PDH (BUY)", group = gDay)
@@ -130,7 +133,6 @@ sweep_reclaim(float level, bool en, bool ok, bool newper) =>
 
 // long = sweep & reclaim of the prior LOW · hrec = sweep & reclaim of the prior HIGH
 rc4_long = sweep_reclaim(l4p, en4_long, ok4, n4)
-rc4_hrec = sweep_reclaim(h4p, en4_hrec, ok4, n4)
 rcD_long = sweep_reclaim(lDp, enD_long, okD, nD)
 rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD)
 rcW_long = sweep_reclaim(lWp, enW_long, okW, nW)
@@ -155,12 +157,10 @@ if rc4_short
 // smallest footprint) · shape + TF text. Shape = TF (4h triangle · daily circle),
 // color = side (lime low-reclaim · teal high-reclaim · red short). All size.tiny.
 plotshape(show_tags and tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
-plotshape(show_tags and tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hh")
 plotshape(show_tags and tags_text and rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny, text = "4h↓")
 plotshape(show_tags and tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
 plotshape(show_tags and tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
 plotshape(show_tags and not tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
-plotshape(show_tags and not tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
 plotshape(show_tags and not tags_text and rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny)
 plotshape(show_tags and not tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
 plotshape(show_tags and not tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
@@ -240,8 +240,6 @@ rc_pay(string rule, string dir, string iv, float ent, float stp, string note) =>
 
 if rc4_long
     alert(rc_pay("rc_4h_long", "BUY", "240", l4p, l4d, "RC · reclaim of the prior 4h low — entry at the level " + str.tostring(l4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
-if rc4_hrec
-    alert(rc_pay("rc_4h_hrec", "BUY", "240", h4p, l4d, "RC-H · breakout-retest of the prior 4h high — entry " + str.tostring(h4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_short
     alert(rc_pay("rc_4h_short", "SHORT", "240", close, h4p, "RC · rejection at the prior 4h high (failed break) · stop " + str.tostring(h4p, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_long

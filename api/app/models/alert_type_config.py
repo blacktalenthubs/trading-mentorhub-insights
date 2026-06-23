@@ -147,7 +147,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # each direction off in Settings (the pine emits rc_4h_long / rc_4h_short /
     # rc_4h_hrec separately). All default OFF.
     ("rc_4h_long",  "4h RC long — reclaim of the prior 4h LOW (swept-low bounce)", "4h reversal", False),
-    ("rc_4h_hrec",  "4h RC-H — broken prior 4h HIGH held as support (breakout-retest long)", "4h reversal", False),
+    # rc_4h_hrec RETIRED 2026-06-23 — backtesting: reclaiming the prior-4h HIGH intraday
+    # = buying into overhead resistance (trap on down days). See OBSOLETE_ALERT_TYPES.
     ("rc_4h_short", "4h RC short — failed break of the prior 4h HIGH (rejection)", "4h reversal", False),
     # Daily RC (from rc.pine) — undercut & reclaim of the prior-DAY low/high (≈ PDL/PDH
     # reclaim, RC-model). All default OFF.
@@ -287,6 +288,8 @@ def describe_alert_type(alert_type: str) -> str:
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
+    # rc_4h_hrec RETIRED 2026-06-23 — buying into overhead resistance intraday (backtested)
+    "rc_4h_hrec",
 
     # Bare prefixes (pre per-MA split)
     "ma_bounce_long_v3",
