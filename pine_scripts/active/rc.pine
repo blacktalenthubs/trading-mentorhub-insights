@@ -53,6 +53,12 @@ col_cml   = input.color(#FFA726, "CML color", group = gD)
 gT = "RC chart tags"
 show_tags = input.bool(true,  "Show RC tags (markers) on chart", group = gT)
 tags_text = input.bool(false, "  Label tags with TF text (4hl/4hh/dl…) — off = tiniest, shape-only", group = gT)
+gWk = "Weekly MA levels (visual — merged from 'Weekly Levels')"
+show_10w  = input.bool(true, "Flat 10w MA line", group = gWk)
+show_30w  = input.bool(true, "Flat 30w MA line", group = gWk)
+show_marc = input.bool(true, "10w / 30w reclaim·hold signs", group = gWk)
+show_wrc  = input.bool(true, "Weekly RC sign (prior-week-low reclaim)", group = gWk)
+wk_recent = input.int(8, "10w↑/30w↑ signs: recent WEEKS only (0 = all — they drift as the MA moves)", minval = 0, group = gWk)
 
 // ── Per-TF levels. The LEVEL (prior completed high/low) MUST be LOCKED — identical
 // on every chart TF. The non-repainting pattern for that is high[1]/low[1] WITH
@@ -73,6 +79,18 @@ lMd = request.security(syminfo.tickerid, "M",   low, lookahead = barmerge.lookah
 // CML (current-month low) for the visual — regular-session ticker + lookahead_on so
 // the developing month's low reads identically on every chart TF (no EH leak).
 cml = request.security(ticker.new(syminfo.prefix, syminfo.ticker, session.regular), "M", low, lookahead = barmerge.lookahead_on)
+// Weekly 10w/30w MA + signs (visual, merged from "Weekly Levels") — all computed
+// on the WEEKLY in one tuple w/ lookahead_on, so the signs sit in the SAME place on
+// any chart TF. reclaim·hold = close above the MA after tagging it; wRC = undercut &
+// reclaim of the prior-week low closing strong (up or top-half of the bar).
+f_wk() =>
+    _m10  = ta.sma(close, 10)
+    _m30  = ta.sma(close, 30)
+    _rc10 = (close > _m10) and (low <= _m10)
+    _rc30 = (close > _m30) and (low <= _m30)
+    _wrc  = (low < low[1]) and (close > low[1]) and ((close > open) or (close - low >= (high - low) * 0.5))
+    [_m10, _m30, _rc10, _rc30, _wrc]
+[w10, w30, sig10, sig30, wrc] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_on)
 
 // ── New-period flags (reset the sweep state at each period boundary) ───────
 n4 = ta.change(time("240")) != 0
@@ -147,6 +165,13 @@ plotshape(show_tags and not tags_text and rc4_short, title = "4h short", style =
 plotshape(show_tags and not tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
 plotshape(show_tags and not tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
 
+// ── Weekly 10w/30w reclaim·hold + weekly-RC signs (visual, from "Weekly Levels").
+// Fire once per weekly event (and not [1]); 10w↑/30w↑ windowed to recent weeks.
+wk_in_win = wk_recent == 0 or (timenow - time) <= wk_recent * 604800000
+plotshape(show_marc and wk_in_win and sig10 and not sig10[1], title = "10w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "10w↑")
+plotshape(show_marc and wk_in_win and sig30 and not sig30[1], title = "30w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "30w↑")
+plotshape(show_wrc and wrc and not wrc[1], title = "Weekly RC", style = shape.diamond, location = location.belowbar, color = color.new(#2962FF, 0), size = size.tiny, text = "wRC")
+
 // ── Prior-level S/R lines (merged from "Prior Levels Flat") — PDH/PDL · PWH/PWL ·
 // PMH/PML drawn as flat horizontals, COLORED BY ROLE (green = support, price above
 // it · red = resistance, price below it). Daily solid · weekly dashed · monthly
@@ -184,6 +209,26 @@ if show_lvl and barstate.islast
         draw_level(lMp, "PML", 2, 22, na)
     if show_cml
         draw_level(cml, "CML", 2, 26, col_cml)
+
+// ── Weekly 10w/30w MA flat lines (visual, from "Weekly Levels") — role-colored,
+// redrawn on the last bar. Separate vars from the prior-level set above.
+var line  ln10 = na
+var line  ln30 = na
+var label lb10 = na
+var label lb30 = na
+if barstate.islast
+    line.delete(ln10)
+    line.delete(ln30)
+    label.delete(lb10)
+    label.delete(lb30)
+    if show_10w and not na(w10)
+        c10 = close > w10 ? col_sup : col_res
+        ln10 := line.new(bar_index - lvl_bars, w10, bar_index + 10, w10, color = c10, width = 2)
+        lb10 := label.new(bar_index + 10, w10, "10w " + str.tostring(w10, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
+    if show_30w and not na(w30)
+        c30 = close > w30 ? col_sup : col_res
+        ln30 := line.new(bar_index - lvl_bars, w30, bar_index + 10, w30, color = c30, width = 2)
+        lb30 := label.new(bar_index + 10, w30, "30w " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
 
 // ── Alerts ────────────────────────────────────────────────────────────────
 // entry = the RECLAIMED LEVEL (the prior-period low for RC, high for RC-H) — NOT
