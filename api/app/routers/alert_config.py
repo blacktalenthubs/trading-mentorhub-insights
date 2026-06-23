@@ -49,6 +49,7 @@ CATEGORY_TO_GROUP: dict[str, str] = {
     "Multi-touch levels": "Notice",   # multi-touch cross — context
     "Market context": "Notice",       # index_open_strength removed
     "4h reversal": "Day Trade",       # rc_4h / RC-H — the cornerstone
+    "Daily RC": "Day Trade",          # rc_daily_long/hrec — prior-day H/L reclaim (RC-model)
     "Levels": "Notice",               # lost_support_reject — context
     "Swing": "Swing Trade",
     "MA / EMA · Bounce Long": "Swing Trade",

@@ -141,6 +141,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # heavy volume. Default OFF — record + watch the count before delivering.
     ("staged_pdl_break", "PDL break — index short (volume)", "Index shorts", False),
     ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
+    ("pdh_fail_short", "PDH failed break — accepted above PDH then lost it (short the loss, stop = PDH reclaim) · allowlist only", "Index shorts", False),
 
     # 4h reclaim — split into 3 independent toggles (2026-06-22) so users can turn
     # each direction off in Settings (the pine emits rc_4h_long / rc_4h_short /
@@ -148,6 +149,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rc_4h_long",  "4h RC long — reclaim of the prior 4h LOW (swept-low bounce)", "4h reversal", False),
     ("rc_4h_hrec",  "4h RC-H — broken prior 4h HIGH held as support (breakout-retest long)", "4h reversal", False),
     ("rc_4h_short", "4h RC short — failed break of the prior 4h HIGH (rejection)", "4h reversal", False),
+    # Daily RC (from rc.pine) — undercut & reclaim of the prior-DAY low/high (≈ PDL/PDH
+    # reclaim, RC-model). All default OFF.
+    ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
+    ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
@@ -244,6 +249,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "index_open_strength": "A tracked symbol (default SPY/QQQ/DRAM, editable in the indicator) reclaimed today's open and is holding above it (two closes) — strength, trend intact.",
     "staged_pdl_break": "Index (SPY/QQQ/IWM/BTC) closed below yesterday's low on heavy volume — confirmed breakdown, short with the trend; stop just above the broken level.",
     "staged_pdh_rejection": "Index (SPY/QQQ/IWM/BTC) rallied into yesterday's high and was rejected (closed back below) on volume — failed breakout / resistance held; short, stop above the high.",
+    "pdh_fail_short": "Allowlisted name (SPY-style) ACCEPTED above the prior-day high — closed above it earlier in the session — then LOST it, closing back below. Short the loss bar; STOP = a PDH reclaim (close back above). The failed-breakout fade SPY did 2026-06-22. Distinct from PDH rejection, which never accepted above the level. Fires once/session, allowlist only.",
     "gap_zone": "Price entered (testing) or filled an unfilled gap on SPY/NBIS (from the Gaps indicator) — a green gap below is support, a red gap above is resistance; entering = watch for bounce/reject, filled = the void is closed. Informational, not a trade trigger.",
     "weekly_stage": "Weekly long-term signal from the WkStage indicator (set on the weekly chart): RC (undercut & reclaim bottoming), BUY (close above a rising 30-week MA), ADD (pullback to the rising MA), or EXIT (weekly close below the trailing stop). Each carries the entry + structural stop. For the long-term/swing book — size off the stop.",
     "weekly_ma_pullback": "Weekly position entry from the WkPos indicator: in a Stage-2 uptrend (price above a RISING 30-week MA, 10w > 30w), the week dipped to the rising 10-week MA and closed back GREEN above it — buy the pullback in an established trend. STOP = the pullback week's low (trend invalidates on a weekly close below the 30wMA). TARGET = weekly RSI 70. Fires once at the weekly close.",
@@ -253,6 +259,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_4h_long": "4h RC long: price wicked BELOW the prior 4h low then closed back above it — swept-low bounce / reversal long. Stop = the wick low. A heads-up — eyeball the 4h, not every one is an entry.",
     "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
     "rc_4h_short": "4h RC short: price wicked ABOVE the prior 4h high then closed back below it — failed break / rejection (index-leaning). Stop = the wick high.",
+    "rc_daily_long": "Daily RC: price undercut the prior-DAY low (PDL) then reclaimed it intraday — swept-low bounce on the daily level. Stop = the day's swept low. ≈ PDL reclaim, RC-model. A day-trade/swing heads-up.",
+    "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
 
