@@ -655,11 +655,22 @@ else if not na(first_bar_time) and (time - first_bar_time) < or_window_min * 60 
     orl_61 := math.min(nz(orl_61, low), low)
 else if not na(first_bar_time)
     or_done_61 := true
-// Held detector: OR window done, bar wicked down to/near the OR low, then
-// closed back above it on a green bar. Strict — the bar must actually
-// reach the level (low <= OR low + tol), so this fires at the bottom of
-// the range, never up into resistance.
-s58_orl_held = or_done_61 and not na(orl_61) and low <= orl_61 * (1.0 + or_test_tol_pct / 100.0) and close > orl_61 and close > open
+// CONFIRMED ORL hold (2026-06-23) — not a one-bar green tag. Requires the full
+// sequence so it knows the level was actually DEFENDED:
+//   ARMED — price closed CLEARLY above the OR low (above the tol band) first, so
+//           this is a genuine pullback-to-support, not a bounce after breaking below;
+//   TEST  — a bar wicks down to/near the OR low (low <= OR low + tol);
+//   HELD  — and closes back GREEN above it.
+// Fires ONCE per session (orl_fired latch, set in the fire block) — kills the
+// every-bar flood (was 288-735/day) and only flags a real defense of the level.
+var bool orl_armed = false
+var bool orl_fired = false
+if session_open_now
+    orl_armed := false
+    orl_fired := false
+if or_done_61 and not na(orl_61) and close > orl_61 * (1.0 + or_test_tol_pct / 100.0)
+    orl_armed := true
+s58_orl_held = orl_armed and or_done_61 and not na(orl_61) and low <= orl_61 * (1.0 + or_test_tol_pct / 100.0) and close > orl_61 and close > open and not orl_fired
 
 // Spec 61 — PDH reclaim + PDH proximity (high-side mirrors of the PDL set).
 //
@@ -1409,6 +1420,7 @@ if false and s58_pwl_prox and (not uptrend_pass_58 or chop_gate_pass_58)
 // body gate kills doji/distribution holds. NOT SPY-gated — defending the
 // low is a relative-strength setup. Catalog default-OFF; opt in to test.
 if fire_orl_held and s58_orl_held and v2_body_ok
+    orl_fired := true
     e_orl  = close
     s_orl  = orl_61 - atr_buffer
     // On a weak (below-open) day the OPEN line is the realistic first target
