@@ -61,12 +61,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Pullback continuation (uptrend-gated long entry — companion to MA bounce)
     ("pullback_long", "Uptrend pullback continuation (Buy 1)", "Pullback", False),
 
-    # Buy 2 — Prior-high held as support (spec 58 FR-004). Monthly RE-ACTIVATED
-    # 2026-06-09 — structural focus (D/W/M highs & lows are the validated set).
-    ("staged_pdh_held", "PDH held as support (Buy 2)", "Daily PDH/PDL", False),
-    ("staged_pwh_held", "PWH held as support (Buy 2)", "Weekly", False),
-    ("staged_pmh_held", "PMH held as support (Buy 2)", "Monthly", False),
-    # PDH breakout on volume (#291) — close above PDH + volume_ratio>=2 + rising VWAP.
+    # Prior-HIGH held CUT 2026-06-23 — "high held as support" = buying resistance;
+    # RC pine owns the high reclaims (rc_*_hrec, uptrend-gated). → OBSOLETE_ALERT_TYPES.
+    # PDH breakout on volume (#291) — close above PDH + volume_ratio>=2 + rising VWAP. KEPT.
     ("staged_pdh_break", "PDH break on volume", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
@@ -83,17 +80,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # low of day, stop below the OR low, PDH = first target.
     ("staged_orl_held", "Opening-range low held (15m)", "Daily PDH/PDL", False),
 
-    # Buy 2 — Prior-low reclaim (lost-and-recovered)
-    ("staged_pdl_reclaim", "PDL reclaim", "Daily PDH/PDL", False),
-    ("staged_pwl_reclaim", "PWL reclaim", "Weekly", False),
-    ("staged_pml_reclaim", "PML reclaim", "Monthly", False),
-
-    # Buy 2 — Prior-high reclaim — price was ABOVE the prior high, LOST it
-    # (dipped below), then RECOVERED above it = the high now holds as support.
-    # NOT a break (rally up through from below = buying resistance — see #1/#5).
-    ("staged_pdh_reclaim", "PDH reclaim — lost & recovered as support", "Daily PDH/PDL", False),
-    ("staged_pwh_reclaim", "PWH reclaim — lost & recovered", "Weekly", False),
-    ("staged_pmh_reclaim", "PMH reclaim — lost & recovered", "Monthly", False),
+    # Prior-low + prior-high RECLAIM all CUT 2026-06-23 — the RC pine owns reclaims
+    # now (rc_daily_long/hrec, weekly_rc, monthly_rc, gated). No duplicate staged
+    # reclaims. → OBSOLETE_ALERT_TYPES.
 
     # 2026-06-01 — Anchored-VWAP family (MTD / prior-month / 2mo-prior)
     # REMOVED. AVWAP levels stay drawn on chart as visual reference only;
@@ -108,13 +97,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
 
     # Gap S/R — unfilled gaps as support/resistance (2026-06-15). day_open decides
     # the role. Replaces the old gap_zone info-notice. Default OFF — land in Muted.
-    ("gap_support", "Gap support bounce — dip to a gap you opened above, held", "Gap S/R", False),
-    ("gap_fill", "Gap fill — closed into a gap below; runs to the far edge", "Gap S/R", False),
-    ("gap_reject", "Gap resistance reject — tagged an overhead gap and failed", "Gap S/R", False),
-
-    # Lost-support rejection (2026-06-16) — a low level (PDL/PWL/PML) lost intraday
-    # becomes resistance; the dual-role the EMAs/high-levels already have. Default OFF.
-    ("lost_support_reject", "Lost support → resistance — PDL/PWL/PML lost, rejected on the way back up (SHORT)", "Levels", False),
+    # gap_support / gap_fill / gap_reject CUT 2026-06-23 (user: "a gap means nothing if
+    # it doesn't hold"). Only gap_up_continuation_long (gap-and-go) survives. → OBSOLETE.
+    # lost_support_reject CUT 2026-06-23 (clearer setup). → OBSOLETE_ALERT_TYPES.
 
     # Multi-period S/R (#262) — clustered multi-week / multi-month highs (resistance)
     # + lows (support); price wicks into a cluster and rejects/holds. Default OFF.
@@ -287,6 +272,16 @@ def describe_alert_type(alert_type: str) -> str:
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
+
+    # 2026-06-23 DECLUTTER — RC pine owns the reclaims; "high held"=resistance; gaps
+    # mean nothing if they don't hold. Cut from levels_day's catalog; the webhook
+    # OBSOLETE-drop guard makes them vanish (no feed, no Not-routed) even while the
+    # pine still emits them pre-re-paste.
+    "staged_pdh_held", "staged_pwh_held", "staged_pmh_held",
+    "staged_pdl_reclaim", "staged_pwl_reclaim", "staged_pml_reclaim",
+    "staged_pdh_reclaim", "staged_pwh_reclaim", "staged_pmh_reclaim",
+    "gap_support", "gap_fill", "gap_reject",
+    "lost_support_reject",
 
     # Bare prefixes (pre per-MA split)
     "ma_bounce_long_v3",

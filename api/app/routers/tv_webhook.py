@@ -1173,7 +1173,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # the multitouch/gap info-symbol filter (alert_symbols) were removed — too
     # many overlapping symbol lists; the trend gate is the one switch.
     try:
-        from app.models.alert_type_config import AlertTypeConfig
+        from app.models.alert_type_config import AlertTypeConfig, OBSOLETE_ALERT_TYPES
         from app.models.regime_config import RegimeConfig
         async with async_session_factory() as _cfg_db:
             _cfg_rows = (await _cfg_db.execute(
@@ -1245,6 +1245,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         alert_type_full == "tv_gap_up_continuation_long"
         and (sig.symbol or "").upper() in gap_always_symbols
     )
+    # Retired/cut types → DROP silently (NOT even Not-routed). A pine can keep
+    # emitting a cut rule until it's re-pasted; OBSOLETE_ALERT_TYPES makes it vanish
+    # everywhere — no feed, no Not-routed panel, no Settings toggle. (2026-06-23
+    # cleanup: proximity/avwap/duplicate-reclaim/gap-fill·support etc.)
+    _bare_rule = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    if _bare_rule in OBSOLETE_ALERT_TYPES:
+        logger.info("TV webhook: cut/obsolete type %s — dropped (%s)", alert_type_full, sig.symbol)
+        return {"dispatched": False, "reason": "obsolete_type"}
     if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt:
         # Known type, just toggled OFF → record it (deduped) for EOD review:
         # no Telegram, hidden from the live feed, and NOT run through the
