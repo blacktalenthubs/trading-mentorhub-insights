@@ -50,6 +50,9 @@ lvl_bars  = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, 
 col_sup   = input.color(#26A69A, "Support color (price ABOVE the level)", group = gD)
 col_res   = input.color(#EF5350, "Resistance color (price BELOW the level)", group = gD)
 col_cml   = input.color(#FFA726, "CML color", group = gD)
+gT = "RC chart tags"
+show_tags = input.bool(true,  "Show RC tags (markers) on chart", group = gT)
+tags_text = input.bool(false, "  Label tags with TF text (4hl/4hh/dl…) — off = tiniest, shape-only", group = gT)
 
 // ── Per-TF levels. The LEVEL (prior completed high/low) MUST be LOCKED — identical
 // on every chart TF. The non-repainting pattern for that is high[1]/low[1] WITH
@@ -130,11 +133,19 @@ if rc4_short
 // (L = reclaim LOW, H = reclaim HIGH, ↓ = rejection short). Weekly & monthly draw
 // NO marker on purpose — the horizontal level lines (+ W/M HI·LO labels) below mark
 // the level, and the alert fires regardless, so a chart tag would just be clutter.
-plotshape(rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
-plotshape(rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hh")
-plotshape(rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny, text = "4h↓")
-plotshape(rcD_long,  title = "D RC",     style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
-plotshape(rcD_hrec,  title = "D RC-H",   style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
+// Three states via show_tags + tags_text: OFF (nothing) · tiny SHAPE-ONLY (default,
+// smallest footprint) · shape + TF text. Shape = TF (4h triangle · daily circle),
+// color = side (lime low-reclaim · teal high-reclaim · red short). All size.tiny.
+plotshape(show_tags and tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
+plotshape(show_tags and tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hh")
+plotshape(show_tags and tags_text and rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny, text = "4h↓")
+plotshape(show_tags and tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
+plotshape(show_tags and tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
+plotshape(show_tags and not tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
+plotshape(show_tags and not tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
+plotshape(show_tags and not tags_text and rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny)
+plotshape(show_tags and not tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
+plotshape(show_tags and not tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
 
 // ── Prior-level S/R lines (merged from "Prior Levels Flat") — PDH/PDL · PWH/PWL ·
 // PMH/PML drawn as flat horizontals, COLORED BY ROLE (green = support, price above
