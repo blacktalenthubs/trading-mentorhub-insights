@@ -61,74 +61,59 @@ lDd = request.security(syminfo.tickerid, "D",   low, lookahead = barmerge.lookah
 lWd = request.security(syminfo.tickerid, "W",   low, lookahead = barmerge.lookahead_off)
 lMd = request.security(syminfo.tickerid, "M",   low, lookahead = barmerge.lookahead_off)
 
-// ── Once-per-period fire guards ───────────────────────────────────────────
-var bool f4_long = false
-var bool f4_hrec = false
-var bool f4_short = false
-var bool fD_long = false
-var bool fD_hrec = false
-var bool fW_long = false
-var bool fW_hrec = false
-var bool fM_long = false
-var bool fM_hrec = false
-if ta.change(time("240")) != 0
-    f4_long := false
-    f4_hrec := false
-    f4_short := false
-if ta.change(time("D")) != 0
-    fD_long := false
-    fD_hrec := false
-if ta.change(time("W")) != 0
-    fW_long := false
-    fW_hrec := false
-if ta.change(time("M")) != 0
-    fM_long := false
-    fM_hrec := false
+// ── New-period flags (reset the sweep state at each period boundary) ───────
+n4 = ta.change(time("240")) != 0
+nD = ta.change(time("D"))   != 0
+nW = ta.change(time("W"))   != 0
+nM = ta.change(time("M"))   != 0
 
-// ── Signal logic (same shape for every TF) ────────────────────────────────
-// l*d = the period's RUNNING low (monotonic), so "l*d < level" = the period has
-// already DIPPED BELOW the level at some point this period (the undercut). The
-// FIRST close back above the level then fires (latched once/period). This catches
-// a WICK retest — a bar that dips below the level and closes above it on the SAME
-// bar — which a strict consecutive-bar cross (close[1] <= level) MISSES. That's
-// why MU's monthly RC-H tag never printed: the June retest of the May high was a
-// wick, no 4h bar CLOSED below the level, so the old cross never triggered.
-//   long  : period undercut the prior LOW,  now closing back above it → reversal.
-//   hrec  : period undercut the prior HIGH, now closing back above it → continuation.
-//   short : (4h only) bar pokes above the prior HIGH and closes back below = reject.
 ok4 = not na(h4p) and not na(l4p) and not na(l4d)
 okD = not na(hDp) and not na(lDp) and not na(lDd)
 okW = not na(hWp) and not na(lWp) and not na(lWd)
 okM = not na(hMp) and not na(lMp) and not na(lMd)
 
-rc4_long  = en4_long  and ok4 and (l4d < l4p) and (close > l4p) and not f4_long
-rc4_hrec  = en4_hrec  and ok4 and (l4d < h4p) and (close > h4p) and not f4_hrec
-rc4_short = en4_short and ok4 and (high > h4p) and (close < h4p) and not f4_short
-rcD_long  = enD_long  and okD and (lDd < lDp) and (close > lDp) and not fD_long
-rcD_hrec  = enD_hrec  and okD and (lDd < hDp) and (close > hDp) and not fD_hrec
-rcW_long  = enW_long  and okW and (lWd < lWp) and (close > lWp) and not fW_long
-rcW_hrec  = enW_hrec  and okW and (lWd < hWp) and (close > hWp) and not fW_hrec
-rcM_long  = enM_long  and okM and (lMd < lMp) and (close > lMp) and not fM_long
-rcM_hrec  = enM_hrec  and okM and (lMd < hMp) and (close > hMp) and not fM_hrec
+// ── The REAL reclaim = a SWEEP, enforced as a sequence (not a level-cross):
+//   1) ARMED  — price was on the right side of the level FIRST (close > level)
+//   2) SWEPT  — then it UNDERCUT the level (a bar's low dipped below it)
+//   3) FIRE   — then it CLOSED BACK above the level
+// This rejects plain breakouts / gap-recoveries that never swept (those are just
+// crosses, not reclaims) and the trivially-true RC-H undercut. Per-call-site var
+// state, reset each period, fires once. A single wick bar (low<level, close>level
+// after being armed) still fires — that IS the sweep-and-reclaim.
+sweep_reclaim(float level, bool en, bool ok, bool newper) =>
+    var bool armed = false
+    var bool swept = false
+    var bool fired = false
+    if newper
+        armed := false
+        swept := false
+        fired := false
+    if ok and (close > level)
+        armed := true
+    if armed and ok and (low < level)
+        swept := true
+    bool fire = en and ok and swept and (close > level) and not fired
+    if fire
+        fired := true
+    fire
 
-if rc4_long
-    f4_long := true
-if rc4_hrec
-    f4_hrec := true
+// long = sweep & reclaim of the prior LOW · hrec = sweep & reclaim of the prior HIGH
+rc4_long = sweep_reclaim(l4p, en4_long, ok4, n4)
+rc4_hrec = sweep_reclaim(h4p, en4_hrec, ok4, n4)
+rcD_long = sweep_reclaim(lDp, enD_long, okD, nD)
+rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD)
+rcW_long = sweep_reclaim(lWp, enW_long, okW, nW)
+rcW_hrec = sweep_reclaim(hWp, enW_hrec, okW, nW)
+rcM_long = sweep_reclaim(lMp, enM_long, okM, nM)
+rcM_hrec = sweep_reclaim(hMp, enM_hrec, okM, nM)
+
+// 4h rejection short — its own logic (poke above prior high, close back below).
+var bool f4_short = false
+if n4
+    f4_short := false
+rc4_short = en4_short and ok4 and (high > h4p) and (close < h4p) and not f4_short
 if rc4_short
     f4_short := true
-if rcD_long
-    fD_long := true
-if rcD_hrec
-    fD_hrec := true
-if rcW_long
-    fW_long := true
-if rcW_hrec
-    fW_hrec := true
-if rcM_long
-    fM_long := true
-if rcM_hrec
-    fM_hrec := true
 
 // ── Markers — 4h ONLY (the day-trade engine). Tiny triangles; color = side
 // (lime = low reclaim, teal = high reclaim, red = short); text = 4h + side
