@@ -159,23 +159,28 @@ if show_lvl and barstate.islast
         label.new(bar_index + lvl_bars, lMp, "M LO", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.lime, 0), size = size.normal)
 
 // ── Alerts ────────────────────────────────────────────────────────────────
-rc_pay(string rule, string dir, string iv, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"' + iv + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
+// entry = the RECLAIMED LEVEL (the prior-period low for RC, high for RC-H) — NOT
+// the bar's close. On a sharp V-reclaim the close can sit far above the level
+// (GOOGL daily 2026-06-23: wick 340.20 → close 348, but the reclaimed PDL was
+// 341.72 — entry must read 341.72, where the rc actually happened, stop 340.20).
+// "price" stays the live close so the feed shows level → current.
+rc_pay(string rule, string dir, string iv, float ent, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"' + iv + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if rc4_long
-    alert(rc_pay("rc_4h_long", "BUY", "240", l4d, "RC · reclaim of the prior 4h low (undercut & reclaim) · stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("rc_4h_long", "BUY", "240", l4p, l4d, "RC · reclaim of the prior 4h low — entry at the level " + str.tostring(l4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_hrec
-    alert(rc_pay("rc_4h_hrec", "BUY", "240", l4d, "RC-H · breakout-retest reclaim of the prior 4h high · stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("rc_4h_hrec", "BUY", "240", h4p, l4d, "RC-H · breakout-retest of the prior 4h high — entry " + str.tostring(h4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_short
-    alert(rc_pay("rc_4h_short", "SHORT", "240", h4p, "RC · rejection at the prior 4h high (failed break) · stop " + str.tostring(h4p, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("rc_4h_short", "SHORT", "240", close, h4p, "RC · rejection at the prior 4h high (failed break) · stop " + str.tostring(h4p, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_long
-    alert(rc_pay("rc_daily_long", "BUY", "D", lDd, "Daily RC · reclaim of the prior-day low (PDL undercut & reclaim) · stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("rc_daily_long", "BUY", "D", lDp, lDd, "Daily RC · reclaim of the prior-day LOW (PDL) — entry at the level " + str.tostring(lDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_hrec
-    alert(rc_pay("rc_daily_hrec", "BUY", "D", lDd, "Daily RC-H · breakout-retest reclaim of the prior-day high (PDH) · stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("rc_daily_hrec", "BUY", "D", hDp, lDd, "Daily RC-H · breakout-retest of the prior-day HIGH (PDH) — entry " + str.tostring(hDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcW_long
-    alert(rc_pay("weekly_rc", "BUY", "W", lWd, "Weekly RC · undercut & reclaim of the prior-week low · stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("weekly_rc", "BUY", "W", lWp, lWd, "Weekly RC · reclaim of the prior-week LOW — entry at the level " + str.tostring(lWp, format.mintick) + ", stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
 if rcW_hrec
-    alert(rc_pay("weekly_rc", "BUY", "W", lWd, "Weekly RC-H · breakout-retest reclaim of the prior-week high · stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("weekly_rc", "BUY", "W", hWp, lWd, "Weekly RC-H · breakout-retest of the prior-week HIGH — entry " + str.tostring(hWp, format.mintick) + ", stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
 if rcM_long
-    alert(rc_pay("monthly_rc", "BUY", "M", lMd, "Monthly RC · undercut & reclaim of the prior-month low · stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("monthly_rc", "BUY", "M", lMp, lMd, "Monthly RC · reclaim of the prior-month LOW — entry at the level " + str.tostring(lMp, format.mintick) + ", stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
 if rcM_hrec
-    alert(rc_pay("monthly_rc", "BUY", "M", lMd, "Monthly RC-H · breakout-retest reclaim of the prior-month high · stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("monthly_rc", "BUY", "M", hMp, lMd, "Monthly RC-H · breakout-retest of the prior-month HIGH — entry " + str.tostring(hMp, format.mintick) + ", stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
