@@ -658,11 +658,28 @@ export function useSeedDefaultGroups() {
   return useMutation({
     mutationFn: () => api.post<WatchlistGroup[]>("/watchlist/groups/seed-defaults", {}),
     onSuccess: () => {
-      toast.success("Default groups seeded — Mega Tech, Chips, Memory, Optics, Cloud, Crypto, Fintech, Space, AI Data, Power, Speculation");
+      toast.success("Default tiers seeded — Tier 1 Daily Drivers, Tier 2 High Volatility, Tier 3 Sector Movers");
       qc.invalidateQueries({ queryKey: ["watchlist"] });
       qc.invalidateQueries({ queryKey: ["watchlist-groups"] });
     },
     onError: () => toast.error("Failed to seed default groups"),
+  });
+}
+
+// Destructive: wipes the caller's entire watchlist (all groups + symbols) and
+// rebuilds the clean 3-tier default. Backs the "Reset to tiers" button — the
+// component is responsible for confirming before calling .mutate().
+export function useResetDefaultGroups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<WatchlistGroup[]>("/watchlist/groups/reset-defaults", {}),
+    onSuccess: () => {
+      toast.success("Watchlist reset to the 3 focus tiers (19 names)");
+      qc.invalidateQueries({ queryKey: ["watchlist"] });
+      qc.invalidateQueries({ queryKey: ["watchlist-groups"] });
+      qc.invalidateQueries({ queryKey: ["groups-premarket"] });
+    },
+    onError: () => toast.error("Failed to reset watchlist"),
   });
 }
 

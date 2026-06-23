@@ -68,108 +68,37 @@ async def get_master_symbols(
 
 
 # ---------------------------------------------------------------------------
-# Default groups + tickers — used by POST /groups/seed-defaults.
-# Curated list focused on strong earnings growth + AI/data-center tailwinds.
+# Default groups + tickers — used by POST /groups/seed-defaults and
+# POST /groups/reset-defaults, and distributed to other users when they
+# "Sync editor's sectors" (which copies the admin's live watchlist).
 # ---------------------------------------------------------------------------
+# Restructured 2026-06-17 into a focused 3-tier watchlist (~19 names),
+# replacing the old 12-sector layout. The goal is to narrow daily focus: act
+# on Tier 1 every session, and only drop to Tier 2/3 when a name is clearly
+# in play. Tiers are watchlist groups (presentation-only) — this does NOT
+# change alert routing, which is driven by the TradingView Pine universe.
 DEFAULT_GROUPS: list[dict] = [
     {
-        "name": "Mega Tech",
-        "color": "#1f6feb",
-        # Expanded 2026-05-24: added AAPL/NFLX/TSLA — all $500B+ caps the
-        # user actually trades. TSLA folded here rather than its own EV-Auto
-        # bucket because single-symbol "sectors" have no peer-analysis value.
-        "symbols": ["NVDA", "MSFT", "GOOGL", "META", "AMZN", "AAPL", "NFLX", "TSLA"],
+        # Scan every day. Index context (SPY/QQQ) + the core single-name
+        # drivers the desk actually trades intraday. The only tier you're
+        # expected to act on daily.
+        "name": "Tier 1 · Daily Drivers",
+        "color": "#1f883d",  # green — your daily action list
+        "symbols": ["SPY", "QQQ", "NVDA", "AMD", "TSLA", "PLTR", "MU"],
     },
     {
-        "name": "Chips",
-        "color": "#a371f7",
-        # Expanded 2026-05-24: added ARM/QCOM/INTC/ALAB/CRDO/SMH — the
-        # broader semi peer set in the user's watchlist. SMH is the ETF
-        # but trades like a stock and is a useful sector breadth gauge.
-        "symbols": ["AVGO", "AMD", "TSM", "ASML", "MRVL", "ARM", "QCOM", "INTC", "ALAB", "CRDO", "SMH"],
+        # High-volatility plays — higher beta / headline-driven. Situational:
+        # only engage when one is clearly moving, not as a daily routine.
+        "name": "Tier 2 · High Volatility",
+        "color": "#cf222e",  # red — high beta, trade only when in play
+        "symbols": ["SMCI", "AAOI", "RKLB", "IONQ", "HOOD"],
     },
     {
-        "name": "Memory",
-        "color": "#bf8700",
-        # Expanded 2026-05-24: added WDC/STX — storage cousins of MU/SNDK.
-        # Strictly speaking DRAM/NAND vs HDD, but the cycle drivers (data
-        # center demand, hyperscaler capex) are the same → real peer flow.
-        "symbols": ["MU", "SNDK", "WDC", "STX"],
-    },
-    {
-        "name": "Optics",
-        "color": "#1f883d",
-        "symbols": ["AAOI", "COHR", "LITE"],
-    },
-    {
-        "name": "Cloud",
-        "color": "#218bff",
-        # CRWV (CoreWeave) added 2026-05-24 — AI-infra cloud, fits naturally.
-        "symbols": ["ORCL", "CRWD", "CRWV", "NOW", "DDOG", "SNOW"],
-    },
-    {
-        # Renamed from "BTC" → "Crypto" 2026-05-24 to reflect that the group
-        # now spans both proxies (MSTR / IREN miner) AND spot pairs that
-        # trade on the user's TV watchlist. BTCUSD/ETHUSD give the actual
-        # underlying for peer-flow comparison against the equity proxies.
-        "name": "Crypto",
-        "color": "#f78166",
-        "symbols": ["BTCUSD", "ETHUSD", "MSTR", "COIN", "IREN"],
-    },
-    {
-        # New 2026-05-24 — payments + brokerage + crypto-fintech cluster.
-        # Real peer group: V's flow + HOOD's volume + SHOP's print all
-        # reflect the consumer/risk-on cycle differently than Mega Tech.
-        "name": "Fintech",
-        "color": "#8957e5",
-        "symbols": ["V", "SHOP", "HOOD", "COIN"],
-    },
-    {
-        # New 2026-05-24 — small but cohesive. Both names are
-        # high-beta speculative aerospace; they often move together on
-        # NASA/DoD contract news or broader risk-on rotations.
-        "name": "Space",
-        "color": "#0969da",
-        "symbols": ["RKLB", "SPCE"],
-    },
-    {
-        # New 2026-05-24 — AI infrastructure / data layer plays.
-        # PLTR and SWMR (and CRWV when wearing that hat) move on the
-        # "AI buildout" narrative independently of Mega Tech earnings.
-        "name": "AI Data",
-        "color": "#fb8500",
-        "symbols": ["PLTR", "SWMR"],
-    },
-    {
-        "name": "Power",
-        "color": "#cf222e",
-        "symbols": ["VST", "CEG", "TLN", "POWL", "OKLO"],
-    },
-    {
-        # 2026-05-25 — thematic bet on the nuclear renaissance / AI power
-        # demand cycle. One pick per layer of the value chain, weighted to
-        # names with actual earnings + EPS + growth (skips pre-revenue
-        # SMR story stocks like OKLO/SMR/NNE).
-        #   Layer 1 (miners):       CCJ — Cameco, only profitable uranium
-        #                                  producer with utility contracts
-        #                                  repricing higher
-        #   Layer 2 (fuel cycle):   LEU — Centrus, US HALEU monopoly,
-        #                                  DOE contracts, EPS inflecting
-        #   Layer 3 (SMR + adv):    GEV — GE Vernova, BWRX-300 SMR with
-        #                                  real industrial cash flow base
-        #   Layer 4 (utilities):    CEG — Constellation, largest US
-        #                                  nuclear fleet + AI PPA momentum
-        # Named "Speculation" because while individual names are real
-        # businesses, the thematic exposure is concentrated and theme-
-        # dependent — treat as a basket bet, not a portfolio diversifier.
-        "name": "Speculation",
-        "color": "#f59e0b",
-        "symbols": ["CCJ", "LEU", "GEV", "CEG"],
-    },
-    {
-        "name": "Macro",
-        "color": "#6e7681",
-        "symbols": ["SPY", "QQQ", "IWM", "DIA", "XLK", "XLE", "XLF", "XLV"],
+        # Sector movers — watch for rotation / confirmation of the broader
+        # tape, not for daily single-name action.
+        "name": "Tier 3 · Sector Movers",
+        "color": "#a371f7",  # purple — rotation / context watch
+        "symbols": ["AVGO", "MSFT", "MSTR", "META", "CEG", "VST", "SNDK"],
     },
 ]
 
@@ -610,16 +539,14 @@ async def delete_group(
     await db.delete(group)
 
 
-@router.post("/groups/seed-defaults", response_model=List[WatchlistGroupResponse])
-async def seed_default_groups(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """One-click seed of curated default groups + symbols.
+async def _apply_default_groups(db: AsyncSession, user: User) -> list[WatchlistGroup]:
+    """Build the DEFAULT_GROUPS tier structure onto the user's watchlist.
 
-    Idempotent: groups with the same name are reused; duplicate symbols on the
-    user's watchlist are left alone. Existing watchlist items keep their current
-    group assignment (no overwrite).
+    Idempotent + additive: groups with a matching name are reused, symbols
+    already present keep their placement (ungrouped ones get attached to the
+    matching tier). Respects the user's tier cap (admins / unlimited bypass).
+    Shared by both seed-defaults (additive) and reset-defaults (which first
+    wipes the watchlist, so this runs against a clean slate).
     """
     tier = get_user_tier(user)
     limits = get_limits(tier)
@@ -680,6 +607,44 @@ async def seed_default_groups(
 
     await db.flush()
     return groups_out
+
+
+@router.post("/groups/seed-defaults", response_model=List[WatchlistGroupResponse])
+async def seed_default_groups(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One-click seed of the curated default tiers + symbols (additive).
+
+    Idempotent: groups with the same name are reused; duplicate symbols on the
+    user's watchlist are left alone. Existing watchlist items keep their current
+    group assignment (no overwrite). To start fresh instead, see reset-defaults.
+    """
+    return await _apply_default_groups(db, user)
+
+
+@router.post("/groups/reset-defaults", response_model=List[WatchlistGroupResponse])
+async def reset_default_groups(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the caller's ENTIRE watchlist with the default tiers.
+
+    Destructive: deletes all of the caller's watchlist items + groups, then
+    rebuilds the clean DEFAULT_GROUPS tier structure. Unlike seed-defaults
+    (which only adds), this restructures a cluttered watchlist down to the
+    focused ~19-name, 3-tier layout. Backs the "Reset to tiers" action.
+
+    Only the caller's own rows are touched (everything is scoped to user.id).
+    The `focus` flag lives on the items themselves, so it resets with them;
+    alert routing is unaffected (it's driven by the Pine universe, not groups).
+    """
+    # Delete items first (group_id is ON DELETE SET NULL, but explicit order
+    # keeps intent clear), then the now-empty groups.
+    await db.execute(delete(WatchlistItem).where(WatchlistItem.user_id == user.id))
+    await db.execute(delete(WatchlistGroup).where(WatchlistGroup.user_id == user.id))
+    await db.flush()
+    return await _apply_default_groups(db, user)
 
 
 # ---------------------------------------------------------------------------
