@@ -40,9 +40,16 @@ enW_hrec  = input.bool(true, "Weekly · RC-H — reclaim prior-week HIGH (BUY)",
 gM = "Monthly RC — position (rare)"
 enM_long  = input.bool(true, "Monthly · RC — reclaim prior-month LOW (BUY)", group = gM)
 enM_hrec  = input.bool(true, "Monthly · RC-H — reclaim prior-month HIGH (BUY)", group = gM)
-gD = "Display"
-show_lvl  = input.bool(true, "Draw the prior-period level lines", group = gD)
-lvl_bars  = input.int(18, "Extend level lines this many bars", minval = 1, group = gD)
+gD = "Display — prior levels (merged from 'Prior Levels Flat')"
+show_lvl  = input.bool(true, "Draw prior-level S/R lines", group = gD)
+show_pdh  = input.bool(true, "  PDH / PDL — daily (solid)", group = gD)
+show_pw   = input.bool(true, "  PWH / PWL — weekly (dashed)", group = gD)
+show_pm   = input.bool(true, "  PMH / PML — monthly (dotted)", group = gD)
+show_cml  = input.bool(true, "  CML — current-month low", group = gD)
+lvl_bars  = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gD)
+col_sup   = input.color(#26A69A, "Support color (price ABOVE the level)", group = gD)
+col_res   = input.color(#EF5350, "Resistance color (price BELOW the level)", group = gD)
+col_cml   = input.color(#FFA726, "CML color", group = gD)
 
 // ── Per-TF levels. The LEVEL (prior completed high/low) MUST be LOCKED — identical
 // on every chart TF. The non-repainting pattern for that is high[1]/low[1] WITH
@@ -60,6 +67,9 @@ l4d = request.security(syminfo.tickerid, "240", low, lookahead = barmerge.lookah
 lDd = request.security(syminfo.tickerid, "D",   low, lookahead = barmerge.lookahead_off)
 lWd = request.security(syminfo.tickerid, "W",   low, lookahead = barmerge.lookahead_off)
 lMd = request.security(syminfo.tickerid, "M",   low, lookahead = barmerge.lookahead_off)
+// CML (current-month low) for the visual — regular-session ticker + lookahead_on so
+// the developing month's low reads identically on every chart TF (no EH leak).
+cml = request.security(ticker.new(syminfo.prefix, syminfo.ticker, session.regular), "M", low, lookahead = barmerge.lookahead_on)
 
 // ── New-period flags (reset the sweep state at each period boundary) ───────
 n4 = ta.change(time("240")) != 0
@@ -126,22 +136,43 @@ plotshape(rc4_short, title = "4h short", style = shape.triangledown, location = 
 plotshape(rcD_long,  title = "D RC",     style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
 plotshape(rcD_hrec,  title = "D RC-H",   style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
 
-// ── Level lines (last bar only) — draw + LABEL the prior-period high/low for
-// every ENABLED TF, so the anchored level (e.g. MU's prior-month high) is visible
-// on whatever chart TF you're on. WEEKLY + MONTHLY only — the 4h prior-high/low
-// redraw every 4h and clutter the chart, and the 4hl/4hh triangles already mark
-// the 4h reclaims. Weekly = medium-dashed, monthly = thick-solid.
+// ── Prior-level S/R lines (merged from "Prior Levels Flat") — PDH/PDL · PWH/PWL ·
+// PMH/PML drawn as flat horizontals, COLORED BY ROLE (green = support, price above
+// it · red = resistance, price below it). Daily solid · weekly dashed · monthly
+// dotted · CML orange. Reuses the SAME levels the RC alerts fire on (hDp/lDp = PDH/
+// PDL, hWp/lWp = PWH/PWL, hMp/lMp = PMH/PML) so the visual and alerts never diverge.
+// Redrawn on the last bar (old lines/labels cleared first).
+is_support(float lvl) => not na(lvl) and close > lvl
+var line[]  pl_lines  = array.new_line(0)
+var label[] pl_labels = array.new_label(0)
+draw_level(float lvl, string nm, int sty, int loff, color col_ovr) =>
+    if not na(lvl)
+        col = not na(col_ovr) ? col_ovr : (is_support(lvl) ? col_sup : col_res)
+        lstyle = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
+        ln = line.new(bar_index - lvl_bars, lvl, bar_index + loff, lvl, color = col, width = 2, style = lstyle)
+        lb = label.new(bar_index + loff, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        array.push(pl_lines, ln)
+        array.push(pl_labels, lb)
 if show_lvl and barstate.islast
-    if okW and (enW_long or enW_hrec)
-        line.new(bar_index - lvl_bars, hWp, bar_index + lvl_bars, hWp, xloc = xloc.bar_index, color = color.new(color.teal, 5), width = 3, style = line.style_dashed)
-        line.new(bar_index - lvl_bars, lWp, bar_index + lvl_bars, lWp, xloc = xloc.bar_index, color = color.new(color.lime, 5), width = 3, style = line.style_dashed)
-        label.new(bar_index + lvl_bars, hWp, "W HI", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.teal, 0), size = size.small)
-        label.new(bar_index + lvl_bars, lWp, "W LO", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.lime, 0), size = size.small)
-    if okM and (enM_long or enM_hrec)
-        line.new(bar_index - lvl_bars, hMp, bar_index + lvl_bars, hMp, xloc = xloc.bar_index, color = color.new(color.teal, 0), width = 4, style = line.style_solid)
-        line.new(bar_index - lvl_bars, lMp, bar_index + lvl_bars, lMp, xloc = xloc.bar_index, color = color.new(color.lime, 0), width = 4, style = line.style_solid)
-        label.new(bar_index + lvl_bars, hMp, "M HI", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.teal, 0), size = size.normal)
-        label.new(bar_index + lvl_bars, lMp, "M LO", xloc = xloc.bar_index, style = label.style_none, textcolor = color.new(color.lime, 0), size = size.normal)
+    if array.size(pl_lines) > 0
+        for i = 0 to array.size(pl_lines) - 1
+            line.delete(array.get(pl_lines, i))
+        array.clear(pl_lines)
+    if array.size(pl_labels) > 0
+        for i = 0 to array.size(pl_labels) - 1
+            label.delete(array.get(pl_labels, i))
+        array.clear(pl_labels)
+    if show_pdh
+        draw_level(hDp, "PDH", 0, 2, na)
+        draw_level(lDp, "PDL", 0, 6, na)
+    if show_pw
+        draw_level(hWp, "PWH", 1, 10, na)
+        draw_level(lWp, "PWL", 1, 14, na)
+    if show_pm
+        draw_level(hMp, "PMH", 2, 18, na)
+        draw_level(lMp, "PML", 2, 22, na)
+    if show_cml
+        draw_level(cml, "CML", 2, 26, col_cml)
 
 // ── Alerts ────────────────────────────────────────────────────────────────
 // entry = the RECLAIMED LEVEL (the prior-period low for RC, high for RC-H) — NOT
