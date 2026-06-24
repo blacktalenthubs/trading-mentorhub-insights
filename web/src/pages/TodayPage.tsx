@@ -7,10 +7,10 @@
  *  Its own scroll root (AppLayout <main> is overflow-hidden — see
  *  feedback_page_scroll_container).
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, TrendingUp, ChevronRight, ChevronDown, Bot } from "lucide-react";
-import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useEodRecap } from "../api/hooks";
+import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useMarketReports } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
@@ -194,26 +194,62 @@ function DayRead({ spy, btc, signals, ideas, coiling, leaders, losing, onJump }:
   );
 }
 
-/* ── EOD Recap: the same end-of-day report sent to Telegram (Tape · Morning Verdict
-   · Tomorrow Watch · AI Recap · Trending), persisted by triage-agent/eod.py. ── */
-function EodRecapView() {
-  const { data, isLoading } = useEodRecap();
+/* ── Market reports: the SAME daily intelligence sent to Telegram — the morning
+   Premarket Heat brief (premarket.py) and the EOD Recap (eod.py), persisted by
+   triage-agent. Premarket/EOD toggle defaults to whichever dropped most recently. ── */
+function ReportsView() {
+  const { data, isLoading } = useMarketReports();
+  const pre = data?.premarket ?? null;
+  const eod = data?.eod ?? null;
+  // Default to the freshest report by created_at (premarket in the morning, EOD after close).
+  const freshest: "premarket" | "eod" =
+    eod && pre ? ((eod.created_at || "") > (pre.created_at || "") ? "eod" : "premarket")
+    : eod ? "eod" : "premarket";
+  const [which, setWhich] = useState<"premarket" | "eod">(freshest);
+  // Re-sync the default when data first arrives (freshest is "premarket" until loaded).
+  const lastFresh = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${pre?.created_at || ""}|${eod?.created_at || ""}`;
+    if (lastFresh.current !== key && (pre || eod)) {
+      lastFresh.current = key;
+      setWhich(freshest);
+    }
+  }, [pre, eod, freshest]);
+
   if (isLoading) {
-    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading recap…</div>;
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading reports…</div>;
   }
-  const body = data?.recap;
-  if (!body) {
-    return (
-      <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
-        No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here, the same report that goes to Telegram.
-      </div>
-    );
-  }
-  // Telegram HTML mode uses <pre>/<b> etc. — strip the tags, keep the text + layout.
-  const text = body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "");
+  const active = which === "eod" ? eod : pre;
+  const text = active?.body?.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "");
   return (
-    <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
-      <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
+    <div className="space-y-2">
+      <div className="flex gap-1.5">
+        {([["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => {
+          const has = id === "eod" ? !!eod : !!pre;
+          return (
+            <button
+              key={id}
+              onClick={() => setWhich(id)}
+              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                which === id ? "bg-accent/15 text-accent" : "bg-surface-2 text-text-muted hover:text-text-secondary"
+              } ${has ? "" : "opacity-50"}`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {text ? (
+        <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
+          <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
+          {which === "premarket"
+            ? "No premarket brief yet — it drops pre-open (~8:30 AM ET) and shows here, the same report that goes to Telegram."
+            : "No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here, the same report that goes to Telegram."}
+        </div>
+      )}
     </div>
   );
 }
@@ -321,7 +357,7 @@ export default function TodayPage() {
 
         {/* tabs */}
         <div className="flex items-center gap-1 mb-4 bg-surface-2 rounded-lg p-0.5 w-fit">
-          {([["signals", "Signals"], ["briefing", "Recap"]] as const).map(([id, label]) => (
+          {([["signals", "Signals"], ["briefing", "Reports"]] as const).map(([id, label]) => (
             <button
               key={id}
               onClick={() => pickTab(id)}
@@ -403,9 +439,9 @@ export default function TodayPage() {
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 px-1 mb-2">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
-              <span className="text-[11px] text-text-faint">· end-of-day recap — same report as Telegram</span>
+              <span className="text-[11px] text-text-faint">· premarket + end-of-day — same reports as Telegram</span>
             </div>
-            <EodRecapView />
+            <ReportsView />
           </div>
         )}
       </div>

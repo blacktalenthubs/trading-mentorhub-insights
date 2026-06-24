@@ -406,8 +406,10 @@ def run_eod_recap(send: bool = True) -> dict:
     recap = format_eod_recap(quotes, morning, graded_picks, graded_focus,
                              graded_avoid, tomorrow, polish, et)
 
-    # Persist so the app's Today tab can show the SAME recap (not Telegram-only).
-    _persist_recap(et, recap)
+    # Persist + in-app push so the app's Today tab shows the SAME recap and users
+    # get notified when it drops — no longer Telegram-only.
+    import reports_store
+    reports_store.publish("eod", et, recap, send=send)
 
     if send:
         try:
@@ -421,34 +423,6 @@ def run_eod_recap(send: bool = True) -> dict:
         "n_picks_graded": len(graded_picks),
         "n_tomorrow": len(tomorrow),
     }
-
-
-def _persist_recap(et, body: str) -> None:
-    """Write the EOD recap to the eod_recap table so the app's Today tab reads it.
-    Idempotent per session_date (re-runs overwrite). Best-effort — never blocks the
-    Telegram send."""
-    if not DATABASE_URL:
-        return
-    try:
-        sd = et.strftime("%Y-%m-%d")
-        with psycopg2.connect(DATABASE_URL) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS eod_recap (
-                        session_date TEXT PRIMARY KEY,
-                        body         TEXT NOT NULL,
-                        created_at   TIMESTAMP NOT NULL DEFAULT NOW()
-                    )""")
-                cur.execute("""
-                    INSERT INTO eod_recap (session_date, body, created_at)
-                    VALUES (%s, %s, NOW())
-                    ON CONFLICT (session_date) DO UPDATE
-                        SET body = EXCLUDED.body, created_at = NOW()
-                """, (sd, body))
-            conn.commit()
-        logger.info("eod: recap persisted for %s", sd)
-    except Exception:
-        logger.exception("eod: persist recap failed")
 
 
 if __name__ == "__main__":

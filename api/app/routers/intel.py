@@ -620,30 +620,54 @@ async def eod_recap(
         return {"recap": f"Recap generation failed: {exc}"}
 
 
-@router.get("/eod-recap/latest")
-async def eod_recap_latest(
-    db: AsyncSession = Depends(get_db_dep),
-    user: User = Depends(get_current_user),
-):
-    """The RICH EOD recap (Tape · Morning Verdict · Tomorrow Watch · AI Recap ·
-    Trending) persisted by triage-agent/eod.py — the same text sent to Telegram.
-    Powers the Today → Briefing tab. Fails soft if the cron hasn't run yet."""
+async def _latest_report(db: AsyncSession, kind: str) -> dict | None:
+    """Latest persisted report of a given kind from market_reports. None if absent."""
     from sqlalchemy import text
     try:
         row = (await db.execute(text(
-            "SELECT session_date, body, created_at FROM eod_recap "
-            "ORDER BY session_date DESC LIMIT 1"
-        ))).first()
+            "SELECT session_date, body, created_at FROM market_reports "
+            "WHERE kind = :kind ORDER BY session_date DESC LIMIT 1"
+        ), {"kind": kind})).first()
         if not row:
-            return {"recap": None, "session_date": None}
+            return None
         return {
-            "recap": row.body,
+            "body": row.body,
             "session_date": row.session_date,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
     except Exception:
         # table may not exist yet (no cron run) — don't 500 the Today page
+        return None
+
+
+@router.get("/market-report/latest")
+async def market_report_latest(
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """Latest Premarket Heat brief and EOD Recap (Tape · Verdict · Tomorrow Watch ·
+    AI Recap · Trending) persisted by triage-agent — the SAME text sent to Telegram.
+    Powers the Today → Recap tab. Fails soft if the cron hasn't run yet."""
+    return {
+        "premarket": await _latest_report(db, "premarket"),
+        "eod": await _latest_report(db, "eod"),
+    }
+
+
+@router.get("/eod-recap/latest")
+async def eod_recap_latest(
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """Back-compat alias for the EOD recap only. Prefer /market-report/latest."""
+    rep = await _latest_report(db, "eod")
+    if not rep:
         return {"recap": None, "session_date": None}
+    return {
+        "recap": rep["body"],
+        "session_date": rep["session_date"],
+        "created_at": rep["created_at"],
+    }
 
 
 # --- Trade Replay Analyst ---
