@@ -436,8 +436,7 @@ function ThemeToggle() {
    30-RSI buy, and 200-MA bounces. Writes the global regime_config. Self-hides
    for non-admins (it's one shared list, not per-user). */
 function MarketGateSection() {
-  const isAdmin = useAuthStore((s) => s.user?.is_admin) ?? false;
-  const { data, isLoading } = useRegimeConfig();
+  const { data, isLoading, isError } = useRegimeConfig();
   const update = useUpdateRegimeConfig();
   const [enabled, setEnabled] = useState(false);
   const [exempt, setExempt] = useState("");
@@ -450,7 +449,7 @@ function MarketGateSection() {
     }
   }, [data, dirty]);
 
-  if (!isAdmin) return null;  // global setting — admins only (email-based)
+  if (isError) return null;  // endpoint unreachable → hide rather than show a broken card
 
   const save = () => {
     update.mutate(
