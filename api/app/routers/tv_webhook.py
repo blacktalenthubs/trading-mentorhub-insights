@@ -1196,30 +1196,26 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["rc_4h_short_symbols"])
             if "rc_4h_short_symbols" in _rc else RC4H_SHORT_DEFAULT
         )
-        # Short-alert allowlist (#278) — shorts of ANY type flow ONLY for these
-        # symbols; everything else Not-routed. Opt-in; missing key ⇒ SPY,QQQ.
+        # ALL per-symbol allowlists below default to EMPTY (2026-06-23 — alert rules
+        # apply to the whole WATCHLIST, no per-symbol exceptions; the *_DEFAULT consts
+        # are frozenset()). An empty set bypasses the filter → routes every name. Kept
+        # only as optional admin restrictors (set a key in regime_config to re-clamp).
         short_symbols = (
             _parse_exempt_syms(_rc["short_symbols"])
             if "short_symbols" in _rc else SHORT_SYMS_DEFAULT
         )
-        # MA/EMA bounce allowlist (#282) — MA alerts fire ONLY for these clean names;
-        # everything else Not-routed. Missing key ⇒ SPY,QQQ,DRAM,MU,AAPL.
         ma_alert_symbols = (
             _parse_exempt_syms(_rc["ma_alert_symbols"])
             if "ma_alert_symbols" in _rc else MA_SYMS_DEFAULT
         )
-        # 4h RC allowlist (#286) — rc_4h alerts (long + short) fire ONLY for these.
         rc_symbols = (
             _parse_exempt_syms(_rc["rc_symbols"])
             if "rc_symbols" in _rc else RC_SYMS_DEFAULT
         )
-        # Gap-and-go always-deliver allowlist — fires even when gap-and-go is muted;
-        # missing key ⇒ the SPY,QQQ default.
         gap_always_symbols = (
             _parse_exempt_syms(_rc["gap_always_symbols"])
             if "gap_always_symbols" in _rc else GAP_ALWAYS_DEFAULT
         )
-        # Multi-period S/R allowlist — opt-in per symbol; missing key ⇒ SPY,QQQ.
         htf_sr_symbols = (
             _parse_exempt_syms(_rc["htf_sr_symbols"])
             if "htf_sr_symbols" in _rc else HTF_SR_DEFAULT
