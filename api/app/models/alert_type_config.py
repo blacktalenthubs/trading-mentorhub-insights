@@ -377,19 +377,30 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
 async def seed_alert_type_config(conn) -> None:
     """Idempotently sync the catalogue into the table.
 
-    Inserts missing rows; refreshes label/category on existing rows; never
-    touches `enabled`, so user toggles persist. Deletes obsoleted keys so
-    the Settings UI never shows dead toggles.
+    Inserts missing rows; refreshes label/category on existing rows. Deletes
+    obsoleted keys so the Settings UI never shows dead toggles.
+
+    EVERY supported (non-obsolete) type is seeded GLOBALLY ENABLED (2026-06-24).
+    The global `enabled` flag is an ADMIN kill-switch, NOT the opt-in — the real,
+    per-user gate is `user_alert_type_prefs` (default OFF, opt-in via Settings).
+    Seeding global=True uniformly means a re-seed (a brand-new type, or an
+    obsolete round-trip) can NEVER silently suppress a supported type the way
+    monthly_rc was — it sat at the catalog's default-False and the global gate
+    (checked before the per-user gate) dropped every fire as `type_not_enabled`.
+    All alert types now behave the same: globally available, gated solely by the
+    user's toggle. `default_enabled` in the catalog is kept for documentation but
+    no longer drives the global flag. Existing rows are NOT downgraded (an admin
+    who globally muted a type keeps that), so this only heals new/re-added rows.
     """
-    for alert_type, label, category, default_enabled in ALERT_TYPE_CATALOG:
+    for alert_type, label, category, _default_enabled in ALERT_TYPE_CATALOG:
         await conn.execute(
             text(
                 "INSERT INTO alert_type_config (alert_type, label, category, enabled) "
-                "VALUES (:at, :label, :cat, :en) "
+                "VALUES (:at, :label, :cat, TRUE) "
                 "ON CONFLICT (alert_type) DO UPDATE SET "
                 "label = EXCLUDED.label, category = EXCLUDED.category"
             ),
-            {"at": alert_type, "label": label, "cat": category, "en": default_enabled},
+            {"at": alert_type, "label": label, "cat": category},
         )
     for obsolete in OBSOLETE_ALERT_TYPES:
         await conn.execute(
