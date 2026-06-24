@@ -910,7 +910,7 @@ def _daily_rsi(product: str, is_crypto: bool, period: int = 14):
     return rsi
 
 
-def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
+def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None, below_trend=None) -> dict:
     """Shared regime computation from ONE session's bars + prior levels —
     used by both SPY (Alpaca) and BTC (Coinbase). Computes session VWAP/slope,
     inside-day, below_pdl, and the bias label. `label` is the market name for
@@ -941,24 +941,31 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
         and today_high < pdh and today_low > pdl
     )
     below_pdl = bool(pdl is not None and last_price < pdl)
-    logging.getLogger(__name__).info(
-        "%s regime: price=%.2f pdl=%s (src=%s) below_pdl=%s",
-        label, last_price, pdl, pdl_src, below_pdl,
-    )
 
-    # Regime = price vs PDL, the clean binary (2026-06-13). SPY held its PDL
-    # through the whole advance; losing it is where trouble starts. ABOVE PDL =
-    # HEALTHY (dip-buys flow); BELOW PDL = WEAK (dips get knifed — longs gated,
-    # shorts flow). The old INSIDE-DAY / VWAP-slope labels mislabeled a healthy
-    # above-PDL tape as "NEUTRAL" (Friday 06-12). inside_day stays in the dict
-    # below as context, but no longer drives the headline regime.
-    if below_pdl:
+    # Headline regime. When the caller passes `below_trend` (SPY → its daily 8 & 21
+    # EMA read, 2026-06-24), use it so the banner matches the alert gate EXACTLY:
+    # below BOTH the 8 & 21 = not trending → WEAK (day-trade longs gated, shorts
+    # flow); above the 8 OR 21 = trending → HEALTHY; None (no data) → HEALTHY.
+    # When below_trend is omitted (BTC), keep the prior PDL-based binary unchanged.
+    logging.getLogger(__name__).info(
+        "%s regime: price=%.2f below_trend=%s pdl=%s (src=%s) below_pdl=%s",
+        label, last_price, below_trend, pdl, pdl_src, below_pdl,
+    )
+    if below_trend is not None:
+        weak = below_trend is True
+        weak_why = "below its 8 & 21 EMA (not trending; day-trade longs gated)"
+        ok_why = "trading above its 8/21 EMA"
+    else:
+        weak = below_pdl
+        weak_why = "below its prior-day low (dips get knifed; longs gated)"
+        ok_why = "holding above its prior-day low"
+    if weak:
         bias = "WEAK"
-        bias_label = f"WEAK — {label} below its prior-day low (dips get knifed; longs gated)"
+        bias_label = f"WEAK — {label} {weak_why}"
         bias_color = "red"
     else:
         bias = "HEALTHY"
-        bias_label = f"HEALTHY — {label} holding above its prior-day low"
+        bias_label = f"HEALTHY — {label} {ok_why}"
         bias_color = "green"
 
     # RSI context (daily) — informs sizing, not a gate. <= 30 oversold,
@@ -976,6 +983,7 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None) -> dict:
         "pdh": pdh,
         "pdl": pdl,
         "below_pdl": below_pdl,
+        "below_8_21": below_trend,
         "inside_day": inside_day,
         "rsi": round(rsi, 1) if rsi is not None else None,
         "rsi_zone": rsi_zone,
@@ -1045,7 +1053,8 @@ def _spy_regime_fresh() -> dict:
         return {"status": "unavailable", "reason": "no current-session bars"}
 
     pdh, pdl, src = _spy_prior_levels(bars, cur_date)
-    return _regime_dict(today_bars, pdh, pdl, src, "SPY", rsi=_daily_rsi("SPY", False))
+    return _regime_dict(today_bars, pdh, pdl, src, "SPY", rsi=_daily_rsi("SPY", False),
+                        below_trend=_spy_below_8_and_21())
 
 
 def _crypto_prior_levels(product: str, last_date) -> tuple:
