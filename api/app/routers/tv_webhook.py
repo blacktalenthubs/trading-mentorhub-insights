@@ -1337,41 +1337,17 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         )
 
     # ──────────────────────────────────────────────────────────────────
-    # SPY 8/21-EMA trend gate (2026-06-24) — Redler's rule, mechanized.
+    # SPY 8/21-EMA trend gate (2026-06-24) — now PER-USER (opt-in, default OFF).
     # ──────────────────────────────────────────────────────────────────
-    # When SPY closes BELOW BOTH its daily 8 & 21 EMA the tape isn't trending —
-    # day-trade longs get bitten and most equities just follow the market down.
-    # So suppress day-trade LONG (BUY) entries on every equity EXCEPT:
-    #   • the exempt set (global Settings list) — those trade in any tape;
-    #   • the contrarian/position bypass (_gate_bypass): monthly_rc, the 30-RSI
-    #     oversold buy, and a 200-MA bounce — the setups that WORK in a washout.
-    # SHORTS flow (a weak tape is the short side). Weekly RC is NOT bypassed — a
-    # weekly level gets bitten and rarely holds in chop, so it's gated like any
-    # day-trade level. Above the 8 OR the 21 = trending → everything flows.
-    # Crypto unaffected. Default OFF (spy_trend_gate_enabled); fail-open on missing
-    # data. Reuses _spy_below_8_and_21 (same read as the regime banner).
-    if (
-        spy_trend_gate_on
-        and not _is_crypto_symbol(sig.symbol)
-        and (sig.direction or "").upper() == "BUY"
-        and not _gate_bypass(alert_type_full)      # monthly_rc / rsi_oversold / 200-bounce always flow
-        and (sig.symbol or "").upper() not in spy_trend_exempt
-    ):
-        _below_8_21 = await asyncio.get_running_loop().run_in_executor(
-            None, _spy_below_8_21_now
-        )
-        if _below_8_21 is True:                    # below BOTH 8 & 21 = flat tape → gate the long
-            logger.info(
-                "TV webhook: SPY below 8&21 — flat-tape gated BUY %s for %s",
-                alert_type_full, sig.symbol,
-            )
-            return await _persist_unrouted(
-                sig, alert_type_full, session_date,
-                suppressed_reason="spy_below_8_21",
-            )
+    # The gate moved OUT of this global path and INTO the per-user fan-out
+    # (_filter_users_by_market_gate): each user who turned the gate ON has their
+    # DAY-TRADE LONGS suppressed while SPY is below both its 8 & 21 EMA, except
+    # their own exempt symbols + the always-flow bypass (monthly_rc / rsi_oversold
+    # / 200-bounce). Shorts + crypto are never gated. Users with the gate OFF are
+    # unaffected. So one user's gate never changes another's feed.
 
     # ──────────────────────────────────────────────────────────────────
-    # Retired gates (history) — the only live gate is the SPY-trend gate above.
+    # Retired gates (history) — the SPY-trend gate is now per-user (fan-out).
     # ──────────────────────────────────────────────────────────────────
     # Removed and kept UNWIRED for easy revival (all pure + unit-tested):
     #   • SPY/BTC below-PDL hard block — spy_pdl_blocks_buy / crypto_pdl_blocks_buy
@@ -1626,6 +1602,15 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             # silent drop; bit "I disabled ORL but it doesn't even hit Not-routed" (2026-06-22).
             logger.info("TV webhook: no users enabled %s for %s — recording unrouted", alert_type_full, sig.symbol)
             return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="type_not_enabled")
+
+        # Per-user SPY 8/21 market gate (opt-in, default OFF). Drop only the users
+        # who turned the gate ON, for a day-trade long, while SPY is below its 8/21
+        # and the symbol isn't on THEIR exempt list. Others are unaffected.
+        kept = await _filter_users_by_market_gate(db, users, sig, alert_type_full)
+        if not kept:
+            logger.info("TV webhook: every watcher gated %s for %s (SPY 8/21) — unrouted", alert_type_full, sig.symbol)
+            return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="spy_market_gate")
+        users = kept
 
         # ⭐ CONVICTION — flag the alert when the symbol is on the latest conviction
         # scan's Strong-Buy list (analyst-backed). The Pine setup is the trigger;
@@ -1905,6 +1890,45 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
     for uid, at in rows:
         by_user.setdefault(uid, set()).add(at)
     return [u for u in users if _is_allowed_alert_type(alert_type_full, by_user.get(u.id, set()))]
+
+
+async def _filter_users_by_market_gate(db, users, sig, alert_type_full: str):
+    """Per-user SPY 8/21 gate (opt-in, default OFF). Drop the users who turned
+    their gate ON, for a DAY-TRADE LONG, while SPY is below BOTH its 8 & 21 EMA,
+    when the symbol is NOT on THEIR exempt list. Everything else passes for
+    everyone: shorts, crypto, the always-flow bypass (monthly_rc / rsi_oversold /
+    200-bounce), and any user with the gate OFF. So one user's gate never affects
+    another's feed. Fail-open: missing SPY data ⇒ no one is gated."""
+    if not users:
+        return users
+    # Only DAY-TRADE LONG equity entries are gateable.
+    if (sig.direction or "").upper() != "BUY":
+        return users
+    if _is_crypto_symbol(sig.symbol) or _gate_bypass(alert_type_full):
+        return users
+    # Is SPY actually below both its 8 & 21? (one read for the whole fan-out)
+    below = await asyncio.get_running_loop().run_in_executor(None, _spy_below_8_21_now)
+    if below is not True:                      # trending (or no data) → gate open for all
+        return users
+
+    from app.models.user import User as _User
+    sym = (sig.symbol or "").upper()
+    ids = [u.id for u in users]
+    rows = (await db.execute(
+        select(_User.id, _User.market_gate_enabled, _User.market_gate_exempt)
+        .where(_User.id.in_(ids))
+    )).all()
+    gated: set[int] = set()
+    for uid, on, exempt in rows:
+        if not on:
+            continue
+        ex = {s.strip().upper() for s in (exempt or "").split(",") if s.strip()}
+        if sym not in ex:
+            gated.add(uid)
+    if gated:
+        logger.info("TV webhook: market-gate dropped %d user(s) for %s %s (SPY 8/21)",
+                    len(gated), alert_type_full, sym)
+    return [u for u in users if u.id not in gated]
 
 
 async def _users_watching(db, symbol: str):

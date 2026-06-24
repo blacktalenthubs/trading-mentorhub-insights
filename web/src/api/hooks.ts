@@ -2155,6 +2155,26 @@ export function useUpdateRegimeConfig() {
   });
 }
 
+// --- Per-user SPY 8/21 market gate (opt-in, default OFF) ---
+export interface MarketGate {
+  enabled: boolean;
+  exempt: string;  // comma-separated symbols
+}
+export function useMarketGate() {
+  return useQuery({
+    queryKey: ["market-gate"],
+    queryFn: () => api.get<MarketGate>("/settings/market-gate"),
+    staleTime: 60_000,
+  });
+}
+export function useUpdateMarketGate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: Partial<MarketGate>) => api.put<MarketGate>("/settings/market-gate", v),
+    onSuccess: (res) => qc.setQueryData(["market-gate"], res),
+  });
+}
+
 export function useToggleAlertConfig() {
   const qc = useQueryClient();
   return useMutation({
