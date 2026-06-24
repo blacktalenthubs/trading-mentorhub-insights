@@ -780,14 +780,67 @@ def _gather_emerging() -> list:
 
 
 async def refresh_emerging() -> None:
-    """Run the Emerging Leaders scan and persist a snapshot (kind='emerging')."""
+    """Run the Emerging Leaders scan and persist a snapshot (kind='emerging').
+
+    Event-driven push: notify ONLY when a NEW name enters the board (vs the prior
+    snapshot) — not on a fixed schedule. The scan can run often (cheap, pure math),
+    but you're only tapped when something actually emerges. The very first seed
+    (no prior snapshot) never pushes."""
     try:
         cands = await asyncio.to_thread(_gather_emerging)
+        prev = await get_latest_snapshot("emerging")
+        prev_syms = {str(e.get("symbol", "")).upper() for e in (prev.entries or [])} if prev else set()
         await _save_snapshot(cands, kind="emerging", market_open=False, top_n=5)
         logger.info("emerging: snapshot refreshed (%d names)", len(cands))
+        # push only the genuinely new entrants, and never on the first-ever seed
+        if prev is not None:
+            new = [c for c in cands if c.symbol.upper() not in prev_syms]
+            if new:
+                await _push_new_emerging(new)
     except Exception:
         logger.exception("emerging: refresh failed — marking last snapshot stale")
         await _mark_latest_stale("emerging")
+
+
+async def _all_ios_tokens() -> list[str]:
+    """Every registered iOS push token — device_tokens table ∪ users.apns_token
+    (the path live alert pushes use). Used to broadcast a discovery notification."""
+    from sqlalchemy import text
+    async with async_session_factory() as s:
+        rows = (await s.execute(text(
+            "SELECT token FROM device_tokens WHERE platform = 'ios' "
+            "UNION "
+            "SELECT apns_token FROM users WHERE apns_enabled = true "
+            "AND apns_token IS NOT NULL AND apns_token <> ''"
+        ))).all()
+    return [r[0] for r in rows if r[0]]
+
+
+async def _push_new_emerging(new: list) -> None:
+    """Fan an APNs push out for new emerging names (the working live-alert path).
+    Graceful no-op if APNs isn't configured. Deep-links to Trade Ideas → Emerging."""
+    try:
+        from app.services.apns import apns_configured, send_apns_push
+        if not apns_configured():
+            logger.info("emerging: APNs not configured — skipping new-entrant push")
+            return
+        tokens = await _all_ios_tokens()
+        if not tokens:
+            return
+        lead = new[0]
+        extra = f" +{len(new) - 1} more" if len(new) > 1 else ""
+        title = "📈 New in your themes"
+        body = f"{lead.symbol} — {lead.why}{extra}"
+        payload = {"type": "emerging", "route": "/trade-ideas?tab=emerging",
+                   "symbols": [c.symbol for c in new]}
+        sent = 0
+        for tok in tokens:
+            if await send_apns_push(tok, title, body, payload):
+                sent += 1
+        logger.info("emerging: new-entrant push (%s) → %d device(s)",
+                    ", ".join(c.symbol for c in new), sent)
+    except Exception:
+        logger.exception("emerging: new-entrant push failed (non-fatal)")
 
 
 async def get_latest_emerging() -> ScreenerSnapshot | None:

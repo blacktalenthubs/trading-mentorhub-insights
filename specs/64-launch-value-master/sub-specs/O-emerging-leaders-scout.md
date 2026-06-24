@@ -43,10 +43,10 @@ Discovery today is **review-rhythm, not tap-me rhythm.** B's board and M's board
 
 **Scoring (reuse — see table above).** Composite over four inputs: **Stage 1→2 · RS-vs-SPY · volume thrust · sector tailwind.** Output a transparent **A/B/C grade with the per-criterion breakdown** — grade and show, never a black box, never silently dropped ([[feedback_no_filter_before_data]]).
 
-**Cadence.** Weekly (a Sunday-evening or Monday-premarket drop). These are trend setups — they don't change intraday; a weekly clock fits swing/trend and avoids noise. Runs in the triage agent like premarket/eod.
+**Cadence — daily scan, event-driven push (DECIDED 2026-06-23).** The Stage 1→2 tell is a weekly-bar event, but volume/sector tailwind can shift sooner — and the scan is **free** (pure deterministic math, **zero LLM tokens**). So scan **daily** (mon-fri) but **push only when a NEW name enters the board** vs the prior snapshot — never on a fixed calendar drip. You're tapped on *change*, silent when nothing's new (scarcity is the edge; matches "tap me only when it matters" better than a Monday push that fires even if the list is identical). The first-ever seed never pushes.
 
 **Delivery + surface.**
-- Persist via `reports_store.publish("emerging_leaders", …)` → `market_reports` (new `kind`) + **APNs push** ("📈 5 emerging in your themes"). The push **deep-links to the board** (see placement).
+- Persist the snapshot (`screener_snapshot`, kind=`emerging`) every scan. **APNs push fires only on a new entrant** — "📈 New in your themes · SNDK — early Stage 2, Memory leads" (+N more) — deep-linking to Trade Ideas → Emerging (`{type:"emerging", route:"/trade-ideas?tab=emerging"}`). Broadcast to all registered iOS devices via the working live-alert APNs path (`apns.send_apns_push`); graceful no-op if APNs unconfigured.
 - **Placement (DECIDED 2026-06-23): a "Emerging in your themes" section under the *Trade Ideas* tab**, alongside **Growth Leaders (M, "Long Term")** + **Conviction** — all discovery surfaces in one place. The board persists all week (not just at push time).
 
 **Card anatomy (a scout card is discovery, NOT an entry card — no entry/stop yet; adding to the watchlist is what unlocks alerts):**
@@ -64,7 +64,7 @@ Discovery today is **review-rhythm, not tap-me rhythm.** B's board and M's board
 `scout finds a themed name → user adds it → it throws trusted-core RC/weekly alerts → outcomes tracked → feeds the parked System Scorecard (#1)`. O **generates the data** the scorecard needs — so it sequences correctly *before* the scorecard, not after.
 
 ## Acceptance criteria
-- **O-1:** Once a week the user receives an in-app **push** with ≤5 emerging names, each carrying a one-line reason + an A/B/C grade.
+- **O-1:** The user receives an in-app **push only when a NEW name enters the board** (vs the prior snapshot) — never on a fixed schedule, and never on the first-ever seed. An unchanged board is silent.
 - **O-2:** Every surfaced name is in a **sector the user tracks** and is **not already on their watchlist**.
 - **O-3:** Each name shows a **transparent ✓/✗ breakdown** (Stage 1→2 · RS · volume · sector) — never a bare score.
 - **O-4:** One tap **adds the name to the watchlist** (existing bridge), after which it routes the user's trusted-core alerts.
