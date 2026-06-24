@@ -65,7 +65,12 @@ async def set_regime_config(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update one or both exempt lists. Takes effect on the next fired alert."""
+    """Update the market-gate config (global). ADMIN-ONLY — it's one shared list,
+    so a regular user must never change everyone's gate. Takes effect next alert."""
+    from fastapi import HTTPException, status
+    from app.dependencies import is_admin_user
+    if not is_admin_user(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
     updates = {
         "spy_trend_gate_enabled": body.spy_trend_gate_enabled,
         "spy_trend_exempt": body.spy_trend_exempt,
