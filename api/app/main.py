@@ -205,6 +205,9 @@ async def lifespan(app: FastAPI):
             # iOS APNs push notifications (Capacitor mobile app) — 2026-05-26
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_token VARCHAR(200)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS apns_enabled BOOLEAN DEFAULT FALSE",
+            # Per-user SPY 8/21 market gate (opt-in, default OFF)
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS market_gate_enabled BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS market_gate_exempt VARCHAR(2000) DEFAULT ''",
             # Coach message history persistence
             """CREATE TABLE IF NOT EXISTS coach_messages (
                 id SERIAL PRIMARY KEY,

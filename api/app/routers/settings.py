@@ -144,6 +144,55 @@ async def update_notification_prefs(
     return _build_notification_response(user)
 
 
+# --- Per-user SPY 8/21 Market Gate (opt-in, default OFF) ---
+
+from pydantic import BaseModel  # noqa: E402
+
+
+class MarketGateResponse(BaseModel):
+    enabled: bool
+    exempt: str  # comma-separated symbols
+
+
+class UpdateMarketGateRequest(BaseModel):
+    enabled: bool | None = None
+    exempt: str | None = None
+
+
+def _build_market_gate_response(user: User) -> MarketGateResponse:
+    return MarketGateResponse(
+        enabled=bool(getattr(user, "market_gate_enabled", False)),
+        exempt=getattr(user, "market_gate_exempt", "") or "",
+    )
+
+
+@router.get("/market-gate", response_model=MarketGateResponse)
+async def get_market_gate(user: User = Depends(get_current_user)):
+    """This user's SPY 8/21 gate setting. When enabled, their day-trade longs are
+    suppressed while SPY is below both its 8 & 21 EMA — except their exempt names."""
+    return _build_market_gate_response(user)
+
+
+@router.put("/market-gate", response_model=MarketGateResponse)
+async def update_market_gate(
+    body: UpdateMarketGateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.enabled is not None:
+        user.market_gate_enabled = body.enabled
+    if body.exempt is not None:
+        # Normalise: upper, de-dup, comma-joined.
+        syms = []
+        for s in body.exempt.split(","):
+            t = s.strip().upper()
+            if t and t not in syms:
+                syms.append(t)
+        user.market_gate_exempt = ",".join(syms)
+    await db.flush()
+    return _build_market_gate_response(user)
+
+
 # --- Per-Alert-Type Channel Routing ---
 
 

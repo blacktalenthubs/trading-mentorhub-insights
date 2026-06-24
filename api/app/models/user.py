@@ -45,6 +45,12 @@ class User(Base):
     referral_code: Mapped[Optional[str]] = mapped_column(String(20), unique=True, nullable=True)
     auto_analysis_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
 
+    # Per-user SPY 8/21 market gate (opt-in, default OFF). When enabled, this user's
+    # DAY-TRADE LONG alerts are suppressed while SPY is below both its 8 & 21 EMA —
+    # except symbols on their exempt list (and the always-flow bypass setups).
+    market_gate_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
+    market_gate_exempt: Mapped[str] = mapped_column(String(2000), server_default="", default="")
+
     # Attribution — captured at signup from UTM params
     attribution_source: Mapped[Optional[str]] = mapped_column(String(100))    # twitter, tiktok, friend, ...
     attribution_medium: Mapped[Optional[str]] = mapped_column(String(100))    # social, dm, cpc, organic, ...

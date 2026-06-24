@@ -18,8 +18,8 @@ import {
   useAlertConfig,
   useToggleAlertConfig,
   useToggleAllAlertConfig,
-  useRegimeConfig,
-  useUpdateRegimeConfig,
+  useMarketGate,
+  useUpdateMarketGate,
   type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
@@ -27,7 +27,7 @@ import type { NotificationPrefs } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Zap, ShieldCheck,
+  Sun, Moon, Zap, ShieldCheck, X, Plus,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 
@@ -430,80 +430,89 @@ function ThemeToggle() {
   );
 }
 
-/* ── Market gate (SPY 8/21 trend gate) — global, admin-only ──────────
-   When SPY closes below BOTH its daily 8 & 21 EMA the tape isn't trending, so
-   day-trade LONG alerts are gated except: the exempt symbols, monthly RC, the
-   30-RSI buy, and 200-MA bounces. Writes the global regime_config. Self-hides
-   for non-admins (it's one shared list, not per-user). */
+/* ── Market gate (SPY 8/21) — PER-USER, opt-in, default OFF ──────────
+   Each user controls their own gate + exempt allow-list (chips). When SPY closes
+   below BOTH its daily 8 & 21 EMA, this user's DAY-TRADE LONGS are suppressed —
+   except their exempt symbols (+ the always-flow bypass: monthly RC, 30-RSI,
+   200-MA bounce). Shorts never gated. Saves immediately on every change. */
 function MarketGateSection() {
-  const { data, isLoading, isError } = useRegimeConfig();
-  const update = useUpdateRegimeConfig();
-  const [enabled, setEnabled] = useState(false);
-  const [exempt, setExempt] = useState("");
-  const [dirty, setDirty] = useState(false);
+  const { data, isError } = useMarketGate();
+  const update = useUpdateMarketGate();
+  const [input, setInput] = useState("");
 
-  useEffect(() => {
-    if (data && !dirty) {
-      setEnabled((data.spy_trend_gate_enabled || "").toLowerCase() === "true");
-      setExempt(data.spy_trend_exempt || "");
-    }
-  }, [data, dirty]);
+  if (isError) return null;
 
-  if (isError) return null;  // endpoint unreachable → hide rather than show a broken card
+  const enabled = !!data?.enabled;
+  const symbols = (data?.exempt || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
 
-  const save = () => {
-    update.mutate(
-      {
-        spy_trend_gate_enabled: enabled ? "true" : "false",
-        spy_trend_exempt: exempt.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).join(","),
-      },
-      {
-        onSuccess: () => { toast.success("Market gate saved"); setDirty(false); },
-        onError: () => toast.error("Couldn't save the market gate"),
-      },
-    );
+  const setEnabled = (on: boolean) => update.mutate({ enabled: on });
+  const addSymbol = () => {
+    const s = input.trim().toUpperCase();
+    setInput("");
+    if (!s || symbols.includes(s)) return;
+    update.mutate({ exempt: [...symbols, s].join(",") });
   };
+  const removeSymbol = (s: string) =>
+    update.mutate({ exempt: symbols.filter((x) => x !== s).join(",") });
 
   return (
     <Section title="Market gate — SPY 8/21" icon={<ShieldCheck className="h-4 w-4 text-accent" />}>
       <p className="text-[12px] leading-relaxed text-text-muted mb-3">
         When SPY closes below <b>both</b> its daily 8 &amp; 21 EMA the tape isn't trending —
-        day-trade longs get bitten. Turn this on to <b>gate day-trade long alerts</b> in that regime.
-        Shorts still flow; <b>monthly RC, the 30-RSI buy, and 200-MA bounces</b> always fire; and the
-        exempt names below alert in any tape.
+        day-trade longs get bitten. Turn this on to gate <b>your</b> day-trade long alerts in that
+        regime. Shorts still flow; <b>monthly RC, the 30-RSI buy, and 200-MA bounces</b> always fire;
+        and your allow-list below alerts in any tape. It's your setting — it doesn't affect anyone else.
       </p>
-      <label className="flex items-center justify-between py-2 cursor-pointer">
-        <span className="text-[13px] text-text-secondary">Gate day-trade longs when SPY is below its 8/21</span>
+
+      <label className="flex items-center justify-between py-2 cursor-pointer select-none">
+        <span className="text-[13px] text-text-secondary">Gate my day-trade longs when SPY is below its 8/21</span>
         <button
           type="button"
-          onClick={() => { setEnabled((e) => !e); setDirty(true); }}
+          onClick={() => setEnabled(!enabled)}
           role="switch" aria-checked={enabled}
           className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-surface-3"}`}
         >
           <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${enabled ? "translate-x-5" : "translate-x-0.5"}`} />
         </button>
       </label>
+
       <div className="mt-3">
-        <label className="block text-[12px] font-medium text-text-secondary mb-1">
-          Exempt symbols — still alert in any tape (comma-separated)
+        <label className="block text-[12px] font-medium text-text-secondary mb-1.5">
+          Always alert me on these — even in a weak tape
         </label>
-        <input
-          value={exempt}
-          onChange={(e) => { setExempt(e.target.value); setDirty(true); }}
-          placeholder="SPY, NVDA, MU"
-          className="w-full rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-faint outline-none focus:border-accent"
-        />
-        <p className="mt-1 text-[11px] text-text-faint">Your tactical book — the few names you'll day-trade even when the market is flat.</p>
+        {symbols.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {symbols.map((s) => (
+              <span key={s} className="inline-flex items-center gap-1 rounded-md bg-accent/10 border border-accent/20 px-2 py-1 text-[12px] font-semibold text-accent">
+                {s}
+                <button type="button" onClick={() => removeSymbol(s)} className="text-accent/70 hover:text-accent" aria-label={`Remove ${s}`}>
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-text-faint mb-2">No symbols yet — add the names you'll day-trade even when the market is flat.</p>
+        )}
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value.toUpperCase())}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSymbol(); } }}
+            placeholder="Add a symbol (e.g. NVDA)"
+            className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-faint outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={addSymbol}
+            disabled={!input.trim() || update.isPending}
+            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+          >
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Add
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        onClick={save}
-        disabled={!dirty || update.isPending || isLoading}
-        className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-white transition-opacity disabled:opacity-50"
-      >
-        {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-        Save gate
-      </button>
     </Section>
   );
 }
