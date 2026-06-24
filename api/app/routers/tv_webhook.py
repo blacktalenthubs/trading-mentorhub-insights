@@ -208,6 +208,24 @@ def _is_swing_alert(alert_type: Optional[str]) -> bool:
     return False
 
 
+def _gate_bypass(alert_type: Optional[str]) -> bool:
+    """Alert types that ALWAYS flow even when the SPY 8/21 gate is closed — the
+    contrarian/position setups that hold up in a washed-out tape:
+      • monthly_rc   — a MONTHLY-level reclaim (rare, major; the MU play)
+      • rsi_oversold — the 30-RSI buy zone (deep oversold mean-reversion)
+      • 200-MA bounce — a bounce off the 200 EMA/SMA (major moving support)
+    Deliberately TIGHTER than _is_swing_alert: weekly_rc, the 50/100 bounces,
+    ema_5_20 and rsi_70 are NOT here — a weekly level gets bitten and rarely
+    holds in chop, and the rest are momentum that doesn't pay in a flat tape, so
+    they stay gated like day-trades (user call 2026-06-24)."""
+    at = (alert_type or "").replace("tv_", "")
+    if at.startswith("monthly_rc") or at.startswith("rsi_oversold"):
+        return True
+    if at.startswith("ma_bounce_long_v3") and ("ema200" in at or "sma200" in at):
+        return True
+    return False
+
+
 async def _conviction_strong_buy(db) -> set:
     """Symbols on the latest conviction scan's STRONG-BUY list (analyst-backed),
     cached per-process (30 min). Used to flag alerts on high-conviction names: a
@@ -1319,46 +1337,38 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         )
 
     # ──────────────────────────────────────────────────────────────────
-    # SPY-vs-PDL gate (2026-06-13) — regime = SPY vs its prior-day low. When SPY
+    # SPY 8/21-EMA trend gate (2026-06-24) — Redler's rule, mechanized.
     # ──────────────────────────────────────────────────────────────────
-    # is BELOW its PDL the tape is WEAK and dip-buys get knifed (stopped out too
-    # often), so suppress LONG (BUY) entries on every equity EXCEPT the exempt
-    # set (Settings → SPY trend gate; default SPY/QQQ/DRAM/NVDA). SHORTS + notices
-    # FLOW (a weak tape is the short side). Above PDL = healthy → everything
-    # flows. Crypto unaffected. Fail-open: gate off / SPY data missing ⇒ no block.
-    # Replaced the 8/21-EMA gate — PDL is the cleaner, forward-looking signal
-    # (SPY held its PDL through the whole advance; losing it is where trouble
-    # starts). The pdl predicate + reader were kept unwired since #169 for this.
+    # When SPY closes BELOW BOTH its daily 8 & 21 EMA the tape isn't trending —
+    # day-trade longs get bitten and most equities just follow the market down.
+    # So suppress day-trade LONG (BUY) entries on every equity EXCEPT:
+    #   • the exempt set (global Settings list) — those trade in any tape;
+    #   • the contrarian/position bypass (_gate_bypass): monthly_rc, the 30-RSI
+    #     oversold buy, and a 200-MA bounce — the setups that WORK in a washout.
+    # SHORTS flow (a weak tape is the short side). Weekly RC is NOT bypassed — a
+    # weekly level gets bitten and rarely holds in chop, so it's gated like any
+    # day-trade level. Above the 8 OR the 21 = trending → everything flows.
+    # Crypto unaffected. Default OFF (spy_trend_gate_enabled); fail-open on missing
+    # data. Reuses _spy_below_8_and_21 (same read as the regime banner).
     if (
         spy_trend_gate_on
         and not _is_crypto_symbol(sig.symbol)
         and (sig.direction or "").upper() == "BUY"
-        and not _is_swing_alert(alert_type_full)   # swing book (incl. 200-EMA bounce) bypasses the day-trade gate
+        and not _gate_bypass(alert_type_full)      # monthly_rc / rsi_oversold / 200-bounce always flow
         and (sig.symbol or "").upper() not in spy_trend_exempt
     ):
-        _below_pdl = await asyncio.get_running_loop().run_in_executor(
-            None, _spy_below_pdl_now
+        _below_8_21 = await asyncio.get_running_loop().run_in_executor(
+            None, _spy_below_8_21_now
         )
-        _above_pdl = None if _below_pdl is None else (not _below_pdl)
-        if spy_pdl_blocks_buy(_above_pdl, sig.direction, sig.symbol, spy_trend_exempt):
+        if _below_8_21 is True:                    # below BOTH 8 & 21 = flat tape → gate the long
             logger.info(
-                "TV webhook: SPY below PDL — weak-tape gated BUY %s for %s",
+                "TV webhook: SPY below 8&21 — flat-tape gated BUY %s for %s",
                 alert_type_full, sig.symbol,
             )
             return await _persist_unrouted(
                 sig, alert_type_full, session_date,
-                suppressed_reason="spy_below_pdl",
+                suppressed_reason="spy_below_8_21",
             )
-        # DIAGNOSTIC (#259): the gate was reached for a non-exempt day-trade BUY but
-        # did NOT block. If the banner shows WEAK yet this logs _below_pdl=False/None,
-        # the gate's regime read disagrees with /spy-regime (cache/data), not the
-        # gate logic. Reveals the exact cause on the next weak-tape long.
-        logger.warning(
-            "TV webhook: SPY gate REACHED, BUY %s for %s NOT blocked — _below_pdl=%r "
-            "spy_trend_gate_on=%s exempt=%s",
-            alert_type_full, sig.symbol, _below_pdl, spy_trend_gate_on,
-            (sig.symbol or "").upper() in spy_trend_exempt,
-        )
 
     # ──────────────────────────────────────────────────────────────────
     # Retired gates (history) — the only live gate is the SPY-trend gate above.
