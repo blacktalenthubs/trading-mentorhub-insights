@@ -128,8 +128,8 @@ def _push(kind: str, et, body: str) -> int:
 
     title = f"{_TITLES.get(kind, 'Market Report')} — {et.strftime('%a %-I:%M %p ET')}"
     summary = _summary(body)
-    # Deep-link payload so the app can open the Today -> Recap tab on the report.
-    payload = {"type": "market_report", "kind": kind}
+    # Deep-link payload so a tap opens the Today -> Reports tab on the report.
+    payload = {"type": "market_report", "kind": kind, "route": "/today?tab=reports"}
 
     import asyncio
 

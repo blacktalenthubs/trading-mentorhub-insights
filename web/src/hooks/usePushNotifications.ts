@@ -57,14 +57,24 @@ export function usePushNotifications() {
         console.log("Push received (foreground):", notification);
       });
 
-      // Notification tapped — navigate to dashboard
+      // Notification tapped — route to the page that matches the notification.
+      // Order: explicit route hint (agent pushes carry one) → known type →
+      // a per-symbol alert → fallback to Today. Keeps every push landing where
+      // its content actually lives, not a generic dashboard.
       PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
-        const data = action.notification.data;
-        if (data?.symbol) {
-          // Navigate to charts page with the symbol pre-selected
-          navigate(`/charts?symbol=${encodeURIComponent(data.symbol)}`);
+        const data = action.notification.data || {};
+        if (typeof data.route === "string" && data.route.startsWith("/")) {
+          navigate(data.route);                              // self-routing agent pushes
+        } else if (data.type === "market_report") {
+          navigate("/today?tab=reports");                    // premarket / EOD recap
+        } else if (data.type === "emerging") {
+          navigate("/trade-ideas?tab=emerging");             // emerging-leaders scout
+        } else if (data.alert_id) {
+          navigate(`/trading?alert=${encodeURIComponent(data.alert_id)}`);  // a fired alert
+        } else if (data.symbol) {
+          navigate(`/trading?symbol=${encodeURIComponent(data.symbol)}`);   // symbol chart (buzz, etc.)
         } else {
-          navigate("/");
+          navigate("/today");
         }
       });
 
