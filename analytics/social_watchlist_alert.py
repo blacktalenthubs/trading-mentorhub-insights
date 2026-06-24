@@ -66,14 +66,13 @@ def _latest_entries(session) -> list[dict]:
 
 def check_watchlist_buzz(session_factory) -> dict:
     """APScheduler entrypoint. Returns a summary dict for logging."""
+    import asyncio
     from sqlalchemy import select
     from sqlalchemy.exc import IntegrityError
     from app.models.user import User
     from app.models.watchlist import WatchlistItem
     from app.models.earnings import EarningsNotificationSent
-    from app.models.device_token import DeviceToken
-    from alerting.notifier import _send_telegram_to
-    from app.services.push_service import send_push_sync
+    from app.services.apns import send_apns_push
 
     summary = {"buzz_symbols": 0, "candidates": 0, "sent": 0, "skipped_no_buzz": False}
     today = date.today()
@@ -95,12 +94,11 @@ def check_watchlist_buzz(session_factory) -> dict:
 
         # Every (user, watchlist symbol) pair — one query, grouped in Python.
         rows = session.execute(
-            select(User.id, User.telegram_chat_id, User.telegram_enabled,
-                   User.push_enabled, WatchlistItem.symbol)
+            select(User.id, User.apns_enabled, User.apns_token, WatchlistItem.symbol)
             .join(WatchlistItem, WatchlistItem.user_id == User.id)
         ).all()
 
-        for uid, chat, tg_on, push_on, sym in rows:
+        for uid, apns_on, apns_tok, sym in rows:
             symu = (sym or "").upper()
             entry = entry_by_sym.get(symu)
             if entry is None:
@@ -121,30 +119,26 @@ def check_watchlist_buzz(session_factory) -> dict:
             if already:
                 continue
 
-            tg_body, push_title, push_body = _format(symu, entry, reason)
+            _tg, push_title, push_body = _format(symu, entry, reason)
 
-            if tg_on and chat:
+            # IN-APP ONLY (user moved social buzz off Telegram, 2026-06-24). Uses the
+            # WORKING apns path — inline APNS_AUTH_KEY + user.apns_token, the same one
+            # live alerts use — NOT push_service (which needs a key FILE + APNS_TOPIC
+            # that aren't set) and NOT device_tokens.is_active (a column that doesn't
+            # exist; its AttributeError crashed this job BEFORE the dedup marker
+            # committed → re-sent every hour. Fixing the path also fixes the spam).
+            if apns_on and apns_tok:
                 try:
-                    _send_telegram_to(tg_body, chat, parse_mode="HTML")
-                except Exception:
-                    logger.exception("watchlist_buzz telegram failed for user %d / %s", uid, symu)
-
-            if push_on:
-                tokens = [t.token for t in session.execute(
-                    select(DeviceToken).where(
-                        DeviceToken.user_id == uid,
-                        DeviceToken.is_active == True,  # noqa: E712
-                    )
-                ).scalars().all()]
-                if tokens:
+                    loop = asyncio.new_event_loop()
                     try:
-                        send_push_sync(
-                            tokens, push_title, push_body,
-                            data={"symbol": symu, "kind": _KIND},
-                            thread_id="watchlist_buzz",
-                        )
-                    except Exception:
-                        logger.exception("watchlist_buzz push failed for user %d / %s", uid, symu)
+                        loop.run_until_complete(send_apns_push(
+                            apns_tok, push_title, push_body,
+                            payload={"symbol": symu, "kind": _KIND},
+                        ))
+                    finally:
+                        loop.close()
+                except Exception:
+                    logger.exception("watchlist_buzz push failed for user %d / %s", uid, symu)
 
             try:
                 session.add(EarningsNotificationSent(
