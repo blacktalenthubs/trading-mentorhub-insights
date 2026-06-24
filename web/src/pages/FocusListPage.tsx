@@ -74,6 +74,10 @@ const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Target }[] = [
 export default function FocusListPage() {
   const [tab, setTab] = useState<IdeasTab>(() => {
     if (typeof window === "undefined") return "social";
+    // Deep-link from a notification tap: ?tab=emerging (or any valid Ideas tab).
+    const q = new URLSearchParams(window.location.search).get("tab");
+    const valid: IdeasTab[] = ["social", "ai", "conviction", "emerging", "long_term"];
+    if (q && valid.includes(q as IdeasTab)) return q as IdeasTab;
     const saved = localStorage.getItem("ideas_active_tab");
     return saved === "ai" || saved === "social" ? saved : "social";  // drop legacy day/swing
   });

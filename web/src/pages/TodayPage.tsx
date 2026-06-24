@@ -282,6 +282,10 @@ export default function TodayPage() {
   const nav = useNavigate();
   const [tab, setTab] = useState<"signals" | "briefing">(() => {
     if (typeof window === "undefined") return "signals";
+    // Deep-link from a notification tap: ?tab=reports (the Reports tab id is "briefing").
+    const q = new URLSearchParams(window.location.search).get("tab");
+    if (q === "reports" || q === "briefing") return "briefing";
+    if (q === "signals") return "signals";
     return (localStorage.getItem("today_tab") as "signals" | "briefing") || "signals";
   });
   function pickTab(t: "signals" | "briefing") {
