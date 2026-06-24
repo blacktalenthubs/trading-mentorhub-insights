@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
-import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun, WeeklyStageSnapshot, GrowthSnapshot, GrowthRun } from "../pages/InPlay.types";
+import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun, WeeklyStageSnapshot, GrowthSnapshot, GrowthRun, EmergingSnapshot, EmergingRun } from "../pages/InPlay.types";
 import type {
   AuthTokens, SignalResult, Alert, User,
   OptionsTrade, OptionsTradeStats, EquityPoint,
@@ -164,6 +164,41 @@ export function useRefreshGrowth() {
       );
     },
     onError: () => toast.error("Couldn't start the Growth Leaders scan"),
+  });
+}
+
+// --- Emerging Leaders (#64-O): the weekly themed discovery scout ---
+
+export function useEmerging(runId?: number | null) {
+  return useQuery({
+    queryKey: ["emerging", runId ?? "latest"],
+    queryFn: () =>
+      api.get<EmergingSnapshot>(`/screener/emerging${runId ? `?run_id=${runId}` : ""}`),
+    refetchInterval: runId ? false : 5 * 60_000,
+  });
+}
+
+export function useEmergingHistory() {
+  return useQuery({
+    queryKey: ["emerging-history"],
+    queryFn: () => api.get<{ runs: EmergingRun[] }>("/screener/emerging/history"),
+  });
+}
+
+export function useRefreshEmerging() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/screener/emerging/refresh", {}),
+    onSuccess: () => {
+      toast.info("Emerging scan started — results refresh as it completes (~90s)");
+      [20000, 45000, 75000, 110000].forEach((delay) =>
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["emerging", "latest"] });
+          qc.invalidateQueries({ queryKey: ["emerging-history"] });
+        }, delay),
+      );
+    },
+    onError: () => toast.error("Couldn't start the Emerging scan"),
   });
 }
 
