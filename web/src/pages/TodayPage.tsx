@@ -10,7 +10,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, TrendingUp, ChevronRight, ChevronDown, Bot } from "lucide-react";
-import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner } from "../api/hooks";
+import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useEodRecap } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
@@ -194,39 +194,26 @@ function DayRead({ spy, btc, signals, ideas, coiling, leaders, losing, onJump }:
   );
 }
 
-/* ── Briefing: one alert's agent read, collapsible. Header = identity; body = narrative. ── */
-function BriefingItem({ a, onChart }: { a: Alert; onChart: (s: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const dir = (a.direction || "").toUpperCase();
-  const isLong = dir === "BUY" || dir === "LONG";
+/* ── EOD Recap: the same end-of-day report sent to Telegram (Tape · Morning Verdict
+   · Tomorrow Watch · AI Recap · Trending), persisted by triage-agent/eod.py. ── */
+function EodRecapView() {
+  const { data, isLoading } = useEodRecap();
+  if (isLoading) {
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading recap…</div>;
+  }
+  const body = data?.recap;
+  if (!body) {
+    return (
+      <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
+        No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here, the same report that goes to Telegram.
+      </div>
+    );
+  }
+  // Telegram HTML mode uses <pre>/<b> etc. — strip the tags, keep the text + layout.
+  const text = body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "");
   return (
-    <div className="rounded-xl border border-border-subtle bg-surface-1 overflow-hidden">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-start gap-2.5 p-3 text-left transition-colors hover:bg-surface-2/50"
-      >
-        <ChevronDown size={15} className={`mt-0.5 shrink-0 text-text-faint transition-transform ${open ? "" : "-rotate-90"}`} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-display text-[13px] font-bold text-text-primary">{a.symbol}</span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isLong ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{dir}</span>
-            {a.grade && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-surface-3 text-text-secondary">{a.grade}</span>}
-            <span className="text-[11px] text-text-faint ml-auto">{hhmm(a.created_at)}</span>
-          </div>
-          <p className="mt-0.5 text-[12px] capitalize text-text-muted">{setupName(a)}</p>
-          {!open && a.narrative && (
-            <p className="mt-1 text-[12px] leading-snug text-text-secondary line-clamp-2">{a.narrative}</p>
-          )}
-        </div>
-      </button>
-      {open && (
-        <div className="px-3 pb-3 -mt-1 ml-[26px]">
-          <p className="text-[12.5px] leading-relaxed text-text-secondary whitespace-pre-line">{a.narrative}</p>
-          <button onClick={() => onChart(a.symbol)} className="mt-2 inline-flex items-center gap-0.5 text-[11px] text-accent hover:text-accent-hover">
-            Open chart <ChevronRight size={12} />
-          </button>
-        </div>
-      )}
+    <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
+      <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
     </div>
   );
 }
@@ -296,13 +283,6 @@ export default function TodayPage() {
     }
     return Array.from(m.entries()).map(([symbol, list]) => ({ symbol, list })).slice(0, 15);
   }, [liveSignals]);
-  // Briefing = every alert that carries an agent read, newest first.
-  const briefing = useMemo(
-    () => (alerts ?? [])
-      .filter((a) => a.narrative && a.narrative.trim().length > 0)
-      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")),
-    [alerts],
-  );
   const took = useMemo(() => (alerts ?? []).filter((a) => a.user_action === "took"), [alerts]);
   const coiling = useMemo(() => (rank ?? []).filter((r) => r.bucket === "coiling").slice(0, 5), [rank]);
   const leaders = useMemo(() => (rank ?? []).filter((r) => r.bucket === "leader").sort((a, b) => (b.rsi ?? 0) - (a.rsi ?? 0)).slice(0, 5), [rank]);
@@ -341,7 +321,7 @@ export default function TodayPage() {
 
         {/* tabs */}
         <div className="flex items-center gap-1 mb-4 bg-surface-2 rounded-lg p-0.5 w-fit">
-          {([["signals", "Signals"], ["briefing", "Briefing"]] as const).map(([id, label]) => (
+          {([["signals", "Signals"], ["briefing", "Recap"]] as const).map(([id, label]) => (
             <button
               key={id}
               onClick={() => pickTab(id)}
@@ -351,9 +331,6 @@ export default function TodayPage() {
             >
               {id === "briefing" && <Bot size={13} />}
               {label}
-              {id === "briefing" && briefing.length > 0 && (
-                <span className="text-[10px] font-bold text-accent">{briefing.length}</span>
-              )}
             </button>
           ))}
         </div>
@@ -426,18 +403,9 @@ export default function TodayPage() {
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 px-1 mb-2">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
-              <span className="text-[11px] text-text-faint">· your day, then the AI read on each alert</span>
+              <span className="text-[11px] text-text-faint">· end-of-day recap — same report as Telegram</span>
             </div>
-            <DayRead spy={spy} btc={btc} signals={liveSignals.length} ideas={ideas.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
-            {briefing.length > 0 ? (
-              <div className="space-y-2">
-                {briefing.map((a) => <BriefingItem key={a.id} a={a} onChart={goChart} />)}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
-                No agent notes yet today. When an alert fires, its AI read appears here — the same write-up that goes to Telegram.
-              </div>
-            )}
+            <EodRecapView />
           </div>
         )}
       </div>
