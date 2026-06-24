@@ -158,6 +158,15 @@ def find_tomorrow_setups(user_id: int, lookback_hours: int = 4) -> list[dict]:
                   AND created_at > NOW() - INTERVAL '%s hours'
                   AND direction IN ('BUY', 'SHORT')
                   AND (volume_ratio >= 2.0 OR cvd_diverging = 1)
+                  AND suppressed_reason IS NULL
+                  -- only LIVE alert types (the cut ones — ma_rejection, reclaims,
+                  -- gaps fill/support, avwap, proximity — are retired 2026-06-23)
+                  AND alert_type NOT LIKE 'tv_ma_rejection%%'
+                  AND alert_type NOT LIKE '%%_reclaim'
+                  AND alert_type NOT LIKE '%%avwap%%'
+                  AND alert_type NOT LIKE '%%_proximity'
+                  AND alert_type NOT IN ('tv_gap_fill','tv_gap_support','tv_gap_reject',
+                                         'tv_lost_support_reject','tv_htf_sr_bounce','tv_htf_sr_reject')
                 ORDER BY symbol, created_at DESC
                 LIMIT 8
             """, (user_id, lookback_hours))
@@ -397,6 +406,9 @@ def run_eod_recap(send: bool = True) -> dict:
     recap = format_eod_recap(quotes, morning, graded_picks, graded_focus,
                              graded_avoid, tomorrow, polish, et)
 
+    # Persist so the app's Today tab can show the SAME recap (not Telegram-only).
+    _persist_recap(et, recap)
+
     if send:
         try:
             telegram_post._send(recap)
@@ -409,6 +421,34 @@ def run_eod_recap(send: bool = True) -> dict:
         "n_picks_graded": len(graded_picks),
         "n_tomorrow": len(tomorrow),
     }
+
+
+def _persist_recap(et, body: str) -> None:
+    """Write the EOD recap to the eod_recap table so the app's Today tab reads it.
+    Idempotent per session_date (re-runs overwrite). Best-effort — never blocks the
+    Telegram send."""
+    if not DATABASE_URL:
+        return
+    try:
+        sd = et.strftime("%Y-%m-%d")
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS eod_recap (
+                        session_date TEXT PRIMARY KEY,
+                        body         TEXT NOT NULL,
+                        created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+                    )""")
+                cur.execute("""
+                    INSERT INTO eod_recap (session_date, body, created_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (session_date) DO UPDATE
+                        SET body = EXCLUDED.body, created_at = NOW()
+                """, (sd, body))
+            conn.commit()
+        logger.info("eod: recap persisted for %s", sd)
+    except Exception:
+        logger.exception("eod: persist recap failed")
 
 
 if __name__ == "__main__":

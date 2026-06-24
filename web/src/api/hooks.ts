@@ -96,6 +96,19 @@ export function useConvictionHistory() {
   });
 }
 
+export interface EodRecapResponse {
+  recap: string | null;
+  session_date: string | null;
+  created_at?: string | null;
+}
+export function useEodRecap() {
+  return useQuery({
+    queryKey: ["eod-recap-latest"],
+    queryFn: () => api.get<EodRecapResponse>("/intel/eod-recap/latest"),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useRefreshConviction() {
   const qc = useQueryClient();
   return useMutation({

@@ -620,6 +620,32 @@ async def eod_recap(
         return {"recap": f"Recap generation failed: {exc}"}
 
 
+@router.get("/eod-recap/latest")
+async def eod_recap_latest(
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """The RICH EOD recap (Tape · Morning Verdict · Tomorrow Watch · AI Recap ·
+    Trending) persisted by triage-agent/eod.py — the same text sent to Telegram.
+    Powers the Today → Briefing tab. Fails soft if the cron hasn't run yet."""
+    from sqlalchemy import text
+    try:
+        row = (await db.execute(text(
+            "SELECT session_date, body, created_at FROM eod_recap "
+            "ORDER BY session_date DESC LIMIT 1"
+        ))).first()
+        if not row:
+            return {"recap": None, "session_date": None}
+        return {
+            "recap": row.body,
+            "session_date": row.session_date,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+    except Exception:
+        # table may not exist yet (no cron run) — don't 500 the Today page
+        return {"recap": None, "session_date": None}
+
+
 # --- Trade Replay Analyst ---
 
 
