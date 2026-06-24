@@ -736,6 +736,65 @@ async def get_latest_growth() -> ScreenerSnapshot | None:
 
 
 # ---------------------------------------------------------------------------
+# Emerging Leaders (#64-O) — the weekly THEMED discovery scout. Finds names
+# starting to move INSIDE the user's sectors (next MU/SNDK at the base). Scores
+# Stage 1→2 turn · RS vs SPY · volume surge · sector tailwind — all from daily
+# bars (NO yfinance, NO fundamentals → Railway-safe). Mirrors the growth scan;
+# kind="emerging" snapshot. Weekly cadence (Stage turns are weekly-bar events).
+# ---------------------------------------------------------------------------
+def _gather_emerging() -> list:
+    """Score the themed sector universe. Two passes: (1) fetch daily bars + each
+    name's RS-window return, aggregate per-sector tailwind; (2) score each name
+    with its sector's tailwind. Runs in a thread (the daily fetch is blocking)."""
+    from analytics import emerging_screener as emg
+
+    spy = _fetch_daily_consolidated("SPY", "1y")
+    spy_ret = (((float(spy["Close"].iloc[-1]) / float(spy["Close"].iloc[-(emg.RS_WINDOW + 1)])) - 1) * 100
+               if spy is not None and len(spy) > emg.RS_WINDOW else 0.0)
+
+    pairs = emg.universe_with_sectors()
+    dailies: dict[str, object] = {}
+    sector_rets: dict[str, list[float]] = {}
+    for sym, sector in pairs:
+        try:
+            d = _fetch_daily_consolidated(sym, "1y")
+            dailies[sym] = d
+            r = emg.name_return(d)
+            if r is not None:
+                sector_rets.setdefault(sector, []).append(r)
+        except Exception:
+            logger.debug("emerging: fetch skipped %s", sym, exc_info=True)
+
+    # sector tailwind = mean RS-window return of the sector's names
+    sector_tailwind = {sec: (sum(v) / len(v) if v else None) for sec, v in sector_rets.items()}
+
+    cands = []
+    for sym, sector in pairs:
+        try:
+            c = emg.evaluate_emerging(sym, sector, dailies.get(sym), spy_ret, sector_tailwind.get(sector))
+            if c is not None:
+                cands.append(c)
+        except Exception:
+            logger.debug("emerging: score skipped %s", sym, exc_info=True)
+    return emg.rank_emerging(cands, top_n=5)
+
+
+async def refresh_emerging() -> None:
+    """Run the Emerging Leaders scan and persist a snapshot (kind='emerging')."""
+    try:
+        cands = await asyncio.to_thread(_gather_emerging)
+        await _save_snapshot(cands, kind="emerging", market_open=False, top_n=5)
+        logger.info("emerging: snapshot refreshed (%d names)", len(cands))
+    except Exception:
+        logger.exception("emerging: refresh failed — marking last snapshot stale")
+        await _mark_latest_stale("emerging")
+
+
+async def get_latest_emerging() -> ScreenerSnapshot | None:
+    return await get_latest_snapshot("emerging")
+
+
+# ---------------------------------------------------------------------------
 # Weekly Stage scanner — Stan Weinstein 30-week-MA stage classification over the
 # full swing universe. READ-ONLY discovery (no alerts). WEEKLY bars only change
 # weekly, so it's scheduled once a week (Monday morning); no market-hours gate.
@@ -813,6 +872,10 @@ def refresh_conviction_job() -> None:
     _run(refresh_conviction())  # Daily — analyst/trend data, not market-gated
 
 
+def refresh_emerging_job() -> None:
+    _run(refresh_emerging())  # Weekly (Mon ~08:10 ET) — Stage turns are weekly-bar events
+
+
 async def bootstrap() -> None:
     """One-shot self-populate on deploy: build the universe if it's empty, then run
     an initial swing scan if no swing snapshot exists yet. Idempotent across restarts
@@ -833,6 +896,9 @@ async def bootstrap() -> None:
         if await get_latest_snapshot("conviction") is None:
             logger.info("screener: bootstrap — initial conviction scan")
             await refresh_conviction()
+        if await get_latest_snapshot("emerging") is None:
+            logger.info("screener: bootstrap — initial emerging scan")
+            await refresh_emerging()
         logger.info("screener: bootstrap complete")
     except Exception:
         logger.exception("screener: bootstrap failed")

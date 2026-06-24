@@ -165,3 +165,8 @@ Each pillar becomes a small, independently shippable spec under `sub-specs/`. Pr
 - `sub-specs/I-eod-self-reporting.md` *(ground truth — proves which patterns work)*
 - `sub-specs/J-ui-redesign.md` *(the new layout for every page + design system + prototype plan — do before rebuild)*
 - `sub-specs/K-alert-taxonomy.md` *(canonical live alert-type registry → consistent across Pines, Learn, Strategy; retire legacy)*
+- `sub-specs/L-day-swing-classification.md`
+- `sub-specs/M-growth-leaders.md` *(conviction board — proven leaders + buy-ready gate)*
+- `sub-specs/M-admin-watchlist-sync.md`
+- `sub-specs/N-agent-output-in-app.md` *(reports off Telegram-only → in-app + push; shipped 2026-06-23)*
+- `sub-specs/O-emerging-leaders-scout.md` *(weekly themed agent drop — discovery delivered as a push; reuses B + M)*

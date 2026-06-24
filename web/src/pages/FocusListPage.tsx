@@ -8,7 +8,7 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  RefreshCw, Target, History, Sparkles, Flame, Gem, TrendingUp,
+  RefreshCw, Target, History, Sparkles, Flame, Gem, TrendingUp, Compass,
   ChevronDown, ChevronUp, ChevronRight, MessageSquare, Plus, Check, Zap, CalendarClock,
 } from "lucide-react";
 import {
@@ -35,8 +35,9 @@ import EmptyState from "../components/ui/EmptyState";
 import { type FocusRecommendation } from "../api/hooks";
 import { ConvictionTabView } from "./ConvictionPage";
 import { GrowthLeadersTabView } from "./GrowthLeadersPage";
+import { EmergingTabView } from "./EmergingLeadersPage";
 
-type IdeasTab = "social" | "ai" | "conviction" | "long_term";
+type IdeasTab = "social" | "ai" | "conviction" | "emerging" | "long_term";
 
 function historyLabel(item: FocusListHistoryItem): string {
   const iso = item.generated_at;
@@ -66,6 +67,7 @@ const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Target }[] = [
   { id: "social", label: "Social",   icon: Flame },
   { id: "ai",     label: "AI Scans", icon: Sparkles },
   { id: "conviction", label: "Conviction", icon: Gem },
+  { id: "emerging", label: "Emerging", icon: Compass },
   { id: "long_term", label: "Long Term", icon: TrendingUp },
 ];
 
@@ -118,6 +120,7 @@ export default function FocusListPage() {
         {tab === "social" && <SocialBuzzTab />}
         {tab === "ai" && <AIScansTab />}
         {tab === "conviction" && <ConvictionTabView />}
+        {tab === "emerging" && <EmergingTabView />}
         {tab === "long_term" && <GrowthLeadersTabView />}
       </div>
     </div>

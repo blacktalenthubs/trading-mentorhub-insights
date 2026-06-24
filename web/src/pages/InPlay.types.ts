@@ -169,6 +169,37 @@ export interface GrowthRun {
   count: number;
 }
 
+// Emerging Leaders (#64-O) — the weekly themed discovery scout.
+export interface EmergingEntry {
+  rank: number;
+  symbol: string;
+  sector: string;
+  last_price: number;
+  stage_turn: boolean;
+  fresh_cross: boolean;
+  rs_vs_spy: number;
+  vol_surge: number | null;
+  sector_ret: number | null;
+  pct_off_52wh: number | null;
+  scorecard: Record<string, string>;   // criterion -> "pass" | "fail" | "pending"
+  why: string;
+  score: number;
+  grade: string;
+}
+
+export interface EmergingSnapshot {
+  id?: number | null;
+  captured_at: string | null;
+  stale: boolean;
+  entries: EmergingEntry[];
+}
+
+export interface EmergingRun {
+  id: number;
+  captured_at: string;
+  count: number;
+}
+
 export type InPlayPreset = "any" | "momentum_long" | "pullback" | "breakout" | "short";
 
 export const IN_PLAY_PRESETS: { id: InPlayPreset; label: string }[] = [

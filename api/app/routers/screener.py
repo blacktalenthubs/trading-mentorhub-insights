@@ -189,6 +189,36 @@ async def refresh_growth(background: BackgroundTasks, user: User = Depends(requi
     return {"status": "growth scan started"}
 
 
+# --- Emerging Leaders (#64-O): the weekly themed discovery scout ---
+
+@router.get("/emerging")
+async def get_emerging(
+    run_id: Optional[int] = Query(None),
+    user: User = Depends(get_current_user),  # readable by any user
+):
+    """Emerging Leaders board — names starting to move inside the user's themed sectors
+    (Stage 1→2 turn · RS · volume surge · sector tailwind). ≤5 names. run_id selects a
+    saved run; omit for the latest."""
+    snap = await svc.get_snapshot(run_id) if run_id is not None else await svc.get_latest_emerging()
+    if snap is None:
+        return {"id": None, "captured_at": None, "stale": False, "entries": []}
+    return {"id": snap.id, "captured_at": snap.captured_at, "stale": bool(snap.stale), "entries": snap.entries or []}
+
+
+@router.get("/emerging/history")
+async def emerging_history(user: User = Depends(get_current_user)):
+    """Recent saved Emerging Leaders runs (for the history selector)."""
+    return {"runs": await svc.list_snapshots("emerging")}
+
+
+@router.post("/emerging/refresh", status_code=202)
+async def refresh_emerging(background: BackgroundTasks, user: User = Depends(require_pro)):
+    """On-demand Emerging Leaders rescan over the themed sector universe (daily bars
+    only, no yfinance) — Pro-gated."""
+    background.add_task(svc.refresh_emerging)
+    return {"status": "emerging scan started"}
+
+
 @router.post("/conviction/sync-watchlist")
 async def sync_conviction_to_watchlist(
     user: User = Depends(require_pro),
