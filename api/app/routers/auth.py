@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
-from app.dependencies import get_current_user, get_user_tier, is_trial_active, trial_days_remaining
+from app.dependencies import get_current_user, get_user_tier, is_admin_user, is_trial_active, trial_days_remaining
 from app.models.user import Subscription, User
 from app.schemas.auth import (
     AppleAuthRequest,
@@ -84,6 +84,7 @@ def _build_user_response(user: User, tier: str) -> UserResponse:
         email=user.email,
         display_name=user.display_name,
         tier=tier,
+        is_admin=is_admin_user(user),
         trial_active=is_trial_active(user),
         trial_days_left=trial_days_remaining(user),
         limits=get_limits(tier),

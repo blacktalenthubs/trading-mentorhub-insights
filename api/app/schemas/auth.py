@@ -60,6 +60,7 @@ class UserResponse(BaseModel):
     email: str
     display_name: Optional[str]
     tier: str
+    is_admin: bool = False
     trial_active: bool = False
     trial_days_left: int = 0
     # Effective per-tier feature limits — the single source of truth the client

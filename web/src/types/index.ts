@@ -7,6 +7,7 @@ export interface User {
   email: string;
   display_name: string;
   tier: "free" | "pro" | "premium" | "admin";
+  is_admin?: boolean;  // email-based admin (ADMIN_EMAILS) — distinct from tier
   trial_active?: boolean;
   trial_days_left?: number;
   /** Effective per-tier feature limits, served by the backend (source of truth). */
