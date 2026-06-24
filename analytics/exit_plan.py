@@ -21,7 +21,7 @@ def trade_style(alert_type: str) -> str:
     a = (alert_type or "").replace("tv_", "")
     if a.startswith("gap"):
         return "Gap-and-go"
-    if a.startswith("weekly_") or "_sma200" in a or "_ema200" in a:
+    if a.startswith("weekly_") or a.startswith("monthly_") or "_sma200" in a or "_ema200" in a:
         return "Long hold"
     if (a.startswith("rsi_oversold") or a.startswith("ema_5_20")
             or a.startswith("ma_bounce") or a.startswith("rsi_70")):
