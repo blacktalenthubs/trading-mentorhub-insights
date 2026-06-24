@@ -5,3 +5,4 @@ requests>=2.31.0
 apscheduler>=3.10.0
 yfinance>=0.2.40
 pytz>=2024.1
+aioapns>=3.0

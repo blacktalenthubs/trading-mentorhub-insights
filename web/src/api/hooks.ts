@@ -96,15 +96,19 @@ export function useConvictionHistory() {
   });
 }
 
-export interface EodRecapResponse {
-  recap: string | null;
-  session_date: string | null;
+export interface MarketReport {
+  body: string;
+  session_date: string;
   created_at?: string | null;
 }
-export function useEodRecap() {
+export interface MarketReportsResponse {
+  premarket: MarketReport | null;
+  eod: MarketReport | null;
+}
+export function useMarketReports() {
   return useQuery({
-    queryKey: ["eod-recap-latest"],
-    queryFn: () => api.get<EodRecapResponse>("/intel/eod-recap/latest"),
+    queryKey: ["market-report-latest"],
+    queryFn: () => api.get<MarketReportsResponse>("/intel/market-report/latest"),
     staleTime: 5 * 60_000,
   });
 }

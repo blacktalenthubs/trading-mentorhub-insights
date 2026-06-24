@@ -733,6 +733,11 @@ def run_premarket_brief(send: bool = True) -> dict:
     # 8. Persist for EOD grading
     persist_morning_picks(picks, focus, avoid, et)
 
+    # 8b. Persist + in-app push so the Today -> Recap tab shows the SAME brief and
+    #     users get notified when it drops — no longer Telegram-only.
+    import reports_store
+    reports_store.publish("premarket", et, brief, send=send)
+
     # 9. Send to Telegram — fan out to ALL users with a linked chat_id.
     #    2026-06-02: changed from single-chat send to per-user fan-out so
     #    every signed-up user who's linked their bot gets the morning brief,
