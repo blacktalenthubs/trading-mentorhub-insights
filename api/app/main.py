@@ -1082,10 +1082,13 @@ async def lifespan(app: FastAPI):
                 timezone="America/New_York",
                 id="screener_conviction_refresh", replace_existing=True,
             )
-            # Emerging Leaders (#64-O) — themed discovery scout. Stage 1→2 turns are
-            # weekly-bar events, so scan weekly (Monday ~08:10 ET). Read-only.
+            # Emerging Leaders (#64-O) — themed discovery scout. The Stage signal is a
+            # weekly-bar event, but volume/sector can shift sooner, so scan DAILY
+            # (mon-fri ~08:10 ET) — it's cheap (pure math). The PUSH is event-driven:
+            # refresh_emerging only notifies when a NEW name enters the board, so a
+            # daily scan never spams. Read-only discovery.
             scheduler.add_job(
-                refresh_emerging_job, "cron", day_of_week="mon", hour=8, minute=10,
+                refresh_emerging_job, "cron", day_of_week="mon-fri", hour=8, minute=10,
                 timezone="America/New_York",
                 id="screener_emerging_refresh", replace_existing=True,
             )
