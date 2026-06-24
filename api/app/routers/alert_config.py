@@ -13,11 +13,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.alert_type_config import AlertTypeConfig, describe_alert_type
+from app.models.alert_type_config import ALERT_TYPE_CATALOG, AlertTypeConfig, describe_alert_type
 from app.models.alert_type_pref import UserAlertTypePref
 from app.models.user import User
 
 router = APIRouter()
+
+# Settings lists alert types in the curated CATALOG order, not alphabetically.
+# Alphabetical sorted "rc_daily_hrec" ABOVE "rc_daily_long" (h < l) — burying the
+# primary "Daily RC long" under its RC-H variant (and below the fold on mobile),
+# so users thought the long wasn't there. The catalog is authored long-before-RC-H,
+# which is the order we want. Unknown/legacy types fall to the end, stably.
+_CATALOG_ORDER: dict[str, int] = {at: i for i, (at, *_rest) in enumerate(ALERT_TYPE_CATALOG)}
+_CATALOG_END = len(_CATALOG_ORDER)
 
 
 async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bool) -> None:
@@ -81,11 +89,12 @@ async def list_alert_config(
     The catalog (labels/categories) comes from alert_type_config; the enabled flag
     is the user's own choice from user_alert_type_prefs. No row = OFF.
     """
-    rows = (await db.execute(
-        select(AlertTypeConfig).order_by(
-            AlertTypeConfig.category, AlertTypeConfig.alert_type
-        )
-    )).scalars().all()
+    rows = (await db.execute(select(AlertTypeConfig))).scalars().all()
+    # Curated catalog order (long before its RC-H variant); legacy/unknown last.
+    rows = sorted(
+        rows,
+        key=lambda r: (_CATALOG_ORDER.get(r.alert_type, _CATALOG_END), r.category, r.alert_type),
+    )
     prefs = (await db.execute(
         select(UserAlertTypePref).where(UserAlertTypePref.user_id == user.id)
     )).scalars().all()
