@@ -1614,6 +1614,16 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="spy_market_gate")
         users = kept
 
+        # Per-user SHORT allowlist (2026-06-25) — a user's allowlist (market_gate_exempt)
+        # is their symbol UNIVERSE: longs bypass the gate on those names (above), and
+        # SHORTS only flow on those names. Drop a user from a short when their allowlist
+        # is set and the symbol isn't on it. Empty allowlist = no restriction (all shorts).
+        kept = await _filter_users_by_short_allowlist(db, users, sig, alert_type_full)
+        if not kept:
+            logger.info("TV webhook: short-allowlist excluded every watcher for %s %s — unrouted", alert_type_full, sig.symbol)
+            return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_allowlist")
+        users = kept
+
         # ⭐ CONVICTION — flag the alert when the symbol is on the latest conviction
         # scan's Strong-Buy list (analyst-backed). The Pine setup is the trigger;
         # conviction is the quality overlay — strong fundamentals + timing, one line.
@@ -1931,6 +1941,35 @@ async def _filter_users_by_market_gate(db, users, sig, alert_type_full: str):
         logger.info("TV webhook: market-gate dropped %d user(s) for %s %s (SPY 8/21)",
                     len(gated), alert_type_full, sym)
     return [u for u in users if u.id not in gated]
+
+
+async def _filter_users_by_short_allowlist(db, users, sig, alert_type_full: str):
+    """Per-user SHORT allowlist. A user's allowlist (market_gate_exempt) is their
+    'my symbols' universe — so a SHORT/SELL only reaches a user when the symbol is on
+    THEIR allowlist. Drop a user from a short when their allowlist is NON-EMPTY and the
+    symbol isn't on it. Empty allowlist ⇒ no restriction (every short flows, the prior
+    behaviour). Longs/notices are unaffected here — the SPY gate handles longs; this is
+    shorts only. Applies to ALL short types incl. rc_4h (unlike the global short_symbols
+    restrictor, which exempts rc_4h). One user's allowlist never affects another's feed."""
+    if not users:
+        return users
+    if (sig.direction or "").upper() not in ("SHORT", "SELL"):
+        return users
+    from app.models.user import User as _User
+    sym = (sig.symbol or "").upper()
+    ids = [u.id for u in users]
+    rows = (await db.execute(
+        select(_User.id, _User.market_gate_exempt).where(_User.id.in_(ids))
+    )).all()
+    dropped: set[int] = set()
+    for uid, allow in rows:
+        al = {s.strip().upper() for s in (allow or "").split(",") if s.strip()}
+        if al and sym not in al:
+            dropped.add(uid)
+    if dropped:
+        logger.info("TV webhook: short-allowlist dropped %d user(s) for %s %s",
+                    len(dropped), alert_type_full, sym)
+    return [u for u in users if u.id not in dropped]
 
 
 async def _users_watching(db, symbol: str):
