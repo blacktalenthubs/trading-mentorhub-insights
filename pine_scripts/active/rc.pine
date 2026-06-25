@@ -54,6 +54,18 @@ enM_hrec  = input.bool(true, "Monthly · RC-H — reclaim prior-month HIGH (BUY)
 enCMLrec  = input.bool(false, "Monthly · CML reclaim — undercut & reclaim the CURRENT-month low (BUY)", group = gM)
 enCMLheld = input.bool(false, "Monthly · CML held — tag & hold the CURRENT-month low as support (BUY)", group = gM)
 cml_tol   = input.float(0.20, "  CML held touch tolerance %", minval = 0.0, step = 0.05, group = gM)
+// Reclaim long (#65, merged from index_reclaim_long.pine 2026-06-25). Morning reclaim
+// of the ORH/PDH with the option-strike payload. Windows are MINUTE-based so it behaves
+// the same on any chart TF (defaults built for 5m: 15-min OR, 90-min reclaim window).
+gRL = "Reclaim long — ORH/PDH morning reclaim (#65)"
+en_reclaim = input.bool(true,  "Fire ORH/PDH reclaim-long (BUY, w/ ~ATM strike)", group = gRL)
+rl_orMin   = input.int(15,    "Opening-range minutes (ORH/ORL)", minval = 5, group = gRL)
+rl_dipPct  = input.float(0.18, "Shakeout dip below the level (%)", step = 0.01, group = gRL) / 100.0
+rl_recMin  = input.int(90,    "Reclaim within N minutes of the dip", minval = 15, group = gRL)
+rl_mornMin = input.int(120,   "Only fire in the first N minutes", minval = 30, group = gRL)
+rl_minHead = input.float(1.0, "Min room to next resistance (R)", step = 0.5, group = gRL)
+rl_useVwap = input.bool(true,  "Require close above VWAP", group = gRL)
+rl_showOR  = input.bool(true,  "Draw ORH / ORL lines", group = gRL)
 gD = "Display — prior levels (merged from 'Prior Levels Flat')"
 show_lvl  = input.bool(true, "Draw prior-level S/R lines", group = gD)
 show_pdh  = input.bool(true, "  PDH / PDL — daily (solid)", group = gD)
@@ -226,6 +238,76 @@ cmlHeld = enCMLheld and okCML and (low >= cml_ref) and (low <= cml_ref * (1.0 + 
 if cmlHeld
     cmlh_fired := true
 
+// ── RECLAIM LONG (#65, merged from index_reclaim_long.pine) ─────────────────
+// Opening range (first rl_orMin of the session), the reclaim state machine, and the
+// next-resistance headroom gate. Windows in MINUTES → TF-agnostic. Reuses rc.pine's
+// PDH/PDL (hDp/lDp). ORL is computed for the visual; only the ORH/PDH reclaim fires.
+rl_orBars  = math.max(1, math.round(rl_orMin  / math.max(1.0, timeframe.in_seconds() / 60.0)))
+rl_recBars = math.max(1, math.round(rl_recMin / math.max(1.0, timeframe.in_seconds() / 60.0)))
+rl_mornBar = math.round(rl_mornMin / math.max(1.0, timeframe.in_seconds() / 60.0))
+var int rl_sbar = 0
+rl_sbar := nD ? 0 : rl_sbar + 1
+var float rl_orh = na
+var float rl_orl = na
+if nD
+    rl_orh := high
+    rl_orl := low
+else if rl_sbar < rl_orBars
+    rl_orh := math.max(rl_orh, high)
+    rl_orl := math.min(rl_orl, low)
+rl_vwap = ta.vwap(hlc3)
+rl_orReady = rl_sbar >= rl_orBars
+rl_inMorn  = rl_sbar <= rl_mornBar
+// nearest of ORH/PDH/ORL/PDL strictly above a price (next resistance), or na.
+rl_next_above(float p) =>
+    float best = na
+    if not na(rl_orh) and rl_orh > p
+        best := na(best) ? rl_orh : math.min(best, rl_orh)
+    if not na(hDp) and hDp > p
+        best := na(best) ? hDp : math.min(best, hDp)
+    if not na(rl_orl) and rl_orl > p
+        best := na(best) ? rl_orl : math.min(best, rl_orl)
+    if not na(lDp) and lDp > p
+        best := na(best) ? lDp : math.min(best, lDp)
+    best
+// above the level → dip rl_dipPct under (shakeout) → reclaim within rl_recBars, in the
+// morning, above VWAP, with ≥ rl_minHead R of room → fire. [sig, dipLow, target].
+rl_reclaim(float L) =>
+    var bool above  = false
+    var bool dipped = false
+    var bool fired  = false
+    var int  dipbar = 0
+    var float dlow  = na
+    if nD
+        above := false
+        dipped := false
+        fired := false
+        dlow := na
+    bool sig = false
+    float tgt = na
+    if (not na(L)) and rl_orReady and rl_inMorn
+        if close > L
+            above := true
+        if above and not dipped and low <= L * (1 - rl_dipPct)
+            dipped := true
+            dipbar := rl_sbar
+            dlow := low
+        if dipped and not fired
+            dlow := math.min(dlow, low)
+        bool reclaimed = dipped and not fired and close > L and (rl_sbar - dipbar <= rl_recBars)
+        bool vwapok = (not rl_useVwap) or (close > rl_vwap)
+        if reclaimed and vwapok
+            float t = rl_next_above(close)
+            float risk = math.max(close - dlow, syminfo.mintick)
+            float headroom = na(t) ? 99.0 : (t - close) / risk
+            if headroom >= rl_minHead
+                fired := true
+                sig := true
+                tgt := t
+    [sig, dlow, tgt]
+[rl_orhSig, rl_orhStop, rl_orhTgt] = rl_reclaim(rl_orh)
+[rl_pdhSig, rl_pdhStop, rl_pdhTgt] = rl_reclaim(hDp)
+
 // 4h rejection short — its own logic (poke above prior high, close back below).
 var bool f4_short = false
 if n4
@@ -318,6 +400,26 @@ if barstate.islast
         ln30 := line.new(bar_index - lvl_bars, w30, bar_index + 10, w30, color = c30, width = 2)
         lb30 := label.new(bar_index + 10, w30, "30w " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
 
+// ── ORH / ORL opening-range lines (reclaim-long levels) — dotted, role-colored,
+// redrawn on the last bar. ORL is a visual playing level here (no alert).
+var line  rl_lnH = na
+var line  rl_lnL = na
+var label rl_lbH = na
+var label rl_lbL = na
+if rl_showOR and barstate.islast
+    line.delete(rl_lnH)
+    line.delete(rl_lnL)
+    label.delete(rl_lbH)
+    label.delete(rl_lbL)
+    if not na(rl_orh)
+        cH = close > rl_orh ? col_sup : col_res
+        rl_lnH := line.new(bar_index - lvl_bars, rl_orh, bar_index + 30, rl_orh, color = cH, width = 1, style = line.style_dotted)
+        rl_lbH := label.new(bar_index + 30, rl_orh, "ORH " + str.tostring(rl_orh, format.mintick), style = label.style_label_left, color = cH, textcolor = color.white, size = size.small)
+    if not na(rl_orl)
+        cL = close > rl_orl ? col_sup : col_res
+        rl_lnL := line.new(bar_index - lvl_bars, rl_orl, bar_index + 30, rl_orl, color = cL, width = 1, style = line.style_dotted)
+        rl_lbL := label.new(bar_index + 30, rl_orl, "ORL " + str.tostring(rl_orl, format.mintick), style = label.style_label_left, color = cL, textcolor = color.white, size = size.small)
+
 // ── Alerts ────────────────────────────────────────────────────────────────
 // entry = the RECLAIMED LEVEL (the prior-period low for RC, high for RC-H) — NOT
 // the bar's close. On a sharp V-reclaim the close can sit far above the level
@@ -348,6 +450,15 @@ if rcCMLrec
     alert(rc_pay("cml_reclaim", "BUY", "M", cml_ref, cml, "CML · undercut & reclaim of the CURRENT-month LOW (month floor swept & held) — entry at the level " + str.tostring(cml_ref, format.mintick) + ", stop " + str.tostring(cml, format.mintick)), alert.freq_once_per_bar_close)
 if cmlHeld
     alert(rc_pay("cml_held", "BUY", "M", close, cml_ref, "CML · tag & hold of the CURRENT-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(cml_ref, format.mintick)), alert.freq_once_per_bar_close)
+
+// Reclaim long (#65) — entry = the reclaim close, stop = the dip low, target = next
+// resistance. strike = nearest whole-dollar = the ~ATM call (small intraday moves need
+// ATM delta to pay). rule = reclaim_long so the backend routes + records it unchanged.
+reclaim_pay(string lvl, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"reclaim_long","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'C nearest weekly","note":"Reclaim long · reclaimed the ' + lvl + ' with room · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'C, nearest weekly expiry","fired_at":"' + str.tostring(timenow) + '"}'
+if en_reclaim and rl_orhSig
+    alert(reclaim_pay("ORH", close, rl_orhStop, rl_orhTgt), alert.freq_once_per_bar_close)
+if en_reclaim and rl_pdhSig
+    alert(reclaim_pay("PDH", close, rl_pdhStop, rl_pdhTgt), alert.freq_once_per_bar_close)
 
 // MA bounce — rule "ma_bounce_long_v3" + ma_tag (number+E); backend forms
 // ma_bounce_long_v3_<ema>. entry = close (held above the MA), stop = the MA (close

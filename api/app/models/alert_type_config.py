@@ -141,7 +141,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # day-trade edge for SPY/QQQ/DRAM: morning reclaim of the ORH or PDH after a
     # ~0.18% shakeout, with room to the next resistance → long, take profit into it.
     # Long-only (the short mirror has no edge). Default OFF (opt-in).
-    ("reclaim_long", "Reclaim long — morning reclaim of the ORH/PDH with room (SPY/QQQ/DRAM)", "Index reclaim", False),
+    ("reclaim_long", "Reclaim long — morning reclaim of the ORH/PDH with room + ~ATM strike (now in rc.pine)", "Index reclaim", False),
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
