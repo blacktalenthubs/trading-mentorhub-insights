@@ -45,10 +45,13 @@ class User(Base):
     referral_code: Mapped[Optional[str]] = mapped_column(String(20), unique=True, nullable=True)
     auto_analysis_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
 
-    # Per-user SPY 8/21 market gate (opt-in, default OFF). When enabled, this user's
-    # DAY-TRADE LONG alerts are suppressed while SPY is below its 8 or 21 EMA —
-    # except symbols on their exempt list (and the always-flow bypass setups).
-    market_gate_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
+    # SPY 8/21 market gate. We manage it: protection is ON by default for everyone,
+    # and it only bites when SPY is weak (below its 8 or 21 EMA) — then this user's
+    # DAY-TRADE LONG alerts are suppressed, except symbols on their exempt list (and
+    # the always-flow bypass setups). The flag is now an OVERRIDE: a user sets it
+    # False to opt out and keep receiving longs in a weak tape. (Was opt-in/default
+    # OFF before 2026-06-25; flipped to default ON + backfilled existing users.)
+    market_gate_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", default=True)
     market_gate_exempt: Mapped[str] = mapped_column(String(2000), server_default="", default="")
 
     # Attribution — captured at signup from UTM params

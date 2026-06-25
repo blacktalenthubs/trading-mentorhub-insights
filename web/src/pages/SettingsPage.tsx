@@ -430,11 +430,12 @@ function ThemeToggle() {
   );
 }
 
-/* ── Market gate (SPY 8/21) — PER-USER, opt-in, default OFF ──────────
-   Each user controls their own gate + exempt allow-list (chips). When SPY closes
-   below its daily 8 or 21 EMA, this user's DAY-TRADE LONGS are suppressed —
-   except their exempt symbols (+ the always-flow bypass: monthly RC, 30-RSI,
-   200-MA bounce). Shorts never gated. Saves immediately on every change. */
+/* ── Market gate (SPY 8/21) — MANAGED, ON by default, per-user override ──────────
+   We run this for everyone: when SPY closes below its daily 8 or 21 EMA, DAY-TRADE
+   LONGS are suppressed automatically — except a user's exempt symbols (+ the
+   always-flow bypass: monthly RC, 30-RSI, 200-MA bounce). Shorts never gated. The
+   toggle is an OVERRIDE — turn it OFF to keep getting longs in a weak tape.
+   Saves immediately on every change. */
 function MarketGateSection() {
   const { data, isError } = useMarketGate();
   const update = useUpdateMarketGate();
@@ -458,14 +459,15 @@ function MarketGateSection() {
   return (
     <Section title="Market gate — SPY 8/21" icon={<ShieldCheck className="h-4 w-4 text-accent" />}>
       <p className="text-[12px] leading-relaxed text-text-muted mb-3">
-        When SPY closes below <b>either</b> its daily 8 <b>or</b> 21 EMA the tape isn't trending —
-        day-trade longs get bitten. Turn this on to gate <b>your</b> day-trade long alerts in that
-        regime. Shorts still flow; <b>monthly RC, the 30-RSI buy, and 200-MA bounces</b> always fire;
-        and your allow-list below alerts in any tape. It's your setting — it doesn't affect anyone else.
+        Protection is <b>on by default</b> — we run it for you. When SPY closes below <b>either</b> its
+        daily 8 <b>or</b> 21 EMA the tape isn't trending and day-trade longs get bitten, so we
+        automatically hold them back. Shorts still flow; <b>monthly RC, the 30-RSI buy, and 200-MA
+        bounces</b> always fire; and your allow-list below alerts in any tape. Turn this <b>off to
+        override</b> and keep receiving longs in a weak tape — it only changes your own feed.
       </p>
 
       <label className="flex items-center justify-between py-2 cursor-pointer select-none">
-        <span className="text-[13px] text-text-secondary">Gate my day-trade longs when SPY is below its 8/21</span>
+        <span className="text-[13px] text-text-secondary">Protect my day-trade longs when SPY is weak (below its 8/21)</span>
         <button
           type="button"
           onClick={() => setEnabled(!enabled)}
