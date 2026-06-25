@@ -152,6 +152,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
     # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
     ("monthly_rc", "Monthly RC — prior-month high/low reclaim (position)", "Monthly trend", False),
+    # CML — the CURRENT-month low defended intraday (rc.pine, 2026-06-25). Distinct
+    # from monthly_rc (prior month): cml_reclaim = price swept the month floor (new low)
+    # and reclaimed it; cml_held = price tagged it from above and held. Both BUY, OFF.
+    ("cml_reclaim", "CML reclaim — undercut & reclaim of the CURRENT-month low (month floor swept & held)", "Monthly trend", False),
+    ("cml_held", "CML held — tag & hold of the CURRENT-month low as support", "Monthly trend", False),
     # weekly_ma_held/reclaim/wick_reclaim CUT 2026-06-23 — NOT in the agreed set and
     # NOT wired (no pine emits them). → OBSOLETE. (Re-wire into rc.pine later if wanted.)
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
