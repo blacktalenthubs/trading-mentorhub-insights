@@ -137,6 +137,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
     ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
 
+    # Index reclaim long (#65, from index_reclaim_long.pine) — the one backtested
+    # day-trade edge for SPY/QQQ/DRAM: morning reclaim of the ORH or PDH after a
+    # ~0.18% shakeout, with room to the next resistance → long, take profit into it.
+    # Long-only (the short mirror has no edge). Default OFF (opt-in).
+    ("reclaim_long", "Reclaim long — morning reclaim of the ORH/PDH with room (SPY/QQQ/DRAM)", "Index reclaim", False),
+
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
@@ -240,6 +246,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
     "rc_4h_short": "4h RC short: price wicked ABOVE the prior 4h high then closed back below it — failed break / rejection (index-leaning). Stop = the wick high.",
     "rc_daily_long": "Daily RC: price undercut the prior-DAY low (PDL) then reclaimed it intraday — swept-low bounce on the daily level. Stop = the day's swept low. ≈ PDL reclaim, RC-model. A day-trade/swing heads-up.",
+    "reclaim_long": "Index reclaim long (SPY/QQQ/DRAM, 15m): in the morning, price was ABOVE the opening-range high or the prior-day high, dipped ~0.18% under it (shakeout), and RECLAIMED it — WITH room to the next resistance (no buying into a ceiling). ENTRY = the reclaim close · STOP = the dip low · TARGET = take profit INTO the next resistance (sell the whole position there). Long-only — the short mirror has no backtested edge. Backtested 77% win / +0.80R over 3yr; ~10–16 fires/yr (rare). The big down-moves and bottom-bounces are deliberately skipped (no edge).",
     "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
