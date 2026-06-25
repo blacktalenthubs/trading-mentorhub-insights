@@ -169,7 +169,7 @@ def _build_market_gate_response(user: User) -> MarketGateResponse:
 @router.get("/market-gate", response_model=MarketGateResponse)
 async def get_market_gate(user: User = Depends(get_current_user)):
     """This user's SPY 8/21 gate setting. When enabled, their day-trade longs are
-    suppressed while SPY is below both its 8 & 21 EMA — except their exempt names."""
+    suppressed while SPY is below its 8 or 21 EMA — except their exempt names."""
     return _build_market_gate_response(user)
 
 

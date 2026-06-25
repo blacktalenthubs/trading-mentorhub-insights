@@ -46,7 +46,7 @@ class User(Base):
     auto_analysis_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
 
     # Per-user SPY 8/21 market gate (opt-in, default OFF). When enabled, this user's
-    # DAY-TRADE LONG alerts are suppressed while SPY is below both its 8 & 21 EMA —
+    # DAY-TRADE LONG alerts are suppressed while SPY is below its 8 or 21 EMA —
     # except symbols on their exempt list (and the always-flow bypass setups).
     market_gate_enabled: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)
     market_gate_exempt: Mapped[str] = mapped_column(String(2000), server_default="", default="")

@@ -432,7 +432,7 @@ function ThemeToggle() {
 
 /* ── Market gate (SPY 8/21) — PER-USER, opt-in, default OFF ──────────
    Each user controls their own gate + exempt allow-list (chips). When SPY closes
-   below BOTH its daily 8 & 21 EMA, this user's DAY-TRADE LONGS are suppressed —
+   below its daily 8 or 21 EMA, this user's DAY-TRADE LONGS are suppressed —
    except their exempt symbols (+ the always-flow bypass: monthly RC, 30-RSI,
    200-MA bounce). Shorts never gated. Saves immediately on every change. */
 function MarketGateSection() {
@@ -458,7 +458,7 @@ function MarketGateSection() {
   return (
     <Section title="Market gate — SPY 8/21" icon={<ShieldCheck className="h-4 w-4 text-accent" />}>
       <p className="text-[12px] leading-relaxed text-text-muted mb-3">
-        When SPY closes below <b>both</b> its daily 8 &amp; 21 EMA the tape isn't trending —
+        When SPY closes below <b>either</b> its daily 8 <b>or</b> 21 EMA the tape isn't trending —
         day-trade longs get bitten. Turn this on to gate <b>your</b> day-trade long alerts in that
         regime. Shorts still flow; <b>monthly RC, the 30-RSI buy, and 200-MA bounces</b> always fire;
         and your allow-list below alerts in any tape. It's your setting — it doesn't affect anyone else.
