@@ -844,23 +844,45 @@ def _rsi(closes: list, period: int = 14):
     return 100.0 - 100.0 / (1.0 + rs)
 
 
+def _fetch_yf_daily_closes(product: str, n: int = 250) -> list:
+    """Daily closes from yfinance — the gate's fallback when Alpaca is 401/down in
+    prod. Without a fallback the SPY 8/21 read returns None and the day-trade-long
+    gate FAILS OPEN (every long flows in a weak tape). yfinance is unreliable on
+    some cloud hosts; returns [] gracefully when it can't fetch (no worse than the
+    Alpaca-only path it backstops)."""
+    try:
+        import yfinance as yf
+        df = yf.download(product, period="1y", interval="1d", progress=False, auto_adjust=False)
+        if df is None or df.empty:
+            return []
+        col = df["Close"]
+        closes = [float(x) for x in (col.iloc[:, 0] if hasattr(col, "columns") else col).dropna()]
+        return closes[-n:] if closes else []
+    except Exception:
+        return []
+
+
 def _fetch_daily_closes(product: str, is_crypto: bool, n: int = 250) -> list:
     """A YEAR of DAILY closes (last bar ~= today's running close). Wilder's RSI
     needs a long warmup to match TradingView — feeding only a few recent bars
     (e.g. just a selloff) reads artificially oversold. Alpaca daily for stocks,
-    Coinbase daily for crypto. Coinbase caps at 300 candles/request."""
+    Coinbase daily for crypto. Coinbase caps at 300 candles/request. For stocks,
+    fall back to yfinance when Alpaca is empty/unauthorized so the regime gate keeps
+    working (otherwise it fails open and longs flow in a weak tape)."""
     try:
         if is_crypto:
             from analytics.intraday_data import _fetch_coinbase_candles
             df = _fetch_coinbase_candles(product, granularity=86400, num_candles=min(n, 300))
-        else:
-            from analytics.intraday_data import _fetch_alpaca_bars
-            df = _fetch_alpaca_bars(product, interval="1d", hours_back=24 * 370)  # ~1yr
-        if df is None or df.empty:
-            return []
-        return [float(x) for x in df["Close"].tail(n)]
+            if df is None or df.empty:
+                return []
+            return [float(x) for x in df["Close"].tail(n)]
+        from analytics.intraday_data import _fetch_alpaca_bars
+        df = _fetch_alpaca_bars(product, interval="1d", hours_back=24 * 370)  # ~1yr
+        if df is not None and not df.empty:
+            return [float(x) for x in df["Close"].tail(n)]
+        return _fetch_yf_daily_closes(product, n)  # Alpaca down → keep the gate alive
     except Exception:
-        return []
+        return _fetch_yf_daily_closes(product, n) if not is_crypto else []
 
 
 def _spy_below_8_and_21() -> Optional[bool]:
