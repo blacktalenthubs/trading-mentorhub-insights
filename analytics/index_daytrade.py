@@ -56,7 +56,8 @@ class Trade:
     stop: float
     target: float
     exit: float = field(default=np.nan)
-    exit_reason: str = ""  # stop / target / eod
+    exit_idx: int = -1
+    exit_reason: str = ""  # stop / target / eod / trail
     r: float = field(default=np.nan)
 
     def valid(self) -> bool:
@@ -98,26 +99,26 @@ def _simulate(t: Trade, H, L, C, ema, n) -> None:
     for k in range(t.entry_idx + 1, n):
         if t.direction > 0:
             if L[k] <= t.stop:
-                t.exit, t.exit_reason = t.stop, "stop"; break
+                t.exit, t.exit_idx, t.exit_reason = t.stop, k, "stop"; break
             if not USE_TRAIL and H[k] >= t.target:
-                t.exit, t.exit_reason = t.target, "target"; break
+                t.exit, t.exit_idx, t.exit_reason = t.target, k, "target"; break
             if USE_TRAIL:
                 if H[k] >= arm_level:
                     armed = True
                 if armed and C[k] < ema[k]:
-                    t.exit, t.exit_reason = C[k], "trail"; break
+                    t.exit, t.exit_idx, t.exit_reason = C[k], k, "trail"; break
         else:
             if H[k] >= t.stop:
-                t.exit, t.exit_reason = t.stop, "stop"; break
+                t.exit, t.exit_idx, t.exit_reason = t.stop, k, "stop"; break
             if not USE_TRAIL and L[k] <= t.target:
-                t.exit, t.exit_reason = t.target, "target"; break
+                t.exit, t.exit_idx, t.exit_reason = t.target, k, "target"; break
             if USE_TRAIL:
                 if L[k] <= arm_level:
                     armed = True
                 if armed and C[k] > ema[k]:
-                    t.exit, t.exit_reason = C[k], "trail"; break
+                    t.exit, t.exit_idx, t.exit_reason = C[k], k, "trail"; break
     if t.exit_reason == "":
-        t.exit, t.exit_reason = C[n - 1], "eod"
+        t.exit, t.exit_idx, t.exit_reason = C[n - 1], n - 1, "eod"
     t.r = ((t.exit - t.entry) / risk) if t.direction > 0 else ((t.entry - t.exit) / risk)
 
 
@@ -256,6 +257,70 @@ def report(trades: list[Trade]) -> None:
     print(f"{'ALL':6} {'':13} {len(allr):>3} {(allr>0).mean()*100:>5.0f}% {allr.mean():>+7.2f} {allr.sum():>+7.1f}")
 
 
+# ── Weekly-ATM option overlay (path B: what survives real frictions) ─────────
+# Translates each underlying trade into a nearest-weekly ATM call/put via
+# Black-Scholes, applies the bid/ask spread (buy ask, sell bid), intraday theta,
+# and commission, and reports the RETURN ON PREMIUM. The underlying R is the
+# edge; this is what's left after you actually trade it through options.
+import math
+
+OPT_DTE_DAYS   = 3       # nearest weekly ≈ 3 calendar days at entry
+OPT_IV         = {"SPY": 0.15, "QQQ": 0.19, "DRAM": 0.45}  # annualized; tune per regime
+OPT_HALF_SPREAD = 0.025  # 2.5% each way (≈5% round-trip) — liquid weeklies
+OPT_COMMISH_PCT = 0.004  # ~0.4% of premium round-trip (contract fees)
+BARS_PER_DAY   = 26      # 15m regular-session bars
+
+
+def _bs(S, K, T, sigma, call=True, r=0.0):
+    if T <= 0 or sigma <= 0:
+        return max(0.0, (S - K) if call else (K - S))
+    d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+    d2 = d1 - sigma * math.sqrt(T)
+    nd = lambda x: 0.5 * (1 + math.erf(x / math.sqrt(2)))
+    if call:
+        return S * nd(d1) - K * math.exp(-r * T) * nd(d2)
+    return K * math.exp(-r * T) * nd(-d2) - S * nd(-d1)
+
+
+def option_overlay(trades: list[Trade]) -> list[tuple]:
+    """Per trade → (symbol, trigger, option_return_pct, underlying_r). Buys ATM at
+    the ask, sells at the bid, decays T by the hours held (intraday theta), nets
+    commission. K = round(entry) ≈ ATM."""
+    rows = []
+    for t in trades:
+        iv = OPT_IV.get(t.symbol, 0.20)
+        call = t.direction > 0
+        K = round(t.entry)
+        T0 = OPT_DTE_DAYS / 365.0
+        held_bars = max(1, t.exit_idx - t.entry_idx)
+        held_years = held_bars * 0.25 / (365 * 24)           # 15m = 0.25h of calendar time
+        T1 = max(0.5 / 365.0, T0 - held_years)
+        entry_px = _bs(t.entry, K, T0, iv, call) * (1 + OPT_HALF_SPREAD)   # buy ask
+        exit_px = _bs(t.exit, K, T1, iv, call) * (1 - OPT_HALF_SPREAD)     # sell bid
+        if entry_px <= 0:
+            continue
+        ret = (exit_px - entry_px) / entry_px - OPT_COMMISH_PCT
+        rows.append((t.symbol, t.trigger, ret * 100, t.r))
+    return rows
+
+
+def option_report(rows: list[tuple]) -> None:
+    import collections
+    if not rows:
+        print("  no option trades"); return
+    g = collections.defaultdict(list)
+    for sym, trig, ret, r in rows:
+        g[(sym, trig)].append(ret)
+    print(f"{'symbol':6} {'trigger':13} {'n':>3} {'win%':>6} {'avg%':>8} {'tot%':>8}")
+    print("  " + "-" * 50)
+    for (sym, trig), rs in sorted(g.items()):
+        rs = np.array(rs)
+        print(f"{sym:6} {trig:13} {len(rs):>3} {(rs>0).mean()*100:>5.0f}% {rs.mean():>+7.1f}% {rs.sum():>+7.0f}%")
+    allr = np.array([x[2] for x in rows])
+    print("  " + "-" * 50)
+    print(f"{'ALL':6} {'':13} {len(allr):>3} {(allr>0).mean()*100:>5.0f}% {allr.mean():>+7.1f}% {allr.sum():>+7.0f}%")
+
+
 if __name__ == "__main__":
     import warnings; warnings.filterwarnings("ignore")
     import sys
@@ -265,5 +330,7 @@ if __name__ == "__main__":
         ts = backtest_symbol(s)
         print(f"\n=== {s}: {len(ts)} trades ===")
         all_trades += ts
-    print("\n========== BACKTEST SUMMARY (R-multiples, 15m, ~60d) ==========")
+    print("\n========== UNDERLYING (R-multiples, 15m, ~60d) ==========")
     report(all_trades)
+    print("\n========== WEEKLY-ATM OPTION OVERLAY (return on premium, net of spread+theta+fees) ==========")
+    option_report(option_overlay(all_trades))
