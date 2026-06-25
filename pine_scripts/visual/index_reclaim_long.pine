@@ -107,5 +107,16 @@ plot(showLines ? pdl : na, "PDL", color=color.new(color.gray, 60), style=plot.st
 plotshape(orhSig, "ORH reclaim long", shape.triangleup, location.belowbar, color=color.new(color.lime, 0), size=size.small, text="ORH")
 plotshape(pdhSig, "PDH reclaim long", shape.triangleup, location.belowbar, color=color.new(color.green, 0), size=size.small, text="PDH")
 
+// Routable alert payload (mirrors rc.pine rc_pay) — entry = the reclaim close,
+// stop = the dip low, note carries the take-profit target (next resistance).
+// rule = reclaim_long so the backend routes it + records entry/stop for outcomes.
+reclaim_pay(string lvl, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"reclaim_long","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"Reclaim long · reclaimed the ' + lvl + ' with room · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + '","fired_at":"' + str.tostring(timenow) + '"}'
+
+if orhSig
+    alert(reclaim_pay("ORH", close, orhStop, orhTgt), alert.freq_once_per_bar_close)
+if pdhSig
+    alert(reclaim_pay("PDH", close, pdhStop, pdhTgt), alert.freq_once_per_bar_close)
+
+// Manual-use generic conditions too (optional).
 alertcondition(orhSig, "ORH reclaim long", "Reclaim of the opening-range high - long (room to next resistance)")
 alertcondition(pdhSig, "PDH reclaim long", "Reclaim of the prior-day high - long (room to next resistance)")
