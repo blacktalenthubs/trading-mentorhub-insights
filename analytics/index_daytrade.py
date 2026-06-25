@@ -43,6 +43,10 @@ USE_TIME_FILTER = True   # only enter in the open (first MORNING_BARS) or the po
 MORNING_BARS  = 8        # 9:30–11:30 on 15m
 POWERHOUR_BARS = 4       # last 4 bars (3:00–4:00)
 
+# v3 lever (2026-06-24): don't buy into a ceiling. Require the next level (the
+# target) to be at least this many R away — no room, no trade.
+HEADROOM_MIN_R = 0.0     # set to ~1.0 for the reclaim-long; 0 = off
+
 
 @dataclass
 class Trade:
@@ -206,6 +210,8 @@ def find_trades(day: pd.DataFrame, pdh: Optional[float], pdl: Optional[float],
             continue
         risk = (t.entry - t.stop) if t.direction > 0 else (t.stop - t.entry)
         if risk < t.entry * MIN_RISK_PCT:
+            continue
+        if abs(t.target - t.entry) / risk < HEADROOM_MIN_R:   # ceiling overhead → skip
             continue
         _simulate(t, H, L, C, ema, n)
         if t.r == t.r:  # not nan
