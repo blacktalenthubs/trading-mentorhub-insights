@@ -1,0 +1,83 @@
+// Core-Index Reclaim Long (#65) — the one pattern that backtested an edge over 3yr.
+// Morning reclaim of the ORH or PDH: price is above the level, dips ~0.18% back
+// under it (shakeout), then reclaims it within ~90 min, above VWAP → LONG.
+// Stop = the dip low; let it run (trail under VWAP/8-EMA). Built for SPY/QQQ intraday
+// (5m or 15m). Visual + alert only — eyeball it live before trusting it.
+//@version=5
+indicator("Index Reclaim Long — ORH/PDH", overlay=true, max_labels_count=500)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+dipPct      = input.float(0.18, "Shakeout dip below the level (%)", step=0.01) / 100.0
+reclaimBars = input.int(6,  "Reclaim within N bars of the dip", minval=1)
+orMin       = input.int(30, "Opening-range minutes", minval=5)
+morningMin  = input.int(120, "Only fire in the first N minutes", minval=30)
+useVwap     = input.bool(true, "Require close above VWAP")
+showLines   = input.bool(true, "Draw ORH/ORL · PDH/PDL · VWAP")
+
+tfMin = math.max(1.0, timeframe.in_seconds() / 60.0)
+orBars   = math.max(1, math.round(orMin / tfMin))
+mornBars = math.round(morningMin / tfMin)
+
+// ── Session bookkeeping ──────────────────────────────────────────────────────
+newSession = ta.change(time("D")) != 0
+var int sbar = 0
+sbar := newSession ? 0 : sbar + 1
+
+// Opening range — accumulate during the first orBars, then lock for the session.
+var float orh = na
+var float orl = na
+if newSession
+    orh := high
+    orl := low
+else if sbar < orBars
+    orh := math.max(orh, high)
+    orl := math.min(orl, low)
+
+// Prior-day high/low (non-repainting).
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead=barmerge.lookahead_on)
+
+vwapv = ta.vwap(hlc3)
+orReady   = sbar >= orBars
+inMorning = sbar <= mornBars
+
+// ── The reclaim-long state machine (one per call site via var) ───────────────
+f_reclaim(float L) =>
+    var bool above  = false
+    var bool dipped = false
+    var bool fired  = false
+    var int  dipbar = 0
+    if newSession
+        above := false
+        dipped := false
+        fired := false
+    sig = false
+    ok = (not na(L)) and orReady and inMorning
+    if ok
+        if close > L
+            above := true
+        if above and not dipped and low <= L * (1 - dipPct)
+            dipped := true
+            dipbar := sbar
+        reclaimed = dipped and not fired and close > L and (sbar - dipbar <= reclaimBars)
+        vwapok = (not useVwap) or (close > vwapv)
+        if reclaimed and vwapok
+            fired := true
+            sig := true
+    sig
+
+orhSig = f_reclaim(orh)
+pdhSig = f_reclaim(pdh)
+
+// ── Plots ────────────────────────────────────────────────────────────────────
+plot(showLines ? vwapv : na, "VWAP", color=color.new(color.purple, 0), linewidth=1)
+plot(showLines and orReady ? orh : na, "ORH", color=color.new(color.teal, 0), style=plot.style_linebr)
+plot(showLines and orReady ? orl : na, "ORL", color=color.new(color.teal, 40), style=plot.style_linebr)
+plot(showLines ? pdh : na, "PDH", color=color.new(color.gray, 30), style=plot.style_linebr)
+plot(showLines ? pdl : na, "PDL", color=color.new(color.gray, 60), style=plot.style_linebr)
+
+plotshape(orhSig, "ORH reclaim long", shape.triangleup, location.belowbar, color=color.new(color.lime, 0), size=size.small, text="ORH")
+plotshape(pdhSig, "PDH reclaim long", shape.triangleup, location.belowbar, color=color.new(color.green, 0), size=size.small, text="PDH")
+
+alertcondition(orhSig, "ORH reclaim long", "Reclaim of the opening-range high — long")
+alertcondition(pdhSig, "PDH reclaim long", "Reclaim of the prior-day high — long")
