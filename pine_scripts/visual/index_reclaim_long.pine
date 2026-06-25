@@ -107,10 +107,31 @@ plot(showLines ? pdl : na, "PDL", color=color.new(color.gray, 60), style=plot.st
 plotshape(orhSig, "ORH reclaim long", shape.triangleup, location.belowbar, color=color.new(color.lime, 0), size=size.small, text="ORH")
 plotshape(pdhSig, "PDH reclaim long", shape.triangleup, location.belowbar, color=color.new(color.green, 0), size=size.small, text="PDH")
 
+// Right-edge price tags in front of each level line (refreshed on the last bar).
+var label orhLbl = na
+var label orlLbl = na
+var label pdhLbl = na
+var label pdlLbl = na
+if showLines and barstate.islast
+    label.delete(orhLbl)
+    label.delete(orlLbl)
+    label.delete(pdhLbl)
+    label.delete(pdlLbl)
+    if orReady and not na(orh)
+        orhLbl := label.new(bar_index + 3, orh, "ORH", style=label.style_label_left, color=color.new(color.teal, 0), textcolor=color.white, size=size.small)
+    if orReady and not na(orl)
+        orlLbl := label.new(bar_index + 3, orl, "ORL", style=label.style_label_left, color=color.new(color.teal, 30), textcolor=color.white, size=size.small)
+    if not na(pdh)
+        pdhLbl := label.new(bar_index + 3, pdh, "PDH", style=label.style_label_left, color=color.new(color.gray, 10), textcolor=color.white, size=size.small)
+    if not na(pdl)
+        pdlLbl := label.new(bar_index + 3, pdl, "PDL", style=label.style_label_left, color=color.new(color.gray, 40), textcolor=color.white, size=size.small)
+
 // Routable alert payload (mirrors rc.pine rc_pay) — entry = the reclaim close,
 // stop = the dip low, note carries the take-profit target (next resistance).
 // rule = reclaim_long so the backend routes it + records entry/stop for outcomes.
-reclaim_pay(string lvl, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"reclaim_long","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"Reclaim long · reclaimed the ' + lvl + ' with room · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + '","fired_at":"' + str.tostring(timenow) + '"}'
+// strike = nearest whole-dollar strike to the entry = the ~ATM call (SPY/QQQ/IWM/SMH
+// are all $1-wide). Small intraday moves need ATM delta (~0.50) to pay, not OTM.
+reclaim_pay(string lvl, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"reclaim_long","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'C nearest weekly","note":"Reclaim long · reclaimed the ' + lvl + ' with room · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'C, nearest weekly expiry","fired_at":"' + str.tostring(timenow) + '"}'
 
 if orhSig
     alert(reclaim_pay("ORH", close, orhStop, orhTgt), alert.freq_once_per_bar_close)
