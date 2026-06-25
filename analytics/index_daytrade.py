@@ -223,8 +223,49 @@ def _fetch_15m(symbol: str, period: str = "60d"):
     return df
 
 
-def backtest_symbol(symbol: str, period: str = "60d") -> list[Trade]:
-    df = _fetch_15m(symbol, period)
+def _fetch_15m_alpaca(symbol: str, start: str = "2023-06-01", feed: str = "iex"):
+    """Years of 15-min RTH bars from Alpaca (IEX feed on the free tier). Returns a
+    NY-tz DataFrame (Open/High/Low/Close/Volume), regular session only, or None."""
+    import os, requests
+    from datetime import datetime
+    try:
+        from dotenv import load_dotenv; load_dotenv()
+    except Exception:
+        pass
+    k, s = os.environ.get("ALPACA_API_KEY"), os.environ.get("ALPACA_SECRET_KEY")
+    if not (k and s):
+        return None
+    h = {"APCA-API-KEY-ID": k, "APCA-API-SECRET-KEY": s}
+    end = datetime.utcnow().strftime("%Y-%m-%d")
+    bars, token = [], None
+    for _ in range(50):  # paginate (safety cap)
+        params = {"timeframe": "15Min", "start": start, "end": end, "feed": feed,
+                  "limit": 10000, "adjustment": "raw"}
+        if token:
+            params["page_token"] = token
+        r = requests.get(f"https://data.alpaca.markets/v2/stocks/{symbol}/bars",
+                         params=params, headers=h, timeout=30)
+        if r.status_code != 200:
+            break
+        j = r.json()
+        bars += (j.get("bars") or [])
+        token = j.get("next_page_token")
+        if not token:
+            break
+    if not bars:
+        return None
+    df = pd.DataFrame(bars)
+    df["t"] = pd.to_datetime(df["t"], utc=True).dt.tz_convert("America/New_York")
+    df = (df.set_index("t")
+            .rename(columns={"o": "Open", "h": "High", "l": "Low", "c": "Close", "v": "Volume"})
+          [["Open", "High", "Low", "Close", "Volume"]])
+    return df.between_time("09:30", "15:59")  # regular session only
+
+
+def backtest_symbol(symbol: str, period: str = "60d", use_alpaca: bool = True) -> list[Trade]:
+    df = _fetch_15m_alpaca(symbol) if use_alpaca else None
+    if df is None or df.empty:
+        df = _fetch_15m(symbol, period)
     if df is None:
         return []
     df["d"] = df.index.date
