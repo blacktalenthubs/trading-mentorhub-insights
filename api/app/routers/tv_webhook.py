@@ -212,6 +212,8 @@ def _gate_bypass(alert_type: Optional[str]) -> bool:
     """Alert types that ALWAYS flow even when the SPY 8/21 gate is closed — the
     contrarian/position setups that hold up in a washed-out tape:
       • monthly_rc   — a MONTHLY-level reclaim (rare, major; the MU play)
+      • cml_*        — CURRENT-month-low reclaim/held (monthly = long-term/position
+                       interest, never gated — user call 2026-06-25)
       • rsi_oversold — the 30-RSI buy zone (deep oversold mean-reversion)
       • 200-MA bounce — a bounce off the 200 EMA/SMA (major moving support)
     Deliberately TIGHTER than _is_swing_alert: weekly_rc, the 50/100 bounces,
@@ -219,7 +221,7 @@ def _gate_bypass(alert_type: Optional[str]) -> bool:
     holds in chop, and the rest are momentum that doesn't pay in a flat tape, so
     they stay gated like day-trades (user call 2026-06-24)."""
     at = (alert_type or "").replace("tv_", "")
-    if at.startswith("monthly_rc") or at.startswith("rsi_oversold"):
+    if at.startswith("monthly_rc") or at.startswith("cml_") or at.startswith("rsi_oversold"):
         return True
     if at.startswith("ma_bounce_long_v3") and ("ema200" in at or "sma200" in at):
         return True
