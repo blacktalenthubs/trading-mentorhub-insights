@@ -864,13 +864,14 @@ def _fetch_daily_closes(product: str, is_crypto: bool, n: int = 250) -> list:
 
 
 def _spy_below_8_and_21() -> Optional[bool]:
-    """Is SPY trading below BOTH its daily 8-EMA and 21-EMA right now?
+    """Is SPY trading below EITHER its daily 8-EMA or 21-EMA right now?
 
-    The day-trade-long gate: when the broad tape has rolled over (SPY under its
-    short-term EMAs) most longs are traps, so equity longs are suppressed except
-    the exempt names. Must be below BOTH — above the 21 (or back above it) lets
-    longs flow. Cached 60s. Returns True/False, or None when data is unavailable
-    (caller fails open — never block on missing data).
+    The day-trade-long gate (agreed spec, v2-routing-notices-patterns.md, 2026-05-05):
+    HEALTHY = SPY above BOTH the 8 AND 21; WEAK = SPY below the 8 OR the 21. The
+    moment SPY loses either short-term EMA the tape is no longer cleanly trending,
+    so equity longs are suppressed except the exempt names. Cached 60s. Returns
+    True/False, or None when data is unavailable (caller fails open — never block
+    on missing data).
     """
     cached = cache_get("spy_trend_8_21")
     if isinstance(cached, bool):
@@ -885,7 +886,7 @@ def _spy_below_8_and_21() -> Optional[bool]:
         ema8 = float(s.ewm(span=8, adjust=False).mean().iloc[-1])
         ema21 = float(s.ewm(span=21, adjust=False).mean().iloc[-1])
         price = fetch_latest_price("SPY") or float(closes[-1])
-        below = bool(price < ema8 and price < ema21)
+        below = bool(price < ema8 or price < ema21)
         cache_set("spy_trend_8_21", below, 60)
         return below
     except Exception:
@@ -942,10 +943,11 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None, below_trend=Non
     )
     below_pdl = bool(pdl is not None and last_price < pdl)
 
-    # Headline regime. When the caller passes `below_trend` (SPY → its daily 8 & 21
-    # EMA read, 2026-06-24), use it so the banner matches the alert gate EXACTLY:
-    # below BOTH the 8 & 21 = not trending → WEAK (day-trade longs gated, shorts
-    # flow); above the 8 OR 21 = trending → HEALTHY; None (no data) → HEALTHY.
+    # Headline regime. When the caller passes `below_trend` (SPY → its daily 8/21
+    # EMA read), use it so the banner matches the alert gate EXACTLY, per the agreed
+    # spec (v2-routing-notices-patterns.md, 2026-05-05): below the 8 OR the 21 = not
+    # cleanly trending → WEAK (day-trade longs gated, shorts flow); above BOTH the 8
+    # AND 21 = trending → HEALTHY; None (no data) → HEALTHY.
     # When below_trend is omitted (BTC), keep the prior PDL-based binary unchanged.
     logging.getLogger(__name__).info(
         "%s regime: price=%.2f below_trend=%s pdl=%s (src=%s) below_pdl=%s",
@@ -953,8 +955,8 @@ def _regime_dict(today_bars, pdh, pdl, pdl_src, label, rsi=None, below_trend=Non
     )
     if below_trend is not None:
         weak = below_trend is True
-        weak_why = "below its 8 & 21 EMA (not trending; day-trade longs gated)"
-        ok_why = "trading above its 8/21 EMA"
+        weak_why = "below its 8 or 21 EMA (not trending; day-trade longs gated)"
+        ok_why = "trading above its 8 & 21 EMA"
     else:
         weak = below_pdl
         weak_why = "below its prior-day low (dips get knifed; longs gated)"

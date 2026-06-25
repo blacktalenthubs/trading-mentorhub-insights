@@ -316,11 +316,11 @@ def resolve_spy_above_pdl(
 
 
 # ── SPY-trend long gate (2026-06-09) ──────────────────────────────────────
-# When SPY is below BOTH its daily 8-EMA and 21-EMA the broad tape has rolled
-# over and day-trade longs are mostly traps. Block equity BUY alerts except a
-# small exempt set (index + strongest names), editable from Settings. Must be
-# below BOTH — above/back-above the 21 lets longs flow. Crypto is unaffected
-# (it doesn't follow SPY); fail-open on missing data.
+# When SPY is below EITHER its daily 8-EMA or 21-EMA the broad tape is no longer
+# cleanly trending and day-trade longs are mostly traps. Block equity BUY alerts
+# except a small exempt set (index + strongest names), editable from Settings.
+# Back above BOTH the 8 AND 21 lets longs flow (agreed spec 2026-05-05). Crypto is
+# unaffected (it doesn't follow SPY); fail-open on missing data.
 SPY_TREND_EXEMPT_DEFAULT: frozenset[str] = frozenset(
     s.strip().upper()
     for s in os.getenv("SPY_TREND_EXEMPT", "SPY,QQQ,DRAM,NVDA").split(",")
@@ -336,7 +336,7 @@ def spy_trend_blocks(
     enabled: bool = True,
 ) -> bool:
     """Decide whether the SPY-trend gate must SUPPRESS this alert. Pure + tested.
-    True ⇒ suppress. When SPY is below BOTH its 8 & 21 EMA, the broad tape is
+    True ⇒ suppress. When SPY is below its 8 OR 21 EMA, the broad tape is
     chop and EVERY alert on a non-exempt symbol — long, short AND notice — is
     suppressed to prevent meaningless alerts in a non-trending market. Only the
     exempt set (default SPY/QQQ/DRAM/NVDA; editable) still alerts, in any form.
@@ -1341,7 +1341,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # ──────────────────────────────────────────────────────────────────
     # The gate moved OUT of this global path and INTO the per-user fan-out
     # (_filter_users_by_market_gate): each user who turned the gate ON has their
-    # DAY-TRADE LONGS suppressed while SPY is below both its 8 & 21 EMA, except
+    # DAY-TRADE LONGS suppressed while SPY is below its 8 or 21 EMA, except
     # their own exempt symbols + the always-flow bypass (monthly_rc / rsi_oversold
     # / 200-bounce). Shorts + crypto are never gated. Users with the gate OFF are
     # unaffected. So one user's gate never changes another's feed.
@@ -1894,7 +1894,7 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
 
 async def _filter_users_by_market_gate(db, users, sig, alert_type_full: str):
     """Per-user SPY 8/21 gate (opt-in, default OFF). Drop the users who turned
-    their gate ON, for a DAY-TRADE LONG, while SPY is below BOTH its 8 & 21 EMA,
+    their gate ON, for a DAY-TRADE LONG, while SPY is below its 8 OR 21 EMA,
     when the symbol is NOT on THEIR exempt list. Everything else passes for
     everyone: shorts, crypto, the always-flow bypass (monthly_rc / rsi_oversold /
     200-bounce), and any user with the gate OFF. So one user's gate never affects
@@ -1906,7 +1906,7 @@ async def _filter_users_by_market_gate(db, users, sig, alert_type_full: str):
         return users
     if _is_crypto_symbol(sig.symbol) or _gate_bypass(alert_type_full):
         return users
-    # Is SPY actually below both its 8 & 21? (one read for the whole fan-out)
+    # Is SPY below its 8 or 21? (one read for the whole fan-out)
     below = await asyncio.get_running_loop().run_in_executor(None, _spy_below_8_21_now)
     if below is not True:                      # trending (or no data) → gate open for all
         return users
