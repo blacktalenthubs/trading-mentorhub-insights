@@ -33,6 +33,16 @@ MIN_RISK_PCT  = 0.0004   # skip if entry→stop is tighter than this (noise)
 TARGET_FB_R   = 2.0      # if no next boundary (blue sky), target = this many R
 USE_VWAP_FILTER = True
 
+# v2 levers (2026-06-24): exit by trailing, gate the failed-break on real extension,
+# and only trade the active windows.
+USE_TRAIL     = True     # trail under EMA8 once in profit (vs fixed next-boundary target)
+TRAIL_EMA     = 8        # the EMA the runner trails
+ARM_R         = 0.5      # arm the trail only after the trade is +this many R (let it breathe)
+EXT_PCT       = 0.0012   # a "failed break" only counts if price first poked ≥0.12% past the level
+USE_TIME_FILTER = True   # only enter in the open (first MORNING_BARS) or the power hour
+MORNING_BARS  = 8        # 9:30–11:30 on 15m
+POWERHOUR_BARS = 4       # last 4 bars (3:00–4:00)
+
 
 @dataclass
 class Trade:
@@ -75,22 +85,37 @@ def _next_below(levels, v):
     return max(below) if below else None
 
 
-def _simulate(t: Trade, H, L, C, n) -> None:
-    """Walk bars after entry: stop, target, else exit at the close. Sets exit/r."""
+def _simulate(t: Trade, H, L, C, ema, n) -> None:
+    """Walk bars after entry. Hard stop = the boundary. With USE_TRAIL, once the
+    trade is +ARM_R in favor, exit on the first CLOSE back across EMA8 (let the
+    runner run, then trail). Otherwise the fixed next-boundary target applies.
+    Always flat at the close. Sets exit/reason/r."""
     risk = (t.entry - t.stop) if t.direction > 0 else (t.stop - t.entry)
     if risk <= 0:
         return
+    armed = False
+    arm_level = t.entry + ARM_R * risk * t.direction
     for k in range(t.entry_idx + 1, n):
         if t.direction > 0:
             if L[k] <= t.stop:
                 t.exit, t.exit_reason = t.stop, "stop"; break
-            if H[k] >= t.target:
+            if not USE_TRAIL and H[k] >= t.target:
                 t.exit, t.exit_reason = t.target, "target"; break
+            if USE_TRAIL:
+                if H[k] >= arm_level:
+                    armed = True
+                if armed and C[k] < ema[k]:
+                    t.exit, t.exit_reason = C[k], "trail"; break
         else:
             if H[k] >= t.stop:
                 t.exit, t.exit_reason = t.stop, "stop"; break
-            if L[k] <= t.target:
+            if not USE_TRAIL and L[k] <= t.target:
                 t.exit, t.exit_reason = t.target, "target"; break
+            if USE_TRAIL:
+                if L[k] <= arm_level:
+                    armed = True
+                if armed and C[k] > ema[k]:
+                    t.exit, t.exit_reason = C[k], "trail"; break
     if t.exit_reason == "":
         t.exit, t.exit_reason = C[n - 1], "eod"
     t.r = ((t.exit - t.entry) / risk) if t.direction > 0 else ((t.entry - t.exit) / risk)
@@ -104,7 +129,11 @@ def find_trades(day: pd.DataFrame, pdh: Optional[float], pdl: Optional[float],
     day = add_vwap(day)
     O, H, L, C = (day[c].values.astype(float) for c in ("Open", "High", "Low", "Close"))
     Vw = day["vwap"].values.astype(float)
+    ema = day["Close"].ewm(span=TRAIL_EMA, adjust=False).mean().values.astype(float)
     n = len(C)
+
+    def in_window(j):  # only the open + the power hour; skip midday chop
+        return (not USE_TIME_FILTER) or (j < MORNING_BARS) or (j >= n - POWERHOUR_BARS)
 
     orh = float(H[:OR_BARS].max())
     orl = float(L[:OR_BARS].min())
@@ -130,14 +159,15 @@ def find_trades(day: pd.DataFrame, pdh: Optional[float], pdl: Optional[float],
             for j in range(bi + 1, min(bi + 1 + LOOKFWD, n)):
                 brk_high = max(brk_high, H[j])
                 if C[j] < v - buf:                                   # FAILED → short
-                    if vwap_ok(j, -1):
+                    ext = (brk_high - v) / v                          # how far it poked first
+                    if vwap_ok(j, -1) and in_window(j) and ext >= EXT_PCT:
                         tgt = _next_below(levels, v)
                         out.append(Trade(symbol, date, name, "failed_short", -1, j,
                                          float(C[j]), float(brk_high),
                                          float(tgt) if tgt else float(C[j]) - TARGET_FB_R * (brk_high - C[j])))
                     break
                 if L[j] <= v * (1 + RETEST_PCT) and C[j] > v:        # RETEST HOLD → long
-                    if vwap_ok(j, 1):
+                    if vwap_ok(j, 1) and in_window(j):
                         stop = min(L[j], v - buf)
                         tgt = _next_above(levels, v)
                         out.append(Trade(symbol, date, name, "cont_long", 1, j,
@@ -152,14 +182,15 @@ def find_trades(day: pd.DataFrame, pdh: Optional[float], pdl: Optional[float],
             for j in range(bi + 1, min(bi + 1 + LOOKFWD, n)):
                 brk_low = min(brk_low, L[j])
                 if C[j] > v + buf:                                   # FAILED → long
-                    if vwap_ok(j, 1):
+                    ext = (v - brk_low) / v
+                    if vwap_ok(j, 1) and in_window(j) and ext >= EXT_PCT:
                         tgt = _next_above(levels, v)
                         out.append(Trade(symbol, date, name, "failed_long", 1, j,
                                          float(C[j]), float(brk_low),
                                          float(tgt) if tgt else float(C[j]) + TARGET_FB_R * (C[j] - brk_low)))
                     break
                 if H[j] >= v * (1 - RETEST_PCT) and C[j] < v:        # RETEST HOLD → short
-                    if vwap_ok(j, -1):
+                    if vwap_ok(j, -1) and in_window(j):
                         stop = max(H[j], v + buf)
                         tgt = _next_below(levels, v)
                         out.append(Trade(symbol, date, name, "cont_short", -1, j,
@@ -175,7 +206,7 @@ def find_trades(day: pd.DataFrame, pdh: Optional[float], pdl: Optional[float],
         risk = (t.entry - t.stop) if t.direction > 0 else (t.stop - t.entry)
         if risk < t.entry * MIN_RISK_PCT:
             continue
-        _simulate(t, H, L, C, n)
+        _simulate(t, H, L, C, ema, n)
         if t.r == t.r:  # not nan
             keep.append(t)
     return keep
