@@ -284,6 +284,7 @@ function bwTone(state: BottomWatchItem["state"]): string {
   if (state === "reclaimed_30") return "bg-accent/15 text-accent";
   if (state === "oversold") return "bg-bearish/15 text-bearish-text";
   if (state === "buy_zone") return "bg-warning/15 text-warning-text";
+  if (state === "approaching") return "bg-warning/10 text-warning-text";
   if (state === "at_200ma") return "bg-accent/10 text-accent";
   return "bg-surface-3 text-text-muted";
 }

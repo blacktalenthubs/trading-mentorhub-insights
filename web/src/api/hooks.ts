@@ -1022,7 +1022,7 @@ export interface BottomWatchItem {
   rsi_prev: number | null;
   dist_200ma_pct: number | null;
   near_200ma: boolean;
-  state: "reclaimed_30" | "oversold" | "buy_zone" | "at_200ma" | "cooling";
+  state: "reclaimed_30" | "oversold" | "buy_zone" | "approaching" | "at_200ma" | "cooling";
   state_label: string;
 }
 
