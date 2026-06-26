@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { NavLink, Outlet, Link, useLocation } from "react-router-dom";
+import { NavLink, Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useMarketStatus } from "../api/hooks";
 import { usePushNotifications } from "../hooks/usePushNotifications";
@@ -26,6 +26,7 @@ import {
   Target,
   MoreHorizontal,
   X,
+  ChevronLeft,
   type LucideIcon,
 } from "lucide-react";
 
@@ -98,7 +99,15 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [moreOpen, setMoreOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const moreActive = MORE_ITEMS.some((i) => location.pathname.startsWith(i.to));
+
+  // Universal in-app back: count navigations this session so we only show "Back"
+  // once there's somewhere to return to (not on the first/landing page or a fresh
+  // deep-link). Returning to a tabbed page (Today) restores its tab from localStorage.
+  const [navDepth, setNavDepth] = useState(0);
+  useEffect(() => { setNavDepth((n) => n + 1); }, [location.key]);
+  const canGoBack = navDepth > 1;
 
   const persistCollapse = useCallback((val: boolean) => {
     setCollapsed(val);
@@ -317,10 +326,22 @@ export default function AppLayout() {
           </div>
         )}
         <main
-          className="flex-1 overflow-hidden bg-surface-0 md:pb-0"
+          className="flex flex-1 flex-col overflow-hidden bg-surface-0 md:pb-0"
           style={{ paddingBottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
         >
-          <Outlet />
+          {canGoBack && (
+            <div className="shrink-0 border-b border-border-subtle bg-surface-0 px-3 py-1.5">
+              <button
+                onClick={() => navigate(-1)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
+              >
+                <ChevronLeft className="h-4 w-4" /> Back
+              </button>
+            </div>
+          )}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <Outlet />
+          </div>
         </main>
 
         {/* Mobile bottom tab bar — z-50 so it's never covered by chart overlays or drawer backdrops */}
