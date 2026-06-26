@@ -1207,13 +1207,18 @@ _BOTTOM_WATCH_MAX = 60        # bound the per-symbol fan-out cost
 
 
 def _bottom_state(rsi: float, rsi_prev, near_200: bool) -> tuple[str, str]:
-    """Classify one symbol's bottom-fishing state from its daily RSI."""
+    """Classify one symbol's bottom-fishing state from its daily RSI (+ 200-MA
+    proximity). The 'approaching' state is the PROXIMITY heads-up — RSI heading into
+    the zone before it's actually oversold, so you can pre-position."""
+    falling = rsi_prev is not None and rsi < rsi_prev
     if rsi_prev is not None and rsi_prev < 30 <= rsi:
         return "reclaimed_30", "Reclaimed 30 → BUY"
     if rsi < 30:
         return "oversold", "Oversold — watch the reclaim"
     if rsi <= 35:
         return "buy_zone", "In the 30–35 buy zone"
+    if rsi <= 40 and falling:
+        return "approaching", "Approaching oversold"
     if near_200:
         return "at_200ma", "At the 200-MA"
     return "cooling", "Cooling, above the zone"
@@ -1241,20 +1246,31 @@ async def bottom_watch(
     loop = asyncio.get_running_loop()
 
     async def _one(sym: str):
+        # Use market.py's own daily-close fetch (Alpaca → yfinance fallback, #461) +
+        # compute RSI inline — fetch_prior_day computes many fragile fields and returns
+        # None if any fail, which silently emptied the board in prod.
         try:
-            pd = await loop.run_in_executor(None, fetch_prior_day, sym)
+            closes = await loop.run_in_executor(
+                None, _fetch_daily_closes, sym, sym.endswith("-USD")
+            )
         except Exception:
             return None
-        if not pd:
+        if not closes or len(closes) < 30:
             return None
-        rsi = pd.get("rsi14")
-        close = pd.get("close")
-        if rsi is None or not close:
+        import pandas as pd
+        s = pd.Series(closes, dtype="float64")
+        delta = s.diff()
+        gain = delta.clip(lower=0).ewm(com=13, min_periods=14).mean()
+        loss = (-delta.clip(upper=0)).ewm(com=13, min_periods=14).mean()
+        rsi_series = 100 - 100 / (1 + gain / loss)
+        rsi = float(rsi_series.iloc[-1])
+        if rsi != rsi:  # NaN guard
             return None
-        rsi_prev = pd.get("rsi14_prev")
-        ma200 = pd.get("ma200") or pd.get("ema200")
-        dist = round((close - ma200) / ma200 * 100, 2) if ma200 else None
-        near_200 = ma200 is not None and abs(close - ma200) / ma200 <= 0.02
+        rsi_prev = float(rsi_series.iloc[-2]) if len(rsi_series) >= 2 and rsi_series.iloc[-2] == rsi_series.iloc[-2] else None
+        close = float(s.iloc[-1])
+        ema200 = float(s.ewm(span=200, adjust=False).mean().iloc[-1]) if len(s) >= 200 else None
+        dist = round((close - ema200) / ema200 * 100, 2) if ema200 else None
+        near_200 = ema200 is not None and abs(close - ema200) / ema200 <= 0.02
         state, label = _bottom_state(rsi, rsi_prev, near_200)
         return {
             "symbol": sym,
