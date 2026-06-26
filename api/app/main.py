@@ -414,26 +414,24 @@ async def lifespan(app: FastAPI):
         # SWING DISABLED — focus on day trade entries first.
 
         # Global Bottom-Watch level alerts (2026-06-26) — push to ALL users when a
-        # notable name reclaims 30 RSI / goes oversold / taps its 200-MA. RTH-only,
-        # deduped once/symbol/event/day. Own try/except so it can never break startup.
+        # notable name reclaims 30 RSI / goes oversold / taps its 200-MA. TWICE a day
+        # (a daily-RSI signal doesn't need more): ~10:00 ET (morning, after the open
+        # settles) and ~15:30 ET (before the close). Deduped once/symbol/event/day.
+        # Own try/except so it can never break startup.
         try:
             from app.services.bottom_watch_alerts import scan_bottom_watch
+            from apscheduler.triggers.cron import CronTrigger as _Cron
+            from zoneinfo import ZoneInfo as _ZI
+            _et = _ZI("America/New_York")
             scheduler.add_job(
-                scan_bottom_watch,
-                "interval",
-                minutes=30,
-                args=[sync_session_factory],
-                id="bottom_watch_scan",
-                replace_existing=True,
+                scan_bottom_watch, _Cron(hour=10, minute=0, day_of_week="mon-fri", timezone=_et),
+                args=[sync_session_factory], id="bottom_watch_am", replace_existing=True,
             )
-            # Also run once immediately on startup (RTH-gated inside) so a deploy fires
-            # right away instead of waiting up to 30 min for the first interval tick.
             scheduler.add_job(
-                scan_bottom_watch,
-                args=[sync_session_factory],
-                id="bottom_watch_initial",
+                scan_bottom_watch, _Cron(hour=15, minute=30, day_of_week="mon-fri", timezone=_et),
+                args=[sync_session_factory], id="bottom_watch_pm", replace_existing=True,
             )
-            logger.info("Bottom-watch level-alert scan scheduled (every 30 min + on startup, RTH)")
+            logger.info("Bottom-watch level-alert scan scheduled (10:00 ET + 15:30 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register bottom-watch scan job")
 
