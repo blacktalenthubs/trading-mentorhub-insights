@@ -1024,6 +1024,14 @@ export interface BottomWatchItem {
   near_200ma: boolean;
   state: "reclaimed_30" | "oversold" | "buy_zone" | "approaching" | "at_200ma" | "cooling";
   state_label: string;
+  fund: {
+    pe: number | null;
+    eps: number | null;
+    mkt_cap: number | null;
+    rec: string | null;
+    target_upside_pct: number | null;
+    sector: string | null;
+  } | null;
 }
 
 // Watchlist ranked by daily RSI (lowest first) — the Today "Bottom Watch" board.
