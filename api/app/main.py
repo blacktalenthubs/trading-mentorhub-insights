@@ -426,7 +426,14 @@ async def lifespan(app: FastAPI):
                 id="bottom_watch_scan",
                 replace_existing=True,
             )
-            logger.info("Bottom-watch level-alert scan scheduled (every 30 min, RTH)")
+            # Also run once immediately on startup (RTH-gated inside) so a deploy fires
+            # right away instead of waiting up to 30 min for the first interval tick.
+            scheduler.add_job(
+                scan_bottom_watch,
+                args=[sync_session_factory],
+                id="bottom_watch_initial",
+            )
+            logger.info("Bottom-watch level-alert scan scheduled (every 30 min + on startup, RTH)")
         except Exception:
             logger.exception("Failed to register bottom-watch scan job")
 
