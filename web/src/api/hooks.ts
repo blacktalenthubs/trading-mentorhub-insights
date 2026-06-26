@@ -1016,6 +1016,27 @@ export function useWatchlistRank() {
   });
 }
 
+export interface BottomWatchItem {
+  symbol: string;
+  rsi: number;
+  rsi_prev: number | null;
+  dist_200ma_pct: number | null;
+  near_200ma: boolean;
+  state: "reclaimed_30" | "oversold" | "buy_zone" | "at_200ma" | "cooling";
+  state_label: string;
+}
+
+// Watchlist ranked by daily RSI (lowest first) — the Today "Bottom Watch" board.
+export function useBottomWatch() {
+  return useQuery({
+    queryKey: ["bottom-watch"],
+    queryFn: () => api.get<BottomWatchItem[]>("/market/bottom-watch"),
+    staleTime: 5 * 60_000, // matches backend cache TTL
+    refetchInterval: 5 * 60_000,
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useActiveEntries() {
   return useQuery({
     queryKey: ["active-entries"],

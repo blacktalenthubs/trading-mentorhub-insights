@@ -11,9 +11,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Request
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.cache import cache_get, cache_set
+from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
+from app.models.watchlist import WatchlistItem
 from app.rate_limit import limiter
 from app.schemas.market import (
     CatalystItem,
@@ -1194,3 +1199,74 @@ async def refresh_premarket_gaps_now(user: User = Depends(get_current_user)):
         logging.getLogger(__name__).exception("Manual premarket gaps refresh failed")
         return {"status": "error", "gappers": 0, "snapshot_id": None}
     return {"status": "ok", **summary}
+
+
+# ── Bottom Watch — watchlist ranked by daily RSI (oversold bottom-fishing) ──────
+_BOTTOM_WATCH_TTL = 300       # 5 min — RSI is daily, the rank barely moves intraday
+_BOTTOM_WATCH_MAX = 60        # bound the per-symbol fan-out cost
+
+
+def _bottom_state(rsi: float, rsi_prev, near_200: bool) -> tuple[str, str]:
+    """Classify one symbol's bottom-fishing state from its daily RSI."""
+    if rsi_prev is not None and rsi_prev < 30 <= rsi:
+        return "reclaimed_30", "Reclaimed 30 → BUY"
+    if rsi < 30:
+        return "oversold", "Oversold — watch the reclaim"
+    if rsi <= 35:
+        return "buy_zone", "In the 30–35 buy zone"
+    if near_200:
+        return "at_200ma", "At the 200-MA"
+    return "cooling", "Cooling, above the zone"
+
+
+@router.get("/bottom-watch")
+async def bottom_watch(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The user's watchlist ranked by daily RSI(14), lowest first — for catching the
+    bottom in washed-out (mega-)caps. Each row carries the RSI, distance to the 200-MA,
+    and a STATE: oversold (<30, watch) · reclaimed_30 (RSI crossed back above 30 = the
+    turn is in) · buy_zone (30–35) · at_200ma · cooling. Powers the Today 'Bottom Watch'
+    board. Cached 5 min (one slow uncached pass, then instant)."""
+    key = f"bottom_watch:{user.id}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
+    rows = (await db.execute(
+        select(WatchlistItem.symbol).where(WatchlistItem.user_id == user.id)
+    )).all()
+    symbols = [r[0].upper() for r in rows][:_BOTTOM_WATCH_MAX]
+    loop = asyncio.get_running_loop()
+
+    async def _one(sym: str):
+        try:
+            pd = await loop.run_in_executor(None, fetch_prior_day, sym)
+        except Exception:
+            return None
+        if not pd:
+            return None
+        rsi = pd.get("rsi14")
+        close = pd.get("close")
+        if rsi is None or not close:
+            return None
+        rsi_prev = pd.get("rsi14_prev")
+        ma200 = pd.get("ma200") or pd.get("ema200")
+        dist = round((close - ma200) / ma200 * 100, 2) if ma200 else None
+        near_200 = ma200 is not None and abs(close - ma200) / ma200 <= 0.02
+        state, label = _bottom_state(rsi, rsi_prev, near_200)
+        return {
+            "symbol": sym,
+            "rsi": round(rsi, 1),
+            "rsi_prev": round(rsi_prev, 1) if rsi_prev is not None else None,
+            "dist_200ma_pct": dist,
+            "near_200ma": near_200,
+            "state": state,
+            "state_label": label,
+        }
+
+    results = [r for r in await asyncio.gather(*[_one(s) for s in symbols]) if r]
+    results.sort(key=lambda x: x["rsi"])
+    cache_set(key, results, _BOTTOM_WATCH_TTL)
+    return results

@@ -9,8 +9,8 @@
  */
 import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShieldCheck, TrendingUp, ChevronRight, ChevronDown, Bot } from "lucide-react";
-import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useMarketReports } from "../api/hooks";
+import { ShieldCheck, TrendingUp, TrendingDown, ChevronRight, ChevronDown, Bot } from "lucide-react";
+import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useMarketReports, useBottomWatch, type BottomWatchItem } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
@@ -278,17 +278,68 @@ function SymbolGroup({ symbol, list, onChart, defaultOpen }: { symbol: string; l
   );
 }
 
+/* ── Bottom Watch — watchlist ranked by daily RSI (lowest first). Catch the bottom:
+   oversold names to watch, the reclaim of 30 = the turn, 200-MA = institutional floor. ── */
+function bwTone(state: BottomWatchItem["state"]): string {
+  if (state === "reclaimed_30") return "bg-accent/15 text-accent";
+  if (state === "oversold") return "bg-bearish/15 text-bearish-text";
+  if (state === "buy_zone") return "bg-warning/15 text-warning-text";
+  if (state === "at_200ma") return "bg-accent/10 text-accent";
+  return "bg-surface-3 text-text-muted";
+}
+function BottomWatchBoard({ onChart }: { onChart: (s: string) => void }) {
+  const { data, isLoading } = useBottomWatch();
+  const rows = data ?? [];
+  if (isLoading && rows.length === 0)
+    return <div className="p-8 text-center text-sm text-text-muted">Scanning RSI…</div>;
+  if (rows.length === 0)
+    return <div className="p-8 text-center text-sm text-text-muted">No watchlist symbols to rank.</div>;
+  return (
+    <div className="max-w-2xl space-y-2">
+      <p className="px-1 text-[12px] leading-relaxed text-text-muted">
+        Your watchlist ranked by <b>daily RSI</b>, lowest first — for catching the bottom in washed-out
+        names. <b>Oversold (&lt;30)</b> = watch; <b>reclaimed 30</b> = the turn is in (longer-hold buy);
+        <b> 200-MA</b> = institutional floor. The RSI-30 reclaim alert fires the turn.
+      </p>
+      <div className="overflow-hidden rounded-lg border border-border divide-y divide-border">
+        {rows.map((w) => (
+          <button
+            key={w.symbol}
+            onClick={() => onChart(w.symbol)}
+            className="flex w-full items-center gap-3 p-2.5 text-left transition-colors hover:bg-surface-2/50"
+          >
+            <span className="w-14 shrink-0 font-semibold text-text-primary">{w.symbol}</span>
+            <span className="w-10 shrink-0 font-mono text-[13px] tabular-nums text-text-secondary">{w.rsi}</span>
+            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${bwTone(w.state)}`}>
+              {w.state_label}
+            </span>
+            {w.near_200ma && (
+              <span className="shrink-0 rounded bg-accent/10 px-1 py-0.5 text-[10px] text-accent">200-MA</span>
+            )}
+            {w.dist_200ma_pct != null && (
+              <span className="ml-auto font-mono text-[11px] tabular-nums text-text-faint">
+                {w.dist_200ma_pct > 0 ? "+" : ""}{w.dist_200ma_pct}% vs 200
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function TodayPage() {
   const nav = useNavigate();
-  const [tab, setTab] = useState<"signals" | "briefing">(() => {
+  const [tab, setTab] = useState<"signals" | "briefing" | "bottom">(() => {
     if (typeof window === "undefined") return "signals";
     // Deep-link from a notification tap: ?tab=reports (the Reports tab id is "briefing").
     const q = new URLSearchParams(window.location.search).get("tab");
     if (q === "reports" || q === "briefing") return "briefing";
+    if (q === "bottom") return "bottom";
     if (q === "signals") return "signals";
-    return (localStorage.getItem("today_tab") as "signals" | "briefing") || "signals";
+    return (localStorage.getItem("today_tab") as "signals" | "briefing" | "bottom") || "signals";
   });
-  function pickTab(t: "signals" | "briefing") {
+  function pickTab(t: "signals" | "briefing" | "bottom") {
     setTab(t);
     try { localStorage.setItem("today_tab", t); } catch { /* ignore */ }
   }
@@ -361,7 +412,7 @@ export default function TodayPage() {
 
         {/* tabs */}
         <div className="flex items-center gap-1 mb-4 bg-surface-2 rounded-lg p-0.5 w-fit">
-          {([["signals", "Signals"], ["briefing", "Reports"]] as const).map(([id, label]) => (
+          {([["signals", "Signals"], ["bottom", "Bottom Watch"], ["briefing", "Reports"]] as const).map(([id, label]) => (
             <button
               key={id}
               onClick={() => pickTab(id)}
@@ -370,6 +421,7 @@ export default function TodayPage() {
               }`}
             >
               {id === "briefing" && <Bot size={13} />}
+              {id === "bottom" && <TrendingDown size={13} />}
               {label}
             </button>
           ))}
@@ -438,6 +490,8 @@ export default function TodayPage() {
             </div>
           </div>
         )}
+
+        {tab === "bottom" && <BottomWatchBoard onChart={goChart} />}
 
         {tab === "briefing" && (
           <div className="max-w-2xl">
