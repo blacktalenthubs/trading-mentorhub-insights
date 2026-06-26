@@ -413,6 +413,23 @@ async def lifespan(app: FastAPI):
             )
         # SWING DISABLED — focus on day trade entries first.
 
+        # Global Bottom-Watch level alerts (2026-06-26) — push to ALL users when a
+        # notable name reclaims 30 RSI / goes oversold / taps its 200-MA. RTH-only,
+        # deduped once/symbol/event/day. Own try/except so it can never break startup.
+        try:
+            from app.services.bottom_watch_alerts import scan_bottom_watch
+            scheduler.add_job(
+                scan_bottom_watch,
+                "interval",
+                minutes=30,
+                args=[sync_session_factory],
+                id="bottom_watch_scan",
+                replace_existing=True,
+            )
+            logger.info("Bottom-watch level-alert scan scheduled (every 30 min, RTH)")
+        except Exception:
+            logger.exception("Failed to register bottom-watch scan job")
+
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
         # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
