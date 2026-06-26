@@ -413,11 +413,11 @@ if rl_showOR and barstate.islast
     label.delete(rl_lbL)
     if not na(rl_orh)
         cH = close > rl_orh ? col_sup : col_res
-        rl_lnH := line.new(bar_index - lvl_bars, rl_orh, bar_index + 30, rl_orh, color = cH, width = 1, style = line.style_dotted)
+        rl_lnH := line.new(bar_index - lvl_bars, rl_orh, bar_index + 30, rl_orh, color = cH, width = 2, style = line.style_solid)
         rl_lbH := label.new(bar_index + 30, rl_orh, "ORH " + str.tostring(rl_orh, format.mintick), style = label.style_label_left, color = cH, textcolor = color.white, size = size.small)
     if not na(rl_orl)
         cL = close > rl_orl ? col_sup : col_res
-        rl_lnL := line.new(bar_index - lvl_bars, rl_orl, bar_index + 30, rl_orl, color = cL, width = 1, style = line.style_dotted)
+        rl_lnL := line.new(bar_index - lvl_bars, rl_orl, bar_index + 30, rl_orl, color = cL, width = 2, style = line.style_solid)
         rl_lbL := label.new(bar_index + 30, rl_orl, "ORL " + str.tostring(rl_orl, format.mintick), style = label.style_label_left, color = cL, textcolor = color.white, size = size.small)
 
 // ── Alerts ────────────────────────────────────────────────────────────────
