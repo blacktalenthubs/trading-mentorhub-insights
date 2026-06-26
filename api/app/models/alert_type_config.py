@@ -117,6 +117,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rsi_70", "RSI 70 — daily RSI crossed above 70 (momentum)", "Swing", False),
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
     ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
+    ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
 
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
@@ -250,6 +251,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "weekly_ma_pullback": "Weekly position entry from the WkPos indicator: in a Stage-2 uptrend (price above a RISING 30-week MA, 10w > 30w), the week dipped to the rising 10-week MA and closed back GREEN above it — buy the pullback in an established trend. STOP = the pullback week's low (trend invalidates on a weekly close below the 30wMA). TARGET = weekly RSI 70. Fires once at the weekly close.",
     "rsi_70": "Daily RSI(14) closed above 70 — momentum/exhaustion gauge at the bullish extreme. A close above 70 often kicks off a parabolic run (e.g. MU → 85 RSI). Fired at the daily close (confirmed, towards EOD), at most once a day. A heads-up to look, not a defended entry; no structural stop of its own.",
     "ema_5_20_cross": "The daily 5 EMA just crossed above the 20 EMA (Steve Burns's 5/20 cross) — a short-term trend flip that frequently starts a sustained up-move. A SWING entry (hold days). Fired at the daily close. STOP = a 5/20 EMA cross-under at the close (≈ the 20 EMA). TARGET = the 70-RSI. (Burns went long AIQ/VGT/QQQ on this exact signal Fri 06-12.)",
+    "swing_rsi_30": "Daily RSI crossed back ABOVE 30 from below (was oversold yesterday, reclaimed 30 today) on an upper-half close — the bottom-fishing 'turn is in' confirmation. Higher conviction near the 200 SMA/EMA. A longer-hold reversal entry on washed-out quality/mega caps. Manage by RSI: T1 ~RSI 45-50, T2 RSI 70; STOP = a close back under 30. Pairs with rsi_oversold (the watch) — this is the trigger.",
     "rsi_oversold": "Daily RSI closed in the 30-35 buy zone — reclaimed 30 from below or dipped/holding in 30-35 from above. NEVER fires below 30 (the falling knife — RSI 29 is not a buy; wait for the turn/hold). A SWING entry (hold days), best on washed-out quality/mega caps that mean-revert. Manage by RSI: T1 = RSI 50, T2 = RSI 70; STOP = a daily close back under RSI 30 (exactly where Steve Burns stopped out of NFLX, -2.75%, Fri 06-12). Fired at the daily close, once per entry (rare).",
     "rc_4h_long": "4h RC long: price wicked BELOW the prior 4h low then closed back above it — swept-low bounce / reversal long. Stop = the wick low. A heads-up — eyeball the 4h, not every one is an entry.",
     "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
@@ -390,7 +392,10 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "swing_bounce_ema21", "swing_bounce_ema50", "swing_bounce_sma50",
     "swing_bounce_ema200", "swing_bounce_sma200",
     "swing_8_21_cross", "swing_golden_cross_retest",
-    "swing_52w_high_retest", "swing_5day_low_reclaim", "swing_rsi_30",
+    "swing_52w_high_retest", "swing_5day_low_reclaim",
+    # swing_rsi_30 REVIVED 2026-06-25 (back in _BASE_CATALOG) — the RSI-30 RECLAIM
+    # (crossed back above 30 from oversold) fires from evaluate_swing_rules, the same
+    # path that already produces rsi_oversold. The bottom-fishing "the turn is in" signal.
 )
 
 
