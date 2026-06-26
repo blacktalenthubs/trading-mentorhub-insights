@@ -59,6 +59,8 @@ cml_tol   = input.float(0.20, "  CML held touch tolerance %", minval = 0.0, step
 // the same on any chart TF (defaults built for 5m: 15-min OR, 90-min reclaim window).
 gRL = "Reclaim long — ORH/PDH morning reclaim (#65)"
 en_reclaim = input.bool(true,  "Fire ORH/PDH reclaim-long (BUY, w/ ~ATM strike)", group = gRL)
+en_orl     = input.bool(true,  "Fire ORL held + reclaim — the magnet bounce (BUY, w/ ~ATM call)", group = gRL)
+en_orh_rej = input.bool(true,  "Fire ORH rejection — failed poke above the OR high (SHORT, w/ ~ATM put)", group = gRL)
 rl_orMin   = input.int(15,    "Opening-range minutes (ORH/ORL)", minval = 5, group = gRL)
 rl_dipPct  = input.float(0.18, "Shakeout dip below the level (%)", step = 0.01, group = gRL) / 100.0
 rl_recMin  = input.int(90,    "Reclaim within N minutes of the dip", minval = 15, group = gRL)
@@ -308,6 +310,29 @@ rl_reclaim(float L) =>
 [rl_orhSig, rl_orhStop, rl_orhTgt] = rl_reclaim(rl_orh)
 [rl_pdhSig, rl_pdhStop, rl_pdhTgt] = rl_reclaim(hDp)
 
+// ── OR CHANNEL play — the OR edges are MAGNETS: capitalize on them EARLY (don't wait
+// for the late ORH break). LONG the ORL bounce (calls) → target ORH · SHORT the ORH
+// rejection (puts) → target ORL. Each fires once/day. Gated like normal day-trade
+// entries (focus-list only in a weak tape via the gate + short allowlist).
+orl_ok = rl_orReady and not na(rl_orl)
+orh_ok = rl_orReady and not na(rl_orh)
+// ORL reclaim = undercut the OR low (sweep) then close back above. stop = the day low.
+rcORLrec = sweep_reclaim(rl_orl, en_orl, orl_ok, nD)
+// ORL held = tag the OR low from above (within dip tol, never broke) + green close.
+var bool orlh_fired = false
+if nD
+    orlh_fired := false
+orlHeld = en_orl and orl_ok and (low >= rl_orl) and (low <= rl_orl * (1.0 + rl_dipPct)) and (close > rl_orl) and (close > open) and not orlh_fired
+if orlHeld
+    orlh_fired := true
+// ORH rejection = poke above the OR high and close back below (failed break) → SHORT.
+var bool orhr_fired = false
+if nD
+    orhr_fired := false
+orhRej = en_orh_rej and orh_ok and (high > rl_orh) and (close < rl_orh) and (close < open) and not orhr_fired
+if orhRej
+    orhr_fired := true
+
 // 4h rejection short — its own logic (poke above prior high, close back below).
 var bool f4_short = false
 if n4
@@ -459,6 +484,17 @@ if en_reclaim and rl_orhSig
     alert(reclaim_pay("ORH", close, rl_orhStop, rl_orhTgt), alert.freq_once_per_bar_close)
 if en_reclaim and rl_pdhSig
     alert(reclaim_pay("PDH", close, rl_pdhStop, rl_pdhTgt), alert.freq_once_per_bar_close)
+
+// OR-channel option plays — ORL bounce = BUY a ~ATM CALL (target the OR high) · ORH
+// rejection = BUY a ~ATM PUT (target the OR low). Strike = nearest whole dollar.
+orl_pay(string rule, string kind, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'C nearest weekly","note":"ORL ' + kind + ' — early bounce off the opening-range low (magnet) · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'C","fired_at":"' + str.tostring(timenow) + '"}'
+orh_pay(float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"orh_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'P nearest weekly","note":"ORH rejection — failed poke above the opening-range high (short) · stop ' + str.tostring(stp, format.mintick) + ' · target into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'P","fired_at":"' + str.tostring(timenow) + '"}'
+if rcORLrec
+    alert(orl_pay("orl_reclaim", "reclaim", rl_orl, lDd, rl_next_above(close)), alert.freq_once_per_bar_close)
+if orlHeld
+    alert(orl_pay("orl_held", "held", close, rl_orl, rl_next_above(close)), alert.freq_once_per_bar_close)
+if orhRej
+    alert(orh_pay(close, rl_orh, rl_orl), alert.freq_once_per_bar_close)
 
 // MA bounce — rule "ma_bounce_long_v3" + ma_tag (number+E); backend forms
 // ma_bounce_long_v3_<ema>. entry = close (held above the MA), stop = the MA (close

@@ -142,6 +142,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # ~0.18% shakeout, with room to the next resistance → long, take profit into it.
     # Long-only (the short mirror has no edge). Default OFF (opt-in).
     ("reclaim_long", "Reclaim long — morning reclaim of the ORH/PDH with room + ~ATM strike (now in rc.pine)", "Index reclaim", False),
+    # OR-channel option plays (rc.pine, 2026-06-25) — capitalize on the opening-range
+    # edges EARLY instead of waiting for the late ORH break. ORL is the magnet: bounce =
+    # call, ORH rejection = put. All default OFF.
+    ("orl_held", "ORL held — bounce off the opening-range low (BUY call, target the OR high)", "Index reclaim", False),
+    ("orl_reclaim", "ORL reclaim — undercut & reclaim the opening-range low (BUY call)", "Index reclaim", False),
+    ("orh_reject", "ORH rejection — failed poke above the opening-range high (SHORT put, target the OR low)", "Index reclaim", False),
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
