@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, Component, type ReactNode } from "react";
 import { createChart, CandlestickSeries, LineSeries, HistogramSeries, createSeriesMarkers, ColorType } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import type { OHLCBar, ChartLevel } from "../api/hooks";
-import { computeSMA, computeEMA, computeVWAP } from "../lib/indicators";
+import { computeSMA, computeEMA, computeVWAP, computeRSI } from "../lib/indicators";
 
 interface IndicatorConfig {
   key: string; // "sma20" | "sma50" | "ema9" | "vwap"
@@ -358,6 +358,33 @@ function CandlestickChartInner({
       }
     }
     setIndLegend(drawnIndicators);
+
+    // ── RSI(14) sub-pane (always on) — the Bottom Watch ranks by it, so you can
+    // confirm the oversold/reclaim read on the chart. Own pane (paneIndex 1) with
+    // 30/70 guide lines; purple line, 0–100 fixed scale.
+    try {
+      const rsiData = computeRSI(closes, 14);
+      if (rsiData.length > 0) {
+        rsiData.sort((a, b) =>
+          typeof a.time === "number" && typeof b.time === "number"
+            ? a.time - b.time
+            : String(a.time).localeCompare(String(b.time)),
+        );
+        const rsiSeries = chart.addSeries(
+          LineSeries,
+          { color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: true,
+            crosshairMarkerVisible: false },
+          1,
+        );
+        rsiSeries.setData(rsiData as any);
+        rsiSeries.createPriceLine({ price: 70, color: "#ef5350", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "70" });
+        rsiSeries.createPriceLine({ price: 30, color: "#26a69a", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "30" });
+        rsiSeries.priceScale().applyOptions({ autoScale: false });
+        rsiSeries.applyOptions({ autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
+        lineSeriesRefs.current.push(rsiSeries);
+        try { chart.panes()[1]?.setHeight(90); } catch { /* pane sizing best-effort */ }
+      }
+    } catch { /* RSI best-effort */ }
 
     // Remove previous price lines
     for (const pl of priceLinesRef.current) {
