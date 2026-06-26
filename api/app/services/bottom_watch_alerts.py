@@ -53,7 +53,9 @@ def _events(sym: str, rsi: float, rsi_prev, near_200: bool):
     if rsi_prev is not None and rsi_prev < 30 <= rsi:
         out.append(("reclaim_30", f"📈 {sym} reclaimed 30 RSI",
                     f"Oversold turn — long-term entry zone (RSI {rsi:.0f})."))
-    elif rsi_prev is not None and rsi_prev >= 30 > rsi:
+    elif rsi < 30:
+        # Currently oversold (not just the cross) — fire once/day so names already
+        # below 30 still ping, not only the bar that crosses down.
         out.append(("oversold_30", f"⚠️ {sym} is oversold (RSI {rsi:.0f})",
                     "Washed out — watch for the 30 reclaim."))
     if near_200 and rsi < 45:
