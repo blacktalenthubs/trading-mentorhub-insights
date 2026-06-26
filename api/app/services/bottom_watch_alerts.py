@@ -72,8 +72,15 @@ def scan_bottom_watch(sync_session_factory) -> None:
 
         session_date = datetime.utcnow().strftime("%Y-%m-%d")
         with sync_session_factory() as db:
-            symbols = [r[0].upper() for r in db.execute(
-                text("SELECT DISTINCT symbol FROM watchlist")).all()][:_UNIVERSE_MAX]
+            # GLOBAL market universe (screener_universe, ~120 notable/liquid names by mkt
+            # cap) — NOT the watchlist. The point is to surface oversold names users aren't
+            # already watching. Falls back to the watchlist union if the universe is empty.
+            symbols = [r[0].upper() for r in db.execute(text(
+                "SELECT symbol FROM screener_universe ORDER BY market_cap DESC NULLS LAST "
+                "LIMIT :n"), {"n": _UNIVERSE_MAX}).all()]
+            if not symbols:
+                symbols = [r[0].upper() for r in db.execute(
+                    text("SELECT DISTINCT symbol FROM watchlist")).all()][:_UNIVERSE_MAX]
             tokens = [r[0] for r in db.execute(text(
                 "SELECT token FROM device_tokens WHERE platform = 'ios' AND token IS NOT NULL "
                 "UNION SELECT apns_token FROM users WHERE apns_enabled = true "

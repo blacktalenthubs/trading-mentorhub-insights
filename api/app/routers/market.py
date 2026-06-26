@@ -1203,7 +1203,7 @@ async def refresh_premarket_gaps_now(user: User = Depends(get_current_user)):
 
 # ── Bottom Watch — watchlist ranked by daily RSI (oversold bottom-fishing) ──────
 _BOTTOM_WATCH_TTL = 300       # 5 min — RSI is daily, the rank barely moves intraday
-_BOTTOM_WATCH_MAX = 60        # bound the per-symbol fan-out cost
+_BOTTOM_WATCH_MAX = 120       # the screener_universe (~120 notable/liquid names)
 
 
 def _bottom_state(rsi: float, rsi_prev, near_200: bool) -> tuple[str, str]:
@@ -1271,15 +1271,19 @@ async def bottom_watch(
     and a STATE: oversold (<30, watch) · reclaimed_30 (RSI crossed back above 30 = the
     turn is in) · buy_zone (30–35) · at_200ma · cooling. Powers the Today 'Bottom Watch'
     board. Cached 5 min (one slow uncached pass, then instant)."""
-    key = f"bottom_watch:{user.id}"
+    # GLOBAL universe — the broad market scan set (screener_universe, ~120 notable/liquid
+    # names, rebuilt periodically), NOT the user's watchlist. The whole point is to surface
+    # oversold names you AREN'T already watching, so the board is the same for everyone.
+    key = "bottom_watch:global"
     base = cache_get(key)
     if base is not None:
         return _attach_fundamentals(base)
 
-    rows = (await db.execute(
-        select(WatchlistItem.symbol).where(WatchlistItem.user_id == user.id)
-    )).all()
-    symbols = [r[0].upper() for r in rows][:_BOTTOM_WATCH_MAX]
+    from sqlalchemy import text
+    rows = (await db.execute(text(
+        "SELECT symbol FROM screener_universe ORDER BY market_cap DESC NULLS LAST LIMIT :n"
+    ), {"n": _BOTTOM_WATCH_MAX})).all()
+    symbols = [r[0].upper() for r in rows]
     loop = asyncio.get_running_loop()
 
     async def _one(sym: str):

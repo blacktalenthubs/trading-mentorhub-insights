@@ -349,11 +349,11 @@ function BottomWatchBoard({ onChart }: { onChart: (s: string) => void }) {
   if (isLoading && rows.length === 0)
     return <div className="p-8 text-center text-sm text-text-muted">Scanning RSI…</div>;
   if (rows.length === 0)
-    return <div className="p-8 text-center text-sm text-text-muted">No watchlist symbols to rank.</div>;
+    return <div className="p-8 text-center text-sm text-text-muted">No names to rank yet.</div>;
   return (
     <div className="space-y-2">
       <p className="px-1 text-[12px] leading-relaxed text-text-muted">
-        Watchlist ranked by <b>daily RSI</b> — catch the bottom, then judge if it's worth buying:
+        The market's washed-out names ranked by <b>daily RSI</b> (not just your watchlist) — catch the bottom, then judge if it's worth buying:
         <b> P/E</b> + <b>analyst rating</b> + <b>target upside</b> separate a quality dip from a falling knife.
         <b> Tap a header to sort</b>; tap a row → chart. (Fundamentals fill in over a few seconds.)
       </p>
