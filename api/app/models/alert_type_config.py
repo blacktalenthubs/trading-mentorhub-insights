@@ -163,6 +163,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # and reclaimed it; cml_held = price tagged it from above and held. Both BUY, OFF.
     ("cml_reclaim", "CML reclaim — undercut & reclaim of the CURRENT-month low (month floor swept & held)", "Monthly trend", False),
     ("cml_held", "CML held — tag & hold of the CURRENT-month low as support", "Monthly trend", False),
+    ("pml_held", "PML held — tag & hold of the PRIOR-month low as support", "Monthly trend", False),
     # weekly_ma_held/reclaim/wick_reclaim CUT 2026-06-23 — NOT in the agreed set and
     # NOT wired (no pine emits them). → OBSOLETE. (Re-wire into rc.pine later if wanted.)
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.

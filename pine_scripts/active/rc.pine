@@ -53,7 +53,8 @@ enM_long  = input.bool(true, "Monthly · RC — reclaim prior-month LOW (BUY)", 
 enM_hrec  = input.bool(true, "Monthly · RC-H — reclaim prior-month HIGH (BUY)", group = gM)
 enCMLrec  = input.bool(false, "Monthly · CML reclaim — undercut & reclaim the CURRENT-month low (BUY)", group = gM)
 enCMLheld = input.bool(false, "Monthly · CML held — tag & hold the CURRENT-month low as support (BUY)", group = gM)
-cml_tol   = input.float(0.20, "  CML held touch tolerance %", minval = 0.0, step = 0.05, group = gM)
+enPMLheld = input.bool(false, "Monthly · PML held — tag & hold the PRIOR-month low as support (BUY)", group = gM)
+cml_tol   = input.float(0.20, "  CML/PML held touch tolerance %", minval = 0.0, step = 0.05, group = gM)
 // Reclaim long (#65, merged from index_reclaim_long.pine 2026-06-25). Morning reclaim
 // of the ORH/PDH with the option-strike payload. Windows are MINUTE-based so it behaves
 // the same on any chart TF (defaults built for 5m: 15-min OR, 90-min reclaim window).
@@ -239,6 +240,13 @@ if nD
 cmlHeld = enCMLheld and okCML and (low >= cml_ref) and (low <= cml_ref * (1.0 + cml_tol / 100.0)) and (close > cml_ref) and (close > open) and not cmlh_fired
 if cmlHeld
     cmlh_fired := true
+// PML held — tag & hold the PRIOR-month low (lMp, a FIXED level) from above as support.
+var bool pmlh_fired = false
+if nD
+    pmlh_fired := false
+pmlHeld = enPMLheld and (not na(lMp)) and (low >= lMp) and (low <= lMp * (1.0 + cml_tol / 100.0)) and (close > lMp) and (close > open) and not pmlh_fired
+if pmlHeld
+    pmlh_fired := true
 
 // ── RECLAIM LONG (#65, merged from index_reclaim_long.pine) ─────────────────
 // Opening range (first rl_orMin of the session), the reclaim state machine, and the
@@ -475,6 +483,8 @@ if rcCMLrec
     alert(rc_pay("cml_reclaim", "BUY", "M", cml_ref, cml, "CML · undercut & reclaim of the CURRENT-month LOW (month floor swept & held) — entry at the level " + str.tostring(cml_ref, format.mintick) + ", stop " + str.tostring(cml, format.mintick)), alert.freq_once_per_bar_close)
 if cmlHeld
     alert(rc_pay("cml_held", "BUY", "M", close, cml_ref, "CML · tag & hold of the CURRENT-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(cml_ref, format.mintick)), alert.freq_once_per_bar_close)
+if pmlHeld
+    alert(rc_pay("pml_held", "BUY", "M", close, lMp, "PML · tag & hold of the PRIOR-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(lMp, format.mintick)), alert.freq_once_per_bar_close)
 
 // Reclaim long (#65) — entry = the reclaim close, stop = the dip low, target = next
 // resistance. strike = nearest whole-dollar = the ~ATM call (small intraday moves need
