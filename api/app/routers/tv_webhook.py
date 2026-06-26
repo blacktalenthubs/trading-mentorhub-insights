@@ -1117,7 +1117,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # ORH/PWH). atr_floor=False keeps targets level-driven (1R/2R floors). Swing/Long/Gap
     # keep the ATR floor (a wide structural target is correct for a multi-day hold).
     from analytics.exit_plan import trade_style as _ts
-    _atr_floor = _ts(alert_type_full) != "Day"
+    # NB: alert_type_full isn't computed until further down — use the bare rule off the
+    # signal (trade_style strips "tv_" anyway, so Day/not-Day is identical). Referencing
+    # alert_type_full here was an UnboundLocalError that threw on EVERY alert → silent
+    # total ingestion outage (#469 regression, fixed 2026-06-26).
+    _atr_floor = _ts(getattr(sig, "_tv_rule", "") or "") != "Day"
     if direction in ("BUY", "LONG") and sig.entry and not (sig.target_1 and sig.target_2):
         stop = sig.stop if sig.stop else round(sig.entry * 0.995, 2)
         sig.stop = stop
