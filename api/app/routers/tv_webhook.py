@@ -1111,15 +1111,22 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # 3. Phase 4a structural targets if Pine Script didn't supply them.
     # Staged Pine always supplies entry/stop/T1/T2, so this only fills gaps
     # for older Pine scripts or non-staged rules.
+    # DAY-style trades (reclaim_long, ORL/ORH plays, rc_4h, levels) target the nearest
+    # LEVELS, not a daily-ATR floor — for a tight intraday stop the ATR floor shoves the
+    # target past the real walls (SMH 630.80 → fantasy 665.92/701.05 = 5R/10R instead of
+    # ORH/PWH). atr_floor=False keeps targets level-driven (1R/2R floors). Swing/Long/Gap
+    # keep the ATR floor (a wide structural target is correct for a multi-day hold).
+    from analytics.exit_plan import trade_style as _ts
+    _atr_floor = _ts(alert_type_full) != "Day"
     if direction in ("BUY", "LONG") and sig.entry and not (sig.target_1 and sig.target_2):
         stop = sig.stop if sig.stop else round(sig.entry * 0.995, 2)
         sig.stop = stop
-        t1, t2 = _targets_for_long(sig.entry, stop, prior_day)
+        t1, t2 = _targets_for_long(sig.entry, stop, prior_day, atr_floor=_atr_floor)
         sig.target_1, sig.target_2 = t1, t2
     elif direction == "SHORT" and sig.entry and not (sig.target_1 and sig.target_2):
         stop = sig.stop if sig.stop else round(sig.entry * 1.005, 2)
         sig.stop = stop
-        t1, t2 = _targets_for_short(sig.entry, stop, prior_day)
+        t1, t2 = _targets_for_short(sig.entry, stop, prior_day, atr_floor=_atr_floor)
         sig.target_1, sig.target_2 = t1, t2
 
     # 4. Stamp confluence score (Phase 2) — kept for non-TV consumers, but
