@@ -19,9 +19,28 @@ from datetime import datetime
 from sqlalchemy import text
 
 from app.cache import cache_get, cache_set
-from app.services.push_service import send_push_sync
+from app.services.apns import send_apns_push, apns_configured
 
 logger = logging.getLogger(__name__)
+
+
+def _push_all(tokens: list[str], title: str, body: str, data: dict) -> None:
+    """Fan an APNs push to every device, sync (runs from the BackgroundScheduler
+    thread). Uses the SAME send_apns_push path the live alerts use (APNS_AUTH_KEY),
+    not push_service (which needs APNS_KEY_PATH the API doesn't set)."""
+    import asyncio
+
+    async def _go():
+        for t in tokens:
+            try:
+                await send_apns_push(t, title, body, payload=data)
+            except Exception:
+                pass
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_go())
+    finally:
+        loop.close()
 
 _UNIVERSE_MAX = 150
 _DEDUP_TTL = 72_000   # ~20h — one push per symbol/event/session day
@@ -87,7 +106,9 @@ def scan_bottom_watch(sync_session_factory) -> None:
                 "SELECT token FROM device_tokens WHERE platform = 'ios' AND token IS NOT NULL "
                 "UNION SELECT apns_token FROM users WHERE apns_enabled = true "
                 "AND apns_token IS NOT NULL AND apns_token <> ''")).all() if r[0]]
-        if not symbols or not tokens:
+        if not symbols or not tokens or not apns_configured():
+            if not apns_configured():
+                logger.info("bottom-watch: APNs not configured on this service — skipping push scan")
             return
 
         fired = 0
@@ -109,9 +130,8 @@ def scan_bottom_watch(sync_session_factory) -> None:
                     if cache_get(dk):
                         continue
                     cache_set(dk, True, _DEDUP_TTL)
-                    send_push_sync(tokens, title, body,
-                                   data={"symbol": sym, "kind": "bottom_watch", "event": ev},
-                                   thread_id="bottom_watch")
+                    _push_all(tokens, title, body,
+                              {"symbol": sym, "kind": "bottom_watch", "event": ev})
                     fired += 1
             except Exception:
                 continue
