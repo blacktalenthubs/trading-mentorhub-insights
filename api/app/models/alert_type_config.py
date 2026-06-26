@@ -81,7 +81,6 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
 
     # Opening-range-low defended (spec 61, 2026-06-03) — buy the held 15m
     # low of day, stop below the OR low, PDH = first target.
-    ("staged_orl_held", "Opening-range low held (1h)", "Daily PDH/PDL", False),
 
     # Prior-low + prior-high RECLAIM all CUT 2026-06-23 — the RC pine owns reclaims
     # now (rc_daily_long/hrec, weekly_rc, monthly_rc, gated). No duplicate staged
@@ -222,7 +221,6 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pdl_proximity": "Stock pulled back near yesterday's low without touching it, then closed green — buyers stepped in before the level was tested.",
     "staged_pwl_proximity": "Stock pulled back near last week's low without touching it, then closed green — weekly support defended without a test.",
     "staged_pdh_proximity": "Stock is holding above yesterday's high and pulled back near it without retesting — prior-day high defended as support from above (relative strength).",
-    "staged_orl_held": "Stock pulled back to its first-HOUR low and held — the low of the day is being defended; prior-day high is the first target.",
     "pullback_long": "In an established uptrend, price pulled back and resumed higher (Buy 1) — a continuation entry on the dip, not a breakout chase.",
 
     # Reclaim — lost a prior low then recovered it on a bullish bar.
@@ -286,6 +284,10 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
 
+    # 2026-06-25 — staged_orl_held (60m OR low, levels_day_vwap.pine) RETIRED, superseded
+    # by rc.pine's orl_held/orl_reclaim off the unified 15m opening range. One ORL now.
+    "staged_orl_held",
+
     # 2026-06-23 SETTINGS CLEANUP — only the agreed RC + MA-bounce + levels_day set
     # stays. These orphans (no bound pine emits them) are retired so Settings shows
     # exactly what fires. weekly_ma can be re-wired into rc.pine later if wanted.
@@ -319,7 +321,7 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "staged_pdl_proximity", "staged_pwl_proximity", "staged_pdh_proximity",
 
     # Rolling higher-low tracker — REMOVED 2026-06-05 (added 2026-06-04, spec 61).
-    # Pulled by request; the trusted ORL-held (staged_orl_held) stays.
+    # (staged_orl_held also retired 2026-06-25 — see top of this tuple; rc.pine owns ORL.)
     "staged_higher_low_held",
 
     # SHORT alerts — staged_pdl_break + staged_pdh_rejection REVIVED 2026-06-06
