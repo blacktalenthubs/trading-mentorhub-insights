@@ -626,6 +626,7 @@ def _compute_targets(
     atr_daily: float | None,
     ladder: list[tuple[float, str]],
     direction: str = "LONG",
+    atr_floor: bool = True,
 ) -> tuple[float, float]:
     """Hybrid structural / ATR targets — returns (T1, T2) for a signal.
 
@@ -648,12 +649,17 @@ def _compute_targets(
 
     atr_val = atr_daily if atr_daily and atr_daily > 0 else risk
 
+    # Day trades target the nearest LEVEL — no daily-ATR floor (for a tight intraday
+    # stop it shoves the target PAST the intraday walls, giving fantasy 5R/10R prices).
+    # 1R/2R floors only; the level ladder drives. Swing/Long keep the ATR floor.
+    t1_off = max(risk, STRUCTURAL_T1_ATR_MULT * atr_val) if atr_floor else risk
+    t2_off = max(2 * risk, 2 * STRUCTURAL_T1_ATR_MULT * atr_val) if atr_floor else 2 * risk
     if is_long:
-        t1_floor = entry + max(risk, STRUCTURAL_T1_ATR_MULT * atr_val)
-        t2_floor = entry + max(2 * risk, 2 * STRUCTURAL_T1_ATR_MULT * atr_val)
+        t1_floor = entry + t1_off
+        t2_floor = entry + t2_off
     else:
-        t1_floor = entry - max(risk, STRUCTURAL_T1_ATR_MULT * atr_val)
-        t2_floor = entry - max(2 * risk, 2 * STRUCTURAL_T1_ATR_MULT * atr_val)
+        t1_floor = entry - t1_off
+        t2_floor = entry - t2_off
 
     # Pick T1: nearest ladder level that's >= floor (LONG) or <= floor (SHORT).
     t1 = t1_floor
@@ -695,6 +701,7 @@ def _targets_for_long(
     emas_above: dict[str, float | None] | None = None,
     session_high: float | None = None,
     breakout_triggered: bool = False,
+    atr_floor: bool = True,
 ) -> tuple[float, float]:
     """Convenience wrapper — builds the LONG ladder + computes T1/T2.
 
@@ -718,7 +725,7 @@ def _targets_for_long(
         session_high=session_high,
         breakout_triggered=breakout_triggered,
     )
-    return _compute_targets(entry, stop, atr_daily, ladder, "LONG")
+    return _compute_targets(entry, stop, atr_daily, ladder, "LONG", atr_floor=atr_floor)
 
 
 def _targets_for_short(
@@ -728,6 +735,7 @@ def _targets_for_short(
     emas_below: dict[str, float | None] | None = None,
     session_low: float | None = None,
     breakdown_triggered: bool = False,
+    atr_floor: bool = True,
 ) -> tuple[float, float]:
     """Convenience wrapper — builds the SHORT support ladder + T1/T2.
 
@@ -749,7 +757,7 @@ def _targets_for_short(
         session_low=session_low,
         breakout_triggered=breakdown_triggered,
     )
-    return _compute_targets(entry, stop, atr_daily, ladder, "SHORT")
+    return _compute_targets(entry, stop, atr_daily, ladder, "SHORT", atr_floor=atr_floor)
 
 
 # ---------------------------------------------------------------------------
