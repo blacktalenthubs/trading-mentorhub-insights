@@ -1224,6 +1224,43 @@ def _bottom_state(rsi: float, rsi_prev, near_200: bool) -> tuple[str, str]:
     return "cooling", "Cooling, above the zone"
 
 
+# Fundamentals — "is it worth buying even oversold?" (P/E, EPS, analyst rating + target,
+# market cap, sector). yfinance .info is slow + cloud-blocked, so it is WARMED IN THE
+# BACKGROUND (never blocks the board) and cached 12h — fundamentals barely move.
+_FUND_TTL = 12 * 3600
+_fund_inflight: set = set()
+
+
+def _fund_fetch(sym: str) -> dict:
+    out: dict = {}
+    try:
+        import yfinance as yf
+        info = yf.Ticker(sym).info or {}
+        price = info.get("currentPrice") or info.get("regularMarketPrice")
+        tgt = info.get("targetMeanPrice")
+        out = {
+            "pe": round(float(info["trailingPE"]), 1) if info.get("trailingPE") else None,
+            "eps": round(float(info["trailingEps"]), 2) if info.get("trailingEps") else None,
+            "mkt_cap": info.get("marketCap"),
+            "rec": info.get("recommendationKey"),
+            "target_upside_pct": (round((tgt - price) / price * 100, 1)
+                                  if tgt and price else None),
+            "sector": info.get("sector"),
+        }
+    except Exception:
+        out = {}
+    cache_set(f"fund:{sym}", out, _FUND_TTL)
+    return out
+
+
+async def _warm_fund(sym: str) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _fund_fetch, sym)
+    finally:
+        _fund_inflight.discard(sym)
+
+
 @router.get("/bottom-watch")
 async def bottom_watch(
     user: User = Depends(get_current_user),
@@ -1235,9 +1272,9 @@ async def bottom_watch(
     turn is in) · buy_zone (30–35) · at_200ma · cooling. Powers the Today 'Bottom Watch'
     board. Cached 5 min (one slow uncached pass, then instant)."""
     key = f"bottom_watch:{user.id}"
-    cached = cache_get(key)
-    if cached is not None:
-        return cached
+    base = cache_get(key)
+    if base is not None:
+        return _attach_fundamentals(base)
 
     rows = (await db.execute(
         select(WatchlistItem.symbol).where(WatchlistItem.user_id == user.id)
@@ -1285,4 +1322,22 @@ async def bottom_watch(
     results = [r for r in await asyncio.gather(*[_one(s) for s in symbols]) if r]
     results.sort(key=lambda x: x["rsi"])
     cache_set(key, results, _BOTTOM_WATCH_TTL)
-    return results
+    return _attach_fundamentals(results)
+
+
+def _attach_fundamentals(base: list) -> list:
+    """Merge each row with its cached fundamentals; kick off a background warm for any
+    cache miss. Runs on EVERY request (outside the 5-min board cache) so the P/E etc.
+    fill in within a refresh or two of first sight, without ever blocking the board."""
+    out = []
+    for row in base:
+        sym = row["symbol"]
+        f = cache_get(f"fund:{sym}")
+        if f is None and sym not in _fund_inflight:
+            _fund_inflight.add(sym)
+            try:
+                asyncio.get_running_loop().create_task(_warm_fund(sym))
+            except RuntimeError:
+                _fund_inflight.discard(sym)
+        out.append({**row, "fund": (f or None)})
+    return out

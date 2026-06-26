@@ -278,8 +278,8 @@ function SymbolGroup({ symbol, list, onChart, defaultOpen }: { symbol: string; l
   );
 }
 
-/* ── Bottom Watch — watchlist ranked by daily RSI (lowest first). Catch the bottom:
-   oversold names to watch, the reclaim of 30 = the turn, 200-MA = institutional floor. ── */
+/* ── Bottom Watch — watchlist ranked by daily RSI. Catch the bottom in washed-out
+   names + judge if it's worth buying (P/E, EPS, analyst rating, target upside). ── */
 function bwTone(state: BottomWatchItem["state"]): string {
   if (state === "reclaimed_30") return "bg-accent/15 text-accent";
   if (state === "oversold") return "bg-bearish/15 text-bearish-text";
@@ -288,42 +288,110 @@ function bwTone(state: BottomWatchItem["state"]): string {
   if (state === "at_200ma") return "bg-accent/10 text-accent";
   return "bg-surface-3 text-text-muted";
 }
+const BW_STATE_RANK: Record<BottomWatchItem["state"], number> = {
+  reclaimed_30: 0, oversold: 1, buy_zone: 2, approaching: 3, at_200ma: 4, cooling: 5,
+};
+const BW_REC_RANK: Record<string, number> = {
+  strong_buy: 0, buy: 1, hold: 2, underperform: 3, sell: 4,
+};
+function bwCap(c: number | null | undefined): string {
+  if (!c) return "—";
+  if (c >= 1e12) return `$${(c / 1e12).toFixed(1)}T`;
+  if (c >= 1e9) return `$${(c / 1e9).toFixed(0)}B`;
+  return `$${(c / 1e6).toFixed(0)}M`;
+}
+function bwRec(rec: string | null | undefined): string {
+  if (!rec) return "—";
+  return rec.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+type BwSortKey = "symbol" | "rsi" | "state" | "dist" | "pe" | "rec" | "upside" | "cap";
+function bwVal(w: BottomWatchItem, k: BwSortKey): number | string | null {
+  switch (k) {
+    case "symbol": return w.symbol;
+    case "rsi": return w.rsi;
+    case "state": return BW_STATE_RANK[w.state];
+    case "dist": return w.dist_200ma_pct;
+    case "pe": return w.fund?.pe ?? null;
+    case "rec": return w.fund?.rec ? (BW_REC_RANK[w.fund.rec] ?? 9) : null;
+    case "upside": return w.fund?.target_upside_pct ?? null;
+    case "cap": return w.fund?.mkt_cap ?? null;
+  }
+}
 function BottomWatchBoard({ onChart }: { onChart: (s: string) => void }) {
   const { data, isLoading } = useBottomWatch();
+  const [sortKey, setSortKey] = useState<BwSortKey>("rsi");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const rows = data ?? [];
+  const sorted = useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const va = bwVal(a, sortKey), vb = bwVal(b, sortKey);
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;       // nulls always sink
+      if (vb == null) return -1;
+      const c = typeof va === "string" ? va.localeCompare(vb as string) : (va as number) - (vb as number);
+      return sortDir === "asc" ? c : -c;
+    });
+    return arr;
+  }, [rows, sortKey, sortDir]);
+  const onSort = (k: BwSortKey) => {
+    if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(k); setSortDir(k === "symbol" || k === "rsi" ? "asc" : "desc"); }
+  };
+  const Th = ({ k, label, right }: { k: BwSortKey; label: string; right?: boolean }) => (
+    <th className={`px-2.5 py-2 font-medium ${right ? "text-right" : "text-left"}`}>
+      <button onClick={() => onSort(k)} className="inline-flex items-center gap-0.5 hover:text-text-secondary">
+        {label}{sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+      </button>
+    </th>
+  );
+
   if (isLoading && rows.length === 0)
     return <div className="p-8 text-center text-sm text-text-muted">Scanning RSI…</div>;
   if (rows.length === 0)
     return <div className="p-8 text-center text-sm text-text-muted">No watchlist symbols to rank.</div>;
   return (
-    <div className="max-w-2xl space-y-2">
+    <div className="space-y-2">
       <p className="px-1 text-[12px] leading-relaxed text-text-muted">
-        Your watchlist ranked by <b>daily RSI</b>, lowest first — for catching the bottom in washed-out
-        names. <b>Oversold (&lt;30)</b> = watch; <b>reclaimed 30</b> = the turn is in (longer-hold buy);
-        <b> 200-MA</b> = institutional floor. The RSI-30 reclaim alert fires the turn.
+        Watchlist ranked by <b>daily RSI</b> — catch the bottom, then judge if it's worth buying:
+        <b> P/E</b> + <b>analyst rating</b> + <b>target upside</b> separate a quality dip from a falling knife.
+        <b> Tap a header to sort</b>; tap a row → chart. (Fundamentals fill in over a few seconds.)
       </p>
-      <div className="overflow-hidden rounded-lg border border-border divide-y divide-border">
-        {rows.map((w) => (
-          <button
-            key={w.symbol}
-            onClick={() => onChart(w.symbol)}
-            className="flex w-full items-center gap-3 p-2.5 text-left transition-colors hover:bg-surface-2/50"
-          >
-            <span className="w-14 shrink-0 font-semibold text-text-primary">{w.symbol}</span>
-            <span className="w-10 shrink-0 font-mono text-[13px] tabular-nums text-text-secondary">{w.rsi}</span>
-            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${bwTone(w.state)}`}>
-              {w.state_label}
-            </span>
-            {w.near_200ma && (
-              <span className="shrink-0 rounded bg-accent/10 px-1 py-0.5 text-[10px] text-accent">200-MA</span>
-            )}
-            {w.dist_200ma_pct != null && (
-              <span className="ml-auto font-mono text-[11px] tabular-nums text-text-faint">
-                {w.dist_200ma_pct > 0 ? "+" : ""}{w.dist_200ma_pct}% vs 200
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-[12px]">
+          <thead className="text-text-faint border-b border-border">
+            <tr>
+              <Th k="symbol" label="Sym" />
+              <Th k="rsi" label="RSI" />
+              <Th k="state" label="Setup" />
+              <Th k="dist" label="vs 200" right />
+              <Th k="pe" label="P/E" right />
+              <Th k="rec" label="Rating" />
+              <Th k="upside" label="Upside" right />
+              <Th k="cap" label="Mkt Cap" right />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {sorted.map((w) => (
+              <tr key={w.symbol} onClick={() => onChart(w.symbol)} className="cursor-pointer transition-colors hover:bg-surface-2/50">
+                <td className="px-2.5 py-2 font-semibold text-text-primary">{w.symbol}</td>
+                <td className="px-2.5 py-2 font-mono tabular-nums text-text-secondary">{w.rsi}</td>
+                <td className="px-2.5 py-2">
+                  <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${bwTone(w.state)}`}>{w.state_label}</span>
+                </td>
+                <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-faint">
+                  {w.dist_200ma_pct != null ? `${w.dist_200ma_pct > 0 ? "+" : ""}${w.dist_200ma_pct}%` : "—"}
+                </td>
+                <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-secondary">{w.fund?.pe ?? "—"}</td>
+                <td className="px-2.5 py-2 text-text-muted">{bwRec(w.fund?.rec)}</td>
+                <td className={`px-2.5 py-2 text-right font-mono tabular-nums ${(w.fund?.target_upside_pct ?? 0) > 0 ? "text-bullish-text" : "text-text-faint"}`}>
+                  {w.fund?.target_upside_pct != null ? `${w.fund.target_upside_pct > 0 ? "+" : ""}${w.fund.target_upside_pct}%` : "—"}
+                </td>
+                <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-muted">{bwCap(w.fund?.mkt_cap)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
