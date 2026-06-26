@@ -43,12 +43,13 @@ def _push_all(tokens: list[str], title: str, body: str, data: dict) -> None:
         loop.close()
 
 _UNIVERSE_MAX = 150
+_MEGA_CAP_MIN = 2e11  # $200B — alerts focus on mega-caps only (~53 names)
 _DEDUP_TTL = 72_000   # ~20h — one push per symbol/event/session day
 _CLOSES_TTL = 1_500   # 25 min — share the daily-close fetch across the scan
 
 
 def _rsi_and_levels(closes: list[float]):
-    """(rsi, rsi_prev, near_200) from a list of daily closes, or None if not computable."""
+    """(rsi, rsi_prev, above_200) from daily closes, or None if not computable."""
     import pandas as pd
     s = pd.Series(closes, dtype="float64")
     delta = s.diff()
@@ -62,24 +63,25 @@ def _rsi_and_levels(closes: list[float]):
                 if len(rsi_series) >= 2 and rsi_series.iloc[-2] == rsi_series.iloc[-2] else None)
     close = float(s.iloc[-1])
     ema200 = float(s.ewm(span=200, adjust=False).mean().iloc[-1]) if len(s) >= 200 else None
-    near_200 = ema200 is not None and abs(close - ema200) / ema200 <= 0.02
-    return rsi, rsi_prev, near_200
+    above_200 = ema200 is not None and close >= ema200
+    return rsi, rsi_prev, above_200
 
 
-def _events(sym: str, rsi: float, rsi_prev, near_200: bool):
-    """The critical-level events to push for this symbol (event_key, title, body)."""
+def _events(sym: str, rsi: float, rsi_prev, above_200: bool):
+    """Critical-level events to push (event_key, title, body). QUALITY ONLY — we want
+    healthy pullbacks, not falling knives or broken stocks:
+      • only names ABOVE their 200-day MA (structurally healthy, not in bad shape)
+      • RSI in the 30–35 buy zone (washed out but HOLDING above 30, never the <30 knife)
+        OR a fresh reclaim of 30. No deep-oversold, no below-200-MA, no standalone 200-MA."""
+    if not above_200:
+        return []
     out = []
     if rsi_prev is not None and rsi_prev < 30 <= rsi:
         out.append(("reclaim_30", f"📈 {sym} reclaimed 30 RSI",
-                    f"Oversold turn — long-term entry zone (RSI {rsi:.0f})."))
-    elif rsi < 30:
-        # Currently oversold (not just the cross) — fire once/day so names already
-        # below 30 still ping, not only the bar that crosses down.
-        out.append(("oversold_30", f"⚠️ {sym} is oversold (RSI {rsi:.0f})",
-                    "Washed out — watch for the 30 reclaim."))
-    if near_200 and rsi < 45:
-        out.append(("at_200ma", f"🎯 {sym} at its 200-day MA",
-                    f"Institutional floor + weak (RSI {rsi:.0f}) — dip-buy zone."))
+                    f"Oversold turn, above its 200-MA — long-term entry zone (RSI {rsi:.0f})."))
+    elif 30 <= rsi <= 35:
+        out.append(("buy_zone", f"🟢 {sym} in the 30–35 buy zone (RSI {rsi:.0f})",
+                    "Washed out but holding above 30, above its 200-MA — quality dip."))
     return out
 
 
@@ -96,9 +98,13 @@ def scan_bottom_watch(sync_session_factory) -> None:
             # GLOBAL market universe (screener_universe, ~120 notable/liquid names by mkt
             # cap) — NOT the watchlist. The point is to surface oversold names users aren't
             # already watching. Falls back to the watchlist union if the universe is empty.
+            # ALERTS focus on MEGA-caps only (≥ $200B, ~53 names) — the pushes are what
+            # gets noisy; the board stays broad for discovery. Keeps the twice-daily
+            # digest to household names that actually matter at the bottom.
             symbols = [r[0].upper() for r in db.execute(text(
-                "SELECT symbol FROM screener_universe ORDER BY market_cap DESC NULLS LAST "
-                "LIMIT :n"), {"n": _UNIVERSE_MAX}).all()]
+                "SELECT symbol FROM screener_universe WHERE market_cap >= :mega "
+                "ORDER BY market_cap DESC NULLS LAST LIMIT :n"),
+                {"mega": _MEGA_CAP_MIN, "n": _UNIVERSE_MAX}).all()]
             if not symbols:
                 symbols = [r[0].upper() for r in db.execute(
                     text("SELECT DISTINCT symbol FROM watchlist")).all()][:_UNIVERSE_MAX]
@@ -124,8 +130,8 @@ def scan_bottom_watch(sync_session_factory) -> None:
                 rl = _rsi_and_levels(closes)
                 if rl is None:
                     continue
-                rsi, rsi_prev, near_200 = rl
-                for ev, title, body in _events(sym, rsi, rsi_prev, near_200):
+                rsi, rsi_prev, above_200 = rl
+                for ev, title, body in _events(sym, rsi, rsi_prev, above_200):
                     dk = f"bw_fired:{sym}:{ev}:{session_date}"
                     if cache_get(dk):
                         continue
