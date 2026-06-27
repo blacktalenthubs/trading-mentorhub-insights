@@ -86,6 +86,8 @@ gWk = "Weekly MA levels (visual — merged from 'Weekly Levels')"
 show_10w  = input.bool(true, "Flat 10w MA line", group = gWk)
 show_30w  = input.bool(true, "Flat 30w MA line", group = gWk)
 show_marc = input.bool(true, "10w / 30w reclaim·hold signs", group = gWk)
+en_w10    = input.bool(false, "ALERT: 10w MA reclaim·hold (weekly support, BUY)", group = gWk)
+en_w30    = input.bool(false, "ALERT: 30w MA reclaim·hold (long-term entry, BUY)", group = gWk)
 show_wrc  = input.bool(true, "Weekly RC sign (prior-week-low reclaim)", group = gWk)
 wk_recent = input.int(8, "10w↑/30w↑ signs: recent WEEKS only (0 = all — they drift as the MA moves)", minval = 0, group = gWk)
 
@@ -485,6 +487,23 @@ if cmlHeld
     alert(rc_pay("cml_held", "BUY", "M", close, cml_ref, "CML · tag & hold of the CURRENT-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(cml_ref, format.mintick)), alert.freq_once_per_bar_close)
 if pmlHeld
     alert(rc_pay("pml_held", "BUY", "M", close, lMp, "PML · tag & hold of the PRIOR-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(lMp, format.mintick)), alert.freq_once_per_bar_close)
+
+// 10w / 30w MA reclaim·hold ALERTS (the visual signs, now wired) — price tagged + held
+// the 10-week / 30-week MA on the weekly = a long-term/position support reclaim. Fire
+// ONCE per week (nW resets the latch). entry = close, stop = a close below the MA.
+var bool w10_fired = false
+var bool w30_fired = false
+if nW
+    w10_fired := false
+    w30_fired := false
+fire_w10 = en_w10 and sig10 and not na(w10) and not w10_fired
+if fire_w10
+    w10_fired := true
+    alert(rc_pay("weekly_10w_reclaim", "BUY", "W", close, w10, "10w MA · reclaim·hold of the 10-week MA (weekly support) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
+fire_w30 = en_w30 and sig30 and not na(w30) and not w30_fired
+if fire_w30
+    w30_fired := true
+    alert(rc_pay("weekly_30w_reclaim", "BUY", "W", close, w30, "30w MA · reclaim·hold of the 30-week MA (LONG-TERM entry) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
 
 // Reclaim long (#65) — entry = the reclaim close, stop = the dip low, target = next
 // resistance. strike = nearest whole-dollar = the ~ATM call (small intraday moves need

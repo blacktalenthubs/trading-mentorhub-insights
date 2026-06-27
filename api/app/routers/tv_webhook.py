@@ -221,7 +221,7 @@ def _gate_bypass(alert_type: Optional[str]) -> bool:
     holds in chop, and the rest are momentum that doesn't pay in a flat tape, so
     they stay gated like day-trades (user call 2026-06-24)."""
     at = (alert_type or "").replace("tv_", "")
-    if at.startswith("monthly_rc") or at.startswith("cml_") or at.startswith("pml_") or at.startswith("rsi_oversold") or at.startswith("swing_rsi"):
+    if at.startswith("monthly_rc") or at.startswith("cml_") or at.startswith("pml_") or at.startswith("rsi_oversold") or at.startswith("swing_rsi") or at.startswith("weekly_10w") or at.startswith("weekly_30w"):
         return True
     if at.startswith("ma_bounce_long_v3") and ("ema200" in at or "sma200" in at):
         return True

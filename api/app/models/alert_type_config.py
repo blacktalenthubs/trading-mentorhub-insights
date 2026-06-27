@@ -154,6 +154,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
     # unclear/not-actionable and are SUPPRESSED (weekly_stage → OBSOLETE).
     ("weekly_rc", "Weekly RC — prior-week high/low reclaim (swing)", "Weekly trend", False),
+    # 10w/30w weekly-MA reclaim·hold (rc.pine, 2026-06-26) — price tagged & held the 10/30
+    # week MA on the weekly = long-term/position support reclaim (Weinstein stage). Both OFF.
+    ("weekly_10w_reclaim", "10w MA reclaim·hold — weekly 10-week MA support reclaim (position)", "Weekly trend", False),
+    ("weekly_30w_reclaim", "30w MA reclaim·hold — weekly 30-week MA support reclaim (LONG-TERM entry)", "Weekly trend", False),
     # Monthly RC — added 2026-06-22. Same intraday level-cross model as 4h/weekly,
     # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
     # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
