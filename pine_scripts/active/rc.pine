@@ -114,14 +114,19 @@ cml = request.security(ticker.new(syminfo.prefix, syminfo.ticker, session.regula
 // on the WEEKLY in one tuple w/ lookahead_on, so the signs sit in the SAME place on
 // any chart TF. reclaim·hold = close above the MA after tagging it; wRC = undercut &
 // reclaim of the prior-week low closing strong (up or top-half of the bar).
+// held = the weekly low tagged the MA from ABOVE (within 0.5%) and never broke below,
+// closing above it. reclaim = the weekly low went BELOW the MA and closed back above
+// (undercut & reclaimed). Mutually exclusive by where the weekly low sits.
 f_wk() =>
     _m10  = ta.sma(close, 10)
     _m30  = ta.sma(close, 30)
-    _rc10 = (close > _m10) and (low <= _m10)
-    _rc30 = (close > _m30) and (low <= _m30)
+    _h10  = (close > _m10) and (low <= _m10 * 1.005) and (low >= _m10)
+    _r10  = (close > _m10) and (low < _m10)
+    _h30  = (close > _m30) and (low <= _m30 * 1.005) and (low >= _m30)
+    _r30  = (close > _m30) and (low < _m30)
     _wrc  = (low < low[1]) and (close > low[1]) and ((close > open) or (close - low >= (high - low) * 0.5))
-    [_m10, _m30, _rc10, _rc30, _wrc]
-[w10, w30, sig10, sig30, wrc] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_on)
+    [_m10, _m30, _h10, _r10, _h30, _r30, _wrc]
+[w10, w30, h10, r10, h30, r30, wrc] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_on)
 // Daily trend reference for the RC quality gates — price above a RISING daily EMA =
 // uptrend (Stage-2). Computed in the daily context so "rising" is day-over-day; this
 // stays bullish through a consolidation/bull-flag (where local 4h higher-highs fails).
@@ -373,8 +378,8 @@ plotshape(show_tags and not tags_text and rcD_hrec,  title = "D RC-H",   style =
 // ── Weekly 10w/30w reclaim·hold + weekly-RC signs (visual, from "Weekly Levels").
 // Fire once per weekly event (and not [1]); 10w↑/30w↑ windowed to recent weeks.
 wk_in_win = wk_recent == 0 or (timenow - time) <= wk_recent * 604800000
-plotshape(show_marc and wk_in_win and sig10 and not sig10[1], title = "10w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "10w↑")
-plotshape(show_marc and wk_in_win and sig30 and not sig30[1], title = "30w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "30w↑")
+plotshape(show_marc and wk_in_win and (h10 or r10) and not (h10[1] or r10[1]), title = "10w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "10w↑")
+plotshape(show_marc and wk_in_win and (h30 or r30) and not (h30[1] or r30[1]), title = "30w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "30w↑")
 plotshape(show_wrc and wrc and not wrc[1], title = "Weekly RC", style = shape.diamond, location = location.belowbar, color = color.new(#2962FF, 0), size = size.tiny, text = "wRC")
 
 // ── Prior-level S/R lines (merged from "Prior Levels Flat") — PDH/PDL · PWH/PWL ·
@@ -488,22 +493,31 @@ if cmlHeld
 if pmlHeld
     alert(rc_pay("pml_held", "BUY", "M", close, lMp, "PML · tag & hold of the PRIOR-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(lMp, format.mintick)), alert.freq_once_per_bar_close)
 
-// 10w / 30w MA reclaim·hold ALERTS (the visual signs, now wired) — price tagged + held
-// the 10-week / 30-week MA on the weekly = a long-term/position support reclaim. Fire
-// ONCE per week (nW resets the latch). entry = close, stop = a close below the MA.
-var bool w10_fired = false
-var bool w30_fired = false
+// 10w / 30w MA HELD + RECLAIM ALERTS (the visual signs, now wired) — weekly support of
+// the 10-week / 30-week MA. HELD = tagged it from above and never broke below; RECLAIM =
+// undercut it then closed back above. Both = long-term/position entry. Once per WEEK each
+// (nW resets the latches). entry = close, stop = a close below the MA.
+var bool w10h_fired = false
+var bool w10r_fired = false
+var bool w30h_fired = false
+var bool w30r_fired = false
 if nW
-    w10_fired := false
-    w30_fired := false
-fire_w10 = en_w10 and sig10 and not na(w10) and not w10_fired
-if fire_w10
-    w10_fired := true
-    alert(rc_pay("weekly_10w_reclaim", "BUY", "W", close, w10, "10w MA · reclaim·hold of the 10-week MA (weekly support) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
-fire_w30 = en_w30 and sig30 and not na(w30) and not w30_fired
-if fire_w30
-    w30_fired := true
-    alert(rc_pay("weekly_30w_reclaim", "BUY", "W", close, w30, "30w MA · reclaim·hold of the 30-week MA (LONG-TERM entry) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
+    w10h_fired := false
+    w10r_fired := false
+    w30h_fired := false
+    w30r_fired := false
+if en_w10 and h10 and not na(w10) and not w10h_fired
+    w10h_fired := true
+    alert(rc_pay("weekly_10w_held", "BUY", "W", close, w10, "10w MA · HELD the 10-week MA (weekly support, no break) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
+if en_w10 and r10 and not na(w10) and not w10r_fired
+    w10r_fired := true
+    alert(rc_pay("weekly_10w_reclaim", "BUY", "W", close, w10, "10w MA · RECLAIM of the 10-week MA (undercut & recovered) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
+if en_w30 and h30 and not na(w30) and not w30h_fired
+    w30h_fired := true
+    alert(rc_pay("weekly_30w_held", "BUY", "W", close, w30, "30w MA · HELD the 30-week MA (LONG-TERM support, no break) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
+if en_w30 and r30 and not na(w30) and not w30r_fired
+    w30r_fired := true
+    alert(rc_pay("weekly_30w_reclaim", "BUY", "W", close, w30, "30w MA · RECLAIM of the 30-week MA (undercut & recovered, LONG-TERM) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
 
 // Reclaim long (#65) — entry = the reclaim close, stop = the dip low, target = next
 // resistance. strike = nearest whole-dollar = the ~ATM call (small intraday moves need
