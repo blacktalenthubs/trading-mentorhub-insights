@@ -338,6 +338,9 @@ async def toggle_focus(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Symbol not on watchlist")
     item.focus = not item.focus
+    # Stamp the source so the daily auto-focus agent never overwrites a star
+    # the user set by hand. (When unfocusing, source is irrelevant.)
+    item.focus_source = "manual"
     await db.flush()
     return item
 

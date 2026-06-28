@@ -83,6 +83,17 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Migration ALTER TABLE watchlist.group_id: %s", e)
 
+        # Migration (June 2026): watchlist.focus_source distinguishes manual
+        # focus stars from the daily auto-focus agent's picks.
+        try:
+            await conn.execute(text(
+                "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS focus_source "
+                "VARCHAR(16) DEFAULT 'manual'"
+            ))
+            logger.info("Migration: watchlist.focus_source column ensured")
+        except Exception as e:
+            logger.warning("Migration ALTER TABLE watchlist.focus_source: %s", e)
+
         # Give existing free users a 3-day trial (one-time migration)
         try:
             result = await conn.execute(text(

@@ -12,6 +12,8 @@ class WatchlistItemResponse(BaseModel):
     symbol: str
     group_id: Optional[int] = None
     focus: bool = False
+    # "manual" (user starred) or "auto" (daily auto-focus agent's pick).
+    focus_source: str = "manual"
 
     model_config = {"from_attributes": True}
 

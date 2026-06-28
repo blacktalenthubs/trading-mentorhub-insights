@@ -45,4 +45,8 @@ class WatchlistItem(Base):
     # the full firehose so they can catch unexpected fires on non-focus names.
     # Sticky until user clears (no nightly reset).
     focus: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+    # How the focus flag was set: "manual" (user starred it) or "auto" (the
+    # daily auto-focus agent picked it as a top setup). Lets the agent refresh
+    # its own picks each morning without clobbering manual stars.
+    focus_source: Mapped[str] = mapped_column(String(16), nullable=False, server_default="manual", default="manual")
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
