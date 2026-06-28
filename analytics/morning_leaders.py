@@ -37,18 +37,19 @@ def _watchlist(dsn):
     return syms
 
 
-def _monthly_box(mh, ml, mc, N=4, min_flat=3, min_box=0.03, max_box=0.60, recent_break=4):
-    """MoBO — the locked MONTHLY box ceiling (flat Darvas base). Returns (level, box_low)
-    for a CURRENTLY-relevant base only: the established FLAT ceiling price is coiling under
-    right now, OR a breakout within the last `recent_break` months (the retest window).
-    A breakout from years ago returns (None, None) so RC-H can take over — otherwise the
-    stale level would shadow every other pattern. The flat ceiling (li == prev for
-    min_flat months) is what makes this the high-conviction pattern."""
+def _monthly_box(mh, ml, mc, N=4, min_flat=3):
+    """MoBO — the locked MONTHLY box ceiling price is CURRENTLY coiling under (never closed
+    above it). Lock-step with the pine f_box: the box arms on an established FLAT ceiling
+    while price stays inside it, and RETIRES on any close ABOVE the ceiling (breakout /
+    clear) or BELOW the base low (failed base). So it returns a level only for a fresh
+    pre-breakout coil. A name that already closed above the ceiling and fell back (a failed
+    breakout, e.g. AAPL closing $312 over a $288.62 box then collapsing to $283) returns
+    None — the stale ceiling no longer masquerades as a buy point."""
     n = len(mc)
     if n < N + min_flat + 2:
         return None, None
     lid = mh.rolling(N).max().shift(1)
-    ceil = None; blow = None; armed = False; last = None; last_low = None; last_brk_i = None
+    ceil = None; blow = None; armed = False
     age = 0; prev = None
     for i in range(n):
         li = lid.iloc[i]
@@ -63,16 +64,11 @@ def _monthly_box(mh, ml, mc, N=4, min_flat=3, min_box=0.03, max_box=0.60, recent
                 blow = loo; armed = True
             ceil = li if ceil is None else max(ceil, li)
             blow = min(blow, loo)
-        if armed and ceil is not None and c > ceil:    # broke the locked ceiling
-            depth = (ceil - blow) / ceil if ceil else 0.0
-            if min_box <= depth <= max_box:
-                last = ceil; last_low = blow; last_brk_i = i
+        if armed and blow is not None and c < blow:    # failed base — broke DOWN out of it
             armed = False; ceil = None; blow = None
-    if armed:                                          # coiling under the base right now
-        return ceil, blow
-    if last_brk_i is not None and (n - 1 - last_brk_i) <= recent_break:   # fresh break → retest
-        return last, last_low
-    return None, None
+        if armed and ceil is not None and c > ceil:    # cleared the ceiling — retire the box
+            armed = False; ceil = None; blow = None
+    return (ceil, blow) if armed else (None, None)
 
 
 def _monthly_rch(mh, N=8, min_below=2):
