@@ -1,0 +1,117 @@
+// @version=5
+//
+// Monthly Box Breakout — VISUAL. The locked-Darvas-ceiling base breakout + the monthly
+// EMA reaction levels, all anchored to the MONTHLY timeframe via request.security — so
+// the levels DON'T change when you drop to a 4h / daily chart (they stay the monthly
+// values, the way rc.pine locks its weekly/monthly levels). Confirmed: MU 474→1132,
+// SNDK 768→2090, LLY base ceiling ≈ IBD buy point $1,133.
+//
+// On ANY chart TF you get the locked levels: the RED box ceiling (= the buy point) and
+// the flat monthly EMAs (M8/M21/M50/M100/M200). The held/reclaim labels render when you
+// are actually ON the monthly chart (their per-month placement only makes sense there).
+//
+indicator("Monthly Box Breakout · VISUAL", "MoBO", overlay = true, max_labels_count = 200, max_lines_count = 200, max_boxes_count = 200)
+
+gB = "Box detection"
+N         = input.int(4,    "Lookback — months the ceiling must cap price", minval = 2, maxval = 12, group = gB)
+minFlat   = input.int(3,    "Ceiling FLAT >= months (the rejection)", minval = 1, maxval = 8, group = gB)
+minBoxPct = input.float(3.0, "MIN base depth %", minval = 0.0, maxval = 40.0, group = gB) / 100.0
+maxBoxPct = input.float(60.0, "Max base depth %", minval = 10.0, maxval = 120.0, group = gB) / 100.0
+volMult   = input.float(1.2, "Breakout volume >= N-avg x", minval = 1.0, maxval = 3.0, group = gB)
+reqStage2 = input.bool(true, "Require Stage-2 (above 10-month EMA ~ 200d)", group = gB)
+
+gE = "Monthly EMA reactions"
+showEma  = input.bool(true, "Plot flat monthly EMA levels", group = gE)
+enReact  = input.bool(true, "Mark HELD / RECLAIM (monthly chart only)", group = gE)
+react8   = input.bool(true, "Include the 8 EMA in reactions", group = gE)
+emaBand  = input.float(0.5, "Held touch band %", minval = 0.0, maxval = 3.0, group = gE) / 100.0
+
+gT = "Timeframe lock"
+lockMonthly = input.bool(true, "Lock all levels to the MONTHLY timeframe (don't recompute on lower TFs)", group = gT)
+HTF = "M"
+
+// ── Box state machine — runs in whatever context it's CALLED from (chart TF natively, or
+//    the monthly TF when wrapped in request.security). Returns the current locked ceiling,
+//    a breakout flag, and the breakout level. ──
+f_box() =>
+    lid = ta.highest(high, N)[1]
+    boxLow = ta.lowest(low, N)[1]
+    volAvg = ta.sma(volume, N)[1]
+    volOK = na(volume) or na(volAvg) ? true : volume > volAvg * volMult
+    stage2 = close > ta.ema(close, 10)
+    ceilingAge = ta.barssince(lid != lid[1])
+    established = ceilingAge >= minFlat
+    var float ceil = na
+    var float bLow = na
+    var bool  armed = false
+    if established and close < lid
+        if not armed
+            bLow := boxLow
+            armed := true
+        ceil := na(ceil) ? lid : math.max(ceil, lid)
+        bLow := math.min(bLow, low)
+    boxDepth = not na(ceil) and ceil > 0 ? (ceil - bLow) / ceil : na
+    boxOK = not na(boxDepth) and boxDepth >= minBoxPct and boxDepth <= maxBoxPct
+    brk = armed and boxOK and ta.crossover(close, ceil) and volOK and (not reqStage2 or stage2)
+    float curCeil = armed ? ceil : na
+    float brkLvl  = brk ? ceil : na
+    if brk
+        armed := false
+        ceil  := na
+        bLow  := na
+    [curCeil, brk ? 1 : 0, brkLvl]
+
+// Compute on the MONTHLY TF when locked (so the levels are identical on every chart TF).
+// Pine can't ternary a TUPLE, so compute both and select per-value.
+[ceilN, brkN, lvlN] = f_box()
+[ceilM, brkCM, lvlM] = request.security(syminfo.tickerid, HTF, f_box(), lookahead = barmerge.lookahead_on)
+lockedCeil = lockMonthly ? ceilM : ceilN
+brkCode    = lockMonthly ? brkCM : brkN
+brkLvl     = lockMonthly ? lvlM : lvlN
+brkM = brkCode == 1
+
+f_ema(len) => lockMonthly ? request.security(syminfo.tickerid, HTF, ta.ema(close, len), lookahead = barmerge.lookahead_on) : ta.ema(close, len)
+e8   = f_ema(8)
+e21  = f_ema(21)
+e50  = f_ema(50)
+e100 = f_ema(100)
+e200 = f_ema(200)
+mClose = lockMonthly ? request.security(syminfo.tickerid, HTF, close, lookahead = barmerge.lookahead_on) : close
+
+// ── Draw the LOCKED flat levels (work on any chart TF) ──
+draw_level(price, nm, col, show) =>
+    var line  ln = na
+    var label lb = na
+    if barstate.islast
+        line.delete(ln)
+        label.delete(lb)
+        if show and not na(price)
+            ln := line.new(bar_index - 300, price, bar_index + 15, price, color = col, width = 1)
+            lb := label.new(bar_index + 15, price, nm + " " + str.tostring(price, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+
+draw_level(lockedCeil, "Box", color.new(color.red, 0), not na(lockedCeil))
+draw_level(e8,   "M8",   color.new(mClose > e8   ? color.teal : color.maroon, 0), showEma)
+draw_level(e21,  "M21",  color.new(mClose > e21  ? color.teal : color.maroon, 0), showEma)
+draw_level(e50,  "M50",  color.new(mClose > e50  ? color.teal : color.maroon, 0), showEma)
+draw_level(e100, "M100", color.new(mClose > e100 ? color.teal : color.maroon, 0), showEma)
+draw_level(e200, "M200", color.new(mClose > e200 ? color.teal : color.maroon, 0), showEma)
+
+// ── Breakout marker — fires once when the monthly breakout occurs ──
+brkFire = brkM and not brkM[1]
+plotshape(brkFire, "Breakout", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.large)
+if brkFire
+    label.new(bar_index, low, "BREAKOUT " + str.tostring(brkLvl, format.mintick), style = label.style_label_up, color = color.new(color.lime, 0), textcolor = color.black, size = size.normal)
+
+// ── Held / reclaim reactions — only when actually ON the monthly chart (native OHLC =
+//    monthly there; their per-month placement doesn't translate to a 4h bar). ──
+onM = timeframe.ismonthly
+f_held(e) => close > e and low <= e * (1 + emaBand) and low >= e
+f_recl(e) => close > e and low < e
+react = ""
+react := react8 and onM and f_recl(e8) ? react + "8R " : react8 and onM and f_held(e8) ? react + "8H " : react
+react := onM and f_recl(e21)  ? react + "21R "  : onM and f_held(e21)  ? react + "21H "  : react
+react := onM and f_recl(e50)  ? react + "50R "  : onM and f_held(e50)  ? react + "50H "  : react
+react := onM and f_recl(e100) ? react + "100R " : onM and f_held(e100) ? react + "100H " : react
+react := onM and f_recl(e200) ? react + "200R " : onM and f_held(e200) ? react + "200H " : react
+if enReact and onM and react != ""
+    label.new(bar_index, high, react, style = label.style_label_down, color = color.new(color.blue, 10), textcolor = color.white, size = size.small)
