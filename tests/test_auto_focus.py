@@ -16,7 +16,12 @@ from unittest.mock import patch
 
 import pytest
 
-from analytics.auto_focus import apply_for_user, run, select_top_setups
+from analytics.auto_focus import (
+    apply_for_user,
+    format_top5_message,
+    run,
+    select_top_setups,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -211,3 +216,66 @@ def test_run_no_plans_is_noop(tmp_db):
     summary = run(top_n=5, min_score=60)  # no daily_plans rows at all
     assert summary["users"] == 0
     assert summary["total_auto"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Notification digest
+# ---------------------------------------------------------------------------
+
+def test_format_top5_message_lists_picks_and_disclaimer():
+    detail = [
+        {"symbol": "NVDA", "score": 90, "entry": 120.5, "stop": 119.0},
+        {"symbol": "AMD", "score": 75},
+    ]
+    msg = format_top5_message(detail, app_url="https://app.example.com")
+    assert "Top 2 Setups" in msg
+    assert "NVDA" in msg and "AMD" in msg
+    assert "score 90" in msg
+    assert "entry ~$120.50, stop $119.00" in msg
+    # Framed as evaluate-not-buy.
+    assert "not a buy signal" in msg.lower()
+    assert "https://app.example.com" in msg
+
+
+def test_format_top5_message_singular_header():
+    msg = format_top5_message([{"symbol": "NVDA", "score": 90}])
+    assert "Top 1 Setup" in msg
+    assert "Setups" not in msg
+
+
+def test_run_notify_sends_digest_to_enabled_users(tmp_db, monkeypatch):
+    _add_symbol(tmp_db, 1, "AAA")
+    _add_symbol(tmp_db, 2, "AAA")
+    _add_plan(tmp_db, "AAA", 90)
+
+    # User 1 has Telegram on; user 2 is disabled.
+    def fake_get_user_telegram(uid):
+        return {"chat_id": "111", "enabled": True} if uid == 1 else {"chat_id": "222", "enabled": False}
+
+    sent = []
+    monkeypatch.setattr("db.get_user_telegram", fake_get_user_telegram)
+    monkeypatch.setattr(
+        "alerting.notifier._send_telegram_to",
+        lambda body, chat_id, **kw: sent.append((chat_id, body)) or True,
+    )
+    monkeypatch.setattr("alerting.notifier._get_app_url", lambda: "https://app.example.com")
+
+    summary = run(session_date="2026-06-26", top_n=5, min_score=60, notify=True)
+
+    assert summary["notified"] == 1
+    assert len(sent) == 1
+    assert sent[0][0] == "111"
+    assert "AAA" in sent[0][1]
+
+
+def test_run_without_notify_sends_nothing(tmp_db, monkeypatch):
+    _add_symbol(tmp_db, 1, "AAA")
+    _add_plan(tmp_db, "AAA", 90)
+    sent = []
+    monkeypatch.setattr("db.get_user_telegram", lambda uid: {"chat_id": "111", "enabled": True})
+    monkeypatch.setattr(
+        "alerting.notifier._send_telegram_to",
+        lambda body, chat_id, **kw: sent.append(chat_id) or True,
+    )
+    run(session_date="2026-06-26", top_n=5, min_score=60, notify=False)
+    assert sent == []

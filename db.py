@@ -1307,6 +1307,36 @@ def increment_daily_usage(user_id: int, feature: str) -> int:
 # Notification Preferences
 # ---------------------------------------------------------------------------
 
+def get_user_telegram(user_id: int) -> dict | None:
+    """Resolve a user's Telegram delivery info: {chat_id, enabled}.
+
+    Prefers the V2 users table (telegram_chat_id / telegram_enabled), falling
+    back to the V1 user_notification_prefs table. Returns None when the user
+    has no chat_id on either. Used by per-user digests (e.g. the daily
+    auto-focus "Top setups" push).
+    """
+    with get_db() as conn:
+        try:
+            row = conn.execute(
+                "SELECT telegram_chat_id, telegram_enabled FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            if row and row["telegram_chat_id"]:
+                return {
+                    "chat_id": str(row["telegram_chat_id"]),
+                    "enabled": bool(row["telegram_enabled"]),
+                }
+        except _DB_OPERATIONAL_ERRORS:
+            pass  # users table may lack telegram columns in some V1 deployments
+    prefs = get_notification_prefs(user_id)
+    if prefs and prefs.get("telegram_chat_id"):
+        return {
+            "chat_id": str(prefs["telegram_chat_id"]),
+            "enabled": bool(prefs.get("telegram_enabled")),
+        }
+    return None
+
+
 def get_notification_prefs(user_id: int) -> dict | None:
     """Get notification preferences for a user. Returns dict or None."""
     with get_db() as conn:

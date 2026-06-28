@@ -622,20 +622,24 @@ async def lifespan(app: FastAPI):
             # plans. Ranks every user's watchlist by the existing 0-100 setup
             # score and stars the top 5 (focus_source='auto'), so each user's
             # best setups surface first in the watchlist drawer. Manual stars
-            # are never touched. In-app only — no notification is sent.
-            # Set AUTO_FOCUS_ENABLED=0 in Railway to disable.
+            # are never touched. Also sends each Telegram-enabled user a "Top
+            # setups" digest (framed as setups to evaluate, not buy signals).
+            # Set AUTO_FOCUS_ENABLED=0 to disable the job, or AUTO_FOCUS_NOTIFY=0
+            # to keep it in-app only (no Telegram).
             if os.environ.get("AUTO_FOCUS_ENABLED", "true").lower() not in ("0", "false", "no"):
                 from apscheduler.triggers.cron import CronTrigger as _AFCron
                 import pytz as _af_pytz
                 _af_tz = _af_pytz.timezone("America/New_York")
+                _af_notify = os.environ.get("AUTO_FOCUS_NOTIFY", "true").lower() not in ("0", "false", "no")
 
                 def _auto_focus_daily():
                     try:
                         from analytics.auto_focus import run as _run_auto_focus
-                        summary = _run_auto_focus()
+                        summary = _run_auto_focus(notify=_af_notify)
                         logger.info(
-                            "Auto-focus daily: session=%s users=%d auto_focused=%d",
-                            summary.get("session_date"), summary.get("users"), summary.get("total_auto"),
+                            "Auto-focus daily: session=%s users=%d auto_focused=%d notified=%d",
+                            summary.get("session_date"), summary.get("users"),
+                            summary.get("total_auto"), summary.get("notified"),
                         )
                     except Exception:
                         logger.exception("Auto-focus daily run failed")
