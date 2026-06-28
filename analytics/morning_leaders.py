@@ -1,56 +1,30 @@
 #!/usr/bin/env python3
-"""Morning "Leaders Near a Buy Point" — the IBD-modeled top-3 focus picks.
+"""Morning "Monthly Breakout Watch" — the daily focus picks, built on ONLY our two
+validated monthly breakout patterns. No IBD, no RS gate, no borrowed styles.
 
-NOT premarket gappers. The bar (IBD Leaderboard): a market LEADER (high RS / leading
-group), sitting AT or just below a defined BUY POINT (the pivot = the high of its base),
-INSIDE the buy zone (pivot → +5%, not extended), on a VOLUME surge, in a HEALTHY market.
-"Near the 20 EMA" is not a reason — the buy point is.
+  1. MoBO  — the LOCKED flat multi-month box ceiling (Darvas base) breaking. Highest
+             conviction; the MU/SNDK "next-big-mover-off-a-tight-base" pattern.
+  2. RC-H  — monthly RECLAIM-HIGH: a break of a prior MONTHLY swing high that capped
+             price for months (the high-side complement to RC reclaim-low). Catches the
+             stair-step / no-flat-base leaders (TVTX off ~31, etc.) that MoBO can't see.
+
+The job is to surface watchlist names sitting AT one of these breakouts — coiling just
+under the level or just clearing it — NOT names already extended past it. The LEVEL is
+monthly (locked); the TRIGGER/zone is checked on the DAILY price, never a monthly close
+(by then price has run far off the level — IBD doesn't wait for one and neither do we).
 
 Runs locally (yfinance works off-cloud). Prints a markdown report + JSON the morning
 agent pushes to all users (market_reports kind=morning_focus).
 
-    DATABASE_URL=postgresql://... python3 analytics/morning_leaders.py \
-        --ibd50 ../ibd50.xls --leaders ../sectorleaders.xls --top 3
+    DATABASE_URL=postgresql://... python3 analytics/morning_leaders.py --top 3
 
-Scoring (gate = ALL must hold): leader (IBD RS ≥ rs_min OR sector-leader), Stage-2
-(above the 200-DMA), price IN the buy zone (within ±zone% of its base pivot), and the
-market OK (SPY above its 8 & 21 EMA). Ranked by RS + volume + proximity to the pivot.
+Gate = a breakout pattern (MoBO or RC-H) with the DAILY price IN the zone (within ±zone%
+of the level) AND Stage-2 (above the 200-DMA). Ranked by conviction (MoBO > RC-H), a
+volume surge, base tightness, and proximity to the level. SPY 8/21 health modulates SIZE.
 """
 from __future__ import annotations
-import argparse, collections, json, os, sys
+import argparse, json, os, sys
 from datetime import datetime
-
-
-def _ibd(path):
-    """symbol -> {rank, comp, eps, rs, group} from an IBD/MarketSurge .xls export."""
-    import pandas as pd
-    out = {}
-    if not path or not os.path.exists(path):
-        return out
-    df = pd.read_excel(path, header=None)
-    hdr = next(i for i in range(min(10, len(df)))
-               if "Symbol" in [str(x).strip() for x in df.iloc[i].tolist()])
-    cols = [str(x).strip() for x in df.iloc[hdr].tolist()]
-    ix = {c: cols.index(c) for c in cols if c}
-    def g(row, name):
-        return str(row[ix[name]]).strip() if name in ix and ix[name] < len(row) else ""
-    for _, row in df.iloc[hdr + 1:].iterrows():
-        r = row.tolist()
-        sym = g(r, "Symbol").upper()
-        if not sym or sym.lower() == "nan":
-            continue
-        def num(name):
-            v = g(r, name)
-            try:
-                return float(v)
-            except Exception:
-                return None
-        out[sym] = {
-            "rank": num("Rank"), "comp": num("SmartSelect Comp Rating"),
-            "eps": num("EPS Rating"), "rs": num("RS Rating"),
-            "group": g(r, "Industry Group RS"),
-        }
-    return out
 
 
 def _watchlist(dsn):
@@ -63,17 +37,18 @@ def _watchlist(dsn):
     return syms
 
 
-def _monthly_buy_point(mh, ml, mc, N=4, min_flat=3, min_box=0.03, max_box=0.60):
-    """The locked MONTHLY box ceiling = the IBD-style buy point (the level price must
-    BREAK), from monthly H/L/C. Returns the current locked base ceiling while price is
-    still under it, OR the last breakout level if it just broke (the retest), or None.
-    Port of the MoBO/rc f_box state machine onto monthly bars. The TRIGGER (price crossing
-    this level) is checked on the DAILY in the caller — NOT a monthly close."""
+def _monthly_box(mh, ml, mc, N=4, min_flat=3, min_box=0.03, max_box=0.60, recent_break=4):
+    """MoBO — the locked MONTHLY box ceiling (flat Darvas base). Returns (level, box_low)
+    for a CURRENTLY-relevant base only: the established FLAT ceiling price is coiling under
+    right now, OR a breakout within the last `recent_break` months (the retest window).
+    A breakout from years ago returns (None, None) so RC-H can take over — otherwise the
+    stale level would shadow every other pattern. The flat ceiling (li == prev for
+    min_flat months) is what makes this the high-conviction pattern."""
     n = len(mc)
     if n < N + min_flat + 2:
-        return None
+        return None, None
     lid = mh.rolling(N).max().shift(1)
-    ceil = None; blow = None; armed = False; last_brk = None
+    ceil = None; blow = None; armed = False; last = None; last_low = None; last_brk_i = None
     age = 0; prev = None
     for i in range(n):
         li = lid.iloc[i]
@@ -88,22 +63,42 @@ def _monthly_buy_point(mh, ml, mc, N=4, min_flat=3, min_box=0.03, max_box=0.60):
                 blow = loo; armed = True
             ceil = li if ceil is None else max(ceil, li)
             blow = min(blow, loo)
-        if armed and ceil is not None and c > ceil:   # monthly broke the ceiling
+        if armed and ceil is not None and c > ceil:    # broke the locked ceiling
             depth = (ceil - blow) / ceil if ceil else 0.0
             if min_box <= depth <= max_box:
-                last_brk = ceil
+                last = ceil; last_low = blow; last_brk_i = i
             armed = False; ceil = None; blow = None
-    return ceil if armed else last_brk
+    if armed:                                          # coiling under the base right now
+        return ceil, blow
+    if last_brk_i is not None and (n - 1 - last_brk_i) <= recent_break:   # fresh break → retest
+        return last, last_low
+    return None, None
+
+
+def _monthly_rch(mh, N=8, min_below=2):
+    """RC-H level — the prior MONTHLY swing high that capped price for >= min_below
+    completed months and is the nearest overhead resistance (or just-cleared level).
+    No flat-base requirement, so it catches stair-step leaders MoBO misses. Returns the
+    level or None. Requires the high to have been set >= min_below months ago (it HELD as
+    resistance) — a smooth ramp making a fresh high every month yields None (no held high
+    to break), which is the noise we want to avoid."""
+    h = mh.dropna()
+    if len(h) < N + 2:
+        return None
+    completed = h.iloc[:-1]                 # drop the developing (current) month
+    window = completed.iloc[-N:]
+    level = float(window.max())
+    pos = int(window.values.argmax())
+    months_since = len(window) - 1 - pos
+    if months_since < min_below or level <= 0:
+        return None
+    return level
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ibd50", default=None)
-    ap.add_argument("--leaders", default=None)
     ap.add_argument("--top", type=int, default=3)
-    ap.add_argument("--rs-min", type=float, default=90.0)
-    ap.add_argument("--zone", type=float, default=5.0, help="buy-zone half-width % around the pivot")
-    ap.add_argument("--pivot-lookback", type=int, default=50, help="trading days for the base-high pivot")
+    ap.add_argument("--zone", type=float, default=5.0, help="buy-zone half-width % around the breakout level")
     ap.add_argument("--persist", action="store_true", help="write the report straight to market_reports (DB, offline)")
     ap.add_argument("--publish", action="store_true", help="POST to the API → persist + PUSH to all users (uses API_BASE/API_TOKEN)")
     args = ap.parse_args()
@@ -112,31 +107,22 @@ def main() -> None:
     if not dsn:
         sys.exit("Set DATABASE_URL.")
     import yfinance as yf
-    import pandas as pd
 
-    ibd = _ibd(args.ibd50)
-    leaders = _ibd(args.leaders)          # sector leaders (membership = a credential)
-    wl = set(_watchlist(dsn))
-    # Universe = the LEADERS (IBD 50 + sector leaders) — that IS IBD's pool; we don't
-    # gate it on the platform watchlist (the IBD names may only be in the TV import yet).
-    # A name already on the watchlist gets a small "tracked" nudge in scoring.
-    cands = sorted(set(ibd) | set(leaders))
+    cands = _watchlist(dsn)
     if not cands:
-        print(json.dumps({"market": "unknown", "picks": [], "detail": "no candidates"}))
+        print(json.dumps({"market": "unknown", "picks": [], "detail": "empty watchlist"}))
         return
 
-    # Market gate — SPY above its daily 8 AND 21 EMA = healthy.
+    # Market health — SPY above its daily 8 AND 21 EMA = healthy. Modulates SIZE, not picks.
     spy = yf.download("SPY", period="3mo", interval="1d", progress=False, auto_adjust=False)
     spy_close = spy["Close"].dropna()
     spy_close = spy_close.iloc[:, 0] if hasattr(spy_close, "columns") else spy_close
     market_ok = bool(spy_close.iloc[-1] > spy_close.ewm(span=8).mean().iloc[-1]
                      and spy_close.iloc[-1] > spy_close.ewm(span=21).mean().iloc[-1])
 
-    # 15mo so the 200-day SMA (Stage-2 check) actually has 200 bars (9mo only gives ~187).
+    # Daily (15mo so the 200-DMA Stage-2 check has 200 bars) + monthly (8y) for the levels.
     data = yf.download(cands, period="15mo", interval="1d", progress=False,
                        auto_adjust=False, group_by="ticker", threads=True)
-    # Monthly bars for the LOCKED BOX CEILING (the buy point) — years of history so the
-    # multi-month/year base is detectable (KRE's $78.81, LLY's $1,133).
     mdata = yf.download(cands, period="8y", interval="1mo", progress=False,
                         auto_adjust=False, group_by="ticker", threads=True)
 
@@ -144,106 +130,109 @@ def main() -> None:
     for sym in cands:
         try:
             df = data[sym] if len(cands) > 1 else data
-            c = df["Close"].dropna(); h = df["High"].dropna()
-            v = df["Volume"].dropna(); lo = df["Low"].dropna()
+            c = df["Close"].dropna(); v = df["Volume"].dropna(); lo = df["Low"].dropna()
             if len(c) < 200:
                 continue
             price = float(c.iloc[-1])
-            # BUY POINT = the locked MONTHLY box ceiling (IBD-style base pivot), NOT a
-            # rolling daily high. The TRIGGER is the DAILY price crossing it — never a
-            # monthly close (by then price has run far past the level).
             try:
                 mdf = mdata[sym] if len(cands) > 1 else mdata
-                pivot = _monthly_buy_point(mdf["High"].dropna(), mdf["Low"].dropna(), mdf["Close"].dropna())
+                mh = mdf["High"].dropna(); ml = mdf["Low"].dropna(); mc = mdf["Close"].dropna()
             except Exception:
-                pivot = None
-            if pivot is None:
-                continue   # no clean monthly base → no buy point
-            sma200 = float(c.rolling(200).mean().iloc[-1])
+                continue
+
+            # The two patterns, as candidate levels. Pick whichever the DAILY price is
+            # actually AT (in zone) — coiling just under or just cleared, NOT extended.
+            # Prefer MoBO (flat base = higher conviction) when both are in zone, so the
+            # far one never shadows an in-zone break.
+            box_level, box_low = _monthly_box(mh, ml, mc)
+            rch_level = _monthly_rch(mh)
+            cands_lv = []
+            if box_level is not None:
+                cands_lv.append(("MoBO", box_level, box_low))
+            if rch_level is not None:
+                cands_lv.append(("RC-H", rch_level, None))
+            in_zone = [x for x in cands_lv if -args.zone <= (price - x[1]) / x[1] * 100.0 <= args.zone]
+            if not in_zone:
+                continue                         # no breakout in zone → skip (extended/none)
+            in_zone.sort(key=lambda x: (0 if x[0] == "MoBO" else 1, abs((price - x[1]) / x[1])))
+            kind, level, base_low = in_zone[0]
+            dist_pct = (price - level) / level * 100.0
+            stage2 = price > float(c.rolling(200).mean().iloc[-1])
+            if not stage2:
+                continue
+
             sma50 = float(c.rolling(50).mean().iloc[-1])
             vol_avg = float(v.rolling(50).mean().iloc[-1])
             vol_now = float(v.iloc[-1])
+            vol_surge = vol_avg > 0 and vol_now > vol_avg * 1.3
             swing_low = float(lo.iloc[-10:].min())
             chg = (price / float(c.iloc[-2]) - 1.0) * 100.0
+            cleared = dist_pct >= -0.5          # at/above the level = breaking; below = coiling
 
-            rs = (ibd.get(sym) or leaders.get(sym) or {}).get("rs")
-            stage2 = price > sma200
-            # buy zone vs the MONTHLY pivot (daily price): approaching (below) or just
-            # cleared (above), but NOT extended past the zone.
-            dist_pct = (price - pivot) / pivot * 100.0
-            in_zone = -args.zone <= dist_pct <= args.zone
-            vol_surge = vol_avg > 0 and vol_now > vol_avg * 1.3
+            # Stop: under the base / broken level, tightened to the recent swing or 50-DMA.
+            floor = base_low if base_low else level * 0.93
+            stop = max(swing_low, min(sma50, max(floor, level * 0.93)))
 
-            # Gate = Stage-2 + in the buy zone. LEADERSHIP is already established by the
-            # universe (IBD-50 + sector leaders) — membership IS the credential, so RS only
-            # RANKS, it doesn't exclude (a recovering leader like LLY/KRE still qualifies).
-            # Market health modulates POSITION SIZE, never zeroes picks (IBD stays invested).
-            if not (stage2 and in_zone):
-                continue
+            score = (60 if kind == "MoBO" else 45) + (15 if vol_surge else 0) \
+                + max(0.0, 8 - abs(dist_pct)) + (8 if cleared else 0)
 
-            score = (rs or 80) + (15 if vol_surge else 0) + max(0, 8 - abs(dist_pct)) + (3 if sym in wl else 0)
-            stop = max(swing_low, min(sma50, pivot * 0.93))
-            r_mult = (price - stop)
             reasons = []
-            meta = ibd.get(sym) or leaders.get(sym) or {}
-            if meta.get("rank"):
-                reasons.append(f"IBD #{int(meta['rank'])}, RS {int(rs)} , {meta.get('group','')} group".replace(" ,", ","))
-            elif rs:
-                reasons.append(f"RS {int(rs)} leader")
-            if sym in leaders:
-                reasons.append("sector leader")
-            reasons.append(f"in the buy zone — buy point ${pivot:.2f} (range ${pivot:.2f}–${pivot*(1+args.zone/100):.2f})"
-                           + (", just cleared it" if dist_pct > 0 else f", {abs(dist_pct):.1f}% below"))
+            if kind == "MoBO":
+                reasons.append(f"MoBO — locked monthly box ceiling ${level:.2f} "
+                               + ("just cleared" if cleared else f"{abs(dist_pct):.1f}% overhead"))
+            else:
+                reasons.append(f"monthly RC-H — prior monthly high ${level:.2f} (held for months) "
+                               + ("breaking now" if cleared else f"{abs(dist_pct):.1f}% below"))
+            reasons.append(f"buy zone ${level:.2f}–${level*(1+args.zone/100):.2f}")
             if vol_surge:
                 reasons.append(f"volume {vol_now/vol_avg:.1f}× avg")
             reasons.append("Stage 2 (above the 200-day)")
+
             picks.append({
-                "symbol": sym, "score": round(score, 1), "type": "SWING",
-                "price": round(price, 2), "buy_point": round(pivot, 2),
-                "buy_range": [round(pivot, 2), round(pivot * (1 + args.zone / 100), 2)],
-                "position": "Full" if (market_ok and rs and rs >= 95 and vol_surge) else "Half",
-                "stop": round(stop, 2), "rs": int(rs) if rs else None,
-                "chg_pct": round(chg, 2), "reasons": reasons,
+                "symbol": sym, "score": round(score, 1), "pattern": kind, "type": "SWING",
+                "price": round(price, 2), "buy_point": round(level, 2),
+                "buy_range": [round(level, 2), round(level * (1 + args.zone / 100), 2)],
+                "state": "breaking" if cleared else "coiling",
+                "position": "Full" if (market_ok and kind == "MoBO" and vol_surge) else "Half",
+                "stop": round(stop, 2), "chg_pct": round(chg, 2), "reasons": reasons,
             })
         except Exception:
             continue
 
-    picks.sort(key=lambda p: -p["score"])
+    # Rank: conviction + volume + proximity (already in score). Tie-break MoBO first.
+    picks.sort(key=lambda p: (-p["score"], 0 if p["pattern"] == "MoBO" else 1))
     picks = picks[:args.top]
 
-    # markdown report
     date = datetime.utcnow().strftime("%Y-%m-%d")
-    L = [f"# Today's Leaders Near a Buy Point — {date}", ""]
+    L = [f"# Today's Monthly Breakout Watch — {date}", ""]
     L.append(f"Market: {'🟢 healthy (SPY above 8 & 21 EMA)' if market_ok else '🔴 weak — be selective'}")
     L.append("")
     if not picks:
-        L.append("_No leader is in a clean buy zone today — nothing to chase. Patience._")
+        L.append("_No watchlist name is at a monthly breakout today — nothing to chase. Patience._")
     for p in picks:
-        L.append(f"### {p['symbol']} — {p['type']} · buy ${p['buy_point']} (range ${p['buy_range'][0]}–${p['buy_range'][1]}) · {p['position']} size")
+        L.append(f"### {p['symbol']} — {p['pattern']} · buy ${p['buy_point']} "
+                 f"(range ${p['buy_range'][0]}–${p['buy_range'][1]}) · {p['position']} size")
         for r in p["reasons"]:
             L.append(f"- {r}")
-        L.append(f"- stop ${p['stop']} · entry near ${p['price']}")
+        L.append(f"- stop ${p['stop']} · price now ${p['price']}")
         L.append("")
     report = "\n".join(L)
     print(report)
     print("\n---JSON---")
     print(json.dumps({"market_ok": market_ok, "candidates": len(cands), "picks": picks}))
 
-    # STORED body = structured JSON so the app renders rich cards (clickable → Trading),
-    # not raw markdown. The frontend FocusPicks parses this; premarket/eod stay markdown.
+    # STORED body = structured JSON so the app renders rich cards (clickable → Trading).
     body_json = json.dumps({"date": date, "market_ok": market_ok, "picks": picks})
 
     if args.publish:
-        # POST to the API → persists to market_reports (kind=morning_focus) AND pushes an
-        # APNs blast to all users. Server-side keeps APNs creds where they belong.
         import urllib.request
         base = os.getenv("API_BASE", "https://tradesignalwithai.com").rstrip("/")
         tok = os.getenv("API_TOKEN")
         if not tok:
             sys.exit("--publish needs API_TOKEN (and optional API_BASE).")
         syms = ", ".join(p["symbol"] for p in picks)
-        push_title = ("📋 Today's focus: " + syms) if picks else "📋 No leaders in a buy zone today"
-        push_body = "Leaders near a buy point — tap for the plan." if picks else "Nothing to chase. Patience."
+        push_title = ("📋 Today's focus: " + syms) if picks else "📋 No monthly breakouts today"
+        push_body = "At a monthly breakout — tap for the plan." if picks else "Nothing to chase. Patience."
         data = json.dumps({"kind": "morning_focus", "body": body_json, "session_date": date,
                            "push_title": push_title, "push_body": push_body}).encode()
         req = urllib.request.Request(base + "/api/v1/intel/reports/publish", data=data,
