@@ -30,7 +30,7 @@ class RegimeConfigUpdate(BaseModel):
     ma_alert_symbols: Optional[str] = None  # symbols whose MA/EMA bounce alerts fire; blank = none (#282)
     rc_symbols: Optional[str] = None  # symbols whose 4h RC alerts (long + short) fire; blank = none (#286)
     gap_always_symbols: Optional[str] = None  # symbols whose gap-and-go always delivers even when muted (default SPY,QQQ)
-    orl_always_symbols: Optional[str] = None  # symbols whose ORL held always delivers even when muted (default SPY,QQQ)
+    orl_always_symbols: Optional[str] = None  # ALLOWLIST: staged_orl_held (noisy) fires ONLY for these; user-editable (default index SPY,QQQ,IWM)
     htf_sr_symbols: Optional[str] = None  # symbols whose multi-period S/R alerts deliver (was unsaveable before)
 
 

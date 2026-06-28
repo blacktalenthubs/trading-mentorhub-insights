@@ -57,10 +57,11 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # continuation fires even when a user has muted gap-and-go — an index doesn't
     # gap without a strong macro reason. Default SPY,QQQ; managed live in Settings.
     "gap_always_symbols": "SPY,QQQ",
-    # ORL always-deliver allowlist (2026-06-19). Opening-range-low held
-    # (staged_orl_held) is noisy on most names so it's usually muted globally;
-    # these symbols still fire. Default SPY,QQQ; managed live in Settings.
-    "orl_always_symbols": "SPY,QQQ",
+    # ORL-held allowlist (2026-06-27, wired). staged_orl_held (60m opening-range-low
+    # held) is NOISY, so it fires ONLY for the symbols on this list — everything else
+    # Not-routed. Fully user-editable in Settings (add whatever names you want).
+    # Default = index ETFs; the alert type itself also defaults OFF.
+    "orl_always_symbols": "SPY,QQQ,IWM",
     # Multi-period S/R alert allowlist (2026-06-17). The clustered weekly/monthly/
     # daily S/R reject+bounce (htf_sr_*) is clumpy on busy names, so it delivers
     # ONLY for these — start with indexes (where it reads cleanest), expand live in

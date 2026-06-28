@@ -20,6 +20,8 @@ import {
   useToggleAllAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
+  useRegimeConfig,
+  useUpdateRegimeConfig,
   type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
@@ -519,6 +521,77 @@ function MarketGateSection() {
   );
 }
 
+/* ── Noisy-alert symbol scope — ORL held allowlist ──────────────────────────
+   staged_orl_held (the 60m opening-range-low bounce) is noisy by nature, so it
+   fires ONLY for the symbols on this allowlist — everything else is dropped.
+   Default = index ETFs; add whatever names you want. Admin-managed (one shared
+   list). Editing it takes effect on the next alert. */
+function OrlScopeSection() {
+  const { data, isError } = useRegimeConfig();
+  const update = useUpdateRegimeConfig();
+  const [input, setInput] = useState("");
+
+  if (isError) return null;
+
+  const symbols = (data?.orl_always_symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+
+  const addSymbol = () => {
+    const s = input.trim().toUpperCase();
+    setInput("");
+    if (!s || symbols.includes(s)) return;
+    update.mutate({ orl_always_symbols: [...symbols, s].join(",") });
+  };
+  const removeSymbol = (s: string) =>
+    update.mutate({ orl_always_symbols: symbols.filter((x) => x !== s).join(",") });
+
+  return (
+    <Section title="Noisy alerts — ORL held scope" icon={<ShieldCheck className="h-4 w-4 text-accent" />}>
+      <p className="text-[12px] leading-relaxed text-text-muted mb-3">
+        The <b>opening-range-low (ORL) held</b> bounce is a high-frequency, noisy setup, so it
+        only fires for the symbols you list here — everything else is dropped. Defaults to the
+        <b> index ETFs</b>; add whatever names you actually want it on. You still have to enable
+        <b> ORL held</b> in Alert Types below for it to fire at all.
+      </p>
+
+      <label className="block text-[12px] font-medium text-text-secondary mb-1.5">
+        Fire ORL held only for these symbols
+      </label>
+      {symbols.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {symbols.map((s) => (
+            <span key={s} className="inline-flex items-center gap-1 rounded-md bg-accent/10 border border-accent/20 px-2 py-1 text-[12px] font-semibold text-accent">
+              {s}
+              <button type="button" onClick={() => removeSymbol(s)} className="text-accent/70 hover:text-accent" aria-label={`Remove ${s}`}>
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] text-text-faint mb-2">No symbols — ORL held won't fire for anyone. Add the names you want it on.</p>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value.toUpperCase())}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSymbol(); } }}
+          placeholder="Add a symbol (e.g. NVDA)"
+          className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-faint outline-none focus:border-accent"
+        />
+        <button
+          type="button"
+          onClick={addSymbol}
+          disabled={!input.trim() || update.isPending}
+          className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+        >
+          {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Add
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 /* ── Alert Types (per-type enable/disable) ────────────────────────── */
 
 function AlertTypesSection() {
@@ -674,6 +747,7 @@ export default function SettingsPage() {
             <TelegramSetup />
             <NotificationChannels />
             <MarketGateSection />
+            <OrlScopeSection />
             <ThemeToggle />
           </div>
 

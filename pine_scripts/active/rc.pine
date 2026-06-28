@@ -528,16 +528,10 @@ if en_reclaim and rl_orhSig
 if en_reclaim and rl_pdhSig
     alert(reclaim_pay("PDH", close, rl_pdhStop, rl_pdhTgt), alert.freq_once_per_bar_close)
 
-// OR-channel option plays — ORL bounce = BUY a ~ATM CALL (target the OR high) · ORH
-// rejection = BUY a ~ATM PUT (target the OR low). Strike = nearest whole dollar.
-orl_pay(string rule, string kind, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'C nearest weekly","note":"ORL ' + kind + ' — early bounce off the opening-range low (magnet) · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'C","fired_at":"' + str.tostring(timenow) + '"}'
-orh_pay(float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"orh_reject","direction":"SHORT","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'P nearest weekly","note":"ORH rejection — failed poke above the opening-range high (short) · stop ' + str.tostring(stp, format.mintick) + ' · target into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'P","fired_at":"' + str.tostring(timenow) + '"}'
-if rcORLrec
-    alert(orl_pay("orl_reclaim", "reclaim", rl_orl, lDd, rl_next_above(close)), alert.freq_once_per_bar_close)
-if orlHeld
-    alert(orl_pay("orl_held", "held", close, rl_orl, rl_next_above(close)), alert.freq_once_per_bar_close)
-if orhRej
-    alert(orh_pay(close, rl_orh, rl_orl), alert.freq_once_per_bar_close)
+// OR-channel option plays (orl_held / orl_reclaim / orh_reject) RETIRED 2026-06-27 —
+// too NOISY (especially ORL). The original 60m staged_orl_held (levels_day_vwap.pine,
+// scoped to the orl_always_symbols allowlist) is the one ORL play now. The ORH/ORL
+// lines stay as VISUALS above; only the alert() emits were removed here.
 
 // MA bounce — rule "ma_bounce_long_v3" + ma_tag (number+E); backend forms
 // ma_bounce_long_v3_<ema>. entry = close (held above the MA), stop = the MA (close

@@ -399,6 +399,9 @@ HTF_SR_DEFAULT: frozenset[str] = frozenset()
 SHORT_SYMS_DEFAULT: frozenset[str] = frozenset()
 MA_SYMS_DEFAULT: frozenset[str] = frozenset()
 RC_SYMS_DEFAULT: frozenset[str] = frozenset()
+# staged_orl_held (60m opening-range-low held) is NOISY — fires only for symbols on
+# the user-editable orl_always_symbols allowlist (Settings; default index SPY/QQQ/IWM).
+ORL_SYMS_DEFAULT: frozenset[str] = frozenset()
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1251,6 +1254,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["htf_sr_symbols"])
             if "htf_sr_symbols" in _rc else HTF_SR_DEFAULT
         )
+        orl_always_symbols = (
+            _parse_exempt_syms(_rc["orl_always_symbols"])
+            if "orl_always_symbols" in _rc else ORL_SYMS_DEFAULT
+        )
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
@@ -1263,6 +1270,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         rc_symbols = RC_SYMS_DEFAULT              # read failed → RC only the default set
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
         htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
+        orl_always_symbols = ORL_SYMS_DEFAULT     # read failed → ORL fires for nobody (safe)
 
     # Gap-and-go for the always-deliver names (Settings → gap_always_symbols,
     # default SPY/QQQ) fires even if a user muted gap-and-go — an index doesn't gap
@@ -1330,6 +1338,21 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     ):
         logger.info("TV webhook: MA alert %s %s not in ma_alert_symbols — Not-routed", alert_type_full, sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="ma_symbol_filter")
+
+    # ──────────────────────────────────────────────────────────────────
+    # ORL-held allowlist (2026-06-27). staged_orl_held (60m opening-range-low held)
+    # is NOISY by nature, so it's clamped to a user-editable symbol allowlist
+    # (orl_always_symbols in Settings; default index SPY,QQQ,IWM — add whatever you
+    # want). Symbols off the list → Not-routed. Empty list = no clamp (routes all,
+    # like the other allowlists) but the alert type itself defaults OFF.
+    # ──────────────────────────────────────────────────────────────────
+    if (
+        orl_always_symbols
+        and alert_type_full == "tv_staged_orl_held"
+        and (sig.symbol or "").upper() not in orl_always_symbols
+    ):
+        logger.info("TV webhook: staged_orl_held %s not in orl_always_symbols — Not-routed", sig.symbol)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orl_symbol_filter")
 
     # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
     # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
