@@ -181,6 +181,10 @@ def main() -> None:
     print("\n---JSON---")
     print(json.dumps({"market_ok": market_ok, "candidates": len(cands), "picks": picks}))
 
+    # STORED body = structured JSON so the app renders rich cards (clickable → Trading),
+    # not raw markdown. The frontend FocusPicks parses this; premarket/eod stay markdown.
+    body_json = json.dumps({"date": date, "market_ok": market_ok, "picks": picks})
+
     if args.publish:
         # POST to the API → persists to market_reports (kind=morning_focus) AND pushes an
         # APNs blast to all users. Server-side keeps APNs creds where they belong.
@@ -192,7 +196,7 @@ def main() -> None:
         syms = ", ".join(p["symbol"] for p in picks)
         push_title = ("📋 Today's focus: " + syms) if picks else "📋 No leaders in a buy zone today"
         push_body = "Leaders near a buy point — tap for the plan." if picks else "Nothing to chase. Patience."
-        data = json.dumps({"kind": "morning_focus", "body": report, "session_date": date,
+        data = json.dumps({"kind": "morning_focus", "body": body_json, "session_date": date,
                            "push_title": push_title, "push_body": push_body}).encode()
         req = urllib.request.Request(base + "/api/v1/intel/reports/publish", data=data,
                                      headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
@@ -207,7 +211,9 @@ def main() -> None:
         try:
             cur = conn.cursor()
             cur.execute("INSERT INTO market_reports (kind, session_date, body, created_at) "
-                        "VALUES ('morning_focus', %s, %s, NOW())", (date, report))
+                        "VALUES ('morning_focus', %s, %s, NOW()) "
+                        "ON CONFLICT (kind, session_date) DO UPDATE SET body=EXCLUDED.body, created_at=NOW()",
+                        (date, body_json))
             conn.commit(); cur.close()
             print(f"[persisted to market_reports kind=morning_focus session_date={date}]")
         finally:
