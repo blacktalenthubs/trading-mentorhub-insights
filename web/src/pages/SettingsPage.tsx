@@ -32,6 +32,7 @@ import {
   Sun, Moon, Zap, ShieldCheck, X, Plus,
 } from "lucide-react";
 import { toast } from "../components/Toast";
+import { signalNotificationsEnabled, setSignalNotificationsEnabled } from "../hooks/useSignalNotifications";
 
 /* ── Section wrapper ──────────────────────────────────────────────── */
 
@@ -170,6 +171,25 @@ function NotificationChannels() {
   const updateNotifs = useUpdateNotificationPrefs();
   const [telegramOn, setTelegramOn] = useState(true);
   const [synced, setSynced] = useState(false);
+  const [desktopOn, setDesktopOn] = useState(signalNotificationsEnabled);
+
+  // Desktop (browser/Electron) alerts need BOTH the opt-in AND the OS notification
+  // permission. Requesting permission was the missing piece — without it the
+  // Notification.permission stays "default" and signals never popped on desktop.
+  async function toggleDesktop(on: boolean) {
+    if (on && typeof Notification !== "undefined" && Notification.permission !== "granted") {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        toast.info("Allow notifications for this app in your system settings to get desktop alerts.");
+        setDesktopOn(false);
+        setSignalNotificationsEnabled(false);
+        return;
+      }
+    }
+    setDesktopOn(on);
+    setSignalNotificationsEnabled(on);
+    if (on) toast.info("Desktop alerts on — new signals will pop up; click one to open its chart.");
+  }
 
   if (notifPrefs && !synced) {
     setTelegramOn(notifPrefs.telegram_enabled);
@@ -192,6 +212,20 @@ function NotificationChannels() {
           <div className="flex-1">
             <span className="text-sm text-text-primary">Telegram alerts</span>
             <p className="text-[10px] text-text-faint">Master switch — turn all Telegram alerts on or off.</p>
+          </div>
+        </label>
+
+        <label className="flex items-center gap-3 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={desktopOn}
+            onChange={(e) => toggleDesktop(e.target.checked)}
+            className="rounded border-border-subtle"
+          />
+          <Bell className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
+          <div className="flex-1">
+            <span className="text-sm text-text-primary">Desktop alerts</span>
+            <p className="text-[10px] text-text-faint">Pop up new signals on this device — click one to jump to its chart.</p>
           </div>
         </label>
 
@@ -401,6 +435,15 @@ function TradingSettings() {
 
 function ThemeToggle() {
   const [isDark, setIsDark] = useState(() => !document.documentElement.classList.contains("light"));
+  const [scale, setScale] = useState(() => localStorage.getItem("ui_scale") || "1");
+
+  function applyScale(v: string) {
+    localStorage.setItem("ui_scale", v);
+    // `zoom` scales everything — px-hardcoded text, prices, AND the chart canvas — in
+    // Chromium (the desktop app + most browsers). One knob for "make it all bigger".
+    (document.documentElement.style as unknown as Record<string, string>).zoom = v;
+    setScale(v);
+  }
 
   function toggle() {
     const next = !isDark;
@@ -427,6 +470,24 @@ function ThemeToggle() {
         >
           <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isDark ? "" : "translate-x-6"}`} />
         </button>
+      </div>
+
+      <div className="flex items-center justify-between mt-4 pt-4 border-t border-border-subtle">
+        <div>
+          <p className="text-sm font-medium text-text-primary">Text size</p>
+          <p className="text-xs text-text-muted">Make all text, prices &amp; charts bigger</p>
+        </div>
+        <div className="flex gap-1.5">
+          {([["1", "Normal"], ["1.15", "Large"], ["1.3", "XL"]] as const).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => applyScale(v)}
+              className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${scale === v ? "bg-accent text-white" : "bg-surface-3 text-text-secondary hover:bg-surface-4"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </Section>
   );
