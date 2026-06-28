@@ -35,9 +35,68 @@ until the user opens a chart. We need a classification that names the horizon, t
 trigger state, and the conviction — and two run cadences (pre-open structure scan +
 premarket movers scan) that feed it.
 
-## Classification model — three independent axes
+## What makes a name "worth focusing tomorrow" — criteria + weighting
 
-An entry candidate is `(Horizon) × (Trigger state) × (Conviction)`. These are
+This is the heart of the agent. It deliberately **ignores the mechanical entry rules**
+(MA-bounce / VWAP / PDH triggers). Those answer *"what fired today?"* — backward-looking.
+A nightly focus agent answers a different question: **"which 5 are most loaded to give a
+clean, definable-risk move tomorrow?"** — anticipation, not triggering.
+
+### The book it scans (drives the weighting)
+
+The watchlist (`sectors/all_sectors_grouped.txt` + user's 80) is a **high-beta momentum /
+growth book**: mega-tech anchors (NVDA/AAPL/AMZN/GOOGL/META), a deep chips/AI-infra bench
+(AVGO/AMD/MRVL/ARM/ALAB/CRDO/ANET/CIEN + small movers AAOI/AEHR/AOSL/ACLS/APLD), memory,
+optics, crypto proxies (BTC/MSTR/IREN), a nuclear/AI-power theme (CEG/LEU/CCJ/GEV),
+fintech/space/spec, and macro refs (SPY/QQQ). Two facts drive the design: these names
+**trend hard then coil**, and they are **heavily theme-correlated** (AVGO/AMD/MRVL/ALAB ≈
+one bet on a given day).
+
+### The seven criteria (all from daily bars + an earnings date)
+
+| # | Criterion | What's measured | Weight (this book) |
+|---|---|---|---|
+| 1 | **Relative strength / leadership** | RS vs SPY **and** vs its sector group; above rising 20/50-DMA; sector green | **Primary** |
+| 2 | **Location at a decision point** | Distance to nearest meaningful level — support in uptrend, base top, prior high | **Primary** |
+| 3 | **Compression / coiled energy** | ATR contraction, range tightening, inside days, narrowing N-day range | **High** |
+| 4 | **Risk geometry** | Clean invalidation *just below* → tight stop, asymmetric R:R to next target | Quality gate / tiebreaker |
+| 5 | **Volume signature** | Up-vs-down-day volume (accumulation), dry-up on pullback, recent thrust | Medium |
+| 6 | **Momentum posture** | Distance from MAs, RSI — primed but **not extended** | Guard rail (penalize extension) |
+| 7 | **Event awareness** | Earnings within ~1–2 days; BTC posture for the crypto cluster | **Flag, not scored** |
+
+### Weighting decision (2026-06-28) — my call, per the user's delegation
+
+For a high-beta, theme-rotating momentum book, **leadership (1) and location (2) are the
+two primary drivers**: in momentum names RS *is* the edge (themes rotate semis → nuclear →
+crypto → space; you want the leader of whatever's working), and location decides whether
+tomorrow is actually *actionable*. **Compression (3)** is the third driver — it's the tell
+that a big move is loading in names that trend-then-coil. **Risk geometry (4)** is a
+quality gate/tiebreaker (makes it tradeable, defines the stop). **Volume (5)** and
+**posture (6)** are confirmation and a guard-rail against chasing. **Earnings (7)** is
+flagged, never silently excluded.
+
+Indicative readiness score (pre-LLM shortlist): `RS 30 · Location 25 · Compression 20 ·
+RiskGeometry 12 · Volume 8 · Posture 5` (−penalty if extended), max 100.
+
+### De-correlation is a hard structural rule
+
+On a theme-correlated book, five names from one theme is really *one* bet. The Top 5 must
+spread across themes — **cap ~2 per sector group**, prefer the leader of each. This matters
+as much as the per-name score.
+
+### Decision engine — features + LLM judgment (chosen)
+
+The user framed it as *"what the agent **thinks**."* So: compute criteria 1–6 as objective
+features (pure math, daily bars), use the readiness score to **shortlist the top ~15**,
+then hand that feature table to the agent (Sonnet via the existing `analytics/ai_best_setups.py`)
+to **weigh, rank, de-correlate, and write the "why now."** Deterministic features keep it
+explainable and stop the LLM hallucinating prices; the LLM supplies the theme-rotation and
+de-correlation judgment a rigid formula can't. This is the engine for both lenses.
+
+## Classification model — three independent axes (output tags)
+
+The criteria above decide *what gets picked*; these axes are how each pick is *labeled* in
+the output. An entry candidate is `(Horizon) × (Trigger state) × (Conviction)`. These are
 orthogonal: a setup can be swing + approaching + HIGH, or day-trade + at-entry + MED.
 
 ### Axis 1 — Horizon (which structure are we reading?)
