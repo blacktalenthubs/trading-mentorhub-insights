@@ -178,6 +178,92 @@ mb_e50  = ma_bounce(ema50d,  en_ma and ma_uptrend)
 mb_e100 = ma_bounce(ema100d, en_ma)
 mb_e200 = ma_bounce(ema200d, en_ma)
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MoBO — monthly BOX breakout + monthly RC-H (ported from monthly_breakout.pine, the
+// validated visual). The LEVEL is the locked MONTHLY value computed from CLOSED months
+// (lookahead_off → no repaint of the developing month); the TRIGGER is the live chart
+// price CROSSING it — NOT a monthly close (by a monthly close price has run far past the
+// level). Long-term/position entries → default OFF, gate-exempt (wired in the backend).
+//   BOX  — a flat multi-month Darvas ceiling. Retires on a close ABOVE (cleared) or BELOW
+//          the base low (failed base) so it never arms on a stale/failed level.
+//   RC-H — a prior MONTHLY swing high that HELD as resistance >= minBelow months (the
+//          high-side complement to monthly RC). Catches stair-step leaders the box can't.
+gMoBO = "MoBO — monthly box + RC-H breakout (position, default OFF)"
+en_mobo      = input.bool(false, "ALERT: monthly BOX breakout (locked flat-base ceiling, BUY)", group = gMoBO)
+en_mobo_rch  = input.bool(false, "ALERT: monthly RC-H breakout (prior-high held resistance, BUY)", group = gMoBO)
+mobo_N       = input.int(4,    "  Box lookback (months the ceiling caps price)", minval = 2, maxval = 12, group = gMoBO)
+mobo_minFlat = input.int(3,    "  Box ceiling FLAT >= months", minval = 1, maxval = 8, group = gMoBO)
+mobo_minBox  = input.float(3.0,  "  Box MIN depth %", minval = 0.0, group = gMoBO) / 100.0
+mobo_maxBox  = input.float(60.0, "  Box MAX depth %", minval = 10.0, group = gMoBO) / 100.0
+mobo_stage2  = input.bool(true,  "  Box requires Stage-2 (above the 10-month EMA)", group = gMoBO)
+mobo_Nh      = input.int(8,    "  RC-H lookback (months for the prior high)", minval = 3, maxval = 18, group = gMoBO)
+mobo_minBel  = input.int(2,    "  RC-H prior high CAPPED price >= months", minval = 1, maxval = 8, group = gMoBO)
+
+f_mobo_box() =>
+    lid = ta.highest(high, mobo_N)[1]
+    boxLow = ta.lowest(low, mobo_N)[1]
+    stg2 = close > ta.ema(close, 10)
+    ceilingAge = ta.barssince(lid != lid[1])
+    established = ceilingAge >= mobo_minFlat
+    var float ceil = na
+    var float bLow = na
+    var bool  armed = false
+    if established and close < lid
+        if not armed
+            bLow := boxLow
+            armed := true
+        ceil := na(ceil) ? lid : math.max(ceil, lid)
+        bLow := math.min(bLow, low)
+    if armed and not na(bLow) and close < bLow
+        armed := false
+        ceil  := na
+        bLow  := na
+    if armed and not na(ceil) and close > ceil
+        armed := false
+        ceil  := na
+        bLow  := na
+    depth = not na(ceil) and ceil > 0 ? (ceil - bLow) / ceil : na
+    boxOK = not na(depth) and depth >= mobo_minBox and depth <= mobo_maxBox
+    ready = armed and boxOK and (not mobo_stage2 or stg2)
+    [ready ? ceil : na, bLow]
+
+f_mobo_rch() =>
+    lid = ta.highest(high, mobo_Nh)[1]
+    belowAge = ta.barssince(high >= lid)
+    held = belowAge >= mobo_minBel
+    var float rl = na
+    var float rlLow = na
+    var bool  armedH = false
+    if held and close < lid
+        if not armedH
+            rlLow := low
+            armedH := true
+        rl := na(rl) ? lid : math.max(rl, lid)
+        rlLow := math.min(rlLow, low)
+    if armedH and not na(rl) and close > rl
+        armedH := false
+        rl    := na
+    [armedH ? rl : na, rlLow]
+
+[mobo_ceil, mobo_low]  = request.security(syminfo.tickerid, "M", f_mobo_box(), lookahead = barmerge.lookahead_off)
+[mobo_rl, mobo_rl_low] = request.security(syminfo.tickerid, "M", f_mobo_rch(), lookahead = barmerge.lookahead_off)
+
+// Fire ONCE when live price crosses up through the locked level; re-arm only after price
+// drops back below it (so a wiggle around the level doesn't re-fire every bar).
+cross_up_once(float level, bool en) =>
+    var bool armed = false
+    var bool fired = false
+    if not na(level) and close < level
+        armed := true
+        fired := false
+    fire = en and armed and not fired and not na(level) and close >= level
+    if fire
+        fired := true
+        armed := false
+    fire
+mobo_box_fire = cross_up_once(mobo_ceil, en_mobo)
+mobo_rch_fire = cross_up_once(mobo_rl, en_mobo_rch)
+
 // ── New-period flags (reset the sweep state at each period boundary) ───────
 n4 = ta.change(time("240")) != 0
 nD = ta.change(time("D"))   != 0
@@ -492,6 +578,13 @@ if cmlHeld
     alert(rc_pay("cml_held", "BUY", "M", close, cml_ref, "CML · tag & hold of the CURRENT-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(cml_ref, format.mintick)), alert.freq_once_per_bar_close)
 if pmlHeld
     alert(rc_pay("pml_held", "BUY", "M", close, lMp, "PML · tag & hold of the PRIOR-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(lMp, format.mintick)), alert.freq_once_per_bar_close)
+
+// MoBO — monthly BOX breakout + monthly RC-H (long-term/position; default OFF, gate-exempt).
+// entry = the locked level (the buy point), stop = the base / pre-break low.
+if mobo_box_fire
+    alert(rc_pay("monthly_box", "BUY", "M", mobo_ceil, mobo_low, "MoBO · monthly BOX breakout — price cleared the locked flat-base ceiling " + str.tostring(mobo_ceil, format.mintick) + ", stop the base low " + str.tostring(mobo_low, format.mintick)), alert.freq_once_per_bar_close)
+if mobo_rch_fire
+    alert(rc_pay("mobo_rch", "BUY", "M", mobo_rl, mobo_rl_low, "MoBO RC-H · broke a prior MONTHLY high that held as resistance for months — entry " + str.tostring(mobo_rl, format.mintick) + ", stop " + str.tostring(mobo_rl_low, format.mintick)), alert.freq_once_per_bar_close)
 
 // 10w / 30w MA HELD + RECLAIM ALERTS (the visual signs, now wired) — weekly support of
 // the 10-week / 30-week MA. HELD = tagged it from above and never broke below; RECLAIM =
