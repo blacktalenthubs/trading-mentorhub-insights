@@ -1363,9 +1363,11 @@ export default function TradingPageV2() {
           </div>
         </div>
 
-        {/* Focus filter chip — visual-only filter for today's focus list */}
-        {!watchlistCollapsed && (
-          <div className="px-2 py-1.5 border-b border-border-subtle shrink-0 flex items-center gap-1">
+        {/* Focus filter chip — visual-only filter for today's focus list.
+            On the mobile drawer (mobileWatchlistOpen) ALWAYS show the chips, even when the
+            desktop sidebar is collapsed — otherwise mobile gets a long list with no filters. */}
+        {(!watchlistCollapsed || mobileWatchlistOpen) && (
+          <div className="px-2 py-1.5 border-b border-border-subtle shrink-0 flex items-center gap-1 flex-wrap">
             <button
               onClick={toggleFocusOnly}
               className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
@@ -1419,8 +1421,8 @@ export default function TradingPageV2() {
           </div>
         )}
 
-        {/* Search (only when expanded) */}
-        {!watchlistCollapsed && (
+        {/* Search (when expanded, or always on the mobile drawer) */}
+        {(!watchlistCollapsed || mobileWatchlistOpen) && (
           <div className="px-2 py-1.5 border-b border-border-subtle shrink-0">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-text-faint" />
@@ -1433,8 +1435,8 @@ export default function TradingPageV2() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && canAdd) handleAddFromSearch();
                 }}
-                placeholder="Search..."
-                className="w-full bg-surface-2/50 border border-border-subtle rounded py-1 pl-7 pr-6 text-[11px] text-text-primary placeholder:text-text-faint focus:outline-none focus:border-accent/50 transition-colors"
+                placeholder={`Search ${watchlistItems?.length ? watchlistItems.length + " " : ""}symbols…`}
+                className="w-full bg-surface-2/50 border border-border-subtle rounded py-2 md:py-1 pl-7 pr-6 text-[13px] md:text-[11px] text-text-primary placeholder:text-text-faint focus:outline-none focus:border-accent/50 transition-colors"
               />
               {searchFilter && (
                 <button
