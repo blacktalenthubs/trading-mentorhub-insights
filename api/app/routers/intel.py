@@ -681,7 +681,9 @@ async def publish_report(
     sess = payload.session_date or datetime.utcnow().strftime("%Y-%m-%d")
     await db.execute(text(
         "INSERT INTO market_reports (kind, session_date, body, created_at) "
-        "VALUES (:k, :d, :b, NOW())"), {"k": payload.kind, "d": sess, "b": payload.body})
+        "VALUES (:k, :d, :b, NOW()) "
+        "ON CONFLICT (kind, session_date) DO UPDATE SET body = EXCLUDED.body, created_at = NOW()"),
+        {"k": payload.kind, "d": sess, "b": payload.body})
     await db.commit()
 
     pushed = 0

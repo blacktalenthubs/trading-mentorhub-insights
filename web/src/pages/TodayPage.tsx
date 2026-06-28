@@ -197,7 +197,65 @@ function DayRead({ spy, btc, signals, ideas, coiling, leaders, losing, onJump }:
 /* ── Market reports: the SAME daily intelligence sent to Telegram — the morning
    Premarket Heat brief (premarket.py) and the EOD Recap (eod.py), persisted by
    triage-agent. Premarket/EOD toggle defaults to whichever dropped most recently. ── */
-function ReportsView() {
+type FocusPick = {
+  symbol: string; type: string; price: number; buy_point: number;
+  buy_range: [number, number]; position: string; stop: number; rs: number | null;
+  chg_pct: number; reasons: string[];
+};
+
+/* Today's Focus — the morning Leaders-Near-a-Buy-Point picks, rendered as cards.
+   Symbol is clickable → Trading chart so users can analyse the setup. Falls back to
+   plain text if the body isn't the structured JSON (old reports). */
+function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { market_ok?: boolean; picks?: FocusPick[] } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  if (!parsed?.picks) {
+    return (
+      <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "")}</pre>
+      </div>
+    );
+  }
+  const { market_ok, picks } = parsed;
+  return (
+    <div className="space-y-2.5">
+      <div className={`text-[12px] font-semibold ${market_ok ? "text-bullish-text" : "text-bearish-text"}`}>
+        {market_ok ? "🟢 Market healthy — leaders can size up" : "🔴 Market weak — be selective (half size)"}
+      </div>
+      {picks.length === 0 ? (
+        <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
+          No leader is in a clean buy zone today — nothing to chase. Patience.
+        </div>
+      ) : picks.map((p) => (
+        <div key={p.symbol} className="rounded-xl border border-border-subtle bg-surface-1 shadow-card overflow-hidden">
+          <button onClick={() => onChart(p.symbol)} className="flex w-full items-center gap-2 px-3.5 py-3 text-left transition-colors hover:bg-surface-2/40">
+            <span className="font-display text-[15px] font-bold text-text-primary">{p.symbol}</span>
+            <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">{p.type}</span>
+            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{p.position} size</span>
+            {p.rs != null && <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">RS {p.rs}</span>}
+            <span className="ml-auto text-[11px] font-semibold text-accent">Analyze →</span>
+          </button>
+          <div className="space-y-2 px-3.5 pb-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] tabular-nums">
+              <span className="font-semibold text-bullish-text">Buy ${p.buy_point.toFixed(2)}</span>
+              <span className="text-text-muted">range ${p.buy_range[0].toFixed(2)}–${p.buy_range[1].toFixed(2)}</span>
+              <span className="text-bearish-text">Stop ${p.stop.toFixed(2)}</span>
+            </div>
+            <ul className="space-y-0.5">
+              {p.reasons.map((r, i) => (
+                <li key={i} className="flex gap-1.5 text-[12px] text-text-secondary">
+                  <span className="text-accent">•</span><span>{r}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const { data, isLoading } = useMarketReports();
   const pre = data?.premarket ?? null;
   const eod = data?.eod ?? null;
@@ -246,10 +304,14 @@ function ReportsView() {
           </button>
         ))}
       </div>
-      {text ? (
-        <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
-          <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
-        </div>
+      {active?.body ? (
+        which === "focus"
+          ? <FocusPicks body={active.body} onChart={onChart} />
+          : (
+            <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
+              <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
+            </div>
+          )
       ) : (
         <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
           {empty[which]}
@@ -573,7 +635,7 @@ export default function TodayPage() {
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
               <span className="text-[11px] text-text-faint">· premarket + end-of-day — same reports as Telegram</span>
             </div>
-            <ReportsView />
+            <ReportsView onChart={goChart} />
           </div>
         )}
       </div>
