@@ -63,6 +63,39 @@ def _watchlist(dsn):
     return syms
 
 
+def _monthly_buy_point(mh, ml, mc, N=4, min_flat=3, min_box=0.03, max_box=0.60):
+    """The locked MONTHLY box ceiling = the IBD-style buy point (the level price must
+    BREAK), from monthly H/L/C. Returns the current locked base ceiling while price is
+    still under it, OR the last breakout level if it just broke (the retest), or None.
+    Port of the MoBO/rc f_box state machine onto monthly bars. The TRIGGER (price crossing
+    this level) is checked on the DAILY in the caller — NOT a monthly close."""
+    n = len(mc)
+    if n < N + min_flat + 2:
+        return None
+    lid = mh.rolling(N).max().shift(1)
+    ceil = None; blow = None; armed = False; last_brk = None
+    age = 0; prev = None
+    for i in range(n):
+        li = lid.iloc[i]
+        if li != li:               # NaN
+            prev = li; age = 0; continue
+        age = age + 1 if (prev is not None and li == prev) else 0
+        prev = li
+        established = age >= min_flat
+        c = mc.iloc[i]; loo = ml.iloc[i]
+        if established and c < li:
+            if not armed:
+                blow = loo; armed = True
+            ceil = li if ceil is None else max(ceil, li)
+            blow = min(blow, loo)
+        if armed and ceil is not None and c > ceil:   # monthly broke the ceiling
+            depth = (ceil - blow) / ceil if ceil else 0.0
+            if min_box <= depth <= max_box:
+                last_brk = ceil
+            armed = False; ceil = None; blow = None
+    return ceil if armed else last_brk
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ibd50", default=None)
@@ -102,6 +135,10 @@ def main() -> None:
     # 15mo so the 200-day SMA (Stage-2 check) actually has 200 bars (9mo only gives ~187).
     data = yf.download(cands, period="15mo", interval="1d", progress=False,
                        auto_adjust=False, group_by="ticker", threads=True)
+    # Monthly bars for the LOCKED BOX CEILING (the buy point) — years of history so the
+    # multi-month/year base is detectable (KRE's $78.81, LLY's $1,133).
+    mdata = yf.download(cands, period="8y", interval="1mo", progress=False,
+                        auto_adjust=False, group_by="ticker", threads=True)
 
     picks = []
     for sym in cands:
@@ -112,7 +149,16 @@ def main() -> None:
             if len(c) < 200:
                 continue
             price = float(c.iloc[-1])
-            pivot = float(h.iloc[-(args.pivot_lookback + 1):-1].max())   # base high (excl. today)
+            # BUY POINT = the locked MONTHLY box ceiling (IBD-style base pivot), NOT a
+            # rolling daily high. The TRIGGER is the DAILY price crossing it — never a
+            # monthly close (by then price has run far past the level).
+            try:
+                mdf = mdata[sym] if len(cands) > 1 else mdata
+                pivot = _monthly_buy_point(mdf["High"].dropna(), mdf["Low"].dropna(), mdf["Close"].dropna())
+            except Exception:
+                pivot = None
+            if pivot is None:
+                continue   # no clean monthly base → no buy point
             sma200 = float(c.rolling(200).mean().iloc[-1])
             sma50 = float(c.rolling(50).mean().iloc[-1])
             vol_avg = float(v.rolling(50).mean().iloc[-1])
@@ -121,16 +167,18 @@ def main() -> None:
             chg = (price / float(c.iloc[-2]) - 1.0) * 100.0
 
             rs = (ibd.get(sym) or leaders.get(sym) or {}).get("rs")
-            is_leader = (rs is not None and rs >= args.rs_min) or sym in leaders
             stage2 = price > sma200
-            # buy zone = within ±zone% of the pivot (approaching, or just-cleared, not extended)
+            # buy zone vs the MONTHLY pivot (daily price): approaching (below) or just
+            # cleared (above), but NOT extended past the zone.
             dist_pct = (price - pivot) / pivot * 100.0
             in_zone = -args.zone <= dist_pct <= args.zone
             vol_surge = vol_avg > 0 and vol_now > vol_avg * 1.3
 
-            # Hard gate = leader + Stage-2 + in the buy zone. Market health modulates
-            # POSITION SIZE + the report flag (IBD stays 60-80% invested, not all-or-none).
-            if not (is_leader and stage2 and in_zone):
+            # Gate = Stage-2 + in the buy zone. LEADERSHIP is already established by the
+            # universe (IBD-50 + sector leaders) — membership IS the credential, so RS only
+            # RANKS, it doesn't exclude (a recovering leader like LLY/KRE still qualifies).
+            # Market health modulates POSITION SIZE, never zeroes picks (IBD stays invested).
+            if not (stage2 and in_zone):
                 continue
 
             score = (rs or 80) + (15 if vol_surge else 0) + max(0, 8 - abs(dist_pct)) + (3 if sym in wl else 0)
