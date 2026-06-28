@@ -435,6 +435,25 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register bottom-watch scan job")
 
+        # Morning Focus push (server-side, NO session token) — the local morning-leaders
+        # agent persists today's report (kind=morning_focus); this detects it and blasts an
+        # APNs teaser to all users pre-open. Runs twice so a slightly-late agent is caught;
+        # the cache guard pushes once/day. Self-contained imports (never assume the
+        # bottom-watch block's locals exist).
+        try:
+            from app.services.morning_focus_push import push_morning_focus
+            from apscheduler.triggers.cron import CronTrigger as _Cron2
+            from zoneinfo import ZoneInfo as _ZI2
+            _et2 = _ZI2("America/New_York")
+            for _h, _m, _jid in [(8, 50, "morning_focus_push_am"), (9, 10, "morning_focus_push_am2")]:
+                scheduler.add_job(
+                    push_morning_focus, _Cron2(hour=_h, minute=_m, day_of_week="mon-fri", timezone=_et2),
+                    args=[sync_session_factory], id=_jid, replace_existing=True,
+                )
+            logger.info("Morning-focus push scheduled (8:50 + 9:10 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register morning-focus push job")
+
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
         # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
