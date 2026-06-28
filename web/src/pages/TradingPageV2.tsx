@@ -1301,6 +1301,11 @@ export default function TradingPageV2() {
   ).length;
 
   const watchlistWidth = watchlistCollapsed ? 48 : 180;
+  // The desktop sidebar can be collapsed (icon-rail) but the mobile drawer must
+  // always render the full layout — prices, the focus/favorite star, and the
+  // remove control. Without this, opening the drawer while the desktop sidebar
+  // is collapsed showed centered symbol-only rows with no way to favorite.
+  const watchlistExpanded = !watchlistCollapsed || mobileWatchlistOpen;
 
   /* ────────────────────────────────────────────────────────────────── */
 
@@ -1331,13 +1336,13 @@ export default function TradingPageV2() {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-2 py-2 border-b border-border-subtle shrink-0 h-10">
-          {!watchlistCollapsed && (
+          {watchlistExpanded && (
             <span className="text-[11px] font-semibold text-text-secondary tracking-wide">
               Watchlist
             </span>
           )}
           <div className="flex items-center gap-0.5">
-            {!watchlistCollapsed && (
+            {watchlistExpanded && (
               <button
                 onClick={cycleWatchSort}
                 className="px-1.5 py-0.5 rounded text-[10px] font-semibold font-mono text-text-muted hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
@@ -1346,12 +1351,20 @@ export default function TradingPageV2() {
                 {watchSort === "change_desc" ? "%↓" : watchSort === "change_asc" ? "%↑" : watchSort === "price_desc" ? "$↓" : "A–Z"}
               </button>
             )}
+            {/* Mobile: close the drawer. Desktop: collapse to the icon rail. */}
+            <button
+              onClick={() => setMobileWatchlistOpen(false)}
+              className="md:hidden p-1 rounded text-text-faint hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
+              aria-label="Close watchlist"
+            >
+              <X className="h-4 w-4" />
+            </button>
             <button
               onClick={() => {
                 setWatchlistCollapsed((v) => !v);
                 triggerResize();
               }}
-              className="p-1 rounded text-text-faint hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
+              className="hidden md:block p-1 rounded text-text-faint hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
               title={watchlistCollapsed ? "Expand watchlist" : "Collapse watchlist"}
             >
               {watchlistCollapsed ? (
@@ -1366,7 +1379,7 @@ export default function TradingPageV2() {
         {/* Focus filter chip — visual-only filter for today's focus list.
             On the mobile drawer (mobileWatchlistOpen) ALWAYS show the chips, even when the
             desktop sidebar is collapsed — otherwise mobile gets a long list with no filters. */}
-        {(!watchlistCollapsed || mobileWatchlistOpen) && (
+        {watchlistExpanded && (
           <div className="px-2 py-1.5 border-b border-border-subtle shrink-0 flex items-center gap-1 flex-wrap">
             <button
               onClick={toggleFocusOnly}
@@ -1422,7 +1435,7 @@ export default function TradingPageV2() {
         )}
 
         {/* Search (when expanded, or always on the mobile drawer) */}
-        {(!watchlistCollapsed || mobileWatchlistOpen) && (
+        {watchlistExpanded && (
           <div className="px-2 py-1.5 border-b border-border-subtle shrink-0">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-text-faint" />
@@ -1493,7 +1506,7 @@ export default function TradingPageV2() {
               focused={focusSymbols.has(s.symbol)}
               livePrice={livePrices[s.symbol]}
               rankItem={rankMap.get(s.symbol)}
-              collapsed={watchlistCollapsed}
+              collapsed={!watchlistExpanded}
             />
           ))}
         </div>
@@ -1502,7 +1515,7 @@ export default function TradingPageV2() {
             expanded by default. Hero CTA at top when the user's personal
             watchlist is empty (new accounts). "Copy all" bulk-adds every
             missing symbol with one click. */}
-        {!watchlistCollapsed && sectorsItems && sectorsItems.length > 0 && (
+        {watchlistExpanded && sectorsItems && sectorsItems.length > 0 && (
           <div className="border-t border-border-subtle shrink-0 max-h-[55%] overflow-hidden flex flex-col bg-surface-1">
             {/* Empty-state hero — only shown when user has zero personal symbols */}
             {userWatchlistEmpty && missingSectorSymbols.length > 0 && (
@@ -1602,7 +1615,7 @@ export default function TradingPageV2() {
         )}
 
         {/* Footer */}
-        {!watchlistCollapsed && (
+        {watchlistExpanded && (
           <div className="px-2 py-1.5 border-t border-border-subtle shrink-0 flex items-center justify-between">
             <span className="text-[9px] text-text-faint">
               {watchlistItems?.length ?? 0} symbols
