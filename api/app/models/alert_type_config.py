@@ -142,12 +142,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # ~0.18% shakeout, with room to the next resistance → long, take profit into it.
     # Long-only (the short mirror has no edge). Default OFF (opt-in).
     ("reclaim_long", "Reclaim long — morning reclaim of the ORH/PDH with room + ~ATM strike (now in rc.pine)", "Index reclaim", False),
-    # OR-channel option plays (rc.pine, 2026-06-25) — capitalize on the opening-range
-    # edges EARLY instead of waiting for the late ORH break. ORL is the magnet: bounce =
-    # call, ORH rejection = put. All default OFF.
-    ("orl_held", "ORL held — bounce off the opening-range low (BUY call, target the OR high)", "Index reclaim", False),
-    ("orl_reclaim", "ORL reclaim — undercut & reclaim the opening-range low (BUY call)", "Index reclaim", False),
-    ("orh_reject", "ORH rejection — failed poke above the opening-range high (SHORT put, target the OR low)", "Index reclaim", False),
+    # staged_orl_held REVIVED 2026-06-27 — the rc.pine OR-channel plays (orl_held/
+    # orl_reclaim/orh_reject) were too NOISY (especially ORL) → retired to OBSOLETE. This is
+    # the original 60m opening-range-low held (levels_day_vwap.pine). It's noisy by nature, so
+    # it's SCOPED to a user-editable symbol allowlist (staged_orl_symbols in Settings; default
+    # index SPY/QQQ/IWM, but add whatever you want). Off the list = Not-routed. Default OFF.
+    ("staged_orl_held", "ORL held (60m opening-range low) — bounce off the OR low; NOISY, fires only for symbols in your ORL allowlist (Settings → Noisy alerts)", "Index reclaim", False),
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
@@ -293,9 +293,10 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
 
-    # 2026-06-25 — staged_orl_held (60m OR low, levels_day_vwap.pine) RETIRED, superseded
-    # by rc.pine's orl_held/orl_reclaim off the unified 15m opening range. One ORL now.
-    "staged_orl_held",
+    # 2026-06-27 — the rc.pine OR-channel plays RETIRED (too noisy, especially ORL). The
+    # original staged_orl_held (60m OR low, levels_day_vwap.pine) is REVIVED in their place
+    # (back in _BASE_CATALOG above), scoped to the user-editable staged_orl_symbols allowlist.
+    "orl_held", "orl_reclaim", "orh_reject",
 
     # 2026-06-23 SETTINGS CLEANUP — only the agreed RC + MA-bounce + levels_day set
     # stays. These orphans (no bound pine emits them) are retired so Settings shows
@@ -330,7 +331,7 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "staged_pdl_proximity", "staged_pwl_proximity", "staged_pdh_proximity",
 
     # Rolling higher-low tracker — REMOVED 2026-06-05 (added 2026-06-04, spec 61).
-    # (staged_orl_held also retired 2026-06-25 — see top of this tuple; rc.pine owns ORL.)
+    # (staged_orl_held REVIVED 2026-06-27 — back in _BASE_CATALOG, scoped to staged_orl_symbols.)
     "staged_higher_low_held",
 
     # SHORT alerts — staged_pdl_break + staged_pdh_rejection REVIVED 2026-06-06

@@ -643,7 +643,7 @@ else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
 // closes; for the rest of the day a pullback that wicks to this level and closes
 // back above it green is the "buy the low of day, PDH = first target" entry.
 // Elapsed-time window (not a bar count) so it behaves the same on 1m/5m/10m/15m.
-fire_orl_held   = input.bool(false, "Fire opening-range-low held entry (RETIRED 2026-06-25 — rc.pine owns ORL)", group = "Opening range")
+fire_orl_held   = input.bool(false, "Fire opening-range-low held (staged_orl_held — REVIVED 2026-06-27; NOISY, scoped to the orl_always_symbols allowlist). Default OFF — turn ON + recreate the alert to use.", group = "Opening range")
 or_window_min   = input.int(60, "OR window — minutes (15 = first 15m · 60 = first hour, fewer/higher-quality fires)", minval = 5, maxval = 120, group = "Opening range")
 or_test_tol_pct = input.float(0.15, "OR-low test tolerance (% above the OR low)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Opening range")
 var float orl_61     = na      // opening-range low (first or_window_min minutes)
