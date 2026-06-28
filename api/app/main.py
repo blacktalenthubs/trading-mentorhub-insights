@@ -617,6 +617,38 @@ async def lifespan(app: FastAPI):
                 )
                 logger.info("Registered daily swing scan cron: 16:10 ET, Mon-Fri")
 
+            # Daily auto-focus (June 2026) — 9:45 AM ET Mon-Fri, shortly after
+            # the open once the worker's first poll has seeded today's daily
+            # plans. Ranks every user's watchlist by the existing 0-100 setup
+            # score and stars the top 5 (focus_source='auto'), so each user's
+            # best setups surface first in the watchlist drawer. Manual stars
+            # are never touched. In-app only — no notification is sent.
+            # Set AUTO_FOCUS_ENABLED=0 in Railway to disable.
+            if os.environ.get("AUTO_FOCUS_ENABLED", "true").lower() not in ("0", "false", "no"):
+                from apscheduler.triggers.cron import CronTrigger as _AFCron
+                import pytz as _af_pytz
+                _af_tz = _af_pytz.timezone("America/New_York")
+
+                def _auto_focus_daily():
+                    try:
+                        from analytics.auto_focus import run as _run_auto_focus
+                        summary = _run_auto_focus()
+                        logger.info(
+                            "Auto-focus daily: session=%s users=%d auto_focused=%d",
+                            summary.get("session_date"), summary.get("users"), summary.get("total_auto"),
+                        )
+                    except Exception:
+                        logger.exception("Auto-focus daily run failed")
+
+                scheduler.add_job(
+                    _auto_focus_daily,
+                    _AFCron(day_of_week="mon-fri", hour=9, minute=45, timezone=_af_tz),
+                    id="auto_focus_daily",
+                    misfire_grace_time=1800,
+                    replace_existing=True,
+                )
+                logger.info("Registered daily auto-focus cron: 9:45 ET, Mon-Fri")
+
             # Real-outcome backfill (spec 61 follow-up Feature 2) — runs at
             # 4:30 PM ET Mon-Fri after the session closes. Walks every long
             # alert from today's session, pulls 5m bars from Alpaca, computes
