@@ -643,16 +643,21 @@ else if not na(first_bar_time) and (time - first_bar_time) <= 10 * 60 * 1000
 // closes; for the rest of the day a pullback that wicks to this level and closes
 // back above it green is the "buy the low of day, PDH = first target" entry.
 // Elapsed-time window (not a bar count) so it behaves the same on 1m/5m/10m/15m.
-fire_orl_held   = input.bool(false, "Fire opening-range-low held (staged_orl_held — REVIVED 2026-06-27; NOISY, scoped to the orl_always_symbols allowlist). Default OFF — turn ON + recreate the alert to use.", group = "Opening range")
-or_window_min   = input.int(60, "OR window — minutes (15 = first 15m · 60 = first hour, fewer/higher-quality fires)", minval = 5, maxval = 120, group = "Opening range")
+fire_orl_held   = input.bool(false, "Fire opening-range-low held (staged_orl_held — 30m OR; NOISY, scoped to the orl_always_symbols allowlist). Default OFF — turn ON + recreate the alert.", group = "Opening range")
+fire_orh_break  = input.bool(false, "Fire opening-range-HIGH break (orh_break — close above the OR high on volume = momentum breakout long). Default OFF — turn ON + recreate the alert.", group = "Opening range")
+or_window_min   = input.int(30, "OR window — minutes (30 = first half hour · 60 = first hour)", minval = 5, maxval = 120, group = "Opening range")
 or_test_tol_pct = input.float(0.15, "OR-low test tolerance (% above the OR low)", minval = 0.0, maxval = 1.0, step = 0.05, group = "Opening range")
+orh_vol_mult    = input.float(1.2, "ORH break — volume ≥ 20-bar avg ×", minval = 1.0, maxval = 3.0, group = "Opening range")
 var float orl_61     = na      // opening-range low (first or_window_min minutes)
+var float orh_30     = na      // opening-range HIGH (first or_window_min minutes)
 var bool  or_done_61 = false
 if session_open_now
     orl_61     := low
+    orh_30     := high
     or_done_61 := false
 else if not na(first_bar_time) and (time - first_bar_time) < or_window_min * 60 * 1000
     orl_61 := math.min(nz(orl_61, low), low)
+    orh_30 := math.max(nz(orh_30, high), high)
 else if not na(first_bar_time)
     or_done_61 := true
 // CONFIRMED ORL hold (2026-06-23) — not a one-bar green tag. Requires the full
@@ -671,6 +676,15 @@ if session_open_now
 if or_done_61 and not na(orl_61) and close > orl_61 * (1.0 + or_test_tol_pct / 100.0)
     orl_armed := true
 s58_orl_held = orl_armed and or_done_61 and not na(orl_61) and low <= orl_61 * (1.0 + or_test_tol_pct / 100.0) and close > orl_61 and close > open and not orl_fired
+
+// ORH BREAK (2026-06-28) — high-side MOMENTUM breakout. After the OR window closes,
+// the FIRST bar to CLOSE above the OR high on expanding volume = a breakout long.
+// Stop = the OR high (now reclaimed support). Once per session (orh_fired latch).
+var bool orh_fired = false
+if session_open_now
+    orh_fired := false
+orh_vol_ok = na(volume) or na(ta.sma(volume, 20)) ? true : volume > ta.sma(volume, 20) * orh_vol_mult
+s_orh_break = or_done_61 and not na(orh_30) and close > orh_30 and close > open and orh_vol_ok and not orh_fired
 
 // Spec 61 — PDH reclaim + PDH proximity (high-side mirrors of the PDL set).
 //
@@ -1432,6 +1446,17 @@ if fire_orl_held and s58_orl_held and v2_body_ok
     t1_orl = below_open_orl ? today_open : t1_hier_orl
     t2_orl = below_open_orl ? t1_hier_orl : t2_extend_long(e_orl, t1_orl)
     alert(build_payload_v2("staged_orl_held", "BUY", e_orl, s_orl, t1_orl, t2_orl, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+
+// ORH BREAK (2026-06-28) — momentum breakout long: first close above the OR high on
+// volume. stop = just under the OR high (now reclaimed support); targets via the long
+// hierarchy (PDH/PWH). Catalog default-OFF; a quality breakout (NOT the noisy ORL).
+if fire_orh_break and s_orh_break and v2_body_ok
+    orh_fired := true
+    e_orh  = close
+    s_orh  = orh_30 - atr_buffer
+    t1_orh = t1_long_hier(e_orh, pdh, pwh, atr_d)
+    t2_orh = t2_extend_long(e_orh, t1_orh)
+    alert(build_payload_v2("orh_break", "BUY", e_orh, s_orh, t1_orh, t2_orh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
 
 // Spec 61 — PDH reclaim. PDH was lost on a close then reclaimed green =
 // failed-breakdown-of-support continuation. Entry = close, stop = bar low

@@ -147,7 +147,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # the original 60m opening-range-low held (levels_day_vwap.pine). It's noisy by nature, so
     # it's SCOPED to a user-editable symbol allowlist (staged_orl_symbols in Settings; default
     # index SPY/QQQ/IWM, but add whatever you want). Off the list = Not-routed. Default OFF.
-    ("staged_orl_held", "ORL held (60m opening-range low) — bounce off the OR low; NOISY, fires only for symbols in your ORL allowlist (Settings → Noisy alerts)", "Index reclaim", False),
+    ("staged_orl_held", "ORL held (30m opening-range low) — bounce off the OR low; NOISY, fires only for symbols in your ORL allowlist (Settings → Noisy alerts)", "Index reclaim", False),
+    # ORH break (2026-06-28) — the high-side momentum breakout the user asked for (the ORH
+    # rejection SHORT was retired; this is a LONG). Close above the 30m OR high on volume.
+    ("orh_break", "ORH break — close above the 30m opening-range high on volume (momentum breakout long)", "Index reclaim", False),
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
@@ -240,6 +243,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pwh_reclaim": "Stock gapped above last week's high, dipped back below it, then reclaimed it on a bullish bar — weekly-level continuation.",
 
     # Spec 60 breakouts — vol + slope confluence.
+    "orh_break":                "Stock closed above its 30-minute opening-range high on expanding volume — the first-half-hour momentum breakout (long). Stop = the OR high (now reclaimed support); first target = the nearest overhead level (PDH/PWH). Once per session.",
     "staged_pdh_break":         "Stock broke above yesterday's high with above-average volume and rising VWAP — confirmed continuation.",
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
