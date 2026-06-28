@@ -173,6 +173,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("cml_reclaim", "CML reclaim — undercut & reclaim of the CURRENT-month low (month floor swept & held)", "Monthly trend", False),
     ("cml_held", "CML held — tag & hold of the CURRENT-month low as support", "Monthly trend", False),
     ("pml_held", "PML held — tag & hold of the PRIOR-month low as support", "Monthly trend", False),
+    # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
+    # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
+    # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
+    # months (mobo_rch, the high-side complement to monthly_rc, catches stair-step leaders
+    # the box can't see). Monthly LEVEL, daily/intraday TRIGGER (price crossing it). Both
+    # BUY, gate-exempt (position), default OFF.
+    ("monthly_box", "MoBO box breakout — cleared the locked flat multi-month base ceiling (position)", "Monthly trend", False),
+    ("mobo_rch", "MoBO RC-H — broke a prior MONTHLY high that held as resistance for months (position)", "Monthly trend", False),
     # weekly_ma_held/reclaim/wick_reclaim CUT 2026-06-23 — NOT in the agreed set and
     # NOT wired (no pine emits them). → OBSOLETE. (Re-wire into rc.pine later if wanted.)
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
