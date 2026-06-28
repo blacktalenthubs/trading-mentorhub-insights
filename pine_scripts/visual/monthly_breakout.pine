@@ -20,6 +20,12 @@ maxBoxPct = input.float(60.0, "Max base depth %", minval = 10.0, maxval = 120.0,
 volMult   = input.float(1.2, "Breakout volume >= N-avg x", minval = 1.0, maxval = 3.0, group = gB)
 reqStage2 = input.bool(true, "Require Stage-2 (above 10-month EMA ~ 200d)", group = gB)
 
+gR = "Monthly RC-H (prior-high break)"
+showRch  = input.bool(true,  "Plot the locked RC-H level + break / retest markers", group = gR)
+Nh       = input.int(8,      "RC-H lookback — months for the prior high", minval = 3, maxval = 18, group = gR)
+minBelow = input.int(2,      "Prior high must have CAPPED price >= months", minval = 1, maxval = 8, group = gR)
+rchBand  = input.float(0.5,  "Retest touch band %", minval = 0.0, maxval = 3.0, group = gR) / 100.0
+
 gE = "Monthly EMA reactions"
 showEma  = input.bool(true, "Plot flat monthly EMA levels", group = gE)
 enReact  = input.bool(true, "Mark HELD / RECLAIM (monthly chart only)", group = gE)
@@ -50,12 +56,22 @@ f_box() =>
             armed := true
         ceil := na(ceil) ? lid : math.max(ceil, lid)
         bLow := math.min(bLow, low)
+    // Invalidate a FAILED base — a Darvas box dies when price breaks DOWN out of it.
+    // Without this, a box that arms but never breaks up stays armed forever on a stale
+    // ancient ceiling (drew "Box 630" on TVTX, which never traded there).
+    if armed and not na(bLow) and close < bLow
+        armed := false
+        ceil  := na
+        bLow  := na
     boxDepth = not na(ceil) and ceil > 0 ? (ceil - bLow) / ceil : na
     boxOK = not na(boxDepth) and boxDepth >= minBoxPct and boxDepth <= maxBoxPct
     brk = armed and boxOK and ta.crossover(close, ceil) and volOK and (not reqStage2 or stage2)
     float curCeil = armed ? ceil : na
     float brkLvl  = brk ? ceil : na
-    if brk
+    // Retire the box on ANY close above the ceiling: a qualifying breakout fired the
+    // marker (brk), and a non-qualifying clear (base too deep, low volume) still exits
+    // the box — so we never keep drawing a ceiling price has already run past.
+    if armed and not na(ceil) and close > ceil
         armed := false
         ceil  := na
         bLow  := na
@@ -69,6 +85,47 @@ lockedCeil = lockMonthly ? ceilM : ceilN
 brkCode    = lockMonthly ? brkCM : brkN
 brkLvl     = lockMonthly ? lvlM : lvlN
 brkM = brkCode == 1
+
+// ── Monthly RC-H — break of a prior MONTHLY swing high that HELD as resistance for
+//    >= minBelow months (the high-side complement to RC reclaim-low). No flat-base
+//    requirement, so it catches stair-step leaders the box can't see. The level is
+//    LOCKED (math.max) so it doesn't decay after the high ages out of the window. ──
+f_rch() =>
+    lid = ta.highest(high, Nh)[1]                 // prior Nh-month high = the resistance
+    belowAge = ta.barssince(high >= lid)          // months price has stayed under it
+    held = belowAge >= minBelow                   // it has CAPPED price = real resistance
+    var float rl = na
+    var bool  armedH = false
+    var float brokenLvl = na
+    var int   brkAge = 100000
+    if held and close < lid
+        rl := na(rl) ? lid : math.max(rl, lid)    // lock the held resistance (no decay)
+        armedH := true
+    brkH = armedH and ta.crossover(close, rl)
+    int   ev = 0
+    float evLvl = na
+    if brkH
+        ev := 1
+        evLvl := rl
+        brokenLvl := rl
+        brkAge := 0
+        armedH := false
+        rl := na
+    else
+        brkAge := brkAge + 1
+        if not na(brokenLvl) and brkAge <= 6 and close > brokenLvl and low <= brokenLvl * (1 + rchBand) and low >= brokenLvl * (1 - rchBand)
+            ev := 2
+            evLvl := brokenLvl
+    float curRl = armedH ? rl : na
+    [curRl, ev, evLvl]
+
+[rlN, evN, evLvlN] = f_rch()
+[rlM, evCM, evLvlM] = request.security(syminfo.tickerid, HTF, f_rch(), lookahead = barmerge.lookahead_on)
+lockedRl = lockMonthly ? rlM : rlN
+evCode   = lockMonthly ? evCM : evN
+evLvl    = lockMonthly ? evLvlM : evLvlN
+rchBreak = (evCode == 1) and not (evCode[1] == 1)
+rchHeld  = (evCode == 2) and not (evCode[1] == 2)
 
 f_ema(len) => lockMonthly ? request.security(syminfo.tickerid, HTF, ta.ema(close, len), lookahead = barmerge.lookahead_on) : ta.ema(close, len)
 e8   = f_ema(8)
@@ -89,7 +146,8 @@ draw_level(price, nm, col, show) =>
             ln := line.new(bar_index - 300, price, bar_index + 15, price, color = col, width = 1)
             lb := label.new(bar_index + 15, price, nm + " " + str.tostring(price, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
 
-draw_level(lockedCeil, "Box", color.new(color.red, 0), not na(lockedCeil))
+draw_level(lockedCeil, "Box",  color.new(color.red, 0),    not na(lockedCeil))
+draw_level(lockedRl,   "RC-H", color.new(color.orange, 0), showRch and not na(lockedRl))
 draw_level(e8,   "M8",   color.new(mClose > e8   ? color.teal : color.maroon, 0), showEma)
 draw_level(e21,  "M21",  color.new(mClose > e21  ? color.teal : color.maroon, 0), showEma)
 draw_level(e50,  "M50",  color.new(mClose > e50  ? color.teal : color.maroon, 0), showEma)
@@ -101,6 +159,12 @@ brkFire = brkM and not brkM[1]
 plotshape(brkFire, "Breakout", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.large)
 if brkFire
     label.new(bar_index, low, "BREAKOUT " + str.tostring(brkLvl, format.mintick), style = label.style_label_up, color = color.new(color.lime, 0), textcolor = color.black, size = size.normal)
+
+// ── RC-H markers — break of the locked prior-high resistance + the retest-hold ──
+plotshape(showRch and rchBreak, "RC-H break",  style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0),  size = size.normal)
+plotshape(showRch and rchHeld,  "RC-H retest", style = shape.diamond,    location = location.belowbar, color = color.new(color.orange, 30), size = size.small)
+if showRch and rchBreak
+    label.new(bar_index, low, "RC-H " + str.tostring(evLvl, format.mintick), style = label.style_label_up, color = color.new(color.orange, 0), textcolor = color.white, size = size.small)
 
 // ── Held / reclaim reactions — only when actually ON the monthly chart (native OHLC =
 //    monthly there; their per-month placement doesn't translate to a 4h bar). ──
