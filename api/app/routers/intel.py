@@ -651,7 +651,55 @@ async def market_report_latest(
     return {
         "premarket": await _latest_report(db, "premarket"),
         "eod": await _latest_report(db, "eod"),
+        "morning_focus": await _latest_report(db, "morning_focus"),
     }
+
+
+class ReportPublish(BaseModel):
+    kind: str
+    body: str
+    session_date: str | None = None
+    push_title: str | None = None   # if set, blast an APNs notification to all devices
+    push_body: str | None = None
+
+
+@router.post("/reports/publish")
+async def publish_report(
+    payload: ReportPublish,
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """Persist a report to market_reports AND (optionally) push it to ALL users — the
+    delivery hop for the local agents (morning-leaders, tv-watchlist-sync). ADMIN-ONLY:
+    it writes one shared report + blasts everyone. Reuses the bottom-watch push path."""
+    from sqlalchemy import text
+    from datetime import datetime
+    from app.dependencies import is_admin_user
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    sess = payload.session_date or datetime.utcnow().strftime("%Y-%m-%d")
+    await db.execute(text(
+        "INSERT INTO market_reports (kind, session_date, body, created_at) "
+        "VALUES (:k, :d, :b, NOW())"), {"k": payload.kind, "d": sess, "b": payload.body})
+    await db.commit()
+
+    pushed = 0
+    if payload.push_title:
+        from app.services.apns import send_apns_push, apns_configured
+        if apns_configured():
+            tokens = [r[0] for r in (await db.execute(text(
+                "SELECT token FROM device_tokens WHERE platform = 'ios' AND token IS NOT NULL "
+                "UNION SELECT apns_token FROM users WHERE apns_enabled = true "
+                "AND apns_token IS NOT NULL AND apns_token <> ''"))).all() if r[0]]
+            for t in tokens:
+                try:
+                    if await send_apns_push(t, payload.push_title, payload.push_body or "",
+                                            payload={"kind": payload.kind, "tab": "reports"}):
+                        pushed += 1
+                except Exception:
+                    pass
+    return {"ok": True, "kind": payload.kind, "session_date": sess, "pushed": pushed}
 
 
 @router.get("/eod-recap/latest")

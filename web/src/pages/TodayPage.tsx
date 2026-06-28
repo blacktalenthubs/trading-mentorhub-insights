@@ -201,43 +201,50 @@ function ReportsView() {
   const { data, isLoading } = useMarketReports();
   const pre = data?.premarket ?? null;
   const eod = data?.eod ?? null;
-  // Default to the freshest report by created_at (premarket in the morning, EOD after close).
-  const freshest: "premarket" | "eod" =
-    eod && pre ? ((eod.created_at || "") > (pre.created_at || "") ? "eod" : "premarket")
-    : eod ? "eod" : "premarket";
-  const [which, setWhich] = useState<"premarket" | "eod">(freshest);
-  // Re-sync the default when data first arrives (freshest is "premarket" until loaded).
+  const mf = data?.morning_focus ?? null;
+  type Tab = "focus" | "premarket" | "eod";
+  // Default to the freshest report by created_at.
+  const byTime: Record<Tab, string> = {
+    focus: mf?.created_at || "", premarket: pre?.created_at || "", eod: eod?.created_at || "",
+  };
+  const freshest = (["focus", "premarket", "eod"] as Tab[])
+    .filter((t) => byTime[t])
+    .sort((a, b) => (byTime[a] > byTime[b] ? -1 : 1))[0] || "focus";
+  const [which, setWhich] = useState<Tab>(freshest);
   const lastFresh = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${pre?.created_at || ""}|${eod?.created_at || ""}`;
-    if (lastFresh.current !== key && (pre || eod)) {
+    const key = `${byTime.focus}|${byTime.premarket}|${byTime.eod}`;
+    if (lastFresh.current !== key && (pre || eod || mf)) {
       lastFresh.current = key;
       setWhich(freshest);
     }
-  }, [pre, eod, freshest]);
+  }, [mf, pre, eod, freshest, byTime.focus, byTime.premarket, byTime.eod]);
 
   if (isLoading) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading reports…</div>;
   }
-  const active = which === "eod" ? eod : pre;
+  const active = which === "eod" ? eod : which === "focus" ? mf : pre;
   const text = active?.body?.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "");
+  const present: Record<Tab, boolean> = { focus: !!mf, premarket: !!pre, eod: !!eod };
+  const empty: Record<Tab, string> = {
+    focus: "No focus picks yet — today's Leaders Near a Buy Point drop pre-open (~8:45 AM ET) and show here.",
+    premarket: "No premarket brief yet — it drops pre-open (~8:30 AM ET) and shows here.",
+    eod: "No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here.",
+  };
   return (
     <div className="space-y-2">
       <div className="flex gap-1.5">
-        {([["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => {
-          const has = id === "eod" ? !!eod : !!pre;
-          return (
-            <button
-              key={id}
-              onClick={() => setWhich(id)}
-              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-                which === id ? "bg-accent/15 text-accent" : "bg-surface-2 text-text-muted hover:text-text-secondary"
-              } ${has ? "" : "opacity-50"}`}
-            >
-              {label}
-            </button>
-          );
-        })}
+        {([["focus", "Today's Focus"], ["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setWhich(id)}
+            className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+              which === id ? "bg-accent/15 text-accent" : "bg-surface-2 text-text-muted hover:text-text-secondary"
+            } ${present[id] ? "" : "opacity-50"}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {text ? (
         <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
@@ -245,9 +252,7 @@ function ReportsView() {
         </div>
       ) : (
         <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
-          {which === "premarket"
-            ? "No premarket brief yet — it drops pre-open (~8:30 AM ET) and shows here, the same report that goes to Telegram."
-            : "No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here, the same report that goes to Telegram."}
+          {empty[which]}
         </div>
       )}
     </div>

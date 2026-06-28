@@ -104,6 +104,7 @@ export interface MarketReport {
 export interface MarketReportsResponse {
   premarket: MarketReport | null;
   eod: MarketReport | null;
+  morning_focus: MarketReport | null;
 }
 export function useMarketReports() {
   return useQuery({

@@ -71,7 +71,8 @@ def main() -> None:
     ap.add_argument("--rs-min", type=float, default=90.0)
     ap.add_argument("--zone", type=float, default=5.0, help="buy-zone half-width % around the pivot")
     ap.add_argument("--pivot-lookback", type=int, default=50, help="trading days for the base-high pivot")
-    ap.add_argument("--persist", action="store_true", help="write the report to market_reports (kind=morning_focus)")
+    ap.add_argument("--persist", action="store_true", help="write the report straight to market_reports (DB, offline)")
+    ap.add_argument("--publish", action="store_true", help="POST to the API → persist + PUSH to all users (uses API_BASE/API_TOKEN)")
     args = ap.parse_args()
 
     dsn = os.getenv("DATABASE_URL")
@@ -180,9 +181,27 @@ def main() -> None:
     print("\n---JSON---")
     print(json.dumps({"market_ok": market_ok, "candidates": len(cands), "picks": picks}))
 
-    if args.persist:
-        # Same in-app store as premarket/EOD — shows in Today → Reports + (re)uses the
-        # existing report-push path. kind=morning_focus.
+    if args.publish:
+        # POST to the API → persists to market_reports (kind=morning_focus) AND pushes an
+        # APNs blast to all users. Server-side keeps APNs creds where they belong.
+        import urllib.request
+        base = os.getenv("API_BASE", "https://tradesignalwithai.com").rstrip("/")
+        tok = os.getenv("API_TOKEN")
+        if not tok:
+            sys.exit("--publish needs API_TOKEN (and optional API_BASE).")
+        syms = ", ".join(p["symbol"] for p in picks)
+        push_title = ("📋 Today's focus: " + syms) if picks else "📋 No leaders in a buy zone today"
+        push_body = "Leaders near a buy point — tap for the plan." if picks else "Nothing to chase. Patience."
+        data = json.dumps({"kind": "morning_focus", "body": report, "session_date": date,
+                           "push_title": push_title, "push_body": push_body}).encode()
+        req = urllib.request.Request(base + "/api/v1/intel/reports/publish", data=data,
+                                     headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                print("[published]", json.load(r))
+        except Exception as e:
+            sys.exit(f"publish failed: {str(e)[:160]}")
+    elif args.persist:
         import psycopg2
         conn = psycopg2.connect(dsn, connect_timeout=15)
         try:
