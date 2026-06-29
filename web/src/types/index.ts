@@ -280,6 +280,8 @@ export interface NotificationPrefs {
   default_risk_pct?: number;
   // Spec 61 follow-up — setup grade filter (A/B/C; C = no filter)
   min_alert_grade?: "A" | "B" | "C";
+  // Opt-in (default OFF): push day-trade alerts only for the user's Focus symbols.
+  daytrade_focus_only?: boolean;
 }
 
 // Per-alert-type channel routing.

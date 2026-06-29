@@ -31,6 +31,8 @@ class NotificationPrefsResponse(BaseModel):
     default_risk_pct: float = 1.0
     # Spec 61 follow-up — setup grade filter (A/B/C). 'C' = no filter.
     min_alert_grade: str = "C"
+    # Opt-in (default OFF): push day-trade alerts ONLY for the user's Focus symbols.
+    daytrade_focus_only: bool = False
 
 
 class UpdateNotificationPrefsRequest(BaseModel):
@@ -47,6 +49,7 @@ class UpdateNotificationPrefsRequest(BaseModel):
     default_risk_pct: Optional[float] = None
     # Spec 61 follow-up — setup grade filter
     min_alert_grade: Optional[str] = None
+    daytrade_focus_only: Optional[bool] = None
 
 
 # --- Alert Category Preferences ---

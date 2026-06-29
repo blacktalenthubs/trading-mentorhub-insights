@@ -75,6 +75,12 @@ class User(Base):
     swing_alerts_enabled: Mapped[bool] = mapped_column(
         Boolean, server_default="1", default=True,
     )
+    # Opt-in (default OFF): only PUSH day-trade alerts for the user's FOCUS symbols.
+    # Off = whole watchlist (no change for existing users). Swing/long-term are never
+    # focus-scoped. Non-focus day-trade alerts are still recorded (NOT SENT marker).
+    daytrade_focus_only: Mapped[bool] = mapped_column(
+        Boolean, server_default="0", default=False,
+    )
 
     # Per-alert-type channel routing — JSON dict, e.g.
     # {"ai_update": "email", "ai_long": "telegram", "ai_exit": "both"}
