@@ -8,8 +8,13 @@ export default defineConfig({
     react(),
     tailwindcss(),
     // PWA — installable on iOS/Android home screen.
+    // autoUpdate (was 'prompt'): every Railway deploy auto-applies on next launch.
+    // 'prompt' left the Capacitor/Electron WebViews (which only background, never truly
+    // reload) stuck on the cached old app shell until the user caught the reload prompt —
+    // so new UI silently never appeared. With skipWaiting+clientsClaim below, the new SW
+    // takes over and the page refreshes itself on relaunch.
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       includeAssets: ['logo-profile.svg'],
       manifest: {
         name: 'BusyTradersDesk',
