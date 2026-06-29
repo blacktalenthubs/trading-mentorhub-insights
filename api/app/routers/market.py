@@ -98,6 +98,12 @@ def _fetch_and_serialize_intraday(symbol: str) -> List[dict]:
     df = fetch_intraday(symbol)
     if df.empty:
         return []
+    # Drop bars with any missing OHLC. A NaN survives round() and serializes to
+    # JSON null, which makes lightweight-charts throw "Value is null" and takes
+    # down the whole chart on a single bad bar.
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    if df.empty:
+        return []
     return [
         {
             "timestamp": str(ts),
