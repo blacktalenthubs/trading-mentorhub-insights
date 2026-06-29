@@ -28,10 +28,18 @@ from datetime import datetime
 
 
 def _watchlist(dsn):
+    """Scan the MASTER watchlist account (the curated platform universe), NOT the union of
+    every user's ad-hoc adds. Falls back to the full union if the master account is absent."""
     import psycopg2
     conn = psycopg2.connect(dsn, connect_timeout=15)
     cur = conn.cursor()
-    cur.execute("SELECT DISTINCT UPPER(symbol) FROM watchlist WHERE symbol IS NOT NULL AND symbol<>''")
+    cur.execute("SELECT id FROM users WHERE lower(email)=lower('master@busytradersdesk')")
+    row = cur.fetchone()
+    if row:
+        cur.execute("SELECT DISTINCT UPPER(symbol) FROM watchlist "
+                    "WHERE user_id=%s AND symbol IS NOT NULL AND symbol<>''", (row[0],))
+    else:
+        cur.execute("SELECT DISTINCT UPPER(symbol) FROM watchlist WHERE symbol IS NOT NULL AND symbol<>''")
     syms = sorted(r[0] for r in cur.fetchall())
     cur.close(); conn.close()
     return syms

@@ -896,3 +896,77 @@ async def alert_health(
         "suppressed_reasons": suppressed_reasons,
         "daily": daily,
     }
+
+
+# ── Master watchlist (the platform universe) ────────────────────────────────
+# A dedicated system account (MASTER_WATCHLIST_EMAIL) holds the universe that the
+# scanner fires on + the public Sectors template — decoupled from any admin's PERSONAL
+# watchlist. These admin-only endpoints manage it (the master account can't log in, so
+# it can't be edited the normal way). Admins add to their OWN list via the Sectors panel.
+async def _master_id(db: AsyncSession) -> int:
+    from app.dependencies import MASTER_WATCHLIST_EMAIL
+    from app.models.user import User as _U
+    mid = (await db.execute(select(_U.id).where(_U.email == MASTER_WATCHLIST_EMAIL))).scalar_one_or_none()
+    if mid is None:
+        raise HTTPException(404, "Master watchlist account not found")
+    return mid
+
+
+@router.get("/master-watchlist")
+async def get_master_watchlist(
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """The master watchlist (platform universe), grouped by sector."""
+    from app.models.watchlist import WatchlistGroup
+    mid = await _master_id(db)
+    groups = (await db.execute(
+        select(WatchlistGroup).where(WatchlistGroup.user_id == mid).order_by(WatchlistGroup.sort_order, WatchlistGroup.name)
+    )).scalars().all()
+    items = (await db.execute(
+        select(WatchlistItem).where(WatchlistItem.user_id == mid).order_by(WatchlistItem.symbol)
+    )).scalars().all()
+    by_group: dict[int | None, list[str]] = {}
+    for it in items:
+        by_group.setdefault(it.group_id, []).append(it.symbol)
+    out_groups = [{"id": g.id, "name": g.name, "color": g.color,
+                   "symbols": sorted(by_group.get(g.id, []))} for g in groups]
+    ungrouped = sorted(by_group.get(None, []))
+    return {"count": len(items), "groups": out_groups, "ungrouped": ungrouped}
+
+
+@router.post("/master-watchlist")
+async def add_master_symbol(
+    symbol: str = Query(..., description="ticker to add to the master universe"),
+    group_id: int | None = Query(None, description="optional sector group id"),
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a symbol to the master universe (idempotent)."""
+    mid = await _master_id(db)
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(400, "symbol required")
+    exists = (await db.execute(
+        select(WatchlistItem.id).where(WatchlistItem.user_id == mid, func.upper(WatchlistItem.symbol) == sym)
+    )).scalar_one_or_none()
+    if exists is None:
+        db.add(WatchlistItem(user_id=mid, symbol=sym, group_id=group_id))
+        await db.commit()
+    return {"ok": True, "symbol": sym}
+
+
+@router.delete("/master-watchlist")
+async def remove_master_symbol(
+    symbol: str = Query(..., description="ticker to remove from the master universe"),
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a symbol from the master universe."""
+    from sqlalchemy import delete as _delete
+    mid = await _master_id(db)
+    sym = (symbol or "").strip().upper()
+    await db.execute(_delete(WatchlistItem).where(
+        WatchlistItem.user_id == mid, func.upper(WatchlistItem.symbol) == sym))
+    await db.commit()
+    return {"ok": True, "symbol": sym}

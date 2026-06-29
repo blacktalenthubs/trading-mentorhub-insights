@@ -2038,9 +2038,12 @@ async def _users_watching(db, symbol: str):
         "1", "true", "yes", "on",
     )
 
+    from app.dependencies import MASTER_WATCHLIST_EMAIL
+
     if not per_user:
         _ = symbol  # broadcast — symbol unused
-        result = await db.execute(select(User).options(selectinload(User.subscription)))
+        result = await db.execute(select(User).options(selectinload(User.subscription))
+                                  .where(User.email != MASTER_WATCHLIST_EMAIL))
         return result.scalars().all()
 
     # Per-user mode, rolled out to ALL users: deliver to users who watch this
@@ -2061,6 +2064,7 @@ async def _users_watching(db, symbol: str):
         select(User)
         .options(selectinload(User.subscription))
         .where(or_(User.id.in_(matching), User.id.notin_(users_with_wl)))
+        .where(User.email != MASTER_WATCHLIST_EMAIL)   # universe holder, not a recipient
     )
     result = await db.execute(stmt)
     return result.scalars().all()

@@ -467,7 +467,7 @@ def swing_scan_cycle(sync_session_factory, force: bool = False, scan_email: Opti
         # button always scans the logged-in user's own watchlist
         # regardless of which email the env var defaults to.
         import os as _os_scan
-        _scan_email = (scan_email or _os_scan.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com") or "").strip().lower()
+        _scan_email = (scan_email or _os_scan.environ.get("SCAN_USER_EMAIL", "master@busytradersdesk") or "").strip().lower()
         _q = (
             select(WatchlistItem.symbol, WatchlistItem.user_id, User)
             .join(User, User.id == WatchlistItem.user_id)

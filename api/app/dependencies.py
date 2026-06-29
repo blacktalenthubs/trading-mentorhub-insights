@@ -21,6 +21,12 @@ settings = get_settings()
 # Single source of truth; admin.py and the watchlist router both read this.
 ADMIN_EMAILS = {"vbolofinde@gmail.com", "segunbolofinde@gmail.com"}
 
+# The dedicated MASTER WATCHLIST account — a non-login system account that holds the
+# platform UNIVERSE (the sectors template + the scanner universe), decoupled from any
+# admin's PERSONAL watchlist. Admins manage it via the admin UI; the per-user alert
+# router excludes it (it's a data holder, not a recipient). See watchlist.py.
+MASTER_WATCHLIST_EMAIL = "master@busytradersdesk"
+
 
 def is_admin_user(user: User) -> bool:
     """True if the user is an admin (by email match). Admins bypass all caps."""
