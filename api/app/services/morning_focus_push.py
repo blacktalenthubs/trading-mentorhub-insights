@@ -64,12 +64,13 @@ def push_morning_focus(sync_session_factory) -> None:
         if not tokens:
             return
         try:
-            picks = (json.loads(row.body) or {}).get("picks", [])
+            doc = json.loads(row.body) or {}
+            picks = (doc.get("swing") or doc.get("picks") or []) + (doc.get("daytrade") or [])
         except Exception:
             picks = []   # old markdown body — still push a generic teaser
         syms = ", ".join(p.get("symbol", "") for p in picks if p.get("symbol"))
         title = ("📋 Today's focus: " + syms) if syms else "📋 Today's focus"
-        body = "Leaders near a buy point — tap for the plan." if syms else "Nothing to chase today. Patience."
+        body = "Swing breakouts + day-trade key levels — tap for the plan." if syms else "Nothing to chase today. Patience."
         _push_all(tokens, title, body, {"kind": "morning_focus", "tab": "reports"})
         cache_set(guard, True, _GUARD_TTL)
         logger.info("morning-focus: pushed to %d device(s) — %s", len(tokens), syms or "(no picks)")
