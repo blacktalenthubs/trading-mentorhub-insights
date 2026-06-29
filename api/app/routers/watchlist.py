@@ -16,7 +16,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import ADMIN_EMAILS, get_current_user, get_user_tier, is_admin_user, is_ai_user
+from app.dependencies import ADMIN_EMAILS, MASTER_WATCHLIST_EMAIL, get_current_user, get_user_tier, is_admin_user, is_ai_user
 from app.tier import get_limits
 from app.models.user import User
 from app.models.watchlist import WatchlistGroup, WatchlistItem
@@ -180,7 +180,15 @@ DEFAULT_GROUPS: list[dict] = [
 
 
 async def _resolve_admin_id(db: AsyncSession) -> Optional[int]:
-    """First admin user by id ordering — the public Sectors source."""
+    """The MASTER watchlist account — the platform universe / public Sectors source.
+    Decoupled from any admin's personal watchlist (a user can now curate their own list
+    without changing what fires platform-wide). Falls back to the first admin by id if
+    the master account doesn't exist yet (pre-migration safety)."""
+    mid = (await db.execute(
+        select(User.id).where(User.email == MASTER_WATCHLIST_EMAIL).limit(1)
+    )).scalar_one_or_none()
+    if mid is not None:
+        return mid
     return (await db.execute(
         select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
     )).scalar_one_or_none()

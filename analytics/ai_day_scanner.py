@@ -1379,7 +1379,7 @@ def day_scan_cycle(
             # Cost-control: SCAN_USER_EMAIL restricts scanning to one user's
             # watchlist (not all users'). Unset = scan every user's watchlist
             # (production default).
-            _scan_email = os.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com").strip().lower()
+            _scan_email = os.environ.get("SCAN_USER_EMAIL", "master@busytradersdesk").strip().lower()
             if _scan_email:
                 _uid_row = db.execute(
                     select(User.id).where(User.email == _scan_email)
@@ -2206,7 +2206,7 @@ def exit_scan_cycle(sync_session_factory) -> int:
         from config import is_crypto_alert_symbol
 
         with sync_session_factory() as db:
-            _scan_email = os.environ.get("SCAN_USER_EMAIL", "vbolofinde@gmail.com").strip().lower()
+            _scan_email = os.environ.get("SCAN_USER_EMAIL", "master@busytradersdesk").strip().lower()
             _scan_uid: int | None = None
             if _scan_email:
                 from app.models.user import User as _User

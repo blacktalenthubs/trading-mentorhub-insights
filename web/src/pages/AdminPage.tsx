@@ -400,6 +400,9 @@ export default function AdminPage() {
         )}
       </Panel>
 
+      {/* ── Master watchlist (platform universe) ── */}
+      <MasterWatchlistPanel />
+
       {/* ── Users ── */}
       <Panel
         title={`Users (${users.length}${!showTest && testHidden ? ` · ${testHidden} test hidden` : ""})`}
@@ -472,6 +475,82 @@ export default function AdminPage() {
       <MaintenanceDrawer />
     </div>
     </div>
+  );
+}
+
+// ─────────────────── master watchlist (platform universe) ───────────────────
+type MasterWL = { count: number; groups: { id: number; name: string; color: string; symbols: string[] }[]; ungrouped: string[] };
+
+function SymChip({ sym, onRemove, busy }: { sym: string; onRemove: () => void; busy: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-surface-0 border border-border-subtle px-1.5 py-0.5 text-[11px] text-text-secondary">
+      {sym}
+      <button disabled={busy} onClick={onRemove} title="Remove from universe" className="text-text-faint hover:text-bearish-text disabled:opacity-50 leading-none">×</button>
+    </span>
+  );
+}
+
+function MasterWatchlistPanel() {
+  const [data, setData] = useState<MasterWL | null>(null);
+  const [adding, setAdding] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => api.get<MasterWL>("/admin/master-watchlist").then(setData).catch(() => setData(null));
+  useEffect(() => { load(); }, []);
+  const add = async () => {
+    const s = adding.trim().toUpperCase();
+    if (!s) return;
+    setBusy(true);
+    try { await api.post(`/admin/master-watchlist?symbol=${encodeURIComponent(s)}`); setAdding(""); await load(); }
+    finally { setBusy(false); }
+  };
+  const remove = async (s: string) => {
+    setBusy(true);
+    try { await api.delete(`/admin/master-watchlist?symbol=${encodeURIComponent(s)}`); await load(); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Panel title={`Master watchlist — platform universe${data ? ` (${data.count})` : ""}`} icon={<Crown size={15} className="text-accent" />}>
+      <p className="text-[11px] text-text-faint mb-3">
+        The universe the scanner fires on + the Sectors template users copy from. Separate from your
+        personal watchlist — you (as a user) only get alerts for symbols on <em>your own</em> list.
+      </p>
+      <div className="flex gap-2 mb-4">
+        <input
+          value={adding}
+          onChange={(e) => setAdding(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="Add ticker to the universe…"
+          className="flex-1 bg-surface-0 border border-border-subtle rounded-lg px-3 py-1.5 text-sm text-text-primary uppercase placeholder:normal-case placeholder:text-text-faint"
+        />
+        <button disabled={busy || !adding.trim()} onClick={add} className="px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/40 text-accent text-xs font-semibold disabled:opacity-50">Add</button>
+      </div>
+      {!data ? (
+        <div className="text-[12px] text-text-faint">Loading…</div>
+      ) : (
+        <div className="space-y-3">
+          {data.groups.map((g) => (
+            <div key={g.id}>
+              <div className="text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: g.color || undefined }}>
+                {g.name} <span className="text-text-faint font-normal">{g.symbols.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {g.symbols.map((s) => <SymChip key={s} sym={s} onRemove={() => remove(s)} busy={busy} />)}
+              </div>
+            </div>
+          ))}
+          {data.ungrouped.length > 0 && (
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-wide mb-1 text-text-muted">
+                Ungrouped <span className="text-text-faint font-normal">{data.ungrouped.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {data.ungrouped.map((s) => <SymChip key={s} sym={s} onRemove={() => remove(s)} busy={busy} />)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Panel>
   );
 }
 

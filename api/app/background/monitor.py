@@ -113,7 +113,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 )
             ),
         )
-        _allow_email = (os.environ.get("SCAN_USER_EMAIL") or "vbolofinde@gmail.com").strip().lower()
+        _allow_email = (os.environ.get("SCAN_USER_EMAIL") or "master@busytradersdesk").strip().lower()
         if _allow_email:
             from sqlalchemy import func
             _q = _q.where(func.lower(User.email) == _allow_email)
