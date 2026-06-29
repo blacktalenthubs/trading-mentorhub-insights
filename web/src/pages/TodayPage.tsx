@@ -197,60 +197,108 @@ function DayRead({ spy, btc, signals, ideas, coiling, leaders, losing, onJump }:
 /* ── Market reports: the SAME daily intelligence sent to Telegram — the morning
    Premarket Heat brief (premarket.py) and the EOD Recap (eod.py), persisted by
    triage-agent. Premarket/EOD toggle defaults to whichever dropped most recently. ── */
-type FocusPick = {
-  symbol: string; type: string; price: number; buy_point: number;
-  buy_range: [number, number]; position: string; stop: number; rs: number | null;
-  chg_pct: number; reasons: string[];
+type SwingPick = {
+  symbol: string; pattern?: string; type: string; price: number; buy_point: number;
+  buy_range: [number, number]; position: string; stop: number; state?: string; reasons: string[];
+};
+type DayPick = {
+  symbol: string; setup: string; type: string; price: number; entry: number; level: number;
+  stop: number; target?: number | null; rsi?: number; position: string; reasons: string[];
 };
 
-/* Today's Focus — the morning Leaders-Near-a-Buy-Point picks, rendered as cards.
-   Symbol is clickable → Trading chart so users can analyse the setup. Falls back to
-   plain text if the body isn't the structured JSON (old reports). */
+function ReasonList({ reasons }: { reasons: string[] }) {
+  return (
+    <ul className="space-y-0.5">
+      {reasons.map((r, i) => (
+        <li key={i} className="flex gap-1.5 text-[12px] text-text-secondary">
+          <span className="text-accent">•</span><span>{r}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SwingCard({ p, onChart }: { p: SwingPick; onChart: (s: string) => void }) {
+  return (
+    <div className="rounded-xl border border-border-subtle bg-surface-1 shadow-card overflow-hidden">
+      <button onClick={() => onChart(p.symbol)} className="flex w-full items-center gap-2 px-3.5 py-3 text-left transition-colors hover:bg-surface-2/40">
+        <span className="font-display text-[15px] font-bold text-text-primary">{p.symbol}</span>
+        {p.pattern && <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">{p.pattern}</span>}
+        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{p.position} size</span>
+        <span className="ml-auto text-[11px] font-semibold text-accent">Analyze →</span>
+      </button>
+      <div className="space-y-2 px-3.5 pb-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] tabular-nums">
+          <span className="font-semibold text-bullish-text">Buy ${p.buy_point.toFixed(2)}</span>
+          <span className="text-text-muted">range ${p.buy_range[0].toFixed(2)}–${p.buy_range[1].toFixed(2)}</span>
+          <span className="text-bearish-text">Stop ${p.stop.toFixed(2)}</span>
+        </div>
+        <ReasonList reasons={p.reasons} />
+      </div>
+    </div>
+  );
+}
+
+function DayCard({ p, onChart }: { p: DayPick; onChart: (s: string) => void }) {
+  return (
+    <div className="rounded-xl border border-border-subtle bg-surface-1 shadow-card overflow-hidden">
+      <button onClick={() => onChart(p.symbol)} className="flex w-full items-center gap-2 px-3.5 py-3 text-left transition-colors hover:bg-surface-2/40">
+        <span className="font-display text-[15px] font-bold text-text-primary">{p.symbol}</span>
+        <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">{p.setup}</span>
+        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{p.position} size</span>
+        {p.rsi != null && <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">RSI {p.rsi}</span>}
+        <span className="ml-auto text-[11px] font-semibold text-accent">Analyze →</span>
+      </button>
+      <div className="space-y-2 px-3.5 pb-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] tabular-nums">
+          <span className="font-semibold text-bullish-text">Entry ${p.entry.toFixed(2)}</span>
+          <span className="text-bearish-text">Stop ${p.stop.toFixed(2)}</span>
+          {p.target != null && <span className="text-text-muted">Target ${p.target.toFixed(2)}</span>}
+        </div>
+        <ReasonList reasons={p.reasons} />
+      </div>
+    </div>
+  );
+}
+
+/* Today's Focus — two sections: SWING (monthly MoBO + RC-H breakouts) and DAY-TRADE
+   (liquid mega-caps defending a key level / oversold / near a breakout). Symbol is
+   clickable → Trading chart. Falls back to plain text for old (non-JSON) reports;
+   reads the legacy `picks` as swing for reports persisted before the two-section split. */
 function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { market_ok?: boolean; picks?: FocusPick[] } | null = null;
+  let parsed: { market_ok?: boolean; swing?: SwingPick[]; daytrade?: DayPick[]; picks?: SwingPick[] } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
-  if (!parsed?.picks) {
+  if (!parsed || (!parsed.swing && !parsed.daytrade && !parsed.picks)) {
     return (
       <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
         <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "")}</pre>
       </div>
     );
   }
-  const { market_ok, picks } = parsed;
+  const market_ok = parsed.market_ok;
+  const swing = parsed.swing ?? parsed.picks ?? [];
+  const daytrade = parsed.daytrade ?? [];
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-4">
       <div className={`text-[12px] font-semibold ${market_ok ? "text-bullish-text" : "text-bearish-text"}`}>
-        {market_ok ? "🟢 Market healthy — leaders can size up" : "🔴 Market weak — be selective (half size)"}
+        {market_ok ? "🟢 Market healthy — can size up" : "🔴 Market weak — be selective (half size)"}
       </div>
-      {picks.length === 0 ? (
-        <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
-          No leader is in a clean buy zone today — nothing to chase. Patience.
-        </div>
-      ) : picks.map((p) => (
-        <div key={p.symbol} className="rounded-xl border border-border-subtle bg-surface-1 shadow-card overflow-hidden">
-          <button onClick={() => onChart(p.symbol)} className="flex w-full items-center gap-2 px-3.5 py-3 text-left transition-colors hover:bg-surface-2/40">
-            <span className="font-display text-[15px] font-bold text-text-primary">{p.symbol}</span>
-            <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">{p.type}</span>
-            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{p.position} size</span>
-            {p.rs != null && <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">RS {p.rs}</span>}
-            <span className="ml-auto text-[11px] font-semibold text-accent">Analyze →</span>
-          </button>
-          <div className="space-y-2 px-3.5 pb-3">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] tabular-nums">
-              <span className="font-semibold text-bullish-text">Buy ${p.buy_point.toFixed(2)}</span>
-              <span className="text-text-muted">range ${p.buy_range[0].toFixed(2)}–${p.buy_range[1].toFixed(2)}</span>
-              <span className="text-bearish-text">Stop ${p.stop.toFixed(2)}</span>
-            </div>
-            <ul className="space-y-0.5">
-              {p.reasons.map((r, i) => (
-                <li key={i} className="flex gap-1.5 text-[12px] text-text-secondary">
-                  <span className="text-accent">•</span><span>{r}</span>
-                </li>
-              ))}
-            </ul>
+      <section className="space-y-2.5">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Swing · monthly breakout</h3>
+        {swing.length === 0 ? (
+          <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
+            No name is at a monthly breakout today — nothing to chase. Patience.
           </div>
-        </div>
-      ))}
+        ) : swing.map((p) => <SwingCard key={p.symbol} p={p} onChart={onChart} />)}
+      </section>
+      <section className="space-y-2.5">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Day-Trade · key level defended</h3>
+        {daytrade.length === 0 ? (
+          <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
+            No liquid leader is at a key level today.
+          </div>
+        ) : daytrade.map((p) => <DayCard key={p.symbol} p={p} onChart={onChart} />)}
+      </section>
     </div>
   );
 }

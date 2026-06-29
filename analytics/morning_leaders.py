@@ -23,7 +23,7 @@ of the level) AND Stage-2 (above the 200-DMA). Ranked by conviction (MoBO > RC-H
 volume surge, base tightness, and proximity to the level. SPY 8/21 health modulates SIZE.
 """
 from __future__ import annotations
-import argparse, json, os, sys
+import argparse, json, math, os, sys
 from datetime import datetime
 
 
@@ -89,6 +89,120 @@ def _monthly_rch(mh, N=8, min_below=2):
     if months_since < min_below or level <= 0:
         return None
     return level
+
+
+def _rsi(close, n=14):
+    """Wilder's 14-day RSI of the daily close — the latest value."""
+    d = close.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    rs = up / dn.replace(0, float("nan"))
+    val = 100 - 100 / (1 + rs.iloc[-1])
+    return float(val) if val == val else 50.0
+
+
+def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7):
+    """DAY-TRADE focus — a liquid leader / mega-cap AT a defended key level RIGHT NOW.
+    Mirrors how the user trades it: AAPL bouncing from its monthly RC reclaim, MSFT from
+    monthly support — a mega-cap defending a KEY level intraday. Three qualifiers, ranked
+    by how MAJOR the level is (the bigger the timeframe, the higher the conviction):
+      1. defending a key support — monthly low > 30w MA > weekly low > 10w MA > prior-day
+         low (price holding just above it = the bounce zone),
+      2. deep-oversold bounce — daily RSI <= 32 (the "mega-tech at 30 RSI" zone),
+      3. coiling just under a key resistance (PWH / recent high) about to break.
+    Liquidity-gated (>= adv_floor $/day) so the picks are actually day-tradeable."""
+    out = []
+    multi = len(cands) > 1
+    for sym in cands:
+        try:
+            if sym.endswith("-USD"):            # crypto trades its own path — equities only here
+                continue
+            df = data[sym] if multi else data
+            c = df["Close"].dropna(); h = df["High"].dropna()
+            lo = df["Low"].dropna(); v = df["Volume"].dropna()
+            if len(c) < 60:
+                continue
+            price = float(c.iloc[-1])
+            advdol = float((c * v).tail(20).mean())
+            if advdol < adv_floor:                      # too illiquid to day-trade
+                continue
+            rsi = _rsi(c, 14)
+            wkc = c.resample("W").last().dropna()
+            sma10w = float(wkc.rolling(10).mean().iloc[-1]) if len(wkc) >= 10 else None
+            sma30w = float(wkc.rolling(30).mean().iloc[-1]) if len(wkc) >= 30 else None
+            wlo = lo.resample("W").min().dropna()
+            pwl = float(wlo.iloc[-2]) if len(wlo) >= 2 else None
+            mlo = lo.resample("ME").min().dropna()
+            pml = float(mlo.iloc[-2]) if len(mlo) >= 2 else None
+            pdl = float(lo.iloc[-2])
+            whi = h.resample("W").max().dropna()
+            pwh = float(whi.iloc[-2]) if len(whi) >= 2 else None
+            rhi = float(h.tail(20).max())
+
+            # 1) defended key support — the MOST-MAJOR level price is holding just above.
+            band = 0.018
+            supports = [("the monthly low", pml, 100), ("the 30-week MA", sma30w, 82),
+                        ("the weekly low", pwl, 76), ("the 10-week MA", sma10w, 56),
+                        ("the prior-day low", pdl, 42)]
+            defended = None
+            for nm, lvl, wt in supports:
+                if lvl and lvl > 0 and lvl <= price <= lvl * (1 + band):
+                    defended = (nm, lvl, wt)
+                    break
+            oversold = rsi <= 32
+            band2 = 0.025
+            res = min([r for r in (pwh, rhi) if r and r > price], default=None)
+            breakout = res is not None and (res - price) / price <= band2
+            if not (defended or oversold or breakout):
+                continue
+
+            liq = math.log10(max(advdol, 1.0))          # ~7 ($10M) … ~10 ($10B)
+            score = liq * 2.0
+            reasons = []
+            if defended:
+                score += defended[2]
+            if oversold:
+                score += 60 + max(0.0, 32 - rsi) * 2.0
+            if breakout:
+                score += 50
+            # primary setup (for the card) — a DEEP oversold (RSI <= 28) headlines even if
+            # it's also at a support; otherwise defense (most-major level) → oversold → breakout.
+            if defended and not (oversold and rsi <= 28):
+                nm, lvl, _ = defended
+                setup, key_lvl = "support defense", lvl
+                reasons.append(f"defending {nm} ${lvl:.2f} ({(price - lvl) / lvl * 100:+.1f}% above)")
+                stop = round(lvl * 0.985, 2)
+                tgt = res or rhi
+                entry = price
+            elif oversold:
+                setup, key_lvl = "oversold bounce", price
+                reasons.append(f"daily RSI {rsi:.0f} — deep oversold bounce zone")
+                stop = round(float(lo.tail(5).min()) * 0.995, 2)
+                tgt = sma10w or rhi
+                entry = price
+            else:
+                setup, key_lvl = "breakout watch", res
+                reasons.append(f"coiling {(res - price) / price * 100:.1f}% under ${res:.2f} — about to break")
+                stop = round(float(lo.tail(5).min()), 2)
+                tgt = None
+                entry = res
+            if oversold and setup != "oversold bounce":
+                reasons.append(f"daily RSI {rsi:.0f} (oversold)")
+            if defended and setup != "support defense":
+                reasons.append(f"at {defended[0]} ${defended[1]:.2f}")
+            if breakout and setup != "breakout watch" and res:
+                reasons.append(f"room to ${res:.2f} overhead")
+            reasons.append(f"${advdol / 1e6:.0f}M/day — liquid")
+            out.append({
+                "symbol": sym, "score": round(score, 1), "type": "DAY", "setup": setup,
+                "price": round(price, 2), "level": round(key_lvl, 2), "entry": round(entry, 2),
+                "stop": stop, "target": round(tgt, 2) if tgt else None, "rsi": round(rsi),
+                "position": "Full" if market_ok else "Half", "reasons": reasons,
+            })
+        except Exception:
+            continue
+    out.sort(key=lambda p: -p["score"])
+    return out[:top]
 
 
 def main() -> None:
@@ -195,30 +309,45 @@ def main() -> None:
         except Exception:
             continue
 
-    # Rank: conviction + volume + proximity (already in score). Tie-break MoBO first.
+    # Rank swing: conviction + volume + proximity (in score). Tie-break MoBO first.
     picks.sort(key=lambda p: (-p["score"], 0 if p["pattern"] == "MoBO" else 1))
-    picks = picks[:args.top]
+    swing = picks[:args.top]
+    # DAY-TRADE focus — liquid mega-caps defending a key level / oversold / near a breakout.
+    daytrade = _daytrade_picks(data, cands, market_ok, args.top)
 
     date = datetime.utcnow().strftime("%Y-%m-%d")
-    L = [f"# Today's Monthly Breakout Watch — {date}", ""]
+    L = [f"# Today's Focus — {date}", ""]
     L.append(f"Market: {'🟢 healthy (SPY above 8 & 21 EMA)' if market_ok else '🔴 weak — be selective'}")
     L.append("")
-    if not picks:
+    L.append("## Swing — monthly breakout (MoBO + RC-H)")
+    if not swing:
         L.append("_No watchlist name is at a monthly breakout today — nothing to chase. Patience._")
-    for p in picks:
+    for p in swing:
         L.append(f"### {p['symbol']} — {p['pattern']} · buy ${p['buy_point']} "
                  f"(range ${p['buy_range'][0]}–${p['buy_range'][1]}) · {p['position']} size")
         for r in p["reasons"]:
             L.append(f"- {r}")
         L.append(f"- stop ${p['stop']} · price now ${p['price']}")
         L.append("")
+    L.append("## Day-Trade — key level defended (mega-cap bounce)")
+    if not daytrade:
+        L.append("_No liquid leader is at a key level today._")
+    for p in daytrade:
+        tgt = f" · target ${p['target']}" if p.get("target") else ""
+        L.append(f"### {p['symbol']} — {p['setup']} · entry ${p['entry']} · {p['position']} size")
+        for r in p["reasons"]:
+            L.append(f"- {r}")
+        L.append(f"- stop ${p['stop']}{tgt} · price now ${p['price']}")
+        L.append("")
     report = "\n".join(L)
     print(report)
     print("\n---JSON---")
-    print(json.dumps({"market_ok": market_ok, "candidates": len(cands), "picks": picks}))
+    print(json.dumps({"market_ok": market_ok, "candidates": len(cands), "swing": swing, "daytrade": daytrade}))
 
     # STORED body = structured JSON so the app renders rich cards (clickable → Trading).
-    body_json = json.dumps({"date": date, "market_ok": market_ok, "picks": picks})
+    # "picks" = swing kept for any older reader; the new frontend reads swing + daytrade.
+    body_json = json.dumps({"date": date, "market_ok": market_ok,
+                            "swing": swing, "daytrade": daytrade, "picks": swing})
 
     if args.publish:
         import urllib.request
@@ -226,9 +355,10 @@ def main() -> None:
         tok = os.getenv("API_TOKEN")
         if not tok:
             sys.exit("--publish needs API_TOKEN (and optional API_BASE).")
-        syms = ", ".join(p["symbol"] for p in picks)
-        push_title = ("📋 Today's focus: " + syms) if picks else "📋 No monthly breakouts today"
-        push_body = "At a monthly breakout — tap for the plan." if picks else "Nothing to chase. Patience."
+        allp = swing + daytrade
+        syms = ", ".join(p["symbol"] for p in allp)
+        push_title = ("📋 Today's focus: " + syms) if allp else "📋 No setups in focus today"
+        push_body = "Swing breakouts + day-trade key levels — tap for the plan." if allp else "Nothing to chase. Patience."
         data = json.dumps({"kind": "morning_focus", "body": body_json, "session_date": date,
                            "push_title": push_title, "push_body": push_body}).encode()
         req = urllib.request.Request(base + "/api/v1/intel/reports/publish", data=data,
