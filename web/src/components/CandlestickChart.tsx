@@ -172,6 +172,18 @@ function CandlestickChartInner({
 
     const chart = chartRef.current;
 
+    // Drop bars with any null/NaN OHLC. The backend now filters these, but a
+    // single bad bar reaching lightweight-charts throws "Value is null" and the
+    // OHLC legend's toFixed() throws on null — both take down the whole chart.
+    const bars = data.filter(
+      (b) =>
+        Number.isFinite(b.open) &&
+        Number.isFinite(b.high) &&
+        Number.isFinite(b.low) &&
+        Number.isFinite(b.close),
+    );
+    if (!bars.length) return;
+
     // Save current visible range before updating
     const timeScale = chart.timeScale();
     const savedRange = timeScale.getVisibleLogicalRange();
@@ -188,8 +200,8 @@ function CandlestickChartInner({
     lineSeriesRefs.current = [];
 
     // Detect intraday: if multiple bars share the same date, use Unix timestamps
-    const dateSet = new Set(data.map((b) => b.timestamp.split(" ")[0]));
-    const isIntraday = dateSet.size < data.length;
+    const dateSet = new Set(bars.map((b) => b.timestamp.split(" ")[0]));
+    const isIntraday = dateSet.size < bars.length;
 
     function toTime(ts: string): string | number {
       if (isIntraday) {
@@ -202,7 +214,7 @@ function CandlestickChartInner({
     // Deduplicate: keep last bar per timestamp (handles duplicate dates)
     const seen = new Map<string | number, number>();
     const deduped: Array<{ time: string | number; open: number; high: number; low: number; close: number; volume: number }> = [];
-    for (const bar of data) {
+    for (const bar of bars) {
       const t = toTime(bar.timestamp);
       const row = { time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume ?? 0 };
       if (seen.has(t)) deduped[seen.get(t)!] = row;
@@ -308,7 +320,7 @@ function CandlestickChartInner({
     }));
 
     // For VWAP we need high/low/volume — session-anchored (last trading day)
-    const sortedRaw = [...data].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const sortedRaw = [...bars].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     // Use the last bar's date as "today's session" (handles timezone differences)
     const lastBarDate = sortedRaw.length > 0 ? sortedRaw[sortedRaw.length - 1].timestamp.slice(0, 10) : "";
     const sessionBars = lastBarDate ? sortedRaw.filter((b) => b.timestamp.slice(0, 10) === lastBarDate) : sortedRaw;
@@ -483,9 +495,9 @@ function CandlestickChartInner({
     if (savedRange) {
       // User had a position — restore it (just shift to include any new bars)
       timeScale.setVisibleLogicalRange(savedRange);
-    } else if (data.length > 80) {
+    } else if (bars.length > 80) {
       // First load: show last 80 bars
-      timeScale.setVisibleLogicalRange({ from: data.length - 80, to: data.length + 5 });
+      timeScale.setVisibleLogicalRange({ from: bars.length - 80, to: bars.length + 5 });
     } else {
       timeScale.fitContent();
     }

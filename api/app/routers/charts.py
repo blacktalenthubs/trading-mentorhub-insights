@@ -30,6 +30,7 @@ from analytics.market_data import fetch_ohlc  # noqa: E402
 router = APIRouter()
 
 _OHLCV_TTL = 900  # 15 min for daily bars
+_OHLCV_NEG_TTL = 120  # cache empties 2 min so a data-less symbol doesn't re-hammer
 
 
 # --- Chart Levels ---
@@ -120,6 +121,12 @@ def _fetch_and_serialize_ohlcv(symbol: str, period: str, interval: str = "1d") -
         return []
     # Drop duplicate timestamps (yfinance can return dupes on intraday intervals)
     df = df[~df.index.duplicated(keep="last")]
+    # Drop bars with any missing OHLC. A NaN survives round() and serializes to
+    # JSON null, which makes lightweight-charts throw "Value is null" and takes
+    # down the whole chart on a single bad bar.
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    if df.empty:
+        return []
     df = df.sort_index()
     return [
         {
@@ -135,7 +142,7 @@ def _fetch_and_serialize_ohlcv(symbol: str, period: str, interval: str = "1d") -
 
 
 @router.get("/ohlcv/{symbol}", response_model=List[OHLCBar])
-@limiter.limit("15/minute")
+@limiter.limit("120/minute")
 async def ohlcv(
     request: Request,
     symbol: str,
@@ -143,7 +150,13 @@ async def ohlcv(
     interval: str = "1d",
     user: User = Depends(get_current_user),
 ):
-    """Get OHLCV bars for charting (cached). Supports any yfinance period/interval."""
+    """Get OHLCV bars for charting (cached). Supports any yfinance period/interval.
+
+    Rate limit is generous (120/min) because the chart PREFETCHES ~20 symbols on
+    load plus auto-refetches the selected one — a tight cap (was 15/min) 429'd the
+    prefetch burst, leaving clicked symbols with no data ("Loading chart…" forever).
+    The result is cached (15 min), so most hits never touch the data source anyway.
+    """
     key = f"ohlcv:{symbol.upper()}:{period}:{interval}"
     cached = cache_get(key)
     if cached is not None:
@@ -153,8 +166,9 @@ async def ohlcv(
     bars = await loop.run_in_executor(
         None, partial(_fetch_and_serialize_ohlcv, symbol.upper(), period, interval)
     )
-    if bars:
-        cache_set(key, bars, _OHLCV_TTL)
+    # Cache success for 15 min; cache EMPTY briefly too (negative cache) so a symbol
+    # the data source can't serve doesn't re-fetch + re-block on every single click.
+    cache_set(key, bars, _OHLCV_TTL if bars else _OHLCV_NEG_TTL)
     return bars
 
 
