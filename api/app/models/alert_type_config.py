@@ -203,6 +203,38 @@ _MA_CATALOG: list[tuple[str, str, str, bool]] = [
 ALERT_TYPE_CATALOG: list[tuple[str, str, str, bool]] = _BASE_CATALOG + _MA_CATALOG
 
 
+# ── Trade-STYLE classification (day_trade / swing / long_term) ───────
+# Every alert is filed in its style FEED (the in-app panels) regardless of whether
+# delivery (Telegram/push) is enabled — tracking and delivery are separate. Derived
+# from the catalog category, with prefix/MA-depth overrides for the ambiguous ones.
+_CATEGORY_BY_KEY: dict[str, str] = {k: c for k, _l, c, _d in ALERT_TYPE_CATALOG}
+_STYLE_BY_CATEGORY: dict[str, str] = {
+    "Monthly trend": "long_term", "Monthly": "long_term",
+    "Weekly trend": "long_term", "Weekly": "long_term",
+    "Swing": "swing",
+}
+# Checked before the category map (most reliable). (prefix, style).
+_STYLE_BY_PREFIX: list[tuple[str, str]] = [
+    ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
+    ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
+    ("staged_pml", "long_term"), ("staged_pwl", "long_term"),
+    ("weekly_rc", "swing"), ("swing_", "swing"), ("rsi_oversold", "swing"),
+    ("rsi_70", "swing"), ("ema_5_20", "swing"),
+]
+
+
+def style_for(alert_type: str) -> str:
+    """day_trade | swing | long_term — which feed panel an alert belongs to."""
+    at = (alert_type or "").replace("tv_", "").lower()
+    # MA bounce/rejection: deep MAs (100/200) = long-term support; fast (8/21/50) = day-trade.
+    if "ma_bounce" in at or "ma_rejection" in at:
+        return "long_term" if ("100" in at or "200" in at) else "day_trade"
+    for prefix, style in _STYLE_BY_PREFIX:
+        if at.startswith(prefix):
+            return style
+    return _STYLE_BY_CATEGORY.get(_CATEGORY_BY_KEY.get(at, ""), "day_trade")
+
+
 # ── Plain-English explanation per alert type ────────────────────────
 # One sentence each, written for a NEW user who doesn't know PDH / AVWAP /
 # Buy-2 jargon. Tooltipped on the Weekly + By Pattern tables and shown as

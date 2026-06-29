@@ -55,6 +55,11 @@ class AlertResponse(BaseModel):
     cvd_delta: Optional[float] = None
     cvd_diverging: Optional[int] = None
     suppressed_reason: Optional[str] = None
+    # Feed split (2026-06-29): every alert is filed in a STYLE panel regardless of
+    # delivery. style = day_trade | swing | long_term; delivered = was it pushed
+    # (Telegram/in-app) vs recorded-only (suppressed_reason set → not delivered).
+    style: str = "day_trade"
+    delivered: bool = True
     # Trades-page additions (2026-05-28): user records actual exit price; R is derived.
     exit_price: Optional[float] = None
     r_multiple: Optional[float] = None
@@ -65,12 +70,15 @@ class AlertResponse(BaseModel):
     def from_orm_alert(cls, alert) -> "AlertResponse":
         # Import inside the method to avoid a circular import — the
         # alert_type_config module imports from various app/* modules.
-        from app.models.alert_type_config import describe_alert_type
+        from app.models.alert_type_config import describe_alert_type, style_for
+        _sr = getattr(alert, "suppressed_reason", None)
         return cls(
             id=alert.id,
             symbol=alert.symbol,
             alert_type=alert.alert_type,
             description=describe_alert_type(alert.alert_type) or None,
+            style=style_for(alert.alert_type),
+            delivered=_sr is None,
             direction=alert.direction,
             price=alert.price,
             entry=alert.entry,
