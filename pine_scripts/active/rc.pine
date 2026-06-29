@@ -575,31 +575,18 @@ if mobo_box_fire
 if mobo_rch_fire
     alert(rc_pay("mobo_rch", "BUY", "M", mobo_rl, mobo_rl_low, "MoBO RC-H · broke a prior MONTHLY high that held as resistance for months — entry " + str.tostring(mobo_rl, format.mintick) + ", stop " + str.tostring(mobo_rl_low, format.mintick)), alert.freq_once_per_bar_close)
 
-// 10w / 30w MA HELD + RECLAIM ALERTS (the visual signs, now wired) — weekly support of
-// the 10-week / 30-week MA. HELD = tagged it from above and never broke below; RECLAIM =
-// undercut it then closed back above. Both = long-term/position entry. Once per WEEK each
-// (nW resets the latches). entry = close, stop = a close below the MA.
-var bool w10h_fired = false
-var bool w10r_fired = false
-var bool w30h_fired = false
-var bool w30r_fired = false
-if nW
-    w10h_fired := false
-    w10r_fired := false
-    w30h_fired := false
-    w30r_fired := false
-if en_w10 and h10 and not na(w10) and not w10h_fired
-    w10h_fired := true
-    alert(rc_pay("weekly_10w_held", "BUY", "W", close, w10, "10w MA · HELD the 10-week MA (weekly support, no break) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
-if en_w10 and r10 and not na(w10) and not w10r_fired
-    w10r_fired := true
-    alert(rc_pay("weekly_10w_reclaim", "BUY", "W", close, w10, "10w MA · RECLAIM of the 10-week MA (undercut & recovered) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
-if en_w30 and h30 and not na(w30) and not w30h_fired
-    w30h_fired := true
-    alert(rc_pay("weekly_30w_held", "BUY", "W", close, w30, "30w MA · HELD the 30-week MA (LONG-TERM support, no break) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
-if en_w30 and r30 and not na(w30) and not w30r_fired
-    w30r_fired := true
-    alert(rc_pay("weekly_30w_reclaim", "BUY", "W", close, w30, "30w MA · RECLAIM of the 30-week MA (undercut & recovered, LONG-TERM) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
+// 10w / 30w MA support alert — fire INTRADAY the moment price reaches/reclaims the locked
+// weekly MA level, ONCE PER TOUCH (re-arm when price moves clearly back above it), NOT once
+// per week. Reuses ma_bounce() — the validated tag-from-above-and-hold + re-arm latch — on
+// the locked w10/w30 levels. (Old per-WEEK latch + the sticky weekly-low held/reclaim
+// conditions fired at most once a week; weekly_10w_reclaim / weekly_30w_reclaim retired —
+// the single touch alert covers tag-and-hold + a shallow undercut-reclaim.)
+mb_w10 = ma_bounce(w10, en_w10)
+mb_w30 = ma_bounce(w30, en_w30)
+if mb_w10
+    alert(rc_pay("weekly_10w_held", "BUY", "W", close, w10, "10w MA · tagged & held the 10-week MA — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
+if mb_w30
+    alert(rc_pay("weekly_30w_held", "BUY", "W", close, w30, "30w MA · tagged & held the 30-week MA (LONG-TERM support) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
 
 // Reclaim long (#65) — entry = the reclaim close, stop = the dip low, target = next
 // resistance. strike = nearest whole-dollar = the ~ATM call (small intraday moves need

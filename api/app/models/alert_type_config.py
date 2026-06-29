@@ -155,12 +155,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
     # unclear/not-actionable and are SUPPRESSED (weekly_stage → OBSOLETE).
     ("weekly_rc", "Weekly RC — prior-week high/low reclaim (swing)", "Weekly trend", False),
-    # 10w/30w weekly-MA reclaim·hold (rc.pine, 2026-06-26) — price tagged & held the 10/30
-    # week MA on the weekly = long-term/position support reclaim (Weinstein stage). Both OFF.
-    ("weekly_10w_held", "10w MA held — held the weekly 10-week MA (no break) (position)", "Weekly trend", False),
-    ("weekly_10w_reclaim", "10w MA reclaim — undercut & reclaimed the weekly 10-week MA (position)", "Weekly trend", False),
-    ("weekly_30w_held", "30w MA held — held the weekly 30-week MA (no break) (LONG-TERM entry)", "Weekly trend", False),
-    ("weekly_30w_reclaim", "30w MA reclaim — undercut & reclaimed the weekly 30-week MA (LONG-TERM entry)", "Weekly trend", False),
+    # 10w/30w weekly-MA support (rc.pine). Now fires INTRADAY once-per-TOUCH (tag & hold
+    # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
+    # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +
+    # a shallow undercut-reclaim. Both default OFF.
+    ("weekly_10w_held", "10w MA — tagged & held the 10-week MA intraday (position support)", "Weekly trend", False),
+    ("weekly_30w_held", "30w MA — tagged & held the 30-week MA intraday (LONG-TERM support)", "Weekly trend", False),
     # Monthly RC — added 2026-06-22. Same intraday level-cross model as 4h/weekly,
     # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
     # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
@@ -341,6 +341,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # leftover). Kept here so any stale row is purged + arrival is dropped.
     "ma_rejection_short_v3", "ma_rejection_short_v3_ema8", "ma_rejection_short_v3_ema21",
     "ma_rejection_short_v3_ema50", "ma_rejection_short_v3_ema100", "ma_rejection_short_v3_ema200",
+    # weekly_10w/30w_reclaim RETIRED 2026-06-29 — the 10w/30w now fire once-per-TOUCH
+    # intraday (the _held type covers tag-and-hold + shallow reclaim). No separate reclaim.
+    "weekly_10w_reclaim", "weekly_30w_reclaim",
 
     # 2026-06-27 — the rc.pine OR-channel plays RETIRED (too noisy, especially ORL). The
     # original staged_orl_held (60m OR low, levels_day_vwap.pine) is REVIVED in their place
