@@ -13,13 +13,12 @@
 //
 //   ▲ RC   = reclaim of the prior-period LOW  (undercut & reclaim = reversal) → BUY
 //   ▲ RC-H = reclaim of the prior-period HIGH (broken high held = continuation) → BUY
-//   ▼ ↓    = (4h only) poke above prior-4h HIGH then close back below = rejection → SHORT
 //
 // Cadence: 4h ≈ the day-trade engine (fires often). Weekly/Monthly are rare by
 // nature (one period is long) — they surface the big swing/position reclaims.
 //
 // Routing: emits the EXACT catalog rule per signal so it routes with NO backend
-// remap — 4h: "rc_4h_long"/"rc_4h_hrec"/"rc_4h_short"; Weekly: "weekly_rc";
+// remap — 4h: "rc_4h_long"/"rc_4h_hrec" (long-only now); Weekly: "weekly_rc";
 // Monthly: "monthly_rc". (The bare "rc_4h" rule is RETIRED — emitting it drops as
 // unknown_type, which lost 15 of 16 morning RC fires on 2026-06-22.) interval
 // tags the period ("240"/"W"/"M").
@@ -30,7 +29,6 @@ indicator("Reclaim (RC) · 4h/Wk/Mo", "RC", overlay = true, max_labels_count = 3
 g4 = "4h RC — day-trade engine"
 en4_long  = input.bool(true, "4h · RC long — reclaim prior 4h LOW (BUY)", group = g4)
 en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH, UPTREND-gated (BUY)", group = g4)
-en4_short = input.bool(true, "4h · rejection short — reject prior 4h HIGH (SHORT)", group = g4)
 // RC QUALITY FILTERS (2026-06-23, chart-derived). A 4h RC-H is a continuation only
 // IN AN UPTREND — otherwise it's buying into overhead resistance (SPY-on-down-days
 // trap). A 4h RC low is a spring only at SUPPORT — otherwise a naked lower-low knife.
@@ -434,13 +432,8 @@ orhRej = en_orh_rej and orh_ok and (high > rl_orh) and (close < rl_orh) and (clo
 if orhRej
     orhr_fired := true
 
-// 4h rejection short — its own logic (poke above prior high, close back below).
-var bool f4_short = false
-if n4
-    f4_short := false
-rc4_short = en4_short and ok4 and (high > h4p) and (close < h4p) and not f4_short
-if rc4_short
-    f4_short := true
+// rc_4h_short (4h rejection short) RETIRED 2026-06-29 — the only shorts we want are the
+// structural PDL break + PDH rejection (levels_day_vwap). No 4h/EMA rejection shorts.
 
 // ── Markers — 4h ONLY (the day-trade engine). Tiny triangles; color = side
 // (lime = low reclaim, teal = high reclaim, red = short); text = 4h + side
@@ -452,12 +445,10 @@ if rc4_short
 // color = side (lime low-reclaim · teal high-reclaim · red short). All size.tiny.
 plotshape(show_tags and tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
 plotshape(show_tags and tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hh")
-plotshape(show_tags and tags_text and rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny, text = "4h↓")
 plotshape(show_tags and tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
 plotshape(show_tags and tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
 plotshape(show_tags and not tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
 plotshape(show_tags and not tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
-plotshape(show_tags and not tags_text and rc4_short, title = "4h short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny)
 plotshape(show_tags and not tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
 plotshape(show_tags and not tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
 
@@ -558,8 +549,6 @@ if rc4_long
     alert(rc_pay("rc_4h_long", "BUY", "240", l4p, l4d, "RC · reclaim of the prior 4h low — entry at the level " + str.tostring(l4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_hrec
     alert(rc_pay("rc_4h_hrec", "BUY", "240", h4p, l4d, "RC-H · breakout-retest of the prior 4h high (UPTREND-gated) — entry " + str.tostring(h4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
-if rc4_short
-    alert(rc_pay("rc_4h_short", "SHORT", "240", close, h4p, "RC · rejection at the prior 4h high (failed break) · stop " + str.tostring(h4p, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_long
     alert(rc_pay("rc_daily_long", "BUY", "D", lDp, lDd, "Daily RC · reclaim of the prior-day LOW (PDL) — entry at the level " + str.tostring(lDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_hrec

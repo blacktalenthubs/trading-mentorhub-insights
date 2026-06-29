@@ -126,12 +126,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
     ("pdh_fail_short", "PDH failed break — accepted above PDH then lost it (short the loss, stop = PDH reclaim) · allowlist only", "Index shorts", False),
 
-    # 4h reclaim — split into 3 independent toggles (2026-06-22) so users can turn
-    # each direction off in Settings (the pine emits rc_4h_long / rc_4h_short /
-    # rc_4h_hrec separately). All default OFF.
+    # 4h reclaim — long-only now (rc_4h_short RETIRED 2026-06-29 → OBSOLETE; the only
+    # shorts we keep are the structural PDL break + PDH rejection). Both default OFF.
     ("rc_4h_long",  "4h RC long — reclaim of the prior 4h LOW (swept-low bounce, support-gated)", "4h reversal", False),
     ("rc_4h_hrec",  "4h RC-H — broken prior 4h HIGH held as support, UPTREND-gated (breakout-retest long)", "4h reversal", False),
-    ("rc_4h_short", "4h RC short — failed break of the prior 4h HIGH (rejection)", "4h reversal", False),
     # Daily RC (from rc.pine) — undercut & reclaim of the prior-DAY low/high (≈ PDL/PDH
     # reclaim, RC-model). All default OFF.
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
@@ -304,6 +302,13 @@ def describe_alert_type(alert_type: str) -> str:
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
+    # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
+    # structural PDL break + PDH rejection (levels_day_vwap). No 4h/EMA rejection shorts.
+    "rc_4h_short",
+    # ma_rejection_short_v3 family — long-only book; no pine emits it (descriptions were
+    # leftover). Kept here so any stale row is purged + arrival is dropped.
+    "ma_rejection_short_v3", "ma_rejection_short_v3_ema8", "ma_rejection_short_v3_ema21",
+    "ma_rejection_short_v3_ema50", "ma_rejection_short_v3_ema100", "ma_rejection_short_v3_ema200",
 
     # 2026-06-27 — the rc.pine OR-channel plays RETIRED (too noisy, especially ORL). The
     # original staged_orl_held (60m OR low, levels_day_vwap.pine) is REVIVED in their place
