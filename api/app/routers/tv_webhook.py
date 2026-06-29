@@ -1664,6 +1664,27 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         if (sig.symbol or "").upper() in await _conviction_strong_buy(db):
             sig.message = "⭐ CONVICTION — " + (sig.message or "")
 
+        # DAY-TRADE delivery SCOPE (2026-06-29): a user is PUSHED a day-trade alert only
+        # for their FOCUS symbols. Non-focus day-trade alerts are still RECORDED (shown in
+        # the Day Trade feed, marked NOT SENT) — just not delivered. A user with NO focus
+        # symbols set gets the whole watchlist (no dark feed). Swing/long-term are NEVER
+        # focus-scoped (you want broad position coverage). This is a user-managed scope
+        # (the Focus tab), not a hardcoded per-type allowlist.
+        from app.models.alert_type_config import style_for as _style_for
+        import re as _re_focus
+        _alert_style = _style_for(alert_type_full)
+        _normf = lambda s: _re_focus.sub(r"[^A-Z0-9]", "", (s or "").upper())  # noqa: E731
+        _sig_norm = _normf(sig.symbol)
+        _focus_by_user: dict[int, set[str]] = {}
+        if _alert_style == "day_trade" and users:
+            from app.models.watchlist import WatchlistItem as _WI
+            _frows = (await db.execute(
+                select(_WI.user_id, _WI.symbol).where(
+                    _WI.user_id.in_([u.id for u in users]), _WI.focus.is_(True))
+            )).all()
+            for _uid, _sym in _frows:
+                _focus_by_user.setdefault(_uid, set()).add(_normf(_sym))
+
         # Persist all alerts in one transaction; collect (user, alert) pairs
         # for the notification fan-out which happens AFTER commit so we don't
         # hold the DB connection during network I/O to Telegram.
@@ -1738,6 +1759,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 next_resistance=sig.target_1,
                 morning_low=getattr(sig, "_tv_morning_low", None),
             )
+            # Day-trade focus scope: record-not-deliver if this user has a Focus list
+            # that doesn't include this symbol (whole-watchlist users are unaffected).
+            _not_focus = (
+                _alert_style == "day_trade"
+                and bool(_focus_by_user.get(user.id))
+                and _sig_norm not in _focus_by_user[user.id]
+            )
             # Feed the Telegram trade-type tag — notify_user reads sig._trade_type.
             setattr(sig, "_trade_type", _exit["style"])
             alert = Alert(
@@ -1764,11 +1792,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 vwap_slope_pct=_slope_pct,
                 inside_day=1 if getattr(sig, "_tv_inside_day", False) else 0,
                 grade=_alert_grade,
-                suppressed_reason=None if _grade_ok else "grade_below_min",
+                suppressed_reason=("not_focus" if _not_focus else (None if _grade_ok else "grade_below_min")),
             )
             db.add(alert)
-            if _grade_ok:
-                pairs.append((user, alert))  # Telegram/email only for routed grades
+            if _grade_ok and not _not_focus:
+                pairs.append((user, alert))  # Telegram/email only for routed, in-focus alerts
             persisted += 1
 
         await db.commit()

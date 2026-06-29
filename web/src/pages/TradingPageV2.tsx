@@ -335,6 +335,9 @@ const NOT_ROUTED_LABELS: Record<string, string> = {
   uptrend_gate_failed: "uptrend gate",
   basing_chop: "chop",
   outside_session: "off-hours",
+  not_focus: "not in Focus",
+  type_not_enabled: "type off",
+  spy_market_gate: "SPY gate",
 };
 function notRoutedLabel(reason?: string | null): string | null {
   if (!reason) return null;
