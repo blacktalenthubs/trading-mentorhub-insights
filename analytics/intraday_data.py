@@ -190,11 +190,18 @@ def _fetch_alpaca_bars(symbol: str, interval: str = "5m", hours_back: int = 8) -
         if not tf:
             return pd.DataFrame()
 
+        # Pin the IEX feed: the SDK defaults to SIP, which the free Alpaca data plan
+        # blocks for RECENT data ("subscription does not permit querying recent SIP
+        # data") — that silently emptied the SPY daily/regime fetch + premarket gappers.
+        # IEX is the free feed and isn't SIP-recency-gated. ALPACA_FEED=sip to override.
+        from alpaca.data.enums import DataFeed
+        _feed = DataFeed.SIP if os.environ.get("ALPACA_FEED", "iex").lower() == "sip" else DataFeed.IEX
         client = StockHistoricalDataClient(_key, _secret)
         req = StockBarsRequest(
             symbol_or_symbols=symbol,
             timeframe=tf,
             start=datetime.now() - timedelta(hours=hours_back),
+            feed=_feed,
         )
         bars = client.get_stock_bars(req)
         df = bars.df
@@ -1363,6 +1370,8 @@ def _fetch_alpaca_premarket_bars(symbol: str) -> pd.DataFrame:
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
         from datetime import datetime, time as _time
 
+        from alpaca.data.enums import DataFeed
+        _feed = DataFeed.SIP if os.environ.get("ALPACA_FEED", "iex").lower() == "sip" else DataFeed.IEX
         client = StockHistoricalDataClient(_key, _secret)
         today_et = datetime.now(ET).date()
         start_utc = ET.localize(datetime.combine(today_et, _time(4, 0))).astimezone(pytz.UTC)
@@ -1372,6 +1381,7 @@ def _fetch_alpaca_premarket_bars(symbol: str) -> pd.DataFrame:
             timeframe=TimeFrame(5, TimeFrameUnit.Minute),
             start=start_utc,
             end=end_utc,
+            feed=_feed,
         )
         df = client.get_stock_bars(req).df
         if df.empty:
