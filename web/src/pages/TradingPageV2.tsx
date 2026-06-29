@@ -387,8 +387,10 @@ function SignalFeedTab({
   }
 
   // Which panel is showing: the live delivered feed, or the not-routed
-  // (suppressed-for-review) panel. Suppressed alerts never appear in "live".
-  const [view, setView] = useState<"live" | "unrouted">("live");
+  // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
+  // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
+  // and delivery are separate; only Telegram/push are gated, the feed shows everything.
+  const [view, setView] = useState<"day_trade" | "swing" | "long_term">("day_trade");
 
   // Type hide-list — view-only. Set of alert_type strings to exclude from
   // the feed. Lets the user temporarily mute noisy types (e.g. historical
@@ -437,22 +439,20 @@ function SignalFeedTab({
     );
   }
 
-  // LIVE feed — only DELIVERED signals (no suppressed_reason). Anything the
-  // gates held back is NOT mixed in here; it lives in its own "Not routed"
-  // panel below (toggle at the top).
-  const feedAlerts = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && !a.suppressed_reason,
+  // The feed, split by trade STYLE. Each panel shows ALL its alerts — delivered AND
+  // recorded-not-delivered (gate catches: type off, SPY gate, grade, allowlists). The
+  // undelivered ones render dimmed + "NOT SENT". Only same-moment dup noise
+  // (confluence_collapsed) is dropped. styleOf falls back to day_trade for old rows.
+  const styleOf = (a: Alert) => (a.style ?? "day_trade");
+  const feedAllRaw = (alerts ?? []).filter(
+    (a) => isFeedSignal(a.alert_type) && !(a.suppressed_reason ?? "").startsWith("confluence_collapsed"),
   );
-  // NOT ROUTED — everything recorded but NOT delivered, in ONE review panel
-  // (merged muted + not-routed 2026-06-17): gate catches (SPY<PDL, chop, short
-  // allowlist, grade…) AND muted types (type_not_enabled). Each card still shows
-  // its own reason. confluence_collapsed (same-moment dup) stays out as noise.
-  const notRoutedAlerts = (alerts ?? []).filter(
-    (a) =>
-      isFeedSignal(a.alert_type) &&
-      !!a.suppressed_reason &&
-      !a.suppressed_reason.startsWith("confluence_collapsed"),
+  const styleCounts = feedAllRaw.reduce(
+    (acc, a) => { acc[styleOf(a)] = (acc[styleOf(a)] ?? 0) + 1; return acc; },
+    { day_trade: 0, swing: 0, long_term: 0 } as Record<string, number>,
   );
+  // The SELECTED style's alerts = this panel's feed.
+  const feedAlerts = feedAllRaw.filter((a) => styleOf(a) === view);
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -518,15 +518,7 @@ function SignalFeedTab({
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
-  // Not-routed panel list — search-filtered, newest first. No grade/type
-  // filters: this is a review surface for what the gates caught, not the feed.
-  const notRoutedVisible = (q
-    ? notRoutedAlerts.filter((a) => (a.symbol || "").toUpperCase().includes(q) || formatSetup(a.alert_type).toUpperCase().includes(q) || (a.alert_type || "").toUpperCase().includes(q))
-    : notRoutedAlerts
-  ).slice().sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
-  const listAlerts = view === "unrouted" ? notRoutedVisible : visible;
+  const listAlerts = visible;
 
   // Grade chip — visual style per letter.
   const CHIP_STYLES: Record<GradeFilter, { active: string; inactive: string }> = {
@@ -552,8 +544,8 @@ function SignalFeedTab({
   // feed — the not-routed view ignores them). Drives the Filters badge + chips.
   const activeFilterCount =
     (assetFilter !== "all" ? 1 : 0) +
-    (view === "live" && gradeFilter !== "all" ? 1 : 0) +
-    (view === "live" && hiddenTypes.size > 0 ? 1 : 0);
+    (gradeFilter !== "all" ? 1 : 0) +
+    (hiddenTypes.size > 0 ? 1 : 0);
   function clearAllFilters() {
     onAssetFilterChange?.("all");
     changeGradeFilter("all");
@@ -566,19 +558,16 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          <button
-            onClick={() => setView("live")}
-            className={`px-2.5 py-1 transition-colors ${view === "live" ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
-          >
-            Signals <span className="opacity-70 font-normal">{feedAlerts.length}</span>
-          </button>
-          <button
-            onClick={() => setView("unrouted")}
-            title="Everything recorded but not delivered — gate catches (SPY<PDL, chop, short allowlist, grade…) AND muted types. Each card shows its reason."
-            className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${view === "unrouted" ? "bg-bearish text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
-          >
-            Not routed <span className="opacity-70 font-normal">{notRoutedAlerts.length}</span>
-          </button>
+          {([["day_trade", "Day Trade"], ["swing", "Swing"], ["long_term", "Long Term"]] as const).map(([id, label], i) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              title="Every alert of this style is tracked here — delivered + recorded-not-delivered (dimmed, NOT SENT). Only Telegram/push are gated."
+              className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+            >
+              {label} <span className="opacity-70 font-normal">{styleCounts[id] ?? 0}</span>
+            </button>
+          ))}
         </div>
         <div className="ml-auto relative">
           <button
@@ -660,7 +649,7 @@ function SignalFeedTab({
                 </div>
               </div>
               {/* Grade — live feed only */}
-              {view === "live" && (
+              {(
                 <div className="px-3 py-2 border-b border-border-subtle">
                   <div className="text-[9px] uppercase tracking-wide text-text-faint mb-1.5">Grade</div>
                   <div className="flex items-center gap-1">
@@ -681,7 +670,7 @@ function SignalFeedTab({
                 </div>
               )}
               {/* Types — live feed only */}
-              {view === "live" && (
+              {(
                 <>
                   <div className="flex items-center justify-between px-3 py-1.5 border-b border-border-subtle bg-surface-2/40">
                     <span className="text-[9px] uppercase tracking-wide text-text-faint">Alert types</span>
@@ -732,12 +721,12 @@ function SignalFeedTab({
               {assetFilter === "crypto" ? "Crypto" : "Stocks"} <X className="h-2.5 w-2.5" />
             </button>
           )}
-          {view === "live" && gradeFilter !== "all" && (
+          {gradeFilter !== "all" && (
             <button onClick={() => changeGradeFilter("all")} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/15">
               Grade {gradeFilter} <X className="h-2.5 w-2.5" />
             </button>
           )}
-          {view === "live" && hiddenTypes.size > 0 && (
+          {hiddenTypes.size > 0 && (
             <button onClick={clearHiddenTypes} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/15">
               {hiddenTypes.size} type{hiddenTypes.size > 1 ? "s" : ""} off <X className="h-2.5 w-2.5" />
             </button>
@@ -755,9 +744,9 @@ function SignalFeedTab({
       ) : listAlerts.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-text-faint">
-            {view === "unrouted"
-              ? (q ? `No not-routed ${q} alerts` : "Nothing held back this session")
-              : (q ? `No ${q} signals in this session` : "No signals in this session")}
+            {q
+              ? `No ${q} ${view === "day_trade" ? "day-trade" : view === "swing" ? "swing" : "long-term"} alerts`
+              : `No ${view === "day_trade" ? "day-trade" : view === "swing" ? "swing" : "long-term"} alerts this session`}
           </p>
         </div>
       ) : (
