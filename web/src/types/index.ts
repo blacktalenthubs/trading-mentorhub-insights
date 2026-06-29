@@ -89,6 +89,8 @@ export interface Alert {
   cvd_delta?: number | null;
   cvd_diverging?: number | null;
   suppressed_reason?: string | null;
+  style?: "day_trade" | "swing" | "long_term";  // which feed panel it's filed in
+  delivered?: boolean;              // was it pushed (Telegram/in-app) vs recorded-only
   exit_price?: number | null;       // user-entered actual close price (Trades page)
   r_multiple?: number | null;       // derived: (exit - entry) / (entry - stop)
 }

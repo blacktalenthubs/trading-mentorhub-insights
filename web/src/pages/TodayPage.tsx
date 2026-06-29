@@ -386,7 +386,16 @@ function SymbolGroup({ symbol, list, onChart, defaultOpen }: { symbol: string; l
       </button>
       {open && (
         <div className="border-t border-border-subtle p-2 space-y-2">
-          {list.map((a, i) => <AlertCard key={a.id} a={a} onChart={onChart} defaultExpanded={i === 0} />)}
+          {list.map((a, i) => (
+            <div key={a.id} className={a.delivered === false ? "opacity-70" : ""}>
+              {a.delivered === false && (
+                <div className="mb-1 inline-flex items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-[9px] font-semibold text-text-faint" title={a.suppressed_reason || "not delivered"}>
+                  🔕 tracked · not sent{a.suppressed_reason ? ` · ${a.suppressed_reason.replace(/_/g, " ")}` : ""}
+                </div>
+              )}
+              <AlertCard a={a} onChart={onChart} defaultExpanded={i === 0} />
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -527,6 +536,7 @@ export default function TodayPage() {
     setTab(t);
     try { localStorage.setItem("today_tab", t); } catch { /* ignore */ }
   }
+  const [feedStyle, setFeedStyle] = useState<"day_trade" | "swing" | "long_term">("day_trade");
 
   const { data: alerts } = useAlertsToday();
   const { data: spy } = useSpyLiveRegime();
@@ -541,23 +551,31 @@ export default function TodayPage() {
     setTimeout(() => document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
   };
 
-  // Live feed = un-acted signals only. Once Took or Declined, an alert leaves the queue.
-  const liveSignals = useMemo(
+  // The feed is split into 3 STYLE panels (day-trade / swing / long-term). EVERY alert
+  // is tracked in its panel regardless of delivery — a non-delivered one (suppressed_reason
+  // set = not pushed to Telegram/in-app) still shows here, just marked. Once acted it leaves.
+  const feedAll = useMemo(
     () => (alerts ?? [])
-      .filter((a) => isFeedSignal(a.alert_type) && !a.suppressed_reason && !a.user_action)
+      .filter((a) => isFeedSignal(a.alert_type) && !a.user_action)
       .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")),
     [alerts],
   );
-  // Group the feed by symbol so a busy tape collapses to one row per name (expand to see all).
+  const styleCounts = useMemo(() => {
+    const c = { day_trade: 0, swing: 0, long_term: 0 } as Record<string, number>;
+    for (const a of feedAll) c[a.style ?? "day_trade"]++;
+    return c;
+  }, [feedAll]);
+  // Group the SELECTED style's alerts by symbol (busy tape → one row per name).
   const groupedSignals = useMemo(() => {
     const m = new Map<string, Alert[]>();
-    for (const a of liveSignals) {
+    for (const a of feedAll) {
+      if ((a.style ?? "day_trade") !== feedStyle) continue;
       const arr = m.get(a.symbol);
       if (arr) arr.push(a);
       else m.set(a.symbol, [a]);
     }
     return Array.from(m.entries()).map(([symbol, list]) => ({ symbol, list })).slice(0, 15);
-  }, [liveSignals]);
+  }, [feedAll, feedStyle]);
   const took = useMemo(() => (alerts ?? []).filter((a) => a.user_action === "took"), [alerts]);
   const coiling = useMemo(() => (rank ?? []).filter((r) => r.bucket === "coiling").slice(0, 5), [rank]);
   const leaders = useMemo(() => (rank ?? []).filter((r) => r.bucket === "leader").sort((a, b) => (b.rsi ?? 0) - (a.rsi ?? 0)).slice(0, 5), [rank]);
@@ -613,15 +631,32 @@ export default function TodayPage() {
 
         {tab === "signals" && (
           <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
-            {/* main column — live signals */}
+            {/* main column — live signals, split into the 3 style panels */}
             <section className="lg:col-span-2">
               <SectionLabel action="Trading" onAction={() => nav("/trading")}>Live signals</SectionLabel>
+              <div className="flex items-center gap-1 mb-3 bg-surface-2 rounded-lg p-0.5 w-fit">
+                {([["day_trade", "Day Trade"], ["swing", "Swing"], ["long_term", "Long Term"]] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setFeedStyle(id)}
+                    className={`px-3 py-1 text-[12px] font-semibold rounded-md transition-colors ${
+                      feedStyle === id ? "bg-surface-4 text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"
+                    }`}
+                  >
+                    {label} <span className="opacity-60 font-normal">{styleCounts[id] ?? 0}</span>
+                  </button>
+                ))}
+              </div>
               {groupedSignals.length > 0 ? (
                 <div className="space-y-2.5">
                   {groupedSignals.map((g, i) => <SymbolGroup key={g.symbol} symbol={g.symbol} list={g.list} onChart={goChart} defaultOpen={i === 0} />)}
                 </div>
+              ) : feedAll.length === 0 ? (
+                <DayRead spy={spy} btc={btc} signals={0} ideas={ideas.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
               ) : (
-                <DayRead spy={spy} btc={btc} signals={liveSignals.length} ideas={ideas.length} coiling={coiling} leaders={leaders} losing={losing} onJump={jumpToRail} />
+                <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
+                  No {feedStyle === "day_trade" ? "day-trade" : feedStyle === "swing" ? "swing" : "long-term"} alerts in this session yet.
+                </div>
               )}
             </section>
 
