@@ -1175,7 +1175,12 @@ export default function TradingPageV2() {
   useEffect(() => {
     if (!signals) return;
     const tf = TIMEFRAMES[DEFAULT_TF];
-    signals.slice(0, 5).forEach((s) => {
+    // Warm more of the visible list so a click loads from cache (was 5). De-duped by
+    // symbol so we don't prefetch the same name twice.
+    const seen = new Set<string>();
+    signals.slice(0, 20).forEach((s) => {
+      if (seen.has(s.symbol)) return;
+      seen.add(s.symbol);
       queryClient.prefetchQuery({
         queryKey: ["ohlcv", s.symbol, tf.period, tf.interval],
         queryFn: () =>

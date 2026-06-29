@@ -1,6 +1,6 @@
 /** TanStack Query hooks for all API endpoints. */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api } from "./client";
 import { toast } from "../components/Toast";
 import type { InPlaySnapshot, SwingSnapshot, SwingRun, ConvictionSnapshot, ConvictionRun, WeeklyStageSnapshot, GrowthSnapshot, GrowthRun, EmergingSnapshot, EmergingRun } from "../pages/InPlay.types";
@@ -1316,6 +1316,9 @@ export function useOHLCV(symbol: string, period = "1y", interval = "1d") {
     staleTime: refreshMs,
     refetchInterval: refreshMs,
     gcTime: 30 * 60_000,
+    // Keep the previous symbol's chart on screen while the new one loads — no blank
+    // flash / spinner on every click. The chart updates in place when data arrives.
+    placeholderData: keepPreviousData,
   });
 }
 
