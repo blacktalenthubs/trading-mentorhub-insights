@@ -74,6 +74,7 @@ def _build_notification_response(user: User) -> NotificationPrefsResponse:
         default_portfolio_size=float(getattr(user, "default_portfolio_size", None) or 50000),
         default_risk_pct=float(getattr(user, "default_risk_pct", None) or 1.0),
         min_alert_grade=(getattr(user, "min_alert_grade", None) or "C").upper(),
+        daytrade_focus_only=bool(getattr(user, "daytrade_focus_only", False)),
     )
 
 
@@ -112,6 +113,9 @@ async def update_notification_prefs(
 
     if body.wait_alerts_enabled is not None:
         user.wait_alerts_enabled = body.wait_alerts_enabled
+
+    if body.daytrade_focus_only is not None:
+        user.daytrade_focus_only = body.daytrade_focus_only
 
     if body.alert_directions is not None:
         dirs = {d.strip().upper() for d in body.alert_directions.split(",") if d.strip()}

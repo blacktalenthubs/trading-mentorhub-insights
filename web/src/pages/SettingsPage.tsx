@@ -229,6 +229,21 @@ function NotificationChannels() {
           </div>
         </label>
 
+        <label className="flex items-center gap-3 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={!!notifPrefs?.daytrade_focus_only}
+            disabled={!notifPrefs}
+            onChange={(e) => updateNotifs.mutate({ ...(notifPrefs as NotificationPrefs), daytrade_focus_only: e.target.checked })}
+            className="rounded border-border-subtle"
+          />
+          <ShieldCheck className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
+          <div className="flex-1">
+            <span className="text-sm text-text-primary">Day-trade alerts: my Focus list only</span>
+            <p className="text-[10px] text-text-faint">Off = your whole watchlist (default). On = push day-trade alerts only for symbols on your Focus tab — the rest are still tracked in the feed, marked “not in Focus.” Swing &amp; long-term always cover your whole watchlist.</p>
+          </div>
+        </label>
+
         {dirty && (
           <button
             onClick={() => updateNotifs.mutate({

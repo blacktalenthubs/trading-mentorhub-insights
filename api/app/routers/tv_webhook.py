@@ -1676,11 +1676,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         _normf = lambda s: _re_focus.sub(r"[^A-Z0-9]", "", (s or "").upper())  # noqa: E731
         _sig_norm = _normf(sig.symbol)
         _focus_by_user: dict[int, set[str]] = {}
-        if _alert_style == "day_trade" and users:
+        _focus_uids = [u.id for u in users if getattr(u, "daytrade_focus_only", False)]
+        if _alert_style == "day_trade" and _focus_uids:
             from app.models.watchlist import WatchlistItem as _WI
             _frows = (await db.execute(
                 select(_WI.user_id, _WI.symbol).where(
-                    _WI.user_id.in_([u.id for u in users]), _WI.focus.is_(True))
+                    _WI.user_id.in_(_focus_uids), _WI.focus.is_(True))
             )).all()
             for _uid, _sym in _frows:
                 _focus_by_user.setdefault(_uid, set()).add(_normf(_sym))
@@ -1759,10 +1760,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 next_resistance=sig.target_1,
                 morning_low=getattr(sig, "_tv_morning_low", None),
             )
-            # Day-trade focus scope: record-not-deliver if this user has a Focus list
-            # that doesn't include this symbol (whole-watchlist users are unaffected).
+            # Day-trade focus scope — OPT-IN (default OFF = whole watchlist, no change for
+            # existing users). Only when the user turned ON daytrade_focus_only AND has a
+            # Focus list that excludes this symbol → record-not-deliver. Whole-watchlist
+            # users (the default) are unaffected.
             _not_focus = (
                 _alert_style == "day_trade"
+                and bool(getattr(user, "daytrade_focus_only", False))
                 and bool(_focus_by_user.get(user.id))
                 and _sig_norm not in _focus_by_user[user.id]
             )
