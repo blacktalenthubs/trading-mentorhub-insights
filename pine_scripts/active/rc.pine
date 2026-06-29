@@ -281,7 +281,7 @@ okM = not na(hMp) and not na(lMp) and not na(lMd)
 // crosses, not reclaims) and the trivially-true RC-H undercut. Per-call-site var
 // state, reset each period, fires once. A single wick bar (low<level, close>level
 // after being armed) still fires — that IS the sweep-and-reclaim.
-sweep_reclaim(float level, bool en, bool ok, bool newper) =>
+sweep_reclaim(float level, bool en, bool ok, bool newper, bool arm_break = false) =>
     var bool armed = false
     var bool swept = false
     var bool fired = false
@@ -289,7 +289,13 @@ sweep_reclaim(float level, bool en, bool ok, bool newper) =>
         armed := false
         swept := false
         fired := false
-    if ok and (close > level)
+    // ARM = price has accepted above the level. Normally a CLOSE above. For RC-H
+    // (arm_break) a gap/break ABOVE (high>level) ALSO arms — so a gap-up that opens
+    // OVER the prior high, pulls back THROUGH it, then reclaims still fires. Without
+    // this, ACMR 6/29 missed: gapped over PWH 111.41, dipped to 110.10 (undercut),
+    // ran to close 117.99 — but it undercut BEFORE any 5m bar closed above to arm.
+    // (RC-low keeps close>level: high>prior-LOW is ~always true, would arm forever.)
+    if ok and ((close > level) or (arm_break and high > level))
         armed := true
     if armed and ok and (low < level)
         swept := true
@@ -306,13 +312,13 @@ l4_at_support = near_lvl(l4p, lDp) or near_lvl(l4p, lWp) or near_lvl(l4p, lMp) o
 gate4_long = (not gate_low)  or uptrend or l4_at_support
 gate4_hrec = (not gate_hrec) or uptrend
 rc4_long = sweep_reclaim(l4p, en4_long and gate4_long, ok4, n4)
-rc4_hrec = sweep_reclaim(h4p, en4_hrec and gate4_hrec, ok4, n4)
+rc4_hrec = sweep_reclaim(h4p, en4_hrec and gate4_hrec, ok4, n4, true)
 rcD_long = sweep_reclaim(lDp, enD_long, okD, nD)
-rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD)
+rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD, true)
 rcW_long = sweep_reclaim(lWp, enW_long, okW, nW)
-rcW_hrec = sweep_reclaim(hWp, enW_hrec, okW, nW)
+rcW_hrec = sweep_reclaim(hWp, enW_hrec, okW, nW, true)
 rcM_long = sweep_reclaim(lMp, enM_long, okM, nM)
-rcM_hrec = sweep_reclaim(hMp, enM_hrec, okM, nM)
+rcM_hrec = sweep_reclaim(hMp, enM_hrec, okM, nM, true)
 
 // ── CML reclaim/held — defend the CURRENT-month low intraday. The month low MOVES
 // (it drops as price makes new lows), so snapshot it at each NEW DAY (prior bar = no
