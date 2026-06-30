@@ -68,15 +68,34 @@ def _grade_filter_clause(user: User):
     return None  # no filter
 
 
+def _exclude_obsolete_clause():
+    """Hide RETIRED alert types from the feed entirely — not just un-delivered.
+    A bound TV alert can keep EMITTING a cut rule until it's re-pasted (e.g.
+    rc_4h_short on overnight crypto); the webhook now drops new fires, but rows
+    recorded BEFORE that drop deployed still surface in old sessions. Excluding
+    OBSOLETE_ALERT_TYPES at the query layer makes them vanish everywhere, past
+    and future, without deleting the audit rows. Matches both the bare name and
+    the `tv_`-prefixed stored form."""
+    from app.models.alert_type_config import OBSOLETE_ALERT_TYPES
+    names: set[str] = set()
+    for t in OBSOLETE_ALERT_TYPES:
+        names.add(t)
+        names.add(f"tv_{t}")
+    return Alert.alert_type.notin_(names)
+
+
 @router.get("/today", response_model=List[AlertResponse])
 async def alerts_today(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     grade_clause = _grade_filter_clause(user)
+    obsolete_clause = _exclude_obsolete_clause()
 
     # Try today first
-    base = select(Alert).where(Alert.user_id == user.id, Alert.session_date == _today())
+    base = select(Alert).where(
+        Alert.user_id == user.id, Alert.session_date == _today(), obsolete_clause
+    )
     if grade_clause is not None:
         base = base.where(grade_clause)
     result = await db.execute(base.order_by(Alert.created_at.desc()))
@@ -92,7 +111,9 @@ async def alerts_today(
         )
         last_date = latest.scalar_one_or_none()
         if last_date:
-            q2 = select(Alert).where(Alert.user_id == user.id, Alert.session_date == last_date)
+            q2 = select(Alert).where(
+                Alert.user_id == user.id, Alert.session_date == last_date, obsolete_clause
+            )
             if grade_clause is not None:
                 q2 = q2.where(grade_clause)
             result2 = await db.execute(q2.order_by(Alert.created_at.desc()))
@@ -131,7 +152,7 @@ async def alerts_history(
 
     grade_clause = _grade_filter_clause(user)
     scope_uid = await _history_user_id(user, db)
-    q = select(Alert).where(Alert.user_id == scope_uid)
+    q = select(Alert).where(Alert.user_id == scope_uid, _exclude_obsolete_clause())
     if grade_clause is not None:
         q = q.where(grade_clause)
     result = await db.execute(
