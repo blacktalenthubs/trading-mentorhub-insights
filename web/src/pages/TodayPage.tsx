@@ -290,7 +290,11 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
           <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
             No name is at a monthly breakout today — nothing to chase. Patience.
           </div>
-        ) : swing.map((p) => <SwingCard key={p.symbol} p={p} onChart={onChart} />)}
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+            {swing.map((p) => <SwingCard key={p.symbol} p={p} onChart={onChart} />)}
+          </div>
+        )}
       </section>
       <section className="space-y-2.5">
         <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Today's Focus · the turn · the hold · the breakout</h3>
@@ -298,7 +302,11 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
           <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
             No liquid leader is at a key level today.
           </div>
-        ) : daytrade.map((p) => <DayCard key={p.symbol} p={p} onChart={onChart} />)}
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+            {daytrade.map((p) => <DayCard key={p.symbol} p={p} onChart={onChart} />)}
+          </div>
+        )}
       </section>
     </div>
   );
@@ -376,7 +384,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
         which === "focus"
           ? <FocusPicks body={active.body} onChart={onChart} />
           : (
-            <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
+            <div className="max-w-3xl rounded-xl border border-border-subtle bg-surface-1 p-4">
               <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
             </div>
           )
@@ -735,7 +743,7 @@ export default function TodayPage() {
         {tab === "bottom" && <BottomWatchBoard onChart={goChart} />}
 
         {tab === "briefing" && (
-          <div className="max-w-2xl">
+          <div>
             <div className="flex items-center gap-2 px-1 mb-2">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">{dayLabel}</span>
               <span className="text-[11px] text-text-faint">· premarket + end-of-day — same reports as Telegram</span>
