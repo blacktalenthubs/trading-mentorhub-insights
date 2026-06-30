@@ -345,6 +345,22 @@ function notRoutedLabel(reason?: string | null): string | null {
   return NOT_ROUTED_LABELS[reason] ?? reason.replace(/_/g, " ").slice(0, 24);
 }
 
+// A human badge for the COLLAPSED reasons (hidden from the feed unless "Show
+// collapsed" is on). Carries the price/anchor it lost to so the dedup is auditable.
+// Returns null for non-collapse reasons (so the card shows NOT SENT instead).
+function collapsedLabel(reason?: string | null): string | null {
+  if (!reason) return null;
+  const i = reason.indexOf(":");
+  const base = i >= 0 ? reason.slice(0, i) : reason;
+  const anchor = i >= 0 ? reason.slice(i + 1) : "";
+  if (base === "dedup_confluence") return `merged · $${anchor}`;
+  if (base === "dedup_chase") return `chase · ≥ $${anchor}`;
+  if (base === "dedup_cooldown") return "cooldown · < 30m";
+  if (base === "confluence_collapsed") return "same-bar";
+  if (reason === "late_session") return "late session";
+  return null;
+}
+
 function SignalFeedTab({
   alerts,
   alertsError,
@@ -361,6 +377,18 @@ function SignalFeedTab({
   onAssetFilterChange?: (a: "all" | "stocks" | "crypto") => void;
 }) {
   const [search, setSearch] = useState("");
+  // "Show collapsed" — reveal the deduped/merged alerts (hidden by default) so the
+  // dedup is auditable. Persisted; default OFF (clean feed).
+  const [showCollapsed, setShowCollapsed] = useState<boolean>(
+    () => typeof window !== "undefined" && localStorage.getItem("show_collapsed") === "1",
+  );
+  function toggleShowCollapsed() {
+    setShowCollapsed((p) => {
+      const next = !p;
+      try { localStorage.setItem("show_collapsed", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  }
   // Sort options — persisted to localStorage so refresh doesn't reset.
   type FeedSort = "time" | "grade" | "vol" | "slope" | "symbol" | "rr";
   const SORT_LABELS: Record<FeedSort, string> = {
@@ -453,9 +481,14 @@ function SignalFeedTab({
     !!r && (r.startsWith("confluence_collapsed") || r.startsWith("dedup_")
             || r === "late_session");   // 4h-break muted after the morning window
   const styleOf = (a: Alert) => (a.style ?? "day_trade");
+  // Collapsed (deduped/merged) alerts are hidden by default; "Show collapsed" reveals
+  // them (greyed + badged with the price they lost to) so the dedup is auditable.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && !COLLAPSED_REASONS(a.suppressed_reason),
+    (a) => isFeedSignal(a.alert_type) && (showCollapsed || !COLLAPSED_REASONS(a.suppressed_reason)),
   );
+  const collapsedCount = (alerts ?? []).filter(
+    (a) => isFeedSignal(a.alert_type) && COLLAPSED_REASONS(a.suppressed_reason),
+  ).length;
   const styleCounts = feedAllRaw.reduce(
     (acc, a) => { acc[styleOf(a)] = (acc[styleOf(a)] ?? 0) + 1; return acc; },
     { day_trade: 0, swing: 0, long_term: 0 } as Record<string, number>,
@@ -638,6 +671,21 @@ function SignalFeedTab({
             <span className="ml-0.5 min-w-[14px] text-center text-[9px] font-bold rounded-full bg-accent text-bg-base px-1">{activeFilterCount}</span>
           )}
         </button>
+        {collapsedCount > 0 && (
+          <button
+            onClick={toggleShowCollapsed}
+            title={showCollapsed
+              ? "Hide the deduped / merged alerts"
+              : `Show ${collapsedCount} alerts the dedup collapsed (audit — one alert per price level)`}
+            className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-0.5 transition-colors ${
+              showCollapsed
+                ? "bg-accent/10 text-accent border-accent/40 hover:bg-accent/15"
+                : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+            }`}
+          >
+            <span>⋯</span><span className="font-bold">{collapsedCount}</span>
+          </button>
+        )}
         {filtersOpen && (
           <>
             <button className="fixed inset-0 z-30 cursor-default" onClick={() => setFiltersOpen(false)} aria-label="Close filters" />
@@ -775,9 +823,12 @@ function SignalFeedTab({
           : a.direction === "SHORT"
             ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
             : "bg-warning/10 text-warning-text border-warning/20";
+        // Collapsed (deduped/merged) — only visible when "Show collapsed" is on.
+        // Badge it distinctly + dim hard so it reads as "dropped, for audit".
+        const colLabel = collapsedLabel(a.suppressed_reason);
         // Fired but not routed to Telegram (e.g. SPY < PDL) — show greyed +
         // badged so it's reviewable without reading as a live, delivered call.
-        const nrLabel = notRoutedLabel(a.suppressed_reason);
+        const nrLabel = colLabel ? null : notRoutedLabel(a.suppressed_reason);
         const rr = a.entry != null && a.target_1 != null && a.stop != null && a.entry !== a.stop
           ? Math.abs((a.target_1 - a.entry) / (a.entry - a.stop))
           : null;
@@ -785,7 +836,7 @@ function SignalFeedTab({
         return (
           <div
             key={a.id}
-            className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer${nrLabel ? " opacity-55" : ""}`}
+            className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer${colLabel ? " opacity-40" : nrLabel ? " opacity-55" : ""}`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
             {/* identity — symbol (anchor) · direction · (AI) ··· (NOT SENT) · time */}
@@ -798,6 +849,14 @@ function SignalFeedTab({
                 )}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
+                {colLabel && (
+                  <span
+                    title={`Collapsed by dedup — ${a.suppressed_reason}. Recorded, not delivered (one alert per price level).`}
+                    className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-4 text-text-muted border border-border-subtle cursor-help"
+                  >
+                    ⋯ {colLabel}
+                  </span>
+                )}
                 {nrLabel && (
                   <span
                     title={`Not sent to Telegram — ${a.suppressed_reason}. Recorded for review.`}
