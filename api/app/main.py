@@ -118,6 +118,17 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+        # Migration (2026-06-30): Master Alerts opt-in. Receive the whole master-watchlist
+        # deduped feed (gated by the curated MASTER_ALERT_TYPES set) regardless of personal
+        # watchlist. Default OFF — opt-in via Settings; no behaviour change for existing users.
+        try:
+            await conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS master_alerts BOOLEAN DEFAULT false"
+            ))
+            logger.info("Migration: users.master_alerts column ensured")
+        except Exception as e:
+            logger.warning("Migration ALTER TABLE users.master_alerts: %s", e)
+
         # Migration: chart_levels columns — a prod table predating user_id (and
         # label/color/created_at) 500s every /charts/levels query (create_all
         # never ALTERs existing tables). user_id was the actual missing column.
