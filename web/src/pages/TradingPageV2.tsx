@@ -883,7 +883,12 @@ export default function TradingPageV2() {
   const selectSymbol = useCallback((sym: string) => {
     setSelectedSymbol(sym);
     localStorage.setItem("chart_selected_symbol", sym);
-    setMobileWatchlistOpen(false);  // close drawer when symbol picked on mobile
+    setMobileWatchlistOpen(false);   // close watchlist drawer when symbol picked on mobile
+    // Picking a symbol = "show me the chart" → collapse the mobile signals panel so
+    // the chart goes full-height (it was compressed behind the open 17rem panel).
+    // Transient (no localStorage write) — the user's explicit chevron toggle still
+    // persists. Setter is stable, so it needs no dep. No-op on desktop (panel is lg:hidden).
+    setMobileSignalsCollapsed(true);
   }, []);
 
   /* ── Deep-link routing ──
@@ -1648,7 +1653,7 @@ export default function TradingPageV2() {
               ? 0
               : mobileSignalsCollapsed
               ? "calc(2.5rem + env(safe-area-inset-bottom))"
-              : "calc(17rem + env(safe-area-inset-bottom))",
+              : "calc(14rem + env(safe-area-inset-bottom))",
         }}
       >
         {/* Top bar */}
@@ -2216,7 +2221,7 @@ export default function TradingPageV2() {
           )}
         </button>
         {!mobileSignalsCollapsed && (
-          <div className="flex flex-col h-[240px] overflow-hidden">
+          <div className="flex flex-col h-[200px] overflow-hidden">
             <SignalFeedTab
               alerts={filterAlertsByAsset(activeAlerts)}
               alertsError={activeAlertsError}
