@@ -65,6 +65,12 @@ PREMARKET_HOUR_ET   = int(os.environ.get("PREMARKET_HOUR_ET", "8"))
 PREMARKET_MINUTE_ET = int(os.environ.get("PREMARKET_MINUTE_ET", "30"))
 EOD_HOUR_ET         = int(os.environ.get("EOD_HOUR_ET", "16"))
 EOD_MINUTE_ET       = int(os.environ.get("EOD_MINUTE_ET", "5"))
+# Today's Focus (morning_leaders) — generated HERE because yfinance works on the
+# triage worker (it's cloud-blocked on the main API). Runs after premarket; writes
+# market_reports kind=morning_focus daily so the Today's Focus tab stops being static.
+MORNING_FOCUS_HOUR_ET   = int(os.environ.get("MORNING_FOCUS_HOUR_ET", "8"))
+MORNING_FOCUS_MINUTE_ET = int(os.environ.get("MORNING_FOCUS_MINUTE_ET", "35"))
+MORNING_FOCUS_TOP       = int(os.environ.get("MORNING_FOCUS_TOP", "5"))
 
 # Post mode — controls what the agent sends to Telegram.
 # Default 'all' = post every verdict (validation phase: see all data,
@@ -508,6 +514,21 @@ def start_premarket_scheduler():
         except Exception:
             logger.exception("eod recap job failed")
 
+    def _safe_morning_focus():
+        # Run the self-contained morning_leaders script as a subprocess so a yfinance
+        # hang/crash can't take down the live loop. --persist upserts market_reports
+        # kind=morning_focus (DB-direct; needs only DATABASE_URL, which this worker has).
+        try:
+            import subprocess
+            script = str(Path(__file__).resolve().parent / "morning_leaders.py")
+            r = subprocess.run(
+                [sys.executable, script, "--persist", "--top", str(MORNING_FOCUS_TOP)],
+                timeout=600,
+            )
+            logger.info("morning-focus job done (exit=%s)", r.returncode)
+        except Exception:
+            logger.exception("morning-focus job failed")
+
     # Mon-Fri only (no weekend briefs)
     scheduler.add_job(
         _safe_premarket,
@@ -516,14 +537,21 @@ def start_premarket_scheduler():
         id="premarket_brief", replace_existing=True,
     )
     scheduler.add_job(
+        _safe_morning_focus,
+        CronTrigger(hour=MORNING_FOCUS_HOUR_ET, minute=MORNING_FOCUS_MINUTE_ET,
+                    day_of_week="mon-fri", timezone=et_tz),
+        id="morning_focus", replace_existing=True,
+    )
+    scheduler.add_job(
         _safe_eod,
         CronTrigger(hour=EOD_HOUR_ET, minute=EOD_MINUTE_ET,
                     day_of_week="mon-fri", timezone=et_tz),
         id="eod_recap", replace_existing=True,
     )
     scheduler.start()
-    logger.info("scheduler started: premarket %02d:%02d ET, EOD %02d:%02d ET (mon-fri)",
-                PREMARKET_HOUR_ET, PREMARKET_MINUTE_ET, EOD_HOUR_ET, EOD_MINUTE_ET)
+    logger.info("scheduler started: premarket %02d:%02d, morning-focus %02d:%02d, EOD %02d:%02d ET (mon-fri)",
+                PREMARKET_HOUR_ET, PREMARKET_MINUTE_ET, MORNING_FOCUS_HOUR_ET,
+                MORNING_FOCUS_MINUTE_ET, EOD_HOUR_ET, EOD_MINUTE_ET)
     return scheduler
 
 
