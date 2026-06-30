@@ -10,7 +10,7 @@
 import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, TrendingUp, TrendingDown, ChevronRight, ChevronDown, Bot } from "lucide-react";
-import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useMarketReports, useBottomWatch, type BottomWatchItem } from "../api/hooks";
+import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useMarketReports, useReportDates, useBottomWatch, type BottomWatchItem } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
@@ -305,7 +305,13 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
 }
 
 function ReportsView({ onChart }: { onChart: (s: string) => void }) {
-  const { data, isLoading } = useMarketReports();
+  // Per-day review — "" = latest; pick a past session to flip back to its reports.
+  const [selectedDate, setSelectedDate] = useState("");
+  const { data, isLoading } = useMarketReports(selectedDate || undefined);
+  const { data: datesData } = useReportDates();
+  const reportDates = datesData?.dates ?? [];
+  const fmtDate = (d: string) =>
+    new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   const pre = data?.premarket ?? null;
   const eod = data?.eod ?? null;
   const mf = data?.morning_focus ?? null;
@@ -340,7 +346,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   };
   return (
     <div className="space-y-2">
-      <div className="flex gap-1.5">
+      <div className="flex items-center gap-1.5">
         {([["focus", "Today's Focus"], ["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => (
           <button
             key={id}
@@ -352,6 +358,19 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             {label}
           </button>
         ))}
+        {reportDates.length > 0 && (
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            title="Review a past session"
+            className="ml-auto rounded-lg bg-surface-2 border border-border-subtle px-2 py-1.5 text-[11px] text-text-secondary"
+          >
+            <option value="">Latest</option>
+            {reportDates.map((d) => (
+              <option key={d} value={d}>{fmtDate(d)}</option>
+            ))}
+          </select>
+        )}
       </div>
       {active?.body ? (
         which === "focus"
