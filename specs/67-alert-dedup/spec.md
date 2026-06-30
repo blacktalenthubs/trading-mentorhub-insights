@@ -34,33 +34,38 @@ grade (not trusted, ignored for dedup).
    suppressed by this feature.
 4. Suppressed alerts are **recorded** (with reason), so the feed can show "+N collapsed".
 
-## The solution — two layers, scoped by style
-`style_for(alert_type)` decides treatment.
+## The solution — ONE alert per PRICE LEVEL per name
+The unit of an alert is a **price level**, not a type. Per **symbol × direction × session**,
+track `anchor` (lowest price alerted for a long / highest for a short) + `last_fire_time`. A
+candidate fires only if **BOTH** gates pass; drop if **either** fails:
+1. **TIME** — ≥ **30 min** since the last fire on this name, else `dedup_cooldown`. Collapses
+   the same-instant burst *regardless of price* (ALAB 407 + 396 + 396 at 9:35 → one).
+2. **PRICE** — a genuinely **new level**: `entry < anchor·(1−band)` for a long (`> anchor·(1+band)`
+   for a short), band = **0.3%**. At/above the anchor (or within the band) = a chase or a
+   same-price twin → `dedup_chase`. Kills the chase-ups AND folds same-price confluence.
 
-### A. Day-trade (`style == day_trade`) — entry-ratchet + 30-min cooldown
-Per **user × symbol × direction × session**, track `last_fire_time` and `best_entry`
-(lowest for long / highest for short). A candidate fires only if **both**:
-1. **Time** — ≥ **30 min** since the last fired day-trade alert on this symbol+direction,
-   else suppress `dedup_cooldown`.
-2. **Price** — entry strictly **better** than `best_entry` (long: `entry < best_entry`),
-   else suppress `dedup_chase`.
+In one line: **"fire on a new lower level, at most once per 30 min."** This is what lets a user
+enable **every** alert type without flooding — the alert count tracks distinct price LEVELS,
+not types × touches.
 
-On fire: update `last_fire_time` and ratchet `best_entry`. State is **derived from today's
-already-persisted alerts** (no in-memory cache → survives restarts).
+**Type roles in the anchor:**
+- **PRICE-LEVEL types** (`weekly_rc`, `monthly_rc`, `cml/pml_*`, `staged_pwl/pml_held`,
+  `weekly_10w/30w_*`, `monthly_box`, `mobo_rch`) — **always fire** (never dropped) **AND seed
+  the anchor**, so a same-price day-trade twin folds into them as confluence, not a 2nd card.
+  *INTC 2026-06-29:* weekly_rc @125.41 fires + seeds → the PD-low reclaim @125.50 (same price)
+  drops → only the lower EMA bounce @122.31 fires. **7 → 2.**
+- **DAY-TRADE + MA** types — the only ones the two gates can **drop**. (User: an intraday
+  "PDH break" while a name rides the 21 EMA up is *chasing*, not a breakout — the lowest entry
+  is the keeper. A genuine breakout worth its own alert is a weekly/monthly LEVEL, which always
+  fires above.)
+- **MOMENTUM types** (`rsi_oversold`, `rsi_70`, `swing_rsi_30`, `ema_5_20_cross`) — always fire,
+  **do NOT seed** the anchor (a different signal axis, not a price level).
 
-*Result on real data:* ALAB 3@9:35 → 1; UCTT 5 → 2 (119.77 + the lower 116.34 reclaim 54m
-later); chase-ups (AMZN/ONTO) → 1. **276 → 99 (−64%).**
-
-### B. Swing + Long-term — levels always fire, merge only same-price duplicates
-- **Never** apply ratchet/cooldown to level types — they always fire (criterion 3).
-- **Price-zone merge:** if a swing/long-term alert lands within **±0.5%** of another
-  already-fired swing/long-term alert on the same symbol this session, merge into **one**
-  card — keep the **level** alert as primary (`weekly_rc`/`PWL`), attach the other as
-  confluence. Folds the real duplicates: WULF `weekly_rc 24.44` + `EMA50 24.41`; IREN
-  `EMA200 45.18` + `PWL 45.05`. Reason on the merged-away row: `dedup_price_zone`.
-
-The MA-bounce family is the only swing/long-term duplicator; the price-zone merge folds it
-into the coincident level instead of muting it.
+*Result on real data:* ALAB 3@9:35 → 1; UCTT 5 → 2; INTC 7 → 2; chase-ups (AMZN/ONTO) → 1.
+Knobs: `V2_ENTRY_DEDUP_COOLDOWN_MIN` (30), `V2_ENTRY_DEDUP_BAND_PCT` (0.3), kill
+`V2_ENTRY_DEDUP_ENABLED=false`. State is in-memory per (symbol, direction), reset per session.
+**Known v1 limit:** order-dependence — if a day-trade twin arrives *before* its same-price
+level, both fire (the level always fires); the level-absorbs-existing-card merge is a follow-up.
 
 ## Architecture
 One gate in the **persist loop** in `api/app/routers/tv_webhook.py`, alongside the existing
