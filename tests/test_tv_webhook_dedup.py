@@ -153,20 +153,30 @@ def test_price_level_classification():
 
 
 def test_level_seeds_anchor_drops_same_price_day_trade():
-    """INTC: weekly_rc @125.41 fires AND seeds the anchor, so the same-price
-    PD-low reclaim @125.50 drops; only the lower EMA bounce @122.31 fires."""
+    """INTC: weekly_rc @125.41 fires AND seeds, so the same-price PD-low reclaim
+    @125.50 MERGES (confluence); only the lower EMA bounce @122.31 fires."""
     assert _fire("INTC", "BUY", 125.41, "tv_weekly_rc") is None          # level fires + seeds
-    res = _fire("INTC", "BUY", 125.50, "tv_rc_daily_long", elapsed=40)   # same price, past cooldown
-    assert res and res["reason"] == "dedup_chase"
-    assert res["anchor"] == 125.41                                        # seeded by the weekly
+    res = _fire("INTC", "BUY", 125.50, "tv_rc_daily_long", elapsed=40)   # same price (0.07%)
+    assert res and res["reason"] == "dedup_confluence"
+    assert res["anchor"] == 125.41                                        # the level it merged into
     assert _fire("INTC", "BUY", 122.31, "tv_ma_bounce_long_v3_ema21", elapsed=40) is None  # new lower level
 
 
+def test_level_vs_level_same_price_merges():
+    """AMD: PWL held + Weekly reclaim both @502.61 → one card (the 2nd merges)."""
+    assert _fire("AMD", "BUY", 502.61, "tv_staged_pwl_held") is None     # 1st level → the card
+    res = _fire("AMD", "BUY", 502.61, "tv_weekly_rc")                    # 2nd level, same price
+    assert res and res["reason"] == "dedup_confluence"
+    assert res["anchor"] == 502.61
+    # a level at a genuinely DIFFERENT price still fires (a distinct level)
+    assert _fire("AMD", "BUY", 480.00, "tv_monthly_rc") is None
+
+
 def test_band_drops_epsilon_lower_same_level():
-    """A trivially-lower entry inside the band is the SAME level → drop."""
+    """A trivially-lower entry inside the band is the SAME level → merges."""
     _fire("BND", "BUY", 100.0, "tv_rc_4h_long")
     res = _fire("BND", "BUY", 99.9, "tv_rc_4h_long", elapsed=40)   # -0.1% < 0.3% band
-    assert res and res["reason"] == "dedup_chase"
+    assert res and res["reason"] == "dedup_confluence"
     # a move beyond the band IS a new level → fires
     assert _fire("BND", "BUY", 99.0, "tv_rc_4h_long", elapsed=40) is None  # -1.0% > band
 
