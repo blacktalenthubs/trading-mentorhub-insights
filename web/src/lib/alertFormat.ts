@@ -36,6 +36,26 @@ export function formatSetup(alertType?: string): string {
     return swing(`${lvl} ${sm[3].replace(/_/g, " ")}`);
   }
   const NAMES: Record<string, string> = {
+    // RC / reclaim family — TF-explicit so 4 fires on one name read as
+    // "same setup, different timeframes", not 4 mystery signals.
+    rc_4h_long: "4-hour low reclaim",
+    rc_4h_hrec: "4-hour high break",
+    rc_daily_long: "Prior-day low reclaim",
+    rc_daily_hrec: "Prior-day high break",
+    weekly_rc: "Weekly level reclaim",
+    monthly_rc: "Monthly level reclaim",
+    reclaim_long: "Morning shakeout reclaim",
+    gap_up_continuation_long: "Gap-up continuation",
+    cml_held: "Month-low support hold",
+    cml_reclaim: "Month-low reclaim",
+    pml_held: "Prior-month-low support hold",
+    monthly_box: "Monthly box breakout",
+    mobo_rch: "Monthly high breakout",
+    weekly_10w_held: "10-week MA support hold",
+    weekly_10w_reclaim: "10-week MA reclaim",
+    weekly_30w_held: "30-week MA support hold",
+    weekly_30w_reclaim: "30-week MA reclaim",
+    swing_rsi_30: "RSI-30 reclaim (the turn)",
     open_reclaimed: "Open reclaimed",
     open_held: "Open held",
     open_wick_reclaim: "Open wick reclaim",
@@ -54,6 +74,60 @@ export function formatSetup(alertType?: string): string {
     htf_sr_bounce: "Multi-period support",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+}
+
+/** One-line plain-English explanation of what the setup MEANS — shown under the
+ *  name in the feed so a user understands the signal without knowing the jargon.
+ *  Returns "" when there's no blurb (the name alone is self-explanatory). */
+export function setupBlurb(alertType?: string): string {
+  const t = (alertType ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
+  // MA bounce family → "Pulled back to the EMA 21 and held it as support."
+  const ma = t.match(/^ma_bounce_long_v3_(.+)$/);
+  if (ma) {
+    const m = ma[1]
+      .split("_")
+      .map((x) => x.toUpperCase().replace(/^(EMA|SMA)/, "$1 "))
+      .join(" + ");
+    return `Pulled back to the ${m} and held it as support.`;
+  }
+  // Staged level events → "Price held the prior-day low as support."
+  const sm = t.match(/^staged_p([dwm])([hl])_(.+)$/);
+  if (sm) {
+    const lvl = sm[1] === "d" ? "prior-day" : sm[1] === "w" ? "prior-week" : "prior-month";
+    const hl = sm[2] === "h" ? "high" : "low";
+    const act = sm[3].includes("held")
+      ? `held the ${lvl} ${hl} as support`
+      : sm[3].includes("break")
+        ? `broke the ${lvl} ${hl}`
+        : sm[3].includes("reject")
+          ? `rejected off the ${lvl} ${hl}`
+          : `${sm[3].replace(/_/g, " ")} the ${lvl} ${hl}`;
+    return `Price ${act}.`;
+  }
+  const BLURB: Record<string, string> = {
+    rc_4h_long: "Dipped under the 4-hour low and reclaimed it — bounce off support.",
+    rc_4h_hrec: "Pushed back above the 4-hour high — continuation.",
+    rc_daily_long: "Dipped under yesterday's low and reclaimed it — bounce.",
+    rc_daily_hrec: "Pushed back above yesterday's high — continuation.",
+    weekly_rc: "Reclaimed or broke a prior-week level — swing heads-up.",
+    monthly_rc: "Reclaimed or broke a prior-month level — position heads-up.",
+    reclaim_long: "Faked under the morning high, snapped back with room above.",
+    gap_up_continuation_long: "Gapped up and held the gap — trend continuation.",
+    rsi_oversold: "RSI in the 30-35 buy zone — washed out, turning up.",
+    rsi_70: "RSI tagged 70 — momentum / extension (trim zone).",
+    swing_rsi_30: "Reclaimed after an RSI-30 washout — the turn.",
+    ema_5_20_cross: "5-EMA crossed above the 20-EMA — momentum turn.",
+    cml_held: "Held this month's low as support.",
+    cml_reclaim: "Undercut this month's low and reclaimed it.",
+    pml_held: "Held last month's low as support.",
+    monthly_box: "Broke out of a multi-month base — the big-run setup.",
+    mobo_rch: "Broke a prior-month high that had capped it — breakout.",
+    weekly_10w_held: "Held the 10-week moving average as support.",
+    weekly_10w_reclaim: "Reclaimed the 10-week moving average.",
+    weekly_30w_held: "Held the 30-week moving average as support.",
+    weekly_30w_reclaim: "Reclaimed the 30-week moving average.",
+  };
+  return BLURB[t] ?? "";
 }
 
 /** True for alerts that belong in the Signals feed — AI scans + TV signals, no WAITs. */
