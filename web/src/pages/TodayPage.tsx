@@ -15,6 +15,7 @@ import type { SpyRegimeSnapshot } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
 import AlertCard from "../components/AlertCard";
+import MasterAlertsBanner from "../components/MasterAlertsBanner";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -595,6 +596,8 @@ export default function TodayPage() {
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 pb-16">
+        {/* Master Alerts — discoverability (one tap to subscribe to the whole feed) */}
+        <MasterAlertsBanner />
         {/* market read + posture */}
         <header className="pb-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
