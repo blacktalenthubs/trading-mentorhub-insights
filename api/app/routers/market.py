@@ -1213,21 +1213,20 @@ _BOTTOM_WATCH_MAX = 120       # the screener_universe (~120 notable/liquid names
 
 
 def _bottom_state(rsi: float, rsi_prev, near_200: bool) -> tuple[str, str]:
-    """Classify one symbol's bottom-fishing state from its daily RSI (+ 200-MA
-    proximity). The 'approaching' state is the PROXIMITY heads-up — RSI heading into
-    the zone before it's actually oversold, so you can pre-position."""
-    falling = rsi_prev is not None and rsi < rsi_prev
+    """Classify a symbol's bottom-fishing state. ONLY the actionable states make
+    the board (user 2026-06-30): RSI <= 33 (cooling near / below 30) OR at the
+    200-MA. 'Cooling above the zone' and 'approaching' are DROPPED (empty state) —
+    they don't do much; below 33 is where we start paying attention. Less data,
+    fast to scan. The caller filters out the empty-state rows."""
     if rsi_prev is not None and rsi_prev < 30 <= rsi:
         return "reclaimed_30", "Reclaimed 30 → BUY"
     if rsi < 30:
         return "oversold", "Oversold — watch the reclaim"
-    if rsi <= 35:
-        return "buy_zone", "In the 30–35 buy zone"
-    if rsi <= 40 and falling:
-        return "approaching", "Approaching oversold"
+    if rsi <= 33:
+        return "buy_zone", "In the 30–33 buy zone"
     if near_200:
         return "at_200ma", "At the 200-MA"
-    return "cooling", "Cooling, above the zone"
+    return "", ""   # not on the board — cooling above the zone
 
 
 # Fundamentals — "is it worth buying even oversold?" (P/E, EPS, analyst rating + target,
@@ -1272,11 +1271,12 @@ async def bottom_watch(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """The user's watchlist ranked by daily RSI(14), lowest first — for catching the
-    bottom in washed-out (mega-)caps. Each row carries the RSI, distance to the 200-MA,
-    and a STATE: oversold (<30, watch) · reclaimed_30 (RSI crossed back above 30 = the
-    turn is in) · buy_zone (30–35) · at_200ma · cooling. Powers the Today 'Bottom Watch'
-    board. Cached 5 min (one slow uncached pass, then instant)."""
+    """The broad universe ranked by daily RSI(14), lowest first — for catching the
+    bottom in washed-out (mega-)caps. ONLY actionable rows make the board: RSI <= 33
+    (cooling near / below 30) OR at the 200-MA. Each row carries the RSI, distance to
+    the 200-MA, and a STATE: reclaimed_30 (the turn is in) · oversold (<30) · buy_zone
+    (30–33) · at_200ma. 'Cooling above the zone' is excluded (less data, fast to scan).
+    Powers the Today 'Bottom Watch' board. Cached 5 min."""
     # GLOBAL universe — the broad market scan set (screener_universe, ~120 notable/liquid
     # names, rebuilt periodically), NOT the user's watchlist. The whole point is to surface
     # oversold names you AREN'T already watching, so the board is the same for everyone.
@@ -1329,7 +1329,9 @@ async def bottom_watch(
             "state_label": label,
         }
 
-    results = [r for r in await asyncio.gather(*[_one(s) for s in symbols]) if r]
+    # Only actionable rows make the board — RSI <= 33 (cooling near/below 30) or at
+    # the 200-MA. Empty-state rows (cooling above the zone) are dropped.
+    results = [r for r in await asyncio.gather(*[_one(s) for s in symbols]) if r and r["state"]]
     results.sort(key=lambda x: x["rsi"])
     cache_set(key, results, _BOTTOM_WATCH_TTL)
     return _attach_fundamentals(results)
