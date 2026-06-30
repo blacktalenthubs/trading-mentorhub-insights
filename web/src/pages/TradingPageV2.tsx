@@ -450,7 +450,8 @@ function SignalFeedTab({
   // dedup_chase) are dropped from the feed — collapsed to the first/best entry.
   // styleOf falls back to day_trade for old rows.
   const COLLAPSED_REASONS = (r?: string | null) =>
-    !!r && (r.startsWith("confluence_collapsed") || r.startsWith("dedup_"));
+    !!r && (r.startsWith("confluence_collapsed") || r.startsWith("dedup_")
+            || r === "late_session");   // 4h-break muted after the morning window
   const styleOf = (a: Alert) => (a.style ?? "day_trade");
   const feedAllRaw = (alerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && !COLLAPSED_REASONS(a.suppressed_reason),

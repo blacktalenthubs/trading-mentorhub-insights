@@ -488,6 +488,40 @@ def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bo
     return now_et.hour < 4 or now_et.hour >= 16
 
 
+# Breakout-continuation types prone to CHASING in the afternoon. User 2026-06-30:
+# the 4h high break is good early but looks like chasing by noon — only let it fire
+# in the first N hours of the RTH session (09:30 ET + N), then mute, to avoid chasing
+# into the close. EQUITIES only (crypto is 24/7, no "open"). Default N = 3 → 09:30–12:30 ET.
+_MORNING_ONLY_TYPES: frozenset[str] = frozenset({"rc_4h_hrec"})
+
+
+def _is_after_morning_window(symbol: str, alert_type_full: str, now: Optional[datetime] = None) -> bool:
+    """True if a MORNING-ONLY type (the 4h high break) fires AFTER the first N hours
+    of RTH (default 3 → past 12:30 ET). Equities only; crypto + non-morning types
+    return False (no window). Premarket is left alone — the concern is the late chase."""
+    base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    if base not in _MORNING_ONLY_TYPES or _is_crypto_symbol(symbol):
+        return False
+    try:
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+    except Exception:
+        return False
+    if now is None:
+        now = datetime.now(et)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=et)
+    now_et = now.astimezone(et)
+    if now_et.weekday() >= 5:        # weekend — RTH window N/A, let other gates handle
+        return False
+    try:
+        hours = float(_envf("V2_HREC_MORNING_HOURS", 3))
+    except Exception:
+        hours = 3.0
+    mins_since_open = (now_et.hour * 60 + now_et.minute) - (9 * 60 + 30)
+    return mins_since_open > hours * 60   # past the morning window → mute
+
+
 def is_basing_chop(
     stage: Optional[str],
     vwap_slope_pct: Optional[float],
@@ -1735,6 +1769,16 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         sig.symbol, direction, getattr(sig, "entry", None),
         alert_type_full, session_date,
     )
+
+    # Morning-window gate — the 4h high break chases by the afternoon. Fire only in
+    # the first ~3h of RTH (≤ 12:30 ET, equities); mute after, so users don't chase
+    # into the close. Recorded + hidden from the feed (suppressed_reason=late_session).
+    if _is_after_morning_window(sig.symbol, alert_type_full):
+        logger.info("TV webhook: late-session mute %s for %s (past the morning window)",
+                    alert_type_full, sig.symbol)
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date, suppressed_reason="late_session",
+        )
 
     # When this alert IS the confluence anchor (open_reclaimed/open_lost with
     # near flag set), prefix the message with a tag so the Telegram template
