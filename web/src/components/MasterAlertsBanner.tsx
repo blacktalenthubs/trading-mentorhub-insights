@@ -1,28 +1,39 @@
 /**
  * Master Alerts discoverability banner.
  *
- * Shows once (dismissible) to users who haven't opted into Master Alerts — the
- * platform's whole deduped master-watchlist feed. One tap turns it on; the banner
- * auto-hides the moment master_alerts is true (or when dismissed). No nagging:
- * dismissal persists in localStorage.
+ * Shows to users who haven't opted into Master Alerts — the platform's whole
+ * deduped master-watchlist feed. One tap turns it on; the banner auto-hides the
+ * moment master_alerts is true. Dismiss = SNOOZE 1 hour (not forever) — it comes
+ * back next session/hour so users who skipped it still get reminded, without
+ * nagging on every render. Auto-re-appears when the snooze lapses (timer).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Zap, X } from "lucide-react";
 import { useNotificationPrefs, useUpdateNotificationPrefs } from "../api/hooks";
 import type { NotificationPrefs } from "../types";
 
-const DISMISS_KEY = "master_alerts_banner_dismissed";
+const SNOOZE_KEY = "master_alerts_banner_snoozed_until";
+const SNOOZE_MS = 60 * 60 * 1000; // 1 hour
+
+function snoozedUntil(): number {
+  return parseInt(localStorage.getItem(SNOOZE_KEY) || "0", 10) || 0;
+}
 
 export default function MasterAlertsBanner() {
   const { data: prefs } = useNotificationPrefs();
   const update = useUpdateNotificationPrefs();
-  const [dismissed, setDismissed] = useState<boolean>(
-    () => localStorage.getItem(DISMISS_KEY) === "1",
-  );
+  const [now, setNow] = useState(() => Date.now());
 
-  // Only for users who haven't opted in yet.
-  if (!prefs || prefs.master_alerts || dismissed) return null;
+  // Re-evaluate every 5 min so the banner re-appears after the 1h snooze lapses
+  // even if the user never navigates away.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Only for users who haven't opted in, and not currently snoozed.
+  if (!prefs || prefs.master_alerts || now < snoozedUntil()) return null;
 
   function enable() {
     update.mutate({ ...(prefs as NotificationPrefs), master_alerts: true });
@@ -30,8 +41,8 @@ export default function MasterAlertsBanner() {
     // unmounts on its own. No manual hide needed.
   }
   function dismiss() {
-    try { localStorage.setItem(DISMISS_KEY, "1"); } catch { /* ignore */ }
-    setDismissed(true);
+    try { localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_MS)); } catch { /* ignore */ }
+    setNow(Date.now());   // re-render → hidden until the snooze lapses
   }
 
   return (

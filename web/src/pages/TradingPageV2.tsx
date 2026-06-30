@@ -35,6 +35,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import { formatSetup, isFeedSignal, setupBlurb } from "../lib/alertFormat";
+import MasterAlertsBanner from "../components/MasterAlertsBanner";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
@@ -2154,6 +2155,11 @@ export default function TradingPageV2() {
                 <option key={d} value={d}>{formatSessionDate(d)}</option>
               ))}
             </select>
+          </div>
+
+          {/* Master Alerts — discoverability prompt (snoozes 1h, hides once on) */}
+          <div className="px-2 pt-2 shrink-0">
+            <MasterAlertsBanner />
           </div>
 
           {/* Asset filter — All / Stocks / Crypto */}
