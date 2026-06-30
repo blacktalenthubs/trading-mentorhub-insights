@@ -21,15 +21,18 @@ def _at(h, m=0):
     return datetime(2026, 6, 30, h, m, tzinfo=ET)   # a Tuesday
 
 
-def test_4h_break_allowed_in_morning():
+def test_4h_break_allowed_in_morning_bar():
+    # the morning 4h bar runs 09:30–13:30 — breaks vs YESTERDAY's high, all fire
     assert not _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(9, 35))
     assert not _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(11, 0))
-    assert not _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(12, 30))  # edge of window
+    assert not _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(12, 45))  # was wrongly cut at 12:30
+    assert not _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(13, 25))  # still the morning bar
 
 
-def test_4h_break_muted_after_window():
-    assert _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(12, 31))
-    assert _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(14, 0))   # the noon chase
+def test_4h_break_muted_in_afternoon_bar():
+    # at/after 13:30 the morning bar has CLOSED — breaks only re-test the morning high
+    assert _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(13, 30))   # afternoon 4h bar opens
+    assert _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(13, 35))   # the dud cluster
     assert _is_after_morning_window("AAPL", "tv_rc_4h_hrec", _at(15, 55))
 
 

@@ -488,17 +488,27 @@ def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bo
     return now_et.hour < 4 or now_et.hour >= 16
 
 
-# Breakout-continuation types prone to CHASING in the afternoon. User 2026-06-30:
-# the 4h high break is good early but looks like chasing by noon — only let it fire
-# in the first N hours of the RTH session (09:30 ET + N), then mute, to avoid chasing
-# into the close. EQUITIES only (crypto is 24/7, no "open"). Default N = 3 → 09:30–12:30 ET.
+# The 4h high break (rc_4h_hrec) means different things at different times of day,
+# because of WHICH prior-4h-high it breaks. The pine's 4h bars are anchored to the
+# RTH open (request.security(tickerid,"240",high[1]) → 09:30–13:30 and 13:30–16:00).
+# So:
+#   • A MORNING break (09:30–13:30) breaks the PRIOR-SESSION high (yesterday's last 4h)
+#     → genuinely new ground, room above. REAL.
+#   • An AFTERNOON break (13:30–16:00) only breaks THIS MORNING's high — and most of
+#     the day's range is made in the morning, so it's a re-test of the day's likely
+#     peak: little room, little follow-through. (Verified 2026-06-30: the 13:35 cluster
+#     — every name poking the morning high with ~0% room — went nowhere; MFE <1%, several
+#     closed red.) MUTE it.
+# So we mute rc_4h_hrec once the morning 4h bar has CLOSED (09:30 + N hours; N=4 → 13:30
+# ET, the real boundary). Equities only (crypto is 24/7, no RTH open). Tunable.
 _MORNING_ONLY_TYPES: frozenset[str] = frozenset({"rc_4h_hrec"})
 
 
 def _is_after_morning_window(symbol: str, alert_type_full: str, now: Optional[datetime] = None) -> bool:
-    """True if a MORNING-ONLY type (the 4h high break) fires AFTER the first N hours
-    of RTH (default 3 → past 12:30 ET). Equities only; crypto + non-morning types
-    return False (no window). Premarket is left alone — the concern is the late chase."""
+    """True if a MORNING-ONLY type (the 4h high break) fires in the AFTERNOON 4h bar
+    (at/after 09:30 + N hours; N=4 → 13:30 ET, the morning bar's close) — i.e. it's
+    only re-testing the morning high, not breaking the prior session. Equities only;
+    crypto + non-morning types return False (no window). Premarket is left alone."""
     base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
     if base not in _MORNING_ONLY_TYPES or _is_crypto_symbol(symbol):
         return False
@@ -515,11 +525,11 @@ def _is_after_morning_window(symbol: str, alert_type_full: str, now: Optional[da
     if now_et.weekday() >= 5:        # weekend — RTH window N/A, let other gates handle
         return False
     try:
-        hours = float(_envf("V2_HREC_MORNING_HOURS", 3))
+        hours = float(_envf("V2_HREC_MORNING_HOURS", 4))
     except Exception:
-        hours = 3.0
+        hours = 4.0
     mins_since_open = (now_et.hour * 60 + now_et.minute) - (9 * 60 + 30)
-    return mins_since_open > hours * 60   # past the morning window → mute
+    return mins_since_open >= hours * 60   # in/after the afternoon 4h bar → mute
 
 
 def is_basing_chop(
