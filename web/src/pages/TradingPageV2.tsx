@@ -34,7 +34,7 @@ import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
-import { formatSetup, isFeedSignal } from "../lib/alertFormat";
+import { formatSetup, isFeedSignal, setupBlurb } from "../lib/alertFormat";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
@@ -832,6 +832,13 @@ function SignalFeedTab({
                 )}
               </div>
             </div>
+
+            {/* plain-English meaning — what the setup IS, so jargon ("Rc 4h Hrec") isn't the only label */}
+            {setupBlurb(a.alert_type) && (
+              <p className="mt-0.5 text-[10px] leading-snug text-text-faint line-clamp-2">
+                {setupBlurb(a.alert_type)}
+              </p>
+            )}
 
             {/* the plan — muted, lighter than the decision above */}
             {a.entry != null ? (
