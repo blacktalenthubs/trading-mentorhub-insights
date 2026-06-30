@@ -106,11 +106,21 @@ export interface MarketReportsResponse {
   eod: MarketReport | null;
   morning_focus: MarketReport | null;
 }
-export function useMarketReports() {
+export function useMarketReports(date?: string) {
   return useQuery({
-    queryKey: ["market-report-latest"],
-    queryFn: () => api.get<MarketReportsResponse>("/intel/market-report/latest"),
+    queryKey: ["market-report", date || "latest"],
+    queryFn: () => api.get<MarketReportsResponse>(
+      `/intel/market-report/latest${date ? `?date=${encodeURIComponent(date)}` : ""}`,
+    ),
     staleTime: 5 * 60_000,
+  });
+}
+
+export function useReportDates() {
+  return useQuery({
+    queryKey: ["market-report-dates"],
+    queryFn: () => api.get<{ dates: string[] }>("/intel/market-report/dates"),
+    staleTime: 10 * 60_000,
   });
 }
 

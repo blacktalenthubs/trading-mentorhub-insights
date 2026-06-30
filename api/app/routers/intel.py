@@ -620,14 +620,21 @@ async def eod_recap(
         return {"recap": f"Recap generation failed: {exc}"}
 
 
-async def _latest_report(db: AsyncSession, kind: str) -> dict | None:
-    """Latest persisted report of a given kind from market_reports. None if absent."""
+async def _latest_report(db: AsyncSession, kind: str, session_date: str | None = None) -> dict | None:
+    """Persisted report of a given kind from market_reports — for `session_date` if
+    given (per-day review), else the latest. None if absent."""
     from sqlalchemy import text
     try:
-        row = (await db.execute(text(
-            "SELECT session_date, body, created_at FROM market_reports "
-            "WHERE kind = :kind ORDER BY session_date DESC LIMIT 1"
-        ), {"kind": kind})).first()
+        if session_date:
+            row = (await db.execute(text(
+                "SELECT session_date, body, created_at FROM market_reports "
+                "WHERE kind = :kind AND session_date = :sd LIMIT 1"
+            ), {"kind": kind, "sd": session_date})).first()
+        else:
+            row = (await db.execute(text(
+                "SELECT session_date, body, created_at FROM market_reports "
+                "WHERE kind = :kind ORDER BY session_date DESC LIMIT 1"
+            ), {"kind": kind})).first()
         if not row:
             return None
         return {
@@ -642,17 +649,36 @@ async def _latest_report(db: AsyncSession, kind: str) -> dict | None:
 
 @router.get("/market-report/latest")
 async def market_report_latest(
+    date: str | None = None,
     db: AsyncSession = Depends(get_db_dep),
     user: User = Depends(get_current_user),
 ):
-    """Latest Premarket Heat brief and EOD Recap (Tape · Verdict · Tomorrow Watch ·
-    AI Recap · Trending) persisted by triage-agent — the SAME text sent to Telegram.
-    Powers the Today → Recap tab. Fails soft if the cron hasn't run yet."""
+    """Premarket Heat / Today's Focus / EOD Recap. With ?date=YYYY-MM-DD returns that
+    session's reports (per-day review); without it, the latest of each. Fails soft."""
     return {
-        "premarket": await _latest_report(db, "premarket"),
-        "eod": await _latest_report(db, "eod"),
-        "morning_focus": await _latest_report(db, "morning_focus"),
+        "premarket": await _latest_report(db, "premarket", date),
+        "eod": await _latest_report(db, "eod", date),
+        "morning_focus": await _latest_report(db, "morning_focus", date),
+        "session_date": date,
     }
+
+
+@router.get("/market-report/dates")
+async def market_report_dates(
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """Distinct session_dates that have at least one report — powers the per-day
+    review date picker on the Reports tab. Newest first, last ~60 sessions."""
+    from sqlalchemy import text
+    try:
+        rows = (await db.execute(text(
+            "SELECT DISTINCT session_date FROM market_reports "
+            "ORDER BY session_date DESC LIMIT 60"
+        ))).all()
+        return {"dates": [r.session_date for r in rows]}
+    except Exception:
+        return {"dates": []}
 
 
 class ReportPublish(BaseModel):
