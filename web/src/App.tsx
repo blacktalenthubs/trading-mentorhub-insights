@@ -4,7 +4,6 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { useAuthStore } from "./stores/auth";
 import { useNativePlatform } from "./hooks/useNativePlatform";
-import { usePushRegistration } from "./lib/usePushRegistration";
 import { useTrackPageView } from "./lib/useTrackPageView";
 
 import AppLayout from "./components/AppLayout";
@@ -70,10 +69,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 // Inner component — placed inside BrowserRouter so router-context hooks
-// (usePushRegistration's useNavigate, useTrackPageView's useLocation) work.
-// Returns null (no UI).
+// (useTrackPageView's useLocation) work. Returns null (no UI). Push setup +
+// tap-routing live in usePushNotifications (AppLayout) — the single source of
+// truth; the old usePushRegistration tap-handler was removed (it double-routed
+// every tap to /trading, fighting the type/route router).
 function PushRegistrationListener() {
-  usePushRegistration();
   useTrackPageView();
   return null;
 }

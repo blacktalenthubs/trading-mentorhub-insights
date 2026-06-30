@@ -71,7 +71,13 @@ def push_morning_focus(sync_session_factory) -> None:
         syms = ", ".join(p.get("symbol", "") for p in picks if p.get("symbol"))
         title = ("📋 Today's focus: " + syms) if syms else "📋 Today's focus"
         body = "Swing breakouts + day-trade key levels — tap for the plan." if syms else "Nothing to chase today. Patience."
-        _push_all(tokens, title, body, {"kind": "morning_focus", "tab": "reports"})
+        # type+route so the tap lands on Today › Reports. The frontend router reads
+        # `type`/`route`, NOT `kind`/`tab` — without these the premarket-heat push
+        # fell through to /today (Signals tab).
+        _push_all(tokens, title, body, {
+            "type": "market_report", "kind": "morning_focus",
+            "route": "/today?tab=reports", "tab": "reports",
+        })
         cache_set(guard, True, _GUARD_TTL)
         logger.info("morning-focus: pushed to %d device(s) — %s", len(tokens), syms or "(no picks)")
     except Exception:
