@@ -61,11 +61,19 @@ not types × touches.
 - **MOMENTUM types** (`rsi_oversold`, `rsi_70`, `swing_rsi_30`, `ema_5_20_cross`) — always fire,
   **do NOT seed** the anchor (a different signal axis, not a price level).
 
-*Result on real data:* ALAB 3@9:35 → 1; UCTT 5 → 2; INTC 7 → 2; chase-ups (AMZN/ONTO) → 1.
-Knobs: `V2_ENTRY_DEDUP_COOLDOWN_MIN` (30), `V2_ENTRY_DEDUP_BAND_PCT` (0.3), kill
-`V2_ENTRY_DEDUP_ENABLED=false`. State is in-memory per (symbol, direction), reset per session.
-**Known v1 limit:** order-dependence — if a day-trade twin arrives *before* its same-price
-level, both fire (the level always fires); the level-absorbs-existing-card merge is a follow-up.
+**Confluence merge (#522):** the gate tracks the SET of price levels alerted this session
+(`levels`). ANY later alert — level OR day-trade — within the band of an already-alerted level
+**merges** (`dedup_confluence:<price>`) instead of stacking a 2nd card. This folds level-vs-level
+doubles (AMD `PWL` + `Weekly` @502.61 → one; SMH `Weekly` + `PWL` @606.23 → one) and any
+day-trade twin sitting on a level. **One card per price level**, whatever the type mix.
+
+*Result on real data:* ALAB 3@9:35 → 1; UCTT 5 → 2; INTC 7 → 2; AMD/SMH level doubles → 1
+each; **232 day-trade longs → 88 (−62%)**. Knobs: `V2_ENTRY_DEDUP_COOLDOWN_MIN` (30),
+`V2_ENTRY_DEDUP_BAND_PCT` (0.3), kill `V2_ENTRY_DEDUP_ENABLED=false`. State in-memory per
+(symbol, direction), reset per session.
+**Option A (shipped):** the FIRST fire at a price keeps the card; same-price twins merge silently
+(users read entry + click to chart — no clutter). **Option B (follow-up):** promote the card
+headline to the highest timeframe + show "+N confluence" on it.
 
 ## Architecture
 One gate in the **persist loop** in `api/app/routers/tv_webhook.py`, alongside the existing

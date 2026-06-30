@@ -830,35 +830,48 @@ def _check_entry_time_dedup(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str,
 ) -> Optional[dict]:
-    """Suppression info if BOTH gates don't pass: `dedup_cooldown` (< 30 min since
-    the last fire) or `dedup_chase` (not a new lower level, within/above the band).
-    None = fire. Price-LEVEL and MOMENTUM types always fire (None). Read-only —
-    the caller records on a KEPT fire."""
+    """Suppression info, or None to fire. Three drop reasons:
+      • `dedup_confluence` — SAME price as a level already alerted this session
+        (within the band). Applies to ANY type (level OR day-trade) → one card per
+        price (AMD PWL + Weekly @ 502.61 → one). The first fire at a price keeps
+        the card; later same-price twins merge in.
+      • `dedup_cooldown` — < 30 min since the last fire (same-instant burst).
+      • `dedup_chase`    — not a new lower level (within/above the anchor band).
+    MOMENTUM types always fire (no price level). Read-only — caller records a kept fire."""
     if os.environ.get("V2_ENTRY_DEDUP_ENABLED", "true").lower() in ("0", "false", "no"):
         return None
-    # levels + momentum always fire (levels still SEED, via _record on the kept fire)
-    if not _is_entry_dedupable(alert_type_full):
-        return None
+    base = _dedup_base(alert_type_full)
+    if base in _MOMENTUM_EXEMPT:
+        return None  # momentum: always fire, never merged (different signal axis)
+    is_level = _is_price_level(alert_type_full)
+    if not (is_level or _is_entry_dedupable(alert_type_full)):
+        return None  # safety — unknown/exempt type
     if entry is None or entry <= 0:
-        return None  # no entry to price-dedup on → let it through
+        return None  # no price to dedup on → let it through
     key = (symbol, (direction or "").upper())
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
-        return None  # nothing anchored yet this session → fire
+        return None  # first fire this session → the card at this price
+    try:
+        band = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
+    except Exception:
+        band = 0.003
+    # CONFLUENCE MERGE — same price as any already-alerted level (any type) → one card
+    for lvl in st.get("levels", []):
+        if lvl > 0 and abs(entry - lvl) / lvl <= band:
+            return {"reason": "dedup_confluence", "anchor": lvl}
+    # LEVEL at a NEW price → always fires (a distinct level)
+    if is_level:
+        return None
+    # DAY-TRADE / MA — the two gates
     is_long = (direction or "").upper() in ("BUY", "LONG")
     try:
         cooldown_min = float(_envf("V2_ENTRY_DEDUP_COOLDOWN_MIN", 30))
     except Exception:
         cooldown_min = 30.0
-    try:
-        band = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
-    except Exception:
-        band = 0.003
     now = datetime.utcnow()
-    # TIME gate — collapse the same-instant / rapid burst regardless of price
     if now - st["last"] < timedelta(minutes=cooldown_min):
         return {"reason": "dedup_cooldown", "anchor": st["best"]}
-    # PRICE gate — must be a NEW level beyond the band (lower for long / higher for short)
     if is_long:
         new_level = entry < st["best"] * (1.0 - band)
     else:
@@ -872,18 +885,20 @@ def _record_entry_time_fire(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str,
 ) -> None:
-    """Record a KEPT fire — set last_time and ratchet the anchor. Price-LEVEL types
-    seed too (so a later same-price day-trade folds in); momentum never seeds."""
+    """Record a KEPT fire — append the price to the session's level set, ratchet the
+    anchor, reset the timer. Price-LEVEL + day-trade/MA seed; momentum never seeds."""
     if entry is None or entry <= 0 or not _seeds_anchor(alert_type_full):
         return
     key = (symbol, (direction or "").upper())
     is_long = (direction or "").upper() in ("BUY", "LONG")
     now = datetime.utcnow()
+    p = float(entry)
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
-        _entry_dedup_state[key] = {"session": session_date, "best": float(entry), "last": now}
+        _entry_dedup_state[key] = {"session": session_date, "best": p, "last": now, "levels": [p]}
     else:
-        st["best"] = min(st["best"], float(entry)) if is_long else max(st["best"], float(entry))
+        st.setdefault("levels", []).append(p)
+        st["best"] = min(st["best"], p) if is_long else max(st["best"], p)
         st["last"] = now
 
 
