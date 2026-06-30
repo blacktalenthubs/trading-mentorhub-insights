@@ -444,11 +444,15 @@ function SignalFeedTab({
 
   // The feed, split by trade STYLE. Each panel shows ALL its alerts — delivered AND
   // recorded-not-delivered (gate catches: type off, SPY gate, grade, allowlists). The
-  // undelivered ones render dimmed + "NOT SENT". Only same-moment dup noise
-  // (confluence_collapsed) is dropped. styleOf falls back to day_trade for old rows.
+  // undelivered ones render dimmed + "NOT SENT". Same-moment dup noise
+  // (confluence_collapsed) and the Spec 67 entry/time dedup drops (dedup_cooldown /
+  // dedup_chase) are dropped from the feed — collapsed to the first/best entry.
+  // styleOf falls back to day_trade for old rows.
+  const COLLAPSED_REASONS = (r?: string | null) =>
+    !!r && (r.startsWith("confluence_collapsed") || r.startsWith("dedup_"));
   const styleOf = (a: Alert) => (a.style ?? "day_trade");
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && !(a.suppressed_reason ?? "").startsWith("confluence_collapsed"),
+    (a) => isFeedSignal(a.alert_type) && !COLLAPSED_REASONS(a.suppressed_reason),
   );
   const styleCounts = feedAllRaw.reduce(
     (acc, a) => { acc[styleOf(a)] = (acc[styleOf(a)] ?? 0) + 1; return acc; },

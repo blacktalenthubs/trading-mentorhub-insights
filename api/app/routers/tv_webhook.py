@@ -764,6 +764,93 @@ def _record_same_bar_fire(symbol: str, alert_type_full: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Spec 67 — entry + time dedup ("don't re-alert the same idea").
+# SELF-CONTAINED — deliberately does NOT reuse the collapsers above (they're
+# narrow: level-only, 10-min, and rc_4h-EXEMPT). This gate covers the whole
+# day-trade + MA-bounce set with TWO rules ANDed: a 30-min per-symbol cooldown
+# AND an entry-RATCHET (a long only re-fires at a BETTER/lower entry; short =
+# higher). True weekly/monthly LEVEL types + swing momentum are EXEMPT — they
+# always fire (rare, once-per-period by the Pine latch). State is in-memory per
+# (symbol, direction), reset per session — matching the sibling collapsers.
+# Suppressed alerts are still persisted with reason + the anchor they lost to,
+# so the feed/analysis keep them (FR4/FR6/FR8 — label-forward, never overwrite).
+# ---------------------------------------------------------------------------
+
+# Always-fire: the rare LEVEL + swing-momentum types. Never deduped.
+_ENTRY_DEDUP_EXEMPT: frozenset[str] = frozenset({
+    "weekly_rc", "monthly_rc", "cml_held", "cml_reclaim", "pml_held",
+    "staged_pwl_held", "staged_pml_held",
+    "weekly_10w_held", "weekly_10w_reclaim", "weekly_30w_held", "weekly_30w_reclaim",
+    "monthly_box", "mobo_rch",
+    "rsi_oversold", "rsi_70", "swing_rsi_30", "ema_5_20_cross",
+})
+
+# (symbol, direction) -> {"session": str, "best": float, "last": datetime}
+_entry_dedup_state: dict[tuple[str, str], dict] = {}
+
+
+def _is_entry_dedupable(alert_type_full: str) -> bool:
+    """True for the day-trade + MA-bounce entries the entry/time ratchet applies
+    to. The MA-bounce family is explicitly IN (user: 'those ma alerts also
+    same'); only the rare weekly/monthly LEVEL + swing-momentum types are out."""
+    base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    if base.startswith("ma_bounce_long_v3"):
+        return True
+    return base not in _ENTRY_DEDUP_EXEMPT
+
+
+def _check_entry_time_dedup(
+    symbol: str, direction: str, entry: Optional[float],
+    alert_type_full: str, session_date: str,
+) -> Optional[dict]:
+    """Suppression info if this alert is a re-fire within the cooldown OR a
+    chase (entry not better than the best already alerted this session). None =
+    fire. Read-only — the caller records on a KEPT fire (so suppressed re-fires
+    neither reset the timer nor move the anchor)."""
+    if os.environ.get("V2_ENTRY_DEDUP_ENABLED", "true").lower() in ("0", "false", "no"):
+        return None
+    if not _is_entry_dedupable(alert_type_full):
+        return None
+    if entry is None or entry <= 0:
+        return None  # no entry to price-dedup on → let it through
+    key = (symbol, (direction or "").upper())
+    st = _entry_dedup_state.get(key)
+    if not st or st.get("session") != session_date:
+        return None  # first fire for this symbol+direction this session
+    is_long = (direction or "").upper() in ("BUY", "LONG")
+    try:
+        cooldown_min = float(_envf("V2_ENTRY_DEDUP_COOLDOWN_MIN", 30))
+    except Exception:
+        cooldown_min = 30.0
+    now = datetime.utcnow()
+    if now - st["last"] < timedelta(minutes=cooldown_min):
+        return {"reason": "dedup_cooldown", "anchor": st["best"]}
+    # past the cooldown — only a BETTER entry (lower for long / higher for short) fires
+    chasing = (entry >= st["best"]) if is_long else (entry <= st["best"])
+    if chasing:
+        return {"reason": "dedup_chase", "anchor": st["best"]}
+    return None
+
+
+def _record_entry_time_fire(
+    symbol: str, direction: str, entry: Optional[float],
+    alert_type_full: str, session_date: str,
+) -> None:
+    """Record a KEPT fire — set last_time and ratchet the best entry."""
+    if not _is_entry_dedupable(alert_type_full) or entry is None or entry <= 0:
+        return
+    key = (symbol, (direction or "").upper())
+    is_long = (direction or "").upper() in ("BUY", "LONG")
+    now = datetime.utcnow()
+    st = _entry_dedup_state.get(key)
+    if not st or st.get("session") != session_date:
+        _entry_dedup_state[key] = {"session": session_date, "best": float(entry), "last": now}
+    else:
+        st["best"] = min(st["best"], float(entry)) if is_long else max(st["best"], float(entry))
+        st["last"] = now
+
+
+# ---------------------------------------------------------------------------
 # Pydantic schema — matches the JSON template in pine_scripts/.
 # ---------------------------------------------------------------------------
 
@@ -1570,6 +1657,32 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             suppressed_reason=f"confluence_collapsed:{same_bar['prior_type']}",
         )
     _record_same_bar_fire(sig.symbol, alert_type_full)
+
+    # Spec 67 — entry + time dedup. A day-trade / MA re-fire on the same symbol
+    # within 30 min, or at a worse (higher-for-long) entry than already alerted
+    # this session, collapses to the first/best entry. Weekly/monthly LEVEL
+    # types are exempt (always fire). Runs BEFORE the type/SPY gates so the
+    # collapsed count is accurate regardless of delivery; the kept fire updates
+    # the anchor even if it's later gated. Suppressed rows keep the reason + the
+    # anchor entry they lost to (for the feed's "+N collapsed" + offline tuning).
+    dd = _check_entry_time_dedup(
+        sig.symbol, direction, getattr(sig, "entry", None),
+        alert_type_full, session_date,
+    )
+    if dd:
+        logger.info(
+            "TV entry-dedup %s: %s for %s @ %s — anchor %s",
+            dd["reason"], alert_type_full, sig.symbol,
+            getattr(sig, "entry", None), dd["anchor"],
+        )
+        return await _persist_unrouted(
+            sig, alert_type_full, session_date,
+            suppressed_reason=f"{dd['reason']}:{dd['anchor']}",
+        )
+    _record_entry_time_fire(
+        sig.symbol, direction, getattr(sig, "entry", None),
+        alert_type_full, session_date,
+    )
 
     # When this alert IS the confluence anchor (open_reclaimed/open_lost with
     # near flag set), prefix the message with a tag so the Telegram template
