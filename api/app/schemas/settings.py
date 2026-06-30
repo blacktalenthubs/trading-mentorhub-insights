@@ -33,6 +33,9 @@ class NotificationPrefsResponse(BaseModel):
     min_alert_grade: str = "C"
     # Opt-in (default OFF): push day-trade alerts ONLY for the user's Focus symbols.
     daytrade_focus_only: bool = False
+    # Opt-in (default OFF): receive the WHOLE master-watchlist deduped feed (the
+    # platform's curated quality set), not just the user's own watchlist.
+    master_alerts: bool = False
 
 
 class UpdateNotificationPrefsRequest(BaseModel):
@@ -50,6 +53,7 @@ class UpdateNotificationPrefsRequest(BaseModel):
     # Spec 61 follow-up — setup grade filter
     min_alert_grade: Optional[str] = None
     daytrade_focus_only: Optional[bool] = None
+    master_alerts: Optional[bool] = None
 
 
 # --- Alert Category Preferences ---
