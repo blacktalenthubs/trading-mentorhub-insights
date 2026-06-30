@@ -109,108 +109,108 @@ def _rsi(close, n=14):
     return float(val) if val == val else 50.0
 
 
+def _rsi_series(close, n=14):
+    """Wilder's 14-day RSI as a SERIES — used to detect the 30-reclaim (was <30, now ≥30)."""
+    d = close.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    rs = up / dn.replace(0, float("nan"))
+    return 100 - 100 / (1 + rs)
+
+
 def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7):
-    """DAY-TRADE focus — a liquid leader / mega-cap AT a defended key level RIGHT NOW.
-    Mirrors how the user trades it: AAPL bouncing from its monthly RC reclaim, MSFT from
-    monthly support — a mega-cap defending a KEY level intraday. Three qualifiers, ranked
-    by how MAJOR the level is (the bigger the timeframe, the higher the conviction):
-      1. defending a key support — monthly low > 30w MA > weekly low > 10w MA > prior-day
-         low (price holding just above it = the bounce zone),
-      2. deep-oversold bounce — daily RSI <= 32 (the "mega-tech at 30 RSI" zone),
-      3. coiling just under a key resistance (PWH / recent high) about to break.
-    Liquidity-gated (>= adv_floor $/day) so the picks are actually day-tradeable."""
-    out = []
+    """TODAY'S FOCUS — top `top`, a MIX of three setups (user 2026-06-30):
+      • RSI-30 reclaim — daily RSI was oversold (<30 in the last 5d) and crossed back
+        ABOVE 30, turning up → the bottom is in (NOT a still-falling oversold).
+      • 200-EMA hold — price defending the daily 200-EMA as support (just above it).
+      • Breakout / gap-and-go — gapped over the prior-day high and holding, or cleared
+        the recent high with momentum.
+    Liquidity-gated (≥ adv_floor $/day). The three buckets are INTERLEAVED so the five
+    picks are a MIX (a turn + a hold + a breakout), not five of one kind."""
+    buckets = {"reclaim_30": [], "ema200_hold": [], "breakout": []}
     multi = len(cands) > 1
+    pos = "Full" if market_ok else "Half"
     for sym in cands:
         try:
             if sym.endswith("-USD"):            # crypto trades its own path — equities only here
                 continue
             df = data[sym] if multi else data
             c = df["Close"].dropna(); h = df["High"].dropna()
-            lo = df["Low"].dropna(); v = df["Volume"].dropna()
+            lo = df["Low"].dropna(); v = df["Volume"].dropna(); o = df["Open"].dropna()
             if len(c) < 60:
                 continue
             price = float(c.iloc[-1])
             advdol = float((c * v).tail(20).mean())
             if advdol < adv_floor:                      # too illiquid to day-trade
                 continue
-            rsi = _rsi(c, 14)
-            wkc = c.resample("W").last().dropna()
-            sma10w = float(wkc.rolling(10).mean().iloc[-1]) if len(wkc) >= 10 else None
-            sma30w = float(wkc.rolling(30).mean().iloc[-1]) if len(wkc) >= 30 else None
-            wlo = lo.resample("W").min().dropna()
-            pwl = float(wlo.iloc[-2]) if len(wlo) >= 2 else None
-            mlo = lo.resample("ME").min().dropna()
-            pml = float(mlo.iloc[-2]) if len(mlo) >= 2 else None
-            pdl = float(lo.iloc[-2])
-            whi = h.resample("W").max().dropna()
-            pwh = float(whi.iloc[-2]) if len(whi) >= 2 else None
+            liq = math.log10(max(advdol, 1.0))          # ~7 ($10M) … ~10 ($10B)
+            rsi_s = _rsi_series(c, 14)
+            rsi = float(rsi_s.iloc[-1]) if rsi_s.iloc[-1] == rsi_s.iloc[-1] else 50.0
+            rsi_prev = float(rsi_s.iloc[-2]) if len(rsi_s) >= 2 and rsi_s.iloc[-2] == rsi_s.iloc[-2] else rsi
+            rsi_min5 = float(rsi_s.tail(6).iloc[:-1].min())          # min RSI of the prior 5 days
             rhi = float(h.tail(20).max())
+            pdh = float(h.iloc[-2]); pdl = float(lo.iloc[-2])
+            prior_close = float(c.iloc[-2]); open_today = float(o.iloc[-1])
+            ema200 = float(c.ewm(span=200, adjust=False).mean().iloc[-1]) if len(c) >= 200 else None
+            recent_stop = round(float(lo.tail(5).min()) * 0.995, 2)
+            advtxt = f"${advdol / 1e6:.0f}M/day — liquid"
 
-            # 1) defended key support — the MOST-MAJOR level price is holding just above.
-            band = 0.018
-            supports = [("the monthly low", pml, 100), ("the 30-week MA", sma30w, 82),
-                        ("the weekly low", pwl, 76), ("the 10-week MA", sma10w, 56),
-                        ("the prior-day low", pdl, 42)]
-            defended = None
-            for nm, lvl, wt in supports:
-                if lvl and lvl > 0 and lvl <= price <= lvl * (1 + band):
-                    defended = (nm, lvl, wt)
-                    break
-            oversold = rsi <= 32
-            band2 = 0.025
-            res = min([r for r in (pwh, rhi) if r and r > price], default=None)
-            breakout = res is not None and (res - price) / price <= band2
-            if not (defended or oversold or breakout):
+            # ── 1) RSI-30 RECLAIM — was oversold, crossed back above 30, turning up
+            if rsi_min5 < 30 <= rsi <= 45 and rsi >= rsi_prev:
+                tgt = ema200 if (ema200 and ema200 > price) else rhi
+                buckets["reclaim_30"].append({
+                    "symbol": sym, "score": round(liq * 2 + 70 + max(0.0, 40 - rsi), 1),
+                    "type": "DAY", "setup": "RSI-30 reclaim", "price": round(price, 2),
+                    "level": round(price, 2), "entry": round(price, 2), "stop": recent_stop,
+                    "target": round(tgt, 2) if tgt else None, "rsi": round(rsi), "position": pos,
+                    "reasons": [f"daily RSI reclaimed 30 (now {rsi:.0f}, was {rsi_min5:.0f}) — the turn is in",
+                                advtxt],
+                })
                 continue
 
-            liq = math.log10(max(advdol, 1.0))          # ~7 ($10M) … ~10 ($10B)
-            score = liq * 2.0
-            reasons = []
-            if defended:
-                score += defended[2]
-            if oversold:
-                score += 60 + max(0.0, 32 - rsi) * 2.0
-            if breakout:
-                score += 50
-            # primary setup (for the card) — a DEEP oversold (RSI <= 28) headlines even if
-            # it's also at a support; otherwise defense (most-major level) → oversold → breakout.
-            if defended and not (oversold and rsi <= 28):
-                nm, lvl, _ = defended
-                setup, key_lvl = "support defense", lvl
-                reasons.append(f"defending {nm} ${lvl:.2f} ({(price - lvl) / lvl * 100:+.1f}% above)")
-                stop = round(lvl * 0.985, 2)
-                tgt = res or rhi
-                entry = price
-            elif oversold:
-                setup, key_lvl = "oversold bounce", price
-                reasons.append(f"daily RSI {rsi:.0f} — deep oversold bounce zone")
-                stop = round(float(lo.tail(5).min()) * 0.995, 2)
-                tgt = sma10w or rhi
-                entry = price
-            else:
-                setup, key_lvl = "breakout watch", res
-                reasons.append(f"coiling {(res - price) / price * 100:.1f}% under ${res:.2f} — about to break")
-                stop = round(float(lo.tail(5).min()), 2)
-                tgt = None
-                entry = res
-            if oversold and setup != "oversold bounce":
-                reasons.append(f"daily RSI {rsi:.0f} (oversold)")
-            if defended and setup != "support defense":
-                reasons.append(f"at {defended[0]} ${defended[1]:.2f}")
-            if breakout and setup != "breakout watch" and res:
-                reasons.append(f"room to ${res:.2f} overhead")
-            reasons.append(f"${advdol / 1e6:.0f}M/day — liquid")
-            out.append({
-                "symbol": sym, "score": round(score, 1), "type": "DAY", "setup": setup,
-                "price": round(price, 2), "level": round(key_lvl, 2), "entry": round(entry, 2),
-                "stop": stop, "target": round(tgt, 2) if tgt else None, "rsi": round(rsi),
-                "position": "Full" if market_ok else "Half", "reasons": reasons,
-            })
+            # ── 2) 200-EMA HOLD — defending the daily 200-EMA just above
+            if ema200 and ema200 <= price <= ema200 * 1.025:
+                tgt = min([r for r in (pdh, rhi) if r and r > price], default=None)
+                buckets["ema200_hold"].append({
+                    "symbol": sym, "score": round(liq * 2 + 60 + (1.025 - price / ema200) * 800, 1),
+                    "type": "DAY", "setup": "200-EMA hold", "price": round(price, 2),
+                    "level": round(ema200, 2), "entry": round(price, 2), "stop": round(ema200 * 0.99, 2),
+                    "target": round(tgt, 2) if tgt else None, "rsi": round(rsi), "position": pos,
+                    "reasons": [f"holding the 200-EMA ${ema200:.2f} ({(price - ema200) / ema200 * 100:+.1f}% above)",
+                                advtxt],
+                })
+                continue
+
+            # ── 3) BREAKOUT / GAP-AND-GO — over the prior-day high + holding, or cleared the recent high
+            gapped = open_today > pdh and price >= prior_close
+            broke_pdh = price > pdh and price > prior_close * 1.005
+            broke_recent = price >= rhi * 0.999
+            if (gapped or broke_pdh or broke_recent) and price > prior_close:
+                kind = "gap-and-go" if gapped else "breakout"
+                reason = (f"gapped over the prior-day high ${pdh:.2f}, holding" if gapped
+                          else f"broke the prior-day high ${pdh:.2f}" if broke_pdh
+                          else f"cleared the 20-day high ${rhi:.2f}")
+                buckets["breakout"].append({
+                    "symbol": sym, "score": round(liq * 2 + 50 + (15 if gapped else 0), 1),
+                    "type": "DAY", "setup": kind, "price": round(price, 2), "level": round(pdh, 2),
+                    "entry": round(price, 2),
+                    "stop": round(min(pdh, open_today) * 0.998, 2) if gapped else round(pdl, 2),
+                    "target": None, "rsi": round(rsi), "position": pos,
+                    "reasons": [reason, advtxt],
+                })
+                continue
         except Exception:
             continue
-    out.sort(key=lambda p: -p["score"])
-    return out[:top]
+    for b in buckets:
+        buckets[b].sort(key=lambda p: -p["score"])
+    # INTERLEAVE — one from each bucket, then the seconds, … so the top `top` are a mix.
+    picks, i, order = [], 0, ("breakout", "reclaim_30", "ema200_hold")
+    while len(picks) < top and any(len(buckets[b]) > i for b in order):
+        for b in order:
+            if len(picks) < top and len(buckets[b]) > i:
+                picks.append(buckets[b][i])
+        i += 1
+    return picks
 
 
 def main() -> None:
@@ -337,7 +337,7 @@ def main() -> None:
             L.append(f"- {r}")
         L.append(f"- stop ${p['stop']} · price now ${p['price']}")
         L.append("")
-    L.append("## Day-Trade — key level defended (mega-cap bounce)")
+    L.append("## Today's Focus — the turn · the hold · the breakout")
     if not daytrade:
         L.append("_No liquid leader is at a key level today._")
     for p in daytrade:

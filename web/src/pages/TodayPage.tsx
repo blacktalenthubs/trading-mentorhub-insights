@@ -293,7 +293,7 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
         ) : swing.map((p) => <SwingCard key={p.symbol} p={p} onChart={onChart} />)}
       </section>
       <section className="space-y-2.5">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Day-Trade · key level defended</h3>
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Today's Focus · the turn · the hold · the breakout</h3>
         {daytrade.length === 0 ? (
           <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
             No liquid leader is at a key level today.
