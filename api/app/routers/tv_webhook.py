@@ -764,24 +764,37 @@ def _record_same_bar_fire(symbol: str, alert_type_full: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Spec 67 — entry + time dedup ("don't re-alert the same idea").
-# SELF-CONTAINED — deliberately does NOT reuse the collapsers above (they're
-# narrow: level-only, 10-min, and rc_4h-EXEMPT). This gate covers the whole
-# day-trade + MA-bounce set with TWO rules ANDed: a 30-min per-symbol cooldown
-# AND an entry-RATCHET (a long only re-fires at a BETTER/lower entry; short =
-# higher). True weekly/monthly LEVEL types + swing momentum are EXEMPT — they
-# always fire (rare, once-per-period by the Pine latch). State is in-memory per
-# (symbol, direction), reset per session — matching the sibling collapsers.
-# Suppressed alerts are still persisted with reason + the anchor they lost to,
-# so the feed/analysis keep them (FR4/FR6/FR8 — label-forward, never overwrite).
+# Spec 67 — PRICE-LEVEL + time dedup ("one alert per price level per name").
+# The unit of an alert is a PRICE LEVEL, not a type. Two gates, ANDed, decide
+# whether a candidate FIRES:
+#   • TIME — ≥ 30 min since the last fire on this name (collapses the same-instant
+#     burst: ALAB 407 + 396 + 396 at 9:35 → one, even at different prices).
+#   • PRICE — a genuinely NEW lower level: entry must be > the band BELOW the
+#     anchor (lowest price alerted today). At/above it = a chase or a same-price
+#     twin → drop (INTC 125.50 folds into the 125.41 weekly).
+# Drop if EITHER gate fails. In one line: "fire on a new lower level, at most
+# once per 30 min." This lets a user enable EVERY alert type without flooding —
+# alert count tracks distinct price LEVELS, not types × touches.
+#
+# PRICE-LEVEL types (weekly/monthly/daily level reclaims, MA-week, box) ALWAYS
+# fire AND SEED the anchor — so a same-price day-trade twin folds into them
+# (confluence, not a second card). MOMENTUM types (rsi/ema-cross) always fire and
+# DON'T seed (a different signal axis, not a price level). Day-trade + MA are the
+# only types that can be DROPPED. State is in-memory per (symbol, direction),
+# reset per session. Suppressed rows are persisted with reason + the anchor they
+# lost to (FR4/FR6/FR8 — label-forward, never overwrite).
 # ---------------------------------------------------------------------------
 
-# Always-fire: the rare LEVEL + swing-momentum types. Never deduped.
-_ENTRY_DEDUP_EXEMPT: frozenset[str] = frozenset({
+# PRICE-LEVEL types — always fire, but SEED the price anchor (so a same-price
+# day-trade twin folds into them as confluence rather than stacking a 2nd card).
+_PRICE_LEVEL_TYPES: frozenset[str] = frozenset({
     "weekly_rc", "monthly_rc", "cml_held", "cml_reclaim", "pml_held",
     "staged_pwl_held", "staged_pml_held",
     "weekly_10w_held", "weekly_10w_reclaim", "weekly_30w_held", "weekly_30w_reclaim",
     "monthly_box", "mobo_rch",
+})
+# MOMENTUM types — always fire, do NOT seed the price anchor (not a price level).
+_MOMENTUM_EXEMPT: frozenset[str] = frozenset({
     "rsi_oversold", "rsi_70", "swing_rsi_30", "ema_5_20_cross",
 })
 
@@ -789,26 +802,41 @@ _ENTRY_DEDUP_EXEMPT: frozenset[str] = frozenset({
 _entry_dedup_state: dict[tuple[str, str], dict] = {}
 
 
+def _dedup_base(alert_type_full: str) -> str:
+    return alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+
+
+def _is_price_level(alert_type_full: str) -> bool:
+    return _dedup_base(alert_type_full) in _PRICE_LEVEL_TYPES
+
+
 def _is_entry_dedupable(alert_type_full: str) -> bool:
-    """True for the day-trade + MA-bounce entries the entry/time ratchet applies
-    to. The MA-bounce family is explicitly IN (user: 'those ma alerts also
-    same'); only the rare weekly/monthly LEVEL + swing-momentum types are out."""
-    base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    """True for the day-trade + MA-bounce entries that the gates can DROP. MA is
+    explicitly IN (user: 'those ma alerts also same'); price-LEVEL and MOMENTUM
+    types are not droppable (they always fire)."""
+    base = _dedup_base(alert_type_full)
     if base.startswith("ma_bounce_long_v3"):
         return True
-    return base not in _ENTRY_DEDUP_EXEMPT
+    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT
+
+
+def _seeds_anchor(alert_type_full: str) -> bool:
+    """Participates in the price anchor: price-LEVEL types + droppable day-trade/MA.
+    Momentum (rsi/ema-cross) does NOT seed — it's not a price level."""
+    return _is_price_level(alert_type_full) or _is_entry_dedupable(alert_type_full)
 
 
 def _check_entry_time_dedup(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str,
 ) -> Optional[dict]:
-    """Suppression info if this alert is a re-fire within the cooldown OR a
-    chase (entry not better than the best already alerted this session). None =
-    fire. Read-only — the caller records on a KEPT fire (so suppressed re-fires
-    neither reset the timer nor move the anchor)."""
+    """Suppression info if BOTH gates don't pass: `dedup_cooldown` (< 30 min since
+    the last fire) or `dedup_chase` (not a new lower level, within/above the band).
+    None = fire. Price-LEVEL and MOMENTUM types always fire (None). Read-only —
+    the caller records on a KEPT fire."""
     if os.environ.get("V2_ENTRY_DEDUP_ENABLED", "true").lower() in ("0", "false", "no"):
         return None
+    # levels + momentum always fire (levels still SEED, via _record on the kept fire)
     if not _is_entry_dedupable(alert_type_full):
         return None
     if entry is None or entry <= 0:
@@ -816,18 +844,26 @@ def _check_entry_time_dedup(
     key = (symbol, (direction or "").upper())
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
-        return None  # first fire for this symbol+direction this session
+        return None  # nothing anchored yet this session → fire
     is_long = (direction or "").upper() in ("BUY", "LONG")
     try:
         cooldown_min = float(_envf("V2_ENTRY_DEDUP_COOLDOWN_MIN", 30))
     except Exception:
         cooldown_min = 30.0
+    try:
+        band = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
+    except Exception:
+        band = 0.003
     now = datetime.utcnow()
+    # TIME gate — collapse the same-instant / rapid burst regardless of price
     if now - st["last"] < timedelta(minutes=cooldown_min):
         return {"reason": "dedup_cooldown", "anchor": st["best"]}
-    # past the cooldown — only a BETTER entry (lower for long / higher for short) fires
-    chasing = (entry >= st["best"]) if is_long else (entry <= st["best"])
-    if chasing:
+    # PRICE gate — must be a NEW level beyond the band (lower for long / higher for short)
+    if is_long:
+        new_level = entry < st["best"] * (1.0 - band)
+    else:
+        new_level = entry > st["best"] * (1.0 + band)
+    if not new_level:
         return {"reason": "dedup_chase", "anchor": st["best"]}
     return None
 
@@ -836,8 +872,9 @@ def _record_entry_time_fire(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str,
 ) -> None:
-    """Record a KEPT fire — set last_time and ratchet the best entry."""
-    if not _is_entry_dedupable(alert_type_full) or entry is None or entry <= 0:
+    """Record a KEPT fire — set last_time and ratchet the anchor. Price-LEVEL types
+    seed too (so a later same-price day-trade folds in); momentum never seeds."""
+    if entry is None or entry <= 0 or not _seeds_anchor(alert_type_full):
         return
     key = (symbol, (direction or "").upper())
     is_long = (direction or "").upper() in ("BUY", "LONG")

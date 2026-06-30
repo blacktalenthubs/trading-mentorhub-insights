@@ -22,6 +22,7 @@ from app.routers.tv_webhook import (  # noqa: E402
     _check_entry_time_dedup,
     _entry_dedup_state,
     _is_entry_dedupable,
+    _is_price_level,
     _record_entry_time_fire,
 )
 
@@ -36,10 +37,10 @@ def _clear_state():
 
 
 def _backdate(symbol: str, direction: str, minutes: float) -> None:
-    """Age the last-fire timestamp to simulate elapsed time."""
-    _entry_dedup_state[(symbol, direction.upper())]["last"] = (
-        datetime.utcnow() - timedelta(minutes=minutes)
-    )
+    """Age the last-fire timestamp to simulate elapsed time (no-op if nothing seeded)."""
+    st = _entry_dedup_state.get((symbol, direction.upper()))
+    if st:
+        st["last"] = datetime.utcnow() - timedelta(minutes=minutes)
 
 
 def _fire(symbol, direction, entry, atype, elapsed=None):
@@ -138,3 +139,40 @@ def test_short_mirror_better_is_higher():
     _backdate("SH", "SHORT", 40)
     res = _check_entry_time_dedup("SH", "SHORT", 49.0, "tv_staged_pdl_break", S)
     assert res and res["reason"] == "dedup_chase"   # lower = worse for a short
+
+
+# ── price-level model: levels seed the anchor; momentum doesn't ───────
+
+
+def test_price_level_classification():
+    assert _is_price_level("tv_weekly_rc")
+    assert _is_price_level("tv_monthly_rc")
+    assert _is_price_level("tv_staged_pwl_held")
+    assert not _is_price_level("tv_rsi_oversold")     # momentum, not a level
+    assert not _is_price_level("tv_rc_daily_long")    # day-trade, droppable
+
+
+def test_level_seeds_anchor_drops_same_price_day_trade():
+    """INTC: weekly_rc @125.41 fires AND seeds the anchor, so the same-price
+    PD-low reclaim @125.50 drops; only the lower EMA bounce @122.31 fires."""
+    assert _fire("INTC", "BUY", 125.41, "tv_weekly_rc") is None          # level fires + seeds
+    res = _fire("INTC", "BUY", 125.50, "tv_rc_daily_long", elapsed=40)   # same price, past cooldown
+    assert res and res["reason"] == "dedup_chase"
+    assert res["anchor"] == 125.41                                        # seeded by the weekly
+    assert _fire("INTC", "BUY", 122.31, "tv_ma_bounce_long_v3_ema21", elapsed=40) is None  # new lower level
+
+
+def test_band_drops_epsilon_lower_same_level():
+    """A trivially-lower entry inside the band is the SAME level → drop."""
+    _fire("BND", "BUY", 100.0, "tv_rc_4h_long")
+    res = _fire("BND", "BUY", 99.9, "tv_rc_4h_long", elapsed=40)   # -0.1% < 0.3% band
+    assert res and res["reason"] == "dedup_chase"
+    # a move beyond the band IS a new level → fires
+    assert _fire("BND", "BUY", 99.0, "tv_rc_4h_long", elapsed=40) is None  # -1.0% > band
+
+
+def test_momentum_does_not_seed_anchor():
+    """rsi_oversold always fires but does NOT seed — so a later day-trade at the
+    same price still fires (momentum is a different axis, not a price level)."""
+    assert _fire("MOM", "BUY", 100.0, "tv_rsi_oversold") is None    # fires, no seed
+    assert _fire("MOM", "BUY", 100.0, "tv_rc_4h_long") is None      # first dedupable → fires
