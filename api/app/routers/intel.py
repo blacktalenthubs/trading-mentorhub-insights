@@ -697,7 +697,8 @@ async def publish_report(
             for t in tokens:
                 try:
                     if await send_apns_push(t, payload.push_title, payload.push_body or "",
-                                            payload={"kind": payload.kind, "tab": "reports"}):
+                                            payload={"type": "market_report", "kind": payload.kind,
+                                                     "route": "/today?tab=reports", "tab": "reports"}):
                         pushed += 1
                 except Exception:
                     pass
