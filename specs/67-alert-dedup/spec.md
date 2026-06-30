@@ -38,12 +38,19 @@ grade (not trusted, ignored for dedup).
 `style_for(alert_type)` decides treatment.
 
 ### A. Day-trade (`style == day_trade`) — entry-ratchet + 30-min cooldown
-Per **user × symbol × direction × session**, track `last_fire_time` and `best_entry`
-(lowest for long / highest for short). A candidate fires only if **both**:
-1. **Time** — ≥ **30 min** since the last fired day-trade alert on this symbol+direction,
+Per **symbol × direction × SIDE × session**, track `last_fire_time` and `best_entry`.
+A candidate fires only if **both**:
+1. **Time** — ≥ **30 min** since the last fired alert on this symbol+direction+side,
    else suppress `dedup_cooldown`.
-2. **Price** — entry strictly **better** than `best_entry` (long: `entry < best_entry`),
-   else suppress `dedup_chase`.
+2. **Price** — entry strictly **better** than `best_entry` on its side, else suppress
+   `dedup_chase`.
+
+**SIDE split (critical — INTC 2026-06-29):** dip-buys and breakouts anchor SEPARATELY.
+`low` side = support reclaims / dip-buys (prior-LOW reclaim, MA bounce, *_held) → better =
+**lower**. `high` side = breakouts / high reclaims (prior-HIGH break `*_hrec`, gap-up,
+`reclaim_long`) → better = **higher** (a new breakout high). Without this, a morning dip
+ratchets the anchor down (INTC EMA @122) and then EATS the afternoon PDH break @131.77 (the
+A-grade winner that ran to 141) as a "chase". With it, the dip AND the breakout both fire.
 
 On fire: update `last_fire_time` and ratchet `best_entry`. State is **derived from today's
 already-persisted alerts** (no in-memory cache → survives restarts).

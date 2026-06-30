@@ -36,10 +36,10 @@ def _clear_state():
 
 
 def _backdate(symbol: str, direction: str, minutes: float) -> None:
-    """Age the last-fire timestamp to simulate elapsed time."""
-    _entry_dedup_state[(symbol, direction.upper())]["last"] = (
-        datetime.utcnow() - timedelta(minutes=minutes)
-    )
+    """Age the last-fire timestamp (every side-keyed entry) to simulate elapsed time."""
+    for k in _entry_dedup_state:
+        if k[0] == symbol and k[1] == direction.upper():
+            _entry_dedup_state[k]["last"] = datetime.utcnow() - timedelta(minutes=minutes)
 
 
 def _fire(symbol, direction, entry, atype, elapsed=None):
@@ -91,10 +91,37 @@ def test_after_cooldown_lower_entry_fires():
 
 
 def test_after_cooldown_higher_entry_is_chase():
-    _fire("AMD", "BUY", 525.11, "tv_rc_daily_hrec")
+    # same SIDE (both low-side dips) — a higher dip past the cooldown is a chase
+    _fire("AMD", "BUY", 525.11, "tv_rc_4h_long")
     res = _fire("AMD", "BUY", 531.21, "tv_ma_bounce_long_v3_ema8", elapsed=40)
     assert res and res["reason"] == "dedup_chase"
     assert res["anchor"] == 525.11
+
+
+def test_breakout_fires_after_a_dip_anchor():
+    """INTC 2026-06-29: morning dips anchor the LOW side at 122.31; the afternoon
+    PDH breakout (HIGH side, higher entry) must STILL fire — separate anchors."""
+    from app.routers.tv_webhook import _dedup_side
+    assert _dedup_side("tv_staged_pdh_break") == "high"
+    assert _dedup_side("tv_rc_4h_hrec") == "high"
+    assert _dedup_side("tv_rc_daily_long") == "low"
+    assert _dedup_side("tv_ma_bounce_long_v3_ema21") == "low"
+    # low-side dips
+    assert _fire("INTC", "BUY", 125.50, "tv_rc_daily_long") is None
+    assert _fire("INTC", "BUY", 122.31, "tv_ma_bounce_long_v3_ema21", elapsed=31) is None
+    # mid-day re-tests of the same support → chase, dropped
+    assert _fire("INTC", "BUY", 127.30, "tv_rc_4h_long", elapsed=100) is not None
+    # the afternoon BREAKOUT (high side) — higher entry, but a NEW setup → FIRES
+    assert _fire("INTC", "BUY", 131.23, "tv_rc_daily_hrec", elapsed=150) is None
+    # a higher breakout leg past cooldown also fires (new high)
+    assert _fire("INTC", "BUY", 131.77, "tv_staged_pdh_break", elapsed=70) is None
+
+
+def test_high_side_ratchets_up_not_down():
+    """On the high side a LOWER re-break is the chase (you already caught the higher one)."""
+    assert _fire("BO", "BUY", 50.0, "tv_rc_4h_hrec") is None
+    res = _fire("BO", "BUY", 48.0, "tv_rc_4h_hrec", elapsed=40)   # lower break = chase
+    assert res and res["reason"] == "dedup_chase"
 
 
 def test_alab_three_at_same_instant_collapse_to_one():

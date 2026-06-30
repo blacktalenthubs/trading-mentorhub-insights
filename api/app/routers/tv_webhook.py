@@ -799,25 +799,50 @@ def _is_entry_dedupable(alert_type_full: str) -> bool:
     return base not in _ENTRY_DEDUP_EXEMPT
 
 
+def _dedup_side(alert_type_full: str) -> str:
+    """'high' = breakout/continuation (prior-HIGH break, gap-up) — a higher entry
+    is a NEW breakout, not a chase. 'low' = support reclaim / dip-buy (prior-LOW
+    reclaim, MA bounce) — a lower entry is a better dip. Anchored SEPARATELY so a
+    clean breakout after a morning base still fires. INTC 2026-06-29 proved it:
+    morning dip ratcheted the anchor to the 122 EMA, which then ate the afternoon
+    PDH break @131.77 (the A-grade winner that ran to 141) as a 'chase'. Splitting
+    the side keeps the dip AND the breakout."""
+    base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    # reclaim_long reclaims the ORH/PDH (a HIGH), so it's a high-side continuation,
+    # NOT a dip — group it with the breaks so it shares their cooldown/anchor.
+    if (base.endswith("_hrec") or "_pdh" in base or "_pwh" in base or "_pmh" in base
+            or base.startswith("gap_up") or base == "reclaim_long"):
+        return "high"
+    return "low"
+
+
+def _better_is_lower(side: str, is_long: bool) -> bool:
+    """For a LONG: a better entry is LOWER on the low-side (cheaper dip) and
+    HIGHER on the high-side (a new breakout). SHORT mirrors."""
+    return (side == "low") if is_long else (side == "high")
+
+
 def _check_entry_time_dedup(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str,
 ) -> Optional[dict]:
     """Suppression info if this alert is a re-fire within the cooldown OR a
-    chase (entry not better than the best already alerted this session). None =
-    fire. Read-only — the caller records on a KEPT fire (so suppressed re-fires
-    neither reset the timer nor move the anchor)."""
+    chase (entry not better than the best already alerted this session, on its
+    side). None = fire. Read-only — the caller records on a KEPT fire (so
+    suppressed re-fires neither reset the timer nor move the anchor)."""
     if os.environ.get("V2_ENTRY_DEDUP_ENABLED", "true").lower() in ("0", "false", "no"):
         return None
     if not _is_entry_dedupable(alert_type_full):
         return None
     if entry is None or entry <= 0:
         return None  # no entry to price-dedup on → let it through
-    key = (symbol, (direction or "").upper())
+    direction_u = (direction or "").upper()
+    side = _dedup_side(alert_type_full)
+    key = (symbol, direction_u, side)
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
-        return None  # first fire for this symbol+direction this session
-    is_long = (direction or "").upper() in ("BUY", "LONG")
+        return None  # first fire for this symbol+direction+side this session
+    is_long = direction_u in ("BUY", "LONG")
     try:
         cooldown_min = float(_envf("V2_ENTRY_DEDUP_COOLDOWN_MIN", 30))
     except Exception:
@@ -825,8 +850,11 @@ def _check_entry_time_dedup(
     now = datetime.utcnow()
     if now - st["last"] < timedelta(minutes=cooldown_min):
         return {"reason": "dedup_cooldown", "anchor": st["best"]}
-    # past the cooldown — only a BETTER entry (lower for long / higher for short) fires
-    chasing = (entry >= st["best"]) if is_long else (entry <= st["best"])
+    # past the cooldown — only a BETTER entry (per side) fires
+    if _better_is_lower(side, is_long):
+        chasing = entry >= st["best"]
+    else:
+        chasing = entry <= st["best"]
     if chasing:
         return {"reason": "dedup_chase", "anchor": st["best"]}
     return None
@@ -836,18 +864,21 @@ def _record_entry_time_fire(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str,
 ) -> None:
-    """Record a KEPT fire — set last_time and ratchet the best entry."""
+    """Record a KEPT fire — set last_time and ratchet the best entry on its side."""
     if not _is_entry_dedupable(alert_type_full) or entry is None or entry <= 0:
         return
-    key = (symbol, (direction or "").upper())
-    is_long = (direction or "").upper() in ("BUY", "LONG")
+    direction_u = (direction or "").upper()
+    side = _dedup_side(alert_type_full)
+    key = (symbol, direction_u, side)
+    is_long = direction_u in ("BUY", "LONG")
     now = datetime.utcnow()
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
         _entry_dedup_state[key] = {"session": session_date, "best": float(entry), "last": now}
+    elif _better_is_lower(side, is_long):
+        st["best"] = min(st["best"], float(entry)); st["last"] = now
     else:
-        st["best"] = min(st["best"], float(entry)) if is_long else max(st["best"], float(entry))
-        st["last"] = now
+        st["best"] = max(st["best"], float(entry)); st["last"] = now
 
 
 # ---------------------------------------------------------------------------
