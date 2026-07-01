@@ -816,6 +816,9 @@ export interface PremarketGapEntry {
   pwl: number | null;
   flags: string[];
   catalyst: string | null;
+  market_cap: number | null;
+  sector: string | null;
+  is_ai: boolean;
 }
 
 export interface PremarketGapsResponse {
