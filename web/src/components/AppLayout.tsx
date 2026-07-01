@@ -11,6 +11,7 @@ import { usePushNotifications } from "../hooks/usePushNotifications";
 import { useSignalNotifications } from "../hooks/useSignalNotifications";
 import { useEntryPromotionNotifications } from "../hooks/useEntryPromotionNotifications";
 import ThemeToggleButton from "./ThemeToggleButton";
+import DisclaimerModal from "./DisclaimerModal";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import {
   Home,
@@ -142,6 +143,7 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen bg-surface-0">
+      <DisclaimerModal />
       {/* Desktop: collapsible nav rail */}
       <nav
         role="navigation"
