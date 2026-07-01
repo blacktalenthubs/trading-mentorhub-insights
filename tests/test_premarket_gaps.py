@@ -4,10 +4,42 @@ from __future__ import annotations
 
 from analytics.premarket_gaps import (
     bucket_for, pm_dollar_volume, passes_gap_filters,
+    passes_market_cap, is_ai_space,
     GAP_MIN_PCT, PM_DOLLAR_VOL_MIN, PRICE_MIN,
 )
 
 MOM = {"RKLB", "IONQ", "OKLO"}
+TRUSTED = {"AAPL", "MSFT", "NVDA"}
+
+
+class TestMarketCap:
+    def test_trusted_always_passes(self):
+        assert passes_market_cap("AAPL", None, TRUSTED, floor=3e9) is True
+
+    def test_below_floor_dropped(self):
+        assert passes_market_cap("JEM", 5e8, TRUSTED, floor=3e9) is False
+
+    def test_at_or_above_floor_passes(self):
+        assert passes_market_cap("PLTR", 3e9, TRUSTED, floor=3e9) is True
+        assert passes_market_cap("PLTR", 9e9, TRUSTED, floor=3e9) is True
+
+    def test_unknown_non_trusted_fail_closed(self):
+        assert passes_market_cap("XYZ", None, TRUSTED, floor=3e9) is False
+
+    def test_floor_zero_disables_gate(self):
+        assert passes_market_cap("XYZ", None, TRUSTED, floor=0) is True
+
+
+class TestAiSpace:
+    def test_ai_industries(self):
+        assert is_ai_space("Semiconductors") is True
+        assert is_ai_space("Technology") is True
+        assert is_ai_space("Software") is True
+
+    def test_non_ai(self):
+        assert is_ai_space("Beverages") is False
+        assert is_ai_space("Oil & Gas") is False
+        assert is_ai_space(None) is False
 
 
 class TestBucket:
