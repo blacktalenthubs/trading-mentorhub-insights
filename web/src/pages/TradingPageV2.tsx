@@ -377,16 +377,15 @@ function SignalFeedTab({
   onAssetFilterChange?: (a: "all" | "stocks" | "crypto") => void;
 }) {
   const [search, setSearch] = useState("");
-  // "Review" — the main feed is DELIVERED-only (clean, only what actually reached the
-  // user). This toggle reveals the NOT-SENT alerts (gated + deduped) with their reason,
-  // for evaluation, without polluting the feed or the count. Persisted; default OFF.
-  const [showSuppressed, setShowSuppressed] = useState<boolean>(
-    () => typeof window !== "undefined" && localStorage.getItem("show_suppressed") === "1",
+  // "Show collapsed" — reveal the deduped/merged alerts (hidden by default) so the
+  // dedup is auditable. Persisted; default OFF (clean feed).
+  const [showCollapsed, setShowCollapsed] = useState<boolean>(
+    () => typeof window !== "undefined" && localStorage.getItem("show_collapsed") === "1",
   );
-  function toggleShowSuppressed() {
-    setShowSuppressed((p) => {
+  function toggleShowCollapsed() {
+    setShowCollapsed((p) => {
       const next = !p;
-      try { localStorage.setItem("show_suppressed", next ? "1" : "0"); } catch { /* ignore */ }
+      try { localStorage.setItem("show_collapsed", next ? "1" : "0"); } catch { /* ignore */ }
       return next;
     });
   }
@@ -472,23 +471,23 @@ function SignalFeedTab({
     );
   }
 
-  // The feed, split by trade STYLE. The main feed shows ONLY DELIVERED alerts (clean —
-  // just what reached the user). Everything not-sent (gate catches: type off, SPY gate,
-  // grade, allowlists; AND dedup/collapse noise) is hidden unless "Review" is on, where
-  // it renders dimmed + badged with the reason. styleOf falls back to day_trade for old rows.
+  // The feed, split by trade STYLE. Each panel shows ALL its alerts — delivered AND
+  // recorded-not-delivered (gate catches: type off, SPY gate, grade, allowlists). The
+  // undelivered ones render dimmed + "NOT SENT". Same-moment dup noise
+  // (confluence_collapsed) and the Spec 67 entry/time dedup drops (dedup_cooldown /
+  // dedup_chase) are dropped from the feed — collapsed to the first/best entry.
+  // styleOf falls back to day_trade for old rows.
+  const COLLAPSED_REASONS = (r?: string | null) =>
+    !!r && (r.startsWith("confluence_collapsed") || r.startsWith("dedup_")
+            || r === "late_session");   // 4h-break muted after the morning window
   const styleOf = (a: Alert) => (a.style ?? "day_trade");
-  // The main feed is DELIVERED-only (suppressed_reason == null) — clean, only what
-  // reached the user. "Review" reveals ONLY the DEDUPED/collapsed re-fires (the
-  // duplicates we merged) — a first-time signal is never in Review. Alerts gated
-  // for delivery reasons (type off, not in Focus, SPY gate) are simply not shown
-  // — they're not duplicates, so they don't belong in Review either.
-  const isDeduped = (a: Alert) =>
-    !!a.suppressed_reason && collapsedLabel(a.suppressed_reason) != null;
+  // Collapsed (deduped/merged) alerts are hidden by default; "Show collapsed" reveals
+  // them (greyed + badged with the price they lost to) so the dedup is auditable.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && (!a.suppressed_reason || (showSuppressed && isDeduped(a))),
+    (a) => isFeedSignal(a.alert_type) && (showCollapsed || !COLLAPSED_REASONS(a.suppressed_reason)),
   );
-  const suppressedCount = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && isDeduped(a),
+  const collapsedCount = (alerts ?? []).filter(
+    (a) => isFeedSignal(a.alert_type) && COLLAPSED_REASONS(a.suppressed_reason),
   ).length;
   const styleCounts = feedAllRaw.reduce(
     (acc, a) => { acc[styleOf(a)] = (acc[styleOf(a)] ?? 0) + 1; return acc; },
@@ -672,19 +671,19 @@ function SignalFeedTab({
             <span className="ml-0.5 min-w-[14px] text-center text-[9px] font-bold rounded-full bg-accent text-bg-base px-1">{activeFilterCount}</span>
           )}
         </button>
-        {suppressedCount > 0 && (
+        {collapsedCount > 0 && (
           <button
-            onClick={toggleShowSuppressed}
-            title={showSuppressed
-              ? "Hide the not-sent alerts — back to the clean feed"
-              : `Review ${suppressedCount} not-sent alerts (gated + deduped) with reasons`}
-            className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
-              showSuppressed
+            onClick={toggleShowCollapsed}
+            title={showCollapsed
+              ? "Hide the deduped / merged alerts"
+              : `Show ${collapsedCount} alerts the dedup collapsed (audit — one alert per price level)`}
+            className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-0.5 transition-colors ${
+              showCollapsed
                 ? "bg-accent/10 text-accent border-accent/40 hover:bg-accent/15"
                 : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
             }`}
           >
-            <span>Review</span><span className="font-bold">{suppressedCount}</span>
+            <span>⋯</span><span className="font-bold">{collapsedCount}</span>
           </button>
         )}
         {filtersOpen && (
