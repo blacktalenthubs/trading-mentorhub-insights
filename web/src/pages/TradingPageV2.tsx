@@ -35,6 +35,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
 import { formatSetup, isFeedSignal, setupBlurb } from "../lib/alertFormat";
+import { DisclaimerFooter } from "../components/DisclaimerModal";
 import MasterAlertsBanner from "../components/MasterAlertsBanner";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
@@ -917,6 +918,7 @@ function SignalFeedTab({
           </div>
         );
       })}
+          <DisclaimerFooter />
         </div>
       )}
     </div>

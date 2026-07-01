@@ -16,6 +16,7 @@ import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
 import AlertCard from "../components/AlertCard";
 import MasterAlertsBanner from "../components/MasterAlertsBanner";
+import { DisclaimerFooter } from "../components/DisclaimerModal";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -814,6 +815,7 @@ export default function TodayPage() {
                   No {feedStyle === "day_trade" ? "day-trade" : feedStyle === "swing" ? "swing" : "long-term"} alerts in this session yet.
                 </div>
               )}
+              <DisclaimerFooter />
             </section>
 
             {/* side column — worth watching + your day */}
