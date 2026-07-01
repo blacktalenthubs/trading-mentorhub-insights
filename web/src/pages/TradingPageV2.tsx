@@ -478,12 +478,17 @@ function SignalFeedTab({
   // it renders dimmed + badged with the reason. styleOf falls back to day_trade for old rows.
   const styleOf = (a: Alert) => (a.style ?? "day_trade");
   // The main feed is DELIVERED-only (suppressed_reason == null) — clean, only what
-  // reached the user. "Review" reveals the not-sent (gated + deduped) with reasons.
+  // reached the user. "Review" reveals ONLY the DEDUPED/collapsed re-fires (the
+  // duplicates we merged) — a first-time signal is never in Review. Alerts gated
+  // for delivery reasons (type off, not in Focus, SPY gate) are simply not shown
+  // — they're not duplicates, so they don't belong in Review either.
+  const isDeduped = (a: Alert) =>
+    !!a.suppressed_reason && collapsedLabel(a.suppressed_reason) != null;
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && (showSuppressed || !a.suppressed_reason),
+    (a) => isFeedSignal(a.alert_type) && (!a.suppressed_reason || (showSuppressed && isDeduped(a))),
   );
   const suppressedCount = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && !!a.suppressed_reason,
+    (a) => isFeedSignal(a.alert_type) && isDeduped(a),
   ).length;
   const styleCounts = feedAllRaw.reduce(
     (acc, a) => { acc[styleOf(a)] = (acc[styleOf(a)] ?? 0) + 1; return acc; },
