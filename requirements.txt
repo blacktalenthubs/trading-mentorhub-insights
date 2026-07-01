@@ -45,3 +45,9 @@ aioapns>=3.0.0
 # Gated by GOOGLE_CLIENT_ID env var; import is lazy in the endpoint so
 # missing this dep would only surface when the endpoint is hit.
 google-auth>=2.30.0
+
+# SnapTrade — read-only broker connection to auto-sync real fills (Robinhood,
+# Schwab, etc.) into the trade journal. Gated by SNAPTRADE_CLIENT_ID; the SDK
+# import is lazy in app/services/snaptrade_service.py, so a missing dep only
+# surfaces when a SnapTrade endpoint is actually hit.
+snaptrade-python-sdk>=11.0.0

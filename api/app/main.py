@@ -1263,6 +1263,38 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Failed to register Premarket Gaps cron")
 
+        # SnapTrade daily fill sync — 6:30 PM ET Mon-Fri, after brokers have
+        # posted the day's fills. Pulls each connected user's executed trades
+        # into trades_monthly and reconciles them to documented patterns for the
+        # EOD report. No-op when SnapTrade isn't configured. Set
+        # SNAPTRADE_SYNC_ENABLED=false (env) to disable.
+        if getattr(settings, "SNAPTRADE_SYNC_ENABLED", True):
+            try:
+                from app.services import snaptrade_service as _snaptrade
+                if _snaptrade.is_configured(settings):
+                    from apscheduler.triggers.cron import CronTrigger as _CT_ST
+                    import pytz as _pytz_st
+                    _et_st = _pytz_st.timezone("America/New_York")
+
+                    def _snaptrade_daily_sync():
+                        try:
+                            totals = _snaptrade.run_daily_sync(sync_session_factory, settings)
+                            logger.info("SnapTrade daily sync: %s", totals)
+                        except Exception:
+                            logger.exception("SnapTrade daily sync failed")
+
+                    scheduler.add_job(
+                        _snaptrade_daily_sync,
+                        _CT_ST(day_of_week="mon-fri", hour=18, minute=30, timezone=_et_st),
+                        id="snaptrade_daily_sync", misfire_grace_time=3600,
+                        replace_existing=True,
+                    )
+                    logger.info("Registered SnapTrade daily sync cron: 18:30 ET Mon-Fri")
+                else:
+                    logger.info("SnapTrade sync not scheduled — not configured")
+            except Exception:
+                logger.exception("Failed to register SnapTrade sync cron")
+
         # scheduler already started at the top of this block (start-early so a
         # late registration failure can't kill all scheduled jobs).
         logger.info("Background monitor jobs registered (3-min poll + EOD/premarket/weekly jobs)")
@@ -1393,6 +1425,7 @@ def create_app() -> FastAPI:
         earnings,    # Spec 61 — Watchlist earnings calendar + T-7 notifications
         screener,    # Spec 62 — In-Play Volume Screener
         fundamentals,  # Watchlist Details tab — fundamentals + analyst ratings + AI views
+        snaptrade,   # SnapTrade — auto-sync real broker fills into the journal
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -1421,6 +1454,7 @@ def create_app() -> FastAPI:
     app.include_router(regime_config.router, prefix="/api/v1/regime-config", tags=["regime-config"])
     app.include_router(earnings.router, prefix="/api/v1/earnings", tags=["earnings"])
     app.include_router(fundamentals.router, prefix="/api/v1/fundamentals", tags=["fundamentals"])
+    app.include_router(snaptrade.router, prefix="/api/v1/snaptrade", tags=["snaptrade"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
     app.include_router(tv_webhook.router, prefix="/tv", tags=["tradingview"])
