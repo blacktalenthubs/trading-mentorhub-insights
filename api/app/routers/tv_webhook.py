@@ -1849,7 +1849,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # Per-user gate (2026-06-20): deliver only to users who enabled THIS alert
         # type. Fixes the multi-tenancy bug where one account's toggles changed
         # everyone's. No pref row = OFF (opt-in via Settings / Start here).
-        users = await _filter_users_by_type_pref(db, users, alert_type_full)
+        users = await _filter_users_by_type_pref(db, users, alert_type_full, sig.symbol)
         if not users:
             # No watcher has this type ENABLED. Still RECORD it unrouted (not drop), so a
             # type the user disabled shows in the Not-routed panel for review — the
@@ -2187,7 +2187,7 @@ MASTER_ALERT_TYPES: frozenset[str] = frozenset({
 })
 
 
-async def _filter_users_by_type_pref(db, users, alert_type_full: str):
+async def _filter_users_by_type_pref(db, users, alert_type_full: str, symbol: str = ""):
     """Keep only the users who enabled THIS alert type (per-user, default OFF).
 
     Per-user multi-tenancy fix (2026-06-20): the alert-type on/off is stored per
@@ -2198,6 +2198,13 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
     MASTER ALERTS (2026-06-30): a user with `master_alerts` ON is gated by the
     curated MASTER_ALERT_TYPES set instead of their personal toggles — so opting in
     delivers the platform's whole curated quality feed with zero config.
+
+    GLOBAL = ADMIN-CURATED UNIVERSE (2026-07-01): the global feed is the ADMIN's
+    master watchlist (master@busytradersdesk), NOT the union of all users' lists.
+    So a master subscriber only receives a symbol the ADMIN put in the master
+    watchlist — drift that fires on the TV list but isn't admin-curated (e.g. OSCR)
+    never reaches global subscribers. Fail-open if the universe can't be read;
+    kill switch MASTER_ALERTS_UNIVERSE_SCOPED=0.
     """
     if not users:
         return users
@@ -2213,7 +2220,23 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
     by_user: dict[int, set[str]] = {}
     for uid, at in rows:
         by_user.setdefault(uid, set()).add(at)
-    master_ok = _is_allowed_alert_type(alert_type_full, MASTER_ALERT_TYPES)
+
+    # Scope the global feed to the admin-curated master watchlist (only matters
+    # when a master-alerts subscriber is in the candidate set).
+    scoped = os.getenv("MASTER_ALERTS_UNIVERSE_SCOPED", "true").strip().lower() not in ("0", "false", "no", "off")
+    in_universe = True
+    if scoped and symbol and any(getattr(u, "master_alerts", False) for u in users):
+        from app.dependencies import MASTER_WATCHLIST_EMAIL
+        from app.models.watchlist import WatchlistItem
+        mrows = (await db.execute(
+            select(WatchlistItem.symbol).join(User, User.id == WatchlistItem.user_id)
+            .where(User.email == MASTER_WATCHLIST_EMAIL)
+        )).all()
+        master_syms = {re.sub(r"[^A-Z0-9]", "", (s or "").upper()) for (s,) in mrows}
+        if master_syms:  # fail-open on empty (don't kill the global feed)
+            in_universe = re.sub(r"[^A-Z0-9]", "", (symbol or "").upper()) in master_syms
+
+    master_ok = _is_allowed_alert_type(alert_type_full, MASTER_ALERT_TYPES) and in_universe
     return [
         u for u in users
         if (master_ok if getattr(u, "master_alerts", False)
