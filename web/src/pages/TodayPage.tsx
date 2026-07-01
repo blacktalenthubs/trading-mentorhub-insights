@@ -580,11 +580,12 @@ export default function TodayPage() {
   };
 
   // The feed is split into 3 STYLE panels (day-trade / swing / long-term). EVERY alert
-  // is tracked in its panel regardless of delivery — a non-delivered one (suppressed_reason
-  // set = not pushed to Telegram/in-app) still shows here, just marked. Once acted it leaves.
+  // CLEAN feed — only DELIVERED alerts (what actually reached the user). The not-sent
+  // ones (gated + deduped) are kept in the DB and reviewable on the Trading rail's
+  // "Review" toggle, so they don't inflate this count or clutter the main feed.
   const feedAll = useMemo(
     () => (alerts ?? [])
-      .filter((a) => isFeedSignal(a.alert_type) && !a.user_action)
+      .filter((a) => isFeedSignal(a.alert_type) && !a.user_action && !a.suppressed_reason)
       .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")),
     [alerts],
   );
