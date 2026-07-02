@@ -79,6 +79,25 @@ class Settings(BaseSettings):
     # JWKS at https://appleid.apple.com/auth/keys is enough.
     APPLE_CLIENT_ID: str = ""
 
+    # SnapTrade — read-only brokerage connection for auto-syncing real fills
+    # (Robinhood, Schwab, etc.) into the trade journal / EOD report. Credentials
+    # come from the SnapTrade dashboard. When SNAPTRADE_CLIENT_ID is empty the
+    # whole feature is a graceful no-op (endpoints 503, no scheduler job) so the
+    # app runs fine locally without SnapTrade provisioned. The consumer key is a
+    # secret and must never reach the client.
+    SNAPTRADE_CLIENT_ID: str = ""
+    SNAPTRADE_CONSUMER_KEY: str = ""
+    # Where SnapTrade sends the user back after the connection portal flow. The
+    # web app reads ?connected=1 here to refresh the connections list.
+    SNAPTRADE_REDIRECT_URI: str = "https://busytradersdesk.com/settings?connected=1"
+    # Daily fill sync — 6:30 PM ET Mon-Fri (after brokers post the day's fills).
+    # Set SNAPTRADE_SYNC_ENABLED=0 to disable the scheduled job.
+    SNAPTRADE_SYNC_ENABLED: bool = True
+    # How many days back each sync pulls. 7 gives self-healing overlap so a
+    # missed day (deploy, outage) backfills on the next run — inserts are
+    # deduped, so re-pulling the same fills is a no-op.
+    SNAPTRADE_SYNC_LOOKBACK_DAYS: int = 7
+
     # App
     APP_NAME: str = "BusyTradersDesk API"
     DEBUG: bool = False
