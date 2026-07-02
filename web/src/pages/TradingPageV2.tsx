@@ -29,7 +29,9 @@ import {
   useAddChartLevel,
   useUpdateChartLevel,
   useDeleteChartLevel,
+  useMarketReports,
 } from "../api/hooks";
+import { PremarketPanel, type PmSignal } from "../components/PremarketPanel";
 import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -423,7 +425,12 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"day_trade" | "swing" | "long_term">("day_trade");
+  const [view, setView] = useState<"premarket" | "day_trade" | "position">("day_trade");
+  const { data: pmReport } = useMarketReports();
+  const pmSignals = useMemo<PmSignal[]>(() => {
+    try { return (JSON.parse(pmReport?.premarket_signals?.body ?? "{}").signals ?? []) as PmSignal[]; }
+    catch { return []; }
+  }, [pmReport]);
 
   // Type hide-list — view-only. Set of alert_type strings to exclude from
   // the feed. Lets the user temporarily mute noisy types (e.g. historical
@@ -482,6 +489,9 @@ function SignalFeedTab({
     !!r && (r.startsWith("confluence_collapsed") || r.startsWith("dedup_")
             || r === "late_session");   // 4h-break muted after the morning window
   const styleOf = (a: Alert) => (a.style ?? "day_trade");
+  // Panels group by HOLDING period: day_trade intraday; swing + long_term MERGED into
+  // "position" (both are hold-overnight plays, managed the same). Style tags kept per-card.
+  const panelOf = (a: Alert) => (styleOf(a) === "day_trade" ? "day_trade" : "position");
   // Collapsed (deduped/merged) alerts are hidden by default; "Show collapsed" reveals
   // them (greyed + badged with the price they lost to) so the dedup is auditable.
   const feedAllRaw = (alerts ?? []).filter(
@@ -491,11 +501,12 @@ function SignalFeedTab({
     (a) => isFeedSignal(a.alert_type) && COLLAPSED_REASONS(a.suppressed_reason),
   ).length;
   const styleCounts = feedAllRaw.reduce(
-    (acc, a) => { acc[styleOf(a)] = (acc[styleOf(a)] ?? 0) + 1; return acc; },
-    { day_trade: 0, swing: 0, long_term: 0 } as Record<string, number>,
+    (acc, a) => { const p = panelOf(a); acc[p] = (acc[p] ?? 0) + 1; return acc; },
+    { day_trade: 0, position: 0 } as Record<string, number>,
   );
-  // The SELECTED style's alerts = this panel's feed.
-  const feedAlerts = feedAllRaw.filter((a) => styleOf(a) === view);
+  // The SELECTED panel's alerts. Premarket is its own ISOLATED channel (rendered from
+  // pmSignals, not the RTH feed) so it never mixes with day/position alerts.
+  const feedAlerts = view === "premarket" ? [] : feedAllRaw.filter((a) => panelOf(a) === view);
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -601,14 +612,16 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["day_trade", "Day Trade"], ["swing", "Swing"], ["long_term", "Long Term"]] as const).map(([id, label], i) => (
+          {([["premarket", "Premarket"], ["day_trade", "Day Trade"], ["position", "Position"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
-              title="Every alert of this style is tracked here — delivered + recorded-not-delivered (dimmed, NOT SENT). Only Telegram/push are gated."
+              title={id === "premarket"
+                ? "Premarket signals — an isolated channel (Focus names at a key level before the open). Separate from your RTH alerts."
+                : "Every alert of this style is tracked here — delivered + recorded-not-delivered (dimmed, NOT SENT). Only Telegram/push are gated."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
-              {label} <span className="opacity-70 font-normal">{styleCounts[id] ?? 0}</span>
+              {label} <span className="opacity-70 font-normal">{id === "premarket" ? pmSignals.length : (styleCounts[id] ?? 0)}</span>
             </button>
           ))}
         </div>
@@ -793,7 +806,9 @@ function SignalFeedTab({
         </div>
       )}
 
-      {alerts === undefined ? (
+      {view === "premarket" ? (
+        <PremarketPanel signals={pmSignals} onSelectSymbol={onSelectSymbol} />
+      ) : alerts === undefined ? (
         // Still loading the initial fetch — show skeleton cards rather than
         // an empty "No signals" message that flashes for 200-500ms.
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" aria-busy="true">
@@ -803,8 +818,8 @@ function SignalFeedTab({
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-text-faint">
             {q
-              ? `No ${q} ${view === "day_trade" ? "day-trade" : view === "swing" ? "swing" : "long-term"} alerts`
-              : `No ${view === "day_trade" ? "day-trade" : view === "swing" ? "swing" : "long-term"} alerts this session`}
+              ? `No ${q} ${view === "day_trade" ? "day-trade" : "position"} alerts`
+              : `No ${view === "day_trade" ? "day-trade" : "position"} alerts this session`}
           </p>
         </div>
       ) : (
