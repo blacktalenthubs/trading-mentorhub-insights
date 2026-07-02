@@ -102,7 +102,76 @@ def evaluate(levels, pm_price, pm_low, pm_high, enabled, tol=TOL_PCT):
     return out
 
 
-def run(send: bool = False) -> None:
+PM_LABEL = {
+    "cml_reclaim": "reclaimed the month low", "cml_held": "held the month low",
+    "staged_pdl_held": "held prior-day low", "staged_pwl_held": "held prior-week low",
+    "staged_pml_held": "held prior-month low", "staged_pdh_break": "broke prior-day high",
+    "staged_pwh_break": "broke prior-week high", "weekly_10w_held": "held the 10-week MA",
+    "weekly_30w_held": "held the 30-week MA",
+}
+
+
+def _prev_keys(dsn, sd):
+    """(symbol:type) keys from the PREVIOUS premarket scan today — the premarket-ONLY
+    dedup. Never reads/writes the RTH alert dedup: premarket is premarket."""
+    import json as _json
+    import psycopg2
+    try:
+        con = psycopg2.connect(dsn); cur = con.cursor()
+        cur.execute("SELECT body FROM market_reports WHERE kind='premarket_signals' AND session_date=%s", (sd,))
+        r = cur.fetchone(); con.close()
+        if not r:
+            return set()
+        return {f"{s['symbol']}:{s['alert_type']}" for s in _json.loads(r[0]).get("signals", [])}
+    except Exception:
+        return set()
+
+
+def _push_premarket(new_sigs, et):
+    """Isolated APNs push for NEW premarket signals — deep-links to the premarket tab,
+    its own thread-id, never enters the regular feed. No-ops if APNs unconfigured."""
+    if not all(os.environ.get(k) for k in ("APNS_AUTH_KEY", "APNS_KEY_ID", "APNS_TEAM_ID", "APNS_BUNDLE_ID")):
+        return 0
+    try:
+        from aioapns import APNs, NotificationRequest, PushType
+    except ImportError:
+        return 0
+    try:
+        from reports_store import _device_tokens
+        tokens = _device_tokens()
+    except Exception:
+        tokens = []
+    if not tokens:
+        return 0
+    n = len(new_sigs); head = new_sigs[0]
+    lead = f"{head['symbol']} {PM_LABEL.get(head['alert_type'], head['alert_type'])}"
+    summary = lead + (f" · +{n - 1} more at a level" if n > 1 else "")
+    title = f"\U0001F305 Premarket signals — {et.strftime('%-I:%M %p ET')}"
+    import asyncio
+
+    async def _fan():
+        client = APNs(key=os.environ["APNS_AUTH_KEY"], key_id=os.environ["APNS_KEY_ID"],
+                      team_id=os.environ["APNS_TEAM_ID"], topic=os.environ["APNS_BUNDLE_ID"],
+                      use_sandbox=os.environ.get("APNS_USE_SANDBOX", "0") == "1")
+        msg = {"aps": {"alert": {"title": title, "body": summary}, "sound": "default",
+                       "thread-id": "premarket-signals"},
+               "type": "premarket_signals", "route": "/today?tab=reports"}
+        sent = 0
+        for t in tokens:
+            try:
+                await client.send_notification(NotificationRequest(device_token=t, message=msg, push_type=PushType.ALERT))
+                sent += 1
+            except Exception:
+                pass
+        return sent
+
+    try:
+        return asyncio.run(_fan())
+    except Exception:
+        return 0
+
+
+def run(push: bool = True) -> None:
     import warnings
     warnings.filterwarnings("ignore")
     import pytz
@@ -144,17 +213,21 @@ def run(send: bool = False) -> None:
             signals.append({**sig, "symbol": s, "price": round(pm_price, 2), "gap_pct": round(gap, 1)})
 
     signals.sort(key=lambda x: -abs(x.get("gap_pct", 0)))
+    sd = et.strftime("%Y-%m-%d")
+    # Premarket-ONLY dedup: push only signals NEW vs the previous scan this session.
+    prev = _prev_keys(dsn, sd)
+    new_sigs = [s for s in signals if f"{s['symbol']}:{s['alert_type']}" not in prev]
     body = json.dumps({"kind": "premarket_signals", "signals": signals,
                        "count": len(signals), "asof": et.strftime("%H:%M ET")})
     try:
         from reports_store import publish
-        publish("premarket_signals", et, body, send=send)
-        print(json.dumps({"published": True, "count": len(signals),
-                          "signals": [f"{s['symbol']}:{s['alert_type']}" for s in signals]}))
+        publish("premarket_signals", et, body, send=False)  # persist the feed; push is separate below
     except Exception as e:
-        print(json.dumps({"published": False, "error": str(e), "count": len(signals),
-                          "signals": [f"{s['symbol']}:{s['alert_type']}" for s in signals]}))
+        print(json.dumps({"published": False, "error": str(e)})); return
+    pushed = _push_premarket(new_sigs, et) if (push and new_sigs) else 0
+    print(json.dumps({"published": True, "count": len(signals), "new": len(new_sigs),
+                      "pushed": pushed, "new_signals": [f"{s['symbol']}:{s['alert_type']}" for s in new_sigs]}))
 
 
 if __name__ == "__main__":
-    run(send="--send" in sys.argv)
+    run(push="--no-push" not in sys.argv)
