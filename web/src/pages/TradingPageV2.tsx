@@ -484,20 +484,20 @@ function SignalFeedTab({
   // (confluence_collapsed) and the Spec 67 entry/time dedup drops (dedup_cooldown /
   // dedup_chase) are dropped from the feed — collapsed to the first/best entry.
   // styleOf falls back to day_trade for old rows.
-  const COLLAPSED_REASONS = (r?: string | null) =>
-    !!r && (r.startsWith("confluence_collapsed") || r.startsWith("dedup_")
-            || r === "late_session");   // 4h-break muted after the morning window
   const styleOf = (a: Alert) => (a.style ?? "day_trade");
   // Panels group by HOLDING period: day_trade intraday; swing + long_term MERGED into
   // "position" (both are hold-overnight plays, managed the same). Style tags kept per-card.
   const panelOf = (a: Alert) => (styleOf(a) === "day_trade" ? "day_trade" : "position");
-  // Collapsed (deduped/merged) alerts are hidden by default; "Show collapsed" reveals
-  // them (greyed + badged with the price they lost to) so the dedup is auditable.
+  // CLEAN FEED (2026-07-02): the panels show DELIVERED alerts ONLY (suppressed_reason IS NULL).
+  // Everything recorded-but-not-delivered — NOT SENT gate catches (type off / SPY gate / grade /
+  // allowlist) AND dedup-collapsed — is hidden by default and revealed by the toggle for review,
+  // so the live feed reads as "what actually sent" and isn't a wall of NOT SENT.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && (showCollapsed || !COLLAPSED_REASONS(a.suppressed_reason)),
+    (a) => isFeedSignal(a.alert_type) && (showCollapsed || !a.suppressed_reason),
   );
+  // Count of everything hidden from the clean feed (not-sent + deduped) — the toggle badge.
   const collapsedCount = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && COLLAPSED_REASONS(a.suppressed_reason),
+    (a) => isFeedSignal(a.alert_type) && !!a.suppressed_reason,
   ).length;
   const styleCounts = feedAllRaw.reduce(
     (acc, a) => { const p = panelOf(a); acc[p] = (acc[p] ?? 0) + 1; return acc; },
@@ -617,7 +617,7 @@ function SignalFeedTab({
               onClick={() => setView(id)}
               title={id === "premarket"
                 ? "Premarket signals — an isolated channel (Focus names at a key level before the open). Separate from your RTH alerts."
-                : "Every alert of this style is tracked here — delivered + recorded-not-delivered (dimmed, NOT SENT). Only Telegram/push are gated."}
+                : "Delivered signals of this style. Recorded-but-not-sent (NOT SENT + deduped) are hidden — use the review toggle to audit them."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
               {label} <span className="opacity-70 font-normal">{id === "premarket" ? pmSignals.length : (styleCounts[id] ?? 0)}</span>
@@ -688,8 +688,8 @@ function SignalFeedTab({
           <button
             onClick={toggleShowCollapsed}
             title={showCollapsed
-              ? "Hide the deduped / merged alerts"
-              : `Show ${collapsedCount} alerts the dedup collapsed (audit — one alert per price level)`}
+              ? "Hide NOT SENT / deduped — show delivered only"
+              : `Review ${collapsedCount} recorded-but-not-sent alerts (NOT SENT + deduped)`}
             className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-0.5 transition-colors ${
               showCollapsed
                 ? "bg-accent/10 text-accent border-accent/40 hover:bg-accent/15"
