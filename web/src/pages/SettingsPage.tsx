@@ -244,21 +244,6 @@ function NotificationChannels() {
           </div>
         </label>
 
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={!!notifPrefs?.master_alerts}
-            disabled={!notifPrefs}
-            onChange={(e) => updateNotifs.mutate({ ...(notifPrefs as NotificationPrefs), master_alerts: e.target.checked })}
-            className="rounded border-border-subtle"
-          />
-          <Zap className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
-          <div className="flex-1">
-            <span className="text-sm text-text-primary">Master Alerts — the whole platform feed</span>
-            <p className="text-[10px] text-text-faint">Off = only your own watchlist (default). On = receive the entire master-watchlist deduped feed — the platform’s curated quality signals — even for symbols you don’t track. One tap, zero config; the dedup, grade and market-gate still apply.</p>
-          </div>
-        </label>
-
         {dirty && (
           <button
             onClick={() => updateNotifs.mutate({

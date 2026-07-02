@@ -2172,21 +2172,6 @@ async def _persist_unrouted(
 # monthly levels + staged level holds/breaks + gap-and-go + oversold/turn + the kept
 # MA bounces. Excludes the noise the admin muted (intraday *_hrec/reclaim chasing,
 # rsi_70 trim-zone, ema8, ORL/ORH). Admin-tunable later; a constant for v1.
-MASTER_ALERT_TYPES: frozenset[str] = frozenset({
-    "rc_4h_long", "rc_daily_long",
-    "weekly_rc", "monthly_rc",
-    "cml_held", "cml_reclaim", "pml_held",
-    "weekly_10w_held", "weekly_10w_reclaim", "weekly_30w_held", "weekly_30w_reclaim",
-    "monthly_box", "mobo_rch",
-    "staged_pdl_held", "staged_pdh_break", "staged_pwl_held", "staged_pml_held",
-    "staged_pdl_break",
-    "gap_up_continuation_long",
-    "rsi_oversold", "swing_rsi_30", "ema_5_20_cross",
-    "ma_bounce_long_v3_ema21", "ma_bounce_long_v3_ema50",
-    "ma_bounce_long_v3_ema100", "ma_bounce_long_v3_ema200",
-})
-
-
 async def _filter_users_by_type_pref(db, users, alert_type_full: str):
     """Keep only the users who enabled THIS alert type (per-user, default OFF).
 
@@ -2195,9 +2180,8 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
     Reuses _is_allowed_alert_type so MA-family confluence matching is identical to
     the catalog gate. A user with no pref row for the type = OFF.
 
-    MASTER ALERTS (2026-06-30): a user with `master_alerts` ON is gated by the
-    curated MASTER_ALERT_TYPES set instead of their personal toggles — so opting in
-    delivers the platform's whole curated quality feed with zero config.
+    (Master Alerts — the opt-in "receive the admin's whole curated feed" — was RETIRED
+    2026-07-02: users decide their own trades; delivery is purely per-user watchlist.)
     """
     if not users:
         return users
@@ -2213,11 +2197,9 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
     by_user: dict[int, set[str]] = {}
     for uid, at in rows:
         by_user.setdefault(uid, set()).add(at)
-    master_ok = _is_allowed_alert_type(alert_type_full, MASTER_ALERT_TYPES)
     return [
         u for u in users
-        if (master_ok if getattr(u, "master_alerts", False)
-            else _is_allowed_alert_type(alert_type_full, by_user.get(u.id, set())))
+        if _is_allowed_alert_type(alert_type_full, by_user.get(u.id, set()))
     ]
 
 
@@ -2346,10 +2328,8 @@ async def _users_watching(db, symbol: str):
     stmt = (
         select(User)
         .options(selectinload(User.subscription))
-        # watches THIS symbol · OR empty-watchlist onboarding fallback · OR opted into
-        # Master Alerts (the whole master-universe deduped feed, gated by MASTER_ALERT_TYPES).
-        .where(or_(User.id.in_(matching), User.id.notin_(users_with_wl),
-                   User.master_alerts.is_(True)))
+        # watches THIS symbol · OR empty-watchlist onboarding fallback
+        .where(or_(User.id.in_(matching), User.id.notin_(users_with_wl)))
         .where(User.email != MASTER_WATCHLIST_EMAIL)   # universe holder, not a recipient
     )
     result = await db.execute(stmt)

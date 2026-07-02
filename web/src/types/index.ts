@@ -282,8 +282,6 @@ export interface NotificationPrefs {
   min_alert_grade?: "A" | "B" | "C";
   // Opt-in (default OFF): push day-trade alerts only for the user's Focus symbols.
   daytrade_focus_only?: boolean;
-  // Opt-in (default OFF): receive the whole master-watchlist deduped quality feed.
-  master_alerts?: boolean;
 }
 
 // Per-alert-type channel routing.

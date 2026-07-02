@@ -81,14 +81,8 @@ class User(Base):
     daytrade_focus_only: Mapped[bool] = mapped_column(
         Boolean, server_default="0", default=False,
     )
-    # Master Alerts (opt-in, default OFF) — receive the WHOLE platform master-watchlist
-    # deduped feed, not just the user's own watchlist. Zero-config: when ON, delivery is
-    # gated by the canonical curated MASTER_ALERT_TYPES set (not the user's personal type
-    # toggles), so a brand-new user gets the platform's best signals with one tap. The
-    # global dedup + per-user SPY gate + grade still apply.
-    master_alerts: Mapped[bool] = mapped_column(
-        Boolean, server_default="0", default=False,
-    )
+    # (Master Alerts column RETIRED 2026-07-02 — the opt-in feed was removed; delivery is
+    # purely per-user watchlist. The DB column is left dormant/unused, not dropped.)
 
     # Per-alert-type channel routing — JSON dict, e.g.
     # {"ai_update": "email", "ai_long": "telegram", "ai_exit": "both"}
