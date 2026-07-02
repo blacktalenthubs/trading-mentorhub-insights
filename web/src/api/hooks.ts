@@ -105,6 +105,7 @@ export interface MarketReportsResponse {
   premarket: MarketReport | null;
   eod: MarketReport | null;
   morning_focus: MarketReport | null;
+  trend_setups: MarketReport | null;
 }
 export function useMarketReports(date?: string) {
   return useQuery({

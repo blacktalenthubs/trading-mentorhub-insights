@@ -529,6 +529,18 @@ def start_premarket_scheduler():
         except Exception:
             logger.exception("morning-focus job failed")
 
+    def _safe_trend_setups():
+        # Post-close: classify the master watchlist into ready-now / extended /
+        # rolling-off (validated 20-EMA engine) → market_reports kind=trend_setups.
+        # Subprocess-isolated so a yfinance hang can't stall the live loop. Read-only.
+        try:
+            import subprocess
+            script = str(Path(__file__).resolve().parent / "trend_setups.py")
+            r = subprocess.run([sys.executable, script], timeout=600)
+            logger.info("trend-setups job done (exit=%s)", r.returncode)
+        except Exception:
+            logger.exception("trend-setups job failed")
+
     # Mon-Fri only (no weekend briefs)
     scheduler.add_job(
         _safe_premarket,
@@ -547,6 +559,11 @@ def start_premarket_scheduler():
         CronTrigger(hour=EOD_HOUR_ET, minute=EOD_MINUTE_ET,
                     day_of_week="mon-fri", timezone=et_tz),
         id="eod_recap", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_trend_setups,
+        CronTrigger(hour=16, minute=15, day_of_week="mon-fri", timezone=et_tz),
+        id="trend_setups", replace_existing=True,
     )
     scheduler.start()
     logger.info("scheduler started: premarket %02d:%02d, morning-focus %02d:%02d, EOD %02d:%02d ET (mon-fri)",
