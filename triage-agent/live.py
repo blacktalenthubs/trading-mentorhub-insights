@@ -541,6 +541,18 @@ def start_premarket_scheduler():
         except Exception:
             logger.exception("trend-setups job failed")
 
+    def _safe_premarket_signals():
+        # Premarket window: fire the level rules on premarket price for every FOCUS
+        # symbol → market_reports kind=premarket_signals (the separate premarket feed).
+        # Subprocess-isolated; read-only.
+        try:
+            import subprocess
+            script = str(Path(__file__).resolve().parent / "premarket_signals_job.py")
+            r = subprocess.run([sys.executable, script], timeout=600)
+            logger.info("premarket-signals job done (exit=%s)", r.returncode)
+        except Exception:
+            logger.exception("premarket-signals job failed")
+
     # Mon-Fri only (no weekend briefs)
     scheduler.add_job(
         _safe_premarket,
@@ -564,6 +576,11 @@ def start_premarket_scheduler():
         _safe_trend_setups,
         CronTrigger(hour=16, minute=15, day_of_week="mon-fri", timezone=et_tz),
         id="trend_setups", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_premarket_signals,
+        CronTrigger(hour="7-9", minute="0,15,30,45", day_of_week="mon-fri", timezone=et_tz),
+        id="premarket_signals", replace_existing=True,
     )
     scheduler.start()
     logger.info("scheduler started: premarket %02d:%02d, morning-focus %02d:%02d, EOD %02d:%02d ET (mon-fri)",
