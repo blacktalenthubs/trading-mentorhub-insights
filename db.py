@@ -632,6 +632,8 @@ def init_db():
                 user_id INTEGER REFERENCES users(id),
                 symbol TEXT NOT NULL,
                 group_id INTEGER REFERENCES watchlist_group(id) ON DELETE SET NULL,
+                focus BOOLEAN DEFAULT FALSE,
+                focus_source TEXT DEFAULT 'manual',
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, symbol)
             );
@@ -771,6 +773,7 @@ def init_db():
     _migrate_per_user_entries_cooldowns()
     _migrate_ensure_default_watchlist()
     _migrate_watchlist_group_id()
+    _migrate_add_focus_source()
     _migrate_add_score_v2()
     _migrate_add_ai_review()
     _migrate_add_ai_conviction()
@@ -878,6 +881,30 @@ def _migrate_watchlist_user_id():
                     DROP TABLE watchlist;
                     ALTER TABLE watchlist_new RENAME TO watchlist;
                 """)
+
+
+def _migrate_add_focus_source():
+    """Add focus + focus_source to watchlist (June 2026).
+
+    `focus` had historically been created only by the API's SQLAlchemy model;
+    the worker/analytics layer (db.py) now reads/writes it for the auto-focus
+    agent, so ensure it exists here too. `focus_source` distinguishes manual
+    focus stars ('manual') from the daily auto-focus agent's picks ('auto') so
+    the agent can refresh its own selections each morning without ever
+    clobbering a symbol the user starred by hand.
+
+    Both ALTERs are idempotent — on a DB where the API already created the
+    column, _safe_add_column swallows the duplicate-column error.
+    """
+    with get_db() as conn:
+        _safe_add_column(
+            conn,
+            "ALTER TABLE watchlist ADD COLUMN focus BOOLEAN DEFAULT FALSE",
+        )
+        _safe_add_column(
+            conn,
+            "ALTER TABLE watchlist ADD COLUMN focus_source TEXT DEFAULT 'manual'",
+        )
 
 
 def _migrate_add_narrative():
@@ -1280,6 +1307,36 @@ def increment_daily_usage(user_id: int, feature: str) -> int:
 # Notification Preferences
 # ---------------------------------------------------------------------------
 
+def get_user_telegram(user_id: int) -> dict | None:
+    """Resolve a user's Telegram delivery info: {chat_id, enabled}.
+
+    Prefers the V2 users table (telegram_chat_id / telegram_enabled), falling
+    back to the V1 user_notification_prefs table. Returns None when the user
+    has no chat_id on either. Used by per-user digests (e.g. the daily
+    auto-focus "Top setups" push).
+    """
+    with get_db() as conn:
+        try:
+            row = conn.execute(
+                "SELECT telegram_chat_id, telegram_enabled FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            if row and row["telegram_chat_id"]:
+                return {
+                    "chat_id": str(row["telegram_chat_id"]),
+                    "enabled": bool(row["telegram_enabled"]),
+                }
+        except _DB_OPERATIONAL_ERRORS:
+            pass  # users table may lack telegram columns in some V1 deployments
+    prefs = get_notification_prefs(user_id)
+    if prefs and prefs.get("telegram_chat_id"):
+        return {
+            "chat_id": str(prefs["telegram_chat_id"]),
+            "enabled": bool(prefs.get("telegram_enabled")),
+        }
+    return None
+
+
 def get_notification_prefs(user_id: int) -> dict | None:
     """Get notification preferences for a user. Returns dict or None."""
     with get_db() as conn:
@@ -1510,6 +1567,15 @@ def get_all_daily_plans(session_date: str) -> list[dict]:
             (session_date,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_latest_daily_plan_date() -> str | None:
+    """Return the most recent session_date present in daily_plans (or None)."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT MAX(session_date) AS d FROM daily_plans"
+        ).fetchone()
+        return row["d"] if row and row["d"] else None
 
 
 # ---------------------------------------------------------------------------
@@ -1943,3 +2009,60 @@ def get_all_watchlist_symbols() -> list[str]:
         if rows:
             return [r["symbol"] for r in rows]
         return list(DEFAULT_WATCHLIST)
+
+
+# ---------------------------------------------------------------------------
+# Auto-focus agent helpers (daily "Top setups" — analytics/auto_focus.py)
+# ---------------------------------------------------------------------------
+
+def get_user_ids_with_watchlist() -> list[int]:
+    """Return every user_id that has at least one watchlist symbol."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT user_id FROM watchlist "
+            "WHERE user_id IS NOT NULL ORDER BY user_id"
+        ).fetchall()
+        return [r["user_id"] for r in rows]
+
+
+def get_watchlist_focus(user_id: int) -> list[dict]:
+    """Return [{symbol, focus, focus_source}] for a user's watchlist (id order)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT symbol, focus, focus_source FROM watchlist "
+            "WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def clear_auto_focus(user_id: int) -> int:
+    """Unset focus on a user's AUTO-focused symbols only.
+
+    Manual stars (focus_source='manual') are never touched. Returns the
+    number of rows cleared. Called at the start of each daily refresh.
+    """
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE watchlist SET focus = ?, focus_source = ? "
+            "WHERE user_id = ? AND focus = ? AND focus_source = ?",
+            (False, "manual", user_id, True, "auto"),
+        )
+        return cur.rowcount or 0
+
+
+def set_auto_focus(user_id: int, symbol: str) -> bool:
+    """Mark a watchlist symbol as auto-focused.
+
+    A symbol the user already starred by hand (focus=true, source='manual')
+    is left untouched — manual intent wins. Returns True when the row ends up
+    auto-focused by this call.
+    """
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE watchlist SET focus = ?, focus_source = ? "
+            "WHERE user_id = ? AND symbol = ? "
+            "AND NOT (focus = ? AND focus_source = ?)",
+            (True, "auto", user_id, symbol, True, "manual"),
+        )
+        return bool(cur.rowcount)

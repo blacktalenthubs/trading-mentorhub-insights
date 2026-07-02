@@ -415,6 +415,8 @@ export interface WatchlistItem {
   symbol: string;
   group_id?: number | null;
   focus?: boolean;
+  /** "manual" (user starred) or "auto" (daily auto-focus agent's pick). */
+  focus_source?: "manual" | "auto";
 }
 
 export interface WatchlistGroup {
