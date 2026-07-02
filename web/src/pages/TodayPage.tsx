@@ -313,6 +313,71 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
   );
 }
 
+type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
+function TrendSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { ready_now?: TrendRow[]; extended?: TrendRow[]; rolling_off?: TrendRow[] } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  if (!parsed || (!parsed.ready_now && !parsed.extended)) {
+    return (
+      <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "")}</pre>
+      </div>
+    );
+  }
+  const ready = parsed.ready_now ?? [];
+  const extended = parsed.extended ?? [];
+  const rolling = parsed.rolling_off ?? [];
+  return (
+    <div className="space-y-4">
+      <section className="space-y-2.5">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Ready now · at a rising 20 EMA — enter the line</h3>
+        {ready.length === 0 ? (
+          <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
+            No name is at its 20 EMA today — wait for a pullback to the line.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+            {ready.map((r) => (
+              <button key={r.symbol} onClick={() => onChart(r.symbol)} className="text-left rounded-xl border border-accent/40 bg-accent/5 p-3 hover:border-accent transition-colors">
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-bold text-text-secondary">{r.symbol}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-bullish-text">Ready · ADX {r.adx}</span>
+                </div>
+                <div className="mt-1 text-[12px] text-text-secondary">Entry <b className="text-bullish-text">${r.ema20}</b> (the 20) · stop <b>${r.stop}</b></div>
+                <div className="mt-0.5 text-[11px] text-text-faint">now ${r.price} · {r.dist_pct >= 0 ? "+" : ""}{r.dist_pct}% from the 20</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="space-y-2.5">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Extended · strong trend — wait for a pullback to the 20</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+          {extended.map((r) => (
+            <button key={r.symbol} onClick={() => onChart(r.symbol)} className="text-left rounded-lg border border-border-subtle bg-surface-1 p-2.5 hover:border-accent transition-colors">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] font-bold text-text-secondary">{r.symbol}</span>
+                <span className="text-[10px] text-text-faint">ADX {r.adx}</span>
+              </div>
+              <div className="mt-0.5 text-[11px] text-text-muted">+{r.dist_pct}% above · 20 @ ${r.ema20}</div>
+            </button>
+          ))}
+        </div>
+      </section>
+      {rolling.length > 0 && (
+        <section className="space-y-1.5">
+          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Rolling off · lost the 20 (not a trend entry)</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {rolling.map((r) => (
+              <button key={r.symbol} onClick={() => onChart(r.symbol)} className="rounded-md bg-surface-2 px-2 py-1 text-[11px] text-text-faint hover:text-text-secondary transition-colors">{r.symbol}</button>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   // Per-day review — "" = latest; pick a past session to flip back to its reports.
   const [selectedDate, setSelectedDate] = useState("");
@@ -324,39 +389,41 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const pre = data?.premarket ?? null;
   const eod = data?.eod ?? null;
   const mf = data?.morning_focus ?? null;
-  type Tab = "focus" | "premarket" | "eod";
+  const ts = data?.trend_setups ?? null;
+  type Tab = "focus" | "premarket" | "eod" | "trend";
   // Default to the freshest report by created_at.
   const byTime: Record<Tab, string> = {
-    focus: mf?.created_at || "", premarket: pre?.created_at || "", eod: eod?.created_at || "",
+    focus: mf?.created_at || "", premarket: pre?.created_at || "", eod: eod?.created_at || "", trend: ts?.created_at || "",
   };
-  const freshest = (["focus", "premarket", "eod"] as Tab[])
+  const freshest = (["focus", "premarket", "eod", "trend"] as Tab[])
     .filter((t) => byTime[t])
     .sort((a, b) => (byTime[a] > byTime[b] ? -1 : 1))[0] || "focus";
   const [which, setWhich] = useState<Tab>(freshest);
   const lastFresh = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${byTime.focus}|${byTime.premarket}|${byTime.eod}`;
-    if (lastFresh.current !== key && (pre || eod || mf)) {
+    const key = `${byTime.focus}|${byTime.premarket}|${byTime.eod}|${byTime.trend}`;
+    if (lastFresh.current !== key && (pre || eod || mf || ts)) {
       lastFresh.current = key;
       setWhich(freshest);
     }
-  }, [mf, pre, eod, freshest, byTime.focus, byTime.premarket, byTime.eod]);
+  }, [mf, pre, eod, ts, freshest, byTime.focus, byTime.premarket, byTime.eod, byTime.trend]);
 
   if (isLoading) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading reports…</div>;
   }
-  const active = which === "eod" ? eod : which === "focus" ? mf : pre;
+  const active = which === "eod" ? eod : which === "focus" ? mf : which === "trend" ? ts : pre;
   const text = active?.body?.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "");
-  const present: Record<Tab, boolean> = { focus: !!mf, premarket: !!pre, eod: !!eod };
+  const present: Record<Tab, boolean> = { focus: !!mf, premarket: !!pre, eod: !!eod, trend: !!ts };
   const empty: Record<Tab, string> = {
     focus: "No focus picks yet — today's Leaders Near a Buy Point drop pre-open (~8:45 AM ET) and show here.",
     premarket: "No premarket brief yet — it drops pre-open (~8:30 AM ET) and shows here.",
     eod: "No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here.",
+    trend: "No trend setups yet — they're generated after the close (~4:15 PM ET) and show here.",
   };
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
-        {([["focus", "Today's Focus"], ["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => (
+        {([["focus", "Today's Focus"], ["trend", "Trend Setups"], ["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setWhich(id)}
@@ -384,6 +451,8 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
       {active?.body ? (
         which === "focus"
           ? <FocusPicks body={active.body} onChart={onChart} />
+          : which === "trend"
+          ? <TrendSetups body={active.body} onChart={onChart} />
           : (
             <div className="max-w-3xl rounded-xl border border-border-subtle bg-surface-1 p-4">
               <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
