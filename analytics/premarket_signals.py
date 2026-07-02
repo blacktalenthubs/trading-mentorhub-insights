@@ -21,7 +21,8 @@ from typing import Iterable, Optional
 
 import pandas as pd
 
-TOL_PCT = 0.3   # how close the premarket low must tag a level to count (%)
+TOL_PCT = 0.3    # how close the premarket low must tag a level to count (%)
+PROX_PCT = 1.5   # price must be AT the level now (within this % above it) — not 5% past it
 
 
 def compute_levels(daily: pd.DataFrame, weekly: Optional[pd.DataFrame] = None) -> dict:
@@ -62,13 +63,14 @@ def compute_levels(daily: pd.DataFrame, weekly: Optional[pd.DataFrame] = None) -
 
 
 def _held(price: float, low: float, level: float, tol: float) -> bool:
-    """Tagged from above and holding: price above the level, low dipped to within tol."""
-    return level > 0 and price >= level and low <= level * (1 + tol / 100.0)
+    """Tagged from above and holding, AT the level now: price in [level, level+PROX%],
+    low dipped to within tol. The proximity cap stops it firing 5% past the level."""
+    return level > 0 and level <= price <= level * (1 + PROX_PCT / 100.0) and low <= level * (1 + tol / 100.0)
 
 
 def _reclaim(price: float, low: float, level: float, tol: float) -> bool:
-    """Undercut & reclaimed: low broke below the level, price back above it."""
-    return level > 0 and low < level * (1 - tol / 100.0) and price >= level
+    """Undercut & reclaimed, AT the level now: low broke below, price back just above it."""
+    return level > 0 and low < level * (1 - tol / 100.0) and level <= price <= level * (1 + PROX_PCT / 100.0)
 
 
 def evaluate(levels: dict, pm_price: float, pm_low: float, pm_high: float,
@@ -106,6 +108,6 @@ def evaluate(levels: dict, pm_price: float, pm_low: float, pm_high: float,
         ("pwh", "staged_pwh_break", "prior-week high"),
     ):
         lvl = levels.get(lvl_key)
-        if lvl and pm_price > lvl and pm_low <= lvl:   # crossed above premarket
+        if lvl and lvl < pm_price <= lvl * (1 + PROX_PCT / 100.0) and pm_low <= lvl:  # just broke, at it
             emit(atype, lvl, f"broke the {label} premarket")
     return out

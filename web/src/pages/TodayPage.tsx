@@ -378,6 +378,58 @@ function TrendSetups({ body, onChart }: { body: string; onChart: (s: string) => 
   );
 }
 
+type PmSignal = { symbol: string; alert_type: string; entry: number; level: number; stop: number; note: string; price: number; gap_pct: number };
+const PM_LABEL: Record<string, string> = {
+  cml_reclaim: "reclaimed month low", cml_held: "held month low",
+  staged_pdl_held: "held prior-day low", staged_pwl_held: "held prior-week low", staged_pml_held: "held prior-month low",
+  staged_pdh_break: "broke prior-day high", staged_pwh_break: "broke prior-week high",
+  weekly_10w_held: "held 10-week MA", weekly_30w_held: "held 30-week MA",
+};
+function PremarketSignals({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { signals?: PmSignal[]; asof?: string } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  if (!parsed || !parsed.signals) {
+    return (
+      <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "")}</pre>
+      </div>
+    );
+  }
+  const sigs = parsed.signals;
+  const breakouts = sigs.filter((s) => s.alert_type.includes("break"));
+  const support = sigs.filter((s) => !s.alert_type.includes("break"));
+  const card = (s: PmSignal) => (
+    <button key={s.symbol + s.alert_type} onClick={() => onChart(s.symbol)} className="text-left rounded-lg border border-border-subtle bg-surface-1 p-2.5 hover:border-accent transition-colors">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-bold text-text-secondary">{s.symbol}</span>
+        <span className={`text-[10px] font-semibold ${s.gap_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{s.gap_pct >= 0 ? "+" : ""}{s.gap_pct}%</span>
+      </div>
+      <div className="mt-0.5 text-[11px] text-text-muted">{PM_LABEL[s.alert_type] ?? s.alert_type}</div>
+      <div className="mt-0.5 text-[11px] text-text-faint">entry ${s.entry} · level ${s.level} · stop ${s.stop}</div>
+    </button>
+  );
+  return (
+    <div className="space-y-4">
+      <div className="text-[11px] text-text-faint">Premarket{parsed.asof ? ` · ${parsed.asof}` : ""} · {sigs.length} Focus names at a level</div>
+      {breakouts.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Breaking out · gapping through resistance</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">{breakouts.map(card)}</div>
+        </section>
+      )}
+      {support.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">At support · reclaiming / holding a key level</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">{support.map(card)}</div>
+        </section>
+      )}
+      {sigs.length === 0 && (
+        <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No Focus name is at a key level premarket right now.</div>
+      )}
+    </div>
+  );
+}
+
 function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   // Per-day review — "" = latest; pick a past session to flip back to its reports.
   const [selectedDate, setSelectedDate] = useState("");
@@ -390,40 +442,42 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const eod = data?.eod ?? null;
   const mf = data?.morning_focus ?? null;
   const ts = data?.trend_setups ?? null;
-  type Tab = "focus" | "premarket" | "eod" | "trend";
+  const ps = data?.premarket_signals ?? null;
+  type Tab = "focus" | "premarket" | "eod" | "trend" | "pmsig";
   // Default to the freshest report by created_at.
   const byTime: Record<Tab, string> = {
-    focus: mf?.created_at || "", premarket: pre?.created_at || "", eod: eod?.created_at || "", trend: ts?.created_at || "",
+    focus: mf?.created_at || "", premarket: pre?.created_at || "", eod: eod?.created_at || "", trend: ts?.created_at || "", pmsig: ps?.created_at || "",
   };
-  const freshest = (["focus", "premarket", "eod", "trend"] as Tab[])
+  const freshest = (["focus", "premarket", "eod", "trend", "pmsig"] as Tab[])
     .filter((t) => byTime[t])
     .sort((a, b) => (byTime[a] > byTime[b] ? -1 : 1))[0] || "focus";
   const [which, setWhich] = useState<Tab>(freshest);
   const lastFresh = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${byTime.focus}|${byTime.premarket}|${byTime.eod}|${byTime.trend}`;
-    if (lastFresh.current !== key && (pre || eod || mf || ts)) {
+    const key = `${byTime.focus}|${byTime.premarket}|${byTime.eod}|${byTime.trend}|${byTime.pmsig}`;
+    if (lastFresh.current !== key && (pre || eod || mf || ts || ps)) {
       lastFresh.current = key;
       setWhich(freshest);
     }
-  }, [mf, pre, eod, ts, freshest, byTime.focus, byTime.premarket, byTime.eod, byTime.trend]);
+  }, [mf, pre, eod, ts, ps, freshest, byTime.focus, byTime.premarket, byTime.eod, byTime.trend, byTime.pmsig]);
 
   if (isLoading) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading reports…</div>;
   }
-  const active = which === "eod" ? eod : which === "focus" ? mf : which === "trend" ? ts : pre;
+  const active = which === "eod" ? eod : which === "focus" ? mf : which === "trend" ? ts : which === "pmsig" ? ps : pre;
   const text = active?.body?.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "");
-  const present: Record<Tab, boolean> = { focus: !!mf, premarket: !!pre, eod: !!eod, trend: !!ts };
+  const present: Record<Tab, boolean> = { focus: !!mf, premarket: !!pre, eod: !!eod, trend: !!ts, pmsig: !!ps };
   const empty: Record<Tab, string> = {
     focus: "No focus picks yet — today's Leaders Near a Buy Point drop pre-open (~8:45 AM ET) and show here.",
     premarket: "No premarket brief yet — it drops pre-open (~8:30 AM ET) and shows here.",
     eod: "No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here.",
     trend: "No trend setups yet — they're generated after the close (~4:15 PM ET) and show here.",
+    pmsig: "No premarket signals yet — Focus names at a level show here during premarket (7:00–9:30 AM ET, every 15 min).",
   };
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
-        {([["focus", "Today's Focus"], ["trend", "Trend Setups"], ["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => (
+        {([["focus", "Today's Focus"], ["pmsig", "Premarket Signals"], ["trend", "Trend Setups"], ["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setWhich(id)}
@@ -453,6 +507,8 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
           ? <FocusPicks body={active.body} onChart={onChart} />
           : which === "trend"
           ? <TrendSetups body={active.body} onChart={onChart} />
+          : which === "pmsig"
+          ? <PremarketSignals body={active.body} onChart={onChart} />
           : (
             <div className="max-w-3xl rounded-xl border border-border-subtle bg-surface-1 p-4">
               <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
