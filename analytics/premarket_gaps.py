@@ -41,6 +41,7 @@ PM_DOLLAR_VOL_MIN = 100_000.0   # premarket $-volume floor (liquidity gate)
 PRICE_MIN = 2.0             # skip sub-$2 penny pumps
 TOP_N = 40                  # cap the board
 TOP_ENRICH_NEWS = 15        # only fetch a catalyst for the top N gappers
+QUEUE_SIZE = 3              # Gap-and-Go Queue: the top N by quality_score get a queue_rank
 
 # Market-cap floor — the board should be STABLE, liquid names, not sub-$3B small
 # caps / penny gappers that leak in via the market-wide movers broadening. The
@@ -127,6 +128,40 @@ def _latest_headline(symbol: str) -> Optional[str]:
 
 
 # ── Orchestrator (mirrors analytics/social_buzz.refresh_social_buzz) ──
+def gap_quality_score(e: dict) -> int:
+    """Gap-and-Go quality, 0-100 — the Queue ranking. Rewards the traits that make a
+    gap actually tradeable rather than just big:
+      · gap in the sweet spot (~2-8%); huge/exhausted gaps taper, tiny ones score low
+      · premarket dollar-volume liquidity (log-scaled: $1M→0, $100M→full)
+      · gapping OVER the prior-day high = a clean breakout with no overhead
+      · a real news catalyst (news-driven gaps hold better than air pockets)
+      · user focus (AI/tech space + already on the watchlist)
+    """
+    import math
+
+    gap = abs(e.get("gap_pct") or 0.0)
+    if gap <= 8.0:
+        gap_s = gap / 8.0 * 30.0
+    else:                                   # taper the exhaustion zone, floor at 15
+        gap_s = max(15.0, 30.0 - (gap - 8.0) * 1.5)
+
+    dvol = e.get("pm_dollar_vol") or 0.0
+    liq_s = min(25.0, (math.log10(dvol) - 6.0) / 2.0 * 25.0) if dvol > 1e6 else 0.0
+
+    pm, pdh, pc = e.get("pm_last"), e.get("pdh"), e.get("prior_close")
+    if pm and pdh and pm > pdh:
+        struct_s = 20.0                     # gapping over PDH — cleanest
+    elif pm and pc and pm > pc:
+        struct_s = 10.0
+    else:
+        struct_s = 0.0
+
+    cat_s = 15.0 if e.get("catalyst") else 0.0
+    focus_s = (6.0 if e.get("is_ai") else 0.0) + (4.0 if e.get("on_watchlist") else 0.0)
+
+    return int(round(min(100.0, gap_s + liq_s + struct_s + cat_s + focus_s)))
+
+
 def refresh_premarket_gaps(session_factory) -> dict:
     """Scan watchlist ∪ universe for premarket gappers, persist a snapshot.
     Returns a summary dict for cron logging.
@@ -263,6 +298,15 @@ def refresh_premarket_gaps(session_factory) -> dict:
                     summary["enriched"] += 1
             except Exception:
                 logger.debug("catalyst fetch failed for %s", e["symbol"], exc_info=True)
+
+        # ── Gap-and-Go Queue: score every kept entry, rank the top QUEUE_SIZE ──
+        # Scored AFTER catalyst enrichment so the news bonus counts. The board's
+        # display order is unchanged; only quality_score + queue_rank are added.
+        for e in entries:
+            e["quality_score"] = gap_quality_score(e)
+            e["queue_rank"] = None
+        for i, e in enumerate(sorted(entries, key=lambda x: x["quality_score"], reverse=True)[:QUEUE_SIZE]):
+            e["queue_rank"] = i + 1
 
         snap = PremarketGapSnapshot(captured_at=datetime.utcnow(), entries=entries)
         session.add(snap)
