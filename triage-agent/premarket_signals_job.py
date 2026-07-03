@@ -80,12 +80,8 @@ def evaluate(levels, pm_price, pm_low, pm_high, enabled, tol=TOL_PCT):
             out.append({"alert_type": atype, "direction": "BUY", "entry": round(pm_price, 2),
                         "level": round(level, 2), "stop": round(level * 0.997, 2), "note": why})
 
-    cml = levels.get("cml")
-    if cml:
-        if _reclaim(pm_price, pm_low, cml, tol):
-            emit("cml_reclaim", cml, "undercut & reclaimed the current-month low premarket")
-        elif _held(pm_price, pm_low, cml, tol):
-            emit("cml_held", cml, "tagged & held the current-month low premarket")
+    # CML (current-month low) RETIRED 2026-07-02 — early in a month it collapses onto the
+    # prior-day low (redundant/misleading). No longer emitted.
     for k, atype, label in (("pdl", "staged_pdl_held", "prior-day low"),
                             ("pwl", "staged_pwl_held", "prior-week low"),
                             ("pml", "staged_pml_held", "prior-month low"),

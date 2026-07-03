@@ -41,6 +41,7 @@ import { DisclaimerFooter } from "../components/DisclaimerModal";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
+import ThemeToggle from "../components/ThemeToggle";
 import NewSignalToast from "../components/NewSignalToast";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import {
@@ -1401,10 +1402,14 @@ export default function TradingPageV2() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* ── SPY Regime pill — compact, pinned top, polls 60s (renders nothing
-            when unavailable, so it costs zero space then). ── */}
-      <div className="shrink-0 px-2 py-0.5 empty:hidden">
+      {/* ── Top strip — regime pills (poll 60s) on the left, theme toggle pinned
+            right. The toggle keeps the strip present even when regime data is
+            unavailable, so dark/light is always one click away. ── */}
+      <div className="shrink-0 px-2 py-0.5 flex items-center gap-2">
         <SpyRegimeStrip />
+        <div className="ml-auto">
+          <ThemeToggle />
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
