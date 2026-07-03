@@ -15,6 +15,7 @@ import type { SpyRegimeSnapshot } from "../api/hooks";
 import type { Alert, SignalResult } from "../types";
 import { isFeedSignal } from "../lib/alertFormat";
 import AlertCard from "../components/AlertCard";
+import GapGoQueue from "../components/GapGoQueue";
 import { DisclaimerFooter } from "../components/DisclaimerModal";
 
 function greeting(): string {
@@ -783,6 +784,9 @@ export default function TodayPage() {
         </div>
 
         {tab === "signals" && (
+          <>
+          {/* Gap-and-Go Queue — top-3 quality-ranked premarket gappers (hidden when empty). */}
+          <GapGoQueue onChart={goChart} />
           <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
             {/* main column — live signals, split into the 3 style panels */}
             <section className="lg:col-span-2">
@@ -862,6 +866,7 @@ export default function TodayPage() {
               </section>
             </div>
           </div>
+          </>
         )}
 
         {tab === "bottom" && <BottomWatchBoard onChart={goChart} />}

@@ -818,6 +818,8 @@ export interface PremarketGapEntry {
   pwl: number | null;
   flags: string[];
   catalyst: string | null;
+  quality_score?: number;        // Gap-and-Go quality 0-100
+  queue_rank?: number | null;    // 1..3 for the queued top gappers, else null
 }
 
 export interface PremarketGapsResponse {
