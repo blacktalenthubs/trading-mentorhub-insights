@@ -7,7 +7,7 @@
  *  Its own scroll root (AppLayout <main> is overflow-hidden — see
  *  feedback_page_scroll_container).
  */
-import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, TrendingUp, TrendingDown, ChevronRight, ChevronDown, Bot } from "lucide-react";
 import { useAlertsToday, useSpyLiveRegime, useBtcLiveRegime, useWatchlistRank, useScanner, useMarketReports, useReportDates, useBottomWatch, type BottomWatchItem } from "../api/hooks";
@@ -443,57 +443,56 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const mf = data?.morning_focus ?? null;
   const ts = data?.trend_setups ?? null;
   const ps = data?.premarket_signals ?? null;
-  type Tab = "focus" | "premarket" | "eod" | "trend" | "pmsig";
-  // Default to the freshest report by created_at.
-  const byTime: Record<Tab, string> = {
-    focus: mf?.created_at || "", premarket: pre?.created_at || "", eod: eod?.created_at || "", trend: ts?.created_at || "", pmsig: ps?.created_at || "",
-  };
-  const freshest = (["focus", "premarket", "eod", "trend", "pmsig"] as Tab[])
-    .filter((t) => byTime[t])
-    .sort((a, b) => (byTime[a] > byTime[b] ? -1 : 1))[0] || "focus";
-  const [which, setWhich] = useState<Tab>(freshest);
-  const lastFresh = useRef<string | null>(null);
-  useEffect(() => {
-    const key = `${byTime.focus}|${byTime.premarket}|${byTime.eod}|${byTime.trend}|${byTime.pmsig}`;
-    if (lastFresh.current !== key && (pre || eod || mf || ts || ps)) {
-      lastFresh.current = key;
-      setWhich(freshest);
-    }
-  }, [mf, pre, eod, ts, ps, freshest, byTime.focus, byTime.premarket, byTime.eod, byTime.trend, byTime.pmsig]);
+  // Timeline rail: which section is active (scroll target). No tab state — every
+  // report renders in one scroll, in the order it drops through the day.
+  const [activeSec, setActiveSec] = useState<string>("sec-focus");
+  const rawText = (b?: string | null) => (b ? b.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "") : "");
 
   if (isLoading) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading reports…</div>;
   }
-  const active = which === "eod" ? eod : which === "focus" ? mf : which === "trend" ? ts : which === "pmsig" ? ps : pre;
-  const text = active?.body?.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "");
-  const present: Record<Tab, boolean> = { focus: !!mf, premarket: !!pre, eod: !!eod, trend: !!ts, pmsig: !!ps };
-  const empty: Record<Tab, string> = {
-    focus: "No focus picks yet — today's Leaders Near a Buy Point drop pre-open (~8:45 AM ET) and show here.",
-    premarket: "No premarket brief yet — it drops pre-open (~8:30 AM ET) and shows here.",
-    eod: "No EOD recap yet — it's generated after the close (~4:05 PM ET) and shows here.",
-    trend: "No trend setups yet — they're generated after the close (~4:15 PM ET) and show here.",
-    pmsig: "No premarket signals yet — Focus names at a level show here during premarket (7:00–9:30 AM ET, every 15 min).",
+
+  const sections = [
+    { id: "sec-premarket", time: "4:30a", title: "Premarket brief", present: !!pre,
+      wait: "Drops pre-open (~8:30 AM ET).", render: () => <TextReport text={rawText(pre?.body)} /> },
+    { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf,
+      wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).", render: () => <FocusPicks body={mf!.body} onChart={onChart} /> },
+    { id: "sec-pmsig", time: "9:45a", title: "Premarket signals", present: !!ps,
+      wait: "Focus names at a level, premarket (7:00–9:30 ET, every 15 min).", render: () => <PremarketSignals body={ps!.body} onChart={onChart} /> },
+    { id: "sec-trend", time: "ALL·DAY", title: "Trend setups", present: !!ts,
+      wait: "Generated after the close (~4:15 PM ET).", render: () => <TrendSetups body={ts!.body} onChart={onChart} /> },
+    { id: "sec-eod", time: "4:10p", title: "EOD recap", present: !!eod,
+      wait: "Generated after the close (~4:05 PM ET).", render: () => <TextReport text={rawText(eod?.body)} /> },
+  ];
+  const jump = (id: string) => {
+    setActiveSec(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
-        {([["focus", "Today's Focus"], ["pmsig", "Premarket Signals"], ["trend", "Trend Setups"], ["premarket", "Premarket"], ["eod", "EOD Recap"]] as const).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setWhich(id)}
-            className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-              which === id ? "bg-accent/15 text-accent" : "bg-surface-2 text-text-muted hover:text-text-secondary"
-            } ${present[id] ? "" : "opacity-50"}`}
-          >
-            {label}
-          </button>
-        ))}
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-[190px_1fr]">
+      {/* Timeline rail — the day's reports in order; click to jump. */}
+      <nav className="hidden self-start md:sticky md:top-2 md:block">
+        <div className="space-y-0.5">
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => jump(s.id)}
+              className={`w-full rounded-lg border-l-2 px-2.5 py-2 text-left transition-colors ${activeSec === s.id ? "border-accent bg-accent/10" : "border-transparent hover:bg-surface-2"}`}
+            >
+              <div className="font-mono text-[9px] uppercase tracking-wide text-text-faint">{s.time}</div>
+              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-text-secondary">
+                {s.present ? <span className="text-bullish-text">✓</span> : <span className="text-text-faint">—</span>}
+                {s.title}
+              </div>
+            </button>
+          ))}
+        </div>
         {reportDates.length > 0 && (
           <select
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
             title="Review a past session"
-            className="ml-auto rounded-lg bg-surface-2 border border-border-subtle px-2 py-1.5 text-[11px] text-text-secondary"
+            className="mt-3 w-full rounded-lg border border-border-subtle bg-surface-2 px-2 py-1.5 text-[11px] text-text-secondary"
           >
             <option value="">Latest</option>
             {reportDates.map((d) => (
@@ -501,24 +500,32 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             ))}
           </select>
         )}
-      </div>
-      {active?.body ? (
-        which === "focus"
-          ? <FocusPicks body={active.body} onChart={onChart} />
-          : which === "trend"
-          ? <TrendSetups body={active.body} onChart={onChart} />
-          : which === "pmsig"
-          ? <PremarketSignals body={active.body} onChart={onChart} />
-          : (
-            <div className="max-w-3xl rounded-xl border border-border-subtle bg-surface-1 p-4">
-              <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
+      </nav>
+
+      {/* Content — every report section in one scroll. */}
+      <div className="min-w-0 space-y-8">
+        {sections.map((s) => (
+          <section key={s.id} id={s.id} className="scroll-mt-4">
+            <div className="mb-2.5 flex items-baseline gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{s.time}</span>
+              <h2 className="text-[13px] font-bold text-text-primary">{s.title}</h2>
             </div>
-          )
-      ) : (
-        <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">
-          {empty[which]}
-        </div>
-      )}
+            {s.present ? s.render() : (
+              <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">{s.wait}</div>
+            )}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Raw-text report card (premarket brief / EOD recap) — strips Telegram HTML tags. */
+function TextReport({ text }: { text: string }) {
+  if (!text.trim()) return null;
+  return (
+    <div className="max-w-3xl rounded-xl border border-border-subtle bg-surface-1 p-4">
+      <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
     </div>
   );
 }
