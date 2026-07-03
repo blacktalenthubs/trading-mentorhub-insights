@@ -48,8 +48,8 @@ export default function WatchlistPage() {
   const [input, setInput] = useState("");
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const [activeTab, setActiveTab] = useState<WatchlistTab>(() => {
-    if (typeof window === "undefined") return "symbols";
-    return (localStorage.getItem("watchlist_active_tab") as WatchlistTab) || "symbols";
+    if (typeof window === "undefined") return "details";
+    return (localStorage.getItem("watchlist_active_tab") as WatchlistTab) || "details";
   });
 
   function switchTab(t: WatchlistTab) {
@@ -196,7 +196,7 @@ export default function WatchlistPage() {
           }`}
         >
           <LineChart className="h-3.5 w-3.5" />
-          Details
+          Research
         </button>
       </div>
 
