@@ -42,6 +42,7 @@ import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
 import ThemeToggle from "../components/ThemeToggle";
+import MarketClock from "../components/MarketClock";
 import LevelMap from "../components/LevelMap";
 import AlertLog from "../components/AlertLog";
 import NewSignalToast from "../components/NewSignalToast";
@@ -1418,7 +1419,8 @@ export default function TradingPageV2() {
       {/* ── Top strip — regime pills (poll 60s) on the left, theme toggle pinned
             right. The toggle keeps the strip present even when regime data is
             unavailable, so dark/light is always one click away. ── */}
-      <div className="shrink-0 px-2 py-0.5 flex items-center gap-2">
+      <div className="shrink-0 px-2 py-1 flex items-center gap-3 flex-wrap">
+        <MarketClock />
         <SpyRegimeStrip />
         <div className="ml-auto">
           <ThemeToggle />
