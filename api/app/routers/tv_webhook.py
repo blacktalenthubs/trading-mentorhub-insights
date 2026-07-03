@@ -1751,6 +1751,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         return await _persist_unrouted(
             sig, alert_type_full, session_date,
             suppressed_reason=f"confluence_collapsed:{same_bar['prior_type']}",
+            anchor_type=same_bar['prior_type'],
         )
     _record_same_bar_fire(sig.symbol, alert_type_full)
 
@@ -2101,6 +2102,7 @@ async def _persist_unrouted(
     alert_type_full: str,
     session_date: str,
     suppressed_reason: str = "type_not_enabled",
+    anchor_type: Optional[str] = None,
 ) -> dict[str, Any]:
     """Record-only path for alerts that are suppressed before delivery.
 
@@ -2121,6 +2123,29 @@ async def _persist_unrouted(
     recorded = 0
     async with async_session_factory() as db:
         users = await _users_watching(db, sig.symbol)
+        # ANCHOR-AWARE RESCUE (2026-07-02): a cross-type collapse suppresses THIS alert (B)
+        # into a prior anchor of type `anchor_type` (A). But a user who ENABLED B and DISABLED
+        # A never received A — so B is their real signal and must NOT be silently eaten by a
+        # type they turned off. For those users, record B as DELIVERED (suppressed_reason=NULL)
+        # instead of suppressed. Fixes the MSFT→reclaim_long(off) / CRDO→ma_bounce(off) misses.
+        rescued_ids: set[int] = set()
+        if anchor_type and users:
+            from app.models.alert_type_pref import UserAlertTypePref
+            _ids = [u.id for u in users]
+            _prows = (await db.execute(
+                select(UserAlertTypePref.user_id, UserAlertTypePref.alert_type).where(
+                    UserAlertTypePref.user_id.in_(_ids),
+                    UserAlertTypePref.enabled.is_(True),
+                )
+            )).all()
+            _by_user: dict[int, set[str]] = {}
+            for _uid, _at in _prows:
+                _by_user.setdefault(_uid, set()).add(_at)
+            for _u in users:
+                _en = _by_user.get(_u.id, set())
+                if (_is_allowed_alert_type(alert_type_full, _en)
+                        and not _is_allowed_alert_type(anchor_type, _en)):
+                    rescued_ids.add(_u.id)
         for user in users:
             already = (await db.execute(
                 select(Alert.id).where(
@@ -2133,6 +2158,8 @@ async def _persist_unrouted(
             )).first()
             if already:
                 continue
+            # Rescued users (enabled B, disabled the anchor A) get B DELIVERED, not suppressed.
+            _row_reason = None if user.id in rescued_ids else suppressed_reason
             db.add(Alert(
                 user_id=user.id,
                 symbol=sig.symbol,
@@ -2146,7 +2173,7 @@ async def _persist_unrouted(
                 confidence=sig.confidence,
                 message=sig.message,
                 session_date=session_date,
-                suppressed_reason=suppressed_reason,
+                suppressed_reason=_row_reason,
                 # Carry stage + slope + inside_day through to the unrouted
                 # audit row so the 'Not routed' feed shows WHY each basing_chop
                 # / uptrend_gate suppression fired — not just the reason code.
@@ -2158,10 +2185,11 @@ async def _persist_unrouted(
             recorded += 1
         await db.commit()
     logger.info(
-        "TV webhook: recorded %d %s/%s rows for %s (review only)",
-        recorded, alert_type_full, suppressed_reason, sig.symbol,
+        "TV webhook: recorded %d %s/%s rows for %s (review only; %d rescued past disabled anchor %s)",
+        recorded, alert_type_full, suppressed_reason, sig.symbol, len(rescued_ids), anchor_type or "-",
     )
-    return {"dispatched": False, "reason": suppressed_reason, "recorded": recorded}
+    return {"dispatched": False, "reason": suppressed_reason,
+            "recorded": recorded, "rescued": len(rescued_ids)}
 
 
 # ── Master Alerts — the canonical curated quality set ───────────────────────
