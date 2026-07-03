@@ -161,8 +161,6 @@ function TrendSetups({ body, onChart }: { body: string; onChart: (s: string) => 
     );
   }
   const ready = parsed.ready_now ?? [];
-  const extended = parsed.extended ?? [];
-  const rolling = parsed.rolling_off ?? [];
   return (
     <div className="space-y-4">
       <section className="space-y-2.5">
@@ -186,22 +184,6 @@ function TrendSetups({ body, onChart }: { body: string; onChart: (s: string) => 
           </div>
         )}
       </section>
-      {/* Non-actionable context — collapsed to thin count chips (not big grids).
-          Extended = wait for a pullback; Rolling off = lost the 20, not an entry. */}
-      {(extended.length > 0 || rolling.length > 0) && (
-        <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px]">
-          {extended.length > 0 && (
-            <span className="rounded-md bg-surface-2 px-2.5 py-1 text-text-faint">
-              <b className="text-text-muted">Extended · {extended.length}</b> — strong trend, wait for a pullback to the 20
-            </span>
-          )}
-          {rolling.length > 0 && (
-            <span className="rounded-md bg-surface-2 px-2.5 py-1 text-text-faint opacity-80">
-              <b className="text-text-muted">Rolling off · {rolling.length}</b> — lost the 20, not an entry
-            </span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
