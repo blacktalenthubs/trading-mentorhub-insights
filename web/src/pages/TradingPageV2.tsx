@@ -2247,30 +2247,18 @@ export default function TradingPageV2() {
             </select>
           </div>
 
-          {/* Asset filter — All / Stocks / Crypto */}
-          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-subtle shrink-0">
-            {(["all", "stocks", "crypto"] as const).map((k) => (
-              <button
-                key={k}
-                onClick={() => changeAssetFilter(k)}
-                className={`text-[10px] px-2.5 py-0.5 rounded-full border transition-colors ${
-                  assetFilter === k
-                    ? "bg-accent/15 text-accent border-accent/40"
-                    : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
-                }`}
-              >
-                {k === "all" ? "All" : k === "stocks" ? "Stocks" : "Crypto"}
-              </button>
-            ))}
-          </div>
-
-          {/* Signal feed — AI scanner + TradingView signals */}
+          {/* Signal feed — AI scanner + TradingView signals.
+              Asset (All/Stocks/Crypto) now lives INSIDE the Filters popover with
+              grade + types (was a redundant top-level row; the popover copy was
+              also inert because the props weren't passed). One less control row. */}
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             <SignalFeedTab
               alerts={filterAlertsByAsset(activeAlerts)}
               alertsError={activeAlertsError}
               onSelectSymbol={selectSymbol}
               signalDate={signalDate}
+              assetFilter={assetFilter}
+              onAssetFilterChange={changeAssetFilter}
             />
           </div>
         </aside>
@@ -2318,6 +2306,8 @@ export default function TradingPageV2() {
               alertsError={activeAlertsError}
               onSelectSymbol={selectSymbol}
               signalDate={signalDate}
+              assetFilter={assetFilter}
+              onAssetFilterChange={changeAssetFilter}
             />
           </div>
         )}
