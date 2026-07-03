@@ -155,11 +155,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
     # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
     ("monthly_rc", "Monthly RC — prior-month high/low reclaim (position)", "Monthly trend", False),
-    # CML — the CURRENT-month low defended intraday (rc.pine, 2026-06-25). Distinct
-    # from monthly_rc (prior month): cml_reclaim = price swept the month floor (new low)
-    # and reclaimed it; cml_held = price tagged it from above and held. Both BUY, OFF.
-    ("cml_reclaim", "CML reclaim — undercut & reclaim of the CURRENT-month low (month floor swept & held)", "Monthly trend", False),
-    ("cml_held", "CML held — tag & hold of the CURRENT-month low as support", "Monthly trend", False),
+    # CML (current-month low: cml_reclaim · cml_held) RETIRED 2026-07-03 → OBSOLETE_ALERT_TYPES
+    # (user: still seeing them, wants them gone). pml_held (prior-month low) KEPT.
     ("pml_held", "PML held — tag & hold of the PRIOR-month low as support", "Monthly trend", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
@@ -321,10 +318,10 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
-    # 2026-07-03 — the two LITERAL ORL/ORH opening-range types RETIRED (user: "retire ORL
-    # and ORH only"). reclaim_long (Index reclaim) + cml_reclaim/cml_held are KEPT — they
-    # are NOT ORL/ORH plays. Startup purges stale rows; webhook drops arrivals.
-    "orh_break", "staged_orl_held",
+    # 2026-07-03 — ORL/ORH opening-range types + current-month-low (CML) RETIRED. Index
+    # reclaim (reclaim_long) is KEPT (user wanted it back). Startup purges stale rows;
+    # webhook drops arrivals.
+    "orh_break", "staged_orl_held", "cml_reclaim", "cml_held",
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
