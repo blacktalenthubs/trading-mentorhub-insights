@@ -929,6 +929,10 @@ def refresh_emerging_job() -> None:
     _run(refresh_emerging())  # Weekly (Mon ~08:10 ET) — Stage turns are weekly-bar events
 
 
+def refresh_growth_job() -> None:
+    _run(refresh_growth())  # Daily (~07:50 ET) — growth/fundamentals on daily bars, not market-gated
+
+
 async def bootstrap() -> None:
     """One-shot self-populate on deploy: build the universe if it's empty, then run
     an initial swing scan if no swing snapshot exists yet. Idempotent across restarts
@@ -952,6 +956,9 @@ async def bootstrap() -> None:
         if await get_latest_snapshot("emerging") is None:
             logger.info("screener: bootstrap — initial emerging scan")
             await refresh_emerging()
+        if await get_latest_snapshot("growth") is None:
+            logger.info("screener: bootstrap — initial growth scan")
+            await refresh_growth()
         logger.info("screener: bootstrap complete")
     except Exception:
         logger.exception("screener: bootstrap failed")

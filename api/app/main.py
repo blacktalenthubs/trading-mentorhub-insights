@@ -1091,7 +1091,7 @@ async def lifespan(app: FastAPI):
                 refresh_swing_job, refresh_swing_small_job,
                 refresh_swing_close_job, refresh_swing_small_close_job,
                 refresh_weekly_stage_job, refresh_conviction_job, bootstrap_job,
-                refresh_emerging_job,
+                refresh_emerging_job, refresh_growth_job,
             )
             scheduler.add_job(
                 refresh_swing_job, "cron", hour=7, minute=30,
@@ -1138,6 +1138,14 @@ async def lifespan(app: FastAPI):
                 refresh_emerging_job, "cron", day_of_week="mon-fri", hour=8, minute=10,
                 timezone="America/New_York",
                 id="screener_emerging_refresh", replace_existing=True,
+            )
+            # Growth Leaders (Long-term Core) — analyst/fundamentals on daily bars, not
+            # market-gated. Daily morning refresh (~07:50 ET) so the board stays fresh
+            # like conviction/emerging (was manual/on-demand only → went stale).
+            scheduler.add_job(
+                refresh_growth_job, "cron", day_of_week="mon-fri", hour=7, minute=50,
+                timezone="America/New_York",
+                id="screener_growth_refresh", replace_existing=True,
             )
             # Scheduler jobs run on worker threads but the async DB engine is bound
             # to this (the app's main) loop — hand it to the service so jobs submit
