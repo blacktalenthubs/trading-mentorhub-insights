@@ -221,47 +221,29 @@ const PM_LABEL: Record<string, string> = {
   staged_pdh_break: "broke prior-day high", staged_pwh_break: "broke prior-week high",
   weekly_10w_held: "held 10-week MA", weekly_30w_held: "held 30-week MA",
 };
-function PremarketSignals({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { signals?: PmSignal[]; asof?: string } | null = null;
-  try { parsed = JSON.parse(body); } catch { parsed = null; }
-  if (!parsed || !parsed.signals) {
-    return (
-      <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "")}</pre>
-      </div>
-    );
-  }
-  const sigs = parsed.signals;
-  const breakouts = sigs.filter((s) => s.alert_type.includes("break"));
-  const support = sigs.filter((s) => !s.alert_type.includes("break"));
-  const card = (s: PmSignal) => (
-    <button key={s.symbol + s.alert_type} onClick={() => onChart(s.symbol)} className="text-left rounded-lg border border-border-subtle bg-surface-1 p-2.5 hover:border-accent transition-colors">
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] font-bold text-text-secondary">{s.symbol}</span>
-        <span className={`text-[10px] font-semibold ${s.gap_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{s.gap_pct >= 0 ? "+" : ""}{s.gap_pct}%</span>
-      </div>
-      <div className="mt-0.5 text-[11px] text-text-muted">{PM_LABEL[s.alert_type] ?? s.alert_type}</div>
-      <div className="mt-0.5 text-[11px] text-text-faint">entry ${s.entry} · level ${s.level} · stop ${s.stop}</div>
-    </button>
-  );
+/** Compact "moving premarket" strip — premarket-signal names as chips, shown at the
+ *  TOP of Today's Focus (merged in; no longer its own section). Null when nothing's moving. */
+function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
+  let sigs: PmSignal[] = [];
+  try { sigs = (body ? (JSON.parse(body).signals as PmSignal[]) : []) ?? []; } catch { sigs = []; }
+  if (sigs.length === 0) return null;
   return (
-    <div className="space-y-4">
-      <div className="text-[11px] text-text-faint">Premarket{parsed.asof ? ` · ${parsed.asof}` : ""} · {sigs.length} Focus names at a level</div>
-      {breakouts.length > 0 && (
-        <section className="space-y-2">
-          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Breaking out · gapping through resistance</h3>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">{breakouts.map(card)}</div>
-        </section>
-      )}
-      {support.length > 0 && (
-        <section className="space-y-2">
-          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">At support · reclaiming / holding a key level</h3>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">{support.map(card)}</div>
-        </section>
-      )}
-      {sigs.length === 0 && (
-        <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No Focus name is at a key level premarket right now.</div>
-      )}
+    <div className="rounded-xl border border-accent/25 bg-accent/5 p-3">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-accent">📡 Moving premarket · {sigs.length} at a level</div>
+      <div className="flex flex-wrap gap-1.5">
+        {sigs.map((s) => (
+          <button
+            key={s.symbol + s.alert_type}
+            onClick={() => onChart(s.symbol)}
+            title={`${PM_LABEL[s.alert_type] ?? s.alert_type} · entry $${s.entry} · stop $${s.stop}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-surface-1 px-2.5 py-1 text-[11px] transition-colors hover:border-accent"
+          >
+            <b className="text-text-primary">{s.symbol}</b>
+            <span className={s.gap_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}>{s.gap_pct >= 0 ? "+" : ""}{s.gap_pct}%</span>
+            <span className="text-text-faint">{PM_LABEL[s.alert_type] ?? s.alert_type}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -291,10 +273,17 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const sections = [
     { id: "sec-premarket", time: "4:30a", title: "Premarket brief", present: !!pre,
       wait: "Drops pre-open (~8:30 AM ET).", render: () => <TextReport text={rawText(pre?.body)} /> },
-    { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf,
-      wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).", render: () => <FocusPicks body={mf!.body} onChart={onChart} /> },
-    { id: "sec-pmsig", time: "9:45a", title: "Premarket signals", present: !!ps,
-      wait: "Focus names at a level, premarket (7:00–9:30 ET, every 15 min).", render: () => <PremarketSignals body={ps!.body} onChart={onChart} /> },
+    { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
+      wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
+      render: () => (
+        <div className="space-y-4">
+          {/* premarket movers merged IN — the live "what's at a level" read, atop the plan */}
+          <PremarketStrip body={ps?.body} onChart={onChart} />
+          {mf
+            ? <FocusPicks body={mf.body} onChart={onChart} />
+            : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Curated focus picks drop ~8:55 ET.</div>}
+        </div>
+      ) },
     { id: "sec-trend", time: "ALL·DAY", title: "Trend setups", present: !!ts,
       wait: "Generated after the close (~4:15 PM ET).", render: () => <TrendSetups body={ts!.body} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
